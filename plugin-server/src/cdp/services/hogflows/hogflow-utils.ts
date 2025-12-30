@@ -1,8 +1,8 @@
 import { DateTime } from 'luxon'
+import { Summary } from 'prom-client'
 
 import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '~/cdp/types'
 import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
-import { workflowE2eLagMsSummary } from '~/main/ingestion-queues/metrics'
 import { HogFlow, HogFlowAction } from '~/schema/hogflow'
 
 export const findActionById = (hogFlow: HogFlow, id: string): HogFlowAction => {
@@ -110,6 +110,12 @@ const DELAY_ACTION_TYPES: HogFlowAction['type'][] = ['delay', 'wait_until_condit
 export function hasDelayActions(actions: HogFlowAction[]): boolean {
     return actions.some((action) => DELAY_ACTION_TYPES.includes(action.type))
 }
+
+const workflowE2eLagMsSummary = new Summary({
+    name: 'workflow_e2e_lag_ms',
+    help: 'Time difference in ms between event capture time and workflow finishing time',
+    percentiles: [0.5, 0.9, 0.95, 0.99],
+})
 
 /**
  * Intended to measure the time between when the event was captured and when the workflow finished.

@@ -102,6 +102,12 @@ export default defineConfig(({ mode }) => {
             cors: true, // This disables CORS in dev, key for using ngrok (e.g. for testing Slack integration)
             // Configure origin for proper asset URL generation
             origin: 'http://localhost:8234',
+            proxy: {
+                '/static': {
+                    target: 'http://localhost:8000',
+                    changeOrigin: true,
+                },
+            },
         },
         define: {
             global: 'globalThis',

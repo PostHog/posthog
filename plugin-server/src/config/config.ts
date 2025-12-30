@@ -1,6 +1,5 @@
-import { PluginLogLevel, PluginsServerConfig, ValueMatcher, stringToPluginServerMode } from '../types'
+import { PluginsServerConfig, ValueMatcher, stringToPluginServerMode } from '../types'
 import { isDevEnv, isProdEnv, isTestEnv, stringToBoolean } from '../utils/env-utils'
-import { KAFKAJS_LOG_LEVEL_MAPPING } from './constants'
 import {
     KAFKA_APP_METRICS_2,
     KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
@@ -52,16 +51,6 @@ export function getDefaultConfig(): PluginsServerConfig {
             : isDevEnv()
               ? 'postgres://posthog:posthog@localhost:5432/behavioral_cohorts'
               : '',
-        PERSONS_MIGRATION_DATABASE_URL: isTestEnv()
-            ? 'postgres://posthog:posthog@localhost:5432/test_persons_migration'
-            : isDevEnv()
-              ? 'postgres://posthog:posthog@localhost:5432/posthog_persons'
-              : '',
-        PERSONS_MIGRATION_READONLY_DATABASE_URL: isTestEnv()
-            ? 'postgres://posthog:posthog@localhost:5432/test_persons_migration'
-            : isDevEnv()
-              ? 'postgres://posthog:posthog@localhost:5432/posthog_persons'
-              : '',
         POSTGRES_CONNECTION_POOL_SIZE: 10,
         POSTHOG_DB_NAME: null,
         POSTHOG_DB_USER: 'postgres',
@@ -92,8 +81,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_SASL_USER: undefined,
         KAFKA_SASL_PASSWORD: undefined,
         KAFKA_CLIENT_RACK: undefined,
-        KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS: null,
-        KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS: 30_000,
         APP_METRICS_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 20_000,
         APP_METRICS_FLUSH_MAX_QUEUE_SIZE: isTestEnv() ? 5 : 1000,
         // ok to connect to localhost over plaintext
@@ -112,7 +99,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         INGESTION_OVERFLOW_ENABLED: false,
         INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID: '',
         INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: false,
-        PLUGINS_DEFAULT_LOG_LEVEL: isTestEnv() ? PluginLogLevel.Full : PluginLogLevel.Log,
         LOG_LEVEL: isTestEnv() ? 'warn' : 'info',
         HTTP_SERVER_PORT: DEFAULT_HTTP_SERVER_PORT,
         SCHEDULE_LOCK_TTL: 60,
@@ -129,7 +115,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         TEMPORAL_CLIENT_ROOT_CA: undefined,
         TEMPORAL_CLIENT_CERT: undefined,
         TEMPORAL_CLIENT_KEY: undefined,
-        KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: 1,
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
         PERSON_INFO_CACHE_TTL: 5 * 60, // 5 min
@@ -137,7 +122,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         PLUGIN_SERVER_MODE: null,
         PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: null,
         PLUGIN_LOAD_SEQUENTIALLY: false,
-        KAFKAJS_LOG_LEVEL: 'WARN',
         MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: 0,
         CLOUD_DEPLOYMENT: null,
         EXTERNAL_REQUEST_TIMEOUT_MS: 3000, // 3 seconds
@@ -148,10 +132,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: '',
         PIPELINE_STEP_STALLED_LOG_TIMEOUT: 30,
         RELOAD_PLUGIN_JITTER_MAX_MS: 60000,
-        RUSTY_HOOK_FOR_TEAMS: '',
-        RUSTY_HOOK_ROLLOUT_PERCENTAGE: 0,
-        RUSTY_HOOK_URL: '',
-        HOG_HOOK_URL: '',
         CAPTURE_CONFIG_REDIS_HOST: null,
         LAZY_LOADER_DEFAULT_BUFFER_MS: 10,
         LAZY_LOADER_MAX_SIZE: 100_000, // Maximum entries per cache before LRU eviction
@@ -208,6 +188,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_RATE_LIMITER_REFILL_RATE: 1, // per second request rate limit
         CDP_RATE_LIMITER_TTL: 60 * 60 * 24, // This is really long as it is essentially only important to make sure the key is eventually deleted
         CDP_HOG_FILTERS_TELEMETRY_TEAMS: '',
+        DISABLE_OPENTELEMETRY_TRACING: false, // Disable OpenTelemetry spans for better performance (keeps metrics and timeouts)
         CDP_REDIS_PASSWORD: '',
         CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
         CDP_REDIS_HOST: '127.0.0.1',
@@ -235,8 +216,7 @@ export function getDefaultConfig(): PluginsServerConfig {
 
         CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: 'clickhouse-plugin-server-async-onevent',
         CDP_LEGACY_EVENT_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,
-        CDP_LEGACY_EVENT_REDIRECT_TOPIC: '',
-        CDP_PLUGIN_CAPTURE_EVENTS_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
+        CDP_LEGACY_EVENT_CONSUMER_INCLUDE_WEBHOOKS: false,
 
         HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: KAFKA_APP_METRICS_2,
         HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC: KAFKA_LOG_ENTRIES,
@@ -325,12 +305,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
         GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
         GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
-        PERSONS_DUAL_WRITE_ENABLED: false,
-        PERSONS_DUAL_WRITE_COMPARISON_ENABLED: false,
         PERSONS_PREFETCH_ENABLED: false,
-        GROUPS_DUAL_WRITE_ENABLED: false,
-        GROUPS_DUAL_WRITE_COMPARISON_ENABLED: false,
-        USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG: false,
 
         // SES (Workflows email sending)
         SES_ENDPOINT: isTestEnv() || isDevEnv() ? 'http://localhost:4566' : '',
@@ -400,14 +375,6 @@ export function overrideWithEnv(
         const encodedUser = encodeURIComponent(newConfig.POSTHOG_DB_USER)
         const encodedPassword = encodeURIComponent(newConfig.POSTHOG_DB_PASSWORD)
         newConfig.DATABASE_URL = `postgres://${encodedUser}:${encodedPassword}@${newConfig.POSTHOG_POSTGRES_HOST}:${newConfig.POSTHOG_POSTGRES_PORT}/${newConfig.POSTHOG_DB_NAME}`
-    }
-
-    if (!Object.keys(KAFKAJS_LOG_LEVEL_MAPPING).includes(newConfig.KAFKAJS_LOG_LEVEL)) {
-        throw Error(
-            `Invalid KAFKAJS_LOG_LEVEL ${newConfig.KAFKAJS_LOG_LEVEL}. Valid: ${Object.keys(
-                KAFKAJS_LOG_LEVEL_MAPPING
-            ).join(', ')}`
-        )
     }
 
     if (

@@ -7,6 +7,7 @@ import structlog
 import posthoganalytics
 from celery import current_task, shared_task
 from prometheus_client import Counter, Histogram
+from urllib3.exceptions import ProtocolError
 
 from posthog.hogql.errors import (
     QueryError,
@@ -52,6 +53,7 @@ EXCEPTIONS_TO_RETRY = (
     CHQueryErrorS3Error,
     CHQueryErrorTooManySimultaneousQueries,
     OperationalError,
+    ProtocolError,
 )
 
 USER_QUERY_ERRORS = (

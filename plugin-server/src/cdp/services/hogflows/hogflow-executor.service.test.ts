@@ -2,11 +2,11 @@
 import { DateTime } from 'luxon'
 
 import { FixtureHogFlowBuilder, SimpleHogFlowRepresentation } from '~/cdp/_tests/builders/hogflow.builder'
-import { createHogExecutionGlobals, insertHogFunctionTemplate } from '~/cdp/_tests/fixtures'
+import { createHogExecutionGlobals, insertHogFunctionTemplate, insertIntegration } from '~/cdp/_tests/fixtures'
 import { compileHog } from '~/cdp/templates/compiler'
 import { template as posthogCaptureTemplate } from '~/cdp/templates/_destinations/posthog_capture/posthog-capture.template'
 import { HogFlow } from '~/schema/hogflow'
-import { resetTestDatabase } from '~/tests/helpers/sql'
+import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { fetch } from '~/utils/request'
 import { logger } from '../../../utils/logger'
@@ -247,6 +247,14 @@ describe('Hogflow Executor', () => {
                     },
                 ],
                 metrics: [
+                    {
+                        team_id: hogFlow.team_id,
+                        app_source_id: hogFlow.id,
+                        instance_id: expect.any(String),
+                        metric_kind: 'fetch',
+                        metric_name: 'billable_invocation',
+                        count: 1,
+                    },
                     {
                         team_id: hogFlow.team_id,
                         app_source_id: hogFlow.id,
@@ -506,7 +514,12 @@ describe('Hogflow Executor', () => {
                 // Step 1: run first action (function_id_1)
                 const result1 = await executor.execute(invocation)
                 expect(result1.finished).toBe(true)
-                expect(result1.metrics.map((m) => m.metric_name)).toEqual(['succeeded', 'succeeded'])
+                // Metrics: 'billable_invocation' from function_id_1, 'succeeded' from function_id_1, 'succeeded' from exit action
+                expect(result1.metrics.map((m) => m.metric_name)).toEqual([
+                    'billable_invocation',
+                    'succeeded',
+                    'succeeded',
+                ])
 
                 const invocation2 = createExampleHogFlowInvocation(hogFlow, {
                     event: {
@@ -519,7 +532,12 @@ describe('Hogflow Executor', () => {
                 // Step 2: run again, should NOT exit early due to exit_only_at_end
                 const result2 = await executor.execute(invocation2)
                 expect(result2.finished).toBe(true)
-                expect(result2.metrics.map((m) => m.metric_name)).toEqual(['succeeded', 'succeeded'])
+                // Metrics: 'billable_invocation' from function_id_1, 'succeeded' from function_id_1, 'succeeded' from exit action
+                expect(result2.metrics.map((m) => m.metric_name)).toEqual([
+                    'billable_invocation',
+                    'succeeded',
+                    'succeeded',
+                ])
             })
 
             it('should exit early if exit condition is exit_on_conversion', async () => {
@@ -540,7 +558,12 @@ describe('Hogflow Executor', () => {
 
                 const result1 = await executor.execute(invocation)
                 expect(result1.finished).toBe(true)
-                expect(result1.metrics.map((m) => m.metric_name)).toEqual(['succeeded', 'succeeded'])
+                // Metrics: 'billable_invocation' from function_id_1, 'succeeded' from function_id_1, 'succeeded' from exit action
+                expect(result1.metrics.map((m) => m.metric_name)).toEqual([
+                    'billable_invocation',
+                    'succeeded',
+                    'succeeded',
+                ])
 
                 const invocation2 = createExampleHogFlowInvocation(hogFlow, {
                     event: {
@@ -576,7 +599,11 @@ describe('Hogflow Executor', () => {
 
                 const result1 = await executor.execute(invocation1)
                 expect(result1.finished).toBe(true)
-                expect(result1.metrics.map((m) => m.metric_name)).toEqual(['succeeded', 'succeeded'])
+                expect(result1.metrics.map((m) => m.metric_name)).toEqual([
+                    'billable_invocation',
+                    'succeeded',
+                    'succeeded',
+                ])
 
                 const invocation2 = createExampleHogFlowInvocation(hogFlow, {
                     event: {
@@ -619,7 +646,12 @@ describe('Hogflow Executor', () => {
 
                 const result1 = await executor.execute(invocation)
                 expect(result1.finished).toBe(true)
-                expect(result1.metrics.map((m) => m.metric_name)).toEqual(['succeeded', 'succeeded'])
+                // Metrics: 'billable_invocation' from function_id_1, 'succeeded' from function_id_1, 'succeeded' from exit action
+                expect(result1.metrics.map((m) => m.metric_name)).toEqual([
+                    'billable_invocation',
+                    'succeeded',
+                    'succeeded',
+                ])
 
                 const invocation2 = createExampleHogFlowInvocation(hogFlow, {
                     event: {
@@ -1160,6 +1192,186 @@ describe('Hogflow Executor', () => {
                 overrideMe: 'customValue',
                 extra: 'shouldBeIncluded',
             })
+        })
+    })
+
+    describe('billing metrics', () => {
+        const createHogFlow = (flow: SimpleHogFlowRepresentation): HogFlow => {
+            return new FixtureHogFlowBuilder()
+                .withExitCondition('exit_on_conversion')
+                .withWorkflow({
+                    actions: {
+                        trigger: {
+                            type: 'trigger',
+                            config: {
+                                type: 'event',
+                                filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
+                            },
+                        },
+                        ...flow.actions,
+                        exit: {
+                            type: 'exit',
+                            config: {},
+                        },
+                    },
+                    edges: [...flow.edges],
+                })
+                .build()
+        }
+
+        it('should record billing metrics for both regular hog functions and email functions', async () => {
+            const team = await getFirstTeam(hub)
+
+            await insertIntegration(hub.postgres, team.id, {
+                id: 1,
+                kind: 'email',
+                config: {
+                    email: 'test@posthog.com',
+                    name: 'Test User',
+                    domain: 'posthog.com',
+                    verified: true,
+                    provider: 'maildev',
+                },
+            })
+
+            const regularTemplate = await insertHogFunctionTemplate(hub.postgres, {
+                id: 'template-email',
+                name: 'Test Regular Template',
+                code: `sendEmail(inputs.email)`,
+                inputs_schema: [
+                    {
+                        type: 'native_email',
+                        key: 'email',
+                        label: 'Email message',
+                        integration: 'email',
+                        required: true,
+                        default: {
+                            to: {
+                                email: '',
+                                name: '',
+                            },
+                            from: {
+                                email: '',
+                                name: '',
+                            },
+                            replyTo: '',
+                            subject: '',
+                            preheader: '',
+                            text: 'Hello from PostHog!',
+                            html: '<div>Hi {{ person.properties.name }}, this email was sent from PostHog!</div>',
+                        },
+                        secret: false,
+                        description: '',
+                        templating: 'liquid',
+                    },
+                ],
+            })
+
+            // Create a workflow with 2 regular hog function actions and 2 email actions
+            const hogFlow = createHogFlow({
+                actions: {
+                    function_1: {
+                        type: 'function',
+                        config: {
+                            template_id: regularTemplate.template_id,
+                            inputs: {
+                                name: { value: 'Function 1' },
+                            },
+                        },
+                    },
+                    function_2: {
+                        type: 'function',
+                        config: {
+                            template_id: regularTemplate.template_id,
+                            inputs: {
+                                name: { value: 'Function 2' },
+                            },
+                        },
+                    },
+                    email_1: {
+                        type: 'function_email',
+                        config: {
+                            template_id: 'template-email',
+                            inputs: {
+                                email: {
+                                    value: {
+                                        to: {
+                                            email: 'recipient@example.com',
+                                            name: 'Recipient',
+                                        },
+                                        from: {
+                                            integrationId: 1,
+                                            email: 'test@posthog.com',
+                                        },
+                                        subject: 'Test Email 1',
+                                        text: 'Test Text 1',
+                                        html: 'Test HTML 1',
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    email_2: {
+                        type: 'function_email',
+                        config: {
+                            template_id: 'template-email',
+                            inputs: {
+                                email: {
+                                    value: {
+                                        to: {
+                                            email: 'recipient2@example.com',
+                                            name: 'Recipient 2',
+                                        },
+                                        from: {
+                                            integrationId: 1,
+                                            email: 'test@posthog.com',
+                                        },
+                                        subject: 'Test Email 2',
+                                        text: 'Test Text 2',
+                                        html: 'Test HTML 2',
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+                edges: [
+                    { from: 'trigger', to: 'function_1', type: 'continue' },
+                    { from: 'function_1', to: 'function_2', type: 'continue' },
+                    { from: 'function_2', to: 'email_1', type: 'continue' },
+                    { from: 'email_1', to: 'email_2', type: 'continue' },
+                    { from: 'email_2', to: 'exit', type: 'continue' },
+                ],
+            })
+
+            const invocation = createExampleHogFlowInvocation(hogFlow, {
+                event: {
+                    ...createHogExecutionGlobals().event,
+                    event: '$pageview',
+                    properties: {
+                        $current_url: 'https://posthog.com',
+                    },
+                },
+            })
+
+            // There are 4 async actions, so we need to execute multiple times until finished
+            let result = await executor.execute(invocation)
+            while (!result.finished) {
+                result = await executor.execute(result.invocation)
+            }
+
+            expect(result.finished).toBe(true)
+            expect(result.error).toBeUndefined()
+
+            // Verify we have billing metrics for both hog functions and email actions
+            const fetchBilling = result.metrics.filter(
+                (m) => m.metric_kind === 'fetch' && m.metric_name === 'billable_invocation'
+            )
+            expect(fetchBilling).toHaveLength(2)
+            const emailBilling = result.metrics.filter(
+                (m) => m.metric_kind === 'email' && m.metric_name === 'billable_invocation'
+            )
+            expect(emailBilling).toHaveLength(2)
         })
     })
 })

@@ -137,14 +137,17 @@ export function generateHogFunctionHCL(
     return generateHCL(hogFunction, HOG_FUNCTION_EXPORTER, options)
 }
 
-function stripInputServerFields(input: CyclotronJobInputType): StrippedInput {
+function stripInputServerFields(input: CyclotronJobInputType | null): StrippedInput | null {
+    if (!input) {
+        return null
+    }
     const { bytecode, order, ...rest } = input
     return rest
 }
 
 export function stripInputsServerFields(
-    inputs: Record<string, CyclotronJobInputType> | null | undefined
-): Record<string, StrippedInput> | null | undefined {
+    inputs: Record<string, CyclotronJobInputType | null> | null | undefined
+): Record<string, StrippedInput | null> | null | undefined {
     if (!inputs) {
         return inputs
     }

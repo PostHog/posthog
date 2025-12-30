@@ -62,6 +62,7 @@ from products.data_warehouse.backend.models.external_data_schema import (
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
 )
+from products.endpoints.backend.materialization import convert_insight_query_to_hogql
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.openapi import generate_openapi_spec
 
@@ -69,6 +70,8 @@ from common.hogvm.python.utils import HogVMException
 
 MIN_CACHE_AGE_SECONDS = 300
 MAX_CACHE_AGE_SECONDS = 86400
+
+ENDPOINT_NAME_REGEX = r"^[a-zA-Z][a-zA-Z0-9_-]{0,127}$"
 
 
 @extend_schema(tags=["endpoints"])
@@ -173,9 +176,9 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             if name is not None or strict:
                 raise ValidationError("Endpoint must have a name.")
             return
-        if not isinstance(name, str) or not re.fullmatch(r"^[a-zA-Z0-9_-]{1,128}$", name):
+        if not isinstance(name, str) or not re.fullmatch(ENDPOINT_NAME_REGEX, name):
             raise ValidationError(
-                "Endpoint name must be alphanumeric characters, hyphens, underscores, or spaces, "
+                "Endpoint name must start with a letter, contain only alphanumeric characters, hyphens, or underscores, "
                 "and be between 1 and 128 characters long."
             )
 
@@ -357,7 +360,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         sync_frequency: DataWarehouseSyncInterval,
         request: Request,
     ) -> None:
-        """Enable materialization for an endpoint."""
         can_mat, reason = endpoint.can_materialize()
         if not can_mat:
             raise ValidationError(f"Cannot materialize endpoint: {reason}")
@@ -368,7 +370,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 name=endpoint.name, team=self.team, origin=DataWarehouseSavedQuery.Origin.ENDPOINT
             )
 
-        saved_query.query = endpoint.query
+        hogql_query = convert_insight_query_to_hogql(endpoint.query, self.team)
+        saved_query.query = hogql_query
         saved_query.external_tables = saved_query.s3_tables
         saved_query.is_materialized = True
         saved_query.sync_frequency_interval = (
@@ -701,7 +704,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 result = self._execute_materialized_endpoint(endpoint, data, request, debug=debug)
             else:
                 # Use version's query if available, otherwise use endpoint.query
-                query_to_use = version_obj.query if version_obj else endpoint.query.copy()
+                query_to_use = (version_obj.query if version_obj else endpoint.query).copy()
                 result = self._execute_inline_endpoint(endpoint, data, request, query_to_use, debug=debug)
         except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
             raise ValidationError("An internal error occurred.", getattr(e, "code_name", None))
@@ -709,6 +712,13 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             raise ValidationError("An internal error occurred while resolving the query.")
         except ConcurrencyLimitExceeded:
             raise Throttled(detail="Too many concurrent requests. Please try again later.")
+
+        if get_query_tag_value("access_method") == "personal_api_key":
+            now = timezone.now()
+            if endpoint.last_executed_at is None or (now - endpoint.last_executed_at > timedelta(hours=1)):
+                endpoint.last_executed_at = now
+                endpoint.save(update_fields=["last_executed_at"])
+
         if version_obj and isinstance(result.data, dict):
             result.data["endpoint_version"] = version_obj.version
             result.data["endpoint_version_created_at"] = version_obj.created_at.isoformat()
@@ -742,8 +752,12 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     status=200,
                 )
 
-            quoted_names = [f"'{name}'" for name in names]
-            names_list = ",".join(quoted_names)
+            validated_names = []
+            for name in names:
+                if not isinstance(name, str) or not re.fullmatch(ENDPOINT_NAME_REGEX, name):
+                    raise ValidationError(f"Invalid endpoint name: {name}")
+                validated_names.append(f"'{name}'")
+            names_list = ",".join(validated_names)
 
             query = HogQLQuery(
                 query=f"select name, max(query_start_time) as last_executed_at from query_log where name in ({names_list}) and endpoint like '%/endpoints/%' and query_start_time >= (today() - interval 6 month) group by name",

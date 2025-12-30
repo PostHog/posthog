@@ -278,6 +278,29 @@ describe('hogFunctionHclExporter test', () => {
 
             expect(hcl).not.toContain('template_id =')
         })
+
+        it('generates valid HCL when inputs contain null values', () => {
+            const hogFunction = createTestHogFunction({
+                id: 'func-with-nulls',
+                name: 'Slack Function With Nulls',
+                type: 'internal_destination',
+                inputs: {
+                    channel: { value: '#alerts', bytecode: ['_H', 1], order: 0 },
+                    username: null,
+                    icon_emoji: null,
+                    blocks: { value: '[]', bytecode: ['_H', 2], order: 1 },
+                },
+            })
+
+            const result = generateHogFunctionHCL(hogFunction)
+
+            expect(result.warnings).toHaveLength(0)
+            expect(result.hcl).toContain('inputs_json = jsonencode')
+            expect(result.hcl).toContain('"channel"')
+            expect(result.hcl).toContain('"username": null')
+            expect(result.hcl).toContain('"icon_emoji": null')
+            expect(result.hcl).not.toContain('bytecode')
+        })
     })
 
     describe('generates expected warnings', () => {
@@ -362,6 +385,22 @@ describe('hogFunctionHclExporter test', () => {
             it('returns null/undefined unchanged', () => {
                 expect(stripInputsServerFields(null)).toBeNull()
                 expect(stripInputsServerFields(undefined)).toBeUndefined()
+            })
+
+            it('handles null input values gracefully', () => {
+                const inputs: Record<string, CyclotronJobInputType | null> = {
+                    channel: { value: '#general', bytecode: ['_H', 1, 32], order: 0 },
+                    username: null,
+                    icon_emoji: null,
+                }
+
+                const result = stripInputsServerFields(inputs)
+
+                expect(result).toEqual({
+                    channel: { value: '#general' },
+                    username: null,
+                    icon_emoji: null,
+                })
             })
         })
 

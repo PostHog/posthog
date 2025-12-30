@@ -117,6 +117,7 @@ function LogsViewerContent({
         setCursorToLogId,
         toggleSelectLog,
         clearSelection,
+        togglePrettifyLog,
     } = useActions(logsViewerLogic)
     const { cellScrollLefts } = useValues(virtualizedLogsListLogic({ tabId }))
     const { setCellScrollLeft } = useActions(virtualizedLogsListLogic({ tabId }))
@@ -202,9 +203,10 @@ function LogsViewerContent({
         }
     }, [linkToLogId, logsCount, setCursorToLogId])
 
-    const tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime'> = {
+    const tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime' | 'displayTimezone'> = {
         formatDate: 'YYYY-MM-DD',
         formatTime: 'HH:mm:ss.SSS',
+        displayTimezone: timezone,
     }
 
     const handleMoveDown = useCallback(
@@ -262,6 +264,14 @@ function LogsViewerContent({
                 },
                 disabled: !isFocused,
             },
+            p: {
+                action: () => {
+                    if (cursorLogId) {
+                        togglePrettifyLog(cursorLogId)
+                    }
+                },
+                disabled: !isFocused,
+            },
         },
         [
             isFocused,
@@ -275,6 +285,7 @@ function LogsViewerContent({
             toggleSelectLog,
             isSelectionActive,
             clearSelection,
+            togglePrettifyLog,
         ]
     )
 

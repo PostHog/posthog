@@ -25,7 +25,7 @@ async function createPerson(
     primaryDistinctId: { distinctId: string; version?: number },
     extraDistinctIds?: { distinctId: string; version?: number }[]
 ): Promise<InternalPerson> {
-    const personRepository = new PostgresPersonRepository(hub.db.postgres)
+    const personRepository = new PostgresPersonRepository(hub.postgres)
     const result = await personRepository.createPerson(
         createdAt,
         properties,
@@ -41,7 +41,7 @@ async function createPerson(
     if (!result.success) {
         throw new Error('Failed to create person')
     }
-    await hub.db.kafkaProducer.queueMessages(result.messages)
+    await hub.kafkaProducer.queueMessages(result.messages)
     return result.person
 }
 
@@ -57,12 +57,12 @@ describe('processPersonlessStep()', () => {
     beforeEach(async () => {
         await resetTestDatabase()
         hub = await createHub()
-        const organizationId = await createOrganization(hub.db.postgres)
-        teamId = await createTeam(hub.db.postgres, organizationId)
+        const organizationId = await createOrganization(hub.postgres)
+        teamId = await createTeam(hub.postgres, organizationId)
         team = (await getTeam(hub, teamId))!
 
-        personRepository = new PostgresPersonRepository(hub.db.postgres)
-        personsStore = new BatchWritingPersonsStore(personRepository, hub.db.kafkaProducer)
+        personRepository = new PostgresPersonRepository(hub.postgres)
+        personsStore = new BatchWritingPersonsStore(personRepository, hub.kafkaProducer)
 
         pluginEvent = {
             distinct_id: 'test-user-123',

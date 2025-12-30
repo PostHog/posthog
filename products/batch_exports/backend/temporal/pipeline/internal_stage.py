@@ -1,4 +1,5 @@
 import sys
+import time
 import uuid
 import socket
 import typing
@@ -138,6 +139,12 @@ async def _delete_all_from_bucket_with_prefix(bucket_name: str, key_prefix: str)
 
 
 @dataclass
+class S3StagingFolder:
+    folder: str
+    url: str
+
+
+@dataclass
 class BatchExportInsertIntoInternalStageInputs:
     """Base dataclass for batch export insert inputs containing common fields."""
 
@@ -176,8 +183,12 @@ class BatchExportInsertIntoInternalStageInputs:
 
 
 @activity.defn
-async def insert_into_internal_stage_activity(inputs: BatchExportInsertIntoInternalStageInputs):
-    """Write record batches to our own internal S3 staging area."""
+async def insert_into_internal_stage_activity(inputs: BatchExportInsertIntoInternalStageInputs) -> str:
+    """Write record batches to our own internal S3 staging area.
+
+    Returns:
+        The S3 staging folder where the data was written to.
+    """
     bind_contextvars(
         team_id=inputs.team_id,
         data_interval_start=inputs.data_interval_start,
@@ -200,6 +211,14 @@ async def insert_into_internal_stage_activity(inputs: BatchExportInsertIntoInter
         data_interval_end = dt.datetime.fromisoformat(inputs.data_interval_end)
         full_range = (data_interval_start, data_interval_end)
 
+        attempt_number = activity.info().attempt
+        s3_staging_folder = get_s3_staging_folder(
+            batch_export_id=inputs.batch_export_id,
+            data_interval_start=inputs.data_interval_start,
+            data_interval_end=inputs.data_interval_end,
+            attempt_number=attempt_number,
+        )
+
         if record_batch_model is not None:
             query_or_model = record_batch_model
             query_parameters = {}
@@ -209,6 +228,7 @@ async def insert_into_internal_stage_activity(inputs: BatchExportInsertIntoInter
                 backfill_details=inputs.backfill_details,
                 team_id=inputs.team_id,
                 batch_export_id=inputs.batch_export_id,
+                s3_staging_folder_url=s3_staging_folder.url,
                 full_range=full_range,
                 data_interval_start=inputs.data_interval_start,
                 data_interval_end=inputs.data_interval_end,
@@ -231,8 +251,11 @@ async def insert_into_internal_stage_activity(inputs: BatchExportInsertIntoInter
             batch_export_id=inputs.batch_export_id,
             data_interval_start=inputs.data_interval_start,
             data_interval_end=inputs.data_interval_end,
+            s3_staging_folder_url=s3_staging_folder.url,
             num_partitions=inputs.num_partitions,
         )
+    logger.info("Staging data completed successfully")
+    return s3_staging_folder.folder
 
 
 async def _get_query(
@@ -240,6 +263,7 @@ async def _get_query(
     backfill_details: BackfillDetails | None,
     team_id: int,
     batch_export_id: str,
+    s3_staging_folder_url: str,
     full_range: tuple[dt.datetime | None, dt.datetime],
     data_interval_start: str | None,
     data_interval_end: str,
@@ -277,11 +301,7 @@ async def _get_query(
             query = query_template.safe_substitute(
                 s3_key=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
                 s3_secret=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-                s3_folder=_get_clickhouse_s3_staging_folder_url(
-                    batch_export_id=batch_export_id,
-                    data_interval_start=data_interval_start,
-                    data_interval_end=data_interval_end,
-                ),
+                s3_folder=s3_staging_folder_url,
                 num_partitions=num_partitions,
             )
         else:
@@ -301,11 +321,7 @@ async def _get_query(
             query = query_template.safe_substitute(
                 s3_key=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
                 s3_secret=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-                s3_folder=_get_clickhouse_s3_staging_folder_url(
-                    batch_export_id=batch_export_id,
-                    data_interval_start=data_interval_start,
-                    data_interval_end=data_interval_end,
-                ),
+                s3_folder=s3_staging_folder_url,
                 num_partitions=num_partitions,
                 filter_distinct_ids=filter_distinct_ids,
             )
@@ -365,11 +381,7 @@ async def _get_query(
             filters=filters_str,
             s3_key=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
             s3_secret=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            s3_folder=_get_clickhouse_s3_staging_folder_url(
-                batch_export_id=batch_export_id,
-                data_interval_start=data_interval_start,
-                data_interval_end=data_interval_end,
-            ),
+            s3_folder=s3_staging_folder_url,
             num_partitions=num_partitions,
         )
 
@@ -387,16 +399,24 @@ async def _get_query(
     return query, parameters
 
 
-def get_s3_staging_folder(batch_export_id: str, data_interval_start: str | None, data_interval_end: str) -> str:
-    """Get the URL for the S3 staging folder for a given batch export."""
+def get_base_s3_staging_folder(batch_export_id: str, data_interval_start: str | None, data_interval_end: str) -> str:
+    """Get the base S3 staging folder for a given batch export."""
     subfolder = "batch-exports"
     return f"{subfolder}/{batch_export_id}/{data_interval_start}-{data_interval_end}"
 
 
-def _get_clickhouse_s3_staging_folder_url(
-    batch_export_id: str, data_interval_start: str | None, data_interval_end: str
-) -> str:
-    """Get the URL for the S3 staging folder for a given batch export.
+def get_s3_staging_folder(
+    batch_export_id: str, data_interval_start: str | None, data_interval_end: str, attempt_number: int
+) -> S3StagingFolder:
+    """Get the S3 staging folder for a given batch export and attempt number."""
+    base_s3_staging_folder = get_base_s3_staging_folder(batch_export_id, data_interval_start, data_interval_end)
+    folder = f"{base_s3_staging_folder}/attempt_{attempt_number}"
+    url = _get_clickhouse_s3_staging_folder_url(folder)
+    return S3StagingFolder(folder=folder, url=url)
+
+
+def _get_clickhouse_s3_staging_folder_url(folder: str) -> str:
+    """Get the URL for the S3 staging folder of a given batch export and attempt number.
 
     This is passed to the ClickHouse query as the `s3_folder` parameter.
     When running the stack locally, ClickHouse and MinIO are both running in Docker so we use the hostname of the
@@ -410,7 +430,6 @@ def _get_clickhouse_s3_staging_folder_url(
     else:
         base_url = f"https://{bucket}.s3.{region}.amazonaws.com/"
 
-    folder = get_s3_staging_folder(batch_export_id, data_interval_start, data_interval_end)
     return f"{base_url}{folder}"
 
 
@@ -422,6 +441,7 @@ async def _write_batch_export_record_batches_to_internal_stage(
     batch_export_id: str,
     data_interval_start: str | None,
     data_interval_end: str,
+    s3_staging_folder_url: str,
     num_partitions: int | None = None,
 ):
     """Write record batches to our own internal S3 staging area."""
@@ -455,17 +475,12 @@ async def _write_batch_export_record_batches_to_internal_stage(
             query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
 
             if isinstance(query_or_model, RecordBatchModel):
-                s3_folder = _get_clickhouse_s3_staging_folder_url(
-                    batch_export_id=batch_export_id,
-                    data_interval_start=data_interval_start,
-                    data_interval_end=data_interval_end,
-                )
                 assert settings.OBJECT_STORAGE_ACCESS_KEY_ID is not None
                 assert settings.OBJECT_STORAGE_SECRET_ACCESS_KEY is not None
                 query, query_parameters = await query_or_model.as_insert_into_s3_query_with_parameters(
                     data_interval_start=interval_start,
                     data_interval_end=interval_end,
-                    s3_folder=s3_folder,
+                    s3_folder=s3_staging_folder_url,
                     s3_key=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
                     s3_secret=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
                     num_partitions=num_partitions or settings.BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS,
@@ -473,14 +488,18 @@ async def _write_batch_export_record_batches_to_internal_stage(
             else:
                 query = query_or_model
 
-            s3_staging_folder = get_s3_staging_folder(
+            base_s3_staging_folder = get_base_s3_staging_folder(
                 batch_export_id=batch_export_id,
                 data_interval_start=data_interval_start,
                 data_interval_end=data_interval_end,
             )
+            # First delete any existing files in the staging folder.
+            # We technically don't need to do this, since the Temporal activity attempt number is used in the S3 key,
+            # however, since we only make use of the most recent attempt, we can save on storage space by deleting the
+            # files here.
             try:
                 await _delete_all_from_bucket_with_prefix(
-                    bucket_name=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET, key_prefix=s3_staging_folder
+                    bucket_name=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET, key_prefix=base_s3_staging_folder
                 )
             except Exception as e:
                 logger.exception(
@@ -489,8 +508,9 @@ async def _write_batch_export_record_batches_to_internal_stage(
                 )
                 raise
 
+            start_time = time.monotonic()
             query_id = uuid.uuid4()
-            logger.info("Executing pre-export stage query", query_id=str(query_id))
+            logger.info("Executing insert into internal stage query", query_id=str(query_id))
             try:
                 await client.execute_query(
                     query, query_parameters=query_parameters, query_id=str(query_id), timeout=300
@@ -531,3 +551,6 @@ async def _write_batch_export_record_batches_to_internal_stage(
                     exc_info=e,
                 )
                 raise
+
+            execution_time = time.monotonic() - start_time
+            logger.info("Query completed successfully", query_id=str(query_id), query_duration_seconds=execution_time)

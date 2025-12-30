@@ -5,7 +5,7 @@ import { IconGear, IconPlus } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
@@ -31,8 +31,8 @@ interface ProjectNoticeBlueprint {
 
 function CountDown({ datetime, callback }: { datetime: dayjs.Dayjs; callback?: () => void }): JSX.Element {
     const [now, setNow] = useState(dayjs())
+    const { isVisible: isPageVisible } = usePageVisibility()
 
-    // Format the time difference as 00:00:00
     const duration = dayjs.duration(datetime.diff(now))
     const pastCountdown = duration.seconds() < 0
 
@@ -42,10 +42,15 @@ function CountDown({ datetime, callback }: { datetime: dayjs.Dayjs; callback?: (
           ? duration.format('HH:mm:ss')
           : duration.format('mm:ss')
 
-    useOnMountEffect(() => {
+    useEffect(() => {
+        if (!isPageVisible) {
+            return
+        }
+
+        setNow(dayjs())
         const interval = setInterval(() => setNow(dayjs()), 1000)
         return () => clearInterval(interval)
-    })
+    }, [isPageVisible])
 
     useEffect(() => {
         if (pastCountdown) {

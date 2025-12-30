@@ -45,7 +45,7 @@ impl From<ProcessArgs> for (InjectArgs, upload::Args) {
     fn from(args: ProcessArgs) -> Self {
         let inject_args = InjectArgs {
             file_selection: args.file_selection.clone(),
-            release: args.release,
+            release: args.release.clone(),
             public_path_prefix: args.public_path_prefix.clone(),
         };
         let upload_args = upload::Args {
@@ -54,8 +54,7 @@ impl From<ProcessArgs> for (InjectArgs, upload::Args) {
             delete_after: args.delete_after,
             skip_ssl_verification: false,
             batch_size: args.batch_size,
-            project: None,
-            version: None,
+            release: args.release,
         };
 
         (inject_args, upload_args)
