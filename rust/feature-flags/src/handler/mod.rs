@@ -11,7 +11,7 @@ pub mod properties;
 pub mod session_recording;
 pub mod types;
 
-pub use canonical_log::{FlagsCanonicalLogGuard, FlagsCanonicalLogLine};
+pub use canonical_log::{run_with_canonical_log, with_canonical_log, FlagsCanonicalLogLine};
 pub use types::*;
 
 use crate::{
@@ -34,19 +34,19 @@ use common_metrics::{histogram, inc};
 /// 2) Fetches the team and feature flags,
 /// 3) Prepares property overrides,
 /// 4) Evaluates the requested flags,
-/// 5) Returns a [`FlagsResponse`] or an error, along with canonical log data.
+/// 5) Returns a [`FlagsResponse`] or an error.
+///
+/// Expects to be called within a `run_with_canonical_log()` scope.
+/// Updates the canonical log via `with_canonical_log()`.
 #[instrument(skip_all, fields(request_id = %context.request_id))]
-pub async fn process_request(
-    context: RequestContext,
-    mut canonical_log: FlagsCanonicalLogLine,
-) -> (Result<FlagsResponse, FlagError>, FlagsCanonicalLogLine) {
+pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, FlagError> {
     let start_time = std::time::Instant::now();
-    let (result, metrics_data) = process_request_inner(context, &mut canonical_log).await;
+    let (result, metrics_data) = process_request_inner(context).await;
     let total_duration = start_time.elapsed();
 
     record_metrics(&result, metrics_data, total_duration);
 
-    (result, canonical_log)
+    result
 }
 
 struct MetricsData {
@@ -90,7 +90,6 @@ fn record_metrics(
 
 async fn process_request_inner(
     context: RequestContext,
-    canonical_log: &mut FlagsCanonicalLogLine,
 ) -> (Result<FlagsResponse, FlagError>, MetricsData) {
     let mut metrics_data = MetricsData {
         team_id: None,
@@ -115,7 +114,7 @@ async fn process_request_inner(
             .unwrap_or_else(|| "disabled".to_string());
 
         // Populate canonical log with distinct_id
-        canonical_log.distinct_id = Some(distinct_id_for_logging.clone());
+        with_canonical_log(|log| log.distinct_id = Some(distinct_id_for_logging.clone()));
 
         tracing::debug!(
             "Authentication completed for distinct_id: {}",
@@ -130,19 +129,19 @@ async fn process_request_inner(
         metrics_data.flags_disabled = Some(request.is_flags_disabled());
 
         // Populate canonical log with team_id
-        canonical_log.team_id = Some(team.id);
+        with_canonical_log(|log| log.team_id = Some(team.id));
 
         tracing::debug!("Team fetched: team_id={}", team.id);
 
         // Early exit if flags are disabled
         let flags_response = if request.is_flags_disabled() {
-            canonical_log.flags_disabled = true;
+            with_canonical_log(|log| log.flags_disabled = true);
             FlagsResponse::new(false, HashMap::new(), None, context.request_id)
         } else if let Some(quota_limited_response) =
             billing::check_limits(&context, &verified_token).await?
         {
             warn!("Request quota limited");
-            canonical_log.quota_limited = true;
+            with_canonical_log(|log| log.quota_limited = true);
             quota_limited_response
         } else {
             let distinct_id = cookieless::handle_distinct_id(
@@ -169,11 +168,12 @@ async fn process_request_inner(
             tracing::debug!("Flags filtered: {} flags found", filtered_flags.flags.len());
 
             // Count flags with experience continuity for canonical logging
-            canonical_log.flags_experience_continuity = filtered_flags
+            let experience_continuity_count = filtered_flags
                 .flags
                 .iter()
                 .filter(|f| f.ensure_experience_continuity.unwrap_or(false))
                 .count();
+            with_canonical_log(|log| log.flags_experience_continuity = experience_continuity_count);
 
             let property_overrides = properties::prepare_overrides(&context, &request)?;
 
@@ -208,10 +208,12 @@ async fn process_request_inner(
             config_response_builder::build_response(flags_response, &context, &team).await?;
 
         // Populate canonical log with flag evaluation results
-        canonical_log.flags_evaluated = response.flags.len();
-        if response.quota_limited.is_some() {
-            canonical_log.quota_limited = true;
-        }
+        with_canonical_log(|log| {
+            log.flags_evaluated = response.flags.len();
+            if response.quota_limited.is_some() {
+                log.quota_limited = true;
+            }
+        });
 
         Ok(response)
     }

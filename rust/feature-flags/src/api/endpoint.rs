@@ -6,7 +6,8 @@ use crate::{
         },
     },
     handler::{
-        decoding, process_request, FlagsCanonicalLogGuard, FlagsCanonicalLogLine, RequestContext,
+        decoding, process_request, run_with_canonical_log, with_canonical_log,
+        FlagsCanonicalLogLine, RequestContext,
     },
     router,
     utils::user_agent::UserAgentInfo,
@@ -246,10 +247,9 @@ pub async fn flags(
     let user_agent = headers.get("user-agent").and_then(|v| v.to_str().ok());
     let ua_info = UserAgentInfo::parse(user_agent);
 
-    // Initialize canonical log guard with all upfront request metadata.
-    // The guard ensures the log is emitted even on early returns (e.g., rate limiting).
-    // Fields discovered during processing (team_id, flags_evaluated, etc.) are set via log_mut().
-    let mut guard = FlagsCanonicalLogGuard::new(FlagsCanonicalLogLine {
+    // Initialize canonical log with all upfront request metadata.
+    // Fields discovered during processing (team_id, flags_evaluated, etc.) are set via with_canonical_log().
+    let canonical_log = FlagsCanonicalLogLine {
         request_id,
         ip: ip_string.clone(),
         user_agent: user_agent.map(|s| s.to_string()),
@@ -258,7 +258,7 @@ pub async fn flags(
         lib_version: query_params.lib_version.clone().or(ua_info.sdk_version),
         api_version: query_params.version.clone(),
         ..Default::default()
-    });
+    };
 
     // Check if this request came through the decide proxy
     let is_from_decide = headers
@@ -280,6 +280,12 @@ pub async fn flags(
         modified_query_params.config = Some(true);
     }
 
+    // Parse version from query params (needed for response formatting)
+    let query_version = modified_query_params
+        .version
+        .as_deref()
+        .map(|v| v.parse::<i32>().unwrap_or(1));
+
     let context = RequestContext {
         request_id,
         state: state.clone(),
@@ -288,44 +294,6 @@ pub async fn flags(
         meta: modified_query_params,
         body,
     };
-
-    // Rate limiting strategy (order matters for security):
-    // 1. IP-based rate limiting first - prevents DDoS with rotating tokens
-    // 2. Token-based rate limiting second - enforces per-project limits
-    //
-    // This order ensures that an attacker cannot bypass rate limiting by
-    // simply rotating through fake tokens from the same IP address.
-
-    // Check IP-based rate limit first
-    // Guard auto-emits on early return
-    if !state.ip_rate_limiter.allow_request(&ip_string) {
-        let error = FlagError::ClientFacing(ClientFacingError::IpRateLimited);
-        let log = guard.log_mut();
-        log.rate_limited = true;
-        log.set_error(&error);
-        return Err(error);
-    }
-
-    // Check token-based rate limit
-    // Extract token from body, use IP as fallback if extraction fails
-    // Guard auto-emits on early return
-    let rate_limit_key =
-        decoding::extract_token(&context.body).unwrap_or_else(|| ip_string.clone());
-    if !state.flags_rate_limiter.allow_request(&rate_limit_key) {
-        let error = FlagError::ClientFacing(ClientFacingError::TokenRateLimited);
-        let log = guard.log_mut();
-        log.rate_limited = true;
-        log.set_error(&error);
-        return Err(error);
-    }
-
-    // Parse version from query params
-    let query_version = context
-        .meta
-        .version
-        .clone()
-        .as_deref()
-        .map(|v| v.parse::<i32>().unwrap_or(1));
 
     // Create debug span for detailed tracing when debugging
     let _span = create_request_span(
@@ -337,30 +305,61 @@ pub async fn flags(
         request_id,
     );
 
-    // Transfer log ownership for async processing (guard is consumed, no auto-emit)
-    let canonical_log = guard.into_inner();
+    // Run the request within a canonical log scope.
+    // All code within can use with_canonical_log() to update the log.
+    let (result, mut log) = run_with_canonical_log(canonical_log, async {
+        // Rate limiting strategy (order matters for security):
+        // 1. IP-based rate limiting first - prevents DDoS with rotating tokens
+        // 2. Token-based rate limiting second - enforces per-project limits
+        //
+        // This order ensures that an attacker cannot bypass rate limiting by
+        // simply rotating through fake tokens from the same IP address.
 
-    let (result, mut canonical_log) = async move { process_request(context, canonical_log).await }
-        .instrument(_span)
-        .await;
+        // Check IP-based rate limit first
+        if !state.ip_rate_limiter.allow_request(&ip_string) {
+            let error = FlagError::ClientFacing(ClientFacingError::IpRateLimited);
+            with_canonical_log(|l| {
+                l.rate_limited = true;
+                l.set_error(&error);
+            });
+            return Err(error);
+        }
+
+        // Check token-based rate limit
+        // Extract token from body, use IP as fallback if extraction fails
+        let rate_limit_key =
+            decoding::extract_token(&context.body).unwrap_or_else(|| ip_string.clone());
+        if !state.flags_rate_limiter.allow_request(&rate_limit_key) {
+            let error = FlagError::ClientFacing(ClientFacingError::TokenRateLimited);
+            with_canonical_log(|l| {
+                l.rate_limited = true;
+                l.set_error(&error);
+            });
+            return Err(error);
+        }
+
+        process_request(context).await
+    })
+    .instrument(_span)
+    .await;
 
     match result {
         Ok(response) => {
             // Determine the response format based on whether request is from decide and version
             match get_versioned_response(is_from_decide, query_version, response) {
                 Ok((versioned_response, _response_format)) => {
-                    canonical_log.http_status = 200;
-                    canonical_log.emit();
+                    log.http_status = 200;
+                    log.emit();
                     Ok(Json(versioned_response).into_response())
                 }
                 Err(e) => {
-                    canonical_log.emit_for_error(&e);
+                    log.emit_for_error(&e);
                     Err(e)
                 }
             }
         }
         Err(e) => {
-            canonical_log.emit_for_error(&e);
+            log.emit_for_error(&e);
             Err(e)
         }
     }

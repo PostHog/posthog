@@ -25,6 +25,7 @@ use crate::{
     api::{errors::FlagError, types::FlagValue},
     cohorts::cohort_models::CohortId,
     flags::flag_models::FeatureFlagId,
+    handler::with_canonical_log,
     metrics::consts::{
         FLAG_COHORT_PROCESSING_TIME, FLAG_COHORT_QUERY_TIME, FLAG_DATABASE_ERROR_COUNTER,
         FLAG_DEFINITION_QUERY_TIME, FLAG_GROUP_PROCESSING_TIME, FLAG_GROUP_QUERY_TIME,
@@ -91,6 +92,10 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     // Add the test-specific counter increment
     #[cfg(test)]
     increment_fetch_calls_count();
+
+    // Track database property fetch in canonical log
+    with_canonical_log(|log| log.db_property_fetches += 1);
+
     // Log pool stats before attempting connection
     if let Some(stats) = reader.as_ref().get_pool_stats() {
         info!(

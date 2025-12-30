@@ -1,6 +1,58 @@
 use crate::api::errors::FlagError;
+use std::cell::RefCell;
+use std::future::Future;
 use std::time::Instant;
 use uuid::Uuid;
+
+// Task-local storage for the canonical log line.
+// This allows any code in the async task to access and modify the log
+// without explicit parameter passing.
+tokio::task_local! {
+    static CANONICAL_LOG: RefCell<FlagsCanonicalLogLine>;
+}
+
+/// Safely modify the canonical log if one exists in scope.
+/// No-ops silently if called outside a canonical log scope.
+///
+/// # Example
+/// ```ignore
+/// with_canonical_log(|log| log.team_id = Some(123));
+/// with_canonical_log(|log| log.property_cache_hits += 1);
+/// ```
+pub fn with_canonical_log(f: impl FnOnce(&mut FlagsCanonicalLogLine)) {
+    let _ = CANONICAL_LOG.try_with(|log| f(&mut log.borrow_mut()));
+}
+
+/// Run an async block with a canonical log in scope.
+/// Returns both the result and the final log state.
+///
+/// The log is automatically available to all code within the async block
+/// via `with_canonical_log()`.
+///
+/// # Example
+/// ```ignore
+/// let log = FlagsCanonicalLogLine::new(request_id, ip);
+/// let (result, log) = run_with_canonical_log(log, async {
+///     // Code here can use with_canonical_log() to modify the log
+///     process_request().await
+/// }).await;
+/// log.emit();
+/// ```
+pub async fn run_with_canonical_log<F, T>(
+    log: FlagsCanonicalLogLine,
+    f: F,
+) -> (T, FlagsCanonicalLogLine)
+where
+    F: Future<Output = T>,
+{
+    CANONICAL_LOG
+        .scope(RefCell::new(log), async {
+            let result = f.await;
+            let log = CANONICAL_LOG.with(|l| l.take());
+            (result, log)
+        })
+        .await
+}
 
 /// Truncate a string to a maximum number of characters (not bytes).
 fn truncate_chars(s: &str, max_chars: usize) -> String {
@@ -13,9 +65,7 @@ fn truncate_chars(s: &str, max_chars: usize) -> String {
 /// completion containing all key telemetry. This enables simple ClickHouse queries
 /// for debugging without needing to join multiple log entries.
 ///
-/// Created at request start, populated during processing, emitted at request end.
-///
-/// Use [`FlagsCanonicalLogGuard`] to ensure the log is always emitted, even on early returns.
+/// Access and modify via `with_canonical_log()` from anywhere in the async task.
 #[derive(Debug, Clone)]
 pub struct FlagsCanonicalLogLine {
     // Request identification
@@ -38,6 +88,15 @@ pub struct FlagsCanonicalLogLine {
     pub flags_experience_continuity: usize,
     pub flags_disabled: bool,
     pub quota_limited: bool,
+
+    // Deep evaluation metrics (populated via task_local from flag_matching.rs)
+    pub db_property_fetches: usize,
+    pub property_cache_hits: usize,
+    pub property_cache_misses: usize,
+    pub cohorts_evaluated: usize,
+    pub flags_errored: usize,
+    pub hash_key_override_attempted: bool,
+    pub hash_key_override_succeeded: bool,
 
     // Rate limiting
     pub rate_limited: bool,
@@ -63,6 +122,13 @@ impl Default for FlagsCanonicalLogLine {
             flags_experience_continuity: 0,
             flags_disabled: false,
             quota_limited: false,
+            db_property_fetches: 0,
+            property_cache_hits: 0,
+            property_cache_misses: 0,
+            cohorts_evaluated: 0,
+            flags_errored: 0,
+            hash_key_override_attempted: false,
+            hash_key_override_succeeded: false,
             rate_limited: false,
             http_status: 200,
             error_code: None,
@@ -102,6 +168,13 @@ impl FlagsCanonicalLogLine {
             flags_experience_continuity = self.flags_experience_continuity,
             flags_disabled = self.flags_disabled,
             quota_limited = self.quota_limited,
+            db_property_fetches = self.db_property_fetches,
+            property_cache_hits = self.property_cache_hits,
+            property_cache_misses = self.property_cache_misses,
+            cohorts_evaluated = self.cohorts_evaluated,
+            flags_errored = self.flags_errored,
+            hash_key_override_attempted = self.hash_key_override_attempted,
+            hash_key_override_succeeded = self.hash_key_override_succeeded,
             rate_limited = self.rate_limited,
             error_code = ?self.error_code,
             "canonical_log_line"
@@ -109,81 +182,21 @@ impl FlagsCanonicalLogLine {
     }
 
     /// Populate error fields from a FlagError without emitting.
-    ///
-    /// Use this when the guard will emit on drop (e.g., early returns).
     pub fn set_error(&mut self, error: &FlagError) {
         self.http_status = error.status_code();
         self.error_code = Some(error.error_code().to_string());
     }
 
     /// Populate error fields from a FlagError and emit the log line.
-    ///
-    /// Use this when manually managing the log (after `into_inner()`).
     pub fn emit_for_error(&mut self, error: &FlagError) {
         self.set_error(error);
         self.emit();
     }
 }
 
-/// RAII guard that ensures the canonical log line is always emitted.
-///
-/// When the guard is dropped (goes out of scope), it automatically emits the log.
-/// This prevents silent data loss if new error paths are added without explicit emit() calls.
-///
-/// # Example
-/// ```ignore
-/// let guard = FlagsCanonicalLogGuard::new(FlagsCanonicalLogLine {
-///     request_id,
-///     ip: ip_string,
-///     user_agent: Some("posthog-python/3.0.0".to_string()),
-///     ..Default::default()
-/// });
-/// guard.log_mut().team_id = Some(123);  // Fields discovered during processing
-/// // Log is automatically emitted when guard goes out of scope
-/// ```
-pub struct FlagsCanonicalLogGuard {
-    log: FlagsCanonicalLogLine,
-    emitted: bool,
-}
-
-impl FlagsCanonicalLogGuard {
-    pub fn new(log: FlagsCanonicalLogLine) -> Self {
-        Self {
-            log,
-            emitted: false,
-        }
-    }
-
-    /// Get a mutable reference to the underlying log line for populating fields.
-    pub fn log_mut(&mut self) -> &mut FlagsCanonicalLogLine {
-        &mut self.log
-    }
-
-    /// Get an immutable reference to the underlying log line.
-    pub fn log(&self) -> &FlagsCanonicalLogLine {
-        &self.log
-    }
-
-    /// Consume the guard and return the inner log line without emitting.
-    /// Use this when you need to pass the log through async boundaries.
-    pub fn into_inner(mut self) -> FlagsCanonicalLogLine {
-        self.emitted = true; // Prevent double emission
-        std::mem::take(&mut self.log)
-    }
-
-    /// Explicitly emit the log and mark as emitted to prevent double emission on drop.
-    pub fn emit(mut self) {
-        self.log.emit();
-        self.emitted = true;
-    }
-}
-
-impl Drop for FlagsCanonicalLogGuard {
-    fn drop(&mut self) {
-        if !self.emitted {
-            self.log.emit();
-        }
-    }
+/// Set error on the task-local canonical log if in scope.
+pub fn set_canonical_log_error(error: &FlagError) {
+    with_canonical_log(|log| log.set_error(error));
 }
 
 #[cfg(test)]
@@ -207,6 +220,13 @@ mod tests {
         assert_eq!(log.flags_experience_continuity, 0);
         assert!(!log.flags_disabled);
         assert!(!log.quota_limited);
+        assert_eq!(log.db_property_fetches, 0);
+        assert_eq!(log.property_cache_hits, 0);
+        assert_eq!(log.property_cache_misses, 0);
+        assert_eq!(log.cohorts_evaluated, 0);
+        assert_eq!(log.flags_errored, 0);
+        assert!(!log.hash_key_override_attempted);
+        assert!(!log.hash_key_override_succeeded);
         assert!(!log.rate_limited);
         assert_eq!(log.http_status, 200);
         assert!(log.error_code.is_none());
@@ -215,7 +235,6 @@ mod tests {
     #[test]
     fn test_emit_does_not_panic() {
         let log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
-        // Should not panic
         log.emit();
     }
 
@@ -232,9 +251,15 @@ mod tests {
         log.flags_experience_continuity = 2;
         log.flags_disabled = false;
         log.quota_limited = true;
+        log.db_property_fetches = 3;
+        log.property_cache_hits = 5;
+        log.property_cache_misses = 2;
+        log.cohorts_evaluated = 4;
+        log.flags_errored = 1;
+        log.hash_key_override_attempted = true;
+        log.hash_key_override_succeeded = true;
         log.rate_limited = false;
         log.http_status = 200;
-        // Should not panic
         log.emit();
     }
 
@@ -244,46 +269,52 @@ mod tests {
         log.http_status = 429;
         log.rate_limited = true;
         log.error_code = Some("rate_limited".to_string());
-        // Should not panic
         log.emit();
     }
 
-    fn test_log() -> FlagsCanonicalLogLine {
-        FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string())
+    #[test]
+    fn test_with_canonical_log_no_ops_outside_scope() {
+        // Should not panic when called outside a scope
+        with_canonical_log(|log| log.team_id = Some(123));
     }
 
-    #[test]
-    fn test_guard_emits_on_drop() {
-        // We can't easily verify the log was emitted, but we can verify no panic
-        let guard = FlagsCanonicalLogGuard::new(test_log());
-        drop(guard);
-        // If we get here, the guard emitted successfully on drop
+    #[tokio::test]
+    async fn test_run_with_canonical_log_provides_access() {
+        let log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
+
+        let (result, final_log) = run_with_canonical_log(log, async {
+            with_canonical_log(|l| l.team_id = Some(456));
+            with_canonical_log(|l| l.flags_evaluated = 10);
+            with_canonical_log(|l| l.property_cache_hits += 1);
+            with_canonical_log(|l| l.property_cache_hits += 1);
+            "done"
+        })
+        .await;
+
+        assert_eq!(result, "done");
+        assert_eq!(final_log.team_id, Some(456));
+        assert_eq!(final_log.flags_evaluated, 10);
+        assert_eq!(final_log.property_cache_hits, 2);
     }
 
-    #[test]
-    fn test_guard_log_mut_allows_modification() {
-        let mut guard = FlagsCanonicalLogGuard::new(test_log());
-        guard.log_mut().team_id = Some(123);
-        guard.log_mut().http_status = 200;
-        assert_eq!(guard.log().team_id, Some(123));
-        assert_eq!(guard.log().http_status, 200);
-    }
+    #[tokio::test]
+    async fn test_run_with_canonical_log_returns_modified_log() {
+        let log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
 
-    #[test]
-    fn test_guard_explicit_emit_prevents_double_emission() {
-        let mut guard = FlagsCanonicalLogGuard::new(test_log());
-        guard.log_mut().http_status = 200;
-        guard.emit(); // Explicit emit
-                      // Guard is consumed, so no double emission on drop
-    }
+        let (_, final_log) = run_with_canonical_log(log, async {
+            with_canonical_log(|l| {
+                l.db_property_fetches = 3;
+                l.cohorts_evaluated = 5;
+                l.hash_key_override_attempted = true;
+                l.hash_key_override_succeeded = true;
+            });
+        })
+        .await;
 
-    #[test]
-    fn test_guard_into_inner_prevents_emission() {
-        let mut guard = FlagsCanonicalLogGuard::new(test_log());
-        guard.log_mut().team_id = Some(456);
-        let log = guard.into_inner();
-        // Guard is consumed without emitting, log can be used elsewhere
-        assert_eq!(log.team_id, Some(456));
+        assert_eq!(final_log.db_property_fetches, 3);
+        assert_eq!(final_log.cohorts_evaluated, 5);
+        assert!(final_log.hash_key_override_attempted);
+        assert!(final_log.hash_key_override_succeeded);
     }
 
     #[test]
@@ -299,6 +330,13 @@ mod tests {
         log.flags_experience_continuity = 1;
         log.flags_disabled = true;
         log.quota_limited = true;
+        log.db_property_fetches = 2;
+        log.property_cache_hits = 3;
+        log.property_cache_misses = 1;
+        log.cohorts_evaluated = 4;
+        log.flags_errored = 2;
+        log.hash_key_override_attempted = true;
+        log.hash_key_override_succeeded = false;
         log.rate_limited = true;
         log.http_status = 429;
         log.error_code = Some("rate_limited".to_string());
@@ -320,6 +358,19 @@ mod tests {
         );
         assert_eq!(cloned.flags_disabled, log.flags_disabled);
         assert_eq!(cloned.quota_limited, log.quota_limited);
+        assert_eq!(cloned.db_property_fetches, log.db_property_fetches);
+        assert_eq!(cloned.property_cache_hits, log.property_cache_hits);
+        assert_eq!(cloned.property_cache_misses, log.property_cache_misses);
+        assert_eq!(cloned.cohorts_evaluated, log.cohorts_evaluated);
+        assert_eq!(cloned.flags_errored, log.flags_errored);
+        assert_eq!(
+            cloned.hash_key_override_attempted,
+            log.hash_key_override_attempted
+        );
+        assert_eq!(
+            cloned.hash_key_override_succeeded,
+            log.hash_key_override_succeeded
+        );
         assert_eq!(cloned.rate_limited, log.rate_limited);
         assert_eq!(cloned.http_status, log.http_status);
         assert_eq!(cloned.error_code, log.error_code);
