@@ -1,11 +1,21 @@
 from rest_framework import decorators, exceptions, viewsets
 from rest_framework_extensions.routers import NestedRegistryItem
 
-from posthog.api import data_color_theme, feed, hog_flow, llm_gateway, metalytics, my_notifications, project
+from posthog.api import (
+    data_color_theme,
+    feed,
+    hog_flow,
+    hog_flow_template,
+    llm_gateway,
+    metalytics,
+    my_notifications,
+    project,
+)
 from posthog.api.batch_imports import BatchImportViewSet
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.api.wizard import http as wizard
+from posthog.approvals import api as approval_api
 from posthog.batch_exports import http as batch_exports
 from posthog.settings import EE_AVAILABLE
 
@@ -47,14 +57,18 @@ from products.error_tracking.backend.api import (
 from products.llm_analytics.backend.api import (
     DatasetItemViewSet,
     DatasetViewSet,
+    EvaluationConfigViewSet,
     EvaluationRunViewSet,
     EvaluationViewSet,
     LLMAnalyticsSummarizationViewSet,
     LLMAnalyticsTextReprViewSet,
     LLMAnalyticsTranslateViewSet,
+    LLMProviderKeyValidationViewSet,
+    LLMProviderKeyViewSet,
     LLMProxyViewSet,
 )
 from products.notebooks.backend.api.notebook import NotebookViewSet
+from products.product_tours.backend.api import ProductTourViewSet
 from products.user_interviews.backend.api import UserInterviewViewSet
 from products.workflows.backend.api import MessageCategoryViewSet, MessagePreferencesViewSet, MessageTemplatesViewSet
 
@@ -118,6 +132,7 @@ from .dashboards import dashboard, dashboard_templates
 from .data_management import DataManagementViewSet
 from .external_web_analytics import http as external_web_analytics
 from .file_system import file_system, file_system_shortcut, persisted_folder, user_product_list
+from .llm_prompt import LLMPromptViewSet
 from .oauth_application import OAuthApplicationPublicMetadataViewSet
 from .session import SessionViewSet
 
@@ -248,6 +263,7 @@ project_tasks_router.register(r"runs", tasks.TaskRunViewSet, "project_task_runs"
 projects_router.register(r"llm_gateway", llm_gateway.http.LLMGatewayViewSet, "project_llm_gateway", ["team_id"])
 
 projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["project_id"])
+projects_router.register(r"product_tours", ProductTourViewSet, "project_product_tours", ["project_id"])
 projects_router.register(
     r"dashboard_templates",
     dashboard_templates.DashboardTemplateViewSet,
@@ -262,6 +278,13 @@ environments_router.register(
     r"column_configurations",
     ColumnConfigurationViewSet,
     "environment_column_configurations",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_prompts",
+    LLMPromptViewSet,
+    "environment_llm_prompts",
     ["team_id"],
 )
 
@@ -853,6 +876,13 @@ register_grandfathered_environment_nested_viewset(
     ["team_id"],
 )
 
+register_grandfathered_environment_nested_viewset(
+    r"hog_flow_templates",
+    hog_flow_template.HogFlowTemplateViewSet,
+    "environment_hog_flow_templates",
+    ["team_id"],
+)
+
 projects_router.register(r"links", link.LinkViewSet, "environment_links", ["team_id"])
 
 projects_router.register(
@@ -1032,5 +1062,40 @@ environments_router.register(
     r"llm_analytics/translate",
     LLMAnalyticsTranslateViewSet,
     "environment_llm_analytics_translate",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/provider_keys",
+    LLMProviderKeyViewSet,
+    "environment_llm_analytics_provider_keys",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/provider_key_validations",
+    LLMProviderKeyValidationViewSet,
+    "environment_llm_analytics_provider_key_validations",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/evaluation_config",
+    EvaluationConfigViewSet,
+    "environment_llm_analytics_evaluation_config",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"change_requests",
+    approval_api.ChangeRequestViewSet,
+    "environment_change_requests",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"approval_policies",
+    approval_api.ApprovalPolicyViewSet,
+    "environment_approval_policies",
     ["team_id"],
 )

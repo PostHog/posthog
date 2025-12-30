@@ -4036,7 +4036,6 @@
     "posthog/clickhouse/client/test/test_execute_async.py::ClickhouseClientTestCase::test_async_query_server_errors": 0.02276702900002192,
     "posthog/clickhouse/client/test/test_execute_async.py::ClickhouseClientTestCase::test_client_strips_comments_from_request": 0.01927302500001815,
     "posthog/clickhouse/client/test/test_execute_async.py::ClickhouseClientTestCase::test_context_manager_exit": 0.01687230400000317,
-    "posthog/clickhouse/client/test/test_execute_async.py::ClickhouseClientTestCase::test_offline_workload_if_personal_api_key_and_retries_online": 0.01783660799998188,
     "posthog/clickhouse/client/test/test_execute_async.py::TestExecuteProcessQuery::test_execute_process_query": 0.02911393900001258,
     "posthog/clickhouse/client/test/test_execute_async.py::TestQueryStatusManager::test_bad_progress": 69.46123991100004,
     "posthog/clickhouse/client/test/test_execute_async.py::TestQueryStatusManager::test_is_empty": 71.93095423399998,

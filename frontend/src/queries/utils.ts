@@ -39,6 +39,7 @@ import {
     MathType,
     Node,
     NodeKind,
+    NonIntegratedConversionsTableQuery,
     PathsQuery,
     PersonsNode,
     ProductAnalyticsInsightQueryNode,
@@ -230,6 +231,12 @@ export function isMarketingAnalyticsAggregatedQuery(
     node?: Record<string, any> | null
 ): node is MarketingAnalyticsAggregatedQuery {
     return node?.kind === NodeKind.MarketingAnalyticsAggregatedQuery
+}
+
+export function isNonIntegratedConversionsTableQuery(
+    node?: Record<string, any> | null
+): node is NonIntegratedConversionsTableQuery {
+    return node?.kind === NodeKind.NonIntegratedConversionsTableQuery
 }
 
 export function isTracesQuery(node?: Record<string, any> | null): node is TracesQuery {
@@ -549,6 +556,8 @@ export const getGoalLines = (query: InsightQueryNode): GoalLine[] | undefined =>
         return query.trendsFilter?.goalLines
     } else if (isFunnelsQuery(query)) {
         return query.funnelsFilter?.goalLines
+    } else if (isRetentionQuery(query)) {
+        return query.retentionFilter?.goalLines
     }
 
     return undefined

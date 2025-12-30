@@ -4,35 +4,38 @@ import { useState } from 'react'
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
 
-import { MARKETING_DEFAULT_SOURCE_MAPPINGS, VALID_NATIVE_MARKETING_SOURCES } from '~/queries/schema/schema-general'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
+import { MARKETING_DEFAULT_SOURCE_MAPPINGS } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
-
-const SEPARATOR = ','
+import { getEnabledNativeMarketingSources } from '../../logic/utils'
+import { parseCommaSeparatedValues, removeSourceFromMappings } from '../NonIntegratedConversionsTable/mappingUtils'
 
 export interface CustomSourceMappingsConfigurationProps {
     sourceFilter?: string
-    compact?: boolean
+    initialUtmValue?: string
 }
 
 export function CustomSourceMappingsConfiguration({
     sourceFilter,
+    initialUtmValue,
 }: CustomSourceMappingsConfigurationProps): JSX.Element {
     const { marketingAnalyticsConfig } = useValues(marketingAnalyticsSettingsLogic)
     const { updateCustomSourceMappings } = useActions(marketingAnalyticsSettingsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const customMappings = marketingAnalyticsConfig?.custom_source_mappings || {}
-    const [inputValues, setInputValues] = useState<Record<string, string>>({})
+    const [inputValues, setInputValues] = useState<Record<string, string>>(() =>
+        sourceFilter && initialUtmValue ? { [sourceFilter]: initialUtmValue } : {}
+    )
 
-    const integrationsToShow = sourceFilter ? [sourceFilter] : [...VALID_NATIVE_MARKETING_SOURCES]
+    const enabledSources = getEnabledNativeMarketingSources(featureFlags)
+    const integrationsToShow = sourceFilter ? [sourceFilter] : [...enabledSources]
 
     const getInputValue = (integration: string): string => inputValues[integration] || ''
     const setInputValue = (integration: string, value: string): void => {
         setInputValues((prev) => ({ ...prev, [integration]: value }))
-    }
-
-    const updateMappings = (newMappings: Record<string, string[]>): void => {
-        updateCustomSourceMappings(newMappings)
     }
 
     const getValidationError = (integration: string): string | null => {
@@ -41,23 +44,20 @@ export function CustomSourceMappingsConfiguration({
             return null
         }
 
-        const utmSourcesArray = inputValue
-            .split(SEPARATOR)
-            .map((v) => v.trim())
-            .filter((v) => v.length > 0)
-
-        const defaultSources =
+        const utmSources = parseCommaSeparatedValues(inputValue)
+        const defaults =
             MARKETING_DEFAULT_SOURCE_MAPPINGS[integration as keyof typeof MARKETING_DEFAULT_SOURCE_MAPPINGS] || []
-        const conflictsWithDefaults = utmSourcesArray.filter((source) =>
-            defaultSources.some((def) => def.toLowerCase() === source.toLowerCase())
+
+        const conflictsWithDefaults = utmSources.filter((s) =>
+            defaults.some((d) => d.toLowerCase() === s.toLowerCase())
         )
         if (conflictsWithDefaults.length > 0) {
             return `${conflictsWithDefaults.join(', ')} already default`
         }
 
         const existingSources = customMappings[integration] || []
-        const duplicates = utmSourcesArray.filter((source) =>
-            (existingSources as string[]).some((existing) => existing.toLowerCase() === source.toLowerCase())
+        const duplicates = utmSources.filter((s) =>
+            (existingSources as string[]).some((e) => e.toLowerCase() === s.toLowerCase())
         )
         if (duplicates.length > 0) {
             return `${duplicates.join(', ')} already added`
@@ -67,12 +67,11 @@ export function CustomSourceMappingsConfiguration({
             if (otherIntegration === integration) {
                 continue
             }
-            for (const newSource of utmSourcesArray) {
-                for (const existingSource of sources as string[]) {
-                    if (newSource.toLowerCase() === existingSource.toLowerCase()) {
-                        return `"${newSource}" used in ${otherIntegration}`
-                    }
-                }
+            const conflicts = utmSources.filter((s) =>
+                (sources as string[]).some((e) => e.toLowerCase() === s.toLowerCase())
+            )
+            if (conflicts.length > 0) {
+                return `"${conflicts[0]}" used in ${otherIntegration}`
             }
         }
 
@@ -85,35 +84,18 @@ export function CustomSourceMappingsConfiguration({
             return
         }
 
-        const utmSourcesArray = inputValue
-            .split(SEPARATOR)
-            .map((v) => v.trim())
-            .filter((v) => v.length > 0)
-
+        const utmSources = parseCommaSeparatedValues(inputValue)
         const existingSources = customMappings[integration] || []
 
-        updateMappings({
+        updateCustomSourceMappings({
             ...customMappings,
-            [integration]: [...existingSources, ...utmSourcesArray],
+            [integration]: [...existingSources, ...utmSources],
         })
-
         setInputValue(integration, '')
     }
 
     const removeMapping = (integration: string, utmSource: string): void => {
-        const integrationSources = [...(customMappings[integration] || [])]
-        const updatedSources = integrationSources.filter((source) => source !== utmSource)
-
-        if (updatedSources.length === 0) {
-            const newMappings = { ...customMappings }
-            delete newMappings[integration]
-            updateMappings(newMappings)
-        } else {
-            updateMappings({
-                ...customMappings,
-                [integration]: updatedSources,
-            })
-        }
+        updateCustomSourceMappings(removeSourceFromMappings(marketingAnalyticsConfig, integration as any, utmSource))
     }
 
     return (
@@ -147,7 +129,6 @@ export function CustomSourceMappingsConfiguration({
                             const custom = customMappings[integration] || []
                             const inputValue = getInputValue(integration)
                             const validationError = getValidationError(integration)
-                            const isDisabled = !inputValue.trim() || !!validationError
 
                             return (
                                 <tr key={integration} className="border-b last:border-b-0">
@@ -190,7 +171,6 @@ export function CustomSourceMappingsConfiguration({
                                                     size="small"
                                                     icon={<IconPlusSmall />}
                                                     onClick={() => addMapping(integration)}
-                                                    disabled={isDisabled}
                                                     disabledReason={validationError || undefined}
                                                     tooltip={!validationError ? 'Add custom sources' : undefined}
                                                 />

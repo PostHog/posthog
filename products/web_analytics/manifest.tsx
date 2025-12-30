@@ -13,12 +13,13 @@ export const manifest: ProductManifest = {
         webAnalyticsPageReports: (): string => `/web/page-reports`,
         webAnalyticsMarketing: (): string => `/web/marketing`,
         webAnalyticsHealth: (): string => `/web/health`,
+        webAnalyticsLive: (): string => `/web/live`,
     },
     fileSystemTypes: {},
     treeItemsProducts: [
         {
             path: 'Web analytics',
-            intents: [ProductKey.WEB_ANALYTICS, ProductKey.MARKETING_ANALYTICS],
+            intents: [ProductKey.WEB_ANALYTICS],
             category: 'Analytics',
             iconType: 'web_analytics',
             iconColor: ['var(--color-product-web-analytics-light)'] as FileSystemIconColor,

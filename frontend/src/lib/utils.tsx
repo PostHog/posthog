@@ -702,31 +702,27 @@ export function humanFriendlyDetailedTime(
     date: dayjs.Dayjs | string | null | undefined,
     formatDate = 'MMMM DD, YYYY',
     formatTime = 'h:mm:ss A',
-    options: { showNow?: boolean; showToday?: boolean } = {}
+    options: { timestampStyle?: 'relative' | 'absolute' } = { timestampStyle: 'relative' }
 ): string {
-    const defaultOptions = {
-        showNow: true,
-        showToday: true,
-    }
-    const { showNow, showToday } = { ...defaultOptions, ...options }
     if (!date) {
         return 'Never'
     }
     const parsedDate = dayjs(date)
+
+    if (options.timestampStyle === 'absolute') {
+        return parsedDate.format(`${formatDate} ${formatTime}`)
+    }
+
     const today = dayjs().startOf('day')
     const yesterday = today.clone().subtract(1, 'days').startOf('day')
-    if (showNow && parsedDate.isSame(dayjs(), 'm')) {
+    if (parsedDate.isSame(dayjs(), 'm')) {
         return 'Just now'
     }
     let formatString: string
     if (parsedDate.isSame(today, 'd')) {
-        if (showToday) {
-            formatString = `[Today] ${formatTime}`
-        } else {
-            formatString = formatTime
-        }
+        formatString = `[Today] ${formatTime}`
     } else if (parsedDate.isSame(yesterday, 'd')) {
-        formatString = `[Yesterday] ${formatTime}`
+        formatString = `[Yesterday] ${formatTime}`
     } else {
         formatString = `${formatDate} ${formatTime}`
     }
@@ -1035,6 +1031,12 @@ export const dateMapping: DateMappingOption[] = [
         defaultInterval: 'hour',
     },
     {
+        key: 'Last hour',
+        values: ['-1h'],
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(1, 'h'), date),
+        defaultInterval: 'minute',
+    },
+    {
         key: 'Last 24 hours',
         values: ['-24h'],
         getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(24, 'h'), date.endOf('d')),
@@ -1078,9 +1080,8 @@ export const dateMapping: DateMappingOption[] = [
         defaultInterval: 'month',
     },
     {
-        key: 'This month',
-        values: ['mStart'],
-        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.startOf('month'), date.endOf('month')),
+        key: 'Last week',
+        values: ['-1wStart', '-1wEnd'],
         defaultInterval: 'day',
     },
     {
@@ -1088,6 +1089,12 @@ export const dateMapping: DateMappingOption[] = [
         values: ['-1mStart', '-1mEnd'],
         getFormattedDate: (date: dayjs.Dayjs): string =>
             formatDateRange(date.subtract(1, 'month').startOf('month'), date.subtract(1, 'month').endOf('month')),
+        defaultInterval: 'day',
+    },
+    {
+        key: 'This month',
+        values: ['mStart'],
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.startOf('month'), date.endOf('month')),
         defaultInterval: 'day',
     },
     {

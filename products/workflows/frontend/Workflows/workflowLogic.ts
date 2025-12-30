@@ -26,6 +26,7 @@ import { workflowSceneLogic } from './workflowSceneLogic'
 
 export interface WorkflowLogicProps {
     id?: string
+    templateId?: string
 }
 
 export const TRIGGER_NODE_ID = 'trigger_node'
@@ -129,6 +130,10 @@ export const workflowLogic = kea<workflowLogicType>([
             variables,
             scheduledAt,
         }),
+        triggerBatchWorkflow: (variables: Record<string, any>, scheduledAt?: string) => ({
+            variables,
+            scheduledAt,
+        }),
         discardChanges: true,
         duplicate: true,
         deleteWorkflow: true,
@@ -139,6 +144,23 @@ export const workflowLogic = kea<workflowLogicType>([
             {
                 loadWorkflow: async () => {
                     if (!props.id || props.id === 'new') {
+                        if (props.templateId) {
+                            const templateWorkflow = await api.hogFlowTemplates.getHogFlowTemplate(props.templateId)
+
+                            const newWorkflow = {
+                                ...templateWorkflow,
+                                name: `${templateWorkflow.name} (copy)`,
+                                status: 'draft' as const,
+                                version: 1,
+                            }
+                            delete (newWorkflow as any).id
+                            delete (newWorkflow as any).team_id
+                            delete (newWorkflow as any).created_at
+                            delete (newWorkflow as any).updated_at
+                            delete (newWorkflow as any).created_by
+
+                            return newWorkflow
+                        }
                         return { ...NEW_WORKFLOW }
                     }
 
@@ -200,7 +222,6 @@ export const workflowLogic = kea<workflowLogicType>([
             },
         },
     })),
-
     selectors({
         logicProps: [() => [(_, props) => props], (props): WorkflowLogicProps => props],
         workflowLoading: [(s) => [s.originalWorkflowLoading], (originalWorkflowLoading) => originalWorkflowLoading],
@@ -472,41 +493,37 @@ export const workflowLogic = kea<workflowLogicType>([
             lemonToast.info(scheduledAt ? 'Scheduling workflow...' : 'Triggering workflow...')
 
             try {
-                const body: Record<string, any> = {
-                    user_id: String(values.user?.id),
-                }
-
-                if (variables) {
-                    body.$variables = variables
-                }
-
-                if (scheduledAt) {
-                    body.$scheduled_at = scheduledAt
-                }
-
                 await fetch(webhookUrl, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
-                        user_id: String(values.user?.id),
+                        user_id: values.user?.email,
                         $variables: variables,
                         $scheduled_at: scheduledAt,
                     }),
                     credentials: 'omit',
                 })
+
+                lemonToast.success(`Workflow ${scheduledAt ? 'scheduled' : 'triggered'}`, {
+                    button: {
+                        label: 'View logs',
+                        action: () => router.actions.push(urls.workflow(values.workflow.id!, 'logs')),
+                    },
+                })
             } catch (e) {
                 lemonToast.error('Error triggering workflow: ' + (e as Error).message)
                 return
             }
+        },
+        triggerBatchWorkflow: async ({}) => {
+            if (!values.workflow.id || values.workflow.id === 'new') {
+                lemonToast.error('You need to save the workflow before triggering it manually.')
+                return
+            }
 
-            lemonToast.success(`Workflow ${scheduledAt ? 'scheduled' : 'triggered'}`, {
-                button: {
-                    label: 'View logs',
-                    action: () => router.actions.push(urls.workflow(values.workflow.id!, 'logs')),
-                },
-            })
+            lemonToast.info('Batch workflow runs coming soon...')
         },
     })),
     afterMount(({ actions }) => {

@@ -17,6 +17,7 @@ import { IconEllipsis, IconUpload } from '@posthog/icons'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '../../ui/ContextMenu/ContextMenu'
@@ -1447,8 +1448,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             </span>
                             {activeDragItem.checked && checkedItemCount && checkedItemCount > 1 && (
                                 <span className="ml-1 text-xs rounded-full bg-primary-highlight px-2 py-0.5 whitespace-nowrap">
-                                    +<span>{checkedItemCount - 1}</span>{' '}
-                                    <span>other{checkedItemCount - 1 === 1 ? '' : 's'}</span>
+                                    +<span>{pluralize(checkedItemCount - 1, 'other')}</span>
                                 </span>
                             )}
                         </ButtonPrimitive>

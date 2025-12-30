@@ -1,15 +1,25 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 
 import { TZLabelProps } from 'lib/components/TZLabel'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { cn } from 'lib/utils/css-classes'
 
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { DateRange } from '~/queries/schema/schema-general'
+import { PropertyFilterType, PropertyOperator } from '~/types'
+
 import { VirtualizedLogsList } from 'products/logs/frontend/components/VirtualizedLogsList/VirtualizedLogsList'
+import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
 import { LogsOrderBy, ParsedLogMessage } from 'products/logs/frontend/types'
 
+import { LogsSelectionToolbar } from './LogsSelectionToolbar'
+import { LogsSparkline, LogsSparklineData } from './LogsViewerSparkline'
 import { LogsViewerToolbar } from './LogsViewerToolbar'
 import { logsViewerLogic } from './logsViewerLogic'
+
+const SCROLL_INTERVAL_MS = 16 // ~60fps
+const SCROLL_AMOUNT_PX = 8
 
 export interface LogsViewerProps {
     tabId: string
@@ -21,6 +31,10 @@ export interface LogsViewerProps {
     onChangeOrderBy: (orderBy: LogsOrderBy) => void
     onRefresh?: () => void
     onLoadMore?: () => void
+    onAddFilter?: (key: string, value: string, operator?: PropertyOperator, type?: PropertyFilterType) => void
+    sparklineData: LogsSparklineData
+    sparklineLoading: boolean
+    onDateRangeChange: (dateRange: DateRange) => void
 }
 
 export function LogsViewer({
@@ -33,11 +47,14 @@ export function LogsViewer({
     onChangeOrderBy,
     onRefresh,
     onLoadMore,
+    onAddFilter,
+    sparklineData,
+    sparklineLoading,
+    onDateRangeChange,
 }: LogsViewerProps): JSX.Element {
     return (
-        <BindLogic logic={logsViewerLogic} props={{ tabId, logs, orderBy }}>
+        <BindLogic logic={logsViewerLogic} props={{ tabId, logs, orderBy, onAddFilter }}>
             <LogsViewerContent
-                logs={logs}
                 loading={loading}
                 totalLogsCount={totalLogsCount}
                 hasMoreLogsToLoad={hasMoreLogsToLoad}
@@ -45,13 +62,15 @@ export function LogsViewer({
                 onChangeOrderBy={onChangeOrderBy}
                 onRefresh={onRefresh}
                 onLoadMore={onLoadMore}
+                sparklineData={sparklineData}
+                sparklineLoading={sparklineLoading}
+                onDateRangeChange={onDateRangeChange}
             />
         </BindLogic>
     )
 }
 
 interface LogsViewerContentProps {
-    logs: ParsedLogMessage[]
     loading: boolean
     totalLogsCount?: number
     hasMoreLogsToLoad?: boolean
@@ -59,10 +78,12 @@ interface LogsViewerContentProps {
     onChangeOrderBy: (orderBy: LogsOrderBy) => void
     onRefresh?: () => void
     onLoadMore?: () => void
+    sparklineData: LogsSparklineData
+    sparklineLoading: boolean
+    onDateRangeChange: (dateRange: DateRange) => void
 }
 
 function LogsViewerContent({
-    logs,
     loading,
     totalLogsCount,
     hasMoreLogsToLoad,
@@ -70,41 +91,145 @@ function LogsViewerContent({
     onChangeOrderBy,
     onRefresh,
     onLoadMore,
+    sparklineData,
+    sparklineLoading,
+    onDateRangeChange,
 }: LogsViewerContentProps): JSX.Element {
-    const { wrapBody, prettifyJson, pinnedLogsArray, isFocused, getCursorLogId, linkToLogId } =
-        useValues(logsViewerLogic)
-    const { setFocused, moveCursorDown, moveCursorUp, toggleExpandLog, resetCursor, setCursorToLogId } =
-        useActions(logsViewerLogic)
+    const {
+        tabId,
+        wrapBody,
+        prettifyJson,
+        pinnedLogsArray,
+        isFocused,
+        cursorLogId,
+        linkToLogId,
+        logs,
+        logsCount,
+        timezone,
+        isSelectionActive,
+    } = useValues(logsViewerLogic)
+    const {
+        setFocused,
+        moveCursorDown,
+        moveCursorUp,
+        toggleExpandLog,
+        resetCursor,
+        setCursorToLogId,
+        toggleSelectLog,
+        clearSelection,
+        togglePrettifyLog,
+    } = useActions(logsViewerLogic)
+    const { cellScrollLefts } = useValues(virtualizedLogsListLogic({ tabId }))
+    const { setCellScrollLeft } = useActions(virtualizedLogsListLogic({ tabId }))
     const containerRef = useRef<HTMLDivElement>(null)
+    const messageScrollLeft = cellScrollLefts['message'] ?? 0
+    const scrollLeftRef = useRef(messageScrollLeft)
+    scrollLeftRef.current = messageScrollLeft
 
-    const cursorLogId = getCursorLogId(logs)
+    const scrollIntervalRef = useRef<number | null>(null)
 
-    // Reset cursor when logs are cleared (e.g., new query starts)
-    useEffect(() => {
-        if (logs.length === 0) {
-            resetCursor()
+    const scrollMessage = useCallback(
+        (direction: 'left' | 'right'): void => {
+            const newScrollLeft =
+                direction === 'left'
+                    ? Math.max(0, scrollLeftRef.current - SCROLL_AMOUNT_PX)
+                    : scrollLeftRef.current + SCROLL_AMOUNT_PX
+            scrollLeftRef.current = newScrollLeft
+            setCellScrollLeft('message', newScrollLeft)
+        },
+        [setCellScrollLeft]
+    )
+
+    const startScrolling = useCallback(
+        (direction: 'left' | 'right'): void => {
+            if (scrollIntervalRef.current !== null) {
+                return // Already scrolling
+            }
+            scrollMessage(direction)
+            scrollIntervalRef.current = window.setInterval(() => {
+                scrollMessage(direction)
+            }, SCROLL_INTERVAL_MS)
+        },
+        [scrollMessage]
+    )
+
+    const stopScrolling = useCallback((): void => {
+        if (scrollIntervalRef.current) {
+            clearInterval(scrollIntervalRef.current)
+            scrollIntervalRef.current = null
         }
-    }, [logs.length, resetCursor])
+    }, [])
+
+    // Handle keyboard scroll with keydown/keyup for smooth 60fps scrolling
+    useEffect(() => {
+        if (!isFocused || wrapBody) {
+            return
+        }
+
+        const handleKeyDown = (e: KeyboardEvent): void => {
+            if (e.repeat) {
+                return // Ignore OS key repeat, we have our own interval
+            }
+            if (e.key === 'ArrowLeft' || e.key === 'h') {
+                e.preventDefault()
+                startScrolling('left')
+            } else if (e.key === 'ArrowRight' || e.key === 'l') {
+                e.preventDefault()
+                startScrolling('right')
+            }
+        }
+
+        const handleKeyUp = (e: KeyboardEvent): void => {
+            if (e.key === 'ArrowLeft' || e.key === 'h' || e.key === 'ArrowRight' || e.key === 'l') {
+                stopScrolling()
+            }
+        }
+
+        window.addEventListener('keydown', handleKeyDown)
+        window.addEventListener('keyup', handleKeyUp)
+
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown)
+            window.removeEventListener('keyup', handleKeyUp)
+            stopScrolling()
+        }
+    }, [isFocused, wrapBody, startScrolling, stopScrolling])
 
     // Position cursor at linked log when deep linking (URL -> cursor)
     useEffect(() => {
-        if (linkToLogId && logs.length > 0) {
-            setCursorToLogId(linkToLogId, logs)
+        if (linkToLogId && logsCount > 0) {
+            setCursorToLogId(linkToLogId)
             containerRef.current?.focus()
         }
-    }, [linkToLogId, logs, setCursorToLogId])
+    }, [linkToLogId, logsCount, setCursorToLogId])
 
-    const tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime'> = {
+    const tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime' | 'displayTimezone'> = {
         formatDate: 'YYYY-MM-DD',
         formatTime: 'HH:mm:ss.SSS',
+        displayTimezone: timezone,
     }
+
+    const handleMoveDown = useCallback(
+        (e: KeyboardEvent): void => {
+            moveCursorDown(e.shiftKey)
+        },
+        [moveCursorDown]
+    )
+
+    const handleMoveUp = useCallback(
+        (e: KeyboardEvent): void => {
+            moveCursorUp(e.shiftKey)
+        },
+        [moveCursorUp]
+    )
 
     useKeyboardHotkeys(
         {
-            arrowdown: { action: () => moveCursorDown(logs.length), disabled: !isFocused },
-            j: { action: () => moveCursorDown(logs.length), disabled: !isFocused },
-            arrowup: { action: () => moveCursorUp(logs.length), disabled: !isFocused },
-            k: { action: () => moveCursorUp(logs.length), disabled: !isFocused },
+            arrowdown: { action: handleMoveDown, disabled: !isFocused },
+            j: { action: handleMoveDown, disabled: !isFocused },
+            arrowup: { action: handleMoveUp, disabled: !isFocused },
+            k: { action: handleMoveUp, disabled: !isFocused },
+            // arrowleft, arrowright, h, l handled by native keydown/keyup for smooth 60fps scrolling
             enter: {
                 action: () => {
                     if (cursorLogId) {
@@ -122,10 +247,34 @@ function LogsViewerContent({
                 },
                 disabled: !isFocused,
             },
+            space: {
+                action: (e: KeyboardEvent) => {
+                    e.preventDefault()
+                    if (cursorLogId) {
+                        toggleSelectLog(cursorLogId)
+                    }
+                },
+                disabled: !isFocused,
+            },
+            escape: {
+                action: () => {
+                    if (isSelectionActive) {
+                        clearSelection()
+                    }
+                },
+                disabled: !isFocused,
+            },
+            p: {
+                action: () => {
+                    if (cursorLogId) {
+                        togglePrettifyLog(cursorLogId)
+                    }
+                },
+                disabled: !isFocused,
+            },
         },
         [
             isFocused,
-            logs.length,
             cursorLogId,
             toggleExpandLog,
             onRefresh,
@@ -133,57 +282,65 @@ function LogsViewerContent({
             resetCursor,
             moveCursorDown,
             moveCursorUp,
+            toggleSelectLog,
+            isSelectionActive,
+            clearSelection,
+            togglePrettifyLog,
         ]
     )
 
     return (
-        <div
-            ref={containerRef}
-            className="flex flex-col gap-2 h-full outline-none focus:ring-1 focus:ring-border-bold focus:ring-offset-1 rounded"
-            tabIndex={0}
-            onFocus={() => {
-                setFocused(true)
-                containerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-            }}
-            onBlur={() => setFocused(false)}
-        >
-            <div className="py-2">
-                <LogsViewerToolbar
-                    totalLogsCount={totalLogsCount}
-                    orderBy={orderBy}
-                    onChangeOrderBy={onChangeOrderBy}
-                />
-            </div>
-            {pinnedLogsArray.length > 0 && (
-                <div className="border rounded-t bg-bg-light shadow-sm">
+        <div className="flex flex-col gap-2 h-full">
+            <LogsSparkline
+                sparklineData={sparklineData}
+                sparklineLoading={sparklineLoading}
+                onDateRangeChange={onDateRangeChange}
+                displayTimezone={timezone}
+            />
+            <SceneDivider />
+            <LogsViewerToolbar totalLogsCount={totalLogsCount} orderBy={orderBy} onChangeOrderBy={onChangeOrderBy} />
+            <LogsSelectionToolbar />
+            <div
+                ref={containerRef}
+                className="flex flex-col gap-2 flex-1 min-h-0 outline-none focus:ring-1 focus:ring-border-bold focus:ring-offset-1 rounded"
+                tabIndex={0}
+                onFocus={() => {
+                    setFocused(true)
+                    containerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                }}
+                onBlur={() => setFocused(false)}
+            >
+                {pinnedLogsArray.length > 0 && (
+                    <div className="border rounded-t bg-bg-light shadow-sm">
+                        <VirtualizedLogsList
+                            dataSource={pinnedLogsArray}
+                            loading={false}
+                            wrapBody={wrapBody}
+                            prettifyJson={prettifyJson}
+                            tzLabelFormat={tzLabelFormat}
+                            showPinnedWithOpacity
+                            fixedHeight={250}
+                            disableInfiniteScroll
+                        />
+                    </div>
+                )}
+                <div
+                    className={cn(
+                        'border bg-bg-light flex-1 min-h-0',
+                        pinnedLogsArray.length > 0 ? 'rounded-b' : 'rounded'
+                    )}
+                >
                     <VirtualizedLogsList
-                        dataSource={pinnedLogsArray}
-                        loading={false}
+                        dataSource={logs}
+                        loading={loading}
                         wrapBody={wrapBody}
                         prettifyJson={prettifyJson}
                         tzLabelFormat={tzLabelFormat}
                         showPinnedWithOpacity
-                        fixedHeight={250}
-                        disableInfiniteScroll
+                        hasMoreLogsToLoad={hasMoreLogsToLoad}
+                        onLoadMore={onLoadMore}
                     />
                 </div>
-            )}
-            <div
-                className={cn(
-                    'border bg-bg-light flex-1 min-h-0',
-                    pinnedLogsArray.length > 0 ? 'rounded-b' : 'rounded'
-                )}
-            >
-                <VirtualizedLogsList
-                    dataSource={logs}
-                    loading={loading}
-                    wrapBody={wrapBody}
-                    prettifyJson={prettifyJson}
-                    tzLabelFormat={tzLabelFormat}
-                    showPinnedWithOpacity
-                    hasMoreLogsToLoad={hasMoreLogsToLoad}
-                    onLoadMore={onLoadMore}
-                />
             </div>
         </div>
     )

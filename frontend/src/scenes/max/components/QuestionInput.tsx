@@ -4,15 +4,13 @@ import { offset } from '@floating-ui/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { ReactNode, useEffect, useState } from 'react'
-import React from 'react'
+import React, { ReactNode, useEffect, useState } from 'react'
 
 import { IconArrowRight, IconStopFilled } from '@posthog/icons'
-import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
+import { userLogic } from 'scenes/userLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
@@ -22,7 +20,6 @@ import { maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
 import { MAX_SLASH_COMMANDS } from '../slash-commands'
 import { SlashCommandAutocomplete } from './SlashCommandAutocomplete'
-import { ToolsDisplay } from './ToolsDisplay'
 
 interface QuestionInputProps {
     isSticky?: boolean
@@ -45,28 +42,31 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         contextDisplaySize,
         isThreadVisible,
         topActions,
-        bottomActions,
         textAreaRef,
         containerClassName,
         onSubmit,
     },
     ref
 ) {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { dataProcessingAccepted, tools } = useValues(maxGlobalLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
     const { question } = useValues(maxLogic)
     const { setQuestion } = useActions(maxLogic)
+    const { user } = useValues(userLogic)
     const {
         conversation,
         threadLoading,
         inputDisabled,
         submissionDisabledReason,
         isSharedThread,
-        deepResearchMode,
         cancelLoading,
         pendingPrompt,
+        isImpersonatingExistingConversation,
+        supportOverrideEnabled,
     } = useValues(maxThreadLogic)
-    const { askMax, stopGeneration, completeThreadGeneration } = useActions(maxThreadLogic)
+    const { askMax, stopGeneration, completeThreadGeneration, setSupportOverrideEnabled } = useActions(maxThreadLogic)
+
+    // Show info banner for conversations created during impersonation (marked as internal)
+    const isImpersonatedInternalConversation = user?.is_impersonated && conversation?.is_internal
 
     const [showAutocomplete, setShowAutocomplete] = useState(false)
 
@@ -79,7 +79,11 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         setShowAutocomplete(isSlashCommand)
     }, [question, showAutocomplete])
 
-    let disabledReason = threadLoading && !dataProcessingAccepted ? 'Pending approval' : submissionDisabledReason
+    let disabledReason = !threadLoading
+        ? !dataProcessingAccepted
+            ? 'Pending approval'
+            : submissionDisabledReason
+        : undefined
     if (cancelLoading) {
         disabledReason = 'Cancelling...'
     }
@@ -97,30 +101,71 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
             <div
                 className={clsx(
                     'flex flex-col items-center',
-                    isSticky &&
-                        'mb-2 border border-[var(--color-border-primary)] rounded-lg backdrop-blur-sm bg-[var(--glass-bg-3000)]'
+                    isSticky && 'mb-2 border border-primary rounded-lg backdrop-blur-sm bg-glass-bg-3000'
                 )}
             >
                 {/* Have to increase z-index to overlay ToolsDisplay */}
                 <div className="relative w-full flex flex-col z-1">
                     {children}
-                    <div
+                    <label
+                        htmlFor="question-input"
                         className={clsx(
-                            'flex flex-col',
-                            'border border-[var(--color-border-primary)]',
+                            'input-like flex flex-col cursor-text',
+                            'border border-primary',
                             'bg-[var(--color-bg-fill-input)]',
-                            'hover:border-border-bold focus-within:border-border-bold',
-                            isThreadVisible ? 'border-primary m-0.5 rounded-[10px]' : 'rounded-lg'
+                            isThreadVisible ? 'border-primary m-0.5 rounded-[7px]' : 'rounded-lg'
                         )}
-                        onClick={(e) => {
-                            // If user clicks anywhere with the area with a hover border, activate input - except on button clicks
-                            if (!(e.target as HTMLElement).closest('button')) {
-                                textAreaRef?.current?.focus()
-                            }
-                        }}
                     >
+                        <SlashCommandAutocomplete visible={showAutocomplete} onClose={() => setShowAutocomplete(false)}>
+                            <div className="relative w-full">
+                                {!question && (
+                                    <div id="textarea-hint" className="text-secondary absolute top-4 left-4 text-sm">
+                                        {conversation && isSharedThread ? (
+                                            `This thread was shared with you by ${conversation.user.first_name} ${conversation.user.last_name}`
+                                        ) : threadLoading ? (
+                                            'Thinking…'
+                                        ) : isThreadVisible ? (
+                                            placeholder || (
+                                                <>
+                                                    Ask follow-up{' '}
+                                                    <span className="text-tertiary opacity-80 contrast-more:opacity-100">
+                                                        / for commands
+                                                    </span>
+                                                </>
+                                            )
+                                        ) : (
+                                            <>
+                                                Ask a question{' '}
+                                                <span className="text-tertiary opacity-80 contrast-more:opacity-100">
+                                                    / for commands
+                                                </span>
+                                            </>
+                                        )}
+                                    </div>
+                                )}
+                                <LemonTextArea
+                                    aria-describedby={!question ? 'textarea-hint' : undefined}
+                                    id="question-input"
+                                    ref={textAreaRef}
+                                    value={isSharedThread ? '' : question}
+                                    onChange={(value) => setQuestion(value)}
+                                    onPressEnter={() => {
+                                        if (question && !submissionDisabledReason && !threadLoading) {
+                                            onSubmit?.()
+                                            askMax(question)
+                                        }
+                                    }}
+                                    disabled={inputDisabled}
+                                    minRows={1}
+                                    maxRows={10}
+                                    className="!border-none !bg-transparent min-h-16 py-2 pl-2 pr-12 resize-none"
+                                    hideFocus
+                                />
+                            </div>
+                        </SlashCommandAutocomplete>
+
                         {!isSharedThread && (
-                            <div className="pt-2">
+                            <div className="pb-2">
                                 {!isThreadVisible ? (
                                     <div className="flex items-start justify-between">
                                         <ContextDisplay size={contextDisplaySize} />
@@ -131,35 +176,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                 )}
                             </div>
                         )}
-
-                        <SlashCommandAutocomplete visible={showAutocomplete} onClose={() => setShowAutocomplete(false)}>
-                            <LemonTextArea
-                                ref={textAreaRef}
-                                value={isSharedThread ? '' : question}
-                                onChange={(value) => setQuestion(value)}
-                                placeholder={
-                                    conversation && isSharedThread
-                                        ? `This thread was shared with you by ${conversation.user.first_name} ${conversation.user.last_name}`
-                                        : threadLoading
-                                          ? 'Thinking…'
-                                          : isThreadVisible
-                                            ? placeholder || 'Ask follow-up (/ for commands)'
-                                            : 'Ask away (/ for commands)'
-                                }
-                                onPressEnter={() => {
-                                    if (question && !submissionDisabledReason && !threadLoading) {
-                                        onSubmit?.()
-                                        askMax(question)
-                                    }
-                                }}
-                                disabled={inputDisabled}
-                                minRows={1}
-                                maxRows={10}
-                                className="!border-none !bg-transparent min-h-0 py-2 pl-2 pr-12"
-                                autoFocus="true-without-pulse"
-                            />
-                        </SlashCommandAutocomplete>
-                    </div>
+                    </label>
                     <div
                         className={clsx(
                             'absolute flex items-center',
@@ -184,13 +201,21 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                 onClick={() => {
                                     if (threadLoading) {
                                         stopGeneration()
-                                    } else {
-                                        askMax(question)
+                                        return
                                     }
+                                    if (submissionDisabledReason) {
+                                        textAreaRef?.current?.focus()
+                                        return
+                                    }
+                                    askMax(question)
                                 }}
                                 tooltip={
-                                    threadLoading ? (
-                                        "Let's bail"
+                                    disabledReason ? (
+                                        disabledReason
+                                    ) : threadLoading ? (
+                                        <>
+                                            Let's bail <KeyboardShortcut enter />
+                                        </>
                                     ) : (
                                         <>
                                             Let's go! <KeyboardShortcut enter />
@@ -199,6 +224,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                 }
                                 loading={threadLoading && !dataProcessingAccepted}
                                 disabledReason={disabledReason}
+                                className={disabledReason ? 'opacity-[0.5]' : ''}
                                 size="small"
                                 icon={
                                     threadLoading ? (
@@ -212,13 +238,23 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         </AIConsentPopoverWrapper>
                     </div>
                 </div>
-                {!isSharedThread && !featureFlags[FEATURE_FLAGS.AGENT_MODES] && (
-                    <ToolsDisplay
-                        isFloating={isThreadVisible}
-                        tools={tools}
-                        bottomActions={bottomActions}
-                        deepResearchMode={deepResearchMode}
-                    />
+                {/* Info banner for conversations created during impersonation (marked as internal) */}
+                {isImpersonatedInternalConversation && (
+                    <div className="flex justify-start items-center gap-1 w-full px-2 py-1 bg-bg-light text-muted text-xs rounded-b-lg">
+                        Support agent session — this conversation won't be visible to the customer
+                    </div>
+                )}
+                {/* Override checkbox - shown when impersonating and viewing existing customer conversation (not internal) */}
+                {!conversation?.is_internal && (isImpersonatingExistingConversation || supportOverrideEnabled) && (
+                    <div className="flex justify-start gap-1 w-full p-1 bg-warning-highlight rounded-b-lg">
+                        <LemonSwitch
+                            checked={supportOverrideEnabled}
+                            label="I understand this will add to the customer's conversation"
+                            onChange={(checked: boolean) => setSupportOverrideEnabled(checked)}
+                            size="xxsmall"
+                            tooltip="Support agents should create new conversations instead of using existing ones. Check this to override."
+                        />
+                    </div>
                 )}
             </div>
         </div>

@@ -1,6 +1,6 @@
 import colors from 'ansi-colors'
 import equal from 'fast-deep-equal'
-import { actions, events, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, events, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -19,7 +19,14 @@ import { Params } from 'scenes/sceneTypes'
 
 import { DateRange, LogMessage, LogsQuery } from '~/queries/schema/schema-general'
 import { integer } from '~/queries/schema/type-utils'
-import { JsonType, PropertyFilterType, PropertyGroupFilter, PropertyOperator, UniversalFiltersGroup } from '~/types'
+import {
+    JsonType,
+    PropertyFilterType,
+    PropertyGroupFilter,
+    PropertyOperator,
+    UniversalFiltersGroup,
+    UniversalFiltersGroupValue,
+} from '~/types'
 
 import { zoomDateRange } from './filters/zoom-utils'
 import type { logsLogicType } from './logsLogicType'
@@ -30,19 +37,11 @@ const DEFAULT_SEVERITY_LEVELS = [] as LogsQuery['severityLevels']
 const DEFAULT_SERVICE_NAMES = [] as LogsQuery['serviceNames']
 const DEFAULT_HIGHLIGHTED_LOG_ID = null as string | null
 const DEFAULT_ORDER_BY = 'latest' as LogsQuery['orderBy']
-const DEFAULT_WRAP_BODY = true
-const DEFAULT_PRETTIFY_JSON = true
-const DEFAULT_LOGS_PAGE_SIZE: number = 100
+const DEFAULT_LOGS_PAGE_SIZE: number = 250
 const DEFAULT_INITIAL_LOGS_LIMIT = null as number | null
 const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
 const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MS = 1000
 const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MAX_MS = 5000
-
-export enum SparklineTimezone {
-    UTC = 'utc',
-    Project = 'project',
-    Device = 'device',
-}
 
 const parseLogAttributes = (logs: LogMessage[]): void => {
     logs.forEach((row) => {
@@ -91,12 +90,6 @@ export const logsLogic = kea<logsLogicType>([
             }
             if (params.orderBy && !equal(params.orderBy, values.orderBy)) {
                 actions.setOrderBy(params.orderBy)
-            }
-            if (params.wrapBody !== undefined && params.wrapBody !== values.wrapBody) {
-                actions.setWrapBody(params.wrapBody)
-            }
-            if (params.prettifyJson !== undefined && params.prettifyJson !== values.prettifyJson) {
-                actions.setPrettifyJson(params.prettifyJson)
             }
             if (+params.logsPageSize && +params.logsPageSize !== values.logsPageSize) {
                 actions.setLogsPageSize(+params.logsPageSize)
@@ -147,21 +140,6 @@ export const logsLogic = kea<logsLogicType>([
             })
         }
 
-        const updateUrlWithDisplayPreferences = (): [
-            string,
-            Params,
-            Record<string, any>,
-            {
-                replace: boolean
-            },
-        ] => {
-            return syncSearchParams(router, (params: Params) => {
-                updateSearchParams(params, 'wrapBody', values.wrapBody, DEFAULT_WRAP_BODY)
-                updateSearchParams(params, 'prettifyJson', values.prettifyJson, DEFAULT_PRETTIFY_JSON)
-                return params
-            })
-        }
-
         const updateUrlWithPageSize = (): [
             string,
             Params,
@@ -201,8 +179,6 @@ export const logsLogic = kea<logsLogicType>([
             setOrderBy: () => buildUrlAndRunQuery(),
             setLogsPageSize: () => updateUrlWithPageSize(),
             setHighlightedLogId: () => updateHighlightURL(),
-            setWrapBody: () => updateUrlWithDisplayPreferences(),
-            setPrettifyJson: () => updateUrlWithDisplayPreferences(),
         }
     }),
 
@@ -227,8 +203,6 @@ export const logsLogic = kea<logsLogicType>([
         setSearchTerm: (searchTerm: LogsQuery['searchTerm']) => ({ searchTerm }),
         setSeverityLevels: (severityLevels: LogsQuery['severityLevels']) => ({ severityLevels }),
         setServiceNames: (serviceNames: LogsQuery['serviceNames']) => ({ serviceNames }),
-        setWrapBody: (wrapBody: boolean) => ({ wrapBody }),
-        setPrettifyJson: (prettifyJson: boolean) => ({ prettifyJson }),
         setLiveLogsCheckpoint: (liveLogsCheckpoint: string | null) => ({ liveLogsCheckpoint }),
 
         setFilterGroup: (filterGroup: UniversalFiltersGroup, openFilterOnInsert: boolean = true) => ({
@@ -238,11 +212,16 @@ export const logsLogic = kea<logsLogicType>([
         toggleAttributeBreakdown: (key: string) => ({ key }),
         setExpandedAttributeBreaksdowns: (expandedAttributeBreaksdowns: string[]) => ({ expandedAttributeBreaksdowns }),
         zoomDateRange: (multiplier: number) => ({ multiplier }),
-        setDateRangeFromSparkline: (startIndex: number, endIndex: number) => ({ startIndex, endIndex }),
-        addFilter: (key: string, value: string, operator: PropertyOperator = PropertyOperator.Exact) => ({
+        addFilter: (
+            key: string,
+            value: string,
+            operator: PropertyOperator = PropertyOperator.Exact,
+            propertyType: PropertyFilterType = PropertyFilterType.LogAttribute
+        ) => ({
             key,
             value,
             operator,
+            propertyType,
         }),
         togglePinLog: (logId: string) => ({ logId }),
         pinLog: (log: LogMessage) => ({ log }),
@@ -260,10 +239,10 @@ export const logsLogic = kea<logsLogicType>([
         pollForNewLogs: true,
         setLogs: (logs: LogMessage[]) => ({ logs }),
         setSparkline: (sparkline: any[]) => ({ sparkline }),
+        setNextCursor: (nextCursor: string | null) => ({ nextCursor }),
         expireLiveTail: () => true,
         setLiveTailExpired: (liveTailExpired: boolean) => ({ liveTailExpired }),
         addLogsToSparkline: (logs: LogMessage[]) => logs,
-        setSparklineTimezone: (sparklineTimezone: SparklineTimezone) => ({ sparklineTimezone }),
     }),
 
     reducers({
@@ -316,12 +295,6 @@ export const logsLogic = kea<logsLogicType>([
                 setFilterGroup: (_, { filterGroup }) => filterGroup,
             },
         ],
-        wrapBody: [
-            DEFAULT_WRAP_BODY as boolean,
-            {
-                setWrapBody: (_, { wrapBody }) => wrapBody,
-            },
-        ],
         liveLogsCheckpoint: [
             null as string | null,
             { persist: false },
@@ -335,12 +308,6 @@ export const logsLogic = kea<logsLogicType>([
             {
                 setLiveTailExpired: (_, { liveTailExpired }) => liveTailExpired,
                 fetchLogsSuccess: () => false,
-            },
-        ],
-        prettifyJson: [
-            DEFAULT_PRETTIFY_JSON as boolean,
-            {
-                setPrettifyJson: (_, { prettifyJson }) => prettifyJson,
             },
         ],
         logsAbortController: [
@@ -415,13 +382,6 @@ export const logsLogic = kea<logsLogicType>([
                 runQuery: () => false,
             },
         ],
-        sparklineTimezone: [
-            SparklineTimezone.UTC as SparklineTimezone,
-            { persist: true },
-            {
-                setSparklineTimezone: (_, { sparklineTimezone }) => sparklineTimezone,
-            },
-        ],
         liveTailPollInterval: [
             DEFAULT_LIVE_TAIL_POLL_INTERVAL_MS as number,
             {
@@ -439,6 +399,13 @@ export const logsLogic = kea<logsLogicType>([
             {
                 setHasMoreLogsToLoad: (_, { hasMoreLogsToLoad }) => hasMoreLogsToLoad,
                 clearLogs: () => true,
+            },
+        ],
+        nextCursor: [
+            null as string | null,
+            {
+                setNextCursor: (_, { nextCursor }) => nextCursor,
+                clearLogs: () => null,
             },
         ],
         expandedLogIds: [
@@ -483,6 +450,7 @@ export const logsLogic = kea<logsLogicType>([
                     })
                     actions.setLogsAbortController(null)
                     actions.setHasMoreLogsToLoad(!!response.hasMore)
+                    actions.setNextCursor(response.nextCursor ?? null)
                     parseLogAttributes(response.results)
                     return response.results
                 },
@@ -491,40 +459,27 @@ export const logsLogic = kea<logsLogicType>([
                     const signal = logsController.signal
                     actions.cancelInProgressLogs(logsController)
 
-                    let dateRange: DateRange
-
-                    if (values.orderBy === 'earliest') {
-                        if (!values.newestLogTimestamp) {
-                            return values.logs
-                        }
-                        dateRange = {
-                            date_from: values.newestLogTimestamp,
-                            date_to: values.utcDateRange.date_to,
-                        }
-                    } else {
-                        if (!values.oldestLogTimestamp) {
-                            return values.logs
-                        }
-                        dateRange = {
-                            date_from: values.utcDateRange.date_from,
-                            date_to: values.oldestLogTimestamp,
-                        }
+                    if (!values.nextCursor) {
+                        return values.logs
                     }
+
                     await breakpoint(300)
                     const response = await api.logs.query({
                         query: {
                             limit: limit ?? values.logsPageSize,
                             orderBy: values.orderBy,
-                            dateRange,
+                            dateRange: values.utcDateRange,
                             searchTerm: values.searchTerm,
                             filterGroup: values.filterGroup as PropertyGroupFilter,
                             severityLevels: values.severityLevels,
                             serviceNames: values.serviceNames,
+                            after: values.nextCursor,
                         },
                         signal,
                     })
                     actions.setLogsAbortController(null)
                     actions.setHasMoreLogsToLoad(!!response.hasMore)
+                    actions.setNextCursor(response.nextCursor ?? null)
                     parseLogAttributes(response.results)
                     return [...values.logs, ...response.results]
                 },
@@ -680,7 +635,7 @@ export const logsLogic = kea<logsLogicType>([
                         if (currentItem.time !== lastTime) {
                             labels.push(
                                 humanFriendlyDetailedTime(currentItem.time, 'YYYY-MM-DD', 'HH:mm:ss', {
-                                    showNow: false,
+                                    timestampStyle: 'absolute',
                                 })
                             )
                             dates.push(currentItem.time)
@@ -710,32 +665,6 @@ export const logsLogic = kea<logsLogicType>([
                     .filter((series) => series.values.reduce((a, b) => a + b) > 0)
 
                 return { data, labels, dates }
-            },
-        ],
-        oldestLogTimestamp: [
-            (s) => [s.logs],
-            (logs): string | null => {
-                if (!logs.length) {
-                    return null
-                }
-                const oldest = logs.reduce((min, log) => {
-                    const logTime = dayjs(log.timestamp)
-                    return !min || logTime.isBefore(dayjs(min)) ? log.timestamp : min
-                }, logs[0].timestamp)
-                return oldest
-            },
-        ],
-        newestLogTimestamp: [
-            (s) => [s.logs],
-            (logs): string | null => {
-                if (!logs.length) {
-                    return null
-                }
-                const newest = logs.reduce((max, log) => {
-                    const logTime = dayjs(log.timestamp)
-                    return !max || logTime.isAfter(dayjs(max)) ? log.timestamp : max
-                }, logs[0].timestamp)
-                return newest
             },
         ],
         totalLogsMatchingFilters: [
@@ -799,22 +728,6 @@ export const logsLogic = kea<logsLogicType>([
             const newDateRange = zoomDateRange(values.dateRange, multiplier)
             actions.setDateRange(newDateRange)
         },
-        setDateRangeFromSparkline: ({ startIndex, endIndex }) => {
-            const dates = values.sparklineData.dates
-            const dateFrom = dates[startIndex]
-            const dateTo = dates[endIndex + 1]
-
-            if (!dateFrom) {
-                return
-            }
-
-            // NOTE: I don't know how accurate this really is but its a good starting point
-            const newDateRange = {
-                date_from: dateFrom,
-                date_to: dateTo,
-            }
-            actions.setDateRange(newDateRange)
-        },
         expireLiveTail: async ({}, breakpoint) => {
             await breakpoint(30000)
             if (values.liveTailRunning) {
@@ -822,7 +735,17 @@ export const logsLogic = kea<logsLogicType>([
             }
             actions.setLiveTailExpired(true)
         },
-        addFilter: ({ key, value, operator }) => {
+        addFilter: ({
+            key,
+            value,
+            operator,
+            propertyType,
+        }: {
+            key: string
+            value: string
+            operator: string
+            propertyType: PropertyFilterType
+        }) => {
             const currentGroup = values.filterGroup.values[0] as UniversalFiltersGroup
 
             const newGroup: UniversalFiltersGroup = {
@@ -833,8 +756,8 @@ export const logsLogic = kea<logsLogicType>([
                         key,
                         value: [value],
                         operator,
-                        type: PropertyFilterType.Log,
-                    },
+                        type: propertyType,
+                    } as UniversalFiltersGroupValue,
                 ],
             }
 
@@ -1055,4 +978,10 @@ export const logsLogic = kea<logsLogicType>([
             }
         },
     })),
+
+    afterMount(({ values, actions }) => {
+        if (values.parsedLogs.length === 0) {
+            actions.runQuery()
+        }
+    }),
 ])

@@ -1,5 +1,3 @@
-from posthog.schema import PropertyGroupsMode
-
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
@@ -11,8 +9,6 @@ from products.logs.backend.logs_query_runner import LogsQueryResponse, LogsQuery
 
 class SparklineQueryRunner(LogsQueryRunner):
     def _calculate(self) -> LogsQueryResponse:
-        self.modifiers.convertToProjectTimezone = False
-        self.modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
         response = execute_hogql_query(
             query_type="LogsQuery",
             query=self.to_query(),
@@ -53,7 +49,12 @@ class SparklineQueryRunner(LogsQueryRunner):
                                      {date_to_start_of_interval}) / {interval_count} + 1
                                     )
                         )
-                    WHERE time_bucket >= {date_from} and time_bucket <= toStartOfInterval({date_to} - toIntervalSecond(1), {one_interval_period})
+                    WHERE
+                        time_bucket >= {date_from_start_of_interval} and
+                        time_bucket <= greatest(
+                            {date_from_start_of_interval},
+                            toStartOfInterval({date_to} - toIntervalSecond(1), {one_interval_period})
+                        )
                 ) AS am
                 LEFT JOIN (
                     SELECT
@@ -61,7 +62,7 @@ class SparklineQueryRunner(LogsQueryRunner):
                         severity_text,
                         count() AS event_count
                     FROM logs
-                    WHERE {where} AND time >= {date_from} AND time < {date_to}
+                    WHERE {where} AND time >= {date_from_start_of_interval} AND time <= {date_to}
                     GROUP BY severity_text, time
                 ) AS ac ON am.time_bucket = ac.time
                 ORDER BY time asc, severity_text asc

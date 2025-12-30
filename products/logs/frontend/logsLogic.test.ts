@@ -2,10 +2,11 @@ import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { useMocks } from '~/mocks/jest'
 import { LogMessage } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
-import { SparklineTimezone, logsLogic } from './logsLogic'
+import { logsLogic } from './logsLogic'
 
 jest.mock('@posthog/lemon-ui', () => ({
     ...jest.requireActual('@posthog/lemon-ui'),
@@ -33,10 +34,18 @@ const createMockLog = (uuid: string): LogMessage => ({
 describe('logsLogic', () => {
     let logic: ReturnType<typeof logsLogic.build>
 
-    beforeEach(() => {
+    beforeEach(async () => {
+        useMocks({
+            post: {
+                '/api/environments/:team_id/logs/query/': () => [200, { results: [] }],
+                '/api/environments/:team_id/logs/sparkline/': () => [200, []],
+            },
+        })
         initKeaTests()
         logic = logsLogic({ tabId: 'test-tab' })
         logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners()
     })
 
     afterEach(() => {
@@ -201,26 +210,6 @@ describe('logsLogic', () => {
                 expect(logic.values.expandedLogIds.has('log-2')).toBe(false)
                 expect(logic.values.expandedLogIds.has('log-3')).toBe(true)
             })
-        })
-    })
-
-    describe('sparklineTimezone', () => {
-        it('updates when setSparklineTimezone is called', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.setSparklineTimezone(SparklineTimezone.Device)
-            })
-                .toDispatchActions(['setSparklineTimezone'])
-                .toMatchValues({
-                    sparklineTimezone: SparklineTimezone.Device,
-                })
-
-            await expectLogic(logic, () => {
-                logic.actions.setSparklineTimezone(SparklineTimezone.UTC)
-            })
-                .toDispatchActions(['setSparklineTimezone'])
-                .toMatchValues({
-                    sparklineTimezone: SparklineTimezone.UTC,
-                })
         })
     })
 

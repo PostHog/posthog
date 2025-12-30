@@ -34,6 +34,8 @@ import { LemonSelectOptions } from '@posthog/lemon-ui'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { Alerts } from 'lib/components/Alerts/views/Alerts'
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -48,7 +50,7 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { IconAction, IconGridView, IconListView, IconTableChart } from 'lib/lemon-ui/icons'
-import { isNonEmptyObject } from 'lib/utils'
+import { isNonEmptyObject, pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
@@ -56,7 +58,7 @@ import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
-import { OverlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
+import { NewInsightShortcuts, OverlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
@@ -515,6 +517,16 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconLive,
         inMenu: false,
     },
+    [NodeKind.LogAttributesQuery]: {
+        name: 'LogAttributes',
+        icon: IconLive,
+        inMenu: false,
+    },
+    [NodeKind.LogValuesQuery]: {
+        name: 'LogValues',
+        icon: IconLive,
+        inMenu: false,
+    },
     [NodeKind.WebAnalyticsExternalSummaryQuery]: {
         name: 'Web Analytics External Summary',
         icon: IconPieChart,
@@ -527,6 +539,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     },
     [NodeKind.MarketingAnalyticsAggregatedQuery]: {
         name: 'Marketing Analytics Aggregated',
+        icon: IconHogQL,
+        inMenu: false,
+    },
+    [NodeKind.NonIntegratedConversionsTableQuery]: {
+        name: 'Non-Integrated Conversions Table',
         icon: IconHogQL,
         inMenu: false,
     },
@@ -609,24 +626,34 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
             resourceType={AccessControlResourceType.Insight}
             minAccessLevel={AccessControlLevel.Editor}
         >
-            <LemonButton
-                type="primary"
-                to={urls.insightNew()}
-                sideAction={{
-                    dropdown: {
-                        placement: 'bottom-end',
-                        className: 'new-insight-overlay',
-                        actionable: true,
-                        overlay: <OverlayForNewInsightMenu dataAttr={dataAttr} />,
-                    },
-                    'data-attr': 'saved-insights-new-insight-dropdown',
-                }}
-                data-attr="saved-insights-new-insight-button"
-                size="small"
-                icon={<IconPlusSmall />}
+            <AppShortcut
+                name="NewInsight"
+                keybind={[keyBinds.new]}
+                intent="New insight"
+                interaction="click"
+                scope={Scene.SavedInsights}
+                priority={100}
             >
-                New
-            </LemonButton>
+                <LemonButton
+                    type="primary"
+                    to={urls.insightNew()}
+                    sideAction={{
+                        dropdown: {
+                            placement: 'bottom-end',
+                            className: 'new-insight-overlay',
+                            actionable: true,
+                            overlay: <OverlayForNewInsightMenu dataAttr={dataAttr} />,
+                        },
+                        'data-attr': 'saved-insights-new-insight-dropdown',
+                    }}
+                    data-attr="saved-insights-new-insight-button"
+                    size="small"
+                    icon={<IconPlusSmall />}
+                    tooltip="New insight"
+                >
+                    New
+                </LemonButton>
+            </AppShortcut>
         </AccessControlAction>
     )
 }
@@ -855,6 +882,7 @@ export function SavedInsights(): JSX.Element {
 
     return (
         <SceneContent className={cn('saved-insights')}>
+            <NewInsightShortcuts />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.SavedInsights].name}
                 description={sceneConfigurations[Scene.SavedInsights].description}
@@ -890,9 +918,7 @@ export function SavedInsights(): JSX.Element {
                     <div className="flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center my-0">
                         <span className="text-secondary">
                             {count
-                                ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} insight${
-                                      count === 1 ? '' : 's'
-                                  }`
+                                ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${pluralize(count, 'insight')}`
                                 : null}
                         </span>
                         <div>

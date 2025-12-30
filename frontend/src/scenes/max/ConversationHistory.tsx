@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
-import { IconPlus } from '@posthog/icons'
+import { IconExternal, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -12,7 +12,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { Conversation, ConversationStatus, ConversationType } from '~/types'
 
 import { maxLogic } from './maxLogic'
-import { formatConversationDate } from './utils'
+import { formatConversationDate, getSlackThreadUrl } from './utils'
 
 export interface ConversationHistoryProps {
     sidePanel?: boolean
@@ -93,7 +93,21 @@ function ConversationCard({ conversation, openConversation, sidePanel }: Convers
         >
             <div className="flex items-center gap-2">
                 <span className="flex-1 line-clamp-1">{conversation.title}</span>
+                {conversation.is_internal && <LemonTag type="muted">Impersonated</LemonTag>}
                 {conversation.type === ConversationType.DeepResearch && <LemonTag>Deep research</LemonTag>}
+                {conversation.slack_thread_key && (
+                    <LemonTag>
+                        <Link
+                            to={getSlackThreadUrl(conversation.slack_thread_key, conversation.slack_workspace_domain)}
+                            target="_blank"
+                            className="flex items-center gap-1"
+                            onClick={(e) => e.stopPropagation()}
+                            tooltip="This chat was started in Slack"
+                        >
+                            Slack thread <IconExternal />
+                        </Link>
+                    </LemonTag>
+                )}
             </div>
             {conversation.status === ConversationStatus.InProgress ? (
                 <Spinner className="h-4 w-4" />

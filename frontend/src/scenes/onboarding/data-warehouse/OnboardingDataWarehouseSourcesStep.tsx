@@ -18,17 +18,17 @@ export function OnboardingDataWarehouseSourcesStep({
 
     return (
         <OnboardingStep
-            title="Connect your data"
+            title="Connect your data for better insights"
             stepKey={stepKey}
             showContinue={false}
             showSkip={!availableSourcesLoading}
-            subtitle="Link your important data from your CRM, payment processor, or database and query across them seamlessly."
+            subtitle="Link sources like Stripe and Hubspot so you can query them alongside product data to find correlations."
         >
             <InlineSourceSetup
                 onComplete={() => goToNextStep()}
                 featured
-                title="Connect a data source"
-                subtitle="Choose a source to import data from."
+                title="Choose from 20+ sources"
+                subtitle="You can always connect more sources later."
             />
         </OnboardingStep>
     )

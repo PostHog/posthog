@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from typing import ClassVar, Literal, Self
+from typing import Any, ClassVar, Literal, Self
 
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
@@ -154,7 +154,6 @@ The assistant used the todo list because:
 3. This approach allows for tracking progress across the entire request
 """.strip()
 
-
 NEGATIVE_EXAMPLE_SIMPLE_QUERY_EXPLANATION = """
 User: What does this query do?
 Assistant: Let me analyze the query you provided.
@@ -178,6 +177,30 @@ NEGATIVE_EXAMPLE_DOCUMENTATION_REQUEST_REASONING = """
 The assistant did not use the todo list because this is an informational request. The user is simply asking for help, not for the assistant to perform multiple steps or tasks.
 """.strip()
 
+POSITIVE_TODO_EXAMPLES = [
+    TodoWriteExample(
+        example=POSITIVE_EXAMPLE_INSIGHT_WITH_SEGMENTATION,
+        reasoning=POSITIVE_EXAMPLE_INSIGHT_WITH_SEGMENTATION_REASONING,
+    ),
+    TodoWriteExample(
+        example=POSITIVE_EXAMPLE_COMPANY_CHURN_ANALYSIS, reasoning=POSITIVE_EXAMPLE_COMPANY_CHURN_ANALYSIS_REASONING
+    ),
+    TodoWriteExample(
+        example=POSITIVE_EXAMPLE_MULTIPLE_METRICS_ANALYSIS,
+        reasoning=POSITIVE_EXAMPLE_MULTIPLE_METRICS_ANALYSIS_REASONING,
+    ),
+]
+
+NEGATIVE_TODO_EXAMPLES = [
+    TodoWriteExample(
+        example=NEGATIVE_EXAMPLE_SIMPLE_QUERY_EXPLANATION,
+        reasoning=NEGATIVE_EXAMPLE_SIMPLE_QUERY_EXPLANATION_REASONING,
+    ),
+    TodoWriteExample(
+        example=NEGATIVE_EXAMPLE_DOCUMENTATION_REQUEST, reasoning=NEGATIVE_EXAMPLE_DOCUMENTATION_REQUEST_REASONING
+    ),
+]
+
 
 # Has its unique schema that doesn't match the Deep Research schema
 class TodoItem(BaseModel):
@@ -194,34 +217,50 @@ class TodoWriteTool(MaxTool):
     name: Literal["todo_write"] = "todo_write"
     args_schema: type[BaseModel] = TodoWriteToolArgs
 
-    POSITIVE_TODO_EXAMPLES: ClassVar[list[TodoWriteExample]] = [
-        TodoWriteExample(
-            example=POSITIVE_EXAMPLE_INSIGHT_WITH_SEGMENTATION,
-            reasoning=POSITIVE_EXAMPLE_INSIGHT_WITH_SEGMENTATION_REASONING,
-        ),
-        TodoWriteExample(
-            example=POSITIVE_EXAMPLE_COMPANY_CHURN_ANALYSIS, reasoning=POSITIVE_EXAMPLE_COMPANY_CHURN_ANALYSIS_REASONING
-        ),
-        TodoWriteExample(
-            example=POSITIVE_EXAMPLE_MULTIPLE_METRICS_ANALYSIS,
-            reasoning=POSITIVE_EXAMPLE_MULTIPLE_METRICS_ANALYSIS_REASONING,
-        ),
-    ]
-    NEGATIVE_TODO_EXAMPLES: ClassVar[list[TodoWriteExample]] = [
-        TodoWriteExample(
-            example=NEGATIVE_EXAMPLE_SIMPLE_QUERY_EXPLANATION,
-            reasoning=NEGATIVE_EXAMPLE_SIMPLE_QUERY_EXPLANATION_REASONING,
-        ),
-        TodoWriteExample(
-            example=NEGATIVE_EXAMPLE_DOCUMENTATION_REQUEST, reasoning=NEGATIVE_EXAMPLE_DOCUMENTATION_REQUEST_REASONING
-        ),
-    ]
+    POSITIVE_TODO_EXAMPLES: ClassVar[list[TodoWriteExample]] = POSITIVE_TODO_EXAMPLES
+    NEGATIVE_TODO_EXAMPLES: ClassVar[list[TodoWriteExample]] = NEGATIVE_TODO_EXAMPLES
 
     async def _arun_impl(self, todos: list[TodoItem]) -> tuple[str, None]:
         return (
             "The to-dos were updated successfully. Please keep using the to-do list to track your progress, and continue with any active tasks as appropriate.",
             None,
         )
+
+    @staticmethod
+    def format_todo_list(todos: list[TodoItem] | dict[str, Any]) -> str:
+        """
+        Format a todo list into human-readable content.
+
+        Args:
+            todos: Either a list of TodoItem objects or a dict with 'todos' key (tool call args)
+
+        Returns:
+            Formatted string representation of the todo list
+        """
+        # Parse args dict if needed
+        if isinstance(todos, dict):
+            parsed_args = TodoWriteToolArgs(**todos)
+            todos = parsed_args.todos
+
+        if not todos:
+            return "Your todo list is empty."
+
+        lines = ["Your current todo list:"]
+        for todo in todos:
+            status = todo.status
+            content = todo.content
+
+            # Use status emoji/indicator
+            if status == "completed":
+                indicator = "✓"
+            elif status == "in_progress":
+                indicator = "→"
+            else:  # pending
+                indicator = "○"
+
+            lines.append(f"{indicator} [{status}] {content}")
+
+        return "\n".join(lines)
 
     @classmethod
     async def create_tool_class(

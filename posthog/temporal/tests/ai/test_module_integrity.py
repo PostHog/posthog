@@ -10,7 +10,9 @@ class TestAITemporalModuleIntegrity:
             "SummarizeSingleSessionWorkflow",
             "SummarizeSessionGroupWorkflow",
             "AssistantConversationRunnerWorkflow",
+            "ChatAgentWorkflow",
             "SummarizeLLMTracesWorkflow",
+            "SlackConversationRunnerWorkflow",
         ]
         actual_workflow_names = [workflow.__name__ for workflow in ai.WORKFLOWS]
         assert len(actual_workflow_names) == len(expected_workflows), (
@@ -42,8 +44,10 @@ class TestAITemporalModuleIntegrity:
             "combine_patterns_from_chunks_activity",
             "split_session_summaries_into_chunks_for_patterns_extraction_activity",
             "process_conversation_activity",
+            "process_chat_agent_activity",
             "validate_llm_single_session_summary_with_videos_activity",
             "summarize_llm_traces_activity",
+            "process_slack_conversation_activity",
         ]
         actual_activity_names = [activity.__name__ for activity in ai.ACTIVITIES]
         assert len(actual_activity_names) == len(expected_activities), (
@@ -68,6 +72,7 @@ class TestAITemporalModuleIntegrity:
             "SessionGroupSummaryInputs",
             "SessionGroupSummaryOfSummariesInputs",
             "SummarizeLLMTracesInputs",
+            "SlackConversationRunnerWorkflowInputs",
         ]
         actual_exports = ai.__all__
         assert len(actual_exports) == len(expected_exports), (

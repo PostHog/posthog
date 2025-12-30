@@ -7,7 +7,7 @@ import posthoganalytics
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Product, tags_context
-from posthog.tasks.usage_report import AI_COST_MARKUP_PERCENT, CLOUD_REGION_TO_TEAM_ID
+from posthog.tasks.usage_report import AI_BILLING_EXCLUDED_TOOLS, AI_COST_MARKUP_PERCENT, CLOUD_REGION_TO_TEAM_ID
 from posthog.utils import get_instance_region
 
 from ee.models.assistant import Conversation
@@ -140,22 +140,27 @@ def get_ai_credits(
     with tags_context(product=Product.MAX_AI, usage_report=usage_report_kind, kind=usage_report_kind):
         query = f"""
         WITH trace_analysis AS (
+            WITH %(excluded_tools)s AS excluded_tools
             SELECT
                 trace_id,
                 session_id,
                 multiIf(
                     length(tool_calls) > 0
-                        AND arrayAll(
-                            tc ->
-                                JSONExtractString(tc, 'name') = 'search'
-                                AND JSONExtractString(
-                                    JSONExtractRaw(tc, 'args'),
-                                    'kind'
-                                ) = 'docs',
-                            tool_calls
-                        ),
-                    0,  -- all tool calls are docs-search → NOT billable
-                    1   -- everything else (no tools OR any non-docs-search tool) → billable
+                    AND arrayAll(
+                        i ->
+                            -- tool must be in the excluded list
+                            has(excluded_tools, tool_names[i])
+                            AND
+                            -- if it's search, it must be docs-search
+                            if(
+                                tool_names[i] = 'search',
+                                JSONExtractString(JSONExtractRaw(tool_calls[i], 'args'), 'kind') = 'docs',
+                                1
+                            ),
+                        arrayEnumerate(tool_calls)
+                    ),
+                    0,  -- all tool calls are excluded → NOT billable
+                    1   -- everything else → billable
                 ) AS is_billable
             FROM (
                 SELECT
@@ -180,7 +185,8 @@ def get_ai_credits(
                                 ) + 1
                             )
                         )
-                    ) AS tool_calls
+                    ) AS tool_calls,
+                    arrayMap(tc -> JSONExtractString(tc, 'name'), tool_calls) AS tool_names
                 FROM events
                 PREWHERE
                     team_id = %(team_to_query)s
@@ -233,6 +239,7 @@ def get_ai_credits(
             "begin": begin,
             "end": end,
             "markup_multiplier": 1 + AI_COST_MARKUP_PERCENT,
+            "excluded_tools": AI_BILLING_EXCLUDED_TOOLS,
         }
 
         if is_production:

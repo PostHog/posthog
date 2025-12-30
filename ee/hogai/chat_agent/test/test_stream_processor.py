@@ -142,7 +142,7 @@ class TestStreamProcessor(BaseTest):
         self.assertIsInstance(result[0], AssistantMessage)
         assert isinstance(result[0], AssistantMessage)
         self.assertEqual(result[0].content, "Hello ")
-        self.assertIsNone(result[0].id)
+        self.assertEqual(result[0].id, "temp-0")  # First temporary message of stream
 
     async def test_message_chunk_ignored_for_non_streaming_nodes(self):
         """Test MessageChunkAction returns None for nodes not in streaming_nodes."""

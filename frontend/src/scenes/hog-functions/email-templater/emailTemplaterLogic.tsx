@@ -179,7 +179,9 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
 
                 const finalValues: EmailTemplate = {
                     ...formValues,
-                    html: escapeHTMLStringCurlies(htmlData.html),
+                    html: ['native_email', 'native_email_template'].includes(props.type)
+                        ? htmlData.html
+                        : escapeHTMLStringCurlies(htmlData.html),
                     text: textData.text,
                     design: htmlData.design,
                 }
@@ -276,7 +278,9 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                         templating: values.templatingEngine,
                         email: {
                             ...currentValues,
-                            html: escapeHTMLStringCurlies(htmlData.html),
+                            html: ['native_email', 'native_email_template'].includes(props.type)
+                                ? htmlData.html
+                                : escapeHTMLStringCurlies(htmlData.html),
                             text: textData.text,
                             design: htmlData.design,
                         },

@@ -1,22 +1,30 @@
+import { useReactFlow } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
+import { IconCopy, IconEllipsis, IconTrash } from '@posthog/icons'
 import { LemonInput, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 
 import { workflowLogic } from '../../../workflowLogic'
-import { NODE_HEIGHT, NODE_WIDTH } from '../../constants'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
+import { NODE_HEIGHT, NODE_WIDTH } from '../../react_flow_utils/constants'
 import { HogFlowAction } from '../../types'
 import { useHogFlowStep } from '../HogFlowSteps'
 import { StepViewMetrics } from './StepViewMetrics'
 import { StepViewLogicProps, stepViewLogic } from './stepViewLogic'
 
 export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
-    const { selectedNode, mode } = useValues(hogFlowEditorLogic)
+    const { selectedNode, mode, nodesById, selectedNodeCanBeDeleted } = useValues(hogFlowEditorLogic)
+    const { setSelectedNodeId, startCopyingNode } = useActions(hogFlowEditorLogic)
     const { actionValidationErrorsById, logicProps } = useValues(workflowLogic)
+    const { deleteElements } = useReactFlow()
+
     const isSelected = selectedNode?.id === action.id
+    const node = nodesById[action.id]
 
     const stepViewLogicProps: StepViewLogicProps = { action, workflowLogicProps: logicProps }
     const { isEditingName, isEditingDescription, editNameValue, editDescriptionValue } = useValues(
@@ -76,7 +84,7 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                 >
                     {icon}
                 </div>
-                <div className="flex flex-col flex-1 min-w-0">
+                <div className="flex flex-col flex-1 min-w-0 pr-4">
                     <div className="flex justify-between items-center gap-1">
                         {isEditingName ? (
                             <div onClick={(e) => e.stopPropagation()} className="flex-1 min-w-0">
@@ -165,12 +173,43 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                         </Tooltip>
                     )}
                 </div>
+                {isSelected && node?.deletable && (
+                    <div className="absolute top-0.5 right-0.5" onClick={(e) => e.stopPropagation()}>
+                        <LemonMenu
+                            items={[
+                                // Copying a node allows re-adding it elsewhere in the workflow
+                                selectedNodeCanBeDeleted
+                                    ? {
+                                          label: 'Copy',
+                                          icon: <IconCopy />,
+                                          status: 'default',
+                                          onClick: () => startCopyingNode(node),
+                                      }
+                                    : null,
+                                {
+                                    label: 'Delete',
+                                    status: 'danger',
+                                    icon: <IconTrash />,
+                                    onClick: () => {
+                                        void deleteElements({ nodes: [node] })
+                                        setSelectedNodeId(null)
+                                    },
+                                    disabledReason: !selectedNodeCanBeDeleted
+                                        ? 'Clean up branching steps first'
+                                        : undefined,
+                                },
+                            ]}
+                        >
+                            <LemonButton icon={<IconEllipsis />} size="xsmall" noPadding />
+                        </LemonMenu>
+                    </div>
+                )}
             </div>
-            {hasValidationError && (
+            {hasValidationError ? (
                 <div className="absolute top-0 right-0 scale-75">
                     <LemonBadge status="warning" size="small" content="!" position="top-right" />
                 </div>
-            )}
+            ) : null}
             {mode === 'metrics' && (
                 <div
                     style={{

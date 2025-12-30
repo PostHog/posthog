@@ -17,6 +17,7 @@ from posthog.schema import (
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
     AssistantUpdateEvent,
+    SubagentUpdateEvent,
 )
 
 from posthog.redis import get_async_client
@@ -70,7 +71,7 @@ class MessageEvent(BaseModel):
 
 class UpdateEvent(BaseModel):
     type: Literal[AssistantEventType.UPDATE]
-    payload: AssistantUpdateEvent
+    payload: AssistantUpdateEvent | SubagentUpdateEvent
 
 
 class GenerationStatusEvent(BaseModel):
@@ -101,6 +102,11 @@ def get_conversation_stream_key(conversation_id: UUID) -> str:
     return f"{CONVERSATION_STREAM_PREFIX}{conversation_id}"
 
 
+def get_subagent_stream_key(conversation_id: UUID, tool_call_id: str) -> str:
+    """Get the Redis stream key for a subagent tool execution."""
+    return f"{CONVERSATION_STREAM_PREFIX}{conversation_id}:{tool_call_id}"
+
+
 class ConversationStreamSerializer:
     serialization_key = "data"
 
@@ -128,7 +134,9 @@ class ConversationStreamSerializer:
             elif event_type == AssistantEventType.STATUS:
                 return self._serialize(self._to_status_event(cast(AssistantGenerationStatusEvent, event_data)))
             elif event_type == AssistantEventType.UPDATE:
-                return self._serialize(self._to_update_event(cast(AssistantUpdateEvent, event_data)))
+                return self._serialize(
+                    self._to_update_event(cast(AssistantUpdateEvent | SubagentUpdateEvent, event_data))
+                )
             else:
                 raise ValueError(f"Unknown event type: {event_type}")
 
@@ -167,7 +175,7 @@ class ConversationStreamSerializer:
             payload=event,
         )
 
-    def _to_update_event(self, update: AssistantUpdateEvent) -> UpdateEvent:
+    def _to_update_event(self, update: AssistantUpdateEvent | SubagentUpdateEvent) -> UpdateEvent:
         return UpdateEvent(
             type=AssistantEventType.UPDATE,
             payload=update,

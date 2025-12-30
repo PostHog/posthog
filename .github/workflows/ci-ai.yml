@@ -24,6 +24,11 @@ jobs:
                 github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'evals-ready')
             )
 
+        permissions:
+            contents: read
+            issues: write
+            pull-requests: write
+
         steps:
             - uses: actions/checkout@v4
               with:
@@ -60,7 +65,7 @@ jobs:
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
             - name: Install Rust
-              uses: dtolnay/rust-toolchain@6691ebadcb18182cc1391d07c9f295f657c593cd # 1.88
+              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
               with:
                   toolchain: 1.88.0
                   components: cargo
@@ -95,7 +100,6 @@ jobs:
               if: always() && github.event_name == 'pull_request'
               uses: actions/github-script@v8
               with:
-                  github-token: ${{ secrets.POSTHOG_BOT_PAT }}
                   script: |
                       const fs = require("fs")
                       const script = require('.github/scripts/post-eval-summary.js')

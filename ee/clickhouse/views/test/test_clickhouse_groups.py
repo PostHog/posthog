@@ -1,6 +1,7 @@
 import json
 from uuid import UUID
 
+import pytest
 from freezegun.api import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, snapshot_clickhouse_queries
 from unittest import mock
@@ -8,7 +9,6 @@ from unittest.mock import patch
 
 from django.db import IntegrityError
 
-from flaky import flaky
 from orjson import orjson
 from rest_framework import status
 
@@ -321,7 +321,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2021-05-02")
     @mock.patch("ee.clickhouse.views.groups.capture_internal")
-    @flaky(max_runs=3, min_passes=1)
+    @pytest.mark.flaky(reruns=2)
     def test_create_group(self, mock_capture):
         group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
@@ -500,7 +500,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2021-05-02")
     @mock.patch("ee.clickhouse.views.groups.capture_internal")
-    @flaky(max_runs=3, min_passes=1)
+    @pytest.mark.flaky(reruns=2)
     def test_group_property_crud_add_success(self, mock_capture):
         group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
@@ -585,7 +585,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2021-05-02")
     @mock.patch("ee.clickhouse.views.groups.capture_internal")
-    @flaky(max_runs=3, min_passes=1)
+    @pytest.mark.flaky(reruns=2)
     def test_group_property_crud_update_success(self, mock_capture):
         group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
@@ -709,7 +709,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2021-05-02")
     @mock.patch("ee.clickhouse.views.groups.capture_internal")
-    @flaky(max_runs=3, min_passes=1)
+    @pytest.mark.flaky(reruns=2)
     def test_group_property_crud_delete_success(self, mock_capture):
         group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,

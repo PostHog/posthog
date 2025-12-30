@@ -205,29 +205,23 @@ export function SharedMetricModal({
                                 ]}
                                 footer={
                                     <div className="flex items-center justify-center m-2">
-                                        <LemonButton
-                                            to={`${urls.experiments()}?tab=shared-metrics`}
-                                            size="xsmall"
-                                            type="tertiary"
-                                        >
+                                        <Link to={`${urls.experiments()}?tab=shared-metrics`} target="_blank">
                                             See all shared metrics
-                                        </LemonButton>
+                                        </Link>
                                     </div>
                                 }
                             />
                         </>
                     ) : (
-                        <LemonBanner
-                            className="w-full"
-                            type="info"
-                            action={{
-                                children: 'New shared metric',
-                                to: urls.experimentsSharedMetric('new'),
-                            }}
-                        >
-                            {compatibleSharedMetrics.length > 0
-                                ? 'All of your shared metrics are already in this experiment.'
-                                : "You don't have any shared metrics that match the experiment type. Shared metrics let you create reusable metrics that you can quickly add to any experiment."}
+                        <LemonBanner className="w-full" type="info">
+                            <div className="mb-2">
+                                {compatibleSharedMetrics.length > 0
+                                    ? 'All of your shared metrics are already in this experiment.'
+                                    : "You don't have any shared metrics that match the experiment type. Shared metrics let you create reusable metrics that you can quickly add to any experiment."}
+                            </div>
+                            <Link to={urls.experimentsSharedMetric('new')} target="_blank">
+                                New shared metric
+                            </Link>
                         </LemonBanner>
                     )}
                 </div>

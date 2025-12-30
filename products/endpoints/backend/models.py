@@ -114,6 +114,11 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     created_by = models.ForeignKey(User, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    last_executed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When this endpoint was last executed via the run API. Updated with hour granularity.",
+    )
 
     class Meta:
         constraints = [
@@ -186,21 +191,31 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     def can_materialize(self) -> tuple[bool, str]:
         """Check if endpoint can be materialized.
 
-        Only HogQLQuery can be materialized.
-
         Returns: (can_materialize: bool, reason: str)
         """
         query_kind = self.query.get("kind")
 
-        if query_kind != "HogQLQuery":
-            return False, f"Only HogQLQuery can be materialized. Query type '{query_kind}' is not supported."
+        MATERIALIZABLE_QUERY_TYPES = {
+            "HogQLQuery",
+            "TrendsQuery",
+            "FunnelsQuery",
+            "LifecycleQuery",
+            "RetentionQuery",
+            "PathsQuery",
+            "StickinessQuery",
+        }
+
+        if query_kind not in MATERIALIZABLE_QUERY_TYPES:
+            supported = ", ".join(sorted(MATERIALIZABLE_QUERY_TYPES))
+            return False, f"Query type '{query_kind}' cannot be materialized. Supported types: {supported}"
 
         if self.query.get("variables"):
             return False, "Queries with variables cannot be materialized."
 
-        hogql_query = self.query.get("query")
-        if not hogql_query or not isinstance(hogql_query, str):
-            return False, "Query is empty or invalid."
+        if query_kind == "HogQLQuery":
+            hogql_query = self.query.get("query")
+            if not hogql_query or not isinstance(hogql_query, str):
+                return False, "Query is empty or invalid."
 
         return True, ""
 
@@ -235,8 +250,8 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     def get_version(self, version: int | None = None) -> EndpointVersion | None:
         """Get a specific version, or the latest if version is None.
 
-        Raises:
-            EndpointVersion.DoesNotExist: If the version doesn't exist
+        Returns None if no versions exist when version is None.
+        Raises EndpointVersion.DoesNotExist if a specific version number is requested but doesn't exist.
         """
         if version is not None:
             return EndpointVersion.objects.get(endpoint=self, version=version)

@@ -26,10 +26,90 @@ import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
 import { HogflowTestResult } from '../../steps/types'
 import type { hogFlowEditorTestLogicType } from './hogFlowEditorTestLogicType'
 
+// Time range constants for event search
+const STANDARD_SEARCH_DAYS = 7
+const EXTENDED_SEARCH_DAYS = 30
+const STANDARD_SEARCH_RANGE = `-${STANDARD_SEARCH_DAYS}d`
+const EXTENDED_SEARCH_RANGE = `-${EXTENDED_SEARCH_DAYS}d`
+
 export interface HogflowTestInvocation {
     globals: string
     mock_async_functions: boolean
 }
+
+export const createExampleEvent = (
+    teamId?: number,
+    workflowName?: string | null,
+    eventName: string = '$pageview',
+    email: string = 'example@posthog.com'
+): CyclotronJobInvocationGlobals => ({
+    event: {
+        uuid: uuid(),
+        distinct_id: uuid(),
+        timestamp: dayjs().toISOString(),
+        elements_chain: '',
+        url: `${window.location.origin}/project/${teamId || 1}/events/`,
+        event: eventName,
+        properties: {
+            $current_url: window.location.href.split('#')[0],
+            $browser: 'Chrome',
+            this_is_an_example_event: true,
+        },
+    },
+    person: {
+        id: uuid(),
+        properties: {
+            email,
+        },
+        name: 'Example person',
+        url: `${window.location.origin}/person/${uuid()}`,
+    },
+    groups: {},
+    project: {
+        id: teamId || 1,
+        name: 'Default project',
+        url: `${window.location.origin}/project/${teamId || 1}`,
+    },
+    source: {
+        name: workflowName ?? 'Unnamed',
+        url: window.location.href.split('#')[0],
+    },
+})
+
+export const createGlobalsFromResponse = (
+    event: any,
+    person: any,
+    teamId: number,
+    workflowName?: string | null
+): CyclotronJobInvocationGlobals => ({
+    event: {
+        uuid: event.uuid,
+        distinct_id: event.distinct_id,
+        timestamp: event.timestamp,
+        elements_chain: event.elements_chain || '',
+        url: event.url || '',
+        event: event.event,
+        properties: event.properties,
+    },
+    person: person
+        ? {
+              id: person.id,
+              properties: person.properties,
+              name: person.name || 'Unknown person',
+              url: `${window.location.origin}/person/${person.id}`,
+          }
+        : undefined,
+    groups: {},
+    project: {
+        id: teamId,
+        name: 'Default project',
+        url: `${window.location.origin}/project/${teamId}`,
+    },
+    source: {
+        name: workflowName ?? 'Unnamed',
+        url: window.location.href.split('#')[0],
+    },
+})
 
 export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
     path((key) => ['products', 'workflows', 'frontend', 'Workflows', 'hogflows', 'actions', 'workflowTestLogic', key]),
@@ -47,12 +127,24 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
     actions({
         setTestResult: (testResult: HogflowTestResult | null) => ({ testResult }),
         setTestResultMode: (mode: 'raw' | 'diff') => ({ mode }),
-        loadSampleGlobals: (payload?: { eventId?: string }) => ({ eventId: payload?.eventId }),
+        loadSampleGlobals: (payload?: { eventId?: string; extendedSearch?: boolean }) => ({
+            eventId: payload?.eventId,
+            extendedSearch: payload?.extendedSearch,
+        }),
+        loadSampleEventByName: (payload: { eventName: string; extendedSearch?: boolean }) => ({
+            eventName: payload.eventName,
+            extendedSearch: payload.extendedSearch,
+        }),
         setSampleGlobals: (globals?: string | null) => ({ globals }),
         setSampleGlobalsError: (error: string | null) => ({ error }),
+        setNoMatchingEvents: (noMatchingEvents: boolean) => ({ noMatchingEvents }),
+        setCanTryExtendedSearch: (canTryExtendedSearch: boolean) => ({ canTryExtendedSearch }),
         cancelSampleGlobalsLoading: true,
         receiveExampleGlobals: (globals: object | null) => ({ globals }),
         setNextActionId: (nextActionId: string | null) => ({ nextActionId }),
+        setEventPanelOpen: (eventPanelOpen: string[]) => ({ eventPanelOpen }),
+        setEventSelectorOpen: (eventSelectorOpen: boolean) => ({ eventSelectorOpen }),
+        setLastSearchedEventName: (eventName: string | null) => ({ eventName }),
     }),
     reducers({
         testResult: [
@@ -72,6 +164,20 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             {
                 loadSampleGlobals: () => null,
                 setSampleGlobalsError: (_, { error }) => error,
+            },
+        ],
+        noMatchingEvents: [
+            false as boolean,
+            {
+                loadSampleGlobals: () => false,
+                setNoMatchingEvents: (_, { noMatchingEvents }) => noMatchingEvents,
+            },
+        ],
+        canTryExtendedSearch: [
+            false as boolean,
+            {
+                loadSampleGlobals: () => false,
+                setCanTryExtendedSearch: (_, { canTryExtendedSearch }) => canTryExtendedSearch,
             },
         ],
         fetchCancelled: [
@@ -99,27 +205,48 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                 },
             },
         ],
+        eventPanelOpen: [
+            ['event'] as string[],
+            {
+                setEventPanelOpen: (_, { eventPanelOpen }) => eventPanelOpen,
+            },
+        ],
+        eventSelectorOpen: [
+            false as boolean,
+            {
+                setEventSelectorOpen: (_, { eventSelectorOpen }) => eventSelectorOpen,
+                loadSampleEventByNameSuccess: () => false, // Close selector after loading
+            },
+        ],
+        lastSearchedEventName: [
+            null as string | null,
+            {
+                setLastSearchedEventName: (_, { eventName }) => eventName,
+                loadSampleEventByName: (_, { eventName }) => eventName, // Store the event name when searching
+            },
+        ],
     }),
 
     loaders(({ actions, values }) => ({
         sampleGlobals: [
             null as CyclotronJobInvocationGlobals | null,
             {
-                loadSampleGlobals: async () => {
+                loadSampleGlobals: async ({ extendedSearch }) => {
                     if (!values.shouldLoadSampleGlobals) {
                         return null
                     }
 
-                    const errorMessage =
-                        'No events match these filters in the last 30 days. Showing an example $pageview event instead.'
-
                     try {
+                        // Use extended or standard search range
+                        const timeRange = extendedSearch ? EXTENDED_SEARCH_RANGE : STANDARD_SEARCH_RANGE
+
+                        // Fetch multiple events so we can cycle through them
                         const query: EventsQuery = {
                             kind: NodeKind.EventsQuery,
                             fixedProperties: [values.matchingFilters],
                             select: ['*', 'person'],
-                            after: '-7d',
-                            limit: 1,
+                            after: timeRange,
+                            limit: 10,
                             orderBy: ['timestamp DESC'],
                             modifiers: {
                                 // NOTE: We always want to show events with the person properties at the time the event was created as that is what the function will see
@@ -130,47 +257,116 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                         const response = await performQuery(query)
 
                         if (!response?.results?.[0]) {
-                            throw new Error(errorMessage)
+                            // No matching events found
+                            const exampleGlobals = createExampleEvent(values.workflow.team_id, values.workflow.name)
+                            actions.setNoMatchingEvents(true)
+
+                            if (extendedSearch) {
+                                // Extended search also failed
+                                actions.setSampleGlobalsError(
+                                    `No events match these filters in the last ${EXTENDED_SEARCH_DAYS} days. Using an example $pageview event instead.`
+                                )
+                                actions.setCanTryExtendedSearch(false)
+                            } else {
+                                // First search failed, allow extended search
+                                actions.setSampleGlobalsError(
+                                    `No events match these filters in the last ${STANDARD_SEARCH_DAYS} days. Using an example $pageview event instead.`
+                                )
+                                actions.setCanTryExtendedSearch(true)
+                            }
+
+                            return exampleGlobals
+                        }
+
+                        // Found matching events
+                        actions.setNoMatchingEvents(false)
+                        actions.setCanTryExtendedSearch(false)
+
+                        // Pick a different event than the current one if possible
+                        let resultIndex = 0
+                        if (values.sampleGlobals?.event?.uuid && response.results.length > 1) {
+                            // Find the index of the current event
+                            const currentIndex = response.results.findIndex(
+                                (result) => result[0].uuid === values.sampleGlobals?.event?.uuid
+                            )
+                            // Pick the next event in the list, cycling back to the start if needed
+                            if (currentIndex !== -1) {
+                                resultIndex = (currentIndex + 1) % response.results.length
+                            }
+                        }
+
+                        const event = response.results[resultIndex][0]
+                        const person = response.results[resultIndex][1]
+
+                        return createGlobalsFromResponse(event, person, values.workflow.team_id, values.workflow.name)
+                    } catch (e: any) {
+                        if (!e.message?.includes('breakpoint')) {
+                            actions.setSampleGlobalsError('Failed to load matching events. Please try again.')
+                        }
+                        return null
+                    }
+                },
+                loadSampleEventByName: async ({
+                    eventName,
+                    extendedSearch,
+                }): Promise<CyclotronJobInvocationGlobals | null> => {
+                    // Load a specific event by name (for non-event triggers)
+                    try {
+                        const timeRange = extendedSearch ? EXTENDED_SEARCH_RANGE : STANDARD_SEARCH_RANGE
+
+                        const query: EventsQuery = {
+                            kind: NodeKind.EventsQuery,
+                            fixedProperties: [
+                                {
+                                    type: FilterLogicalOperator.And,
+                                    values: [
+                                        {
+                                            type: PropertyFilterType.HogQL,
+                                            key: hogql`event = ${eventName}`,
+                                        },
+                                    ],
+                                },
+                            ],
+                            select: ['*', 'person'],
+                            after: timeRange,
+                            limit: 1,
+                            orderBy: ['timestamp DESC'],
+                            modifiers: {
+                                personsOnEventsMode: 'person_id_no_override_properties_on_events',
+                            },
+                        }
+
+                        const response = await performQuery(query)
+
+                        if (!response?.results?.[0]) {
+                            // No matching events found, use standard example event
+                            const exampleGlobals = createExampleEvent(values.workflow.team_id, values.workflow.name)
+
+                            if (extendedSearch) {
+                                // Extended search also failed
+                                actions.setSampleGlobalsError(
+                                    `No "${eventName}" events found in the last ${EXTENDED_SEARCH_DAYS} days. Using an example $pageview event instead.`
+                                )
+                                actions.setCanTryExtendedSearch(false)
+                            } else {
+                                // First search failed, allow extended search
+                                actions.setSampleGlobalsError(
+                                    `No "${eventName}" events found in the last ${STANDARD_SEARCH_DAYS} days. Using an example $pageview event instead.`
+                                )
+                                actions.setCanTryExtendedSearch(true)
+                            }
+
+                            return exampleGlobals
                         }
 
                         const event = response.results[0][0]
                         const person = response.results[0][1]
 
-                        const globals = {
-                            event: {
-                                uuid: event.uuid,
-                                distinct_id: event.distinct_id,
-                                timestamp: event.timestamp,
-                                elements_chain: event.elements_chain || '',
-                                url: event.url || '',
-                                event: event.event,
-                                properties: event.properties,
-                            },
-                            person: person
-                                ? {
-                                      id: person.id,
-                                      properties: person.properties,
-                                      name: person.name || 'Unknown person',
-                                      url: `${window.location.origin}/person/${person.id}`,
-                                  }
-                                : undefined,
-                            groups: {},
-                            project: {
-                                id: values.workflow.team_id,
-                                name: 'Default project',
-                                url: `${window.location.origin}/project/${values.workflow.team_id}`,
-                            },
-                            source: {
-                                name: values.workflow.name ?? 'Unnamed',
-                                url: window.location.href.split('#')[0],
-                            },
-                        }
-
-                        return globals
-                    } catch (e: any) {
-                        if (!e.message?.includes('breakpoint')) {
-                            actions.setSampleGlobalsError(e.message ?? errorMessage)
-                        }
+                        actions.setSampleGlobalsError(null)
+                        actions.setCanTryExtendedSearch(false)
+                        return createGlobalsFromResponse(event, person, values.workflow.team_id, values.workflow.name)
+                    } catch {
+                        actions.setSampleGlobalsError('Failed to load event. Please try again.')
                         return null
                     }
                 },
@@ -322,41 +518,24 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
         cancelSampleGlobalsLoading: () => {
             // Just mark as cancelled - we'll ignore any results that come back
         },
+        setSelectedNodeId: () => {
+            // When we switch back to a trigger node, reset the flags
+            // so we can try loading again
+            if (values.noMatchingEvents) {
+                actions.setNoMatchingEvents(false)
+                actions.setCanTryExtendedSearch(false)
+            }
+        },
     })),
 
     afterMount(({ actions, values }) => {
-        actions.loadSampleGlobalsSuccess({
-            event: {
-                uuid: uuid(),
-                distinct_id: uuid(),
-                timestamp: dayjs().toISOString(),
-                elements_chain: '',
-                url: `${window.location.origin}/project/1/events/`,
-                event: '$pageview',
-                properties: {
-                    $current_url: window.location.href.split('#')[0],
-                    $browser: 'Chrome',
-                    this_is_an_example_event: true,
-                },
-            },
-            person: {
-                id: uuid(),
-                properties: {
-                    email: 'example@posthog.com',
-                },
-                name: 'Example person',
-                url: `${window.location.origin}/person/${uuid()}`,
-            },
-            groups: {},
-            project: {
-                id: 1,
-                name: 'Default project',
-                url: `${window.location.origin}/project/1`,
-            },
-            source: {
-                name: values.workflow.name ?? 'Unnamed',
-                url: window.location.href.split('#')[0],
-            },
-        })
+        // If we can load actual events (i.e., trigger is configured), load them automatically
+        if (values.shouldLoadSampleGlobals) {
+            actions.loadSampleGlobals()
+        } else {
+            // Only use example event if we can't load actual events
+            const exampleGlobals = createExampleEvent(values.workflow.team_id, values.workflow.name)
+            actions.loadSampleGlobalsSuccess(exampleGlobals)
+        }
     }),
 ])

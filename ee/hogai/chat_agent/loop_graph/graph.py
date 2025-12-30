@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import cast
+from typing import Literal, cast
 
 from ee.hogai.core.base import BaseAssistantGraph
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
@@ -40,5 +40,5 @@ class ChatAgentLoopGraph(BaseAssistantGraph[AssistantState, PartialAssistantStat
         )
         return self
 
-    def compile_full_graph(self, checkpointer: DjangoCheckpointer | None = None):
+    def compile_full_graph(self, checkpointer: DjangoCheckpointer | None | Literal[False] = None):
         return self.add_agent_node().add_agent_tools_node().compile(checkpointer=checkpointer)

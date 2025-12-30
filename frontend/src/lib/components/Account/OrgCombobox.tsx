@@ -6,6 +6,7 @@ import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Combobox } from 'lib/ui/Combobox/Combobox'
+import { DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -32,7 +33,7 @@ export function OrgCombobox({ allowCreate = true }: { allowCreate?: boolean }): 
                 <Label intent="menu" className="px-2">
                     Current organization
                 </Label>
-                <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
+                <DropdownMenuSeparator />
 
                 <Combobox.Empty>No organizations found</Combobox.Empty>
 
@@ -62,40 +63,50 @@ export function OrgCombobox({ allowCreate = true }: { allowCreate?: boolean }): 
                     </Combobox.Group>
                 )}
 
-                <Label intent="menu" className="px-2 mt-2">
-                    Other organizations
-                </Label>
-                <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
-
-                {otherOrganizations.map((otherOrganization) => (
-                    <Combobox.Group value={[otherOrganization.name]} key={otherOrganization.id}>
-                        <Combobox.Item key={otherOrganization.id} asChild>
-                            <ButtonPrimitive
-                                menuItem
-                                onClick={() => updateCurrentOrganization(otherOrganization.id)}
-                                tooltip={`Switch to organization: ${otherOrganization.name}`}
-                                tooltipPlacement="right"
-                                data-attr="tree-navbar-organization-dropdown-other-organization-button"
-                            >
-                                <IconBlank />
-                                <UploadedLogo
-                                    size="xsmall"
-                                    name={otherOrganization.name}
-                                    entityId={otherOrganization.id}
-                                    mediaId={otherOrganization.logo_media_id}
-                                />
-                                <span className="truncate max-w-full">{otherOrganization.name}</span>
-                                <div className="ml-auto">
-                                    <AccessLevelIndicator organization={otherOrganization} />
-                                </div>
-                            </ButtonPrimitive>
-                        </Combobox.Item>
-                    </Combobox.Group>
-                ))}
+                {otherOrganizations.length > 0 ? (
+                    <>
+                        <Label intent="menu" className="px-2 mt-2">
+                            Other organizations
+                        </Label>
+                        <DropdownMenuSeparator />
+                        {otherOrganizations.map((otherOrganization) => (
+                            <Combobox.Group value={[otherOrganization.name]} key={otherOrganization.id}>
+                                <Combobox.Item key={otherOrganization.id} asChild>
+                                    <ButtonPrimitive
+                                        menuItem
+                                        onClick={() => updateCurrentOrganization(otherOrganization.id)}
+                                        tooltip={
+                                            otherOrganization.is_active === false
+                                                ? otherOrganization.is_not_active_reason || 'Organization is disabled'
+                                                : `Switch to organization: ${otherOrganization.name}`
+                                        }
+                                        tooltipPlacement="right"
+                                        data-attr="tree-navbar-organization-dropdown-other-organization-button"
+                                        disabled={otherOrganization.is_active === false}
+                                    >
+                                        <IconBlank />
+                                        <UploadedLogo
+                                            size="xsmall"
+                                            name={otherOrganization.name}
+                                            entityId={otherOrganization.id}
+                                            mediaId={otherOrganization.logo_media_id}
+                                        />
+                                        <span className="truncate max-w-full">{otherOrganization.name}</span>
+                                        <div className="ml-auto">
+                                            <AccessLevelIndicator organization={otherOrganization} />
+                                        </div>
+                                    </ButtonPrimitive>
+                                </Combobox.Item>
+                            </Combobox.Group>
+                        ))}
+                    </>
+                ) : (
+                    <Combobox.Empty>No other organizations found</Combobox.Empty>
+                )}
 
                 {preflight?.can_create_org && allowCreate && (
                     <>
-                        <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
+                        <DropdownMenuSeparator />
                         <Combobox.Item asChild>
                             <ButtonPrimitive
                                 menuItem

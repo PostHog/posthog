@@ -1,4 +1,9 @@
-from posthog.temporal.delete_recordings.types import Recording, RecordingsWithPersonInput, RecordingsWithQueryInput
+from posthog.temporal.delete_recordings.types import (
+    DeleteRecordingMetadataInput,
+    Recording,
+    RecordingsWithPersonInput,
+    RecordingsWithQueryInput,
+)
 
 
 def test_recording_creation():
@@ -61,3 +66,18 @@ def test_recordings_with_query_input_mutability():
     input = RecordingsWithQueryInput(query="test", team_id=123)
     input.dry_run = True
     assert input.dry_run is True
+
+
+def test_delete_recording_metadata_input_defaults():
+    input = DeleteRecordingMetadataInput()
+    assert input.dry_run is False
+
+
+def test_delete_recording_metadata_input_dry_run_true():
+    input = DeleteRecordingMetadataInput(dry_run=True)
+    assert input.dry_run is True
+
+
+def test_delete_recording_metadata_input_dry_run_false():
+    input = DeleteRecordingMetadataInput(dry_run=False)
+    assert input.dry_run is False

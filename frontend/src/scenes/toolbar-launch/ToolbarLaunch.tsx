@@ -12,7 +12,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
@@ -71,8 +70,6 @@ export function ToolbarLaunch(): JSX.Element {
                     forceIcon: <IconToolbar />,
                 }}
             />
-
-            <SceneDivider />
 
             <SceneSection title="Authorized URLs for Toolbar" description="Click on the URL to launch the toolbar.">
                 <AuthorizedUrlList type={AuthorizedUrlListType.TOOLBAR_URLS} addText="Add authorized URL" />

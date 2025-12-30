@@ -629,6 +629,18 @@ class TestPersonalAPIKeysWithOrganizationScopeAPIAuthentication(PersonalAPIKeysB
         response = self._do_request(f"/api/users/@me/")
         assert response.status_code == status.HTTP_200_OK, response.json()
 
+    def test_allows_access_when_user_current_organization_differs_from_scoped_org(self):
+        # When user's current_organization_id differs from the API key's scoped org,
+        # the request should still succeed for projects in the scoped org
+        self.user.current_organization = self.other_organization
+        self.user.save()
+
+        response = self._do_request(f"/api/projects/{self.team.id}/insights/")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        response = self._do_request(f"/api/projects/{self.team.id}/events/")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
 
 class TestPersonalAPIKeysWithTeamScopeAPIAuthentication(PersonalAPIKeysBaseTest):
     def setUp(self):

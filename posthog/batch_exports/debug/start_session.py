@@ -43,7 +43,7 @@ def start_session(team_id: int, batch_export_id: str | None = None):
 
     initial_batch_export: BatchExport | None = None
     if batch_export_id:
-        initial_batch_export = BatchExport.objects.select_related("destination").get(
+        initial_batch_export = BatchExport.objects.select_related("destination__integration").get(
             id=batch_export_id, team_id=team_id
         )
 

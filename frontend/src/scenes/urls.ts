@@ -48,7 +48,9 @@ export const urls = {
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
     revenueSettings: (): string => '/data-management/revenue',
+    coreEvents: (): string => '/data-management/core-events',
     marketingAnalytics: (): string => '/data-management/marketing-analytics',
+    marketingAnalyticsApp: (): string => '/marketing',
     customCss: (): string => '/themes/custom-css',
     sqlEditor: (
         query?: string,
@@ -134,6 +136,7 @@ export const urls = {
     asyncMigrationsFuture: (): string => '/instance/async_migrations/future',
     asyncMigrationsSettings: (): string => '/instance/async_migrations/settings',
     deadLetterQueue: (): string => '/instance/dead_letter_queue',
+    materializedColumns: (): string => '/data-management/materialized-columns',
     unsubscribe: (): string => '/unsubscribe',
     integrationsRedirect: (kind: string): string => `/integrations/${kind}/callback`,
     shared: (token: string, exportOptions: SharingConfigurationSettings = {}): string =>
@@ -184,6 +187,11 @@ export const urls = {
     legacyPlugin: (id: string): string => `/pipeline/plugins/${id}`,
     hogFunction: (id: string, tab?: HogFunctionSceneTab): string => `/functions/${id}${tab ? `?tab=${tab}` : ''}`,
     hogFunctionNew: (templateId: string): string => `/functions/new/${templateId}`,
+    productTours: (): string => '/product_tours',
+    productTour: (id: string): string => `/product_tours/${id}`,
+    organizationDeactivated: (): string => '/organization-deactivated',
+    approvals: (): string => '/settings/organization-approvals#change-requests',
+    approval: (id: string): string => `/approvals/${id}`,
 }
 
 export interface UrlMatcher {

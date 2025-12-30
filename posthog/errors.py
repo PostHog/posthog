@@ -107,11 +107,16 @@ class CHQueryErrorCannotScheduleTask(InternalCHQueryError):
     pass
 
 
+class CHQueryErrorS3Error(InternalCHQueryError):
+    pass
+
+
 CLICKHOUSE_SPECIFIC_ERROR_LOOKUP = {
     "TOO_MANY_SIMULTANEOUS_QUERIES": CHQueryErrorTooManySimultaneousQueries(
         "Too many simultaneous queries. Try again later.", code=202
     ),
     "CANNOT_SCHEDULE_TASK": CHQueryErrorCannotScheduleTask("Cannot schedule task. Try again later.", code=439),
+    "S3_ERROR": CHQueryErrorS3Error("S3 error occurred. Try again later.", code=499),
 }
 
 #

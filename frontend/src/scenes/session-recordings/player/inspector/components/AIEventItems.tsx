@@ -13,7 +13,11 @@ import { useAIData } from 'products/llm_analytics/frontend/hooks/useAIData'
 import { normalizeMessages } from 'products/llm_analytics/frontend/utils'
 
 export function AIEventExpanded({ event }: { event: Record<string, any> }): JSX.Element {
-    const { input, output, isLoading } = useAIData(event)
+    const { input, output, isLoading } = useAIData({
+        uuid: event.uuid,
+        input: event.properties?.$ai_input,
+        output: event.properties?.$ai_output_choices,
+    })
 
     const isGeneration = event.event === '$ai_generation'
     const raisedError = event.properties.$ai_is_error

@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 import pytest
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest import mock
 
 from django.utils import timezone
@@ -11,8 +11,9 @@ from asgiref.sync import sync_to_async
 from rest_framework import status
 from rest_framework.response import Response
 
-from posthog.schema import DataWarehouseSyncInterval
+from posthog.schema import DataWarehouseSyncInterval, PathsFilter, PathsQuery, PathType, RetentionQuery
 
+from posthog.constants import RETENTION_FIRST_EVER_OCCURRENCE, TREND_FILTER_TYPE_EVENTS
 from posthog.settings.temporal import DATA_MODELING_TASK_QUEUE
 from posthog.sync import database_sync_to_async
 
@@ -219,14 +220,20 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         # The API wraps validation errors in a generic message
         self.assertIn("Failed to update endpoint", response.json()["detail"])
 
-    def test_cannot_materialize_non_hogql_query(self):
-        """Test that only HogQL queries can be materialized."""
+    def test_can_materialize_lifecycle_query(self):
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user1",
+        )
+        flush_persons_and_events()
+
         endpoint = Endpoint.objects.create(
-            name="test_trends_query",
+            name="test_lifecycle_query",
             team=self.team,
             query={
-                "kind": "TrendsQuery",
-                "series": [{"kind": "EventsNode", "event": "$pageview", "math": "total"}],
+                "kind": "LifecycleQuery",
+                "series": [{"kind": "EventsNode", "event": "$pageview"}],
                 "dateRange": {"date_from": "-7d"},
                 "interval": "day",
             },
@@ -237,14 +244,138 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
             {
                 "is_materialized": True,
-                "sync_frequency": DataWarehouseSyncInterval.FIELD_24HOUR,
+                "sync_frequency": DataWarehouseSyncInterval.FIELD_12HOUR,
             },
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        # The API wraps validation errors in a generic message
-        self.assertIn("Failed to update endpoint", response.json()["detail"])
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        endpoint.refresh_from_db()
+        self.assertIsNotNone(endpoint.saved_query)
+        saved_query = endpoint.saved_query
+        assert saved_query is not None
+        assert saved_query.query is not None
+        self.assertEqual(saved_query.query["kind"], "HogQLQuery")
+        self.assertIsInstance(saved_query.query["query"], str)
+
+    def test_can_materialize_stickiness_query(self):
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user1",
+        )
+        flush_persons_and_events()
+
+        endpoint = Endpoint.objects.create(
+            name="test_stickiness_query",
+            team=self.team,
+            query={
+                "kind": "StickinessQuery",
+                "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                "dateRange": {"date_from": "-7d"},
+                "interval": "day",
+            },
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {
+                "is_materialized": True,
+                "sync_frequency": DataWarehouseSyncInterval.FIELD_12HOUR,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        endpoint.refresh_from_db()
+        self.assertIsNotNone(endpoint.saved_query)
+        saved_query = endpoint.saved_query
+        assert saved_query is not None
+        assert saved_query.query is not None
+        self.assertEqual(saved_query.query["kind"], "HogQLQuery")
+
+    def test_can_materialize_retention_query(self):
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user1",
+        )
+        flush_persons_and_events()
+
+        endpoint = Endpoint.objects.create(
+            name="test_retention_query",
+            team=self.team,
+            query=RetentionQuery(
+                dateRange={"date_from": "2025-01-01", "date_to": "2025-01-08"},
+                retentionFilter={
+                    "period": "Day",
+                    "totalIntervals": 7,
+                    "retentionType": RETENTION_FIRST_EVER_OCCURRENCE,
+                    "targetEntity": {
+                        "id": "$user_signed_up",
+                        "name": "$user_signed_up",
+                        "type": TREND_FILTER_TYPE_EVENTS,
+                    },
+                    "returningEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
+                },
+            ).model_dump(),
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {
+                "is_materialized": True,
+                "sync_frequency": DataWarehouseSyncInterval.FIELD_12HOUR,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        endpoint.refresh_from_db()
+        self.assertIsNotNone(endpoint.saved_query)
+        saved_query = endpoint.saved_query
+        assert saved_query is not None
+        assert saved_query.query is not None
+        self.assertEqual(saved_query.query["kind"], "HogQLQuery")
+
+    def test_can_materialize_paths_query(self):
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user1",
+        )
+        flush_persons_and_events()
+
+        endpoint = Endpoint.objects.create(
+            name="test_paths_query",
+            team=self.team,
+            query=PathsQuery(
+                pathsFilter=PathsFilter(
+                    includeEventTypes=[PathType.FIELD_PAGEVIEW, PathType.FIELD_SCREEN],
+                    excludeEvents=["logout", "https://example.com"],  # URL should be filtered out
+                )
+            ).model_dump(),
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {
+                "is_materialized": True,
+                "sync_frequency": DataWarehouseSyncInterval.FIELD_12HOUR,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        endpoint.refresh_from_db()
+        self.assertIsNotNone(endpoint.saved_query)
+        saved_query = endpoint.saved_query
+        assert saved_query is not None
+        assert saved_query.query is not None
+        self.assertEqual(saved_query.query["kind"], "HogQLQuery")
 
     def test_materialization_status_in_response(self):
         """Test that materialization status is included in endpoint response."""
@@ -330,6 +461,116 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertNotIn("query", response_data)
         self.assertNotIn("created_by", response_data)
         self.assertNotIn("description", response_data)
+
+    def test_cache_invalidated_after_query_update(self):
+        """Test that updating endpoint query invalidates cache for materialized endpoints."""
+        initial_query = {
+            "kind": "HogQLQuery",
+            "query": "SELECT 1 as value",
+        }
+        updated_query = {
+            "kind": "HogQLQuery",
+            "query": "SELECT 2 as value",
+        }
+
+        endpoint = Endpoint.objects.create(
+            name="query_update_endpoint",
+            team=self.team,
+            query=initial_query,
+            created_by=self.user,
+            is_active=True,
+        )
+
+        self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {
+                "is_materialized": True,
+                "sync_frequency": DataWarehouseSyncInterval.FIELD_24HOUR,
+            },
+            format="json",
+        )
+
+        endpoint.refresh_from_db()
+        self.assertEqual(endpoint.current_version, 1)
+        saved_query = endpoint.saved_query
+        assert saved_query is not None
+        saved_query.status = DataWarehouseSavedQuery.Status.COMPLETED
+        saved_query.last_run_at = timezone.now() - timedelta(minutes=20)
+        saved_query.table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="query_update_endpoint",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern="s3://test-bucket/path",
+        )
+        saved_query.save()
+
+        with mock.patch("products.endpoints.backend.api.EndpointViewSet._execute_query_and_respond") as mock_execute:
+            old_cache_time = timezone.now() - timedelta(minutes=30)
+            old_cached_response = Response(
+                {
+                    "results": [[1]],
+                    "is_cached": True,
+                    "last_refresh": old_cache_time,
+                }
+            )
+            mock_execute.return_value = old_cached_response
+
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+                {},
+                format="json",
+            )
+
+            self.assertEqual(mock_execute.call_count, 2, "Old cache should be detected as stale and refreshed")
+
+        self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"query": updated_query},
+            format="json",
+        )
+
+        endpoint.refresh_from_db()
+        self.assertEqual(endpoint.current_version, 2, "Version should be incremented after query update")
+
+        new_saved_query = endpoint.saved_query
+        assert new_saved_query is not None, "Materialization should be re-enabled after query update"
+        new_saved_query.status = DataWarehouseSavedQuery.Status.COMPLETED
+        new_saved_query.last_run_at = timezone.now()
+        new_saved_query.table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name=f"query_update_endpoint_v2",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern="s3://test-bucket/path-v2",
+        )
+        new_saved_query.save()
+
+        with mock.patch("products.endpoints.backend.api.EndpointViewSet._execute_query_and_respond") as mock_execute:
+            new_cache_time = timezone.now() - timedelta(minutes=5)
+            new_cached_response = Response(
+                {
+                    "results": [[1]],
+                    "is_cached": True,
+                    "last_refresh": new_cache_time,
+                }
+            )
+            fresh_response = Response({"results": [[2]], "is_cached": False})
+
+            mock_execute.side_effect = [new_cached_response, fresh_response]
+
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+                {},
+                format="json",
+            )
+
+            self.assertEqual(
+                mock_execute.call_count,
+                2,
+                "Cache from before query update should be stale (older than new materialization)",
+            )
+            self.assertEqual(
+                response.json()["results"], [[2]], "Should return fresh results after query update, not old cache"
+            )
 
     def test_materialized_endpoint_applies_filters_override(self):
         saved_query = DataWarehouseSavedQuery.objects.create(

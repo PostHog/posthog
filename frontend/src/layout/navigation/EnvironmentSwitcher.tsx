@@ -10,8 +10,8 @@ import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { ButtonGroupPrimitive, ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
 import { Combobox } from 'lib/ui/Combobox/Combobox'
-import { DropdownMenuOpenIndicator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
+import { MenuOpenIndicator, MenuSeparator } from 'lib/ui/Menus/Menus'
 import {
     PopoverPrimitive,
     PopoverPrimitiveContent,
@@ -75,7 +75,7 @@ export function EnvironmentSwitcherOverlay({
                     <Label intent="menu" className="px-2 mt-2">
                         Current project
                     </Label>
-                    <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
+                    <MenuSeparator />
 
                     <Combobox.Group value={[projectName]}>
                         <ButtonGroupPrimitive fullWidth className="[&>span]:contents">
@@ -171,7 +171,7 @@ export function EnvironmentSwitcherOverlay({
                         <Label intent="menu" className="px-2 mt-2">
                             Other projects
                         </Label>
-                        <div className="-mx-1.5 my-1 h-px bg-border-primary shrink-0" />
+                        <MenuSeparator className="-mx-1.5" />
                     </>
                 )
             }
@@ -275,7 +275,7 @@ export function EnvironmentSwitcherOverlay({
                     ) : (
                         <span className="truncate">{currentProject?.name ?? 'Project'}</span>
                     )}
-                    {!iconOnly && <DropdownMenuOpenIndicator />}
+                    {!iconOnly && <MenuOpenIndicator />}
                 </ButtonPrimitive>
             </PopoverPrimitiveTrigger>
             <PopoverPrimitiveContent align="start" className="w-[300px] sm:w-[500px] max-w-[300px] sm:max-w-[500px]">

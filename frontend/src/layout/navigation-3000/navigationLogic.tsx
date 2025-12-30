@@ -25,6 +25,7 @@ import {
     IconRewindPlay,
     IconRocket,
     IconServer,
+    IconSpotlight,
     IconTestTube,
     IconToggle,
     IconWarning,
@@ -548,6 +549,15 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             to: urls.surveys(),
                             tooltipDocLink: 'https://posthog.com/docs/surveys/creating-surveys',
                         },
+                        featureFlags[FEATURE_FLAGS.PRODUCT_TOURS]
+                            ? {
+                                  identifier: Scene.ProductTours,
+                                  label: 'Product tours',
+                                  icon: <IconSpotlight />,
+                                  tag: 'alpha' as const,
+                                  to: urls.productTours(),
+                              }
+                            : null,
                         {
                             identifier: Scene.EarlyAccessFeatures,
                             label: 'Early access features',

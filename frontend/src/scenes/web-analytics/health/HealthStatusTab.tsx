@@ -8,14 +8,12 @@ import { HealthCheck } from './healthCheckTypes'
 import { webAnalyticsHealthLogic } from './webAnalyticsHealthLogic'
 
 export function HealthStatusTab(): JSX.Element {
-    const { overallHealthStatus, checksByCategory, webAnalyticsHealthStatusLoading, urgentFailedChecks } =
+    const { overallHealthStatus, checksByCategory, webAnalyticsHealthStatusLoading } =
         useValues(webAnalyticsHealthLogic)
-    const { refreshHealthChecks } = useActions(webAnalyticsHealthLogic)
+    const { refreshHealthChecks, trackSectionToggled } = useActions(webAnalyticsHealthLogic)
 
     return (
         <div className="mt-4 space-y-4 max-w-4xl">
-            {urgentFailedChecks.length > 0 && <UrgentIssuesBanner checks={urgentFailedChecks} />}
-
             <OverallHealthBanner
                 status={overallHealthStatus.status}
                 summary={overallHealthStatus.summary}
@@ -30,6 +28,7 @@ export function HealthStatusTab(): JSX.Element {
                     category="events"
                     checks={checksByCategory.events}
                     defaultOpen={checksByCategory.events.some((check: HealthCheck) => check.status !== 'success')}
+                    onToggle={trackSectionToggled}
                 />
                 <HealthCheckSection
                     category="configuration"
@@ -37,29 +36,16 @@ export function HealthStatusTab(): JSX.Element {
                     defaultOpen={checksByCategory.configuration.some(
                         (check: HealthCheck) => check.status !== 'success'
                     )}
+                    onToggle={trackSectionToggled}
                 />
                 <HealthCheckSection
                     category="performance"
                     checks={checksByCategory.performance}
                     defaultOpen={checksByCategory.performance.some((check: HealthCheck) => check.status !== 'success')}
+                    onToggle={trackSectionToggled}
                 />
             </div>
         </div>
-    )
-}
-
-function UrgentIssuesBanner({ checks }: { checks: HealthCheck[] }): JSX.Element {
-    return (
-        <LemonBanner type="error">
-            <div className="font-semibold">Action required</div>
-            <div className="mt-1 space-y-1">
-                {checks.map((check) => (
-                    <div key={check.id} className="text-sm">
-                        <span className="font-bold">{check.title}:</span> {check.description}
-                    </div>
-                ))}
-            </div>
-        </LemonBanner>
     )
 }
 

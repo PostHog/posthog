@@ -111,7 +111,7 @@ def _get_downstream_lookup(edge_lookup: dict):
             result.update(_get_all_downstream(downstream, visited))
         return result
 
-    visited = set()
+    visited: set[str] = set()
     for node in list(downstreams.keys()):
         downstreams[node] = _get_all_downstream(node, visited)
 
