@@ -41,6 +41,7 @@ import { SurveyRatingScaleValue, WEB_SAFE_FONTS } from 'scenes/surveys/constants
 
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import type {
+    CoreEvent,
     CurrencyCode,
     CustomerAnalyticsConfig,
     DashboardFilter,
@@ -664,6 +665,7 @@ export interface TeamType extends TeamBasicType {
     default_evaluation_environments_enabled: boolean
     require_evaluation_environment_tags: boolean
     marketing_analytics_config: MarketingAnalyticsConfig
+    core_events_config: { core_events: CoreEvent[] }
     base_currency: CurrencyCode
     managed_viewsets: Record<DataWarehouseManagedViewsetKind, boolean>
     experiment_recalculation_time?: string | null
@@ -706,7 +708,7 @@ export interface ActionType extends WithAccessControl {
     _create_in_folder?: string | null
 }
 
-/** Sync with plugin-server/src/types.ts */
+/** Sync with nodejs/src/types.ts */
 export type ActionStepStringMatching = 'contains' | 'exact' | 'regex'
 
 export interface ActionStepType {
@@ -779,7 +781,7 @@ export type PathCleaningFilter = { alias?: string; regex?: string; order?: numbe
 export type PropertyFilterBaseValue = string | number | bigint | boolean
 export type PropertyFilterValue = PropertyFilterBaseValue | PropertyFilterBaseValue[] | null
 
-/** Sync with plugin-server/src/types.ts */
+/** Sync with nodejs/src/types.ts */
 export enum PropertyOperator {
     Exact = 'exact',
     IsNot = 'is_not',
@@ -882,7 +884,7 @@ export enum PropertyFilterType {
     Empty = 'empty',
 }
 
-/** Sync with plugin-server/src/types.ts */
+/** Sync with nodejs/src/types.ts */
 interface BasePropertyFilter {
     key: string
     value?: PropertyFilterValue
@@ -890,7 +892,7 @@ interface BasePropertyFilter {
     type?: PropertyFilterType
 }
 
-/** Sync with plugin-server/src/types.ts */
+/** Sync with nodejs/src/types.ts */
 export interface EventPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Event
     /** @default 'exact' */
@@ -907,7 +909,7 @@ export interface RevenueAnalyticsPropertyFilter extends BasePropertyFilter {
     operator: PropertyOperator
 }
 
-/** Sync with plugin-server/src/types.ts */
+/** Sync with nodejs/src/types.ts */
 export interface PersonPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Person
     operator: PropertyOperator
@@ -928,7 +930,7 @@ export interface ErrorTrackingIssueFilter extends BasePropertyFilter {
     operator: PropertyOperator
 }
 
-/** Sync with plugin-server/src/types.ts */
+/** Sync with nodejs/src/types.ts */
 export interface ElementPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Element
     key: 'tag_name' | 'text' | 'href' | 'selector'
@@ -940,7 +942,7 @@ export interface SessionPropertyFilter extends BasePropertyFilter {
     operator: PropertyOperator
 }
 
-/** Sync with plugin-server/src/types.ts */
+/** Sync with nodejs/src/types.ts */
 export interface CohortPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Cohort
     key: 'id'
@@ -1184,7 +1186,7 @@ export enum SessionPlayerState {
 
 export type AutoplayDirection = 'newer' | 'older' | null
 
-/** Sync with plugin-server/src/types.ts */
+/** Sync with nodejs/src/types.ts */
 export type ActionStepProperties =
     | EventPropertyFilter
     | PersonPropertyFilter
@@ -3912,7 +3914,6 @@ export interface EventDefinitionMetrics {
     query_usage_30_day: number
 }
 
-// TODO duplicated from plugin server. Follow-up to de-duplicate
 export enum PropertyType {
     DateTime = 'DateTime',
     String = 'String',
@@ -4743,6 +4744,7 @@ export type APIScopeObject =
     | 'group'
     | 'hog_function'
     | 'insight'
+    | 'insight_variable'
     | 'integration'
     | 'live_debugger'
     | 'llm_gateway'

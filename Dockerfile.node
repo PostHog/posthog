@@ -1,0 +1,137 @@
+#
+# Dockerfile.node - nodejs Only
+#
+# This Dockerfile builds only the nodejs (Node.js app) without Django, frontend, or other PostHog components.
+# Use this for running standalone nodejs instances.
+#
+
+#
+# Build stage: Compile nodejs and dependencies
+#
+FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.88-node_22.17.1 AS nodejs-build
+
+# Compile and install system dependencies
+# Add Confluent's client repository for librdkafka 2.10.1
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    "wget" \
+    "gnupg" \
+    && \
+    mkdir -p /etc/apt/keyrings && \
+    wget -qO - https://packages.confluent.io/clients/deb/archive.key | gpg --dearmor -o /etc/apt/keyrings/confluent-clients.gpg && \
+    echo "deb [signed-by=/etc/apt/keyrings/confluent-clients.gpg] https://packages.confluent.io/clients/deb/ bookworm main" > /etc/apt/sources.list.d/confluent-clients.list && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+    "make" \
+    "g++" \
+    "gcc" \
+    "python3" \
+    "librdkafka1=2.10.1-1.cflt~deb12" \
+    "librdkafka++1=2.10.1-1.cflt~deb12" \
+    "librdkafka-dev=2.10.1-1.cflt~deb12" \
+    "libssl-dev=3.0.17-1~deb12u2" \
+    "libssl3=3.0.17-1~deb12u2" \
+    "zlib1g-dev" \
+    && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /code
+COPY turbo.json package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
+COPY ./bin/turbo ./bin/turbo
+COPY ./patches ./patches
+COPY ./rust ./rust
+COPY ./common/esbuilder/ ./common/esbuilder/
+COPY ./common/plugin_transpiler/ ./common/plugin_transpiler/
+COPY ./common/hogvm/typescript/ ./common/hogvm/typescript/
+COPY ./nodejs/package.json ./nodejs/tsconfig.json ./nodejs/
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
+
+# Use system librdkafka from Confluent (2.10.1) instead of bundled version
+ENV BUILD_LIBRDKAFKA=0
+
+# Compile and install Node.js dependencies
+RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
+    corepack enable && \
+    NODE_OPTIONS="--max-old-space-size=16384" CI=1 pnpm --filter=@posthog/nodejs... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24 && \
+    NODE_OPTIONS="--max-old-space-size=16384" CI=1 pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24 && \
+    NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin-transpiler build
+
+# Build the nodejs services
+COPY ./nodejs/src/ ./nodejs/src/
+COPY ./nodejs/tests/ ./nodejs/tests/
+COPY ./nodejs/assets/ ./nodejs/assets/
+COPY ./nodejs/bin/ ./nodejs/bin/
+
+# Build cyclotron first
+RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/cyclotron build
+
+# Then build the nodejs services
+RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/nodejs build
+
+
+#
+# Runtime stage: Minimal image with only nodejs runtime dependencies
+#
+FROM node:22.17.1-bookworm-slim
+WORKDIR /code
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
+
+# Install runtime dependencies
+# Add Confluent's client repository for librdkafka runtime
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    "ca-certificates" \
+    "wget" \
+    "gnupg" \
+    && \
+    mkdir -p /etc/apt/keyrings && \
+    wget -qO - https://packages.confluent.io/clients/deb/archive.key | gpg --dearmor -o /etc/apt/keyrings/confluent-clients.gpg && \
+    echo "deb [signed-by=/etc/apt/keyrings/confluent-clients.gpg] https://packages.confluent.io/clients/deb/ bookworm main" > /etc/apt/sources.list.d/confluent-clients.list && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends --allow-downgrades \
+    "librdkafka1=2.10.1-1.cflt~deb12" \
+    "librdkafka++1=2.10.1-1.cflt~deb12" \
+    "libssl3=3.0.17-1~deb12u2" \
+    "curl" \
+    "gettext-base" \
+    && \
+    rm -rf /var/lib/apt/lists/*
+# curl: Required by bin/nodejs startup script to fetch EC2 metadata when INJECT_EC2_CLIENT_RACK is set
+# gettext-base: Provides envsubst command used by bin/nodejs to substitute environment variables in Kafka client IDs
+
+# Install and use a non-root user
+RUN groupadd -g 1000 posthog || groupmod -n posthog $(getent group 1000 | cut -d: -f1) && \
+    useradd -u 1000 -g posthog posthog || usermod -l posthog -d /code -g posthog $(getent passwd 1000 | cut -d: -f1) && \
+    chown -R posthog:posthog /code
+USER posthog
+
+# Add the commit hash
+ARG COMMIT_HASH
+RUN echo ${COMMIT_HASH:-unknown} > /code/commit.txt
+
+# Add in the compiled nodejs & its runtime dependencies from the build stage
+COPY --from=nodejs-build --chown=posthog:posthog /code/rust/cyclotron-node/dist /code/rust/cyclotron-node/dist
+COPY --from=nodejs-build --chown=posthog:posthog /code/rust/cyclotron-node/package.json /code/rust/cyclotron-node/package.json
+COPY --from=nodejs-build --chown=posthog:posthog /code/rust/cyclotron-node/index.node /code/rust/cyclotron-node/index.node
+COPY --from=nodejs-build --chown=posthog:posthog /code/common/plugin_transpiler/dist /code/common/plugin_transpiler/dist
+COPY --from=nodejs-build --chown=posthog:posthog /code/common/plugin_transpiler/node_modules /code/common/plugin_transpiler/node_modules
+COPY --from=nodejs-build --chown=posthog:posthog /code/common/plugin_transpiler/package.json /code/common/plugin_transpiler/package.json
+COPY --from=nodejs-build --chown=posthog:posthog /code/common/hogvm/typescript/dist /code/common/hogvm/typescript/dist
+COPY --from=nodejs-build --chown=posthog:posthog /code/common/hogvm/typescript/node_modules /code/common/hogvm/typescript/node_modules
+COPY --from=nodejs-build --chown=posthog:posthog /code/common/hogvm/typescript/package.json /code/common/hogvm/typescript/package.json
+COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/dist /code/nodejs/dist
+COPY --from=nodejs-build --chown=posthog:posthog /code/node_modules /code/node_modules
+COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/node_modules /code/nodejs/node_modules
+COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/package.json /code/nodejs/package.json
+COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/assets /code/nodejs/assets
+COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/bin /code/nodejs/bin
+
+# Setup ENV
+ENV NODE_ENV=production \
+    BUILD_LIBRDKAFKA=0
+
+# Expose the port from which we serve OpenMetrics data
+EXPOSE 8001
+
+# Default command: run the nodejs services
+CMD ["node", "nodejs/dist/index.js"]

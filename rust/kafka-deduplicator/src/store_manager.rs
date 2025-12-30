@@ -14,6 +14,7 @@ use crate::metrics_const::{
     ACTIVE_STORE_COUNT, CLEANUP_BYTES_FREED_HISTOGRAM, CLEANUP_DURATION_HISTOGRAM,
     CLEANUP_OPERATIONS_COUNTER, STORE_CREATION_DURATION_MS, STORE_CREATION_EVENTS,
 };
+use crate::rocksdb::metrics_consts::ROCKSDB_OLDEST_DATA_AGE_SECONDS_GAUGE;
 use crate::store::{DeduplicationStore, DeduplicationStoreConfig};
 
 /// Information about folder sizes on disk
@@ -433,23 +434,40 @@ impl StoreManager {
             }
         }
 
-        // Check if we're under capacity
-        if total_size <= self.store_config.max_capacity {
-            return Ok(0); // Under capacity, no cleanup needed
+        // Start cleanup at 80% capacity to give compaction headroom
+        let cleanup_threshold = (self.store_config.max_capacity as f64 * 0.8) as u64;
+        if total_size <= cleanup_threshold {
+            return Ok(0); // Under threshold, no cleanup needed
         }
 
+        // Determine capacity level for logging and cleanup aggressiveness
+        let capacity_ratio = total_size as f64 / self.store_config.max_capacity as f64;
+        let capacity_percent = (capacity_ratio * 100.0) as u32;
+
         info!(
-            "Global store size {} exceeds max capacity {}, triggering cleanup",
-            total_size, self.store_config.max_capacity
+            "Global store size {} ({}% of max capacity {}) exceeds cleanup threshold, triggering cleanup",
+            total_size, capacity_percent, self.store_config.max_capacity
         );
 
-        // We need to clean up - target 80% of max capacity
-        let target_size = (self.store_config.max_capacity as f64 * 0.8) as u64;
+        // We need to clean up - target 70% of max capacity to create buffer
+        let target_size = (self.store_config.max_capacity as f64 * 0.7) as u64;
         let bytes_to_free = total_size.saturating_sub(target_size);
 
         // Calculate cleanup percentage based on how much we need to free
         // If we need to free 20% of total size, clean up 20% of time range from each store
-        let cleanup_percentage = (bytes_to_free as f64 / total_size as f64).min(0.3); // Cap at 30% max
+        let raw_cleanup_percentage = bytes_to_free as f64 / total_size as f64;
+
+        // When over 90% capacity, be more aggressive - no cap on cleanup percentage
+        // Otherwise cap at 30% to avoid removing too much data at once
+        let cleanup_percentage = if capacity_ratio > 0.9 {
+            info!(
+                "Critical capacity ({}%) - using aggressive cleanup without cap",
+                capacity_percent
+            );
+            raw_cleanup_percentage.min(0.5) // Still cap at 50% to avoid removing everything
+        } else {
+            raw_cleanup_percentage.min(0.3) // Normal cap at 30%
+        };
 
         info!(
             "Cleaning up {:.1}% of time range from each store (need to free {} bytes)",
@@ -504,6 +522,7 @@ impl StoreManager {
     }
 
     /// Check if cleanup is needed based on current global size
+    /// Cleanup triggers at 80% capacity to give background compaction time to reclaim space
     pub fn needs_cleanup(&self) -> bool {
         // Log folder sizes and assigned partitions
         self.log_folder_sizes_and_partitions();
@@ -520,17 +539,32 @@ impl StoreManager {
             .collect();
 
         let mut total_size = 0u64;
+        let mut max_oldest_data_age: Option<u64> = None;
         for store in &stores {
             if let Ok(size) = store.get_total_size() {
                 total_size += size;
             }
+            // Emit per-partition oldest data age metric and track max
+            if let Ok(Some(age)) = store.get_oldest_data_age_seconds() {
+                metrics::gauge!(
+                    ROCKSDB_OLDEST_DATA_AGE_SECONDS_GAUGE,
+                    "topic" => store.get_topic().to_string(),
+                    "partition" => store.get_partition().to_string()
+                )
+                .set(age as f64);
+                max_oldest_data_age =
+                    Some(max_oldest_data_age.map_or(age, |current| current.max(age)));
+            }
         }
 
+        // Start cleanup at 80% capacity to give compaction headroom
+        let cleanup_threshold = (self.store_config.max_capacity as f64 * 0.8) as u64;
+
         info!(
-            "Total size of all stores: {} bytes, max capacity: {} bytes",
-            total_size, self.store_config.max_capacity
+            "Total size of all stores: {} bytes, cleanup threshold: {} bytes, max capacity: {} bytes, oldest data age: {}s",
+            total_size, cleanup_threshold, self.store_config.max_capacity, max_oldest_data_age.unwrap_or(0)
         );
-        total_size > self.store_config.max_capacity
+        total_size > cleanup_threshold
     }
 
     /// Start a periodic cleanup task that runs in the background

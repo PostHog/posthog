@@ -2,7 +2,7 @@ import FastPriorityQueue from 'fastpriorityqueue'
 
 import { promiseResolveReject } from 'lib/utils'
 
-// Note that this file also exists in the plugin-server, please keep them in sync as the tests only exist for this version
+// Note that this file also exists in the nodejs package, please keep them in sync as the tests only exist for this version
 
 class ConcurrencyControllerItem<T> {
     _debugTag?: string

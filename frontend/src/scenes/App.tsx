@@ -17,6 +17,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { GlobalModals } from '~/layout/GlobalModals'
+import { GlobalShortcuts } from '~/layout/GlobalShortcuts'
 import { Navigation } from '~/layout/navigation-3000/Navigation'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
@@ -136,6 +137,7 @@ function AppScene(): JSX.Element | null {
             <Navigation sceneConfig={sceneConfig}>{wrappedSceneElement}</Navigation>
             {toastContainer}
             <GlobalModals />
+            <GlobalShortcuts />
         </>
     )
 }

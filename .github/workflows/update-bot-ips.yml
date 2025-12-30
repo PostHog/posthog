@@ -33,13 +33,13 @@ jobs:
             - name: Check for changes
               id: check-changes
               run: |
-                  if git diff --quiet plugin-server/assets/bot-ips.txt; then
+                  if git diff --quiet nodejs/assets/bot-ips.txt; then
                     echo "changes=false" >> $GITHUB_OUTPUT
                     echo "No changes detected in bot IPs"
                   else
                     echo "changes=true" >> $GITHUB_OUTPUT
                     echo "Changes detected in bot IPs"
-                    git diff --stat plugin-server/assets/bot-ips.txt
+                    git diff --stat nodejs/assets/bot-ips.txt
                   fi
 
             - name: Create Pull Request
@@ -53,7 +53,7 @@ jobs:
                       This PR updates the bot IPs list from the [GoodBots repository](https://github.com/AnTheMaker/GoodBots).
 
                       **Changes:**
-                      - Updated `plugin-server/assets/bot-ips.txt` with latest bot IPs
+                      - Updated `nodejs/assets/bot-ips.txt` with latest bot IPs
 
                       **Source:** https://raw.githubusercontent.com/AnTheMaker/GoodBots/main/all.ips
 
