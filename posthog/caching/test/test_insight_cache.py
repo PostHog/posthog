@@ -46,39 +46,6 @@ def cache_keys(cache):
     return {key.split(":", 2)[-1] for key in cache._cache.keys()}
 
 
-@pytest.mark.parametrize(
-    "params,expected_matches",
-    [
-        ({}, 1),
-        ({"limit": 0}, 0),
-        ({"last_refresh": None}, 1),
-        ({"target_cache_age": None, "last_refresh": None}, 0),
-        ({"target_cache_age": timedelta(days=1), "last_refresh": timedelta(days=2)}, 1),
-        (
-            {
-                "target_cache_age": timedelta(days=1),
-                "last_refresh": timedelta(hours=23),
-            },
-            0,
-        ),
-        (
-            {
-                "target_cache_age": timedelta(days=1),
-                "last_refresh_queued_at": timedelta(hours=23),
-            },
-            1,
-        ),
-        (
-            {
-                "target_cache_age": timedelta(days=1),
-                "last_refresh_queued_at": timedelta(minutes=5),
-            },
-            0,
-        ),
-        ({"refresh_attempt": 2}, 1),
-        ({"refresh_attempt": 3}, 0),
-    ],
-)
 @pytest.mark.django_db
 @freeze_time("2020-01-04T13:01:01Z")
 def test_update_cache(team: Team, user: User, cache):
