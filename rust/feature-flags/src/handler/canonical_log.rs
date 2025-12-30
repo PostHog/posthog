@@ -34,8 +34,8 @@ pub struct FlagsCanonicalLogLine {
     pub distinct_id: Option<String>,
 
     // Populated during flag evaluation
-    pub flags_evaluated: Option<usize>,
-    pub flags_enabled: Option<usize>,
+    pub flags_evaluated: usize,
+    pub flags_experience_continuity: usize,
     pub flags_disabled: bool,
     pub quota_limited: bool,
 
@@ -59,8 +59,8 @@ impl Default for FlagsCanonicalLogLine {
             api_version: None,
             team_id: None,
             distinct_id: None,
-            flags_evaluated: None,
-            flags_enabled: None,
+            flags_evaluated: 0,
+            flags_experience_continuity: 0,
             flags_disabled: false,
             quota_limited: false,
             rate_limited: false,
@@ -98,8 +98,8 @@ impl FlagsCanonicalLogLine {
             api_version = ?self.api_version,
             duration_ms = duration_ms,
             http_status = self.http_status,
-            flags_evaluated = ?self.flags_evaluated,
-            flags_enabled = ?self.flags_enabled,
+            flags_evaluated = self.flags_evaluated,
+            flags_experience_continuity = self.flags_experience_continuity,
             flags_disabled = self.flags_disabled,
             quota_limited = self.quota_limited,
             rate_limited = self.rate_limited,
@@ -203,8 +203,8 @@ mod tests {
         assert!(log.api_version.is_none());
         assert!(log.team_id.is_none());
         assert!(log.distinct_id.is_none());
-        assert!(log.flags_evaluated.is_none());
-        assert!(log.flags_enabled.is_none());
+        assert_eq!(log.flags_evaluated, 0);
+        assert_eq!(log.flags_experience_continuity, 0);
         assert!(!log.flags_disabled);
         assert!(!log.quota_limited);
         assert!(!log.rate_limited);
@@ -228,8 +228,8 @@ mod tests {
         log.api_version = Some("3".to_string());
         log.team_id = Some(123);
         log.distinct_id = Some("user_abc".to_string());
-        log.flags_evaluated = Some(10);
-        log.flags_enabled = Some(5);
+        log.flags_evaluated = 10;
+        log.flags_experience_continuity = 2;
         log.flags_disabled = false;
         log.quota_limited = true;
         log.rate_limited = false;
@@ -295,8 +295,8 @@ mod tests {
         log.api_version = Some("3".to_string());
         log.team_id = Some(123);
         log.distinct_id = Some("user123".to_string());
-        log.flags_evaluated = Some(5);
-        log.flags_enabled = Some(3);
+        log.flags_evaluated = 5;
+        log.flags_experience_continuity = 1;
         log.flags_disabled = true;
         log.quota_limited = true;
         log.rate_limited = true;
@@ -314,7 +314,10 @@ mod tests {
         assert_eq!(cloned.team_id, log.team_id);
         assert_eq!(cloned.distinct_id, log.distinct_id);
         assert_eq!(cloned.flags_evaluated, log.flags_evaluated);
-        assert_eq!(cloned.flags_enabled, log.flags_enabled);
+        assert_eq!(
+            cloned.flags_experience_continuity,
+            log.flags_experience_continuity
+        );
         assert_eq!(cloned.flags_disabled, log.flags_disabled);
         assert_eq!(cloned.quota_limited, log.quota_limited);
         assert_eq!(cloned.rate_limited, log.rate_limited);

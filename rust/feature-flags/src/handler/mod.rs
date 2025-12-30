@@ -168,6 +168,13 @@ async fn process_request_inner(
 
             tracing::debug!("Flags filtered: {} flags found", filtered_flags.flags.len());
 
+            // Count flags with experience continuity for canonical logging
+            canonical_log.flags_experience_continuity = filtered_flags
+                .flags
+                .iter()
+                .filter(|f| f.ensure_experience_continuity.unwrap_or(false))
+                .count();
+
             let property_overrides = properties::prepare_overrides(&context, &request)?;
 
             // Evaluate flags (this will return empty if is_flags_disabled is true)
@@ -201,8 +208,7 @@ async fn process_request_inner(
             config_response_builder::build_response(flags_response, &context, &team).await?;
 
         // Populate canonical log with flag evaluation results
-        canonical_log.flags_evaluated = Some(response.flags.len());
-        canonical_log.flags_enabled = Some(response.flags.values().filter(|f| f.enabled).count());
+        canonical_log.flags_evaluated = response.flags.len();
         if response.quota_limited.is_some() {
             canonical_log.quota_limited = true;
         }
