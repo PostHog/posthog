@@ -63,7 +63,9 @@ class TestSchemaGeneratorNode(BaseTest):
         config = RunnableConfig(configurable={"thread_id": self.conversation.id})
         with patch.object(DummyGeneratorNode, "_model") as generator_model_mock:
             generator_model_mock.return_value = RunnableLambda(
-                lambda _: DummySchema(query=self.basic_trends).model_dump()
+                lambda _: DummySchema(
+                    query=self.basic_trends, name="Test Query Name", description="Test Query Description"
+                ).model_dump()
             )
             new_state = await node(
                 AssistantState(
@@ -83,6 +85,61 @@ class TestSchemaGeneratorNode(BaseTest):
             )
             self.assertEqual(cast(ArtifactRefMessage, new_state.messages[0]).source, ArtifactSource.ARTIFACT)
             self.assertIsNotNone(cast(ArtifactRefMessage, new_state.messages[0]).artifact_id)
+
+    async def test_node_sets_name_description_and_plan_in_artifact(self):
+        node = DummyGeneratorNode(self.team, self.user)
+        config = RunnableConfig(configurable={"thread_id": self.conversation.id})
+        with patch.object(DummyGeneratorNode, "_model") as generator_model_mock:
+            generator_model_mock.return_value = RunnableLambda(
+                lambda _: DummySchema(
+                    query=self.basic_trends, name="Test Query Name", description="Test Query Description"
+                ).model_dump()
+            )
+            new_state = await node(
+                AssistantState(
+                    messages=[HumanMessage(content="Text", id="0")],
+                    plan="Test Plan Content",
+                    start_id="0",
+                ),
+                config,
+            )
+            assert new_state is not None
+            self.assertEqual(len(new_state.messages), 1)
+            artifact_message = cast(ArtifactRefMessage, new_state.messages[0])
+
+            artifact = await AgentArtifact.objects.aget(short_id=artifact_message.artifact_id)
+            content = VisualizationArtifactContent.model_validate(artifact.data)
+
+            self.assertEqual(content.name, "Test Query Name")
+            self.assertEqual(content.description, "Test Query Description")
+            self.assertEqual(content.plan, "Test Plan Content")
+
+    async def test_node_sets_empty_plan_when_no_plan_in_state(self):
+        node = DummyGeneratorNode(self.team, self.user)
+        config = RunnableConfig(configurable={"thread_id": self.conversation.id})
+        with patch.object(DummyGeneratorNode, "_model") as generator_model_mock:
+            generator_model_mock.return_value = RunnableLambda(
+                lambda _: DummySchema(
+                    query=self.basic_trends, name="Query Name", description="Description"
+                ).model_dump()
+            )
+            new_state = await node(
+                AssistantState(
+                    messages=[HumanMessage(content="Text", id="0")],
+                    plan=None,
+                    start_id="0",
+                ),
+                config,
+            )
+            assert new_state is not None
+            artifact_message = cast(ArtifactRefMessage, new_state.messages[0])
+
+            artifact = await AgentArtifact.objects.aget(short_id=artifact_message.artifact_id)
+            content = VisualizationArtifactContent.model_validate(artifact.data)
+
+            self.assertEqual(content.name, "Query Name")
+            self.assertEqual(content.description, "Description")
+            self.assertEqual(content.plan, "")
 
     async def test_agent_reconstructs_conversation_and_does_not_add_an_empty_plan(self):
         node = DummyGeneratorNode(self.team, self.user)
@@ -126,7 +183,7 @@ class TestSchemaGeneratorNode(BaseTest):
             name="Test Artifact",
             type=AgentArtifact.Type.VISUALIZATION,
             data=VisualizationArtifactContent(
-                query=self.basic_trends, name="Query", description="randomplan"
+                query=self.basic_trends, name="Query", description="Description 1", plan="randomplan"
             ).model_dump(),
         )
         history = await node._construct_messages(
@@ -176,7 +233,7 @@ class TestSchemaGeneratorNode(BaseTest):
             name="Test Artifact 1",
             type=AgentArtifact.Type.VISUALIZATION,
             data=VisualizationArtifactContent(
-                query=self.basic_trends, name="Query 1", description="Plan 1"
+                query=self.basic_trends, name="Query 1", description="Description 1", plan="Plan 1"
             ).model_dump(),
         )
         artifact2 = await AgentArtifact.objects.acreate(
@@ -185,7 +242,7 @@ class TestSchemaGeneratorNode(BaseTest):
             name="Test Artifact 2",
             type=AgentArtifact.Type.VISUALIZATION,
             data=VisualizationArtifactContent(
-                query=self.basic_trends, name="Query 2", description="Plan 2"
+                query=self.basic_trends, name="Query 2", description="Description 2", plan="Plan 2"
             ).model_dump(),
         )
         history = await node._construct_messages(
@@ -243,7 +300,7 @@ class TestSchemaGeneratorNode(BaseTest):
             name="Test Artifact 1",
             type=AgentArtifact.Type.VISUALIZATION,
             data=VisualizationArtifactContent(
-                query=self.basic_trends, name="Test Artifact 1", description="Test Description 1"
+                query=self.basic_trends, name="Test Artifact 1", description="Test Description 1", plan="Plan 1"
             ).model_dump(),
         )
         artifact2 = await AgentArtifact.objects.acreate(
@@ -252,7 +309,7 @@ class TestSchemaGeneratorNode(BaseTest):
             name="Test Artifact 2",
             type=AgentArtifact.Type.VISUALIZATION,
             data=VisualizationArtifactContent(
-                query=self.basic_trends, name="Test Artifact 2", description="Test Description 2"
+                query=self.basic_trends, name="Test Artifact 2", description="Test Description 2", plan="Plan 2"
             ).model_dump(),
         )
         state = AssistantState(
@@ -320,7 +377,9 @@ class TestSchemaGeneratorNode(BaseTest):
             patch.object(DummyGeneratorNode, "_model") as generator_model_mock,
             patch.object(DummyGeneratorNode, "_quality_check_output") as quality_check_mock,
         ):
-            valid_output = DummySchema(query=self.basic_trends).model_dump()
+            valid_output = DummySchema(
+                query=self.basic_trends, name="Test Query Name", description="Test Query Description"
+            ).model_dump()
             generator_model_mock.return_value = RunnableLambda(lambda _: valid_output)
 
             quality_check_mock.side_effect = PydanticOutputParserException(
@@ -344,7 +403,9 @@ class TestSchemaGeneratorNode(BaseTest):
             patch.object(DummyGeneratorNode, "_model") as generator_model_mock,
             patch.object(DummyGeneratorNode, "_quality_check_output") as quality_check_mock,
         ):
-            valid_output = DummySchema(query=self.basic_trends).model_dump()
+            valid_output = DummySchema(
+                query=self.basic_trends, name="Test Query Name", description="Test Query Description"
+            ).model_dump()
             generator_model_mock.return_value = RunnableLambda(lambda _: valid_output)
 
             # Quality check always fails
@@ -379,7 +440,11 @@ class TestSchemaGeneratorNode(BaseTest):
         with patch.object(
             DummyGeneratorNode,
             "_model",
-            return_value=RunnableLambda(lambda _: DummySchema(query=self.basic_trends).model_dump()),
+            return_value=RunnableLambda(
+                lambda _: DummySchema(
+                    query=self.basic_trends, name="Test Query Name", description="Test Query Description"
+                ).model_dump()
+            ),
         ):
             new_state = await node(
                 AssistantState(
@@ -508,7 +573,7 @@ class TestSchemaGeneratorNode(BaseTest):
             name="Test Artifact",
             type=AgentArtifact.Type.VISUALIZATION,
             data=VisualizationArtifactContent(
-                query=self.basic_trends, name="Query 1", description="Plan 1"
+                query=self.basic_trends, name="Query 1", description="Description 1", plan="Plan 1"
             ).model_dump(),
         )
         history = await node._construct_messages(
@@ -553,7 +618,7 @@ class TestSchemaGeneratorNode(BaseTest):
                 name=f"Test Artifact {i + 1}",
                 type=AgentArtifact.Type.VISUALIZATION,
                 data=VisualizationArtifactContent(
-                    query=query, name=f"Query {i + 1}", description=f"Plan {i + 1}"
+                    query=query, name=f"Query {i + 1}", description=f"Description {i + 1}", plan=f"Plan {i + 1}"
                 ).model_dump(),
             )
             messages.append(

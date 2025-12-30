@@ -1,4 +1,5 @@
 import { Message } from 'node-rdkafka'
+import { Counter, Gauge } from 'prom-client'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { MessageSizeTooLarge } from '~/utils/db/error'
@@ -7,7 +8,6 @@ import { captureIngestionWarning } from '~/worker/ingestion/utils'
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
-import { latestOffsetTimestampGauge, setUsageInNonPersonEventsCounter } from '../main/ingestion-queues/metrics'
 import {
     EventHeaders,
     HealthCheckResult,
@@ -75,6 +75,18 @@ const trackIfNonPersonEventUpdatesPersons = (event: PipelineEvent): void => {
     }
 }
 
+const latestOffsetTimestampGauge = new Gauge({
+    name: 'latest_processed_timestamp_ms',
+    help: 'Timestamp of the latest offset that has been committed.',
+    labelNames: ['topic', 'partition', 'groupId'],
+    aggregator: 'max',
+})
+
+const setUsageInNonPersonEventsCounter = new Counter({
+    name: 'set_usage_in_non_person_events',
+    help: 'Count of events where $set usage was found in non-person events',
+})
+
 export class IngestionConsumer {
     protected name = 'ingestion-consumer'
     protected groupId: string
@@ -126,7 +138,7 @@ export class IngestionConsumer {
         this.tokenDistinctIdsToForceOverflow = hub.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID.split(',').filter(
             (x) => !!x
         )
-        this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
+        this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub.redisPool, {
             pipeline: 'analytics',
             staticDropEventTokens: this.tokenDistinctIdsToDrop,
             staticSkipPersonTokens: this.tokenDistinctIdsToSkipPersons,
@@ -140,7 +152,7 @@ export class IngestionConsumer {
         )
         this.hogTransformer = new HogTransformerService(hub)
 
-        this.personsStore = new BatchWritingPersonsStore(this.hub.personRepository, this.hub.db.kafkaProducer, {
+        this.personsStore = new BatchWritingPersonsStore(this.hub.personRepository, this.hub.kafkaProducer, {
             dbWriteMode: this.hub.PERSON_BATCH_WRITING_DB_WRITE_MODE,
             maxConcurrentUpdates: this.hub.PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
             maxOptimisticUpdateRetries: this.hub.PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,

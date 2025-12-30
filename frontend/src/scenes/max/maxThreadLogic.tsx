@@ -372,11 +372,16 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             const releaseStreamingLock = mount() // lock the logic - don't unmount before we're done streaming
             actions.incrActiveStreamingThreads()
 
+            // Generate a new trace ID for this interaction
+            const traceId = uuid()
+            actions.setTraceId(traceId)
+
             if (generationAttempt === 0 && streamData.content && addToThread) {
                 const message: ThreadMessage = {
                     type: AssistantMessageType.Human,
                     content: streamData.content,
                     status: 'completed',
+                    trace_id: traceId,
                 }
                 actions.addMessage(message)
             }
@@ -386,10 +391,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
                 // Ensure we have valid data for the API call
                 const apiData: any = { ...streamData }
-
-                // Generate a new trace ID for this interaction
-                const traceId = uuid()
-                actions.setTraceId(traceId)
                 apiData.trace_id = traceId
 
                 if (values.billingContext && values.featureFlags[FEATURE_FLAGS.MAX_BILLING_CONTEXT]) {
@@ -1025,8 +1026,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
     subscriptions(({ actions, values }) => ({
         sceneId: (sceneId: Scene | null) => {
-            // Only auto-set mode when the agent modes feature is enabled and no conversation is active
-            if (values.featureFlags[FEATURE_FLAGS.AGENT_MODES] && !values.conversation) {
+            // Only auto-set mode when no conversation is active
+            if (!values.conversation) {
                 const suggestedMode = getAgentModeForScene(sceneId)
                 if (suggestedMode !== values.agentMode) {
                     // Use sync action to not lock - allows conversation to still update mode if agent changes it

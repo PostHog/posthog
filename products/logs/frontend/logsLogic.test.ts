@@ -2,6 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { useMocks } from '~/mocks/jest'
 import { LogMessage } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
@@ -33,10 +34,18 @@ const createMockLog = (uuid: string): LogMessage => ({
 describe('logsLogic', () => {
     let logic: ReturnType<typeof logsLogic.build>
 
-    beforeEach(() => {
+    beforeEach(async () => {
+        useMocks({
+            post: {
+                '/api/environments/:team_id/logs/query/': () => [200, { results: [] }],
+                '/api/environments/:team_id/logs/sparkline/': () => [200, []],
+            },
+        })
         initKeaTests()
         logic = logsLogic({ tabId: 'test-tab' })
         logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners()
     })
 
     afterEach(() => {

@@ -2,8 +2,8 @@ import { Message } from 'node-rdkafka'
 
 import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
 import { createTestMessage } from '../../../tests/helpers/kafka-message'
+import { ingestionLagGauge, ingestionLagHistogram } from '../../common/metrics'
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { ingestionLagGauge } from '../../main/ingestion-queues/metrics'
 import { EventHeaders, ProjectId, RawKafkaEvent, TimestampFormat } from '../../types'
 import { MessageSizeTooLarge } from '../../utils/db/error'
 import { castTimestampOrNow } from '../../utils/utils'
@@ -24,11 +24,16 @@ jest.mock('../../worker/ingestion/event-pipeline/metrics', () => ({
     },
 }))
 
-// Mock the ingestion lag gauge
-jest.mock('../../main/ingestion-queues/metrics', () => ({
+// Mock the ingestion lag metrics
+jest.mock('~/common/metrics', () => ({
     ingestionLagGauge: {
         labels: jest.fn().mockReturnValue({
             set: jest.fn(),
+        }),
+    },
+    ingestionLagHistogram: {
+        labels: jest.fn().mockReturnValue({
+            observe: jest.fn(),
         }),
     },
 }))
@@ -36,6 +41,7 @@ jest.mock('../../main/ingestion-queues/metrics', () => ({
 const mockCaptureIngestionWarning = jest.mocked(captureIngestionWarning)
 const mockEventProcessedAndIngestedCounter = jest.mocked(eventProcessedAndIngestedCounter)
 const mockIngestionLagGauge = jest.mocked(ingestionLagGauge)
+const mockIngestionLagHistogram = jest.mocked(ingestionLagHistogram)
 
 describe('emit-event-step', () => {
     let mockKafkaProducer: jest.Mocked<KafkaProducerWrapper>
@@ -357,6 +363,7 @@ describe('emit-event-step', () => {
     describe('ingestion lag metric', () => {
         const FAKE_NOW_MS = 1702654321987 // 2023-12-15T14:32:01.987Z
         let mockSetFn: jest.Mock
+        let mockObserveFn: jest.Mock
 
         const createMessage = (overrides: Partial<Message> = {}): Message => ({
             value: Buffer.from('test-value'),
@@ -379,7 +386,9 @@ describe('emit-event-step', () => {
             jest.setSystemTime(FAKE_NOW_MS)
 
             mockSetFn = jest.fn()
+            mockObserveFn = jest.fn()
             mockIngestionLagGauge.labels.mockReturnValue({ set: mockSetFn } as any)
+            mockIngestionLagHistogram.labels.mockReturnValue({ observe: mockObserveFn } as any)
         })
 
         afterEach(() => {
@@ -480,6 +489,90 @@ describe('emit-event-step', () => {
                 topic: 'test-topic',
                 partition: '0',
                 groupId: 'test-group-id',
+            })
+        })
+
+        describe('histogram', () => {
+            it('should observe lag in histogram with correct labels', async () => {
+                const captureTime = new Date(FAKE_NOW_MS - 5432)
+                const step = createEmitEventStep(config)
+                const input = {
+                    eventToEmit: mockRawEvent,
+                    inputHeaders: createHeaders({ now: captureTime }),
+                    inputMessage: createMessage(),
+                }
+
+                await step(input)
+
+                expect(mockIngestionLagHistogram.labels).toHaveBeenCalledWith({
+                    groupId: 'test-group-id',
+                    partition: '5',
+                })
+                expect(mockObserveFn).toHaveBeenCalledTimes(1)
+                expect(mockObserveFn).toHaveBeenCalledWith(5432)
+            })
+
+            it('should use custom groupId in histogram labels', async () => {
+                const customConfig = { ...config, groupId: 'custom-consumer-group' }
+                const step = createEmitEventStep(customConfig)
+                const input = {
+                    eventToEmit: mockRawEvent,
+                    inputHeaders: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
+                    inputMessage: createMessage({ partition: 3 }),
+                }
+
+                await step(input)
+
+                expect(mockIngestionLagHistogram.labels).toHaveBeenCalledWith({
+                    groupId: 'custom-consumer-group',
+                    partition: '3',
+                })
+                expect(mockObserveFn).toHaveBeenCalledWith(1000)
+            })
+
+            it('should not observe histogram when inputHeaders.now is missing', async () => {
+                const step = createEmitEventStep(config)
+                const input = {
+                    eventToEmit: mockRawEvent,
+                    inputHeaders: createHeaders(),
+                    inputMessage: createMessage(),
+                }
+
+                await step(input)
+
+                expect(mockIngestionLagHistogram.labels).not.toHaveBeenCalled()
+                expect(mockObserveFn).not.toHaveBeenCalled()
+            })
+
+            it('should not observe histogram when inputMessage.partition is undefined', async () => {
+                const step = createEmitEventStep(config)
+                const input = {
+                    eventToEmit: mockRawEvent,
+                    inputHeaders: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
+                    inputMessage: createMessage({ partition: undefined as unknown as number }),
+                }
+
+                await step(input)
+
+                expect(mockIngestionLagHistogram.labels).not.toHaveBeenCalled()
+                expect(mockObserveFn).not.toHaveBeenCalled()
+            })
+
+            it('should handle partition 0 correctly in histogram', async () => {
+                const step = createEmitEventStep(config)
+                const input = {
+                    eventToEmit: mockRawEvent,
+                    inputHeaders: createHeaders({ now: new Date(FAKE_NOW_MS - 2500) }),
+                    inputMessage: createMessage({ partition: 0 }),
+                }
+
+                await step(input)
+
+                expect(mockIngestionLagHistogram.labels).toHaveBeenCalledWith({
+                    groupId: 'test-group-id',
+                    partition: '0',
+                })
+                expect(mockObserveFn).toHaveBeenCalledWith(2500)
             })
         })
     })

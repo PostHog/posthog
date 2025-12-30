@@ -1,7 +1,7 @@
 import { createPool } from 'generic-pool'
 import Redis, { RedisOptions } from 'ioredis'
 
-import { PluginsServerConfig, RedisPool } from '../../types'
+import { RedisPool } from '../../types'
 import { logger } from '../../utils/logger'
 import { killGracefully } from '../../utils/utils'
 import { captureException } from '../posthog'
@@ -9,112 +9,56 @@ import { captureException } from '../posthog'
 /** Number of Redis error events until the server is killed gracefully. */
 const REDIS_ERROR_COUNTER_LIMIT = 10
 
-export type REDIS_SERVER_KIND = 'posthog' | 'ingestion' | 'session-recording' | 'cookieless' | 'cdp' | 'logs'
-
-export function getRedisConnectionOptions(
-    serverConfig: PluginsServerConfig,
-    kind: REDIS_SERVER_KIND
-): {
+/**
+ * Configuration for a Redis connection.
+ * Consumers should build this config inline where they create Redis connections,
+ * rather than relying on centralized builder functions.
+ */
+export interface RedisConnectionConfig {
     url: string
     options?: RedisOptions
-} {
-    const fallback = { url: serverConfig.REDIS_URL }
-    switch (kind) {
-        case 'posthog':
-            return serverConfig.POSTHOG_REDIS_HOST
-                ? {
-                      url: serverConfig.POSTHOG_REDIS_HOST,
-                      options: {
-                          port: serverConfig.POSTHOG_REDIS_PORT,
-                          password: serverConfig.POSTHOG_REDIS_PASSWORD,
-                      },
-                  }
-                : fallback
-        case 'ingestion':
-            return serverConfig.INGESTION_REDIS_HOST
-                ? {
-                      url: serverConfig.INGESTION_REDIS_HOST,
-                      options: {
-                          port: serverConfig.INGESTION_REDIS_PORT,
-                      },
-                  }
-                : serverConfig.POSTHOG_REDIS_HOST
-                  ? {
-                        url: serverConfig.POSTHOG_REDIS_HOST,
-                        options: {
-                            port: serverConfig.POSTHOG_REDIS_PORT,
-                            password: serverConfig.POSTHOG_REDIS_PASSWORD,
-                        },
-                    }
-                  : fallback
-        case 'session-recording':
-            return serverConfig.POSTHOG_SESSION_RECORDING_REDIS_HOST
-                ? {
-                      url: serverConfig.POSTHOG_SESSION_RECORDING_REDIS_HOST,
-                      options: {
-                          port: serverConfig.POSTHOG_SESSION_RECORDING_REDIS_PORT ?? 6379,
-                      },
-                  }
-                : fallback
-        case 'cookieless':
-            return serverConfig.COOKIELESS_REDIS_HOST
-                ? {
-                      url: serverConfig.COOKIELESS_REDIS_HOST,
-                      options: {
-                          port: serverConfig.COOKIELESS_REDIS_PORT ?? 6379,
-                      },
-                  }
-                : fallback
-        case 'cdp':
-            return serverConfig.CDP_REDIS_HOST
-                ? {
-                      url: serverConfig.CDP_REDIS_HOST,
-                      options: {
-                          port: serverConfig.CDP_REDIS_PORT,
-                          password: serverConfig.CDP_REDIS_PASSWORD,
-                      },
-                  }
-                : fallback
-        case 'logs':
-            return serverConfig.LOGS_REDIS_HOST
-                ? {
-                      url: serverConfig.LOGS_REDIS_HOST,
-                      options: {
-                          port: serverConfig.LOGS_REDIS_PORT,
-                          // TLS is an object that lets you define certificate, ca, etc
-                          // we just want the default config so weirdly we pass empty object to enable it
-                          tls: serverConfig.LOGS_REDIS_TLS ? {} : undefined,
-                      },
-                  }
-                : fallback
-    }
 }
 
-export async function createRedis(serverConfig: PluginsServerConfig, kind: REDIS_SERVER_KIND): Promise<Redis.Redis> {
-    const { url, options } = getRedisConnectionOptions(serverConfig, kind)
-    return createRedisClient(url, options)
+/**
+ * Configuration needed to create Redis pool instances.
+ */
+export interface RedisPoolConfig {
+    connection: RedisConnectionConfig
+    poolMinSize: number
+    poolMaxSize: number
+}
+
+export async function createRedisFromConfig(config: RedisConnectionConfig): Promise<Redis.Redis> {
+    return createRedisClient(config.url, config.options)
+}
+
+export function createRedisPoolFromConfig(config: RedisPoolConfig): RedisPool {
+    return createPool<Redis.Redis>(
+        {
+            create: () => createRedisFromConfig(config.connection),
+            destroy: async (client) => {
+                await client.quit()
+            },
+        },
+        {
+            min: config.poolMinSize,
+            max: config.poolMaxSize,
+            autostart: true,
+        }
+    )
 }
 
 /**
  * Sanitizes a Redis URL for safe logging by extracting only the host portion.
  * This prevents leaking credentials that may be embedded in the URL.
- *
- * @param url - Redis URL (e.g., 'rediss://:password@localhost:6379') or plain hostname (e.g., 'posthog-redis')
- * @param options - Optional Redis options that may include the port
- * @returns The host portion without credentials (e.g., 'localhost:6379'), or the plain hostname if not a URL
  */
 function getRedisHost(url: string, options?: RedisOptions): string {
     try {
         const parsed = new URL(url)
-        // Return host (hostname:port) if available, excluding any credentials
-        // For URLs without a host (e.g., data:, file:), return a safe placeholder
         return parsed.host || '[sanitized-redis-host]'
     } catch {
-        // If URL parsing fails, strip any potential credentials from the string
-        // Use lastIndexOf to handle edge cases with multiple @ symbols
         const atIndex = url.lastIndexOf('@')
         const hostname = atIndex >= 0 ? url.substring(atIndex + 1) : url
-        // Append port from options if available and not already in hostname
         if (options?.port && !hostname.includes(':')) {
             return `${hostname}:${options.port}`
         }
@@ -147,20 +91,4 @@ export async function createRedisClient(url: string, options?: RedisOptions): Pr
         })
     await redis.info()
     return redis
-}
-
-export function createRedisPool(options: PluginsServerConfig, kind: REDIS_SERVER_KIND): RedisPool {
-    return createPool<Redis.Redis>(
-        {
-            create: () => createRedis(options, kind),
-            destroy: async (client) => {
-                await client.quit()
-            },
-        },
-        {
-            min: options.REDIS_POOL_MIN_SIZE,
-            max: options.REDIS_POOL_MAX_SIZE,
-            autostart: true,
-        }
-    )
 }

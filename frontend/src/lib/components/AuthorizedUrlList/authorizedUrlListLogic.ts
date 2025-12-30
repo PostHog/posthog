@@ -100,16 +100,37 @@ export const validateProposedUrl = (
     return
 }
 
-function buildToolbarParams(options?: {
+interface BuildToolbarParamsOptions {
     actionId?: number | null
     experimentId?: ExperimentIdType
+    productTourId?: string | null
     userIntent?: ToolbarUserIntent
     toolbarFlagsKey?: string
-}): ToolbarParams {
+}
+
+const _buildToolbarUserIntent = (options?: BuildToolbarParamsOptions): ToolbarUserIntent => {
+    if (options?.userIntent) {
+        return options.userIntent
+    }
+    if (options?.actionId) {
+        return 'edit-action'
+    }
+    if (options?.experimentId) {
+        return 'edit-experiment'
+    }
+    if (options?.productTourId) {
+        if (options.productTourId !== 'new') {
+            return 'edit-product-tour'
+        }
+        return 'add-product-tour'
+    }
+
+    return 'add-action'
+}
+
+function buildToolbarParams(options?: BuildToolbarParamsOptions): ToolbarParams {
     return {
-        userIntent:
-            options?.userIntent ??
-            (options?.actionId ? 'edit-action' : options?.experimentId ? 'edit-experiment' : 'add-action'),
+        userIntent: _buildToolbarUserIntent(options),
         // Make sure to pass the app url, otherwise the api_host will be used by
         // the toolbar, which isn't correct when used behind a reverse proxy as
         // we require e.g. SSO login to the app, which will not work when placed
@@ -117,6 +138,7 @@ function buildToolbarParams(options?: {
         apiURL: apiHostOrigin(),
         ...(options?.actionId ? { actionId: options.actionId } : {}),
         ...(options?.experimentId ? { experimentId: options.experimentId } : {}),
+        ...(options?.productTourId && options.productTourId !== 'new' ? { productTourId: options.productTourId } : {}),
         ...(options?.toolbarFlagsKey ? { toolbarFlagsKey: options.toolbarFlagsKey } : {}),
     }
 }
@@ -127,6 +149,7 @@ export function appEditorUrl(
     options?: {
         actionId?: number | null
         experimentId?: ExperimentIdType
+        productTourId?: string | null
         userIntent?: ToolbarUserIntent
         generateOnly?: boolean
         toolbarFlagsKey?: string
@@ -208,6 +231,7 @@ export interface KeyedAppUrl {
 export interface AuthorizedUrlListLogicProps {
     actionId: number | null
     experimentId: ExperimentIdType | null
+    productTourId: string | null
     type: AuthorizedUrlListType
     allowWildCards?: boolean
 }
@@ -215,12 +239,13 @@ export interface AuthorizedUrlListLogicProps {
 export const defaultAuthorizedUrlProperties = {
     actionId: null,
     experimentId: null,
+    productTourId: null,
 }
 
 export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
     path((key) => ['lib', 'components', 'AuthorizedUrlList', 'authorizedUrlListLogic', key]),
-    key((props) => `${props.type}-${props.experimentId}-${props.actionId}`), // Some will be undefined but that's ok, this avoids experiment/action with same ID sharing same store
-    props({} as AuthorizedUrlListLogicProps),
+    key((props) => `${props.type}-${props.experimentId}-${props.actionId}-${props.productTourId}`), // Some will be undefined but that's ok, this avoids experiment/action with same ID sharing same store
+    props({ ...defaultAuthorizedUrlProperties } as AuthorizedUrlListLogicProps),
     connect(() => ({
         values: [teamLogic, ['currentTeam', 'currentTeamId']],
         actions: [teamLogic, ['updateCurrentTeam']],
@@ -454,12 +479,16 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
             },
         ],
         launchUrl: [
-            (_, p) => [p.actionId, p.experimentId],
-            (actionId, experimentId) => (url: string) => {
+            (_, p) => [p.actionId, p.experimentId, p.productTourId],
+            (actionId, experimentId, productTourId) => (url: string) => {
                 if (experimentId) {
                     return appEditorUrl(url, {
                         experimentId,
                     })
+                }
+
+                if (productTourId) {
+                    return appEditorUrl(url, { productTourId })
                 }
 
                 return appEditorUrl(url, {

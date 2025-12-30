@@ -12,6 +12,7 @@ from posthog.temporal.common.client import connect
 from posthog.temporal.data_imports.settings import WORKFLOWS as DATA_IMPORT_WORKFLOWS
 from posthog.temporal.delete_persons import WORKFLOWS as DELETE_PERSONS_WORKFLOWS
 from posthog.temporal.delete_recordings import WORKFLOWS as DELETE_RECORDING_WORKFLOWS
+from posthog.temporal.dlq_replay import WORKFLOWS as DLQ_REPLAY_WORKFLOWS
 from posthog.temporal.enforce_max_replay_retention import WORKFLOWS as ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
 from posthog.temporal.export_recording import WORKFLOWS as EXPORT_RECORDING_WORKFLOWS
 from posthog.temporal.import_recording import WORKFLOWS as IMPORT_RECORDING_WORKFLOWS
@@ -128,6 +129,7 @@ class Command(BaseCommand):
         WORKFLOWS = (
             BATCH_EXPORT_WORKFLOWS
             + DATA_IMPORT_WORKFLOWS
+            + DLQ_REPLAY_WORKFLOWS
             + PROXY_SERVICE_WORKFLOWS
             + DELETE_PERSONS_WORKFLOWS
             + USAGE_REPORTS_WORKFLOWS

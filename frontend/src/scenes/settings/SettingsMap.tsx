@@ -83,6 +83,8 @@ import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersCo
 import { UsageMetricsConfig } from './environment/UsageMetricsConfig'
 import { WebAnalyticsEnablePreAggregatedTables } from './environment/WebAnalyticsAPISetting'
 import { WebhookIntegration } from './environment/WebhookIntegration'
+import { ApprovalPolicies } from './organization/Approvals/ApprovalPolicies'
+import { ChangeRequestsList } from './organization/Approvals/ChangeRequestsList'
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
 import { OrganizationAI } from './organization/OrgAI'
@@ -803,6 +805,27 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'organization-security',
                 title: 'Security settings',
                 component: <OrganizationSecuritySettings />,
+            },
+        ],
+    },
+    {
+        level: 'organization',
+        id: 'organization-approvals',
+        title: 'Approvals',
+        flag: 'APPROVALS',
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+        settings: [
+            {
+                id: 'approval-policies',
+                title: 'Policies',
+                description: 'Configure which actions require approval before being applied',
+                component: <ApprovalPolicies />,
+            },
+            {
+                id: 'change-requests',
+                title: 'Change requests',
+                description: 'Review and approve pending change requests',
+                component: <ChangeRequestsList />,
             },
         ],
     },

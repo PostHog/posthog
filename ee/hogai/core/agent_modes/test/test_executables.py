@@ -86,9 +86,10 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
             state_1 = AssistantState(messages=[HumanMessage(content="Tell me a joke")])
             next_state = await node.arun(state_1, {})
             self.assertIsInstance(next_state, PartialAssistantState)
-            self.assertEqual(len(next_state.messages), 1)
-            self.assertIsInstance(next_state.messages[0], AssistantMessage)
-            assistant_message = next_state.messages[0]
+            # The state includes context messages + original message + generated message
+            self.assertGreaterEqual(len(next_state.messages), 1)
+            assistant_message = next_state.messages[-1]
+            self.assertIsInstance(assistant_message, AssistantMessage)
             assert isinstance(assistant_message, AssistantMessage)
             self.assertEqual(assistant_message.content, "Why did the chicken cross the road? To get to the other side!")
 
@@ -115,9 +116,10 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
             state_1 = AssistantState(messages=[HumanMessage(content="generate")])
             next_state = await node.arun(state_1, {})
             self.assertIsInstance(next_state, PartialAssistantState)
-            self.assertEqual(len(next_state.messages), 1)
-            self.assertIsInstance(next_state.messages[0], AssistantMessage)
-            assistant_message = next_state.messages[0]
+            # The state includes context messages + original message + generated message
+            self.assertGreaterEqual(len(next_state.messages), 1)
+            assistant_message = next_state.messages[-1]
+            self.assertIsInstance(assistant_message, AssistantMessage)
             assert isinstance(assistant_message, AssistantMessage)
             self.assertEqual(assistant_message.content, "Content")
             self.assertIsNotNone(assistant_message.id)
@@ -290,9 +292,15 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         )
         mock_with_tokens.ainvoke = ainvoke_mock
 
-        with patch(
-            "ee.hogai.core.agent_modes.executables.MaxChatAnthropic",
-            return_value=mock_with_tokens,
+        with (
+            patch(
+                "ee.hogai.core.agent_modes.executables.MaxChatAnthropic",
+                return_value=mock_with_tokens,
+            ),
+            patch(
+                "ee.hogai.core.agent_modes.compaction_manager.AnthropicConversationCompactionManager.calculate_token_count",
+                return_value=1000,
+            ),
         ):
             node = _create_agent_node(self.team, self.user)
 
@@ -304,8 +312,9 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
 
             # Verify the response doesn't contain any tool calls
             self.assertIsInstance(next_state, PartialAssistantState)
-            self.assertEqual(len(next_state.messages), 1)
-            message = next_state.messages[0]
+            # The state includes context messages + original message + generated message
+            self.assertGreaterEqual(len(next_state.messages), 1)
+            message = next_state.messages[-1]
             self.assertIsInstance(message, AssistantMessage)
             assert isinstance(message, AssistantMessage)
             self.assertEqual(message.content, "I can't help with that anymore.")
@@ -346,11 +355,12 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         summarized_messages = mock_summarize.call_args[0][0]
         self.assertEqual(len(summarized_messages), 3)
 
-        # Verify summary message was inserted
+        # Verify summary message was inserted (along with mode reminder)
         self.assertIsInstance(result, PartialAssistantState)
         context_messages = [msg for msg in result.messages if isinstance(msg, ContextMessage)]
-        self.assertEqual(len(context_messages), 1)
-        self.assertIn("This is a summary of the conversation so far.", context_messages[0].content)
+        self.assertEqual(len(context_messages), 2)  # summary + mode reminder
+        summary_msg = next(msg for msg in context_messages if "This is a summary" in msg.content)
+        self.assertIn("This is a summary of the conversation so far.", summary_msg.content)
 
     @patch(
         "ee.hogai.core.agent_modes.executables.AgentExecutable._get_model", return_value=FakeChatOpenAI(responses=[])
@@ -386,15 +396,13 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         "ee.hogai.core.agent_modes.executables.AgentExecutable._get_model", return_value=FakeChatOpenAI(responses=[])
     )
     @patch("ee.hogai.core.agent_modes.compaction_manager.AnthropicConversationCompactionManager.calculate_token_count")
-    @patch("ee.hogai.utils.conversation_summarizer.summarizer.AnthropicConversationSummarizer.summarize")
-    @patch("ee.hogai.core.agent_modes.executables.has_agent_modes_feature_flag")
+    @patch("ee.hogai.utils.conversation_summarizer.AnthropicConversationSummarizer.summarize")
     async def test_conversation_summarization_includes_mode_reminder_when_feature_flag_enabled(
-        self, mock_feature_flag, mock_summarize, mock_calculate_tokens, mock_model
+        self, mock_summarize, mock_calculate_tokens, mock_model
     ):
         """Test that mode reminder is inserted after summary when modes feature flag is enabled"""
         mock_calculate_tokens.return_value = 150_000
         mock_summarize.return_value = "Summary of conversation"
-        mock_feature_flag.return_value = True
 
         mock_model_instance = FakeChatOpenAI(responses=[LangchainAIMessage(content="Response")])
         mock_model.return_value = mock_model_instance

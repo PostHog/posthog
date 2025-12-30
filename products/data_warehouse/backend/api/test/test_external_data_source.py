@@ -1085,9 +1085,115 @@ class TestExternalDataSource(APIBaseTest):
         assert "auth" in ssh_tunnel
         assert ssh_tunnel["auth"]["selection"] == "username_password"
         assert ssh_tunnel["auth"]["username"] == "testuser"
-        assert ssh_tunnel["auth"]["password"] is None
-        assert ssh_tunnel["auth"]["passphrase"] is None
-        assert ssh_tunnel["auth"]["private_key"] is None
+        # Sensitive fields should not be included in response (to prevent them being echoed back)
+        assert "password" not in ssh_tunnel["auth"]
+        assert "passphrase" not in ssh_tunnel["auth"]
+        assert "private_key" not in ssh_tunnel["auth"]
+
+    def test_update_after_get_preserves_ssh_tunnel_credentials(self):
+        """
+        Regression test for P0 bug: updating a source after viewing it should preserve credentials.
+
+        The bug flow was:
+        1. User creates source with SSH tunnel credentials
+        2. User GETs source - API returns ssh_tunnel.auth with password=null (masked for security)
+        3. User updates any field - frontend sends back the response including password=null
+        4. Backend merges null over stored password - credentials lost
+        5. Validation fails: "Required field 'auth' is missing"
+
+        Fix: Don't include sensitive fields (password, passphrase, private_key) in API response at all.
+        """
+        # Create a source with SSH tunnel and credentials
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="test_creds",
+            job_inputs={
+                "source_type": "Postgres",
+                "host": "db.example.com",
+                "port": "5432",
+                "database": "mydb",
+                "user": "dbuser",
+                "password": "db_password",
+                "schema": "public",
+                "ssh_tunnel": {
+                    "enabled": "True",
+                    "host": "ssh.example.com",
+                    "port": "22",
+                    "auth": {
+                        "type": "password",
+                        "username": "sshuser",
+                        "password": "ssh_secret_password",
+                        "passphrase": None,
+                        "private_key": None,
+                    },
+                },
+            },
+        )
+
+        # Step 1: GET the source (simulating user opening the config page)
+        get_response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+        assert get_response.status_code == 200
+        get_data = get_response.json()
+
+        # Step 2: PATCH with the exact data from GET (simulating user saving without changes)
+        patch_response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": get_data["job_inputs"]},
+        )
+
+        # Should succeed, not fail with "Required field 'auth' is missing"
+        assert (
+            patch_response.status_code == 200
+        ), f"Expected 200, got {patch_response.status_code}: {patch_response.json()}"
+
+        # Verify credentials are still intact
+        source.refresh_from_db()
+        assert source.job_inputs["password"] == "db_password"  # Main DB password preserved
+        assert source.job_inputs["ssh_tunnel"]["auth"]["password"] == "ssh_secret_password"  # SSH password preserved
+
+    def test_update_with_null_password_preserves_existing(self):
+        """Regression test: sending password=null should not overwrite stored password."""
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="test_null_pw",
+            job_inputs={
+                "source_type": "Postgres",
+                "host": "db.example.com",
+                "port": "5432",
+                "database": "mydb",
+                "user": "dbuser",
+                "password": "original_password",
+                "schema": "public",
+            },
+        )
+
+        # Send update with password explicitly set to null (simulating frontend behavior)
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {
+                    "host": "new-host.example.com",
+                    "password": None,  # Frontend sends null
+                },
+            },
+        )
+
+        assert response.status_code == 200
+
+        # Verify password was preserved, not overwritten with null
+        source.refresh_from_db()
+        assert source.job_inputs["host"] == "new-host.example.com"  # Host was updated
+        assert source.job_inputs["password"] == "original_password"  # Password preserved
 
     def test_snowflake_auth_type_create_and_update(self):
         """Test that we can create and update the auth type for a Snowflake source"""

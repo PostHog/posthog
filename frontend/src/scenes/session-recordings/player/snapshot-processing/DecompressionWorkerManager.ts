@@ -2,7 +2,6 @@ import type { PostHog } from 'posthog-js'
 import snappyInit, { decompress_raw } from 'snappy-wasm'
 
 import type { DecompressionRequest, DecompressionResponse } from './decompressionWorker'
-import { requestIdleCallback } from './yield-scheduler'
 
 interface PendingRequest {
     resolve: (data: Uint8Array) => void
@@ -18,15 +17,6 @@ interface DecompressionStats {
     totalSize: number
 }
 
-export type DecompressionMode = 'worker' | 'worker_and_yielding'
-
-export function normalizeMode(mode?: string | boolean): DecompressionMode {
-    if (mode === 'worker_and_yielding') {
-        return 'worker_and_yielding'
-    }
-    return 'worker'
-}
-
 export class DecompressionWorkerManager {
     private readonly readyPromise: Promise<void>
     private snappyInitialized = false
@@ -34,15 +24,10 @@ export class DecompressionWorkerManager {
     private messageId = 0
     private pendingRequests = new Map<number, PendingRequest>()
     private stats: DecompressionStats = { totalTime: 0, count: 0, totalSize: 0 }
-    private readonly mode: DecompressionMode
     private isColdStart = true
     private workerInitFailed = false
 
-    constructor(
-        mode?: string | DecompressionMode,
-        private readonly posthog?: PostHog
-    ) {
-        this.mode = normalizeMode(mode)
+    constructor(private readonly posthog?: PostHog) {
         this.readyPromise = this.initWorker()
     }
 
@@ -231,32 +216,6 @@ export class DecompressionWorkerManager {
         const startTime = performance.now()
         const dataSize = compressedData.length
 
-        if (this.mode === 'worker_and_yielding') {
-            return new Promise<Uint8Array>((resolve, reject) => {
-                const idleStart = performance.now()
-                requestIdleCallback(() => {
-                    const idleDuration = performance.now() - idleStart
-                    try {
-                        const decompressStart = performance.now()
-                        const result = decompress_raw(compressedData)
-                        const decompressDuration = performance.now() - decompressStart
-                        const totalDuration = performance.now() - startTime
-                        this.updateStats(
-                            totalDuration,
-                            dataSize,
-                            idleDuration,
-                            decompressDuration,
-                            metadata?.isParallel
-                        )
-                        resolve(result)
-                    } catch (error) {
-                        console.error('Decompression error:', error)
-                        reject(error instanceof Error ? error : new Error('Unknown decompression error'))
-                    }
-                })
-            })
-        }
-
         try {
             const decompressStart = performance.now()
             const result = decompress_raw(compressedData)
@@ -273,7 +232,7 @@ export class DecompressionWorkerManager {
     private updateStats(
         duration: number,
         dataSize: number,
-        yieldDuration?: number,
+        _yieldDuration?: number,
         decompressDuration?: number,
         isParallel?: boolean
     ): void {
@@ -284,14 +243,13 @@ export class DecompressionWorkerManager {
         if (this.isColdStart) {
             this.isColdStart = false
         }
-        this.reportTiming(duration, dataSize, isColdStart, yieldDuration, decompressDuration, isParallel)
+        this.reportTiming(duration, dataSize, isColdStart, decompressDuration, isParallel)
     }
 
     private reportTiming(
         durationMs: number,
         sizeBytes: number,
         isColdStart: boolean,
-        yieldDuration?: number,
         decompressDuration?: number,
         isParallel?: boolean
     ): void {
@@ -300,7 +258,7 @@ export class DecompressionWorkerManager {
         }
 
         const properties: Record<string, any> = {
-            method: this.mode,
+            method: 'worker',
             duration_ms: durationMs,
             size_bytes: sizeBytes,
             is_cold_start: isColdStart,
@@ -310,13 +268,9 @@ export class DecompressionWorkerManager {
             aggregate_avg_time_ms: this.stats.count > 0 ? this.stats.totalTime / this.stats.count : 0,
         }
 
-        if (yieldDuration !== undefined) {
-            properties.yield_duration_ms = yieldDuration
-        }
-
         if (decompressDuration !== undefined) {
             properties.decompress_duration_ms = decompressDuration
-            properties.overhead_duration_ms = durationMs - decompressDuration - (yieldDuration || 0)
+            properties.overhead_duration_ms = durationMs - decompressDuration
         }
 
         if (isParallel !== undefined) {
@@ -344,22 +298,18 @@ export class DecompressionWorkerManager {
 }
 
 let workerManager: DecompressionWorkerManager | null = null
-let currentConfig: { mode?: DecompressionMode; posthog?: PostHog } | null = null
+let currentPosthog: PostHog | undefined
 
-export function getDecompressionWorkerManager(
-    mode?: string | DecompressionMode,
-    posthog?: PostHog
-): DecompressionWorkerManager {
-    const normalizedMode = normalizeMode(mode)
-    const configChanged = currentConfig && (currentConfig.mode !== normalizedMode || currentConfig.posthog !== posthog)
+export function getDecompressionWorkerManager(posthog?: PostHog): DecompressionWorkerManager {
+    const configChanged = currentPosthog !== posthog
 
-    if (configChanged) {
+    if (configChanged && workerManager) {
         terminateDecompressionWorker()
     }
 
     if (!workerManager) {
-        workerManager = new DecompressionWorkerManager(mode, posthog)
-        currentConfig = { mode: normalizedMode, posthog }
+        workerManager = new DecompressionWorkerManager(posthog)
+        currentPosthog = posthog
     }
     return workerManager
 }
@@ -369,7 +319,7 @@ export function terminateDecompressionWorker(): void {
         workerManager.terminate()
         workerManager = null
     }
-    currentConfig = null
+    currentPosthog = undefined
 }
 
 /**

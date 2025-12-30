@@ -8,6 +8,7 @@ from temporalio.common import MetricCounter, MetricMeter
 from posthog.exceptions_capture import capture_exception
 from posthog.models.subscription import Subscription
 from posthog.sync import database_sync_to_async
+from posthog.tasks.exporter import is_user_query_error_type
 
 from ee.tasks.subscriptions.email_subscriptions import send_email_subscription_report
 from ee.tasks.subscriptions.slack_subscriptions import (
@@ -115,8 +116,24 @@ async def deliver_subscription_report_async(
         "deliver_subscription_report_async.assets_generated", subscription_id=subscription_id, asset_count=len(assets)
     )
 
-    if any(_has_asset_failed(asset) for asset in assets):
+    # Only count system failures in metrics, not user config errors
+    failed_assets = [a for a in assets if _has_asset_failed(a)]
+    system_failures = [a for a in failed_assets if not is_user_query_error_type(a.exception_type)]
+    if system_failures:
         get_subscription_failure_metric(subscription.target_type, "temporal", failure_type="asset_generation").add(1)
+        logger.warn(
+            "deliver_subscription_report_async.failed_asset_generation",
+            subscription_id=subscription_id,
+            asset_count=len(assets),
+            assets=[
+                {
+                    "exported_asset_id": a.id,
+                    "exception_type": a.exception_type,
+                    "content_location": a.content_location,
+                }
+                for a in assets
+            ],
+        )
 
     if not assets:
         logger.warning("deliver_subscription_report_async.no_assets", subscription_id=subscription_id)

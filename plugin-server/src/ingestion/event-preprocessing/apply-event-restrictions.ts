@@ -1,8 +1,14 @@
-import { ingestionOverflowingMessagesTotal } from '../../main/ingestion-queues/batch-processing/metrics'
+import { Counter } from 'prom-client'
+
 import { EventHeaders } from '../../types'
 import { EventIngestionRestrictionManager, Restriction } from '../../utils/event-ingestion-restriction-manager'
 import { dlq, drop, ok, redirect } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
+
+export const ingestionOverflowingMessagesTotal = new Counter({
+    name: 'ingestion_overflowing_messages_total',
+    help: 'Count of messages rerouted to the overflow topic.',
+})
 
 export type RoutingConfig = {
     overflowTopic: string
