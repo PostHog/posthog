@@ -26,6 +26,7 @@ const ALWAYS_EXTRA_TABS = [
     SidePanelTab.Exports,
     SidePanelTab.SdkDoctor,
     SidePanelTab.Health,
+    SidePanelTab.Changelog,
 ]
 
 const TABS_REQUIRING_A_TEAM = [
@@ -112,6 +113,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 tabs.push(SidePanelTab.Settings)
                 tabs.push(SidePanelTab.SdkDoctor)
                 tabs.push(SidePanelTab.Health)
+                tabs.push(SidePanelTab.Changelog)
 
                 if (!currentTeam) {
                     return tabs.filter((tab) => !TABS_REQUIRING_A_TEAM.includes(tab))
