@@ -567,8 +567,8 @@ fn bench_high_cardinality_simulation(c: &mut Criterion) {
 
     // Cache warmth scenarios: (name, percentage of keys to pre-cache, fresh_each_iter)
     let scenarios: &[(&str, u64, bool)] = &[
-        ("cold_fresh", 0, true),   // Fresh limiters each iteration - true cold start
-        ("warm_50pct", 50, false), // Persistent limiters, 50% pre-warmed
+        ("cold_fresh", 0, true),    // Fresh limiters each iteration - true cold start
+        ("warm_50pct", 50, false),  // Persistent limiters, 50% pre-warmed
         ("hot_100pct", 100, false), // Persistent limiters, 100% pre-warmed
     ];
 
@@ -580,24 +580,23 @@ fn bench_high_cardinality_simulation(c: &mut Criterion) {
     ));
 
     for (scenario_name, cache_warmth_pct, fresh_each_iter) in scenarios {
-        // Snapshot baseline metrics before this scenario
-        let baseline_cache_hit =
-            get_counter_value("global_rate_limiter_cache_counts_total", "result", "hit");
-        let baseline_cache_miss =
-            get_counter_value("global_rate_limiter_cache_counts_total", "result", "miss");
-        let baseline_cache_stale =
-            get_counter_value("global_rate_limiter_cache_counts_total", "result", "stale");
-        let baseline_eval_allowed =
-            get_counter_value("global_rate_limiter_eval_counts_total", "result", "allowed");
-        let baseline_eval_limited =
-            get_counter_value("global_rate_limiter_eval_counts_total", "result", "limited");
-        let baseline_eval_fail_open = get_counter_value(
-            "global_rate_limiter_eval_counts_total",
-            "result",
-            "fail_open",
-        );
-
         if *fresh_each_iter {
+            // Capture baseline before benchmark (no warming phase for fresh limiters)
+            let baseline_cache_hit =
+                get_counter_value("global_rate_limiter_cache_counts_total", "result", "hit");
+            let baseline_cache_miss =
+                get_counter_value("global_rate_limiter_cache_counts_total", "result", "miss");
+            let baseline_cache_stale =
+                get_counter_value("global_rate_limiter_cache_counts_total", "result", "stale");
+            let baseline_eval_allowed =
+                get_counter_value("global_rate_limiter_eval_counts_total", "result", "allowed");
+            let baseline_eval_limited =
+                get_counter_value("global_rate_limiter_eval_counts_total", "result", "limited");
+            let baseline_eval_fail_open = get_counter_value(
+                "global_rate_limiter_eval_counts_total",
+                "result",
+                "fail_open",
+            );
             // TRUE COLD START: Create fresh limiters each iteration
             // This measures worst-case latency when all caches are empty
             eprintln!("Running '{scenario_name}': fresh limiters each iteration (true cold start)");
@@ -627,8 +626,7 @@ fn bench_high_cardinality_simulation(c: &mut Criterion) {
                                     for _ in 0..REQUESTS_PER_PROCESS {
                                         let key_id: u64 = rng.gen_range(0..KEYS_CARDINALITY);
                                         let key = format!("sim_key_{key_id}");
-                                        let _ =
-                                            black_box(limiter.check_limit(&key, 1, None).await);
+                                        let _ = black_box(limiter.check_limit(&key, 1, None).await);
                                     }
                                 })
                             })
@@ -640,6 +638,57 @@ fn bench_high_cardinality_simulation(c: &mut Criterion) {
                     }
                 });
             });
+            // Report results for fresh_each_iter scenario
+            let cache_hit =
+                get_counter_value("global_rate_limiter_cache_counts_total", "result", "hit")
+                    - baseline_cache_hit;
+            let cache_miss =
+                get_counter_value("global_rate_limiter_cache_counts_total", "result", "miss")
+                    - baseline_cache_miss;
+            let cache_stale =
+                get_counter_value("global_rate_limiter_cache_counts_total", "result", "stale")
+                    - baseline_cache_stale;
+            let eval_allowed =
+                get_counter_value("global_rate_limiter_eval_counts_total", "result", "allowed")
+                    - baseline_eval_allowed;
+            let eval_limited =
+                get_counter_value("global_rate_limiter_eval_counts_total", "result", "limited")
+                    - baseline_eval_limited;
+            let eval_fail_open = get_counter_value(
+                "global_rate_limiter_eval_counts_total",
+                "result",
+                "fail_open",
+            ) - baseline_eval_fail_open;
+
+            let total_cache = cache_hit + cache_miss + cache_stale;
+            let total_eval = eval_allowed + eval_limited + eval_fail_open;
+
+            if total_cache > 0 || total_eval > 0 {
+                eprintln!("\n=== {scenario_name} Results ===");
+                if total_cache > 0 {
+                    eprintln!(
+                        "Cache: hit={} ({:.1}%) miss={} ({:.1}%) stale={} ({:.1}%)",
+                        cache_hit,
+                        cache_hit as f64 / total_cache as f64 * 100.0,
+                        cache_miss,
+                        cache_miss as f64 / total_cache as f64 * 100.0,
+                        cache_stale,
+                        cache_stale as f64 / total_cache as f64 * 100.0
+                    );
+                }
+                if total_eval > 0 {
+                    eprintln!(
+                        "Eval:  allowed={} ({:.1}%) limited={} ({:.1}%) fail_open={} ({:.1}%)",
+                        eval_allowed,
+                        eval_allowed as f64 / total_eval as f64 * 100.0,
+                        eval_limited,
+                        eval_limited as f64 / total_eval as f64 * 100.0,
+                        eval_fail_open,
+                        eval_fail_open as f64 / total_eval as f64 * 100.0
+                    );
+                }
+                eprintln!("================================\n");
+            }
         } else {
             // PERSISTENT LIMITERS: Create once, pre-warm, reuse across iterations
             let limiters: Vec<_> = rt.block_on(async {
@@ -668,6 +717,23 @@ fn bench_high_cardinality_simulation(c: &mut Criterion) {
                 eprintln!("Cache warming complete.");
             }
 
+            // Capture baseline AFTER warming so warming misses aren't counted
+            let baseline_cache_hit =
+                get_counter_value("global_rate_limiter_cache_counts_total", "result", "hit");
+            let baseline_cache_miss =
+                get_counter_value("global_rate_limiter_cache_counts_total", "result", "miss");
+            let baseline_cache_stale =
+                get_counter_value("global_rate_limiter_cache_counts_total", "result", "stale");
+            let baseline_eval_allowed =
+                get_counter_value("global_rate_limiter_eval_counts_total", "result", "allowed");
+            let baseline_eval_limited =
+                get_counter_value("global_rate_limiter_eval_counts_total", "result", "limited");
+            let baseline_eval_fail_open = get_counter_value(
+                "global_rate_limiter_eval_counts_total",
+                "result",
+                "fail_open",
+            );
+
             let limiters = Arc::new(limiters);
 
             group.bench_function(*scenario_name, |b| {
@@ -684,8 +750,7 @@ fn bench_high_cardinality_simulation(c: &mut Criterion) {
                                     for _ in 0..REQUESTS_PER_PROCESS {
                                         let key_id: u64 = rng.gen_range(0..KEYS_CARDINALITY);
                                         let key = format!("sim_key_{key_id}");
-                                        let _ =
-                                            black_box(limiter.check_limit(&key, 1, None).await);
+                                        let _ = black_box(limiter.check_limit(&key, 1, None).await);
                                     }
                                 })
                             })
@@ -697,58 +762,58 @@ fn bench_high_cardinality_simulation(c: &mut Criterion) {
                     }
                 });
             });
-        }
 
-        // Report results for this scenario
-        let cache_hit =
-            get_counter_value("global_rate_limiter_cache_counts_total", "result", "hit")
-                - baseline_cache_hit;
-        let cache_miss =
-            get_counter_value("global_rate_limiter_cache_counts_total", "result", "miss")
-                - baseline_cache_miss;
-        let cache_stale =
-            get_counter_value("global_rate_limiter_cache_counts_total", "result", "stale")
-                - baseline_cache_stale;
-        let eval_allowed =
-            get_counter_value("global_rate_limiter_eval_counts_total", "result", "allowed")
-                - baseline_eval_allowed;
-        let eval_limited =
-            get_counter_value("global_rate_limiter_eval_counts_total", "result", "limited")
-                - baseline_eval_limited;
-        let eval_fail_open = get_counter_value(
-            "global_rate_limiter_eval_counts_total",
-            "result",
-            "fail_open",
-        ) - baseline_eval_fail_open;
+            // Report results for persistent limiter scenario
+            let cache_hit =
+                get_counter_value("global_rate_limiter_cache_counts_total", "result", "hit")
+                    - baseline_cache_hit;
+            let cache_miss =
+                get_counter_value("global_rate_limiter_cache_counts_total", "result", "miss")
+                    - baseline_cache_miss;
+            let cache_stale =
+                get_counter_value("global_rate_limiter_cache_counts_total", "result", "stale")
+                    - baseline_cache_stale;
+            let eval_allowed =
+                get_counter_value("global_rate_limiter_eval_counts_total", "result", "allowed")
+                    - baseline_eval_allowed;
+            let eval_limited =
+                get_counter_value("global_rate_limiter_eval_counts_total", "result", "limited")
+                    - baseline_eval_limited;
+            let eval_fail_open = get_counter_value(
+                "global_rate_limiter_eval_counts_total",
+                "result",
+                "fail_open",
+            ) - baseline_eval_fail_open;
 
-        let total_cache = cache_hit + cache_miss + cache_stale;
-        let total_eval = eval_allowed + eval_limited + eval_fail_open;
+            let total_cache = cache_hit + cache_miss + cache_stale;
+            let total_eval = eval_allowed + eval_limited + eval_fail_open;
 
-        if total_cache > 0 || total_eval > 0 {
-            eprintln!("\n=== {scenario_name} Results ===");
-            if total_cache > 0 {
-                eprintln!(
-                    "Cache: hit={} ({:.1}%) miss={} ({:.1}%) stale={} ({:.1}%)",
-                    cache_hit,
-                    cache_hit as f64 / total_cache as f64 * 100.0,
-                    cache_miss,
-                    cache_miss as f64 / total_cache as f64 * 100.0,
-                    cache_stale,
-                    cache_stale as f64 / total_cache as f64 * 100.0
-                );
+            if total_cache > 0 || total_eval > 0 {
+                eprintln!("\n=== {scenario_name} Results ===");
+                if total_cache > 0 {
+                    eprintln!(
+                        "Cache: hit={} ({:.1}%) miss={} ({:.1}%) stale={} ({:.1}%)",
+                        cache_hit,
+                        cache_hit as f64 / total_cache as f64 * 100.0,
+                        cache_miss,
+                        cache_miss as f64 / total_cache as f64 * 100.0,
+                        cache_stale,
+                        cache_stale as f64 / total_cache as f64 * 100.0
+                    );
+                }
+                if total_eval > 0 {
+                    eprintln!(
+                        "Eval:  allowed={} ({:.1}%) limited={} ({:.1}%) fail_open={} ({:.1}%)",
+                        eval_allowed,
+                        eval_allowed as f64 / total_eval as f64 * 100.0,
+                        eval_limited,
+                        eval_limited as f64 / total_eval as f64 * 100.0,
+                        eval_fail_open,
+                        eval_fail_open as f64 / total_eval as f64 * 100.0
+                    );
+                }
+                eprintln!("================================\n");
             }
-            if total_eval > 0 {
-                eprintln!(
-                    "Eval:  allowed={} ({:.1}%) limited={} ({:.1}%) fail_open={} ({:.1}%)",
-                    eval_allowed,
-                    eval_allowed as f64 / total_eval as f64 * 100.0,
-                    eval_limited,
-                    eval_limited as f64 / total_eval as f64 * 100.0,
-                    eval_fail_open,
-                    eval_fail_open as f64 / total_eval as f64 * 100.0
-                );
-            }
-            eprintln!("================================\n");
         }
     }
 
