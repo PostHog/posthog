@@ -8,8 +8,6 @@ from posthog.schema import ArtifactContentType, ArtifactSource, AssistantToolCal
 
 from posthog.models import Team, User
 
-from products.data_warehouse.backend.prompts import SQL_ASSISTANT_ROOT_SYSTEM_PROMPT
-
 from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.chat_agent.sql.mixins import HogQLGeneratorMixin
 from ee.hogai.chat_agent.sql.prompts import (
@@ -26,6 +24,7 @@ from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import NodePath
 
 from .prompts import (
+    EXECUTE_SQL_CONTEXT_PROMPT,
     EXECUTE_SQL_RECOVERABLE_ERROR_PROMPT,
     EXECUTE_SQL_SYSTEM_PROMPT,
     EXECUTE_SQL_UNRECOVERABLE_ERROR_PROMPT,
@@ -43,8 +42,7 @@ class ExecuteSQLToolArgs(BaseModel):
 class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
     name: str = "execute_sql"
     args_schema: type[BaseModel] = ExecuteSQLToolArgs
-    context_prompt_template: str = SQL_ASSISTANT_ROOT_SYSTEM_PROMPT
-    show_tool_call_message: bool = False
+    context_prompt_template: str = EXECUTE_SQL_CONTEXT_PROMPT
 
     @classmethod
     async def create_tool_class(

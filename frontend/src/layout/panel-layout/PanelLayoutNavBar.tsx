@@ -58,6 +58,7 @@ import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { SidePanelActivationIcon } from '../navigation-3000/sidepanel/panels/activation/SidePanelActivation'
 import { sidePanelLogic } from '../navigation-3000/sidepanel/sidePanelLogic'
 import { sidePanelStateLogic } from '../navigation-3000/sidepanel/sidePanelStateLogic'
+import { RecentItemsMenu } from './ProjectTree/menus/RecentItemsMenu'
 
 const navBarStyles = cva({
     base: 'flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] relative border-r lg:border-r-transparent',
@@ -343,6 +344,8 @@ export function PanelLayoutNavBar({
                                     tooltip: 'Switch project',
                                 }}
                             />
+
+                            <RecentItemsMenu />
                         </div>
                     </div>
 

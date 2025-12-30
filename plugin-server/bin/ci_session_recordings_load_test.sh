@@ -38,8 +38,6 @@ fi
 SESSION_RECORDING_EVENTS_TOPIC=session_recording_events
 SESSION_RECORDING_INGESTION_CONSUMER_GROUP=session-recordings
 
-export KAFKAJS_NO_PARTITIONER_WARNING=1
-
 # Wait for Kafka to be ready, give it 30 seconds
 SECONDS=0
 
