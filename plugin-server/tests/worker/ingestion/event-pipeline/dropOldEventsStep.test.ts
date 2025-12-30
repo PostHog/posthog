@@ -15,8 +15,8 @@ describe('dropOldEventsStep()', () => {
     beforeEach(async () => {
         await resetTestDatabase()
         hub = await createHub()
-        organizationId = await createOrganization(hub.db.postgres)
-        teamId = await createTeam(hub.db.postgres, organizationId)
+        organizationId = await createOrganization(hub.postgres)
+        teamId = await createTeam(hub.postgres, organizationId)
 
         mockKafkaProducer = {
             queueMessages: jest.fn().mockResolvedValue(undefined),

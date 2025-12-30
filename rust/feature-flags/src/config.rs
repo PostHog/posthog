@@ -475,6 +475,13 @@ pub struct Config {
     #[envconfig(from = "FLAGS_IP_RATE_LIMIT_LOG_ONLY", default = "true")]
     pub flags_ip_rate_limit_log_only: FlexBool,
 
+    // How often to clean up stale rate limiter entries (seconds)
+    // The governor crate's keyed rate limiters accumulate entries for every unique key.
+    // Without periodic cleanup, this leads to unbounded memory growth.
+    // This interval controls how often retain_recent() is called to remove stale entries.
+    #[envconfig(from = "RATE_LIMITER_CLEANUP_INTERVAL_SECS", default = "60")]
+    pub rate_limiter_cleanup_interval_secs: u64,
+
     // Redis compression configuration
     // When enabled, uses zstd compression for Redis values above threshold
     // The `default_test_config()` sets this to true for test/development scenarios.
@@ -603,6 +610,7 @@ impl Config {
             flags_ip_replenish_rate: 100.0,
             flags_rate_limit_log_only: FlexBool(true),
             flags_ip_rate_limit_log_only: FlexBool(true),
+            rate_limiter_cleanup_interval_secs: 60,
             redis_compression_enabled: FlexBool(true),
             redis_client_retry_count: 3,
         }

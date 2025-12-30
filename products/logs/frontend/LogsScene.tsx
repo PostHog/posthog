@@ -1,19 +1,16 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { ListHog } from 'lib/components/hedgehogs'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductKey } from '~/queries/schema/schema-general'
 
 import { LogsFilters } from 'products/logs/frontend/components/LogsFilters'
 import { LogsViewer } from 'products/logs/frontend/components/LogsViewer'
+import { LogsSetupPrompt } from 'products/logs/frontend/components/SetupPrompt/SetupPrompt'
 
 import { logsLogic } from './logsLogic'
 
@@ -24,6 +21,16 @@ export const scene: SceneExport = {
 }
 
 export function LogsScene(): JSX.Element {
+    return (
+        <SceneContent>
+            <LogsSetupPrompt>
+                <LogsSceneContent />
+            </LogsSetupPrompt>
+        </SceneContent>
+    )
+}
+
+const LogsSceneContent = (): JSX.Element => {
     const {
         tabId,
         parsedLogs,
@@ -36,14 +43,8 @@ export function LogsScene(): JSX.Element {
     } = useValues(logsLogic)
     const { runQuery, fetchNextLogsPage, setOrderBy, addFilter, setDateRange } = useActions(logsLogic)
 
-    useEffect(() => {
-        if (parsedLogs.length === 0) {
-            runQuery()
-        }
-    }, [runQuery, parsedLogs.length])
-
     return (
-        <SceneContent>
+        <>
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Logs].name}
                 description={sceneConfigurations[Scene.Logs].description}
@@ -62,15 +63,6 @@ export function LogsScene(): JSX.Element {
                     limits, we want to hear from you.
                 </p>
             </LemonBanner>
-            <ProductIntroduction
-                productName="logs"
-                productKey={ProductKey.LOGS}
-                thingName="log"
-                description={sceneConfigurations[Scene.Logs].description ?? ''}
-                docsURL="https://posthog.com/docs/logs"
-                customHog={ListHog}
-                isEmpty={false}
-            />
             <LogsFilters />
             <div className="flex flex-col gap-2 py-2 h-[calc(100vh_-_var(--breadcrumbs-height-compact,_0px)_-_var(--scene-title-section-height,_0px)_-_5px_+_10rem)]">
                 <LogsViewer
@@ -89,6 +81,6 @@ export function LogsScene(): JSX.Element {
                     onDateRangeChange={setDateRange}
                 />
             </div>
-        </SceneContent>
+        </>
     )
 }

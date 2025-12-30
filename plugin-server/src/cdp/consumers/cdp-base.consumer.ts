@@ -1,4 +1,4 @@
-import { RedisV2, createRedisV2Pool } from '~/common/redis/redis-v2'
+import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { HealthCheckResult, Hub, PluginServerService, TeamId } from '../../types'
@@ -54,7 +54,17 @@ export abstract class CdpConsumerBase {
     protected heartbeat = () => {}
 
     constructor(protected hub: Hub) {
-        this.redis = createRedisV2Pool(hub, 'cdp')
+        // CDP consumers use their own Redis instance with fallback to default
+        this.redis = createRedisV2PoolFromConfig({
+            connection: hub.CDP_REDIS_HOST
+                ? {
+                      url: hub.CDP_REDIS_HOST,
+                      options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
+                  }
+                : { url: hub.REDIS_URL },
+            poolMinSize: hub.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
+        })
         this.hogFunctionManager = new HogFunctionManagerService(hub)
         this.hogFlowManager = new HogFlowManagerService(hub)
         this.hogWatcher = new HogWatcherService(hub, this.redis)

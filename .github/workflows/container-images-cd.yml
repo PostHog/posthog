@@ -265,7 +265,7 @@ jobs:
             - name: Check for changes that affect session replay temporal worker
               id: check_changes_session_replay_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/enforce_max_replay_retention|^posthog/temporal/delete_recordings|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/enforce_max_replay_retention|^posthog/temporal/delete_recordings|^posthog/temporal/export_recording|^posthog/temporal/import_recording|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Check for changes that affect weekly digest temporal worker
               id: check_changes_weekly_digest_temporal_worker

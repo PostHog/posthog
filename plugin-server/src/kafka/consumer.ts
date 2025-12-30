@@ -28,7 +28,6 @@ import { isTestEnv } from '~/utils/env-utils'
 import { parseJSON } from '~/utils/json-parse'
 
 import { defaultConfig } from '../config/config'
-import { kafkaConsumerAssignment, kafkaHeaderStatusCounter } from '../main/ingestion-queues/metrics'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { retryIfRetriable } from '../utils/retries'
@@ -41,6 +40,18 @@ const DEFAULT_BATCH_TIMEOUT_MS = 500
 const SLOW_BATCH_PROCESSING_LOG_THRESHOLD_MS = 10000
 const MAX_HEALTH_HEARTBEAT_INTERVAL_MS = 60_000
 const STATISTICS_INTERVAL_MS = 5000 // Emit internal metrics every 5 seconds
+
+const kafkaConsumerAssignment = new Gauge({
+    name: 'kafka_consumer_assignment',
+    help: 'Kafka consumer partition assignment status',
+    labelNames: ['topic_name', 'partition_id', 'pod', 'group_id'],
+})
+
+const kafkaHeaderStatusCounter = new Counter({
+    name: 'kafka_header_status_total',
+    help: 'Count of events by header name and presence status',
+    labelNames: ['header', 'status'],
+})
 
 const consumedBatchDuration = new Histogram({
     name: 'consumed_batch_duration_ms',
@@ -83,25 +94,6 @@ const histogramKafkaConsumeInterval = new Histogram({
     help: 'Time elapsed between Kafka consume calls',
     labelNames: ['topic', 'groupId'],
     buckets: [0, 20, 100, 200, 500, 1000, 2500, 5000, 10000, 20000, 30000, 60000, Infinity],
-})
-
-// Simple metrics to track offset commits
-const gaugeLastProcessedOffset = new Gauge({
-    name: 'kafka_consumer_last_processed_offset',
-    help: 'Last processed offset per partition',
-    labelNames: ['topic', 'partition', 'groupId'],
-})
-
-const gaugeLastStoredOffset = new Gauge({
-    name: 'kafka_consumer_last_stored_offset',
-    help: 'Last stored (committed) offset per partition',
-    labelNames: ['topic', 'partition', 'groupId'],
-})
-
-const counterOffsetStoreAttempts = new Counter({
-    name: 'kafka_consumer_offset_store_attempts_total',
-    help: 'Total offset store attempts per partition',
-    labelNames: ['topic', 'partition', 'groupId', 'status'],
 })
 
 export const findOffsetsToCommit = (messages: TopicPartitionOffset[]): TopicPartitionOffset[] => {
@@ -612,39 +604,7 @@ export class KafkaConsumer {
             logger.debug('📝', 'Storing offsets', { topicPartitionOffsetsToCommit })
             try {
                 this.rdKafkaConsumer.offsetsStore(topicPartitionOffsetsToCommit)
-
-                // Track successful offset stores
-                topicPartitionOffsetsToCommit.forEach((tpo) => {
-                    counterOffsetStoreAttempts
-                        .labels({
-                            topic: tpo.topic,
-                            partition: tpo.partition.toString(),
-                            groupId: this.config.groupId,
-                            status: 'success',
-                        })
-                        .inc()
-
-                    // Track the last stored offset
-                    gaugeLastStoredOffset
-                        .labels({
-                            topic: tpo.topic,
-                            partition: tpo.partition.toString(),
-                            groupId: this.config.groupId,
-                        })
-                        .set(tpo.offset)
-                })
             } catch (e) {
-                // Track failed offset stores
-                topicPartitionOffsetsToCommit.forEach((tpo) => {
-                    counterOffsetStoreAttempts
-                        .labels({
-                            topic: tpo.topic,
-                            partition: tpo.partition.toString(),
-                            groupId: this.config.groupId,
-                            status: 'failed',
-                        })
-                        .inc()
-                })
                 // NOTE: We don't throw here - this can happen if we were re-assigned partitions
                 // and the offsets are no longer valid whilst processing a batch
                 let assignedPartitions: Assignment[] | string = []
@@ -766,25 +726,21 @@ export class KafkaConsumer {
                     // it would be hard to mix background work with non-background work.
                     // So we just create pretend work to simplify the rest of the logic
                     const backgroundTask = result?.backgroundTask ?? Promise.resolve()
-                    const backgroundTaskStart = performance.now()
+                    const stopBackgroundTaskTimer = result?.backgroundTask
+                        ? consumedBatchBackgroundDuration.startTimer({
+                              topic: this.config.topic,
+                              groupId: this.config.groupId,
+                          })
+                        : undefined
                     const taskCreatedAt = Date.now()
                     // Pull out the offsets to commit from the messages so we can release the messages reference
                     const topicPartitionOffsetsToCommit = findOffsetsToCommit(messages)
 
-                    // Track last processed offsets
-                    topicPartitionOffsetsToCommit.forEach((tpo) => {
-                        gaugeLastProcessedOffset
-                            .labels({
-                                topic: tpo.topic,
-                                partition: tpo.partition.toString(),
-                                groupId: this.config.groupId,
-                            })
-                            .set(tpo.offset)
-                    })
-
                     void backgroundTask.finally(async () => {
                         // Track that we made progress
                         this.lastBackgroundTaskCompletionTime = Date.now()
+
+                        stopBackgroundTaskTimer?.()
 
                         // First of all clear ourselves from the queue
                         const index = this.backgroundTask.findIndex((t) => t.promise === backgroundTask)
@@ -805,16 +761,6 @@ export class KafkaConsumer {
 
                         if (this.config.autoCommit && this.config.autoOffsetStore) {
                             this.storeOffsetsForMessages(topicPartitionOffsetsToCommit)
-                        }
-
-                        if (result?.backgroundTask) {
-                            // We only want to count the time spent in the background work if it was real
-                            consumedBatchBackgroundDuration
-                                .labels({
-                                    topic: this.config.topic,
-                                    groupId: this.config.groupId,
-                                })
-                                .observe(performance.now() - backgroundTaskStart)
                         }
                     })
 
