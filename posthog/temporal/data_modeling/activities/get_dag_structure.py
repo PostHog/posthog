@@ -23,9 +23,9 @@ class DAG:
     """Structure of a DAG for orchestration.
 
     Attributes:
-        node_set: set of node ids in the dag
-        executable_node_set: set of node ids which must be executed (excludes source tables for example)
-        edge_lookup: map from target_id to a set of source_id where target depends on source
+        nodes: list of node ids in the dag
+        executable_nodes: list of node ids which must be executed (excludes source tables for example)
+        edges: list of tuples of source node id and target node id
     """
 
     nodes: list[str]

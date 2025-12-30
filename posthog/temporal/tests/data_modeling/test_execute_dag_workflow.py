@@ -21,6 +21,8 @@ from posthog.temporal.data_modeling.workflows.execute_dag import (
     ExecuteDAGResult,
     ExecuteDAGWorkflow,
     _dag_execution_levels,
+    _get_dependent_lookup,
+    _get_downstream_lookup,
     _get_edge_lookup,
 )
 from posthog.temporal.data_modeling.workflows.materialize_view import (
@@ -193,6 +195,143 @@ class TestDagExecutionLevels:
         edge_lookup = _get_edge_lookup(edges)
         with pytest.raises(EmptyDAGOrCycleError):
             _dag_execution_levels(team_id=1, dag_id="test", nodes=nodes, edge_lookup=edge_lookup)
+
+
+class TestDAGUtils:
+    @pytest.mark.parametrize(
+        "edges,expected",
+        [
+            pytest.param(
+                [("a", "b"), ("a", "c")],
+                {"b": {"a"}, "c": {"a"}},
+                id="single_source_multiple_targets",
+            ),
+            pytest.param(
+                [("a", "c"), ("b", "c")],
+                {"c": {"a", "b"}},
+                id="multiple_sources_single_target",
+            ),
+            pytest.param(
+                [],
+                {},
+                id="empty_edges",
+            ),
+            pytest.param(
+                [("a", "b"), ("b", "c"), ("c", "d")],
+                {"b": {"a"}, "c": {"b"}, "d": {"c"}},
+                id="linear_chain",
+            ),
+        ],
+    )
+    def test_edge_lookup(self, edges, expected):
+        result = _get_edge_lookup(edges)
+        assert dict(result) == expected
+
+    @pytest.mark.parametrize(
+        "edges,expected",
+        [
+            pytest.param(
+                [("a", "b"), ("a", "c")],
+                {"a": {"b", "c"}},
+                id="single_source_multiple_targets",
+            ),
+            pytest.param(
+                [("a", "c"), ("b", "c")],
+                {"a": {"c"}, "b": {"c"}},
+                id="multiple_sources_single_target",
+            ),
+            pytest.param(
+                [],
+                {},
+                id="empty_edges",
+            ),
+            pytest.param(
+                [("a", "b"), ("b", "c"), ("c", "d")],
+                {"a": {"b"}, "b": {"c"}, "c": {"d"}},
+                id="linear_chain",
+            ),
+        ],
+    )
+    def test_dependent_lookup(self, edges, expected):
+        edge_lookup = _get_edge_lookup(edges)
+        result = _get_dependent_lookup(edge_lookup)
+        assert dict(result) == expected
+
+    @pytest.mark.parametrize(
+        "edges,expected",
+        [
+            pytest.param(
+                [("a", "b"), ("b", "c"), ("c", "d")],
+                {"a": {"b", "c", "d"}, "b": {"c", "d"}, "c": {"d"}, "d": set()},
+                id="linear_chain",
+            ),
+            pytest.param(
+                [("a", "b"), ("a", "c")],
+                {"a": {"b", "c"}, "b": set(), "c": set()},
+                id="fork",
+            ),
+            pytest.param(
+                [("a", "c"), ("b", "c")],
+                {"a": {"c"}, "b": {"c"}, "c": set()},
+                id="join",
+            ),
+            pytest.param(
+                [("a", "b"), ("a", "c"), ("b", "d"), ("c", "d")],
+                {"a": {"b", "c", "d"}, "b": {"d"}, "c": {"d"}, "d": set()},
+                id="diamond",
+            ),
+            pytest.param(
+                [],
+                {},
+                id="empty_edges",
+            ),
+        ],
+    )
+    def test_downstream_lookup(self, edges, expected):
+        edge_lookup = _get_edge_lookup(edges)
+        result = _get_downstream_lookup(edge_lookup)
+        assert dict(result) == expected
+
+    def test_downstream_lookup_shared_paths(self):
+        """Test that nodes with shared downstream paths are computed correctly.
+
+        This test verifies the fix for a bug where using a shared visited set
+        across node computations would cause incorrect downstream calculation.
+        In a DAG like:
+            a -> c -> e
+            b -> c
+            b -> d -> e
+        Both 'a' and 'b' should correctly include 'e' in their downstreams,
+        even though 'e' is reachable via different paths.
+        """
+        edges = [("a", "c"), ("b", "c"), ("b", "d"), ("c", "e"), ("d", "e")]
+        edge_lookup = _get_edge_lookup(edges)
+        result = _get_downstream_lookup(edge_lookup)
+        assert result["a"] == {"c", "e"}
+        assert result["b"] == {"c", "d", "e"}
+        assert result["c"] == {"e"}
+        assert result["d"] == {"e"}
+
+    def test_downstream_lookup_multiple_roots(self):
+        """Test DAG with multiple root nodes sharing downstream paths.
+
+        With the bug, if 'a' was processed first and visited 'd', 'e', 'f',
+        then when processing 'b' and 'c', those nodes wouldn't be explored again.
+        """
+        edges = [
+            ("a", "d"),
+            ("b", "d"),
+            ("c", "e"),
+            ("d", "f"),
+            ("e", "f"),
+        ]
+        edge_lookup = _get_edge_lookup(edges)
+        result = _get_downstream_lookup(edge_lookup)
+        assert result["a"] == {"d", "f"}
+        assert result["b"] == {"d", "f"}
+        assert result["c"] == {"e", "f"}
+        assert result["d"] == {"f"}
+        assert result["e"] == {"f"}
 
 
 class TestExecuteDAGWorkflow:
