@@ -1,3 +1,5 @@
+import { PersonPropertyFilter } from '~/types'
+
 import { LazyLoader } from '../../../utils/lazy-loader'
 import { logger } from '../../../utils/logger'
 import { PersonRepository } from '../../../worker/ingestion/persons/repositories/person-repository'
@@ -9,7 +11,7 @@ export type PersonGetArgs = {
 
 export type BatchPersonGetArgs = {
     teamId: number
-    properties: Record<string, any>[]
+    properties: PersonPropertyFilter[]
 }
 
 const toKey = (args: PersonGetArgs): string => `${args.teamId}:${args.distinctId}`
