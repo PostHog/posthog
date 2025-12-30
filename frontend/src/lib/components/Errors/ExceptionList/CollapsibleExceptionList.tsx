@@ -57,6 +57,7 @@ export function CollapsibleExceptionList({
                                     loading={false}
                                     fingerprint={part}
                                     runtime={exceptionAttributes?.runtime}
+                                    truncate={false}
                                 />
                             )}
                             renderFilteredTrace={(frames) => (
