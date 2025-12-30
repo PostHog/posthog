@@ -349,7 +349,7 @@ def _build_dw_query(
     # Starting from the customer table, join with the revenue and mrr aggregated tables.
     # Unlike persons (1:1 customer→person), groups can have many customers (N:1 customer→group),
     # so we need to GROUP BY group_key and SUM the revenue/mrr from all customers in that group.
-    group_key_chain = [RevenueAnalyticsCustomerView.get_generic_view_alias(), "groups", "key"]
+    group_key_chain: list[str | int] = [RevenueAnalyticsCustomerView.get_generic_view_alias(), "groups", "key"]
 
     return ast.SelectQuery(
         select=[
