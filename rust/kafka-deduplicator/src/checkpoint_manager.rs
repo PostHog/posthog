@@ -171,6 +171,18 @@ impl CheckpointManager {
                             debug!("No stores to flush");
                             continue;
                         }
+
+                        // Log all partition candidates for debugging
+                        let candidate_partitions: Vec<String> = candidates.iter().map(|p| format!("{}:{}", p.topic(), p.partition_number())).collect();
+                        info!(
+                            checkpoint_debug = true,
+                            hypothesis = "C",
+                            step = "checkpoint_candidates",
+                            store_count = store_count,
+                            candidates = ?candidate_partitions,
+                            "Checkpoint debug: stores in DashMap for checkpoint"
+                        );
+
                         info!("Checkpoint manager: attempting checkpoint submission for {} stores", store_count);
 
                         // Attempt to checkpoint each partitions' backing store in

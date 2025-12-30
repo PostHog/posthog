@@ -794,6 +794,7 @@ impl StoreManager {
 
         // Build a set of currently assigned partition directories
         let mut assigned_dirs = std::collections::HashSet::new();
+        let mut stores_count = 0;
         for entry in self.stores.iter() {
             let partition = entry.key();
             let dir_name = format!(
@@ -802,6 +803,7 @@ impl StoreManager {
                 partition.partition_number()
             );
             assigned_dirs.insert(dir_name);
+            stores_count += 1;
         }
 
         info!(
@@ -809,6 +811,7 @@ impl StoreManager {
             hypothesis = "B",
             step = "cleanup_orphaned_start",
             assigned_count = assigned_dirs.len(),
+            stores_in_dashmap = stores_count,
             assigned_dirs = ?assigned_dirs,
             "Checkpoint debug: checking for orphaned directories"
         );
