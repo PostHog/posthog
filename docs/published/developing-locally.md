@@ -361,6 +361,20 @@ This allows you to easily confirm that emails are being sent and formatted corre
 
 Emails sent via SMTP are stored in HTML files in `posthog/templates/*/*.html`. They use Django Template Language (DTL).
 
+## Extra: Integrating with slack
+
+You can connect to a real slack workspace in your local development setup by adding the required slack environment variables to your `.env` file.
+
+If you're a PostHog employee, you can find the environment variables in 1Password under `Slack config local dev`.
+
+```.env
+SLACK_APP_CLIENT_ID=
+SLACK_APP_CLIENT_SECRET=
+SLACK_APP_SIGNING_SECRET=
+```
+
+When creating the slack integration it will redirect you to `https://localhost...` to hit the webhook, and you may need to manually adjust that to `http://localhost...` if you don't have local https set up.
+
 ## Extra: Use tracing with Jaeger
 
 Jaeger is enabled by default after running `./bin/start`.
