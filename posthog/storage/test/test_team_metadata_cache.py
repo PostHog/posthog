@@ -415,3 +415,52 @@ class TestWarmCachesExpiryTracking(BaseTest):
             identifier_dict,
             f"Found team ID '{self.team.id}' as identifier, but token-based caches should use API tokens.",
         )
+
+
+@override_settings(FLAGS_REDIS_URL="redis://test", TEST=True)
+class TestTeamMetadataGracePeriod(BaseTest):
+    """Test grace period functionality for team metadata cache verification."""
+
+    def test_recently_updated_team_is_in_skip_set(self):
+        """Test that a recently updated team is included in the skip set."""
+        from posthog.storage.team_metadata_cache import _get_team_ids_with_recently_updated_teams
+
+        # Team was just created, so updated_at is recent
+        result = _get_team_ids_with_recently_updated_teams([self.team.id])
+        self.assertIn(self.team.id, result)
+
+    def test_old_team_is_not_in_skip_set(self):
+        """Test that a team updated long ago is not in the skip set."""
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from posthog.storage.team_metadata_cache import _get_team_ids_with_recently_updated_teams
+
+        # Update the team to have an old updated_at
+        old_time = timezone.now() - timedelta(hours=1)
+        Team.objects.filter(id=self.team.id).update(updated_at=old_time)
+
+        result = _get_team_ids_with_recently_updated_teams([self.team.id])
+        self.assertNotIn(self.team.id, result)
+
+    @override_settings(TEAM_METADATA_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES=0)
+    def test_grace_period_disabled_returns_empty(self):
+        """Test that setting grace period to 0 disables the feature."""
+        from posthog.storage.team_metadata_cache import _get_team_ids_with_recently_updated_teams
+
+        result = _get_team_ids_with_recently_updated_teams([self.team.id])
+        self.assertEqual(result, set())
+
+    def test_empty_team_ids_returns_empty(self):
+        """Test that empty input returns empty set."""
+        from posthog.storage.team_metadata_cache import _get_team_ids_with_recently_updated_teams
+
+        result = _get_team_ids_with_recently_updated_teams([])
+        self.assertEqual(result, set())
+
+    def test_config_has_skip_fix_function(self):
+        """Test that the config is wired up with the skip fix function."""
+        from posthog.storage.team_metadata_cache import TEAM_HYPERCACHE_MANAGEMENT_CONFIG
+
+        self.assertIsNotNone(TEAM_HYPERCACHE_MANAGEMENT_CONFIG.get_team_ids_to_skip_fix_fn)

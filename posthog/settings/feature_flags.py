@@ -62,3 +62,10 @@ FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES: int = get_from_env(
 TEAM_METADATA_CACHE_VERIFICATION_CHUNK_SIZE: int = get_from_env(
     "TEAM_METADATA_CACHE_VERIFICATION_CHUNK_SIZE", 1000, type_cast=int
 )
+
+# Grace period in minutes for skipping team metadata cache fixes during verification.
+# If a team was updated within this window, the verification task will skip
+# "fixing" it to avoid race conditions with async cache update tasks.
+TEAM_METADATA_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES: int = get_from_env(
+    "TEAM_METADATA_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES", 5, type_cast=int
+)

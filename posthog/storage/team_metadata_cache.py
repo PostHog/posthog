@@ -41,10 +41,12 @@ Note: Redis adds ~100 bytes overhead per key. S3 storage uses similar compressio
 """
 
 import os
+from datetime import timedelta
 from typing import Any
 
 from django.conf import settings
 from django.db import transaction
+from django.utils import timezone
 
 import structlog
 
@@ -337,11 +339,35 @@ def update_team_metadata_cache(team: Team | str | int, ttl: int | None = None) -
     return success
 
 
+def _get_team_ids_with_recently_updated_teams(team_ids: list[int]) -> set[int]:
+    """
+    Batch check which teams have been updated within the grace period.
+
+    When a team is updated, an async task updates the cache. If verification
+    runs before the async task completes, it sees a stale cache and tries to
+    "fix" it, causing unnecessary work. This grace period lets recent async
+    updates complete before treating cache misses as genuine errors.
+
+    Args:
+        team_ids: List of team IDs to check
+
+    Returns:
+        Set of team IDs that were recently updated (should skip fix)
+    """
+    grace_period_minutes = settings.TEAM_METADATA_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES
+    if grace_period_minutes <= 0 or not team_ids:
+        return set()
+
+    cutoff = timezone.now() - timedelta(minutes=grace_period_minutes)
+    return set(Team.objects.filter(id__in=team_ids, updated_at__gte=cutoff).values_list("id", flat=True))
+
+
 # Initialize hypercache management config after update_team_metadata_cache is defined
 TEAM_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     hypercache=team_metadata_hypercache,
     update_fn=update_team_metadata_cache,
     cache_name="team_metadata",
+    get_team_ids_to_skip_fix_fn=_get_team_ids_with_recently_updated_teams,
 )
 
 
