@@ -614,11 +614,13 @@ class TestTwoFactorAPI(APIBaseTest):
 
     def test_passkey_2fa_methods_endpoint(self):
         """Test the methods endpoint returns available 2FA methods"""
+        from django_otp.plugins.otp_totp.models import TOTPDevice
+
         from posthog.models.webauthn_credential import WebauthnCredential
 
         # User with no 2FA - need to create a pending 2FA session first
         # Simulate login that requires 2FA
-        self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
+        TOTPDevice.objects.create(user=self.user, name="default", key=random_hex(), digits=6)
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(response.json()["code"], "2fa_required")
@@ -631,7 +633,7 @@ class TestTwoFactorAPI(APIBaseTest):
         self.assertFalse(data["has_passkeys"])
 
         # User with passkeys only
-        self.user.totpdevice_set.all().delete()
+        TOTPDevice.objects.filter(user=self.user).delete()
         WebauthnCredential.objects.create(
             user=self.user,
             credential_id=b"test-credential-id",
@@ -655,7 +657,7 @@ class TestTwoFactorAPI(APIBaseTest):
         self.assertTrue(data["has_passkeys"])
 
         # User with both TOTP and passkeys
-        self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
+        TOTPDevice.objects.create(user=self.user, name="default", key=random_hex(), digits=6)
 
         # Create new 2FA session
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
