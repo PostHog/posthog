@@ -337,7 +337,10 @@ export function formatBreakdownLabel(
         return `${formattedBucketStart} – ${formattedBucketEnd}`
     }
 
-    if (breakdownFilter?.breakdown_type === 'cohort') {
+    const breakdownType =
+        multipleBreakdownIndex != null ? breakdownFilter?.breakdowns?.[multipleBreakdownIndex]?.type : null
+
+    if (breakdownFilter?.breakdown_type === 'cohort' || breakdownType === 'cohort') {
         if (breakdown_value === 'all' || breakdown_value === 0) {
             return 'All Users'
         }

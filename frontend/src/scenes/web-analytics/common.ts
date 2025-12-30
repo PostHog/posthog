@@ -86,6 +86,7 @@ export enum ProductTab {
     SESSION_ATTRIBUTION_EXPLORER = 'session-attribution-explorer',
     MARKETING = 'marketing',
     HEALTH = 'health',
+    LIVE = 'live',
 }
 
 export type DeviceType = 'Desktop' | 'Mobile'

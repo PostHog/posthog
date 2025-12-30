@@ -3,6 +3,8 @@ from unittest import mock
 from django.core.cache import cache
 from django.test import TestCase
 
+from parameterized import parameterized
+
 from posthog.schema import PersonsOnEventsMode
 
 from posthog.models import Dashboard, DashboardTile, Organization, Team, User
@@ -190,3 +192,16 @@ class TestTeam(BaseTest):
         subsequent = Team.objects.increment_id_sequence()
 
         self.assertEqual(subsequent, initial + 1)
+
+    @parameterized.expand(
+        [
+            (None, {"recorder_script": "posthog-recorder"}),
+            ({"other_setting": "value"}, {"other_setting": "value", "recorder_script": "posthog-recorder"}),
+            ({"recorder_script": "custom-recorder"}, {"recorder_script": "custom-recorder"}),
+        ]
+    )
+    def test_create_team_sets_recorder_script_in_extra_settings(self, input_extra_settings, expected_extra_settings):
+        team = Team.objects.create_with_data(
+            initiating_user=self.user, organization=self.organization, extra_settings=input_extra_settings
+        )
+        self.assertEqual(team.extra_settings, expected_extra_settings)

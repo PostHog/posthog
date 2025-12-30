@@ -1661,6 +1661,7 @@
                 "webAnalytics",
                 "webAnalyticsWebVitals",
                 "webAnalyticsHealth",
+                "webAnalyticsLive",
                 "persons"
             ],
             "type": "string"
@@ -7796,7 +7797,7 @@
         },
         "CohortPropertyFilter": {
             "additionalProperties": false,
-            "description": "Sync with plugin-server/src/types.ts",
+            "description": "Sync with nodejs/src/types.ts",
             "properties": {
                 "cohort_name": {
                     "type": "string"
@@ -11252,7 +11253,7 @@
         },
         "ElementPropertyFilter": {
             "additionalProperties": false,
-            "description": "Sync with plugin-server/src/types.ts",
+            "description": "Sync with nodejs/src/types.ts",
             "properties": {
                 "key": {
                     "enum": ["tag_name", "text", "href", "selector"],
@@ -12484,7 +12485,7 @@
         },
         "EventPropertyFilter": {
             "additionalProperties": false,
-            "description": "Sync with plugin-server/src/types.ts",
+            "description": "Sync with nodejs/src/types.ts",
             "properties": {
                 "key": {
                     "type": "string"
@@ -21072,7 +21073,7 @@
         },
         "PersonPropertyFilter": {
             "additionalProperties": false,
-            "description": "Sync with plugin-server/src/types.ts",
+            "description": "Sync with nodejs/src/types.ts",
             "properties": {
                 "key": {
                     "type": "string"
@@ -21543,7 +21544,7 @@
             "type": "string"
         },
         "PropertyOperator": {
-            "description": "Sync with plugin-server/src/types.ts",
+            "description": "Sync with nodejs/src/types.ts",
             "enum": [
                 "exact",
                 "is_not",
