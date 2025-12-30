@@ -150,3 +150,7 @@ pub const KAFKA_PRODUCER_SEND_DURATION_MS: &str = "kafka_producer_send_duration_
 
 /// Histogram for event parsing duration using rayon (in milliseconds)
 pub const EVENT_PARSING_DURATION_MS: &str = "event_parsing_duration_ms";
+
+// ==== S3 Client Initialization ====
+/// Counter for S3 client initialization failures
+pub const S3_CLIENT_INIT_FAILURE_COUNTER: &str = "s3_client_init_failure";

@@ -15,6 +15,7 @@ use tracing::{error, info};
 use crate::deduplication_batch_processor::{
     BatchDeduplicationProcessor, DeduplicationConfig, DuplicateEventProducerWrapper,
 };
+use crate::metrics_const::S3_CLIENT_INIT_FAILURE_COUNTER;
 use crate::{
     checkpoint::{
         config::CheckpointConfig, export::CheckpointExporter, import::CheckpointImporter,
@@ -121,11 +122,18 @@ impl KafkaDeduplicatorService {
 
         // create exporter conditionally if S3 config is populated
         let exporter = if config.checkpoint_export_enabled() {
-            let uploader = Box::new(
-                S3Uploader::new(checkpoint_config.clone())
-                    .await
-                    .context("Failed to create S3 uploader")?,
-            );
+            let uploader = match S3Uploader::new(checkpoint_config.clone()).await {
+                Ok(uploader) => Box::new(uploader),
+                Err(e) => {
+                    error!(
+                        error = %e,
+                        bucket = %config.s3_bucket.as_deref().unwrap_or(""),
+                        region = %config.aws_region,
+                        "Failed to initialize S3 client for checkpoint uploads"
+                    );
+                    return Err(e.context("S3 uploader: client initialization failed"));
+                }
+            };
             Some(Arc::new(CheckpointExporter::new(uploader)))
         } else {
             None
@@ -133,11 +141,18 @@ impl KafkaDeduplicatorService {
 
         // if checkpoint import is enabled, create and configure the importer
         let importer = if config.checkpoint_import_enabled() {
-            let downloader = Box::new(
-                S3Downloader::new(&checkpoint_config)
-                    .await
-                    .context("Failed to create S3 downloader")?,
-            );
+            let downloader = S3Downloader::new(&checkpoint_config).await {
+                Ok(downloader) => Box::new(downloader),
+                Err(e) => {
+                    error!(
+                        error = %e,
+                        bucket = %config.s3_bucket.as_deref().unwrap_or(""),
+                        region = %config.aws_region,
+                        "Failed to initialize S3 client for checkpoint downloads"
+                    );
+                    return Err(e.context("S3 downloader: client initialization failed"));
+                }
+            };
             Some(Arc::new(CheckpointImporter::new(
                 downloader,
                 store_config.path.clone(),

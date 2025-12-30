@@ -39,6 +39,22 @@ impl S3Uploader {
         let s3_config = Config::from(&aws_config);
         let client = Client::from_conf(s3_config);
 
+        client
+            .head_bucket()
+            .bucket(&config.s3_bucket)
+            .send()
+            .await
+            .with_context(|| {
+                format!(
+                    "S3 bucket validation failed for '{}' in region '{}'. Check credentials and bucket access.",
+                    config.s3_bucket, config.aws_region
+                )
+            })?;
+        info!(
+            "S3 bucket '{}' validated successfully in region '{}'",
+            config.s3_bucket, config.aws_region
+        );
+
         Ok(Self { client, config })
     }
 
