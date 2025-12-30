@@ -1301,7 +1301,7 @@ class RevenueEntity(StrEnum):
 
 class RevenuePeriod(StrEnum):
     ALL_TIME = "all_time"
-    LAST_30_DAYS = "last_30_days"
+    MRR = "mrr"
 
 
 class Status4(StrEnum):

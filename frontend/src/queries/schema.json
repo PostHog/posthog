@@ -12194,7 +12194,7 @@
                     "type": "string"
                 },
                 "revenuePeriod": {
-                    "enum": ["all_time", "last_30_days"],
+                    "enum": ["all_time", "mrr"],
                     "type": "string"
                 },
                 "searchQuery": {
