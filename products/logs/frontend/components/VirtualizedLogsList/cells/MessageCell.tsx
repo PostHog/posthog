@@ -45,14 +45,17 @@ export function MessageCell({ message, wrapBody, prettifyJson, parsedBody, style
                             <pre
                                 className={cn(
                                     'font-mono text-xs inline-block mb-0',
-                                    wrapBody ? 'break-all' : 'whitespace-nowrap pr-16'
+                                    wrapBody ? 'whitespace-pre-wrap break-all' : 'whitespace-nowrap pr-16'
                                 )}
                             >
                                 {displayValue}
                             </pre>
                         ) : (
                             <span
-                                className={cn('font-mono text-xs', wrapBody ? 'break-all' : 'whitespace-nowrap pr-16')}
+                                className={cn(
+                                    'font-mono text-xs',
+                                    wrapBody ? 'whitespace-pre-wrap break-all' : 'whitespace-nowrap pr-16'
+                                )}
                             >
                                 {displayValue}
                             </span>
