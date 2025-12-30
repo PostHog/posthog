@@ -109,13 +109,13 @@ impl CheckpointMetadata {
         format!("{}/{}/{}", self.topic, self.partition, self.id)
     }
 
-    /// Get the path (without attempt timestamp ID element) for the local store
-    /// directory checkpoints will be imported into, starting from the supplied
-    /// local base path. Example: <local_base_path>/<topic_name>/<partition_number>
-    pub fn get_store_path(&self, local_base_path: &Path) -> PathBuf {
-        local_base_path
-            .join(self.topic.clone())
-            .join(self.partition.to_string())
+    /// Produce a path under the supplied base directory for the local RocksDB stores that
+    /// will host the imported checkpoint files. Example:
+    /// <local_store_base_path>/<topic_name>_<partition_number>/<checkpoint_unix_epoch_millis>
+    pub fn get_store_path(&self, local_store_base_path: &Path) -> PathBuf {
+        local_store_base_path
+            .join(format!("{}_{}", self.topic, self.partition))
+            .join(self.attempt_timestamp.timestamp_millis().to_string())
     }
 
     /// Get relative path to metadata file for this checkpoint attempt,
@@ -440,6 +440,7 @@ mod tests {
     #[test]
     fn test_get_store_path() {
         let attempt_timestamp = Utc::now();
+        let timestamp_millis = attempt_timestamp.timestamp_millis();
         let topic = "events";
         let partition = 5;
 
@@ -455,15 +456,20 @@ mod tests {
         let base_path = Path::new("/data/stores");
         let store_path = metadata.get_store_path(base_path);
 
-        // Store path should be <base>/<topic>/<partition>
-        assert_eq!(store_path, Path::new("/data/stores/events/5"));
+        // Store path should be <base>/<topic>/<partition>/<timestamp_millis>
+        let expected = base_path
+            .join(topic)
+            .join(partition.to_string())
+            .join(timestamp_millis.to_string());
+        assert_eq!(store_path, expected);
 
         // Works with different base paths
         let tmp_base = Path::new("/tmp/deduplication-store");
         let tmp_store_path = metadata.get_store_path(tmp_base);
-        assert_eq!(
-            tmp_store_path,
-            Path::new("/tmp/deduplication-store/events/5")
-        );
+        let tmp_expected = tmp_base
+            .join(topic)
+            .join(partition.to_string())
+            .join(timestamp_millis.to_string());
+        assert_eq!(tmp_store_path, tmp_expected);
     }
 }
