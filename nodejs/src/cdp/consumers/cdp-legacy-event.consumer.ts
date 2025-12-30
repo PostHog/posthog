@@ -288,6 +288,15 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase {
         for (const result of results) {
             const pluginConfigId = parseInt(result.invocation.hogFunction.id.replace('legacy-', ''))
             const error = result.error
+
+            if (error && result.invocation.hogFunction.template_id === 'plugin-pubsub-plugin') {
+                logger.error('Legacy pubsub plugin execution failed', {
+                    pluginConfigId,
+                    inputs: result.invocation.state.globals.inputs,
+                    error: error.message,
+                })
+            }
+
             legacyPluginExecutionResultCounter
                 .labels({
                     result: error ? 'error' : 'success',
