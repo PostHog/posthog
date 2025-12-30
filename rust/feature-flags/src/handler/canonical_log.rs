@@ -109,7 +109,8 @@ pub struct FlagsCanonicalLogLine {
 
     // Outcome (populated at response time)
     pub http_status: u16,
-    pub error_code: Option<String>,
+    /// Error code from FlagError::error_code(). Uses &'static str to avoid allocation.
+    pub error_code: Option<&'static str>,
 }
 
 impl Default for FlagsCanonicalLogLine {
@@ -190,7 +191,7 @@ impl FlagsCanonicalLogLine {
     /// Populate error fields from a FlagError without emitting.
     pub fn set_error(&mut self, error: &FlagError) {
         self.http_status = error.status_code();
-        self.error_code = Some(error.error_code().to_string());
+        self.error_code = Some(error.error_code());
     }
 
     /// Populate error fields from a FlagError and emit the log line.
@@ -269,7 +270,7 @@ mod tests {
         let mut log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
         log.http_status = 429;
         log.rate_limited = true;
-        log.error_code = Some("rate_limited".to_string());
+        log.error_code = Some("rate_limited");
         log.emit();
     }
 
