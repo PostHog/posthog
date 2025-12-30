@@ -34,8 +34,6 @@ from posthog.tasks.usage_report import (
     get_teams_with_survey_responses_count_in_period,
     get_teams_with_workflow_billable_invocations_in_period,
     get_teams_with_workflow_emails_sent_in_period,
-    get_teams_with_workflow_push_sent_in_period,
-    get_teams_with_workflow_sms_sent_in_period,
 )
 from posthog.utils import get_current_day
 
@@ -78,8 +76,6 @@ class QuotaResource(Enum):
     AI_CREDITS = "ai_credits"
     WORKFLOW_EMAILS = "workflow_emails"
     WORKFLOW_DESTINATIONS = "workflow_destinations_dispatched"
-    WORKFLOW_PUSH = "workflow_push"
-    WORKFLOW_SMS = "workflow_sms"
 
 
 class QuotaLimitingCaches(Enum):
@@ -101,8 +97,6 @@ OVERAGE_BUFFER = {
     QuotaResource.AI_CREDITS: 0,
     QuotaResource.WORKFLOW_EMAILS: 0,
     QuotaResource.WORKFLOW_DESTINATIONS: 0,
-    QuotaResource.WORKFLOW_PUSH: 0,
-    QuotaResource.WORKFLOW_SMS: 0,
 }
 
 # These resources are exempt from any grace periods, whether trust-based or never_drop_data
@@ -126,8 +120,6 @@ class UsageCounters(TypedDict):
     ai_credits: int
     workflow_emails: int
     workflow_destinations_dispatched: int
-    workflow_push: int
-    workflow_sms: int
 
 
 # -------------------------------------------------------------------------------------------------
@@ -660,12 +652,6 @@ def update_all_orgs_billing_quotas(
         "teams_with_workflow_destinations_in_period": convert_team_usage_rows_to_dict(
             get_teams_with_workflow_billable_invocations_in_period(period_start, period_end)
         ),
-        "teams_with_workflow_push_sent_in_period": convert_team_usage_rows_to_dict(
-            get_teams_with_workflow_push_sent_in_period(period_start, period_end)
-        ),
-        "teams_with_workflow_sms_sent_in_period": convert_team_usage_rows_to_dict(
-            get_teams_with_workflow_sms_sent_in_period(period_start, period_end)
-        ),
     }
 
     teams: Sequence[Team] = list(
@@ -704,8 +690,6 @@ def update_all_orgs_billing_quotas(
             rows_exported=all_data["teams_with_rows_exported_in_period"].get(team.id, 0),
             workflow_emails=all_data["teams_with_workflow_emails_sent_in_period"].get(team.id, 0),
             workflow_destinations_dispatched=all_data["teams_with_workflow_destinations_in_period"].get(team.id, 0),
-            workflow_push=all_data["teams_with_workflow_push_sent_in_period"].get(team.id, 0),
-            workflow_sms=all_data["teams_with_workflow_sms_sent_in_period"].get(team.id, 0),
         )
 
         org_id = str(team.organization.id)
