@@ -329,6 +329,13 @@ export const workflowLogic = kea<workflowLogicType>([
                                         scheduled_at: 'A scheduled time is required',
                                     }
                                 }
+                            } else if (action.config.type === 'batch') {
+                                if (action.config.filters.properties?.length === 0) {
+                                    result.valid = false
+                                    result.errors = {
+                                        filters: 'At least one property filter is required for batch workflows',
+                                    }
+                                }
                             }
                         }
 
