@@ -103,8 +103,8 @@ impl Default for GlobalRateLimiterConfig {
             bucket_interval: Duration::from_secs(10),
             rate_limit_interval: Duration::from_secs(60),
             redis_key_prefix: "@posthog/global_rate_limiter".to_string(),
-            // multiple of window duration, since we eval at bucket interval delay
-            local_cache_ttl: Duration::from_secs(120),
+            // 10 minutes - long enough to benefit from hot cache under high cardinality
+            local_cache_ttl: Duration::from_secs(600),
             // long enough to avoid stale Redis entries piling up
             global_cache_ttl: Duration::from_secs(300),
             global_read_timeout: Duration::from_millis(10),
@@ -1020,7 +1020,7 @@ mod tests {
         assert_eq!(config.bucket_interval, Duration::from_secs(10));
         assert_eq!(config.redis_key_prefix, "@posthog/global_rate_limiter");
         assert_eq!(config.global_cache_ttl, Duration::from_secs(300));
-        assert_eq!(config.local_cache_ttl, Duration::from_secs(120));
+        assert_eq!(config.local_cache_ttl, Duration::from_secs(600));
         assert_eq!(config.global_read_timeout, Duration::from_millis(10));
         assert_eq!(config.global_write_timeout, Duration::from_millis(20));
         assert_eq!(config.local_cache_max_entries, 300_000);
