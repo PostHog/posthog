@@ -1447,6 +1447,7 @@ impl FeatureFlagMatcher {
                 1,
             );
             with_canonical_log(|log| log.property_cache_misses += 1);
+            with_canonical_log(|log| log.person_properties_not_cached = true);
             // Return empty HashMap instead of error - no properties is a valid state
             // TODO probably worth error modeling empty cache vs error.
             // Maybe an error is fine?  Idk.  I feel like the idea is that there's no matching properties,
@@ -1482,6 +1483,7 @@ impl FeatureFlagMatcher {
                 1,
             );
             with_canonical_log(|log| log.property_cache_misses += 1);
+            with_canonical_log(|log| log.group_properties_not_cached = true);
             // Return empty HashMap instead of error - no properties is a valid state
             Ok(HashMap::new())
         }

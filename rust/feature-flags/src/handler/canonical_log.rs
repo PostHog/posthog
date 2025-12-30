@@ -106,6 +106,10 @@ pub struct FlagsCanonicalLogLine {
     pub static_cohort_queries: usize,
     pub property_cache_hits: usize,
     pub property_cache_misses: usize,
+    /// True if person properties were not found in evaluation state cache.
+    pub person_properties_not_cached: bool,
+    /// True if group properties were not found in evaluation state cache.
+    pub group_properties_not_cached: bool,
     pub cohorts_evaluated: usize,
     pub flags_errored: usize,
     pub hash_key_override_attempted: bool,
@@ -142,6 +146,8 @@ impl Default for FlagsCanonicalLogLine {
             static_cohort_queries: 0,
             property_cache_hits: 0,
             property_cache_misses: 0,
+            person_properties_not_cached: false,
+            group_properties_not_cached: false,
             cohorts_evaluated: 0,
             flags_errored: 0,
             hash_key_override_attempted: false,
@@ -191,6 +197,8 @@ impl FlagsCanonicalLogLine {
             static_cohort_queries = self.static_cohort_queries,
             property_cache_hits = self.property_cache_hits,
             property_cache_misses = self.property_cache_misses,
+            person_properties_not_cached = self.person_properties_not_cached,
+            group_properties_not_cached = self.group_properties_not_cached,
             cohorts_evaluated = self.cohorts_evaluated,
             flags_errored = self.flags_errored,
             hash_key_override_attempted = self.hash_key_override_attempted,
@@ -243,6 +251,8 @@ mod tests {
         assert_eq!(log.static_cohort_queries, 0);
         assert_eq!(log.property_cache_hits, 0);
         assert_eq!(log.property_cache_misses, 0);
+        assert!(!log.person_properties_not_cached);
+        assert!(!log.group_properties_not_cached);
         assert_eq!(log.cohorts_evaluated, 0);
         assert_eq!(log.flags_errored, 0);
         assert!(!log.hash_key_override_attempted);
