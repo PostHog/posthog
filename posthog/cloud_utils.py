@@ -20,10 +20,6 @@ def is_cloud() -> bool:
     return settings.CLOUD_DEPLOYMENT in ("EU", "US")
 
 
-def is_e2e() -> bool:
-    return settings.CLOUD_DEPLOYMENT == "E2E"
-
-
 def is_dev_mode() -> bool:
     return bool(settings.DEBUG)
 

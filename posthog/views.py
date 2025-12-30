@@ -22,7 +22,7 @@ from django.views.decorators.http import require_http_methods
 
 import structlog
 
-from posthog.cloud_utils import is_cloud, is_e2e
+from posthog.cloud_utils import is_cloud
 from posthog.email import is_email_available
 from posthog.exceptions_capture import capture_exception
 from posthog.health import is_clickhouse_connected, is_kafka_connected
@@ -176,7 +176,6 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "db": is_cloud() or is_postgres_alive(),
         "initiated": is_cloud() or Organization.objects.exists(),
         "cloud": is_cloud(),
-        "e2e": is_e2e(),
         "demo": settings.DEMO,
         "realm": get_instance_realm(),
         "region": get_instance_region(),

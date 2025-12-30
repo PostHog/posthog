@@ -3789,8 +3789,6 @@ export interface PreflightStatus {
     can_create_org: boolean
     /** Whether this is PostHog Cloud. */
     cloud: boolean
-    /** Whether this is an e2e test environment. */
-    e2e: boolean
     /** Whether this is a managed demo environment. */
     demo: boolean
     celery: boolean
