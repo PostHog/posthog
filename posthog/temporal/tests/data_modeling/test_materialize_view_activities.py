@@ -32,7 +32,7 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
 
 @pytest_asyncio.fixture
-async def saved_query(ateam, auser):
+async def asaved_query(ateam, auser):
     query = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
         team=ateam,
         name="test_model",
@@ -44,7 +44,7 @@ async def saved_query(ateam, auser):
 
 
 @pytest_asyncio.fixture
-async def node(ateam, saved_query):
+async def anode(ateam, saved_query):
     node = await database_sync_to_async(Node.objects.create)(
         team=ateam,
         saved_query=saved_query,
@@ -57,7 +57,7 @@ async def node(ateam, saved_query):
 
 
 @pytest_asyncio.fixture
-async def job(ateam, saved_query):
+async def ajob(ateam, saved_query):
     job = await database_sync_to_async(DataModelingJob.objects.create)(
         team=ateam,
         saved_query=saved_query,
@@ -69,10 +69,10 @@ async def job(ateam, saved_query):
 
 
 class TestCreateDataModelingJobActivity:
-    async def test_creates_job_with_running_status(self, activity_environment, ateam, auser, node, saved_query):
+    async def test_creates_job_with_running_status(self, activity_environment, ateam, auser, anode, asaved_query):
         inputs = CreateDataModelingJobInputs(
             team_id=ateam.pk,
-            node_id=str(node.id),
+            node_id=str(anode.id),
             dag_id="test-dag",
         )
         with unittest.mock.patch("temporalio.activity.info") as mock_info:
@@ -84,101 +84,101 @@ class TestCreateDataModelingJobActivity:
         job = await database_sync_to_async(DataModelingJob.objects.get)(id=job_id)
         assert job.status == DataModelingJob.Status.RUNNING
         assert job.team_id == ateam.pk
-        assert job.saved_query_id == saved_query.id
+        assert job.saved_query_id == asaved_query.id
         assert job.workflow_id == "test-workflow-id"
         assert job.workflow_run_id == "test-run-id"
         assert job.created_by_id == auser.id
 
 
 class TestFailMaterializationActivity:
-    async def test_marks_job_as_failed(self, activity_environment, ateam, node, job):
+    async def test_marks_job_as_failed(self, activity_environment, ateam, anode, ajob):
         inputs = FailMaterializationInputs(
             team_id=ateam.pk,
-            node_id=str(node.id),
+            node_id=str(anode.id),
             dag_id="test-dag",
-            job_id=str(job.id),
+            job_id=str(ajob.id),
             error="Test error message",
         )
         await activity_environment.run(fail_materialization_activity, inputs)
-        await database_sync_to_async(job.refresh_from_db)()
-        assert job.status == DataModelingJob.Status.FAILED
-        assert job.error == "Test error message"
+        await database_sync_to_async(ajob.refresh_from_db)()
+        assert ajob.status == DataModelingJob.Status.FAILED
+        assert ajob.error == "Test error message"
 
-    async def test_updates_node_system_properties(self, activity_environment, ateam, node, job):
+    async def test_updates_node_system_properties(self, activity_environment, ateam, anode, ajob):
         inputs = FailMaterializationInputs(
             team_id=ateam.pk,
-            node_id=str(node.id),
+            node_id=str(anode.id),
             dag_id="test-dag",
-            job_id=str(job.id),
+            job_id=str(ajob.id),
             error="Query failed: timeout",
         )
         await activity_environment.run(fail_materialization_activity, inputs)
-        await database_sync_to_async(node.refresh_from_db)()
-        system_props = node.properties.get("system", {})
+        await database_sync_to_async(anode.refresh_from_db)()
+        system_props = anode.properties.get("system", {})
         assert system_props["last_run_status"] == "failed"
-        assert system_props["last_run_job_id"] == str(job.id)
+        assert system_props["last_run_job_id"] == str(ajob.id)
         assert system_props["last_run_error"] == "Query failed: timeout"
         assert "last_run_at" in system_props
 
 
 class TestSucceedMaterializationActivity:
-    async def test_marks_job_as_completed(self, activity_environment, ateam, node, job):
+    async def test_marks_job_as_completed(self, activity_environment, ateam, anode, ajob):
         inputs = SucceedMaterializationInputs(
             team_id=ateam.pk,
-            node_id=str(node.id),
+            node_id=str(anode.id),
             dag_id="test-dag",
-            job_id=str(job.id),
+            job_id=str(ajob.id),
             row_count=1000,
             duration_seconds=45.5,
         )
         await activity_environment.run(succeed_materialization_activity, inputs)
-        await database_sync_to_async(job.refresh_from_db)()
-        assert job.status == DataModelingJob.Status.COMPLETED
-        assert job.error is None
-        assert job.last_run_at is not None
+        await database_sync_to_async(ajob.refresh_from_db)()
+        assert ajob.status == DataModelingJob.Status.COMPLETED
+        assert ajob.error is None
+        assert ajob.last_run_at is not None
 
-    async def test_updates_node_system_properties(self, activity_environment, ateam, node, job):
+    async def test_updates_node_system_properties(self, activity_environment, ateam, anode, ajob):
         inputs = SucceedMaterializationInputs(
             team_id=ateam.pk,
-            node_id=str(node.id),
+            node_id=str(anode.id),
             dag_id="test-dag",
-            job_id=str(job.id),
+            job_id=str(ajob.id),
             row_count=500,
             duration_seconds=30.0,
         )
         await activity_environment.run(succeed_materialization_activity, inputs)
-        await database_sync_to_async(node.refresh_from_db)()
-        system_props = node.properties.get("system", {})
+        await database_sync_to_async(anode.refresh_from_db)()
+        system_props = anode.properties.get("system", {})
         assert system_props["last_run_status"] == "completed"
-        assert system_props["last_run_job_id"] == str(job.id)
+        assert system_props["last_run_job_id"] == str(ajob.id)
         assert system_props["last_run_rows"] == 500
         assert system_props["last_run_duration_seconds"] == 30.0
         assert system_props.get("last_run_error") is None
         assert "last_run_at" in system_props
 
-    async def test_clears_previous_error(self, activity_environment, ateam, node, job):
-        node.properties = {"system": {"last_run_error": "Previous error"}}
-        await database_sync_to_async(node.save)()
+    async def test_clears_previous_error(self, activity_environment, ateam, anode, ajob):
+        anode.properties = {"system": {"last_run_error": "Previous error"}}
+        await database_sync_to_async(anode.save)()
         inputs = SucceedMaterializationInputs(
             team_id=ateam.pk,
-            node_id=str(node.id),
+            node_id=str(anode.id),
             dag_id="test-dag",
-            job_id=str(job.id),
+            job_id=str(ajob.id),
             row_count=100,
             duration_seconds=10.0,
         )
         await activity_environment.run(succeed_materialization_activity, inputs)
-        await database_sync_to_async(node.refresh_from_db)()
-        system_props = node.properties.get("system", {})
+        await database_sync_to_async(anode.refresh_from_db)()
+        system_props = anode.properties.get("system", {})
         assert system_props.get("last_run_error") is None
 
 
 class TestPrepareQueryableTableActivity:
-    async def test_creates_warehouse_table_from_saved_query(self, activity_environment, ateam, saved_query, job):
+    async def test_creates_warehouse_table_from_saved_query(self, activity_environment, ateam, asaved_query, ajob):
         inputs = PrepareQueryableTableInputs(
             team_id=ateam.pk,
-            job_id=str(job.id),
-            saved_query_id=str(saved_query.id),
+            job_id=str(ajob.id),
+            saved_query_id=str(asaved_query.id),
             table_uri="s3://test-bucket/test_table",
             file_uris=["s3://test-bucket/test_file.parquet"],
             row_count=100,
@@ -201,15 +201,15 @@ class TestPrepareQueryableTableActivity:
             await activity_environment.run(prepare_queryable_table_activity, inputs)
             mock_prepare.assert_called_once()
             mock_create_table.assert_called_once_with(
-                str(job.id), str(saved_query.id), ateam.pk, "test-bucket/queryable_folder"
+                str(ajob.id), str(asaved_query.id), ateam.pk, "test-bucket/queryable_folder"
             )
         await database_sync_to_async(warehouse_table.delete)()
 
-    async def test_updates_saved_query_with_table_reference(self, activity_environment, ateam, saved_query, job):
+    async def test_updates_saved_query_with_table_reference(self, activity_environment, ateam, asaved_query, ajob):
         inputs = PrepareQueryableTableInputs(
             team_id=ateam.pk,
-            job_id=str(job.id),
-            saved_query_id=str(saved_query.id),
+            job_id=str(ajob.id),
+            saved_query_id=str(asaved_query.id),
             table_uri="s3://test-bucket/test_table",
             file_uris=["s3://test-bucket/test_file.parquet"],
             row_count=250,
@@ -230,15 +230,15 @@ class TestPrepareQueryableTableActivity:
             mock_prepare.return_value = "test-bucket/queryable_folder"
             mock_create_table.return_value = warehouse_table
             await activity_environment.run(prepare_queryable_table_activity, inputs)
-            await database_sync_to_async(saved_query.refresh_from_db)()
-            assert saved_query.table_id == warehouse_table.id
+            await database_sync_to_async(asaved_query.refresh_from_db)()
+            assert asaved_query.table_id == warehouse_table.id
             await database_sync_to_async(warehouse_table.refresh_from_db)()
             assert warehouse_table.row_count == 250
         await database_sync_to_async(warehouse_table.delete)()
 
 
 class TestMaterializeViewActivity:
-    async def test_rejects_table_node_type(self, activity_environment, ateam, job):
+    async def test_rejects_table_node_type(self, activity_environment, ateam, ajob):
         table_node = await database_sync_to_async(Node.objects.create)(
             team=ateam,
             dag_id="test-dag",
@@ -249,14 +249,14 @@ class TestMaterializeViewActivity:
             team_id=ateam.pk,
             dag_id="test-dag",
             node_id=str(table_node.id),
-            job_id=str(job.id),
+            job_id=str(ajob.id),
         )
         with pytest.raises(InvalidNodeTypeException, match="Cannot materialize a TABLE node"):
             await activity_environment.run(materialize_view_activity, inputs)
         await database_sync_to_async(table_node.delete)()
 
     async def test_materializes_view_to_delta_table(
-        self, activity_environment, ateam, node, saved_query, job, bucket_name
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name
     ):
         def mock_hogql_table(*args, **kwargs):
             del args, kwargs
@@ -289,19 +289,19 @@ class TestMaterializeViewActivity:
             inputs = MaterializeViewInputs(
                 team_id=ateam.pk,
                 dag_id="test-dag",
-                node_id=str(node.id),
-                job_id=str(job.id),
+                node_id=str(anode.id),
+                job_id=str(ajob.id),
             )
             result = await activity_environment.run(materialize_view_activity, inputs)
-            assert str(result.node_id) == str(node.id)
-            assert result.node_name == node.name
+            assert str(result.node_id) == str(anode.id)
+            assert result.node_name == anode.name
             assert result.row_count == 3
-            assert result.saved_query_id == str(saved_query.id)
-            assert f"team_{ateam.pk}_model_{saved_query.id.hex}" in result.table_uri
+            assert result.saved_query_id == str(asaved_query.id)
+            assert f"team_{ateam.pk}_model_{asaved_query.id.hex}" in result.table_uri
             assert len(result.file_uris) > 0
 
     async def test_updates_job_progress_during_materialization(
-        self, activity_environment, ateam, node, job, bucket_name
+        self, activity_environment, ateam, anode, ajob, bucket_name
     ):
         def mock_hogql_table(*args, **kwargs):
             del args, kwargs  # unused
@@ -332,11 +332,11 @@ class TestMaterializeViewActivity:
             inputs = MaterializeViewInputs(
                 team_id=ateam.pk,
                 dag_id="test-dag",
-                node_id=str(node.id),
-                job_id=str(job.id),
+                node_id=str(anode.id),
+                job_id=str(ajob.id),
             )
             result = await activity_environment.run(materialize_view_activity, inputs)
-            await database_sync_to_async(job.refresh_from_db)()
-            assert job.rows_expected == 5
-            assert job.rows_materialized == 5
+            await database_sync_to_async(ajob.refresh_from_db)()
+            assert ajob.rows_expected == 5
+            assert ajob.rows_materialized == 5
             assert result.row_count == 5
