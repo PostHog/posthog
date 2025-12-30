@@ -57,7 +57,7 @@ export type UrlTriggerConfig = {
     matching: 'regex'
 }
 
-interface LinkedFeatureFlag extends Pick<FeatureFlagBasicType, 'id' | 'key'> {
+export interface LinkedFeatureFlag extends Pick<FeatureFlagBasicType, 'id' | 'key'> {
     variant?: string | null
 }
 
