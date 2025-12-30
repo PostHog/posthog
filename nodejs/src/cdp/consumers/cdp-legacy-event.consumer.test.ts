@@ -198,6 +198,79 @@ describe('CdpLegacyEventsConsumer', () => {
             })
         })
 
+        it('should include attachments in inputs when provided', () => {
+            const lightweightConfig = {
+                id: pluginConfig.id,
+                team_id: team.id,
+                plugin_id: pluginConfig.plugin_id,
+                enabled: true,
+                config: {
+                    customerioSiteId: '1234567890',
+                    customerioToken: 'cio-token',
+                },
+                created_at: '2025-01-01T00:00:00.000Z',
+                updated_at: '2025-01-01T00:00:00.000Z',
+                plugin: {
+                    id: pluginConfig.plugin_id,
+                    url: 'https://github.com/PostHog/customerio-plugin',
+                },
+            }
+
+            const attachments = {
+                mappings: {
+                    event1: 'action1',
+                    event2: 'action2',
+                },
+                customField: 'value123',
+            }
+
+            const result = consumer['convertPluginConfigToHogFunction'](lightweightConfig, attachments)
+
+            expect(result).toBeTruthy()
+            expect(result?.inputs).toMatchObject({
+                customerioSiteId: { value: '1234567890' },
+                customerioToken: { value: 'cio-token' },
+                legacy_plugin_config_id: { value: pluginConfig.id },
+                mappings: {
+                    value: {
+                        event1: 'action1',
+                        event2: 'action2',
+                    },
+                },
+                customField: { value: 'value123' },
+            })
+        })
+
+        it('should not include attachments when config is empty', () => {
+            const lightweightConfig = {
+                id: pluginConfig.id,
+                team_id: team.id,
+                plugin_id: pluginConfig.plugin_id,
+                enabled: true,
+                config: {},
+                created_at: '2025-01-01T00:00:00.000Z',
+                updated_at: '2025-01-01T00:00:00.000Z',
+                plugin: {
+                    id: pluginConfig.plugin_id,
+                    url: 'https://github.com/PostHog/customerio-plugin',
+                },
+            }
+
+            const attachments = {
+                mappings: {
+                    event1: 'action1',
+                },
+            }
+
+            const result = consumer['convertPluginConfigToHogFunction'](lightweightConfig, attachments)
+
+            expect(result).toBeTruthy()
+            expect(result?.inputs).toMatchObject({
+                legacy_plugin_config_id: { value: pluginConfig.id },
+            })
+            expect(result?.inputs?.mappings).toBeUndefined()
+        })
+
         it('should handle inline plugin URLs correctly', () => {
             const lightweightConfig = {
                 id: 1,
@@ -263,6 +336,47 @@ describe('CdpLegacyEventsConsumer', () => {
             const invocations = await consumer['getLegacyPluginHogFunctionInvocations'](emptyInvocation)
             expect(invocations).toEqual([])
         })
+
+        it('should load attachments and include them in hog function inputs', async () => {
+            // Insert an attachment for the plugin config
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO posthog_pluginattachment (id, plugin_config_id, key, contents, content_type, file_size, file_name)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                [
+                    1001,
+                    pluginConfig.id,
+                    'mappings',
+                    JSON.stringify({ event1: 'action1', event2: 'action2' }),
+                    'application/json',
+                    50,
+                    'mappings.json',
+                ],
+                'insertPluginAttachment'
+            )
+
+            // Clear cache to force reload
+            consumer['pluginConfigsLoader'].clear()
+
+            // Get invocations
+            const invocations = await consumer['getLegacyPluginHogFunctionInvocations'](invocation)
+
+            expect(invocations).toBeTruthy()
+            expect(invocations.length).toBeGreaterThan(0)
+
+            // Check that the attachment was loaded into inputs
+            const hogFunction = invocations[0].hogFunction
+            expect(hogFunction.inputs).toBeTruthy()
+            expect(hogFunction.inputs?.mappings).toBeTruthy()
+            expect(hogFunction.inputs?.mappings?.value).toEqual({
+                event1: 'action1',
+                event2: 'action2',
+            })
+
+            // Verify other inputs are still present
+            expect(hogFunction.inputs?.customerioSiteId?.value).toBe('1234567890')
+            expect(hogFunction.inputs?.customerioToken?.value).toBe('cio-token')
+        })
     })
 
     describe('integration with LegacyPluginExecutorService', () => {
@@ -323,6 +437,57 @@ describe('CdpLegacyEventsConsumer', () => {
 
             // Verify fetch was called (setup + 2 calls from onEvent)
             expect(mockFetch).toHaveBeenCalledTimes(3)
+        })
+
+        it('should properly handle object attachments without converting them to "[object Object]"', async () => {
+            // Insert an attachment with a complex object
+            const attachmentObject = {
+                event1: 'action1',
+                event2: 'action2',
+                nested: {
+                    key: 'value',
+                    array: [1, 2, 3],
+                },
+            }
+
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO posthog_pluginattachment (id, plugin_config_id, key, contents, content_type, file_size, file_name)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                [
+                    2001,
+                    pluginConfig.id,
+                    'complexMapping',
+                    JSON.stringify(attachmentObject),
+                    'application/json',
+                    100,
+                    'complex-mapping.json',
+                ],
+                'insertComplexAttachment'
+            )
+
+            // Clear cache to force reload
+            consumer['pluginConfigsLoader'].clear()
+
+            // Get invocations
+            const invocations = await consumer['getLegacyPluginHogFunctionInvocations'](invocation)
+
+            expect(invocations).toBeTruthy()
+            expect(invocations.length).toBeGreaterThan(0)
+
+            // Verify that the inputs contain the actual object, not "[object Object]"
+            const inputs = invocations[0].state.globals.inputs as Record<string, any>
+
+            expect(inputs.complexMapping).toBeDefined()
+            expect(typeof inputs.complexMapping).not.toBe('string')
+            expect(inputs.complexMapping).toEqual(attachmentObject)
+
+            // Verify it's not the string "[object Object]"
+            expect(inputs.complexMapping).not.toBe('[object Object]')
+
+            // Verify other string inputs are still strings
+            expect(typeof inputs.customerioSiteId).toBe('string')
+            expect(inputs.customerioSiteId).toBe('1234567890')
         })
     })
 

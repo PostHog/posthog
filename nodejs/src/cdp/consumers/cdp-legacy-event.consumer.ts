@@ -114,6 +114,50 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase {
             'loadPluginConfigHogFunctions'
         )
 
+        // Load attachments for all plugin configs with non-empty config
+        const pluginConfigIds = rows.filter((row) => Object.keys(row.config || {}).length > 0).map((row) => row.id)
+        const attachmentsMap: Record<number, Record<string, any>> = {}
+
+        if (pluginConfigIds.length > 0) {
+            const { rows: attachmentRows } = await this.hub.postgres.query(
+                PostgresUse.COMMON_READ,
+                `SELECT plugin_config_id, key, contents
+                FROM posthog_pluginattachment
+                WHERE plugin_config_id = ANY($1)`,
+                [pluginConfigIds],
+                'loadPluginConfigAttachments'
+            )
+
+            for (const attachmentRow of attachmentRows) {
+                if (!attachmentsMap[attachmentRow.plugin_config_id]) {
+                    attachmentsMap[attachmentRow.plugin_config_id] = {}
+                }
+
+                try {
+                    // Convert Buffer to string if needed, then parse as JSON
+                    let contentsString: string
+                    if (Buffer.isBuffer(attachmentRow.contents)) {
+                        contentsString = attachmentRow.contents.toString('utf-8')
+                    } else if (typeof attachmentRow.contents === 'string') {
+                        contentsString = attachmentRow.contents
+                    } else {
+                        // If it's already an object, use it directly
+                        attachmentsMap[attachmentRow.plugin_config_id][attachmentRow.key] = attachmentRow.contents
+                        continue
+                    }
+
+                    const contents = parseJSON(contentsString)
+                    attachmentsMap[attachmentRow.plugin_config_id][attachmentRow.key] = contents
+                } catch (error: any) {
+                    logger.warn('Failed to parse attachment contents', {
+                        pluginConfigId: attachmentRow.plugin_config_id,
+                        key: attachmentRow.key,
+                        error: error?.message,
+                    })
+                }
+            }
+        }
+
         // Group by team_id and build hog functions directly
         const results: Record<string, PluginConfigHogFunction[]> = {}
 
@@ -124,21 +168,24 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase {
             }
 
             try {
-                const hogFunction = this.convertPluginConfigToHogFunction({
-                    id: row.id,
-                    team_id: row.team_id,
-                    plugin_id: row.plugin_id,
-                    enabled: row.enabled === 't',
-                    config: row.config,
-                    created_at: row.created_at,
-                    updated_at: row.updated_at,
-                    plugin: row.plugin__url
-                        ? {
-                              id: row.plugin__id,
-                              url: row.plugin__url,
-                          }
-                        : undefined,
-                })
+                const hogFunction = this.convertPluginConfigToHogFunction(
+                    {
+                        id: row.id,
+                        team_id: row.team_id,
+                        plugin_id: row.plugin_id,
+                        enabled: row.enabled === 't',
+                        config: row.config,
+                        created_at: row.created_at,
+                        updated_at: row.updated_at,
+                        plugin: row.plugin__url
+                            ? {
+                                  id: row.plugin__id,
+                                  url: row.plugin__url,
+                              }
+                            : undefined,
+                    },
+                    attachmentsMap[row.id]
+                )
 
                 if (hogFunction) {
                     results[teamId].push({
@@ -164,7 +211,10 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase {
         return results
     }
 
-    private convertPluginConfigToHogFunction(pluginConfig: LightweightPluginConfig): HogFunctionType | null {
+    private convertPluginConfigToHogFunction(
+        pluginConfig: LightweightPluginConfig,
+        attachments?: Record<string, any>
+    ): HogFunctionType | null {
         if (!pluginConfig.plugin?.url) {
             return null
         }
@@ -179,6 +229,15 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase {
 
         for (const [key, value] of Object.entries(pluginConfig.config)) {
             inputs[key] = { value: value?.toString() ?? '' }
+        }
+
+        // Add attachments to inputs (matching migration.py logic)
+        if (attachments && Object.keys(pluginConfig.config).length > 0) {
+            for (const [key, value] of Object.entries(attachments)) {
+                if (value) {
+                    inputs[key] = { value }
+                }
+            }
         }
 
         // Add legacy_plugin_config_id for plugins that use legacy storage
@@ -229,6 +288,7 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase {
         for (const result of results) {
             const pluginConfigId = parseInt(result.invocation.hogFunction.id.replace('legacy-', ''))
             const error = result.error
+
             legacyPluginExecutionResultCounter
                 .labels({
                     result: error ? 'error' : 'success',
@@ -309,7 +369,7 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase {
             // Plugin configs are always static { value: any } so we can just convert to a record of strings
             const inputs = Object.entries(hogFunction.inputs || {}).reduce(
                 (acc, [key, value]) => {
-                    acc[key] = value?.value?.toString() ?? ''
+                    acc[key] = value?.value
                     return acc
                 },
                 {} as Record<string, string>
