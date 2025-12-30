@@ -33,7 +33,7 @@ export function HedgehogModeStatic({ config, size, direction = 'right' }: Hedgeh
             options={actorOptions}
             size={size}
             assetsUrl={getHedgehogModeAssetsUrl()}
-            className={clsx('relative image-rendering-pixelated', direction === 'left' && '-scale-x-100')}
+            className={clsx('relative rendering-pixelated', direction === 'left' && '-scale-x-100')}
         />
     )
 }
