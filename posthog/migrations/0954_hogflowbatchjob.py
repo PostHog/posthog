@@ -34,6 +34,7 @@ class Migration(migrations.Migration):
                     "status",
                     models.CharField(
                         choices=[
+                            ("waiting", "Waiting"),
                             ("queued", "Queued"),
                             ("active", "Active"),
                             ("completed", "Completed"),
