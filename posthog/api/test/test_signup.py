@@ -1228,7 +1228,7 @@ class TestPasskeySignupAPI(APIBaseTest):
         session.create()
 
         # Set the session cookie on the client
-        self.client.cookies["sessionid"] = session.session_key
+        self.client.cookies["sessionid"] = session.session_key or ""
 
         # Complete signup (without password since using passkey)
         response = self.client.post(
@@ -1289,7 +1289,7 @@ class TestPasskeySignupAPI(APIBaseTest):
         session_key = session.session_key
 
         # Set the session cookie on the client
-        self.client.cookies["sessionid"] = session_key
+        self.client.cookies["sessionid"] = session_key or ""
 
         response = self.client.post(
             "/api/signup/",
