@@ -59,20 +59,18 @@ export function ValidationRulesEditor({ value, onChange }: ValidationRulesEditor
                 min={1}
                 max={maxLengthRule?.value}
                 placeholder="Min"
-                value={minLengthRule?.value}
+                value={minLengthRule?.value ?? (hasLengthLimit ? undefined : NaN)}
                 onChange={setMinLength}
                 className="w-16"
-                disabled={!hasLengthLimit}
             />
             <span className="text-secondary">to</span>
             <LemonInput
                 type="number"
                 min={minLengthRule?.value ?? 1}
                 placeholder="Max"
-                value={maxLengthRule?.value}
+                value={maxLengthRule?.value ?? (hasLengthLimit ? undefined : NaN)}
                 onChange={setMaxLength}
                 className="w-16"
-                disabled={!hasLengthLimit}
             />
         </div>
     )
