@@ -119,7 +119,7 @@ export function MetricRowGroup({
 
     const { reportExperimentTimeseriesViewed } = useActions(experimentLogic)
 
-    const timeseriesEnabled = experiment.stats_config?.timeseries
+    const timeseriesEnabled = experiment.scheduling_config?.timeseries
 
     // Calculate total rows for loading/error states
     const totalRows = isLoading || error || !result ? 1 : 1 + (result.variant_results?.length || 0)
