@@ -52,7 +52,7 @@ func InitConfigs(filename, configPath string) {
 
 	viper.SetDefault("kafka.group_id", "livestream")
 	viper.SetDefault("kafka.session_recording_enabled", true)
-	viper.SetDefault("session_recording.max_lru_entries", 1000000)
+	viper.SetDefault("session_recording.max_lru_entries", 2000000)
 
 	err := viper.ReadInConfig()
 	if err != nil {

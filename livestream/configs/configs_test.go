@@ -43,7 +43,7 @@ func TestLoadConfig(t *testing.T) {
 					Secret: "token",
 				},
 				SessionRecording: SessionRecordingConfig{
-					MaxLRUEntries: 1000000,
+					MaxLRUEntries: 2000000,
 				},
 			},
 			wantErr: false,

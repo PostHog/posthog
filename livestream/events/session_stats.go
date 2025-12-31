@@ -13,7 +13,7 @@ import (
 )
 
 const sessionRecordingTTL = 5 * time.Minute
-const DefaultMaxSessionRecordingEntries = 1000000
+const DefaultMaxSessionRecordingEntries = 2000000
 
 type SessionStats struct {
 	// Single LRU with composite keys "token:sessionId"
