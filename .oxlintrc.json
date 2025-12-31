@@ -10,7 +10,7 @@
         "build",
         "rust",
         "cli",
-        "plugin-server",
+        "nodejs",
         "common/hogvm/typescript",
         "common/hogvm/typescript/dist",
         "common/plugin_transpiler/dist",

@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use dashmap::DashMap;
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -150,7 +150,7 @@ impl StoreManager {
 
     /// Get or create a deduplication store during rebalancing (pre-creation)
     ///
-    /// This should be called during `cleanup_assigned_partitions` to pre-create stores
+    /// This should be called during `async_setup_assigned_partitions` to pre-create stores
     /// before messages start flowing. Unlike `get_or_create`, this won't emit a warning
     /// when creating a new store.
     pub async fn get_or_create_for_rebalance(
@@ -307,6 +307,43 @@ impl StoreManager {
         self.cleanup_store_files(topic, partition)
     }
 
+    // Internally register a restored set of checkpoint files at the given store path
+    // and topic/partition coordinates
+    pub fn restore_imported_store(&self, topic: &str, partition: i32, path: &Path) -> Result<()> {
+        let store_config = DeduplicationStoreConfig {
+            path: path.to_path_buf(),
+            max_capacity: self.store_config.max_capacity,
+        };
+        let restored = DeduplicationStore::new(store_config, topic.to_string(), partition)
+            .with_context(|| {
+                format!(
+                    "Failed to restore imported checkpoint for {topic}:{partition} at path {}",
+                    path.display(),
+                )
+            })?;
+
+        // Don't fail here but do report this it's evidence of a race condition
+        if let Some(existing_store) = self
+            .stores
+            .insert(Partition::new(topic.to_string(), partition), restored)
+        {
+            metrics::counter!(
+                STORE_CREATION_EVENTS,
+                "outcome" => "duplicate_on_restore",
+            )
+            .increment(1);
+            error!(
+                existing_store_path =% existing_store.get_db_path().display(),
+                restored_store_path =% path.display(),
+                topic = topic,
+                partition = partition,
+                "Unexpected duplicate store found when registering imported checkpoint"
+            );
+        }
+
+        Ok(())
+    }
+
     /// Unregister a store from the DashMap without deleting files (Step 1 of two-step cleanup).
     ///
     /// Call this BEFORE shutting down partition workers during rebalance. This prevents
@@ -388,6 +425,11 @@ impl StoreManager {
 
     pub fn get_active_store_count(&self) -> usize {
         self.stores.len()
+    }
+
+    /// Get the base path where stores are created
+    pub fn base_path(&self) -> &Path {
+        &self.store_config.path
     }
 
     /// Cleanup old entries across all stores to maintain global capacity
@@ -1167,7 +1209,7 @@ mod tests {
 
         let manager = StoreManager::new(config);
 
-        // Step 1: Pre-create during rebalance (cleanup_assigned_partitions)
+        // Step 1: Pre-create during rebalance (async_setup_assigned_partitions)
         let _store = manager
             .get_or_create_for_rebalance("test-topic", 0)
             .await
