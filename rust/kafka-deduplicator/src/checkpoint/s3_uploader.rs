@@ -1,16 +1,13 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use aws_config::{
-    meta::region::RegionProviderChain, retry::RetryConfig, timeout::TimeoutConfig, BehaviorVersion,
-    Region,
-};
-
+use aws_config::{retry::RetryConfig, timeout::TimeoutConfig, BehaviorVersion, Region};
 use aws_sdk_s3::{Client, Config};
 use std::path::Path;
 use tokio::fs;
 use tracing::info;
 
 use super::config::CheckpointConfig;
+use super::s3_utils::create_s3_client;
 use super::uploader::CheckpointUploader;
 
 #[derive(Debug)]
@@ -21,23 +18,7 @@ pub struct S3Uploader {
 
 impl S3Uploader {
     pub async fn new(config: CheckpointConfig) -> Result<Self> {
-        let region_provider =
-            RegionProviderChain::default_provider().or_else(Region::new(config.aws_region.clone()));
-
-        let timeout_config = TimeoutConfig::builder()
-            .operation_timeout(config.s3_operation_timeout)
-            .operation_attempt_timeout(config.s3_attempt_timeout)
-            .build();
-
-        let aws_config = aws_config::defaults(BehaviorVersion::latest())
-            .region(region_provider)
-            .timeout_config(timeout_config)
-            .retry_config(RetryConfig::adaptive())
-            .load()
-            .await;
-
-        let s3_config = Config::from(&aws_config);
-        let client = Client::from_conf(s3_config);
+        let client = create_s3_client(&config).await;
 
         client
             .head_bucket()

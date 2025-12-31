@@ -154,6 +154,21 @@ pub struct Config {
     #[envconfig(default = "20")] // 20 seconds
     pub s3_attempt_timeout_secs: u64,
 
+    /// S3 endpoint URL (for non-AWS S3-compatible stores like MinIO)
+    pub s3_endpoint: Option<String>,
+
+    /// S3 access key (for local dev without IAM role)
+    #[envconfig(default = "")]
+    pub s3_access_key_id: String,
+
+    /// S3 secret key (for local dev without IAM role)
+    #[envconfig(default = "")]
+    pub s3_secret_access_key: String,
+
+    /// Force path-style S3 URLs (required for MinIO)
+    #[envconfig(default = "false")]
+    pub s3_force_path_style: bool,
+
     // Checkpoint configuration - integrated from checkpoint::config
     #[envconfig(default = "1800")] // 30 minutes in seconds
     pub checkpoint_interval_secs: u64,

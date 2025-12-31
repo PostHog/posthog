@@ -23,6 +23,18 @@ pub struct CheckpointConfig {
     /// AWS region for S3
     pub aws_region: String,
 
+    /// S3 endpoint URL (for non-AWS S3-compatible stores like MinIO)
+    pub s3_endpoint: Option<String>,
+
+    /// S3 access key (for local dev without IAM role)
+    pub s3_access_key_id: String,
+
+    /// S3 secret key (for local dev without IAM role)
+    pub s3_secret_access_key: String,
+
+    /// Force path-style S3 URLs (required for MinIO)
+    pub s3_force_path_style: bool,
+
     /// Maximum number of concurrent checkpoint attempts to perform on a single node.
     /// NOTE: checkpoint attempts are unique to a given partition; no two for the same
     /// partition can be in-flight at the same time
@@ -67,6 +79,10 @@ impl Default for CheckpointConfig {
             s3_bucket: "".to_string(),
             s3_key_prefix: "deduplication-checkpoints".to_string(),
             aws_region: "us-east-1".to_string(),
+            s3_endpoint: None,
+            s3_access_key_id: "".to_string(),
+            s3_secret_access_key: "".to_string(),
+            s3_force_path_style: false,
             max_concurrent_checkpoints: 3,
             checkpoint_gate_interval: Duration::from_millis(200),
             checkpoint_worker_shutdown_timeout: Duration::from_secs(10),

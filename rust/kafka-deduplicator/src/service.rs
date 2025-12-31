@@ -15,7 +15,6 @@ use tracing::{error, info};
 use crate::deduplication_batch_processor::{
     BatchDeduplicationProcessor, DeduplicationConfig, DuplicateEventProducerWrapper,
 };
-use crate::metrics_const::S3_CLIENT_INIT_FAILURE_COUNTER;
 use crate::{
     checkpoint::{
         config::CheckpointConfig, export::CheckpointExporter, import::CheckpointImporter,
@@ -107,6 +106,10 @@ impl KafkaDeduplicatorService {
             s3_bucket: config.s3_bucket.clone().unwrap_or_default(),
             s3_key_prefix: config.s3_key_prefix.clone(),
             aws_region: config.aws_region.clone(),
+            s3_endpoint: config.s3_endpoint.clone(),
+            s3_access_key_id: config.s3_access_key_id.clone(),
+            s3_secret_access_key: config.s3_secret_access_key.clone(),
+            s3_force_path_style: config.s3_force_path_style,
             max_concurrent_checkpoints: config.max_concurrent_checkpoints,
             checkpoint_gate_interval: config.checkpoint_gate_interval(),
             checkpoint_worker_shutdown_timeout: config.checkpoint_worker_shutdown_timeout(),
@@ -141,7 +144,7 @@ impl KafkaDeduplicatorService {
 
         // if checkpoint import is enabled, create and configure the importer
         let importer = if config.checkpoint_import_enabled() {
-            let downloader = S3Downloader::new(&checkpoint_config).await {
+            let downloader = match S3Downloader::new(&checkpoint_config).await {
                 Ok(downloader) => Box::new(downloader),
                 Err(e) => {
                     error!(
