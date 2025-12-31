@@ -22,6 +22,17 @@ parse_args() {
     done
 }
 
+show_usage() {
+    echo "Usage: $0 <all|persons|cyclotron|behavioral-cohorts> [--fresh]"
+    echo "  all                - Run all migrations"
+    echo "  persons            - Run only persons migrations"
+    echo "  cyclotron          - Run only cyclotron migrations"
+    echo "  behavioral-cohorts - Run only behavioral cohorts migrations"
+    echo ""
+    echo "Options:"
+    echo "  --fresh            - Drop and recreate database before migrating (for test environments)"
+}
+
 parse_args "$@"
 
 log_json() {
@@ -56,14 +67,7 @@ trap handle_error ERR
 if [ -z "$MIGRATION_TYPE" ]; then
     log_json "error" "No migration type specified" "failed" "unknown"
     echo ""
-    echo "Usage: $0 <all|persons|cyclotron|behavioral-cohorts> [--fresh]"
-    echo "  all                - Run all migrations"
-    echo "  persons            - Run only persons migrations"
-    echo "  cyclotron          - Run only cyclotron migrations"
-    echo "  behavioral-cohorts - Run only behavioral cohorts migrations"
-    echo ""
-    echo "Options:"
-    echo "  --fresh            - Drop and recreate database before migrating (for test environments)"
+    show_usage
     exit 1
 fi
 
@@ -156,14 +160,7 @@ case "$MIGRATION_TYPE" in
         ;;
     *)
         log_json "error" "Invalid migration type specified" "failed" "$MIGRATION_TYPE"
-        echo "Usage: $0 <all|persons|cyclotron|behavioral-cohorts> [--fresh]"
-        echo "  all                - Run all migrations"
-        echo "  persons            - Run only persons migrations"
-        echo "  cyclotron          - Run only cyclotron migrations"
-        echo "  behavioral-cohorts - Run only behavioral cohorts migrations"
-        echo ""
-        echo "Options:"
-        echo "  --fresh            - Drop and recreate database before migrating (for test environments)"
+        show_usage
         exit 1
         ;;
 esac
