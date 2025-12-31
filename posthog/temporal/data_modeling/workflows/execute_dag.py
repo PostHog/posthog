@@ -145,7 +145,7 @@ def _dag_execution_levels(
     return levels
 
 
-@temporalio.workflow.defn(name="execute-dag")
+@temporalio.workflow.defn(name="data-modeling-execute-dag")
 class ExecuteDAGWorkflow(PostHogWorkflow):
     """Temporal workflow to orchestrate materialization of all nodes in a DAG.
 
@@ -175,6 +175,9 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                 dag_id=inputs.dag_id,
             ),
             start_to_close_timeout=dt.timedelta(minutes=1),
+            retry_policy=temporalio.common.RetryPolicy(
+                maximum_attempts=3,
+            ),
         )
         executable_nodes = dag_structure.executable_nodes
         # filter to requested nodes if specified
