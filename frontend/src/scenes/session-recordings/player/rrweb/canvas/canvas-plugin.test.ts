@@ -334,7 +334,17 @@ describe('CanvasReplayerPlugin', () => {
             expect(typeof plugin.handler).toBe('function')
         })
 
-        it('applies placeholder background to canvas elements on build', () => {
+        it('applies placeholder background to visible canvas elements on build', () => {
+            ;(window.getComputedStyle as jest.Mock).mockReturnValue({
+                display: 'block',
+                visibility: 'visible',
+                opacity: '1',
+            })
+
+            // Mock non-zero dimensions so canvas is considered visible
+            Object.defineProperty(mockCanvas, 'offsetWidth', { value: 300, configurable: true })
+            Object.defineProperty(mockCanvas, 'offsetHeight', { value: 150, configurable: true })
+
             const plugin = CanvasReplayerPlugin([])
 
             plugin.onBuild?.(mockCanvas, { id: 1, replayer: mockReplayer })
@@ -342,6 +352,78 @@ describe('CanvasReplayerPlugin', () => {
             // jsdom normalizes CSS by removing optional quotes from data URLs
             const base64Data = PLACEHOLDER_SVG_DATA_IMAGE_URL.match(/base64,([^"]+)/)?.[1]
             expect(mockCanvas.style.backgroundImage).toContain(`base64,${base64Data}`)
+        })
+
+        it('does not apply placeholder background to hidden canvas elements', () => {
+            ;(window.getComputedStyle as jest.Mock).mockReturnValue({
+                display: 'none',
+                visibility: 'visible',
+                opacity: '1',
+            })
+
+            // Mock non-zero dimensions to ensure we're testing the display property
+            Object.defineProperty(mockCanvas, 'offsetWidth', { value: 300, configurable: true })
+            Object.defineProperty(mockCanvas, 'offsetHeight', { value: 150, configurable: true })
+
+            const plugin = CanvasReplayerPlugin([])
+
+            plugin.onBuild?.(mockCanvas, { id: 1, replayer: mockReplayer })
+
+            expect(mockCanvas.style.backgroundImage).toBe('')
+        })
+
+        it('does not apply placeholder background to invisible canvas elements', () => {
+            ;(window.getComputedStyle as jest.Mock).mockReturnValue({
+                display: 'block',
+                visibility: 'hidden',
+                opacity: '1',
+            })
+
+            // Mock non-zero dimensions to ensure we're testing the visibility property
+            Object.defineProperty(mockCanvas, 'offsetWidth', { value: 300, configurable: true })
+            Object.defineProperty(mockCanvas, 'offsetHeight', { value: 150, configurable: true })
+
+            const plugin = CanvasReplayerPlugin([])
+
+            plugin.onBuild?.(mockCanvas, { id: 1, replayer: mockReplayer })
+
+            expect(mockCanvas.style.backgroundImage).toBe('')
+        })
+
+        it('does not apply placeholder background to zero-opacity canvas elements', () => {
+            ;(window.getComputedStyle as jest.Mock).mockReturnValue({
+                display: 'block',
+                visibility: 'visible',
+                opacity: '0',
+            })
+
+            // Mock non-zero dimensions
+            Object.defineProperty(mockCanvas, 'offsetWidth', { value: 300, configurable: true })
+            Object.defineProperty(mockCanvas, 'offsetHeight', { value: 150, configurable: true })
+
+            const plugin = CanvasReplayerPlugin([])
+
+            plugin.onBuild?.(mockCanvas, { id: 1, replayer: mockReplayer })
+
+            expect(mockCanvas.style.backgroundImage).toBe('')
+        })
+
+        it('does not apply placeholder background to zero-sized canvas elements', () => {
+            ;(window.getComputedStyle as jest.Mock).mockReturnValue({
+                display: 'block',
+                visibility: 'visible',
+                opacity: '1',
+            })
+
+            // Zero dimensions indicate hidden canvas
+            Object.defineProperty(mockCanvas, 'offsetWidth', { value: 0, configurable: true })
+            Object.defineProperty(mockCanvas, 'offsetHeight', { value: 0, configurable: true })
+
+            const plugin = CanvasReplayerPlugin([])
+
+            plugin.onBuild?.(mockCanvas, { id: 1, replayer: mockReplayer })
+
+            expect(mockCanvas.style.backgroundImage).toBe('')
         })
     })
 })

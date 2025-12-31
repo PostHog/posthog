@@ -316,7 +316,18 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
                     el.setAttribute(attr.name, attr.value)
                 }
 
-                canvasElement.style.backgroundImage = PLACEHOLDER_SVG_DATA_IMAGE_URL
+                // Only show placeholder for visible canvases to avoid blocking
+                // the replay with hidden full-screen canvases
+                const style = window.getComputedStyle(canvasElement)
+                const isHidden =
+                    style.display === 'none' ||
+                    style.visibility === 'hidden' ||
+                    style.opacity === '0' ||
+                    (canvasElement.offsetWidth === 0 && canvasElement.offsetHeight === 0)
+
+                if (!isHidden) {
+                    canvasElement.style.backgroundImage = PLACEHOLDER_SVG_DATA_IMAGE_URL
+                }
 
                 // Store the image but don't replace the canvas yet
                 containers.set(id, el)
