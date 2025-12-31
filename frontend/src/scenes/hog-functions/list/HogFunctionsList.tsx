@@ -14,6 +14,7 @@ import {
 
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -48,13 +49,14 @@ export function HogFunctionList({
     const { loading, filteredHogFunctions, filters, hogFunctions, hiddenHogFunctions } = useValues(
         hogFunctionsListLogic(props)
     )
-    const { setFilters, resetFilters, toggleEnabled, deleteHogFunction, setReorderModalOpen } = useActions(
-        hogFunctionsListLogic(props)
-    )
+    const { loadHogFunctions, setFilters, resetFilters, toggleEnabled, deleteHogFunction, setReorderModalOpen } =
+        useActions(hogFunctionsListLogic(props))
 
     const { openFeedbackDialog } = useActions(hogFunctionRequestModalLogic)
 
     const humanizedType = humanizeHogFunctionType(props.type)
+
+    useOnMountEffect(loadHogFunctions)
 
     const isManualFunction = useCallback(
         (hogFunction: HogFunctionType): boolean => {

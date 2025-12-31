@@ -1,5 +1,5 @@
 import FuseClass from 'fuse.js'
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
@@ -270,8 +270,4 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
             }
         },
     })),
-
-    afterMount(({ actions }) => {
-        actions.loadHogFunctions()
-    }),
 ])
