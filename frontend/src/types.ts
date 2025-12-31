@@ -4078,15 +4078,15 @@ export interface Experiment {
     stats_config?: {
         version?: number
         method?: ExperimentStatsMethod
-    }
-    scheduling_config?: {
-        timeseries?: boolean
         bayesian?: {
             ci_level?: number
         }
         frequentist?: {
             alpha?: number
         }
+    }
+    scheduling_config?: {
+        timeseries?: boolean
     }
     _create_in_folder?: string | null
     conclusion?: ExperimentConclusion | null
