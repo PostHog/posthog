@@ -8,11 +8,11 @@ Persons can exist in ClickHouse `person` table with `is_deleted = 0` but have no
 
 ### Orphan Categories
 
-| Category | Person in CH | Person in PG | DID in CH | DID in PG | Action |
-|----------|--------------|--------------|-----------|-----------|--------|
-| **Fixable** | Yes | Yes | No | Yes | Sync DID to CH |
-| **Truly orphaned** | Yes | Yes | No | No | Report only |
-| **CH-only orphans** | Yes | No | No | N/A | Mark as deleted in CH (optional) |
+| Category            | Person in CH | Person in PG | DID in CH | DID in PG | Action                           |
+| ------------------- | ------------ | ------------ | --------- | --------- | -------------------------------- |
+| **Fixable**         | Yes          | Yes          | No        | Yes       | Sync DID to CH                   |
+| **Truly orphaned**  | Yes          | Yes          | No        | No        | Report only                      |
+| **CH-only orphans** | Yes          | No           | No        | N/A       | Mark as deleted in CH (optional) |
 
 ## Solution
 
@@ -57,12 +57,12 @@ class SyncPersonDistinctIdsWorkflowResult:
 
 ## Activities
 
-| Activity | Purpose | Database |
-|----------|---------|----------|
-| `find_orphaned_persons` | Query CH for all persons without distinct IDs (single query) | ClickHouse |
-| `lookup_pg_distinct_ids` | Find distinct IDs for person UUIDs | PostgreSQL |
-| `sync_distinct_ids_to_ch` | Write missing distinct IDs via Kafka | Kafka -> CH |
-| `mark_ch_only_orphans_deleted` | Set is_deleted=1 for persons without PG data | Kafka -> CH |
+| Activity                       | Purpose                                                      | Database    |
+| ------------------------------ | ------------------------------------------------------------ | ----------- |
+| `find_orphaned_persons`        | Query CH for all persons without distinct IDs (single query) | ClickHouse  |
+| `lookup_pg_distinct_ids`       | Find distinct IDs for person UUIDs                           | PostgreSQL  |
+| `sync_distinct_ids_to_ch`      | Write missing distinct IDs via Kafka                         | Kafka -> CH |
+| `mark_ch_only_orphans_deleted` | Set is_deleted=1 for persons without PG data                 | Kafka -> CH |
 
 ### Workflow Logic
 
@@ -74,11 +74,11 @@ This avoids inefficient OFFSET pagination - instead of N queries each scanning O
 ## Behavior Matrix
 
 | dry_run | delete_ch_only_orphans | Sync DIDs? | Mark orphans deleted? |
-|---------|------------------------|------------|----------------------|
-| true    | false                  | No (log)   | No                   |
-| true    | true                   | No (log)   | No (log)             |
-| false   | false                  | **Yes**    | No                   |
-| false   | true                   | **Yes**    | **Yes**              |
+| ------- | ---------------------- | ---------- | --------------------- |
+| true    | false                  | No (log)   | No                    |
+| true    | true                   | No (log)   | No (log)              |
+| false   | false                  | **Yes**    | No                    |
+| false   | true                   | **Yes**    | **Yes**               |
 
 ## CLI Usage
 
@@ -204,14 +204,14 @@ python manage.py setup_orphan_test_data --team-id 1 --cleanup
 
 ### Test scenarios
 
-| Scenario | Command | Expected Result |
-|----------|---------|-----------------|
-| Dry run | `'{"team_id": 1}'` | Logs counts, no changes |
-| Categorized | `'{"team_id": 1, "categorize_orphans": true}'` | Reports truly orphaned vs CH-only separately |
-| Sync only | `'{"team_id": 1, "dry_run": false}'` | Fixable orphans get DIDs synced |
-| Sync + delete | `'{"team_id": 1, "dry_run": false, "delete_ch_only_orphans": true}'` | DIDs synced + CH-only marked deleted |
-| Limit | `'{"team_id": 1, "limit": 2}'` | Only process first 2 orphans |
-| Specific persons | `'{"team_id": 1, "person_ids": ["uuid-1"]}'` | Only process specified UUIDs |
+| Scenario         | Command                                                              | Expected Result                              |
+| ---------------- | -------------------------------------------------------------------- | -------------------------------------------- |
+| Dry run          | `'{"team_id": 1}'`                                                   | Logs counts, no changes                      |
+| Categorized      | `'{"team_id": 1, "categorize_orphans": true}'`                       | Reports truly orphaned vs CH-only separately |
+| Sync only        | `'{"team_id": 1, "dry_run": false}'`                                 | Fixable orphans get DIDs synced              |
+| Sync + delete    | `'{"team_id": 1, "dry_run": false, "delete_ch_only_orphans": true}'` | DIDs synced + CH-only marked deleted         |
+| Limit            | `'{"team_id": 1, "limit": 2}'`                                       | Only process first 2 orphans                 |
+| Specific persons | `'{"team_id": 1, "person_ids": ["uuid-1"]}'`                         | Only process specified UUIDs                 |
 
 ## Design Decisions
 
