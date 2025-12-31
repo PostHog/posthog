@@ -14,6 +14,27 @@ import { castTimestampOrNow } from '../utils/utils'
 import { LogsRateLimiterService } from './services/logs-rate-limiter.service'
 import { LogsIngestionMessage } from './types'
 
+/**
+ * Narrowed Hub type for LogsIngestionConsumer.
+ * This includes all fields needed by LogsIngestionConsumer and its dependencies:
+ * - LogsRateLimiterService
+ * - Redis (logs kind)
+ * - KafkaProducerWrapper
+ * - TeamManager
+ */
+export type LogsIngestionConsumerHub = LogsIngestionConsumerConfig &
+    Pick<
+        Hub,
+        // Redis config (common fields not in LogsIngestionConsumerConfig)
+        | 'REDIS_URL'
+        | 'REDIS_POOL_MIN_SIZE'
+        | 'REDIS_POOL_MAX_SIZE'
+        // KafkaProducerWrapper.create
+        | 'KAFKA_CLIENT_RACK'
+        // TeamManager
+        | 'teamManager'
+    >
+
 export type UsageStats = {
     bytesReceived: number
     recordsReceived: number
@@ -85,7 +106,7 @@ export class LogsIngestionConsumer {
     protected dlqTopic?: string
 
     constructor(
-        private hub: Hub,
+        private hub: LogsIngestionConsumerHub,
         overrides: Partial<LogsIngestionConsumerConfig> = {}
     ) {
         // The group and topic are configurable allowing for multiple ingestion consumers to be run in parallel
@@ -326,11 +347,11 @@ export class LogsIngestionConsumer {
     public async start(): Promise<void> {
         await Promise.all([
             // Warpstream producer for logs data (uses KAFKA_PRODUCER_* env vars)
-            KafkaProducerWrapper.create(this.hub).then((producer) => {
+            KafkaProducerWrapper.create(this.hub.KAFKA_CLIENT_RACK).then((producer) => {
                 this.kafkaProducer = producer
             }),
             // Metrics producer for app_metrics (uses KAFKA_METRICS_PRODUCER_* env vars)
-            KafkaProducerWrapper.create(this.hub, 'METRICS_PRODUCER').then((producer) => {
+            KafkaProducerWrapper.create(this.hub.KAFKA_CLIENT_RACK, 'METRICS_PRODUCER').then((producer) => {
                 this.mskProducer = producer
             }),
         ])

@@ -15,7 +15,7 @@ describe('RecipientsManager', () => {
     beforeEach(async () => {
         hub = await createHub()
         await resetTestDatabase()
-        manager = new RecipientsManagerService(hub)
+        manager = new RecipientsManagerService(hub.postgres)
         team = await getFirstTeam(hub)
         const team2Id = await createTeam(hub.postgres, team.organization_id)
         team2 = (await getTeam(hub, team2Id))!
