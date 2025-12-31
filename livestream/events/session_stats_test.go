@@ -174,7 +174,7 @@ func TestSessionStats_Concurrency(t *testing.T) {
 
 func TestSessionStats_CleanupEmptyCounters(t *testing.T) {
 	ss := NewSessionStatsKeeper(0, 100*time.Millisecond)
-	ss.Add("token", "session)")
+	ss.Add("token", "session1")
 	ss.Add("token2", "session2")
 	assert.Equal(t, 2, ss.TokenCount())
 	time.Sleep(200 * time.Millisecond)
