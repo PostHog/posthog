@@ -148,15 +148,10 @@ function LinearLink(props: PlayerShareLogicProps): JSX.Element {
                                             data-attr="linear-share-assignee"
                                         />
                                     </LemonField>
-                                    <LemonField
-                                        className="gap-1"
-                                        name="labels"
-                                        label="Labels"
-                                        help={<span>Comma-separated labels to add to the issue</span>}
-                                    >
+                                    <LemonField className="gap-1" name="labels" label="Label">
                                         <LemonInput
                                             fullWidth
-                                            placeholder="bug, feature"
+                                            placeholder="bug or feature"
                                             data-attr="linear-share-labels"
                                         />
                                     </LemonField>
