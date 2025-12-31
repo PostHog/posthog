@@ -127,7 +127,9 @@ class SignupSerializer(serializers.Serializer):
             pass
         # Regular signup: password required
         elif not password:
-            raise serializers.ValidationError({"password": "Password is required."})
+            raise serializers.ValidationError(
+                {"password": serializers.ErrorDetail("This field is required.", code="required")}
+            )
 
         return data
 
