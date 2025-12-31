@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { buildAlertFilterConfig } from 'lib/utils'
+import { buildAlertFilterConfig } from 'lib/utils/alertUtils'
 
 import { CyclotronJobFiltersType, HogFunctionSubTemplateIdType, HogFunctionTypeType } from '~/types'
 
