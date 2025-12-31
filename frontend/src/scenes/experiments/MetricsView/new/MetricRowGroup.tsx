@@ -173,9 +173,11 @@ function CollapsibleBreakdownSection({
 
     return (
         <tr ref={mainTableRef} data-breakdown-row className="hover:bg-bg-hover group [&:last-child>td]:border-b-0">
-            <td colSpan={7} className={`p-0 ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}>
+            <td colSpan={7} className={`p-0 border-t border-b ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}>
                 <LemonCollapse
                     multiple={false}
+                    embedded
+                    className={isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}
                     panels={[
                         {
                             key: 'breakdowns',
