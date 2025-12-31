@@ -4079,6 +4079,12 @@ export interface Experiment {
         version?: number
         method?: ExperimentStatsMethod
         timeseries?: boolean
+        bayesian?: {
+            ci_level?: number
+        }
+        frequentist?: {
+            alpha?: number
+        }
     }
     _create_in_folder?: string | null
     conclusion?: ExperimentConclusion | null
