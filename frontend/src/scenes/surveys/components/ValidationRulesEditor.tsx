@@ -59,7 +59,7 @@ export function ValidationRulesEditor({ value, onChange }: ValidationRulesEditor
                 min={1}
                 max={maxLengthRule?.value}
                 placeholder="Min"
-                value={minLengthRule?.value ?? (hasLengthLimit ? undefined : NaN)}
+                value={minLengthRule?.value}
                 onChange={setMinLength}
                 className="w-16"
             />
@@ -68,7 +68,7 @@ export function ValidationRulesEditor({ value, onChange }: ValidationRulesEditor
                 type="number"
                 min={minLengthRule?.value ?? 1}
                 placeholder="Max"
-                value={maxLengthRule?.value ?? (hasLengthLimit ? undefined : NaN)}
+                value={maxLengthRule?.value}
                 onChange={setMaxLength}
                 className="w-16"
             />
