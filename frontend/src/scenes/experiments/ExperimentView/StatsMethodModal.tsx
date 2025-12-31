@@ -110,7 +110,7 @@ export function StatsMethodModal(): JSX.Element {
                 />
             </div>
             <div className="flex flex-col gap-2">
-                <LemonLabel>{isBayesian ? 'Chance to beat threshold' : 'Confidence level'}</LemonLabel>
+                <LemonLabel>'Confidence level'</LemonLabel>
                 <LemonSelect
                     value={currentConfidenceLevel}
                     onChange={handleConfidenceLevelChange}
