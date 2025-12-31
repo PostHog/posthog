@@ -1,6 +1,8 @@
-import { Hub } from '../../../types'
+import { TeamManager } from '~/utils/team-manager'
+import { GroupRepository } from '~/worker/ingestion/groups/repositories/group-repository.interface'
+
 import { createHogExecutionGlobals } from '../../_tests/fixtures'
-import { GroupsManagerService } from './groups-manager.service'
+import { GroupsManagerService, GroupsManagerServiceHub } from './groups-manager.service'
 
 describe('Groups Manager', () => {
     jest.setTimeout(1000)
@@ -9,24 +11,29 @@ describe('Groups Manager', () => {
     let mockGroupTypes: { team_id: number; group_type: string; group_type_index: number }[] = []
     let mockGroups: { team_id: number; group_key: string; group_type_index: number; group_properties?: any }[] = []
 
-    const mockHub = {
+    const mockHasAvailableFeature = jest.fn(() => Promise.resolve(true))
+    const mockFetchGroupTypesByTeamIds = jest.fn()
+    const mockFetchGroupsByKeys = jest.fn()
+
+    const mockHub: GroupsManagerServiceHub = {
         teamManager: {
-            hasAvailableFeature: jest.fn(() => Promise.resolve(true)),
-        },
+            hasAvailableFeature: mockHasAvailableFeature,
+        } as unknown as TeamManager,
         groupRepository: {
-            fetchGroupTypesByTeamIds: jest.fn(),
-            fetchGroupsByKeys: jest.fn(),
-        },
+            fetchGroupTypesByTeamIds: mockFetchGroupTypesByTeamIds,
+            fetchGroupsByKeys: mockFetchGroupsByKeys,
+        } as unknown as GroupRepository,
+        SITE_URL: 'http://localhost:8000',
     }
 
     beforeEach(() => {
-        groupsManager = new GroupsManagerService(mockHub as unknown as Hub)
+        groupsManager = new GroupsManagerService(mockHub)
     })
 
     describe('unit tests', () => {
         beforeEach(() => {
             // Setup mock repository responses based on the repository interface format
-            mockHub.groupRepository.fetchGroupTypesByTeamIds.mockImplementation((teamIds: number[]): Promise<any> => {
+            mockFetchGroupTypesByTeamIds.mockImplementation((teamIds: number[]): Promise<any> => {
                 const result: Record<string, { group_type: string; group_type_index: number }[]> = {}
 
                 // Initialize empty arrays for all requested team IDs
@@ -50,7 +57,7 @@ describe('Groups Manager', () => {
                 return Promise.resolve(result)
             })
 
-            mockHub.groupRepository.fetchGroupsByKeys.mockImplementation(
+            mockFetchGroupsByKeys.mockImplementation(
                 (teamIds: number[], groupIndexes: number[], groupKeys: string[]): Promise<any> => {
                     const results = mockGroups.filter((group) => {
                         // Check if this group matches any of the requested combinations
@@ -233,12 +240,12 @@ describe('Groups Manager', () => {
             })
             await groupsManager.enrichGroups([globals])
 
-            expect(mockHub.groupRepository.fetchGroupTypesByTeamIds).toHaveBeenCalledTimes(1)
-            expect(mockHub.groupRepository.fetchGroupsByKeys).toHaveBeenCalledTimes(1)
+            expect(mockFetchGroupTypesByTeamIds).toHaveBeenCalledTimes(1)
+            expect(mockFetchGroupsByKeys).toHaveBeenCalledTimes(1)
 
             // Validate that only the correct ID values were used
-            expect(mockHub.groupRepository.fetchGroupTypesByTeamIds).toHaveBeenCalledWith([1])
-            expect(mockHub.groupRepository.fetchGroupsByKeys).toHaveBeenCalledWith([1], [1], ['id-2'])
+            expect(mockFetchGroupTypesByTeamIds).toHaveBeenCalledWith([1])
+            expect(mockFetchGroupsByKeys).toHaveBeenCalledWith([1], [1], ['id-2'])
         })
     })
 
@@ -256,17 +263,17 @@ describe('Groups Manager', () => {
             }),
         ]
         await groupsManager.enrichGroups(globals)
-        expect(mockHub.groupRepository.fetchGroupTypesByTeamIds).toHaveBeenCalledTimes(1)
-        expect(mockHub.groupRepository.fetchGroupsByKeys).toHaveBeenCalledTimes(1)
-        mockHub.groupRepository.fetchGroupTypesByTeamIds.mockClear()
-        mockHub.groupRepository.fetchGroupsByKeys.mockClear()
+        expect(mockFetchGroupTypesByTeamIds).toHaveBeenCalledTimes(1)
+        expect(mockFetchGroupsByKeys).toHaveBeenCalledTimes(1)
+        mockFetchGroupTypesByTeamIds.mockClear()
+        mockFetchGroupsByKeys.mockClear()
 
         await groupsManager.enrichGroups(globals)
         // Should use cache, not call repository again for the same teams
-        expect(mockHub.groupRepository.fetchGroupTypesByTeamIds).toHaveBeenCalledTimes(0)
-        expect(mockHub.groupRepository.fetchGroupsByKeys).toHaveBeenCalledTimes(1)
-        mockHub.groupRepository.fetchGroupTypesByTeamIds.mockClear()
-        mockHub.groupRepository.fetchGroupsByKeys.mockClear()
+        expect(mockFetchGroupTypesByTeamIds).toHaveBeenCalledTimes(0)
+        expect(mockFetchGroupsByKeys).toHaveBeenCalledTimes(1)
+        mockFetchGroupTypesByTeamIds.mockClear()
+        mockFetchGroupsByKeys.mockClear()
 
         globals.push(
             createHogExecutionGlobals({
@@ -278,7 +285,7 @@ describe('Groups Manager', () => {
 
         await groupsManager.enrichGroups(globals)
         // New team should trigger repository call, plus groups fetch
-        expect(mockHub.groupRepository.fetchGroupTypesByTeamIds).toHaveBeenCalledTimes(1)
-        expect(mockHub.groupRepository.fetchGroupsByKeys).toHaveBeenCalledTimes(1)
+        expect(mockFetchGroupTypesByTeamIds).toHaveBeenCalledTimes(1)
+        expect(mockFetchGroupsByKeys).toHaveBeenCalledTimes(1)
     })
 })

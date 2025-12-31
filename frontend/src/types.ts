@@ -4078,6 +4078,14 @@ export interface Experiment {
     stats_config?: {
         version?: number
         method?: ExperimentStatsMethod
+        bayesian?: {
+            ci_level?: number
+        }
+        frequentist?: {
+            alpha?: number
+        }
+    }
+    scheduling_config?: {
         timeseries?: boolean
     }
     _create_in_folder?: string | null
@@ -5530,6 +5538,7 @@ export enum SidePanelTab {
     Notebooks = 'notebook',
     Support = 'support',
     Docs = 'docs',
+    Changelog = 'changelog',
     Activation = 'activation',
     Settings = 'settings',
     Activity = 'activity',
@@ -5538,6 +5547,7 @@ export enum SidePanelTab {
     Exports = 'exports',
     AccessControl = 'access-control',
     SdkDoctor = 'sdk-doctor',
+    Health = 'health',
 }
 
 export interface ProductPricingTierSubrows {

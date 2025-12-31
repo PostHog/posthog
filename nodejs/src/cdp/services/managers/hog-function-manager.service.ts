@@ -6,6 +6,8 @@ import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import { HogFunctionType, HogFunctionTypeType } from '../../types'
 
+export type HogFunctionManagerHub = Pick<Hub, 'postgres' | 'pubSub' | 'encryptedFields'>
+
 const HOG_FUNCTION_FIELDS = [
     'id',
     'team_id',
@@ -64,7 +66,7 @@ export class HogFunctionManagerService {
     private lazyLoader: LazyLoader<HogFunctionType>
     private lazyLoaderByTeam: LazyLoader<HogFunctionTeamInfo[]>
 
-    constructor(private hub: Hub) {
+    constructor(private hub: HogFunctionManagerHub) {
         this.lazyLoaderByTeam = new LazyLoader({
             name: 'hog_function_manager_by_team',
             loader: async (teamIds) => await this.fetchTeamHogFunctions(teamIds),

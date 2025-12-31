@@ -1,6 +1,5 @@
 import { Histogram } from 'prom-client'
 
-import { PluginsServerConfig } from '~/types'
 import { parseJSON } from '~/utils/json-parse'
 
 import { logger } from '../../utils/logger'
@@ -10,7 +9,7 @@ import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, Respon
 import { destinationE2eLagMsSummary } from '../utils'
 import { CDP_TEST_ID, createAddLogFunction, isNativeHogFunction } from '../utils'
 import { createInvocationResult } from '../utils/invocation-utils'
-import { cdpTrackedFetch, getNextRetryTime, isFetchResponseRetriable } from './hog-executor.service'
+import { CdpFetchConfig, cdpTrackedFetch, getNextRetryTime, isFetchResponseRetriable } from './hog-executor.service'
 
 const nativeDestinationExecutionDuration = new Histogram({
     name: 'cdp_native_execution_duration_ms',
@@ -47,7 +46,7 @@ const convertFetchResponse = (response: FetchResponse, text: string): Response =
  */
 
 export class NativeDestinationExecutorService {
-    constructor(private serverConfig: PluginsServerConfig) {}
+    constructor(private serverConfig: CdpFetchConfig) {}
 
     public async execute(
         invocation: CyclotronJobInvocationHogFunction
@@ -240,7 +239,11 @@ export class NativeDestinationExecutorService {
                     result.finished = false
                     result.invocation.queue = 'hog'
                     result.invocation.queuePriority = metadata.tries
-                    result.invocation.queueScheduledAt = getNextRetryTime(this.serverConfig, metadata.tries)
+                    result.invocation.queueScheduledAt = getNextRetryTime(
+                        this.serverConfig.CDP_FETCH_BACKOFF_BASE_MS,
+                        this.serverConfig.CDP_FETCH_BACKOFF_MAX_MS,
+                        metadata.tries
+                    )
                     return result
                 } else {
                     result.finished = true
