@@ -25,7 +25,6 @@ const REGULAR_FEATURE_FLAG: FeatureFlagType = {
     updated_at: '2021-05-05T12:00:00Z',
     created_by: null,
     experiment_set: [],
-    is_simple_flag: false,
     ensure_experience_continuity: false,
     can_edit: true,
     user_access_level: AccessControlLevel.Editor,

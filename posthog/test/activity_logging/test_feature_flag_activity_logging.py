@@ -134,8 +134,8 @@ class TestChangesBetweenFeatureFlags(APIBaseTest):
     def test_can_exclude_changed_fields_in_feature_flags(self) -> None:
         actual = changes_between(
             model_type="FeatureFlag",
-            previous=self._a_feature_flag_with(created_at="before", created_by="before", is_simple_flag=True),
-            current=self._a_feature_flag_with(created_at="after", created_by="after", is_simple_flag=False),
+            previous=self._a_feature_flag_with(created_at="before", created_by="before", usage_dashboard=1),
+            current=self._a_feature_flag_with(created_at="after", created_by="after", usage_dashboard=2),
         )
         self.assertEqual(actual, [])
 

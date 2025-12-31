@@ -313,47 +313,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         existing_flag.refresh_from_db()
         self.assertEqual(existing_flag.name, "Beta feature 3")
 
-    def test_is_simple_flag(self):
-        feature_flag = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            data={
-                "name": "Beta feature",
-                "key": "beta-feature",
-                "filters": {"groups": [{"rollout_percentage": 65}]},
-            },
-            format="json",
-        ).json()
-        self.assertTrue(feature_flag["is_simple_flag"])
-        self.assertEqual(feature_flag["rollout_percentage"], 65)
-
-    def test_is_not_simple_flag(self):
-        feature_flag = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            data={
-                "name": "Beta feature",
-                "key": "beta-feature",
-                "filters": {
-                    "groups": [
-                        {
-                            "rollout_percentage": 65,
-                            "properties": [
-                                {
-                                    "key": "email",
-                                    "type": "person",
-                                    "value": "@posthog.com",
-                                    "operator": "icontains",
-                                }
-                            ],
-                        }
-                    ]
-                },
-            },
-            format="json",
-        ).json()
-        self.assertFalse(feature_flag["is_simple_flag"])
-
     @patch("posthog.api.feature_flag.report_user_action")
-    def test_is_simple_flag_groups(self, mock_capture):
+    def test_group_type_index_feature_flag(self, mock_capture):
         feature_flag = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             data={
@@ -366,7 +327,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
             format="json",
         ).json()
-        self.assertFalse(feature_flag["is_simple_flag"])
         # Assert analytics are sent
         instance = FeatureFlag.objects.get(id=feature_flag["id"])
         mock_capture.assert_called_once_with(
@@ -6948,7 +6908,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "/api/feature_flag/local_evaluation",
                 headers={"authorization": f"Bearer {personal_api_key}", "If-None-Match": etag},
             )
-            self.assertEqual(response.status_code, status.HTTP_304_NOT_MODIFIED, f"Request {i+1} should return 304")
+            self.assertEqual(response.status_code, status.HTTP_304_NOT_MODIFIED, f"Request {i + 1} should return 304")
             self.assertEqual(response.headers["ETag"], etag)
 
 

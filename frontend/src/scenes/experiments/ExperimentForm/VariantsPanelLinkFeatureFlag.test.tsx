@@ -31,11 +31,9 @@ describe('VariantsPanelLinkFeatureFlag', () => {
         created_at: '2021-01-01',
         updated_at: '2021-01-01',
         created_by: null,
-        is_simple_flag: false,
         is_remote_configuration: false,
         deleted: false,
         active: true,
-        rollout_percentage: null,
         experiment_set: null,
         features: null,
         surveys: null,
@@ -409,11 +407,13 @@ describe('VariantsPanelLinkFeatureFlag', () => {
             expect(screen.getByText('All users')).toBeInTheDocument()
         })
 
-        it('handles simple flag with rollout percentage', () => {
+        it('handles flag with single group rollout percentage', () => {
             const simpleFlag: FeatureFlagType = {
                 ...baseFeatureFlag,
-                is_simple_flag: true,
-                rollout_percentage: 75,
+                filters: {
+                    ...baseFeatureFlag.filters,
+                    groups: [{ properties: [], rollout_percentage: 75, variant: null }],
+                },
             }
 
             render(

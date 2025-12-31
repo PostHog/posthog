@@ -631,7 +631,6 @@ describe('checkFeatureFlagEligibility', () => {
         created_at: '2021-01-01',
         updated_at: '2021-01-01',
         created_by: null,
-        is_simple_flag: false,
         is_remote_configuration: false,
         filters: {
             groups: [],
@@ -640,7 +639,6 @@ describe('checkFeatureFlagEligibility', () => {
         },
         deleted: false,
         active: true,
-        rollout_percentage: null,
         experiment_set: null,
         features: null,
         surveys: null,
