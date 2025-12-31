@@ -609,6 +609,8 @@ class WebauthnBackend(BaseBackend):
         Authenticate a user via WebAuthn.
 
         Verifies the WebAuthn assertion and returns the authenticated user.
+        Uses credential_id-first lookup to support passkeys registered during signup
+        with temporary user handles.
 
         Args:
             request: The HTTP request object
@@ -624,40 +626,27 @@ class WebauthnBackend(BaseBackend):
             )
             return None
 
-        # Extract userHandle from response
-        user_handle_b64 = response.get("userHandle")
-        if not user_handle_b64:
-            structlog_logger.warning("invalid base64 when parsing webauthn user handle")
-            return None
-
         try:
-            user_handle = base64url_to_bytes(user_handle_b64)
-            user_id = webauthn_handle_to_user_id(user_handle)
-            if user_id is None:
-                structlog_logger.warning("webauthn_login_invalid_user_handle", user_handle=user_handle_b64[:20])
-                return None
-
-            # Find the user
-            try:
-                user = User.objects.get(pk=user_id)
-            except User.DoesNotExist:
-                structlog_logger.warning("webauthn_login_user_not_found", user_id=user_id)
-                return None
-
-            # Check if user is active
-            if not user.is_active:
-                return None
-
             # Decode credential ID
             credential_id_bytes = base64url_to_bytes(credential_id)
 
-            # Find the credential
-            credential = WebauthnCredential.objects.filter(
-                user=user, credential_id=credential_id_bytes, verified=True
-            ).first()
+            # Credential-first lookup: find credential by credential_id (unique across all users)
+            # This supports passkeys registered during signup with temporary user handles
+            credential = (
+                WebauthnCredential.objects.filter(credential_id=credential_id_bytes, verified=True)
+                .select_related("user")
+                .first()
+            )
 
             if not credential:
-                structlog_logger.warning("webauthn_login_credential_not_found", user_id=user_id)
+                structlog_logger.warning("webauthn_login_credential_not_found", credential_id=credential_id[:20])
+                return None
+
+            user = credential.user
+
+            # Check if user is active
+            if not user.is_active:
+                structlog_logger.warning("webauthn_login_user_inactive", user_id=user.pk)
                 return None
 
             # Construct credential dict for webauthn library

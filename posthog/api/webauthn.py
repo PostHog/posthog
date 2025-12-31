@@ -1,4 +1,5 @@
 import json
+import uuid
 from typing import Any, cast
 
 from django.contrib.auth import login
@@ -46,6 +47,12 @@ WEBAUTHN_REGISTRATION_CHALLENGE_KEY = "webauthn_registration_challenge"
 WEBAUTHN_REGISTRATION_CREDENTIAL_ID_KEY = "webauthn_registration_credential_id"
 WEBAUTHN_VERIFICATION_CHALLENGE_KEY = "webauthn_verification_challenge"
 CHALLENGE_TIMEOUT_MS = 300000  # 5 minutes
+
+# Session keys for signup passkey registration (before user exists)
+WEBAUTHN_SIGNUP_CHALLENGE_KEY = "signup_webauthn_challenge"
+WEBAUTHN_SIGNUP_EMAIL_KEY = "signup_email"
+WEBAUTHN_SIGNUP_CREDENTIAL_KEY = "signup_passkey_credential"
+WEBAUTHN_SIGNUP_USER_UUID_KEY = "signup_user_uuid"
 SUPPORTED_PUB_KEY_ALGS = [
     COSEAlgorithmIdentifier.ECDSA_SHA_512,
     COSEAlgorithmIdentifier.ECDSA_SHA_256,
@@ -56,9 +63,9 @@ SUPPORTED_PUB_KEY_ALGS = [
 ]
 
 
-def user_id_to_handle(user_id: Any) -> bytes:
-    """Convert a user ID to bytes for use as a WebAuthn user handle."""
-    return str(user_id).encode("utf-8")
+def user_uuid_to_handle(user_uuid: "uuid.UUID") -> bytes:
+    """Convert a user's UUID to bytes for use as a WebAuthn user handle."""
+    return user_uuid.bytes
 
 
 class WebAuthnRegistrationViewSet(viewsets.ViewSet):
@@ -94,8 +101,8 @@ class WebAuthnRegistrationViewSet(viewsets.ViewSet):
             for cred in existing_credentials
         ]
 
-        # Use user.pk as the user handle for discoverable credentials
-        user_handle = user_id_to_handle(user.pk)
+        # Use user.uuid as the user handle for discoverable credentials
+        user_handle = user_uuid_to_handle(user.uuid)
 
         options = generate_registration_options(
             rp_id=get_webauthn_rp_id(),
@@ -427,6 +434,127 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
             logger.exception("webauthn_login_error", error=str(e))
             return Response(
                 {"error": f"Login failed"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+
+class WebAuthnSignupRegistrationViewSet(viewsets.ViewSet):
+    """
+    ViewSet for WebAuthn passkey registration during signup (before user exists).
+
+    Stores credential data in session for later user creation.
+
+    Registration flow:
+    1. POST /begin - Generate challenge and options with temp user handle
+    2. POST /complete - Verify attestation, store credential data in session
+    """
+
+    permission_classes = [permissions.AllowAny]
+
+    @action(detail=False, methods=["POST"], url_path="begin")
+    def begin(self, request: Request) -> Response:
+        """
+        Begin passkey registration during signup.
+
+        Generates registration options with a temporary user handle (UUID).
+        The email is validated but no user is created yet.
+        """
+        email = request.data.get("email")
+        if not email:
+            return Response(
+                {"error": "Email is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Check if email is already registered
+        if User.objects.filter(email__iexact=email).exists():
+            return Response(
+                {"error": "An account with this email already exists."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Generate user UUID - will become the user's uuid field when account is created
+        user_uuid = uuid.uuid4()
+
+        options = generate_registration_options(
+            rp_id=get_webauthn_rp_id(),
+            rp_name="PostHog",
+            user_id=user_uuid.bytes,
+            user_name=email,
+            user_display_name=email,
+            authenticator_selection=AuthenticatorSelectionCriteria(
+                resident_key=ResidentKeyRequirement.REQUIRED,
+                user_verification=UserVerificationRequirement.PREFERRED,
+            ),
+            timeout=CHALLENGE_TIMEOUT_MS,
+            supported_pub_key_algs=SUPPORTED_PUB_KEY_ALGS,
+        )
+
+        # Store challenge, email, and user UUID in session
+        request.session[WEBAUTHN_SIGNUP_CHALLENGE_KEY] = bytes_to_base64url(options.challenge)
+        request.session[WEBAUTHN_SIGNUP_EMAIL_KEY] = email
+        request.session[WEBAUTHN_SIGNUP_USER_UUID_KEY] = str(user_uuid)
+        request.session.save()
+
+        logger.info("webauthn_signup_registration_begin", email_hash=hash(email), rp_id=get_webauthn_rp_id())
+
+        return Response(json.loads(options_to_json(options)))
+
+    @action(detail=False, methods=["POST"], url_path="complete")
+    def complete(self, request: Request) -> Response:
+        """
+        Complete passkey registration during signup.
+
+        Verifies the attestation and stores the credential data in session.
+        The credential is NOT stored in the database yet - that happens when signup completes.
+        """
+        # Pop challenge (consume it) but keep email in session
+        challenge_b64 = request.session.pop(WEBAUTHN_SIGNUP_CHALLENGE_KEY, None)
+        email = request.session.get(WEBAUTHN_SIGNUP_EMAIL_KEY)
+
+        if not challenge_b64 or not email:
+            return Response(
+                {"error": "No pending registration. Please start again."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            expected_challenge = base64url_to_bytes(challenge_b64)
+
+            verification = verify_registration_response(
+                credential=request.data,
+                expected_challenge=expected_challenge,
+                expected_rp_id=get_webauthn_rp_id(),
+                expected_origin=get_webauthn_rp_origin(),
+                require_user_verification=True,
+                supported_pub_key_algs=SUPPORTED_PUB_KEY_ALGS,
+            )
+
+            # Parse transports from the response
+            transports = request.data.get("response", {}).get("transports", [])
+
+            # Decode the public key to get the algorithm
+            decoded_public_key = decode_credential_public_key(verification.credential_public_key)
+
+            # Store credential data in session (NOT in DB yet)
+            request.session[WEBAUTHN_SIGNUP_CREDENTIAL_KEY] = {
+                "credential_id": bytes_to_base64url(verification.credential_id),
+                "public_key": bytes_to_base64url(verification.credential_public_key),
+                "algorithm": decoded_public_key.alg,
+                "sign_count": verification.sign_count,
+                "transports": transports,
+            }
+
+            request.session.save()
+
+            logger.info("webauthn_signup_registration_complete", email_hash=hash(email))
+
+            return Response({"success": True})
+
+        except Exception as e:
+            logger.exception("webauthn_signup_registration_error", error=str(e))
+            return Response(
+                {"error": "Registration failed. Please try again."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
