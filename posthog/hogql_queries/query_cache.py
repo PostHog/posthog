@@ -6,14 +6,18 @@ from typing import NamedTuple, Optional
 from django.conf import settings
 from django.core.cache import cache
 
+import structlog
 from prometheus_client import CollectorRegistry, Counter, Histogram
 
 from posthog.cache_utils import OrjsonJsonSerializer
+from posthog.caching.cache_size_tracker import TeamCacheSizeTracker, get_team_cache_limit
 from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
 from posthog.metrics import LABEL_TEAM_ID, pushed_metrics_registry
 from posthog.utils import get_safe_cache
+
+logger = structlog.get_logger(__name__)
 
 
 class CacheMetrics(NamedTuple):
@@ -166,7 +170,24 @@ class DjangoCacheQueryCacheManager(QueryCacheManagerBase):
         fresh_response_serialized = OrjsonJsonSerializer({}).dumps(response)
         data_size = len(fresh_response_serialized)
 
+        # Enforce per-team cache size limit
+        tracker = TeamCacheSizeTracker(self.team_id)
+        limit = get_team_cache_limit(self.team_id)
+
+        if tracker.get_total_size() + data_size > limit:
+            evicted = tracker.evict_until_under_limit(limit, data_size)
+            if evicted:
+                logger.info(
+                    "cache_size_limit_eviction",
+                    team_id=self.team_id,
+                    evicted_count=len(evicted),
+                    limit_bytes=limit,
+                )
+
         cache.set(self.cache_key, fresh_response_serialized, settings.CACHED_RESULTS_TTL)
+
+        # Track this entry for size limiting
+        tracker.track_cache_write(self.cache_key, data_size)
 
         if target_age:
             self.update_target_age(target_age)
