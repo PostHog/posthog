@@ -56,7 +56,7 @@ func main() {
 	}()
 
 	stats := events.NewStatsKeeper()
-	sessionStats := events.NewSessionStatsKeeper(config.SessionRecording.MaxLRUEntries)
+	sessionStats := events.NewSessionStatsKeeper(config.SessionRecording.MaxLRUEntries, 0)
 
 	phEventChan := make(chan events.PostHogEvent, 10000)
 	statsChan := make(chan events.CountEvent, 10000)
