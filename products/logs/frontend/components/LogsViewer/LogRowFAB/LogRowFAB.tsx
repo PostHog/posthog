@@ -1,12 +1,21 @@
 import { useActions, useValues } from 'kea'
 
-import { IconBrackets, IconChevronLeft, IconChevronRight, IconCopy, IconPin, IconPinFilled } from '@posthog/icons'
+import {
+    IconBrackets,
+    IconChevronLeft,
+    IconChevronRight,
+    IconCopy,
+    IconExpand45,
+    IconPin,
+    IconPinFilled,
+} from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { IconLink } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 
+import { logDetailsModalLogic } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal'
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
 import { useCellScrollControls } from 'products/logs/frontend/components/VirtualizedLogsList/useCellScroll'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
@@ -32,6 +41,7 @@ export function LogRowFAB({
 }: LogRowFABProps): JSX.Element {
     const { tabId } = useValues(logsViewerLogic)
     const { copyLinkToLog } = useActions(logsViewerLogic)
+    const { openLogDetails } = useActions(logDetailsModalLogic)
     const { startScrolling, stopScrolling } = useCellScrollControls({ tabId, cellKey: 'message' })
 
     return (
@@ -44,6 +54,18 @@ export function LogRowFAB({
             onMouseDown={(e) => e.stopPropagation()}
         >
             <FABGroup>
+                <LemonButton
+                    size="xsmall"
+                    noPadding
+                    icon={<IconExpand45 />}
+                    onClick={(e) => {
+                        e.preventDefault()
+                        openLogDetails(log)
+                    }}
+                    tooltip="View log details"
+                    className="text-muted"
+                    data-attr="logs-viewer-view-details"
+                />
                 <LemonButton
                     size="xsmall"
                     noPadding
