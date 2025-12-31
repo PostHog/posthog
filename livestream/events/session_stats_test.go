@@ -10,34 +10,52 @@ import (
 )
 
 func TestNewSessionStatsKeeper(t *testing.T) {
-	ss := NewSessionStatsKeeper()
+	ss := NewSessionStatsKeeper(0) // 0 uses default
 
 	assert.NotNil(t, ss.store)
+	assert.NotNil(t, ss.counts)
 }
 
-func TestSessionStats_GetStoreForToken(t *testing.T) {
-	ss := NewSessionStatsKeeper()
+func TestNewSessionStatsKeeper_CustomSize(t *testing.T) {
+	ss := NewSessionStatsKeeper(100)
 
-	store1 := ss.GetStoreForToken("token1")
-	assert.NotNil(t, store1)
+	assert.NotNil(t, ss.store)
+	assert.NotNil(t, ss.counts)
+}
 
-	store2 := ss.GetStoreForToken("token1")
-	assert.Equal(t, store1, store2)
+func TestSessionStats_Add(t *testing.T) {
+	ss := NewSessionStatsKeeper(0)
 
-	store3 := ss.GetStoreForToken("token2")
-	assert.NotNil(t, store3)
-	assert.NotEqual(t, store1, store3)
+	// Add first session
+	ss.Add("token1", "session1")
+	assert.Equal(t, 1, ss.CountForToken("token1"))
+
+	// Add same session again (should not increment)
+	ss.Add("token1", "session1")
+	assert.Equal(t, 1, ss.CountForToken("token1"))
+
+	// Add different session same token
+	ss.Add("token1", "session2")
+	assert.Equal(t, 2, ss.CountForToken("token1"))
+
+	// Add session for different token
+	ss.Add("token2", "session3")
+	assert.Equal(t, 1, ss.CountForToken("token2"))
+	assert.Equal(t, 2, ss.CountForToken("token1")) // unchanged
 }
 
 func TestSessionStats_GetExistingStoreForToken(t *testing.T) {
-	ss := NewSessionStatsKeeper()
+	ss := NewSessionStatsKeeper(0)
 
+	// Non-existent token returns nil
 	store := ss.GetExistingStoreForToken("nonexistent")
 	assert.Nil(t, store)
 
-	ss.GetStoreForToken("token1")
+	// After adding a session, returns non-nil with correct count
+	ss.Add("token1", "session1")
 	store = ss.GetExistingStoreForToken("token1")
 	assert.NotNil(t, store)
+	assert.Equal(t, 1, store.Len())
 }
 
 func TestSessionStats_Count(t *testing.T) {
@@ -101,7 +119,7 @@ func TestSessionStats_Count(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ss := NewSessionStatsKeeper()
+			ss := NewSessionStatsKeeper(0)
 			statsChan := make(chan SessionRecordingEvent, 100)
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -116,6 +134,10 @@ func TestSessionStats_Count(t *testing.T) {
 			cancel()
 			time.Sleep(10 * time.Millisecond)
 
+			assert.Equal(t, tt.wantToken1Count, ss.CountForToken("t1"))
+			assert.Equal(t, tt.wantToken2Count, ss.CountForToken("t2"))
+
+			// Test backwards-compat shim
 			if tt.wantToken1Count > 0 {
 				store := ss.GetExistingStoreForToken("t1")
 				assert.NotNil(t, store)
@@ -132,7 +154,7 @@ func TestSessionStats_Count(t *testing.T) {
 }
 
 func TestSessionStats_Concurrency(t *testing.T) {
-	ss := NewSessionStatsKeeper()
+	ss := NewSessionStatsKeeper(0)
 	statsChan := make(chan SessionRecordingEvent, 1000)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -158,73 +180,132 @@ func TestSessionStats_Concurrency(t *testing.T) {
 	cancel()
 	time.Sleep(10 * time.Millisecond)
 
+	// Same session sent 100 times should still be count of 1
+	assert.Equal(t, 1, ss.CountForToken("token1"))
+
 	store := ss.GetExistingStoreForToken("token1")
 	assert.NotNil(t, store)
 	assert.Equal(t, 1, store.Len())
 }
 
-func TestSessionStats_CleanupEmptyStores(t *testing.T) {
+func TestSessionStats_CleanupEmptyCounters(t *testing.T) {
 	tests := []struct {
-		name           string
-		setup          func(ss *SessionStats)
-		wantToken1     bool
-		wantToken2     bool
-		wantStoreCount int
+		name            string
+		setup           func(ss *SessionStats)
+		wantToken1      bool
+		wantToken2      bool
+		wantCounterSize int
 	}{
 		{
-			name: "removes empty stores",
+			name: "removes empty counters",
 			setup: func(ss *SessionStats) {
-				ss.GetStoreForToken("token1")
-				ss.GetStoreForToken("token2")
+				// Create counters with zero values
+				ss.getOrCreateCounter("token1")
+				ss.getOrCreateCounter("token2")
 			},
-			wantToken1:     false,
-			wantToken2:     false,
-			wantStoreCount: 0,
+			wantToken1:      false,
+			wantToken2:      false,
+			wantCounterSize: 0,
 		},
 		{
-			name: "preserves non-empty stores",
+			name: "preserves non-empty counters",
 			setup: func(ss *SessionStats) {
-				ss.GetStoreForToken("token1").Add("session1", NoSpaceType{})
-				ss.GetStoreForToken("token2").Add("session2", NoSpaceType{})
+				ss.Add("token1", "session1")
+				ss.Add("token2", "session2")
 			},
-			wantToken1:     true,
-			wantToken2:     true,
-			wantStoreCount: 2,
+			wantToken1:      true,
+			wantToken2:      true,
+			wantCounterSize: 2,
 		},
 		{
-			name: "removes only empty stores",
+			name: "removes only empty counters",
 			setup: func(ss *SessionStats) {
-				ss.GetStoreForToken("token1").Add("session1", NoSpaceType{})
-				ss.GetStoreForToken("token2")
+				ss.Add("token1", "session1")
+				ss.getOrCreateCounter("token2") // empty counter
 			},
-			wantToken1:     true,
-			wantToken2:     false,
-			wantStoreCount: 1,
+			wantToken1:      true,
+			wantToken2:      false,
+			wantCounterSize: 1,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ss := NewSessionStatsKeeper()
+			ss := NewSessionStatsKeeper(0)
 			tt.setup(ss)
 
-			ss.cleanupEmptyStores()
+			ss.cleanupEmptyCounters()
 
 			if tt.wantToken1 {
-				assert.NotNil(t, ss.GetExistingStoreForToken("token1"))
+				assert.Greater(t, ss.CountForToken("token1"), 0)
 			} else {
-				assert.Nil(t, ss.GetExistingStoreForToken("token1"))
+				assert.Equal(t, 0, ss.CountForToken("token1"))
 			}
 
 			if tt.wantToken2 {
-				assert.NotNil(t, ss.GetExistingStoreForToken("token2"))
+				assert.Greater(t, ss.CountForToken("token2"), 0)
 			} else {
-				assert.Nil(t, ss.GetExistingStoreForToken("token2"))
+				assert.Equal(t, 0, ss.CountForToken("token2"))
 			}
 
-			ss.mu.RLock()
-			assert.Equal(t, tt.wantStoreCount, len(ss.store))
-			ss.mu.RUnlock()
+			assert.Equal(t, tt.wantCounterSize, ss.TokenCount())
 		})
 	}
+}
+
+func TestSessionStats_TokenCount(t *testing.T) {
+	ss := NewSessionStatsKeeper(0)
+
+	assert.Equal(t, 0, ss.TokenCount())
+
+	ss.Add("token1", "session1")
+	assert.Equal(t, 1, ss.TokenCount())
+
+	ss.Add("token2", "session2")
+	assert.Equal(t, 2, ss.TokenCount())
+
+	// Same token different session doesn't change token count
+	ss.Add("token1", "session3")
+	assert.Equal(t, 2, ss.TokenCount())
+}
+
+func TestSessionStats_Len(t *testing.T) {
+	ss := NewSessionStatsKeeper(0)
+
+	assert.Equal(t, 0, ss.Len())
+
+	ss.Add("token1", "session1")
+	assert.Equal(t, 1, ss.Len())
+
+	ss.Add("token1", "session2")
+	assert.Equal(t, 2, ss.Len())
+
+	ss.Add("token2", "session3")
+	assert.Equal(t, 3, ss.Len())
+
+	// Duplicate doesn't increase total
+	ss.Add("token1", "session1")
+	assert.Equal(t, 3, ss.Len())
+}
+
+func TestSessionStats_KeysForToken(t *testing.T) {
+	ss := NewSessionStatsKeeper(0)
+
+	// Empty
+	keys := ss.KeysForToken("token1")
+	assert.Empty(t, keys)
+
+	// Add sessions
+	ss.Add("token1", "session1")
+	ss.Add("token1", "session2")
+	ss.Add("token2", "session3")
+
+	keys = ss.KeysForToken("token1")
+	assert.Len(t, keys, 2)
+	assert.Contains(t, keys, "session1")
+	assert.Contains(t, keys, "session2")
+
+	keys = ss.KeysForToken("token2")
+	assert.Len(t, keys, 1)
+	assert.Contains(t, keys, "session3")
 }
