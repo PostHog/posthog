@@ -1,4 +1,5 @@
 import { HogFlow } from '~/schema/hogflow'
+import { UUIDT } from '~/utils/utils'
 
 import { getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub, Team } from '../../types'
@@ -81,6 +82,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             const batchRequest: BatchHogFlowRequest = {
                 teamId: team.id,
                 hogFlowId: hogFlow.id,
+                batchJobId: new UUIDT().toString(),
                 filters: {
                     properties: [{ key: 'email', value: 'test@example.com', operator: 'exact', type: 'person' }],
                     filter_test_accounts: false,
@@ -103,6 +105,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             const batchRequest: BatchHogFlowRequest = {
                 teamId: team.id,
                 hogFlowId: 'non-existent-id',
+                batchJobId: new UUIDT().toString(),
                 filters: {
                     properties: [{ key: 'email', value: 'test@example.com', operator: 'exact', type: 'person' }],
                 },
@@ -131,6 +134,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             const batchRequest: BatchHogFlowRequest = {
                 teamId: 999999, // Non-existent team
                 hogFlowId: hogFlow.id,
+                batchJobId: new UUIDT().toString(),
                 filters: {
                     properties: [{ key: 'email', value: 'test@example.com', operator: 'exact', type: 'person' }],
                 },
@@ -178,6 +182,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             const batchRequest: BatchHogFlowRequest = {
                 teamId: team.id,
                 hogFlowId: hogFlow.id,
+                batchJobId: new UUIDT().toString(),
                 filters: {},
             }
 
@@ -221,6 +226,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             const batchRequest: BatchHogFlowRequest = {
                 teamId: team.id,
                 hogFlowId: hogFlow.id,
+                batchJobId: new UUIDT().toString(),
                 filters: {
                     properties: [{ key: 'email', value: 'test@example.com', operator: 'exact', type: 'person' }],
                 },
@@ -306,6 +312,48 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             const batchRequest: BatchHogFlowRequest = {
                 teamId: team.id,
                 hogFlowId: hogFlow.id,
+                batchJobId: new UUIDT().toString(),
+                filters: {
+                    properties: [{ key: 'email', value: 'test@example.com', operator: 'exact', type: 'person' }],
+                },
+            }
+
+            const result = await processor['createHogFlowInvocations']({
+                batchHogFlowRequest: batchRequest,
+                team,
+                hogFlow,
+            })
+
+            expect(result).toHaveLength(0)
+            expect(processor['personsManager'].streamMany).not.toHaveBeenCalled()
+        })
+
+        it('should respect rate limits when tokens are insufficient', async () => {
+            const hogFlow = await insertHogFlow(
+                new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withSimpleWorkflow({
+                        trigger: {
+                            type: 'event',
+                            filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters ?? {},
+                        },
+                    })
+                    .build()
+            )
+
+            // Mock the personsManager to return 10 persons
+            jest.spyOn(processor['personsManager'], 'countMany').mockResolvedValue(10)
+            jest.spyOn(processor['personsManager'], 'streamMany').mockResolvedValue()
+
+            // Mock rate limiter with isRateLimited=false but insufficient tokens (5 tokens for 10 persons)
+            jest.spyOn(processor['hogRateLimiter'], 'rateLimitMany').mockResolvedValue([
+                [hogFlow.id, { isRateLimited: false, tokens: 5 }],
+            ])
+
+            const batchRequest: BatchHogFlowRequest = {
+                teamId: team.id,
+                hogFlowId: hogFlow.id,
+                batchJobId: new UUIDT().toString(),
                 filters: {
                     properties: [{ key: 'email', value: 'test@example.com', operator: 'exact', type: 'person' }],
                 },
@@ -356,6 +404,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             const batchRequest: BatchHogFlowRequest = {
                 teamId: team.id,
                 hogFlowId: hogFlow.id,
+                batchJobId: new UUIDT().toString(),
                 filters: {
                     properties: [{ key: 'email', value: 'test@example.com', operator: 'exact', type: 'person' }],
                 },
@@ -405,6 +454,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             const batchRequest: BatchHogFlowRequest = {
                 teamId: team.id,
                 hogFlowId: hogFlow.id,
+                batchJobId: new UUIDT().toString(),
                 filters: {
                     properties: [{ key: 'email', value: 'test@example.com', operator: 'exact', type: 'person' }],
                 },
@@ -477,6 +527,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             const batchRequest1: BatchHogFlowRequest = {
                 teamId: team.id,
                 hogFlowId: hogFlow1.id,
+                batchJobId: new UUIDT().toString(),
                 filters: {
                     properties: [{ key: 'email', value: 'test1@example.com', operator: 'exact', type: 'person' }],
                 },
@@ -485,6 +536,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             const batchRequest2: BatchHogFlowRequest = {
                 teamId: team.id,
                 hogFlowId: hogFlow2.id,
+                batchJobId: new UUIDT().toString(),
                 filters: {
                     properties: [{ key: 'email', value: 'test2@example.com', operator: 'exact', type: 'person' }],
                 },
@@ -536,6 +588,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             const batchRequest: BatchHogFlowRequest = {
                 teamId: team.id,
                 hogFlowId: hogFlow.id,
+                batchJobId: new UUIDT().toString(),
                 filters: {
                     properties: [{ key: 'email', value: 'test@example.com', operator: 'exact', type: 'person' }],
                 },

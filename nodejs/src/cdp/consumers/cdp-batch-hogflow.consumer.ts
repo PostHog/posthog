@@ -7,7 +7,7 @@ import { parseJSON } from '~/utils/json-parse'
 import { captureException } from '~/utils/posthog'
 
 import { KafkaConsumer } from '../../kafka/consumer'
-import { HealthCheckResult, Hub, Team } from '../../types'
+import { HealthCheckResult, Hub, PersonPropertyFilter, Team } from '../../types'
 import { logger } from '../../utils/logger'
 import { UUIDT } from '../../utils/utils'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
@@ -21,6 +21,7 @@ import { counterParseError, counterRateLimited } from './metrics'
 export interface BatchHogFlowRequest {
     teamId: number
     hogFlowId: HogFlow['id']
+    batchJobId: string
     filters: Pick<HogFunctionFilters, 'properties' | 'filter_test_accounts'>
 }
 
@@ -110,7 +111,7 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
             async () => {
                 return await this.personsManager.countMany({
                     teamId: team.id,
-                    properties: filters.properties || [],
+                    properties: (filters.properties as PersonPropertyFilter[]) || [],
                 })
             }
         )
@@ -120,12 +121,13 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
         })
 
         const rateLimit = rateLimits[0][1]
-        if (rateLimit.isRateLimited) {
+        if (rateLimit.isRateLimited || rateLimit.tokens < matchingPersonsCount) {
             counterRateLimited.labels({ kind: 'hog_flow' }).inc()
             this.hogFunctionMonitoringService.queueAppMetric(
                 {
                     team_id: batchHogFlowRequest.teamId,
                     app_source_id: batchHogFlowRequest.hogFlowId,
+                    instance_id: batchHogFlowRequest.batchJobId,
                     metric_kind: 'failure',
                     metric_name: 'rate_limited',
                     count: 1,
@@ -150,7 +152,7 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
             await this.personsManager.streamMany({
                 filters: {
                     teamId: team.id,
-                    properties: filters.properties || [],
+                    properties: (filters.properties as PersonPropertyFilter[]) || [],
                 },
                 onPerson: ({ personId, distinctId }) => {
                     const invocation = this.createHogFlowInvocation({
