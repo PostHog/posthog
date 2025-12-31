@@ -144,7 +144,9 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         },
 
         loadRecordingMetaSuccess: () => {
-            actions.loadSnapshotSources()
+            if (props.sessionRecordingId) {
+                actions.loadSnapshotSources()
+            }
             actions.reportUsageIfFullyLoaded()
         },
 
