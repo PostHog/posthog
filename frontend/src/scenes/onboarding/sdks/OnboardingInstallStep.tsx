@@ -165,13 +165,16 @@ export function OnboardingInstallStep({
                                     setInstructionsModalOpen(true)
                                 }}
                             >
-                                {typeof sdk.image === 'string' ? (
-                                    <img src={sdk.image} className="w-8 h-8 mb-2" alt={`${sdk.name} logo`} />
-                                ) : typeof sdk.image === 'object' && 'default' in sdk.image ? (
-                                    <img src={sdk.image.default} className="w-8 h-8 mb-2" alt={`${sdk.name} logo`} />
-                                ) : (
-                                    sdk.image
-                                )}
+                                <div className="w-8 h-8 mb-2">
+                                    {typeof sdk.image === 'string' ? (
+                                        <img src={sdk.image} className="w-8 h-8" alt={`${sdk.name} logo`} />
+                                    ) : typeof sdk.image === 'object' && 'default' in sdk.image ? (
+                                        <img src={sdk.image.default} className="w-8 h-8" alt={`${sdk.name} logo`} />
+                                    ) : (
+                                        sdk.image
+                                    )}
+                                </div>
+
                                 <strong>{sdk.name}</strong>
                             </LemonCard>
                         ))}
