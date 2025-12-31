@@ -12,22 +12,20 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import prepare_and_print_ast
 
+from posthog.clickhouse.client.connection.credentials import ClickHouseUser
+from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.clickhouse.workload import Workload
 from posthog.hogql_queries.hogql_cohort_query import HogQLRealtimeCohortQuery
 from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_COHORT_MEMBERSHIP_CHANGED
 from posthog.models.cohort.cohort import Cohort, CohortType
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 
 LOGGER = get_logger(__name__)
-
-# HTTP send timeout for ClickHouse client during cohort calculation to prevent connection timeouts
-# on long-running queries that stream results
-CLICKHOUSE_HTTP_SEND_TIMEOUT_SECONDS = 300
 
 
 def get_cohort_calculation_success_metric():
@@ -115,8 +113,6 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
 
         max_retries = 3
         retry_delay_seconds = 5
-        base_timeout_seconds = 60
-        backoff_factor = 3
 
         @database_sync_to_async
         def build_query(cohort_obj):
@@ -136,14 +132,11 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                 logger.info(f"Processed {idx}/{len(cohorts)} cohorts so far")
             for retry_attempt in range(1, max_retries + 1):
                 try:
-                    # Exponential backoff: 60s, 180s (3min), 540s (9min)
-                    cohort_max_execution_time = base_timeout_seconds * (backoff_factor ** (retry_attempt - 1))
                     current_members_sql, query_params = await build_query(cohort)
                     query_params = {
                         **query_params,
                         "team_id": cohort.team_id,
                         "cohort_id": cohort.id,
-                        "max_execution_time": cohort_max_execution_time,
                     }
 
                     final_query = f"""
@@ -169,7 +162,7 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                             HAVING status = 'entered'
                         ) previous_members ON current_matches.id = previous_members.person_id
                         WHERE status IN ('entered', 'left')
-                        SETTINGS join_use_nulls = 1, max_execution_time = %(max_execution_time)s
+                        SETTINGS join_use_nulls = 1
                         FORMAT JSONEachRow
                     """
 
@@ -181,51 +174,49 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                     ):
                         status_counts = {"entered": 0, "left": 0}
                         pending_kafka_messages = []
-                        logger.info(f"Starting to stream query results for cohort {cohort.id}", cohort_id=cohort.id)
-                        async with get_client(
-                            team_id=cohort.team_id, http_send_timeout=CLICKHOUSE_HTTP_SEND_TIMEOUT_SECONDS
-                        ) as client:
-                            async for row in client.stream_query_as_jsonl(final_query, query_parameters=query_params):
-                                try:
-                                    status = row["status"]
-                                    status_counts[status] += 1
-                                    payload = {
-                                        "team_id": cohort.team_id,
-                                        "cohort_id": cohort.id,
-                                        "person_id": str(row["person_id"]),
-                                        # DateTime64(6) format required for Kafka JSONEachRow parsing into ClickHouse
-                                        "last_updated": dt.datetime.now(dt.UTC).strftime("%Y-%m-%d %H:%M:%S.%f"),
-                                        "status": status,
-                                    }
-                                    # Produce to Kafka without blocking - collect send results for later flushing
-                                    # Wrap in try-catch to prevent Kafka errors from interrupting stream consumption
-                                    try:
-                                        send_result = kafka_producer.produce(
-                                            topic=KAFKA_COHORT_MEMBERSHIP_CHANGED,
-                                            key=payload["person_id"],
-                                            data=payload,
-                                        )
-                                        pending_kafka_messages.append(send_result)
-                                    except Exception as e:
-                                        logger.exception(
-                                            f"Failed to produce Kafka message for person {payload['person_id']} in cohort {cohort.id}: {e}",
-                                            cohort_id=cohort.id,
-                                            person_id=payload["person_id"],
-                                            error=str(e),
-                                        )
-                                        # Continue processing stream even if Kafka produce fails
-                                except KeyError as e:
-                                    logger.exception(
-                                        f"Row missing expected key in cohort {cohort.id}: {e}",
-                                        cohort_id=cohort.id,
-                                        row=row,
-                                        missing_key=str(e),
-                                    )
-                                    raise
+                        logger.info(f"Executing query for cohort {cohort.id}", cohort_id=cohort.id)
 
-                        # Flush all pending Kafka messages after consuming the stream
+                        # Execute query using sync_execute
+                        results = sync_execute(
+                            final_query,
+                            query_params,
+                            workload=Workload.OFFLINE,
+                            team_id=cohort.team_id,
+                            ch_user=ClickHouseUser.COHORTS,
+                        )
+
+                        # Process results
+                        for row in results:
+                            person_id, status = row
+                            status_counts[status] += 1
+                            payload = {
+                                "team_id": cohort.team_id,
+                                "cohort_id": cohort.id,
+                                "person_id": str(person_id),
+                                # DateTime64(6) format required for Kafka JSONEachRow parsing into ClickHouse
+                                "last_updated": dt.datetime.now(dt.UTC).strftime("%Y-%m-%d %H:%M:%S.%f"),
+                                "status": status,
+                            }
+                            # Produce to Kafka without blocking - collect send results for later flushing
+                            try:
+                                send_result = kafka_producer.produce(
+                                    topic=KAFKA_COHORT_MEMBERSHIP_CHANGED,
+                                    key=payload["person_id"],
+                                    data=payload,
+                                )
+                                pending_kafka_messages.append(send_result)
+                            except Exception as e:
+                                logger.exception(
+                                    f"Failed to produce Kafka message for person {payload['person_id']} in cohort {cohort.id}: {e}",
+                                    cohort_id=cohort.id,
+                                    person_id=payload["person_id"],
+                                    error=str(e),
+                                )
+                                # Continue processing even if Kafka produce fails
+
+                        # Flush all pending Kafka messages after processing
                         logger.info(
-                            f"Stream completed for cohort {cohort.id}. Total messages to check: {len(pending_kafka_messages)}",
+                            f"Query completed for cohort {cohort.id}. Total messages to flush: {len(pending_kafka_messages)}",
                             cohort_id=cohort.id,
                             message_count=len(pending_kafka_messages),
                         )
@@ -278,14 +269,12 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                             attempts=max_retries,
                         )
                     else:
-                        next_timeout = base_timeout_seconds * (backoff_factor**retry_attempt)
                         logger.warning(
-                            f"Error calculating cohort {cohort.id} (attempt {retry_attempt}/{max_retries}): {type(e).__name__}: {str(e)}. Retrying in {retry_delay_seconds}s with {next_timeout}s timeout...",
+                            f"Error calculating cohort {cohort.id} (attempt {retry_attempt}/{max_retries}): {type(e).__name__}: {str(e)}. Retrying in {retry_delay_seconds}s...",
                             cohort_id=cohort.id,
                             error_type=type(e).__name__,
                             error_message=str(e),
                             attempt=retry_attempt,
-                            next_timeout=next_timeout,
                         )
                         await asyncio.sleep(retry_delay_seconds)
 
