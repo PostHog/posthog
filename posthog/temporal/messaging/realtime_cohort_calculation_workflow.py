@@ -227,7 +227,13 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                         for send_result in pending_kafka_messages:
                             try:
                                 send_result.get(timeout=0)  # Non-blocking check
-                            except Exception:
+                            except Exception as e:
+                                logger.warning(
+                                    f"Kafka send result failure for cohort {cohort.id}: {e}",
+                                    cohort_id=cohort.id,
+                                    error=str(e),
+                                    exception_type=type(e).__name__,
+                                )
                                 failed_count += 1
 
                         if failed_count > 0:
