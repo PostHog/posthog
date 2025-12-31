@@ -170,8 +170,9 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                     pending_kafka_messages = []
                     logger.info(f"Executing query for cohort {cohort.id}", cohort_id=cohort.id)
 
-                    # Execute query using sync_execute
-                    results = sync_execute(
+                    # Execute query using sync_execute in a thread to avoid blocking the event loop
+                    results = await asyncio.to_thread(
+                        sync_execute,
                         final_query,
                         query_params,
                         workload=Workload.OFFLINE,
@@ -237,7 +238,6 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                             failed_count=failed_count,
                             total_count=len(pending_kafka_messages),
                         )
-                        get_cohort_calculation_failure_metric().add(1)
                         raise Exception(f"Failed to send {failed_count}/{len(pending_kafka_messages)} Kafka messages")
 
                     if status_counts["entered"] > 0:
