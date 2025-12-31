@@ -1276,11 +1276,7 @@ class TestExternalDataSource(APIBaseTest):
         assert source.job_inputs["password"] == "new_password"
 
     def test_update_source_without_ssh_tunnel_does_not_crash(self):
-        """Regression test: updating a source that has no ssh_tunnel should not crash.
-
-        The bug was that setdefault("ssh_tunnel", {}) returns None if the key exists
-        with value None, then calling .setdefault("auth", {}) on None crashes.
-        """
+        """Regression test: updating a source that has no ssh_tunnel should not crash."""
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
             source_id=str(uuid.uuid4()),
