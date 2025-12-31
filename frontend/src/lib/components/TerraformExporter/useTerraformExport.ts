@@ -1,7 +1,7 @@
 import posthog from 'posthog-js'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { buildAlertFilterConfig } from 'lib/constants'
+import { buildAlertFilterConfig } from 'lib/utils'
 
 import { AlertType } from '~/lib/components/Alerts/types'
 import { DashboardType, HogFunctionType, InsightModel, QueryBasedInsightModel } from '~/types'
