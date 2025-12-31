@@ -14,6 +14,26 @@ import {
     HogFunctionType,
 } from '../../types'
 
+export type HogWatcherServiceHub = Pick<
+    Hub,
+    | 'teamManager'
+    | 'CDP_WATCHER_HOG_COST_TIMING_LOWER_MS'
+    | 'CDP_WATCHER_HOG_COST_TIMING_UPPER_MS'
+    | 'CDP_WATCHER_HOG_COST_TIMING'
+    | 'CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS'
+    | 'CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS'
+    | 'CDP_WATCHER_ASYNC_COST_TIMING'
+    | 'CDP_WATCHER_SEND_EVENTS'
+    | 'CDP_WATCHER_BUCKET_SIZE'
+    | 'CDP_WATCHER_REFILL_RATE'
+    | 'CDP_WATCHER_TTL'
+    | 'CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS'
+    | 'CDP_WATCHER_THRESHOLD_DEGRADED'
+    | 'CDP_WATCHER_STATE_LOCK_TTL'
+    | 'CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS'
+    | 'CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS'
+>
+
 export const BASE_REDIS_KEY = process.env.NODE_ENV == 'test' ? '@posthog-test/hog-watcher-2' : '@posthog/hog-watcher-2'
 const REDIS_KEY_TOKENS = `${BASE_REDIS_KEY}/tokens`
 const REDIS_KEY_STATE = `${BASE_REDIS_KEY}/state`
@@ -78,7 +98,7 @@ export class HogWatcherService {
     } | null = null
 
     constructor(
-        private hub: Hub,
+        private hub: HogWatcherServiceHub,
         private redis: RedisV2
     ) {
         this.costsMapping = {

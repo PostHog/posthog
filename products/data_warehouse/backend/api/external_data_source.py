@@ -295,20 +295,24 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
 
         # Preserve sensitive credentials not explicitly provided (API response omits them for security)
         for key in password_fields:
-            if existing_job_inputs.get(key) and (key not in incoming_job_inputs or incoming_job_inputs[key] is None):
+            if existing_job_inputs.get(key) and not incoming_job_inputs.get(key):
                 new_job_inputs[key] = existing_job_inputs[key]
 
         # SSH tunnel auth is a special config not exposed in source fields - preserve its credentials too
-        if "ssh_tunnel" in existing_job_inputs and "ssh_tunnel" in incoming_job_inputs:
-            existing_auth = (existing_job_inputs.get("ssh_tunnel") or {}).get("auth") or {}
-            incoming_ssh_tunnel = incoming_job_inputs.get("ssh_tunnel") or {}
-            incoming_auth = incoming_ssh_tunnel.get("auth") or incoming_ssh_tunnel.get("auth_type") or {}
+        existing_ssh_tunnel = existing_job_inputs.get("ssh_tunnel")
+        incoming_ssh_tunnel = incoming_job_inputs.get("ssh_tunnel")
+        if existing_ssh_tunnel and incoming_ssh_tunnel is not None:
+            existing_auth = (existing_ssh_tunnel or {}).get("auth") or {}
+            incoming_auth = (
+                (incoming_ssh_tunnel or {}).get("auth") or (incoming_ssh_tunnel or {}).get("auth_type") or {}
+            )
 
-            new_ssh_tunnel = new_job_inputs.setdefault("ssh_tunnel", {})
+            new_ssh_tunnel = new_job_inputs.get("ssh_tunnel") or {}
+            new_job_inputs["ssh_tunnel"] = new_ssh_tunnel
             new_auth = new_ssh_tunnel.setdefault("auth", {})
 
             for key in ("password", "passphrase", "private_key"):
-                if existing_auth.get(key) and (key not in incoming_auth or incoming_auth[key] is None):
+                if existing_auth.get(key) and not incoming_auth.get(key):
                     new_auth[key] = existing_auth[key]
 
         is_valid, errors = source.validate_config(new_job_inputs)

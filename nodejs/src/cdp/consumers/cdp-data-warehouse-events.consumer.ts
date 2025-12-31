@@ -4,13 +4,13 @@ import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 
 import { convertDataWarehouseEventToHogFunctionInvocationGlobals } from '../../cdp/utils'
 import { KafkaConsumer } from '../../kafka/consumer'
-import { HealthCheckResult, Hub } from '../../types'
+import { HealthCheckResult, Hub, PluginsServerConfig } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { CdpDataWarehouseEventSchema } from '../schema'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
-import { HogRateLimiterService } from '../services/monitoring/hog-rate-limiter.service'
+import { HogRateLimiterService, HogRateLimiterServiceHub } from '../services/monitoring/hog-rate-limiter.service'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import {
     CyclotronJobInvocation,
@@ -20,11 +20,20 @@ import {
     HogFunctionTypeType,
     MinimalAppMetric,
 } from '../types'
-import { CdpConsumerBase } from './cdp-base.consumer'
+import { CdpConsumerBase, CdpConsumerBaseHub } from './cdp-base.consumer'
 import { counterHogFunctionStateOnEvent, counterParseError, counterRateLimited } from './metrics'
 import { shouldBlockInvocationDueToQuota } from './quota-limiting-helper'
 
-export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase {
+/**
+ * Hub type for CdpDatawarehouseEventsConsumer.
+ * Similar to CdpEventsConsumerHub but for data warehouse events.
+ */
+export type CdpDatawarehouseEventsConsumerHub = CdpConsumerBaseHub &
+    HogRateLimiterServiceHub &
+    PluginsServerConfig & // For CyclotronJobQueue (to be narrowed later)
+    Pick<Hub, 'teamManager' | 'SITE_URL'>
+
+export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase<CdpDatawarehouseEventsConsumerHub> {
     protected name = 'CdpDatawarehouseEventsConsumer'
     protected hogTypes: HogFunctionTypeType[] = ['destination']
     private cyclotronJobQueue: CyclotronJobQueue
@@ -33,7 +42,7 @@ export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase {
     private hogRateLimiter: HogRateLimiterService
 
     constructor(
-        hub: Hub,
+        hub: CdpDatawarehouseEventsConsumerHub,
         topic: string = 'cdp_data_warehouse_source_table',
         groupId: string = 'cdp-data-warehouse-events-consumer'
     ) {
