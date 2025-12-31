@@ -11,7 +11,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0954_experiment_scheduling_config"),
+        ("posthog", "0955_alter_organization_is_ai_data_processing_approved"),
     ]
 
     operations = [
