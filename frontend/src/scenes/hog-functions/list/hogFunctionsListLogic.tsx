@@ -109,7 +109,6 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                             await api.hogFunctions.list({
                                 filter_groups: [buildAlertFilterConfig(props.alertId)],
                                 types,
-                                full: true,
                             })
                         ).results
                     }
