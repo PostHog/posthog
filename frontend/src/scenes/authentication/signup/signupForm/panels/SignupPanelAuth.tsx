@@ -11,7 +11,7 @@ import { IconKey } from 'lib/lemon-ui/icons'
 import { signupLogic } from '../signupLogic'
 
 export function SignupPanelAuth(): JSX.Element | null {
-    const { setPanel, registerPasskey } = useActions(signupLogic)
+    const { registerPasskey } = useActions(signupLogic)
     const {
         isSignupPanelAuthSubmitting,
         validatedPassword,
@@ -27,9 +27,6 @@ export function SignupPanelAuth(): JSX.Element | null {
             <div className="text-center mb-4">
                 <p className="text-secondary mb-1">Signing up as</p>
                 <p className="font-semibold text-lg">{signupPanelEmail.email}</p>
-                <LemonButton type="tertiary" size="small" onClick={() => setPanel(0)} className="mt-1">
-                    Change email
-                </LemonButton>
             </div>
 
             {passkeyError && (
