@@ -12,15 +12,7 @@ import { COOKIELESS_MODE_FLAG_PROPERTY, COOKIELESS_SENTINEL_VALUE } from '~/inge
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
-import {
-    CookielessServerHashMode,
-    EventHeaders,
-    Hub,
-    IncomingEvent,
-    IncomingEventWithTeam,
-    PipelineEvent,
-    Team,
-} from '../../src/types'
+import { CookielessServerHashMode, Hub, PipelineEvent, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { HogFunctionType } from '../cdp/types'
 import { PostgresUse } from '../utils/db/postgres'
@@ -101,43 +93,7 @@ const createKafkaMessages: (events: PipelineEvent[]) => Message[] = (events) => 
     return events.map(createKafkaMessage)
 }
 
-type PreprocessedEvent = {
-    message: Message
-    headers: EventHeaders
-    event: IncomingEvent
-    eventWithTeam: IncomingEventWithTeam
-}
-
-const createIncomingEventsWithTeam = (events: PipelineEvent[], team: Team): PreprocessedEvent[] => {
-    return events.map((e): PreprocessedEvent => {
-        const message = createKafkaMessage(e)
-        const headers = {
-            token: e.token || '',
-            distinct_id: e.distinct_id || '',
-            force_disable_person_processing: false,
-            historical_migration: false,
-        }
-        return {
-            message,
-            headers,
-            event: { event: e },
-            eventWithTeam: {
-                event: {
-                    ...e,
-                    team_id: team.id,
-                },
-                team: team,
-                message,
-                headers,
-            },
-        }
-    })
-}
-
-describe.each([
-    ['legacy pipeline', false],
-    ['joined pipeline', true],
-] as const)('IngestionConsumer (%s)', (_name, useJoinedPipeline) => {
+describe('IngestionConsumer', () => {
     let ingester: IngestionConsumer
     let hub: Hub
     let team: Team
@@ -202,7 +158,6 @@ describe.each([
         offsetIncrementer = 0
         await resetTestDatabase()
         hub = await createHub()
-        hub.INGESTION_JOINED_PIPELINE = useJoinedPipeline
 
         // hub.kafkaProducer = mockProducer
         team = await getFirstTeam(hub)
@@ -695,110 +650,6 @@ describe.each([
     describe('event batching', () => {
         beforeEach(async () => {
             ingester = await createIngestionConsumer(hub)
-        })
-
-        it('should batch events based on the distinct_id', () => {
-            const messages = [
-                ...createIncomingEventsWithTeam(
-                    [
-                        createEvent({ distinct_id: 'distinct-id-1' }),
-                        createEvent({ distinct_id: 'distinct-id-1' }),
-                        createEvent({ distinct_id: 'distinct-id-2' }),
-                        createEvent({ distinct_id: 'distinct-id-1' }),
-                    ],
-                    team
-                ),
-                ...createIncomingEventsWithTeam(
-                    [createEvent({ token: team2.api_token, distinct_id: 'distinct-id-1' })],
-                    team2
-                ),
-            ]
-
-            const batches = ingester['groupEventsByDistinctId'](messages)
-
-            expect(Object.keys(batches)).toHaveLength(3)
-
-            // Rewrite the test to check for the overall object with the correct length
-            expect(batches).toEqual({
-                [`${team.api_token}:distinct-id-1`]: {
-                    distinctId: 'distinct-id-1',
-                    token: team.api_token,
-                    events: [expect.any(Object), expect.any(Object), expect.any(Object)],
-                },
-                [`${team.api_token}:distinct-id-2`]: {
-                    distinctId: 'distinct-id-2',
-                    token: team.api_token,
-                    events: [expect.any(Object)],
-                },
-                [`${team2.api_token}:distinct-id-1`]: {
-                    distinctId: 'distinct-id-1',
-                    token: team2.api_token,
-                    events: [expect.any(Object)],
-                },
-            })
-        })
-
-        it('should preserve headers when grouping events by distinct_id', () => {
-            const events = [
-                createEvent({ distinct_id: 'distinct-id-1' }),
-                createEvent({ distinct_id: 'distinct-id-2' }),
-            ]
-
-            // Create messages with custom headers
-            const messages: PreprocessedEvent[] = events.map((event, index): PreprocessedEvent => {
-                const message = createKafkaMessage(event)
-                message.headers = [
-                    { token: Buffer.from(team.api_token) },
-                    { distinct_id: Buffer.from(event.distinct_id || '') },
-                    { timestamp: Buffer.from((Date.now() + index * 1000).toString()) },
-                ]
-
-                const headers = {
-                    token: team.api_token,
-                    distinct_id: event.distinct_id || '',
-                    timestamp: (Date.now() + index * 1000).toString(),
-                    force_disable_person_processing: false,
-                    historical_migration: false,
-                }
-
-                return {
-                    message,
-                    headers,
-                    event: { event },
-                    eventWithTeam: {
-                        event: { ...event, team_id: team.id },
-                        team: team,
-                        message: message,
-                        headers,
-                    },
-                }
-            })
-
-            const batches = ingester['groupEventsByDistinctId'](messages)
-
-            expect(Object.keys(batches)).toHaveLength(2)
-
-            // Check that headers are preserved in the grouped events
-            expect(batches[`${team.api_token}:distinct-id-1`].events[0].headers).toEqual({
-                token: team.api_token,
-                distinct_id: 'distinct-id-1',
-                timestamp: expect.any(String),
-                force_disable_person_processing: false,
-                historical_migration: false,
-            })
-
-            expect(batches[`${team.api_token}:distinct-id-2`].events[0].headers).toEqual({
-                token: team.api_token,
-                distinct_id: 'distinct-id-2',
-                timestamp: expect.any(String),
-                force_disable_person_processing: false,
-                historical_migration: false,
-            })
-
-            // Verify the timestamp values are different
-            const timestamp1 = parseInt(batches[`${team.api_token}:distinct-id-1`].events[0].headers.timestamp!)
-            const timestamp2 = parseInt(batches[`${team.api_token}:distinct-id-2`].events[0].headers.timestamp!)
-            expect(timestamp2 - timestamp1).toBe(1000)
         })
 
         it('should validate historical_migration flag based on timestamp age', async () => {

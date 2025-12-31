@@ -39,3 +39,5 @@ export {
     JoinedIngestionPipelineContext,
     JoinedIngestionPipelineInput,
 } from './joined-ingestion-pipeline'
+
+export { Config, Context, Input, pipeline } from './registry'

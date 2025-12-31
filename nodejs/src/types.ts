@@ -218,8 +218,14 @@ export type IngestionConsumerConfig = {
     INGESTION_OVERFLOW_ENABLED: boolean // whether or not overflow rerouting is enabled
     INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID: string // comma-separated list of token or token:distinct_id to force overflow
     INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: boolean // whether Kafka message keys should be preserved when rerouted to overflow
-    /** If true, use the joined ingestion pipeline instead of the legacy two-stage pipeline */
-    INGESTION_JOINED_PIPELINE: boolean
+
+    // Pipeline selection config
+    /** Pipeline name to use (e.g., 'general', 'replay', 'logs'). Defaults to 'general'. */
+    INGESTION_PIPELINE_NAME: string | null
+    /** Lane within the pipeline (e.g., 'default', 'overflow', 'historical'). Uses pipeline's default if not specified. */
+    INGESTION_PIPELINE_LANE: string | null
+    /** Implementation name within the lane. Uses lane's default if not specified. */
+    INGESTION_PIPELINE_IMPLEMENTATION: string | null
 
     // Person batch writing config
     PERSON_BATCH_WRITING_DB_WRITE_MODE: PersonBatchWritingDbWriteMode
