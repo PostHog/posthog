@@ -97,16 +97,16 @@ def cleanup_ch_test_data(team_id: int, person_uuids: list[str], distinct_ids: li
     null_uuid = "00000000-0000-0000-0000-000000000000"
 
     if person_uuids:
-        values = [(person_uuid, team_id, "{}", 1, 0, 1000, now, 0) for person_uuid in person_uuids]
+        person_values = [(person_uuid, team_id, "{}", 1, 0, 1000, now, 0) for person_uuid in person_uuids]
         sync_execute(
             "INSERT INTO person (id, team_id, properties, is_deleted, is_identified, version, _timestamp, _offset) VALUES",
-            values,
+            person_values,
         )
     if distinct_ids:
-        values = [(team_id, distinct_id, null_uuid, 1, 1000, now, 0, 0) for distinct_id in distinct_ids]
+        did_values = [(team_id, distinct_id, null_uuid, 1, 1000, now, 0, 0) for distinct_id in distinct_ids]
         sync_execute(
             "INSERT INTO person_distinct_id2 (team_id, distinct_id, person_id, is_deleted, version, _timestamp, _offset, _partition) VALUES",
-            values,
+            did_values,
         )
 
 

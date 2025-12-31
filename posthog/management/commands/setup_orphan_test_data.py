@@ -96,7 +96,7 @@ class Command(BaseCommand):
         self.stdout.write(f"  Truly orphaned: {truly_orphaned_count}")
         self.stdout.write(f"  CH-only orphans: {ch_only_count}")
 
-        created_persons = []
+        created_persons: list[tuple[str, str, str | None]] = []
 
         # 1. Fixable orphans: Person in CH + PG, DID only in PG
         self.stdout.write(self.style.WARNING("\n[Fixable Orphans]"))
