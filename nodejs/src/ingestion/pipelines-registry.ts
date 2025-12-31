@@ -1,4 +1,4 @@
-import { Config, Context, Input, pipeline as generalPipeline } from './analytics'
+import { Config, Context, Input, pipeline as generalPipeline } from './general'
 import { PipelineRegistry } from './pipelines/registry-types'
 
 // Re-export pipeline types for use by consumers
