@@ -106,7 +106,7 @@ def get_hog_function_templates() -> requests.Response:
     return requests.get(CDP_API_URL + f"/api/hog_function_templates")
 
 
-def create_batch_hogflow_job_invocation(team_id: int, hog_flow_id: UUIDT, batch_job_id: UUIDT) -> requests.Response:
+def create_batch_hog_flow_job_invocation(team_id: int, hog_flow_id: UUIDT, batch_job_id: UUIDT) -> requests.Response:
     return requests.post(
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/batch_invocations/{batch_job_id}",
     )
