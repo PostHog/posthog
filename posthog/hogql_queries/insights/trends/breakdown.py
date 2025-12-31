@@ -17,6 +17,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_expr
+from posthog.hogql.property import apply_path_cleaning
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
@@ -120,6 +121,7 @@ class Breakdown:
                         value=breakdown.property,
                         breakdown_type=breakdown.type,
                         normalize_url=breakdown.normalize_url,
+                        path_cleaning=breakdown_filter.breakdown_path_cleaning,
                         histogram_bin_count=breakdown.histogram_bin_count,
                         group_type_index=breakdown.group_type_index,
                     )
@@ -146,6 +148,7 @@ class Breakdown:
                 value=breakdown_filter.breakdown,
                 breakdown_type=breakdown_filter.breakdown_type,
                 normalize_url=breakdown_filter.breakdown_normalize_url,
+                path_cleaning=breakdown_filter.breakdown_path_cleaning,
                 histogram_bin_count=breakdown_filter.breakdown_histogram_bin_count,
                 group_type_index=breakdown_filter.breakdown_group_type_index,
             )
@@ -225,6 +228,7 @@ class Breakdown:
                         breakdown_value=str(breakdown.property),
                         breakdown_type=breakdown.type,
                         normalize_url=breakdown.normalize_url,
+                        path_cleaning=self._breakdown_filter.breakdown_path_cleaning,
                         lookup_value=str(
                             lookup_value
                         ),  # numeric values are only in cohorts, so it's a safe convertion here
@@ -245,6 +249,7 @@ class Breakdown:
                     ),  # all other value types were excluded already
                     breakdown_type=self._breakdown_filter.breakdown_type,
                     normalize_url=self._breakdown_filter.breakdown_normalize_url,
+                    path_cleaning=self._breakdown_filter.breakdown_path_cleaning,
                     lookup_value=str(
                         lookup_values
                     ),  # numeric values are only in cohorts, so it's a safe convertion here
@@ -263,6 +268,7 @@ class Breakdown:
         breakdown_type: BreakdownType | MultipleBreakdownType | None,
         lookup_value: str,
         normalize_url: bool | None = None,
+        path_cleaning: bool | None = None,
         histogram_bin_count: int | None = None,
         group_type_index: int | None = None,
     ):
@@ -323,12 +329,16 @@ class Breakdown:
                 raise ValueError("Breakdown value must be a valid JSON array if the the bin count is selected.")
 
         return ast.CompareOperation(
-            left=self._get_breakdown_values_transform(left, normalize_url=normalize_url),
+            left=self._get_breakdown_values_transform(left, normalize_url=normalize_url, path_cleaning=path_cleaning),
             op=ast.CompareOperationOp.Eq,
             right=ast.Constant(value=lookup_value),
         )
 
-    def _get_breakdown_values_transform(self, node: ast.Expr, normalize_url: bool | None = None) -> ast.Call:
+    def _get_breakdown_values_transform(
+        self, node: ast.Expr, normalize_url: bool | None = None, path_cleaning: bool | None = None
+    ) -> ast.Call:
+        if path_cleaning:
+            node = apply_path_cleaning(node, self.team)
         if normalize_url:
             node = self._get_normalized_url_transform(node)
         return self.get_replace_null_values_transform(node)
@@ -358,6 +368,7 @@ class Breakdown:
         value: str | int,
         breakdown_type: BreakdownType | MultipleBreakdownType | None,
         normalize_url: bool | None = None,
+        path_cleaning: bool | None = None,
         histogram_bin_count: int | None = None,
         group_type_index: int | None = None,
     ):
@@ -386,7 +397,9 @@ class Breakdown:
 
         return ast.Alias(
             alias=alias,
-            expr=self._get_breakdown_values_transform(ast.Field(chain=properties_chain), normalize_url=normalize_url),
+            expr=self._get_breakdown_values_transform(
+                ast.Field(chain=properties_chain), normalize_url=normalize_url, path_cleaning=path_cleaning
+            ),
         )
 
     @staticmethod

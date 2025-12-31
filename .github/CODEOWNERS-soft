@@ -97,12 +97,12 @@ posthog/templates/product_tour.py @PostHog/team-surveys
 posthog/tests/test_product_tour.py @PostHog/team-surveys
 posthog/tests/test_product_tour.py @PostHog/team-surveys
 
-# Plugin Server - ownership is split between ingestion and workflows teams
-plugin-server/src/ @PostHog/team-ingestion @PostHog/team-workflows
-plugin-server/tests/ @PostHog/team-ingestion
-plugin-server/src/ingestion/ @PostHog/team-ingestion
-plugin-server/src/cdp/ @PostHog/team-workflows
-plugin-server/src/ingestion/ai-costs/ @PostHog/team-llm-analytics
+# Nodejs Services - ownership is split between ingestion and workflows teams
+nodejs/src/ @PostHog/team-ingestion @PostHog/team-workflows
+nodejs/tests/ @PostHog/team-ingestion
+nodejs/src/ingestion/ @PostHog/team-ingestion
+nodejs/src/cdp/ @PostHog/team-workflows
+nodejs/src/ingestion/ai-costs/ @PostHog/team-llm-analytics
 
 # Web Analytics - owned by @PostHog/team-web-analytics
 products/web_analytics/** @PostHog/team-web-analytics
@@ -110,7 +110,7 @@ frontend/src/scenes/web-analytics/** @PostHog/team-web-analytics
 posthog/hogql_queries/web_analytics/** @PostHog/team-web-analytics
 frontend/src/toolbar/web-vitals/** @PostHog/team-web-analytics
 rust/common/cookieless/** @PostHog/team-web-analytics
-plugin-server/src/ingestion/cookieless/** @PostHog/team-web-analytics
+nodejs/src/ingestion/cookieless/** @PostHog/team-web-analytics
 
 # Analytics Platform - owned by @PostHog/team-analytics-platform
 posthog/dags/locations/analytics*platform.py @PostHog/team-analytics-platform

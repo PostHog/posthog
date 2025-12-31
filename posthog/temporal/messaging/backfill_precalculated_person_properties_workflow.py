@@ -203,6 +203,7 @@ async def backfill_precalculated_person_properties_activity(
                     for distinct_id in distinct_ids:
                         event = {
                             "distinct_id": distinct_id,
+                            "person_id": person_id,
                             "team_id": inputs.team_id,
                             "condition": filter_info.condition_hash,
                             "matches": matches,

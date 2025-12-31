@@ -24,7 +24,7 @@ jobs:
               with:
                   filters: |
                       mcp:
-                        - 'products/mcp/**'
+                        - 'services/mcp/**'
                         - '.github/workflows/mcp-ci.yml'
                         - '.github/workflows/mcp-publish.yml'
 
@@ -47,7 +47,7 @@ jobs:
               id: check-package-version
               uses: PostHog/check-package-version@v2
               with:
-                  path: products/mcp/typescript/
+                  path: services/mcp/typescript/
 
     release:
         name: Publish release if new version
@@ -80,7 +80,7 @@ jobs:
               run: pnpm install --frozen-lockfile
 
             - name: Build the package
-              run: cd products/mcp/typescript && pnpm build
+              run: cd services/mcp/typescript && pnpm build
 
             - name: Publish the package in the npm registry
-              run: cd products/mcp/typescript && pnpm publish --access public
+              run: cd services/mcp/typescript && pnpm publish --access public

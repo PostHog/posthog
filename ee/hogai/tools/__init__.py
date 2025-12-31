@@ -6,10 +6,10 @@ from .execute_sql.tool import ExecuteSQLTool
 from .read_data import ReadDataTool
 from .read_taxonomy import ReadTaxonomyTool
 from .search import SearchTool
-from .session_summarization import SessionSummarizationTool
 from .switch_mode import SwitchModeTool
 from .task import TaskTool
 from .todo_write import TodoWriteTool
+from .upsert_dashboard import UpsertDashboardTool
 
 __all__ = [
     "CreateAndQueryInsightTool",
@@ -18,10 +18,10 @@ __all__ = [
     "ReadDataTool",
     "ReadTaxonomyTool",
     "SearchTool",
-    "SessionSummarizationTool",
     "TaskTool",
     "TodoWriteTool",
     "ExecuteSQLTool",
     "SwitchModeTool",
     "CreateInsightTool",
+    "UpsertDashboardTool",
 ]

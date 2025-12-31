@@ -224,10 +224,10 @@ jobs:
         steps:
             - name: Get app token
               id: app-token
-              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3
+              uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # v2.2.1
               with:
-                  app_id: ${{ secrets.GH_APP_POSTHOG_RELEASER_APP_ID }}
-                  private_key: ${{ secrets.GH_APP_POSTHOG_RELEASER_PRIVATE_KEY }}
+                  app-id: ${{ secrets.GH_APP_POSTHOG_RELEASER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_RELEASER_PRIVATE_KEY }}
 
             - uses: actions/checkout@v4
               with:

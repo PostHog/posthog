@@ -15,7 +15,7 @@ The app itself is made up of 4 main components that run simultaneously:
 
 - Celery worker (handles execution of background tasks)
 - Django server
-- Node.js plugin server (handles event ingestion and apps/plugins)
+- Node.js services (handles event ingestion and apps/plugins)
 - React frontend built with Node.js
 
 We also have a growing collection of Rust services that handle performance-critical operations:
@@ -172,13 +172,13 @@ This happens on first startup. Wait for the frontend to finish compiling and try
 Kafka is an x86 container and may segfault randomly on ARM machines. Simply restart it when that happens.
 
 **Apple Silicon OpenSSL issues**
-On Apple Silicon Macs, you may get build errors related to OpenSSL. For plugin-server: set `CPPFLAGS=-I/opt/homebrew/opt/openssl/include` and `LDFLAGS=-L/opt/homebrew/opt/openssl/lib` before installing. For Python packages, you may need custom OpenSSL headers – consult the [xmlsec issue](https://github.com/xmlsec/python-xmlsec/issues/254) for details.
+On Apple Silicon Macs, you may get build errors related to OpenSSL. For nodejs: set `CPPFLAGS=-I/opt/homebrew/opt/openssl/include` and `LDFLAGS=-L/opt/homebrew/opt/openssl/lib` before installing. For Python packages, you may need custom OpenSSL headers – consult the [xmlsec issue](https://github.com/xmlsec/python-xmlsec/issues/254) for details.
 
-**Plugin server rebuild**
-If the plugin server won't start, try `cd plugin-server && pnpm rebuild && pnpm i`.
+**Nodejs services rebuild**
+If the nodejs won't start, try `cd nodejs && pnpm rebuild && pnpm i`.
 
 **Python setuptools error**
-If you see `import gyp  # noqa: E402` during plugin-server install, run `brew install python-setuptools`.
+If you see `import gyp  # noqa: E402` during nodejs install, run `brew install python-setuptools`.
 
 **OpenSSL certificate verification error**
 If you get `Configuration property "enable.ssl.certificate.verification" not supported in this build: OpenSSL not available at build time` when running `./bin/start`, set the right OpenSSL environment variables as described in [this issue](https://github.com/xmlsec/python-xmlsec/issues/261#issuecomment-1630889826) and try again.
@@ -323,7 +323,7 @@ With PyCharm's built in support for Django, it's fairly easy to setup debugging 
    - "PostHog" and click on debug
    - "Celery" and click on debug (optional)
    - "Frontend" and click on run
-   - "Plugin server" and click on run
+   - "Nodejs services" and click on run
 
 ## Extra: Accessing Postgres
 
@@ -360,6 +360,20 @@ With the default `docker-compose.dev.yml` setup, you can view emails in your bro
 This allows you to easily confirm that emails are being sent and formatted correctly without actually sending anything externally.
 
 Emails sent via SMTP are stored in HTML files in `posthog/templates/*/*.html`. They use Django Template Language (DTL).
+
+## Extra: Integrating with slack
+
+You can connect to a real slack workspace in your local development setup by adding the required slack environment variables to your `.env` file.
+
+If you're a PostHog employee, you can find the environment variables in 1Password under `Slack config local dev`.
+
+```.env
+SLACK_APP_CLIENT_ID=
+SLACK_APP_CLIENT_SECRET=
+SLACK_APP_SIGNING_SECRET=
+```
+
+When creating the slack integration it will redirect you to `https://localhost...` to hit the webhook, and you may need to manually adjust that to `http://localhost...` if you don't have local https set up.
 
 ## Extra: Use tracing with Jaeger
 

@@ -40,7 +40,7 @@ import vueImage from './logos/vue.svg'
 import webflowImage from './logos/webflow.svg'
 import wordpressImage from './logos/wordpress.svg'
 
-export const allSDKs: SDK[] = [
+export const ALL_SDKS: SDK[] = [
     // Web
     {
         name: 'Next.js',

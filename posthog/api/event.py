@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Any, Iterator, List, Optional, Union  # noqa: UP035
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db.models.query import Prefetch
 from django.utils import timezone
 
@@ -44,6 +45,31 @@ from posthog.utils import convert_property_value, flatten, relative_date_parse
 tracer = trace.get_tracer(__name__)
 
 QUERY_DEFAULT_EXPORT_LIMIT = 3_500
+
+# Progressive time windows in seconds: 1min, 5min, 15min, 1hr, 6hr, 24hr
+EVENT_LIST_TIME_WINDOWS = [60, 300, 900, 3600, 21600, 86400]
+EVENT_LIST_CACHE_TTL = 86400  # 24 hours
+EVENT_LIST_CACHE_KEY_PREFIX = "event_list_good_period"
+
+
+def _get_limit_size_category(limit: int) -> str:
+    if limit < 1000:
+        return "s"
+    elif limit < 10000:
+        return "m"
+    return "l"
+
+
+def _get_event_list_cache_key(
+    team_id: int,
+    has_event_filter: bool,
+    has_distinct_id: bool,
+    limit: int,
+) -> str:
+    event_flag = "1" if has_event_filter else "0"
+    distinct_id_flag = "1" if has_distinct_id else "0"
+    size_category = _get_limit_size_category(limit)
+    return f"{EVENT_LIST_CACHE_KEY_PREFIX}:{team_id}:{event_flag}:{distinct_id_flag}:{size_category}"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -219,20 +245,65 @@ class EventViewSet(
                 list(json.loads(request.GET["orderBy"])) if request.GET.get("orderBy") else ["-timestamp"]
             )
 
-            query_result, bound_to_same_day = query_events_list(
-                filter=filter,
-                team=team,
-                limit=limit,
-                offset=offset,
-                request_get_query_dict=request.GET.dict(),
-                order_by=order_by,
-                action_id=request.GET.get("action_id"),
-            )
+            # Progressive time window optimization
+            # Start with cached good_period or smallest window
+            has_event_filter = bool(request.GET.get("event"))
+            has_distinct_id = bool(request.GET.get("distinct_id"))
+            cache_key = _get_event_list_cache_key(team.pk, has_event_filter, has_distinct_id, limit)
+            cached_window = cache.get(cache_key)
 
-            # Retry the query without the 1-day optimization
-            if bound_to_same_day and len(query_result) < limit:
+            # Calculate the user's requested time range in seconds
+            request_window_seconds: Optional[int] = None
+            if request.GET.get("before") and request.GET.get("after"):
+                try:
+                    before = relative_date_parse(request.GET["before"], team.timezone_info)
+                    after = relative_date_parse(request.GET["after"], team.timezone_info)
+                    request_window_seconds = int((before - after).total_seconds())
+                except (ValueError, TypeError):
+                    pass
+
+            # Build list of windows to try, only those shorter than request window
+            windows_to_try = [
+                w for w in EVENT_LIST_TIME_WINDOWS if request_window_seconds is None or w < request_window_seconds
+            ]
+
+            # If cached window is valid, try it first
+            if cached_window and cached_window in windows_to_try:
+                windows_to_try.remove(cached_window)
+                windows_to_try.insert(0, cached_window)
+
+            query_result: list = []
+            successful_window: Optional[int] = None
+            applied_window: Optional[int] = None
+            half_limit = max(limit // 2, 1)  # At least 1 result required
+
+            for window in windows_to_try:
+                query_result, applied_window = query_events_list(
+                    filter=filter,
+                    team=team,
+                    limit=limit,
+                    offset=offset,
+                    request_get_query_dict=request.GET.dict(),
+                    order_by=order_by,
+                    action_id=request.GET.get("action_id"),
+                    time_window_seconds=window,
+                )
+
+                # If window wasn't applied (e.g., ASC order), don't try other windows
+                if applied_window is None:
+                    break
+
+                if len(query_result) >= half_limit:
+                    successful_window = window
+                    break
+
+            if successful_window:
+                # Cache the successful window for future requests
+                if successful_window != cached_window:
+                    cache.set(cache_key, successful_window, EVENT_LIST_CACHE_TTL)
+            elif applied_window is not None or not windows_to_try:
+                # Windows were applied but didn't return enough results, or no windows to try - run full query
                 query_result, _ = query_events_list(
-                    unbounded_date_from=True,  # only this changed from the query above
                     filter=filter,
                     team=team,
                     limit=limit,

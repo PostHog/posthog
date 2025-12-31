@@ -347,7 +347,7 @@ export function Toolbar(): JSX.Element | null {
         useActions(toolbarLogic)
     const { isAuthenticated, userIntent } = useValues(toolbarConfigLogic)
     const { authenticate } = useActions(toolbarConfigLogic)
-    const { selectedTourId } = useValues(productToursLogic)
+    const { selectedTourId, isPreviewing } = useValues(productToursLogic)
 
     const showExperimentsFlag = useToolbarFeatureFlag('web-experiments')
     const showExperiments = inStorybook() || inStorybookTestRunner() || showExperimentsFlag
@@ -389,7 +389,7 @@ export function Toolbar(): JSX.Element | null {
         return null
     }
 
-    const showEditingBar = selectedTourId !== null
+    const showEditingBar = selectedTourId !== null && !isPreviewing
 
     return (
         <>

@@ -22,9 +22,9 @@ class SurveyAdmin(admin.ModelAdmin):
 
     def get_exclude(self, request, obj=None):
         exclude = list(super().get_exclude(request, obj) or [])
-        # Exclude actions on change page to prevent loading all Action objects
+        # Exclude fields that would load massive querysets into form widgets
         if obj:
-            exclude.append("actions")
+            exclude.extend(["actions", "linked_insight"])
         return exclude
 
     def get_form(self, request, obj=None, change=False, **kwargs):
