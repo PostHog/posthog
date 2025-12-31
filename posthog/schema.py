@@ -248,6 +248,7 @@ class AssistantNavigateUrl(StrEnum):
     WEB_ANALYTICS = "webAnalytics"
     WEB_ANALYTICS_WEB_VITALS = "webAnalyticsWebVitals"
     WEB_ANALYTICS_HEALTH = "webAnalyticsHealth"
+    WEB_ANALYTICS_LIVE = "webAnalyticsLive"
     PERSONS = "persons"
 
 
@@ -284,7 +285,6 @@ class AssistantStringOrBooleanValuePropertyFilterOperator(StrEnum):
 
 class AssistantTool(StrEnum):
     SEARCH_SESSION_RECORDINGS = "search_session_recordings"
-    GENERATE_HOGQL_QUERY = "generate_hogql_query"
     FIX_HOGQL_QUERY = "fix_hogql_query"
     ANALYZE_USER_INTERVIEWS = "analyze_user_interviews"
     CREATE_AND_QUERY_INSIGHT = "create_and_query_insight"
@@ -298,7 +298,6 @@ class AssistantTool(StrEnum):
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
     CREATE_SURVEY = "create_survey"
     ANALYZE_SURVEY_RESPONSES = "analyze_survey_responses"
-    SESSION_SUMMARIZATION = "session_summarization"
     CREATE_DASHBOARD = "create_dashboard"
     EDIT_CURRENT_DASHBOARD = "edit_current_dashboard"
     READ_TAXONOMY = "read_taxonomy"
@@ -704,6 +703,17 @@ class ConditionalFormattingRule(BaseModel):
     id: str
     input: str
     templateId: str
+
+
+class CoreEventCategory(StrEnum):
+    ACQUISITION = "acquisition"
+    ACTIVATION = "activation"
+    MONETIZATION = "monetization"
+    EXPANSION = "expansion"
+    REFERRAL = "referral"
+    RETENTION = "retention"
+    CHURN = "churn"
+    REACTIVATION = "reactivation"
 
 
 class CountPerActorMathType(StrEnum):
@@ -2621,6 +2631,7 @@ class ProductIntentContext(StrEnum):
     ERROR_TRACKING_ISSUE_EXPLAINED = "error_tracking_issue_explained"
     LLM_ANALYTICS_VIEWED = "llm_analytics_viewed"
     LLM_ANALYTICS_DOCS_VIEWED = "llm_analytics_docs_viewed"
+    LOGS_DOCS_VIEWED = "logs_docs_viewed"
     TAXONOMIC_FILTER_EMPTY_STATE = "taxonomic filter empty state"
     CREATE_EXPERIMENT_FROM_FUNNEL_BUTTON = "create_experiment_from_funnel_button"
     WEB_ANALYTICS_INSIGHT = "web_analytics_insight"
@@ -2667,6 +2678,7 @@ class ProductIntentContext(StrEnum):
     CUSTOMER_ANALYTICS_USAGE_METRIC_CREATED = "customer_analytics_usage_metric_created"
     NAV_PANEL_ADVERTISEMENT_CLICKED = "nav_panel_advertisement_clicked"
     FEATURE_PREVIEW_ENABLED = "feature_preview_enabled"
+    WORKFLOW_CREATED = "workflow_created"
     VERCEL_INTEGRATION = "vercel_integration"
 
 
@@ -4252,6 +4264,7 @@ class BreakdownFilter(BaseModel):
     breakdown_histogram_bin_count: int | None = None
     breakdown_limit: int | None = None
     breakdown_normalize_url: bool | None = None
+    breakdown_path_cleaning: bool | None = None
     breakdown_type: BreakdownType | None = BreakdownType.EVENT
     breakdowns: list[Breakdown] | None = Field(default=None, max_length=3)
 
@@ -12106,6 +12119,7 @@ class RetentionFilter(BaseModel):
     cumulative: bool | None = None
     dashboardDisplay: RetentionDashboardDisplayType | None = None
     display: ChartDisplayType | None = Field(default=None, description="controls the display of the retention graph")
+    goalLines: list[GoalLine] | None = None
     meanRetentionCalculation: MeanRetentionCalculation | None = None
     minimumOccurrences: int | None = None
     period: RetentionPeriod | None = RetentionPeriod.DAY
@@ -13239,6 +13253,24 @@ class CachedWebVitalsQueryResponse(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class CoreEvent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    category: CoreEventCategory = Field(
+        ..., description="Category (acquisition, activation, retention, referral, revenue)"
+    )
+    description: str | None = Field(default=None, description="Optional description")
+    filter: EventsNode | ActionsNode | DataWarehouseNode = Field(
+        ...,
+        description=(
+            "Filter configuration - event, action, or data warehouse node (includes math support for sum, etc.)"
+        ),
+    )
+    id: str = Field(..., description="Unique identifier")
+    name: str = Field(..., description="Display name")
 
 
 class CustomerAnalyticsConfig(BaseModel):

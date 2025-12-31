@@ -310,8 +310,8 @@ impl RebalanceHandler for RoutingRebalanceHandler {
         self.inner.setup_revoked_partitions(partitions);
     }
 
-    async fn cleanup_assigned_partitions(&self, partitions: &TopicPartitionList) -> Result<()> {
-        self.inner.cleanup_assigned_partitions(partitions).await
+    async fn async_setup_assigned_partitions(&self, partitions: &TopicPartitionList) -> Result<()> {
+        self.inner.async_setup_assigned_partitions(partitions).await
     }
 
     async fn cleanup_revoked_partitions(&self, partitions: &TopicPartitionList) -> Result<()> {
@@ -465,6 +465,19 @@ async fn test_offset_commits_with_routing_processor() -> Result<()> {
     // The commit interval is 500ms, so wait 1 second to be safe
     tokio::time::sleep(Duration::from_secs(1)).await;
 
+    // Step 5: Verify offset_tracker's committed offsets BEFORE shutdown
+    // (shutdown clears partition state, so we must check before that)
+    for partition_num in &partitions_to_use {
+        let partition = Partition::new(test_topic.clone(), *partition_num);
+        let tracker_committed = offset_tracker.get_committed_offset(&partition);
+
+        assert_eq!(
+            tracker_committed,
+            Some(messages_per_partition as i64),
+            "Offset tracker should have committed offset {messages_per_partition} for partition {partition_num}, got {tracker_committed:?}"
+        );
+    }
+
     // Shutdown the consumer
     let _ = shutdown_tx.send(());
     let _ = consumer_handle.await;
@@ -473,7 +486,7 @@ async fn test_offset_commits_with_routing_processor() -> Result<()> {
     let workers = router.shutdown_all();
     shutdown_workers(workers).await;
 
-    // Step 5: Verify committed offsets using a new consumer
+    // Step 6: Verify committed offsets using a new consumer
     let verification_consumer: StreamConsumer = ClientConfig::new()
         .set("bootstrap.servers", KAFKA_BROKERS)
         .set("group.id", &group_id)

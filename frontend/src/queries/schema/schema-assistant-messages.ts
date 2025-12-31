@@ -356,7 +356,6 @@ export interface AssistantToolCallMessage extends BaseAssistantMessage {
 
 export type AssistantTool =
     | 'search_session_recordings'
-    | 'generate_hogql_query'
     | 'fix_hogql_query'
     | 'analyze_user_interviews'
     | 'create_and_query_insight'
@@ -370,7 +369,6 @@ export type AssistantTool =
     | 'experiment_results_summary'
     | 'create_survey'
     | 'analyze_survey_responses'
-    | 'session_summarization'
     | 'create_dashboard'
     | 'edit_current_dashboard'
     | 'read_taxonomy'
@@ -457,6 +455,7 @@ export enum AssistantNavigateUrl {
     WebAnalytics = 'webAnalytics',
     WebAnalyticsWebVitals = 'webAnalyticsWebVitals',
     WebAnalyticsHealth = 'webAnalyticsHealth',
+    WebAnalyticsLive = 'webAnalyticsLive',
     Persons = 'persons',
 }
 

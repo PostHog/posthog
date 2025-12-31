@@ -20,7 +20,7 @@
         "prepublishOnly": "pnpm build"
     },
     "author": "PostHog <hey@posthog.com>",
-    "repository": "https://github.com/PostHog/posthog-plugin-server",
+    "repository": "https://github.com/PostHog/posthog",
     "license": "MIT",
     "devDependencies": {
         "@parcel/packager-ts": "2.13.3",

@@ -126,6 +126,10 @@ class TeamManager(models.Manager):
 
         team.test_account_filters = self.set_test_account_filters(organization.id)
 
+        if team.extra_settings is None:
+            team.extra_settings = {}
+        team.extra_settings.setdefault("recorder_script", "posthog-recorder")
+
         # Create default dashboards
         dashboard = Dashboard.objects.db_manager(self.db).create(name="My App Dashboard", pinned=True, team=team)
         create_dashboard_from_template("DEFAULT_APP", dashboard)
@@ -565,6 +569,13 @@ class Team(UUIDTClassicModel):
         config, _ = TeamCustomerAnalyticsConfig.objects.get_or_create(
             team=self, defaults={"activity_event": DEFAULT_ACTIVITY_EVENT}
         )
+        return config
+
+    @cached_property
+    def core_events_config(self):
+        from posthog.models.core_event import TeamCoreEventsConfig
+
+        config, _ = TeamCoreEventsConfig.objects.get_or_create(team=self)
         return config
 
     @property
