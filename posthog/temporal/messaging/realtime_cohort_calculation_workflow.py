@@ -111,9 +111,6 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
         cohorts_count = 0
         kafka_producer = KafkaProducer()
 
-        max_retries = 3
-        retry_delay_seconds = 5
-
         @database_sync_to_async
         def build_query(cohort_obj):
             realtime_query = HogQLRealtimeCohortQuery(cohort=cohort_obj, team=cohort_obj.team)
@@ -130,153 +127,135 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
             if idx % 100 == 0 or idx == len(cohorts):
                 heartbeater.details = (f"Processing cohort {idx}/{len(cohorts)}",)
                 logger.info(f"Processed {idx}/{len(cohorts)} cohorts so far")
-            for retry_attempt in range(1, max_retries + 1):
-                try:
-                    current_members_sql, query_params = await build_query(cohort)
-                    query_params = {
-                        **query_params,
-                        "team_id": cohort.team_id,
-                        "cohort_id": cohort.id,
-                    }
+            try:
+                current_members_sql, query_params = await build_query(cohort)
+                query_params = {
+                    **query_params,
+                    "team_id": cohort.team_id,
+                    "cohort_id": cohort.id,
+                }
 
-                    final_query = f"""
-                        SELECT
-                            COALESCE(current_matches.id, previous_members.person_id) as person_id,
-                            CASE
-                                WHEN previous_members.person_id IS NULL THEN 'entered'
-                                WHEN current_matches.id IS NULL THEN 'left'
-                                ELSE 'unchanged'
-                            END as status
-                        FROM
-                        (
-                            {current_members_sql}
-                        ) AS current_matches
-                        FULL OUTER JOIN
-                        (
-                            SELECT team_id, person_id, argMax(status, last_updated) as status
-                            FROM cohort_membership
-                            WHERE
-                                team_id = %(team_id)s
-                                AND cohort_id = %(cohort_id)s
-                            GROUP BY team_id, person_id
-                            HAVING status = 'entered'
-                        ) previous_members ON current_matches.id = previous_members.person_id
-                        WHERE status IN ('entered', 'left')
-                        SETTINGS join_use_nulls = 1
-                        FORMAT JSONEachRow
-                    """
+                final_query = f"""
+                    SELECT
+                        COALESCE(current_matches.id, previous_members.person_id) as person_id,
+                        CASE
+                            WHEN previous_members.person_id IS NULL THEN 'entered'
+                            WHEN current_matches.id IS NULL THEN 'left'
+                            ELSE 'unchanged'
+                        END as status
+                    FROM
+                    (
+                        {current_members_sql}
+                    ) AS current_matches
+                    FULL OUTER JOIN
+                    (
+                        SELECT team_id, person_id, argMax(status, last_updated) as status
+                        FROM cohort_membership
+                        WHERE
+                            team_id = %(team_id)s
+                            AND cohort_id = %(cohort_id)s
+                        GROUP BY team_id, person_id
+                        HAVING status = 'entered'
+                    ) previous_members ON current_matches.id = previous_members.person_id
+                    WHERE status IN ('entered', 'left')
+                    SETTINGS join_use_nulls = 1
+                """
 
-                    with tags_context(
+                with tags_context(
+                    team_id=cohort.team_id,
+                    feature=Feature.BEHAVIORAL_COHORTS,
+                    product=Product.MESSAGING,
+                    query_type="realtime_cohort_calculation",
+                ):
+                    status_counts = {"entered": 0, "left": 0}
+                    pending_kafka_messages = []
+                    logger.info(f"Executing query for cohort {cohort.id}", cohort_id=cohort.id)
+
+                    # Execute query using sync_execute
+                    results = sync_execute(
+                        final_query,
+                        query_params,
+                        workload=Workload.OFFLINE,
                         team_id=cohort.team_id,
-                        feature=Feature.BEHAVIORAL_COHORTS,
-                        product=Product.MESSAGING,
-                        query_type="realtime_cohort_calculation",
-                    ):
-                        status_counts = {"entered": 0, "left": 0}
-                        pending_kafka_messages = []
-                        logger.info(f"Executing query for cohort {cohort.id}", cohort_id=cohort.id)
+                        ch_user=ClickHouseUser.COHORTS,
+                    )
 
-                        # Execute query using sync_execute
-                        results = sync_execute(
-                            final_query,
-                            query_params,
-                            workload=Workload.OFFLINE,
-                            team_id=cohort.team_id,
-                            ch_user=ClickHouseUser.COHORTS,
-                        )
-
-                        # Process results
-                        for row in results:
-                            person_id, status = row
-                            status_counts[status] += 1
-                            payload = {
-                                "team_id": cohort.team_id,
-                                "cohort_id": cohort.id,
-                                "person_id": str(person_id),
-                                # DateTime64(6) format required for Kafka JSONEachRow parsing into ClickHouse
-                                "last_updated": dt.datetime.now(dt.UTC).strftime("%Y-%m-%d %H:%M:%S.%f"),
-                                "status": status,
-                            }
-                            # Produce to Kafka without blocking - collect send results for later flushing
-                            try:
-                                send_result = kafka_producer.produce(
-                                    topic=KAFKA_COHORT_MEMBERSHIP_CHANGED,
-                                    key=payload["person_id"],
-                                    data=payload,
-                                )
-                                pending_kafka_messages.append(send_result)
-                            except Exception as e:
-                                logger.exception(
-                                    f"Failed to produce Kafka message for person {payload['person_id']} in cohort {cohort.id}: {e}",
-                                    cohort_id=cohort.id,
-                                    person_id=payload["person_id"],
-                                    error=str(e),
-                                )
-                                # Continue processing even if Kafka produce fails
-
-                        # Flush all pending Kafka messages after processing
-                        logger.info(
-                            f"Query completed for cohort {cohort.id}. Total messages to flush: {len(pending_kafka_messages)}",
-                            cohort_id=cohort.id,
-                            message_count=len(pending_kafka_messages),
-                        )
-                        await asyncio.to_thread(kafka_producer.flush)
-
-                        # Check for any Kafka produce failures
-                        failed_count = 0
-                        for send_result in pending_kafka_messages:
-                            try:
-                                send_result.get(timeout=0)  # Non-blocking check
-                            except Exception as e:
-                                logger.exception(
-                                    f"Kafka send result failure for cohort {cohort.id}: {e}",
-                                    cohort_id=cohort.id,
-                                    error=str(e),
-                                    exception_type=type(e).__name__,
-                                )
-                                failed_count += 1
-
-                        if failed_count > 0:
-                            logger.error(
-                                f"Failed to send {failed_count}/{len(pending_kafka_messages)} Kafka messages for cohort {cohort.id}",
-                                cohort_id=cohort.id,
-                                failed_count=failed_count,
-                                total_count=len(pending_kafka_messages),
+                    # Process results
+                    for row in results:
+                        person_id, status = row
+                        status_counts[status] += 1
+                        payload = {
+                            "team_id": cohort.team_id,
+                            "cohort_id": cohort.id,
+                            "person_id": str(person_id),
+                            # DateTime64(6) format required for Kafka JSONEachRow parsing into ClickHouse
+                            "last_updated": dt.datetime.now(dt.UTC).strftime("%Y-%m-%d %H:%M:%S.%f"),
+                            "status": status,
+                        }
+                        # Produce to Kafka without blocking - collect send results for later flushing
+                        try:
+                            send_result = kafka_producer.produce(
+                                topic=KAFKA_COHORT_MEMBERSHIP_CHANGED,
+                                key=payload["person_id"],
+                                data=payload,
                             )
-                            get_cohort_calculation_failure_metric().add(1)
-                            # Don't break retry loop - let it retry
-                            continue
+                            pending_kafka_messages.append(send_result)
+                        except Exception as e:
+                            logger.warning(
+                                f"Failed to produce Kafka message for person {payload['person_id']} in cohort {cohort.id}: {e}",
+                                cohort_id=cohort.id,
+                                person_id=payload["person_id"],
+                                error=str(e),
+                            )
+                            # Continue processing even if Kafka produce fails
 
-                        if status_counts["entered"] > 0:
-                            get_membership_changed_metric("entered").add(status_counts["entered"])
-                        if status_counts["left"] > 0:
-                            get_membership_changed_metric("left").add(status_counts["left"])
+                    # Flush all pending Kafka messages after processing
+                    logger.info(
+                        f"Query completed for cohort {cohort.id}. Total messages to flush: {len(pending_kafka_messages)}",
+                        cohort_id=cohort.id,
+                        message_count=len(pending_kafka_messages),
+                    )
+                    await asyncio.to_thread(kafka_producer.flush)
 
-                    get_cohort_calculation_success_metric().add(1)
-                    cohorts_count += 1
-                    break
-                except Exception as e:
-                    is_last_attempt = retry_attempt == max_retries
+                    # Check for any Kafka produce failures
+                    failed_count = 0
+                    for send_result in pending_kafka_messages:
+                        try:
+                            send_result.get(timeout=0)  # Non-blocking check
+                        except Exception as e:
+                            logger.warning(
+                                f"Kafka send result failure for cohort {cohort.id}: {e}",
+                                cohort_id=cohort.id,
+                                error=str(e),
+                                exception_type=type(e).__name__,
+                            )
+                            failed_count += 1
 
-                    if is_last_attempt:
+                    if failed_count > 0:
+                        logger.error(
+                            f"Failed to send {failed_count}/{len(pending_kafka_messages)} Kafka messages for cohort {cohort.id}",
+                            cohort_id=cohort.id,
+                            failed_count=failed_count,
+                            total_count=len(pending_kafka_messages),
+                        )
                         get_cohort_calculation_failure_metric().add(1)
+                        raise Exception(f"Failed to send {failed_count}/{len(pending_kafka_messages)} Kafka messages")
 
-                        logger.exception(
-                            f"Error calculating cohort {cohort.id} after {max_retries} attempts: {type(e).__name__}: {str(e)}",
-                            cohort_id=cohort.id,
-                            error_type=type(e).__name__,
-                            error_message=str(e),
-                            attempts=max_retries,
-                        )
-                    else:
-                        logger.warning(
-                            f"Error calculating cohort {cohort.id} (attempt {retry_attempt}/{max_retries}): {type(e).__name__}: {str(e)}. Retrying in {retry_delay_seconds}s...",
-                            cohort_id=cohort.id,
-                            error_type=type(e).__name__,
-                            error_message=str(e),
-                            attempt=retry_attempt,
-                        )
-                        await asyncio.sleep(retry_delay_seconds)
+                    if status_counts["entered"] > 0:
+                        get_membership_changed_metric("entered").add(status_counts["entered"])
+                    if status_counts["left"] > 0:
+                        get_membership_changed_metric("left").add(status_counts["left"])
+
+                get_cohort_calculation_success_metric().add(1)
+                cohorts_count += 1
+            except Exception as e:
+                get_cohort_calculation_failure_metric().add(1)
+                logger.exception(
+                    f"Error calculating cohort {cohort.id}: {type(e).__name__}: {str(e)}",
+                    cohort_id=cohort.id,
+                    error_type=type(e).__name__,
+                    error_message=str(e),
+                )
 
         end_time = time.time()
         duration_seconds = end_time - start_time
