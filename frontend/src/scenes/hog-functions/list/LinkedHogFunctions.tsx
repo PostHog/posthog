@@ -2,19 +2,26 @@ import { useMemo, useState } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { buildAlertFilterConfig } from 'lib/constants'
+
 import { CyclotronJobFiltersType, HogFunctionSubTemplateIdType, HogFunctionTypeType } from '~/types'
 
 import { HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES } from '../sub-templates/sub-templates'
 import { HogFunctionTemplateList } from './HogFunctionTemplateList'
 import { HogFunctionList } from './HogFunctionsList'
 
-export type LinkedHogFunctionsProps = {
+type LinkedHogFunctionsBaseProps = {
     type: HogFunctionTypeType
-    forceFilterGroups?: CyclotronJobFiltersType[]
     subTemplateIds?: HogFunctionSubTemplateIdType[]
     newDisabledReason?: string
     hideFeedback?: boolean
 }
+
+export type LinkedHogFunctionsProps = LinkedHogFunctionsBaseProps &
+    (
+        | { alertId: string; forceFilterGroups?: never }
+        | { alertId?: never; forceFilterGroups?: CyclotronJobFiltersType[] }
+    )
 
 const getFiltersFromSubTemplateId = (
     subTemplateId: HogFunctionSubTemplateIdType
@@ -26,14 +33,15 @@ const getFiltersFromSubTemplateId = (
 export function LinkedHogFunctions({
     type,
     forceFilterGroups,
+    alertId,
     subTemplateIds,
     newDisabledReason,
     hideFeedback,
 }: LinkedHogFunctionsProps): JSX.Element | null {
     const [showNewDestination, setShowNewDestination] = useState(false)
     const logicKey = useMemo(() => {
-        return JSON.stringify({ type, subTemplateIds, forceFilterGroups })
-    }, [type, subTemplateIds, forceFilterGroups])
+        return JSON.stringify({ type, subTemplateIds, forceFilterGroups, alertId })
+    }, [type, subTemplateIds, forceFilterGroups, alertId])
 
     // TRICKY: All templates are destinations - internal destinations are just a different source
     // and set by the subtemplate modifier
@@ -42,6 +50,9 @@ export function LinkedHogFunctions({
     const getConfigurationOverrides = (
         subTemplateId?: HogFunctionSubTemplateIdType
     ): CyclotronJobFiltersType | undefined => {
+        if (alertId) {
+            return buildAlertFilterConfig(alertId)
+        }
         if (forceFilterGroups && forceFilterGroups.length > 0) {
             return forceFilterGroups[0]
         }
@@ -51,11 +62,13 @@ export function LinkedHogFunctions({
         return undefined
     }
 
-    const hogFunctionFilterList =
-        forceFilterGroups ??
-        (subTemplateIds?.map(getFiltersFromSubTemplateId).filter((filters) => !!filters) as
-            | CyclotronJobFiltersType[]
-            | undefined)
+    // Only compute filter list when not using alertId (alertId provides filters via buildAlertFilterConfig)
+    const hogFunctionFilterList = alertId
+        ? undefined
+        : (forceFilterGroups ??
+          (subTemplateIds?.map(getFiltersFromSubTemplateId).filter((filters) => !!filters) as
+              | CyclotronJobFiltersType[]
+              | undefined))
 
     return showNewDestination ? (
         <HogFunctionTemplateList
@@ -73,9 +86,9 @@ export function LinkedHogFunctions({
     ) : (
         <HogFunctionList
             key={logicKey}
-            forceFilterGroups={hogFunctionFilterList}
             type={type}
             hideFeedback={hideFeedback}
+            {...(alertId ? { alertId } : { forceFilterGroups: hogFunctionFilterList })}
             extraControls={
                 <>
                     <LemonButton

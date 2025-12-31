@@ -1,6 +1,8 @@
 import posthog from 'posthog-js'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { buildAlertFilterConfig } from 'lib/constants'
+
 import { AlertType } from '~/lib/components/Alerts/types'
 import { DashboardType, HogFunctionType, InsightModel, QueryBasedInsightModel } from '~/types'
 
@@ -59,7 +61,11 @@ async function fetchHogFunctionsForAlerts(alerts: AlertType[]): Promise<Map<stri
 
     const hogFunctionPromises = alerts.map(async (alert) => {
         try {
-            const response = await api.hogFunctions.listForAlert(alert.id)
+            const response = await api.hogFunctions.list({
+                filter_groups: [buildAlertFilterConfig(alert.id)],
+                types: ['internal_destination'],
+                full: true,
+            })
             return { alertId: alert.id, hogFunctions: response.results }
         } catch (e) {
             posthog.captureException(e instanceof Error ? e : new Error(String(e)), {

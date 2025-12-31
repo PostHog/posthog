@@ -1,6 +1,14 @@
 import { LemonSelectOptions } from '@posthog/lemon-ui'
 
-import { ChartDisplayCategory, ChartDisplayType, Region, SSOProvider } from '../types'
+import {
+    ChartDisplayCategory,
+    ChartDisplayType,
+    CyclotronJobFiltersType,
+    PropertyFilterType,
+    PropertyOperator,
+    Region,
+    SSOProvider,
+} from '../types'
 
 // Sync with backend DISPLAY_TYPES_TO_CATEGORIES
 export const DISPLAY_TYPES_TO_CATEGORIES: Record<ChartDisplayType, ChartDisplayCategory> = {
@@ -476,5 +484,22 @@ export const TAILWIND_BREAKPOINTS = {
 export const INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID = 'insight-alert-firing'
 export const INSIGHT_ALERT_DESTINATION_LOGIC_KEY = 'insightAlertDestination'
 export const INSIGHT_ALERT_FIRING_EVENT_ID = '$insight_alert_firing'
+
+export const buildAlertFilterConfig = (alertId: string): CyclotronJobFiltersType => ({
+    properties: [
+        {
+            key: 'alert_id',
+            value: alertId,
+            operator: PropertyOperator.Exact,
+            type: PropertyFilterType.Event,
+        },
+    ],
+    events: [
+        {
+            id: INSIGHT_ALERT_FIRING_EVENT_ID,
+            type: 'events',
+        },
+    ],
+})
 
 export const COHORT_PERSONS_QUERY_LIMIT = 10000

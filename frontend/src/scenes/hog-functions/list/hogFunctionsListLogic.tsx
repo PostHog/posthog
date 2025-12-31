@@ -1,11 +1,12 @@
 import FuseClass from 'fuse.js'
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { buildAlertFilterConfig } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -27,14 +28,19 @@ export type HogFunctionListFilters = {
     createdBy?: string | null
 }
 
-export type HogFunctionListLogicProps = {
+type HogFunctionListLogicBaseProps = {
     logicKey?: string
     type: HogFunctionTypeType
     additionalTypes?: HogFunctionTypeType[]
-    forceFilterGroups?: CyclotronJobFiltersType[]
     syncFiltersWithUrl?: boolean
     manualFunctions?: HogFunctionType[]
 }
+
+export type HogFunctionListLogicProps = HogFunctionListLogicBaseProps &
+    (
+        | { alertId: string; forceFilterGroups?: never }
+        | { alertId?: never; forceFilterGroups?: CyclotronJobFiltersType[] }
+    )
 
 export const shouldShowHogFunction = (hogFunction: HogFunctionType, user?: UserType | null): boolean => {
     if (!user) {
@@ -97,10 +103,20 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
             [] as HogFunctionType[],
             {
                 loadHogFunctions: async () => {
+                    const types = [props.type, ...(props.additionalTypes ?? [])]
+                    if (props.alertId) {
+                        return (
+                            await api.hogFunctions.list({
+                                filter_groups: [buildAlertFilterConfig(props.alertId)],
+                                types,
+                                full: true,
+                            })
+                        ).results
+                    }
                     return (
                         await api.hogFunctions.list({
                             filter_groups: props.forceFilterGroups,
-                            types: [props.type, ...(props.additionalTypes || [])],
+                            types,
                             // TODO: This is a temporary fix. We need proper server-side pagination
                             // once we rework the data pipelines UI and batch exports is no longer
                             // part of the same list
@@ -254,4 +270,8 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
             }
         },
     })),
+
+    afterMount(({ actions }) => {
+        actions.loadHogFunctions()
+    }),
 ])
