@@ -22,4 +22,6 @@ export const ErrorTrackingSDKInstructions: SDKInstructionsMap = {
     [SDKKey.PYTHON]: PythonInstructions,
     [SDKKey.REACT]: ReactInstructions,
     [SDKKey.SVELTE]: SvelteInstructions,
+    [SDKKey.TANSTACK_START]: ReactInstructions,
+    [SDKKey.VITE]: ReactInstructions,
 }
