@@ -20,7 +20,6 @@ use tracing::{error, info};
 #[derive(Debug, Clone)]
 pub struct S3Downloader {
     client: Client,
-    aws_region: String,
     s3_bucket: String,
     s3_key_prefix: String,
     checkpoint_import_window_hours: u32,
@@ -37,18 +36,14 @@ impl S3Downloader {
             .await
             .with_context(|| {
                 format!(
-                    "S3 bucket validation failed for '{}' in region '{}'. Check credentials and bucket access.",
-                    config.s3_bucket, config.aws_region
+                    "S3 bucket validation failed for: {}. Check credentials and bucket access.",
+                    config.s3_bucket,
                 )
             })?;
-        info!(
-            "S3 bucket '{}' validated successfully in region '{}'",
-            config.s3_bucket, config.aws_region
-        );
+        info!("S3 bucket '{}' validated successfully", config.s3_bucket);
 
         Ok(Self {
             client,
-            aws_region: config.aws_region.clone(),
             s3_bucket: config.s3_bucket.clone(),
             s3_key_prefix: config.s3_key_prefix.clone(),
             checkpoint_import_window_hours: config.checkpoint_import_window_hours,
@@ -78,7 +73,7 @@ impl CheckpointDownloader for S3Downloader {
                     .increment(1);
                 return Err(e).with_context(|| {
                     format!(
-                        "Failed to get object from S3 bucket: s3://{0}/{remote_key}",
+                        "Failed to get object from S3 bucket {}: {remote_key}",
                         self.s3_bucket
                     )
                 });
@@ -87,7 +82,7 @@ impl CheckpointDownloader for S3Downloader {
 
         let body = get_object.body.collect().await.with_context(|| {
             format!(
-                "Failed to read body data from S3 object s3://{0}/{remote_key}",
+                "Failed to read body data from S3 object from bucket {}: {remote_key}",
                 self.s3_bucket,
             )
         })?;
@@ -116,7 +111,7 @@ impl CheckpointDownloader for S3Downloader {
                     .increment(1);
                 return Err(e).with_context(|| {
                     format!(
-                        "Failed to get object from S3 bucket: s3://{0}/{remote_key}",
+                        "Failed to get object from S3 bucket {}: {remote_key}",
                         self.s3_bucket
                     )
                 });
@@ -270,6 +265,6 @@ impl CheckpointDownloader for S3Downloader {
     }
 
     async fn is_available(&self) -> bool {
-        !self.s3_bucket.is_empty() && !self.aws_region.is_empty()
+        !self.s3_bucket.is_empty()
     }
 }

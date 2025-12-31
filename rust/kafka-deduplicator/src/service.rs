@@ -130,7 +130,7 @@ impl KafkaDeduplicatorService {
                     error!(
                         error = ?e,
                         bucket = %config.s3_bucket.as_deref().unwrap_or(""),
-                        region = %config.aws_region,
+                        region = %config.aws_region.as_deref().unwrap_or(""),
                         "Failed to initialize S3 client for checkpoint uploads"
                     );
                     return Err(e.context("S3 uploader: client initialization failed"));
@@ -149,7 +149,7 @@ impl KafkaDeduplicatorService {
                     error!(
                         error = ?e,
                         bucket = %config.s3_bucket.as_deref().unwrap_or(""),
-                        region = %config.aws_region,
+                        region = %config.aws_region.as_deref().unwrap_or(""),
                         "Failed to initialize S3 client for checkpoint downloads"
                     );
                     return Err(e.context("S3 downloader: client initialization failed"));

@@ -21,16 +21,16 @@ pub struct CheckpointConfig {
     pub s3_key_prefix: String,
 
     /// AWS region for S3
-    pub aws_region: String,
+    pub aws_region: Option<String>,
 
     /// S3 endpoint URL (for non-AWS S3-compatible stores like MinIO)
     pub s3_endpoint: Option<String>,
 
     /// S3 access key (for local dev without IAM role)
-    pub s3_access_key_id: String,
+    pub s3_access_key_id: Option<String>,
 
     /// S3 secret key (for local dev without IAM role)
-    pub s3_secret_access_key: String,
+    pub s3_secret_access_key: Option<String>,
 
     /// Force path-style S3 URLs (required for MinIO)
     pub s3_force_path_style: bool,
@@ -75,10 +75,10 @@ impl Default for CheckpointConfig {
             local_checkpoint_dir: "./checkpoints".to_string(),
             s3_bucket: "".to_string(),
             s3_key_prefix: "deduplication-checkpoints".to_string(),
-            aws_region: "us-east-1".to_string(),
+            aws_region: None,
             s3_endpoint: None,
-            s3_access_key_id: "".to_string(),
-            s3_secret_access_key: "".to_string(),
+            s3_access_key_id: None,
+            s3_secret_access_key: None,
             s3_force_path_style: false,
             max_concurrent_checkpoints: 3,
             checkpoint_gate_interval: Duration::from_millis(200),

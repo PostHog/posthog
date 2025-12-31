@@ -27,12 +27,13 @@ impl S3Uploader {
             .with_context(|| {
                 format!(
                     "S3 bucket validation failed for '{}' in region '{}'. Check credentials and bucket access.",
-                    config.s3_bucket, config.aws_region
+                    config.s3_bucket, config.aws_region.as_deref().unwrap_or("default")
                 )
             })?;
         info!(
             "S3 bucket '{}' validated successfully in region '{}'",
-            config.s3_bucket, config.aws_region
+            config.s3_bucket,
+            config.aws_region.as_deref().unwrap_or("default")
         );
 
         Ok(Self { client, config })

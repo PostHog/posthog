@@ -145,8 +145,7 @@ pub struct Config {
     #[envconfig(default = "deduplication-checkpoints")]
     pub s3_key_prefix: String,
 
-    #[envconfig(default = "us-east-1")]
-    pub aws_region: String,
+    pub aws_region: Option<String>,
 
     #[envconfig(default = "120")] // 2 minutes
     pub s3_operation_timeout_secs: u64,
@@ -158,12 +157,10 @@ pub struct Config {
     pub s3_endpoint: Option<String>,
 
     /// S3 access key (for local dev without IAM role)
-    #[envconfig(default = "")]
-    pub s3_access_key_id: String,
+    pub s3_access_key_id: Option<String>,
 
     /// S3 secret key (for local dev without IAM role)
-    #[envconfig(default = "")]
-    pub s3_secret_access_key: String,
+    pub s3_secret_access_key: Option<String>,
 
     /// Force path-style S3 URLs (required for MinIO)
     #[envconfig(default = "false")]
@@ -360,12 +357,18 @@ impl Config {
 
     // Check multiple conditions for safe checkpoint export enablement
     pub fn checkpoint_export_enabled(&self) -> bool {
-        !self.aws_region.is_empty() && self.s3_bucket.is_some() && self.checkpoint_export_enabled
+        self.checkpoint_export_enabled
+            && self.s3_endpoint.is_some()
+            && self.aws_region.is_some()
+            && self.s3_bucket.is_some()
     }
 
     // Check mulitple conditions for safe checkpoint import enablement
     pub fn checkpoint_import_enabled(&self) -> bool {
-        !self.aws_region.is_empty() && self.s3_bucket.is_some() && self.checkpoint_import_enabled
+        self.checkpoint_import_enabled
+            && self.s3_endpoint.is_some()
+            && self.aws_region.is_some()
+            && self.s3_bucket.is_some()
     }
 
     /// Get checkpoint interval as Duration

@@ -34,10 +34,10 @@ fn create_test_checkpoint_config(tmp_checkpoint_dir: &TempDir) -> CheckpointConf
         local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
         s3_bucket: TEST_BUCKET.to_string(),
         s3_key_prefix: "checkpoints".to_string(),
-        aws_region: "us-east-1".to_string(),
+        aws_region: Some("us-east-1".to_string()),
         s3_endpoint: Some(MINIO_ENDPOINT.to_string()),
-        s3_access_key_id: MINIO_ACCESS_KEY.to_string(),
-        s3_secret_access_key: MINIO_SECRET_KEY.to_string(),
+        s3_access_key_id: Some(MINIO_ACCESS_KEY.to_string()),
+        s3_secret_access_key: Some(MINIO_SECRET_KEY.to_string()),
         s3_force_path_style: true,
         // Use a wide import window so our just-uploaded checkpoint is found
         checkpoint_import_window_hours: 24,
