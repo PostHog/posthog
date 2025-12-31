@@ -1,7 +1,6 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use aws_config::{retry::RetryConfig, timeout::TimeoutConfig, BehaviorVersion, Region};
-use aws_sdk_s3::{Client, Config};
+use aws_sdk_s3::Client;
 use std::path::Path;
 use tokio::fs;
 use tracing::info;
@@ -35,46 +34,6 @@ impl S3Uploader {
             "S3 bucket '{}' validated successfully in region '{}'",
             config.s3_bucket, config.aws_region
         );
-
-        Ok(Self { client, config })
-    }
-
-    /// Test-only constructor that connects to MinIO/localstack via config.test_s3_endpoint
-    pub async fn new_for_testing(config: CheckpointConfig) -> Result<Self> {
-        let endpoint_url = config
-            .test_s3_endpoint
-            .as_ref()
-            .context("test_s3_endpoint must be set for new_for_testing")?;
-
-        let region = Region::new(config.aws_region.clone());
-
-        let timeout_config = TimeoutConfig::builder()
-            .operation_timeout(config.s3_operation_timeout)
-            .operation_attempt_timeout(config.s3_attempt_timeout)
-            .build();
-
-        let aws_config = aws_config::defaults(BehaviorVersion::latest())
-            .region(region.clone())
-            .endpoint_url(endpoint_url)
-            .timeout_config(timeout_config)
-            .retry_config(RetryConfig::adaptive())
-            .load()
-            .await;
-
-        // force_path_style required for MinIO
-        let s3_config = Config::builder()
-            .behavior_version(BehaviorVersion::latest())
-            .region(Some(region))
-            .credentials_provider(
-                aws_config
-                    .credentials_provider()
-                    .context("No credentials provider found")?,
-            )
-            .endpoint_url(endpoint_url)
-            .force_path_style(true)
-            .build();
-
-        let client = Client::from_conf(s3_config);
 
         Ok(Self { client, config })
     }

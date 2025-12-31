@@ -13,8 +13,7 @@ use crate::metrics_const::{
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use aws_config::{retry::RetryConfig, timeout::TimeoutConfig, BehaviorVersion, Region};
-use aws_sdk_s3::{Client, Config};
+use aws_sdk_s3::Client;
 use chrono::{Duration, Utc};
 use tracing::{error, info};
 
@@ -55,52 +54,6 @@ impl S3Downloader {
             checkpoint_import_window_hours: config.checkpoint_import_window_hours,
         })
     }
-
-    /// Test-only constructor that connects to MinIO/localstack via config.test_s3_endpoint
-    pub async fn new_for_testing(config: &CheckpointConfig) -> Result<Self> {
-        let endpoint_url = config
-            .test_s3_endpoint
-            .as_ref()
-            .context("test_s3_endpoint must be set for new_for_testing")?;
-
-        let region = Region::new(config.aws_region.clone());
-
-        let timeout_config = TimeoutConfig::builder()
-            .operation_timeout(config.s3_operation_timeout)
-            .operation_attempt_timeout(config.s3_attempt_timeout)
-            .build();
-
-        let aws_config = aws_config::defaults(BehaviorVersion::latest())
-            .region(region.clone())
-            .endpoint_url(endpoint_url)
-            .timeout_config(timeout_config)
-            .retry_config(RetryConfig::adaptive())
-            .load()
-            .await;
-
-        // force_path_style required for MinIO
-        let s3_config = Config::builder()
-            .behavior_version(BehaviorVersion::latest())
-            .region(Some(region))
-            .credentials_provider(
-                aws_config
-                    .credentials_provider()
-                    .context("No credentials provider found")?,
-            )
-            .endpoint_url(endpoint_url)
-            .force_path_style(true)
-            .build();
-
-        let client = Client::from_conf(s3_config);
-
-        Ok(Self {
-            client,
-            aws_region: config.aws_region.clone(),
-            s3_bucket: config.s3_bucket.clone(),
-            s3_key_prefix: config.s3_key_prefix.clone(),
-            checkpoint_import_window_hours: config.checkpoint_import_window_hours,
-        })
-    }
 }
 
 #[async_trait]
@@ -123,10 +76,12 @@ impl CheckpointDownloader for S3Downloader {
             Err(e) => {
                 metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "error")
                     .increment(1);
-                return Err(anyhow::anyhow!(format!(
-                    "Failed to get object from S3 bucket: s3://{0}/{remote_key}: {e}",
-                    self.s3_bucket
-                )));
+                return Err(e).with_context(|| {
+                    format!(
+                        "Failed to get object from S3 bucket: s3://{0}/{remote_key}",
+                        self.s3_bucket
+                    )
+                });
             }
         };
 
@@ -159,10 +114,12 @@ impl CheckpointDownloader for S3Downloader {
             Err(e) => {
                 metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "error")
                     .increment(1);
-                return Err(anyhow::anyhow!(format!(
-                    "Failed to get object from S3 bucket: s3://{0}/{remote_key}: {e}",
-                    self.s3_bucket
-                )));
+                return Err(e).with_context(|| {
+                    format!(
+                        "Failed to get object from S3 bucket: s3://{0}/{remote_key}",
+                        self.s3_bucket
+                    )
+                });
             }
         };
 
@@ -173,9 +130,9 @@ impl CheckpointDownloader for S3Downloader {
         let mut stream = get_object.body.into_async_read();
         if let Err(e) = tokio::io::copy(&mut stream, &mut file).await {
             metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "error").increment(1);
-            return Err(anyhow::anyhow!(
-                "Failed to write remote contents to local file: {local_filepath:?}: {e}"
-            ));
+            return Err(e).with_context(|| {
+                format!("Failed to write remote contents to local file: {local_filepath:?}")
+            });
         }
 
         metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "success").increment(1);
@@ -211,9 +168,7 @@ impl CheckpointDownloader for S3Downloader {
                     .await
                 {
                     Ok(()) => Ok::<String, anyhow::Error>(remote_filename),
-                    Err(e) => {
-                        Err::<String, anyhow::Error>(anyhow::anyhow!("In download_files: {e}"))
-                    }
+                    Err(e) => Err::<String, anyhow::Error>(e.context("In download_files")),
                 }
             });
         }
