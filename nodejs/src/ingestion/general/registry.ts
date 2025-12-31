@@ -1,15 +1,10 @@
 import { PipelineRegistry } from '../pipelines/registry-types'
-import {
-    JoinedIngestionPipelineConfig,
-    JoinedIngestionPipelineContext,
-    JoinedIngestionPipelineInput,
-    createJoinedIngestionPipeline,
-} from './joined-ingestion-pipeline'
+import { MainPipelineConfig, MainPipelineContext, MainPipelineInput, createMainPipeline } from './main-pipeline'
 
 // Pipeline-specific type aliases
-export type Input = JoinedIngestionPipelineInput
-export type Context = JoinedIngestionPipelineContext
-export type Config = JoinedIngestionPipelineConfig
+export type Input = MainPipelineInput
+export type Context = MainPipelineContext
+export type Config = MainPipelineConfig
 
 /**
  * Registry for the general ingestion pipeline.
@@ -20,29 +15,29 @@ export type Config = JoinedIngestionPipelineConfig
  * - historical: Historical data backfills
  * - async: Asynchronous/deferred processing
  *
- * All lanes currently use the same 'default' implementation (createJoinedIngestionPipeline).
+ * All lanes currently use the same 'default' implementation (createMainPipeline).
  * New implementations can be added per lane as needed.
  */
 export const pipeline: PipelineRegistry<Input, Context, Config> = {
     lanes: {
         default: {
             implementations: {
-                default: createJoinedIngestionPipeline,
+                default: createMainPipeline,
             },
         },
         overflow: {
             implementations: {
-                default: createJoinedIngestionPipeline,
+                default: createMainPipeline,
             },
         },
         historical: {
             implementations: {
-                default: createJoinedIngestionPipeline,
+                default: createMainPipeline,
             },
         },
         async: {
             implementations: {
-                default: createJoinedIngestionPipeline,
+                default: createMainPipeline,
             },
         },
     },

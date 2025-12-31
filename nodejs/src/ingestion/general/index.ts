@@ -33,11 +33,6 @@ export {
     PreTeamPreprocessingSubpipelineConfig,
 } from './pre-team-preprocessing-subpipeline'
 
-export {
-    createJoinedIngestionPipeline,
-    JoinedIngestionPipelineConfig,
-    JoinedIngestionPipelineContext,
-    JoinedIngestionPipelineInput,
-} from './joined-ingestion-pipeline'
+export { createMainPipeline, MainPipelineConfig, MainPipelineContext, MainPipelineInput } from './main-pipeline'
 
 export { Config, Context, Input, pipeline } from './registry'

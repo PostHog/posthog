@@ -20,7 +20,7 @@ import { createPerEventProcessingSubpipeline } from './per-event-processing-subp
 import { PostTeamPreprocessingSubpipelineInput } from './post-team-preprocessing-subpipeline'
 import { PreprocessingHub, PreprocessingPipelineConfig, createPreprocessingPipeline } from './preprocessing-pipeline'
 
-export interface JoinedIngestionPipelineConfig {
+export interface MainPipelineConfig {
     // Preprocessing config
     hub: PreprocessingHub
     kafkaProducer: KafkaProducerWrapper
@@ -43,12 +43,12 @@ export interface JoinedIngestionPipelineConfig {
     groupId: string
 }
 
-export interface JoinedIngestionPipelineInput {
+export interface MainPipelineInput {
     message: Message
     groupStoreForBatch: GroupStoreForBatch
 }
 
-export interface JoinedIngestionPipelineContext {
+export interface MainPipelineContext {
     message: Message
 }
 
@@ -78,10 +78,10 @@ function mapToPerEventInput<C>(
     }
 }
 
-export function createJoinedIngestionPipeline<
-    TInput extends JoinedIngestionPipelineInput,
-    TContext extends JoinedIngestionPipelineContext,
->(builder: BatchPipelineBuilder<TInput, TInput, TContext, TContext>, config: JoinedIngestionPipelineConfig) {
+export function createMainPipeline<TInput extends MainPipelineInput, TContext extends MainPipelineContext>(
+    builder: BatchPipelineBuilder<TInput, TInput, TContext, TContext>,
+    config: MainPipelineConfig
+) {
     const {
         hub,
         kafkaProducer,
