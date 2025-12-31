@@ -225,7 +225,9 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                         # Check for any Kafka produce failures
                         failed_count = 0
                         for send_result in pending_kafka_messages:
-                            if send_result.failed():
+                            try:
+                                send_result.get(timeout=0)  # Non-blocking check
+                            except Exception:
                                 failed_count += 1
 
                         if failed_count > 0:
