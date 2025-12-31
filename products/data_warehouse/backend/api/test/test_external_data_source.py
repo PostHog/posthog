@@ -1195,6 +1195,129 @@ class TestExternalDataSource(APIBaseTest):
         assert source.job_inputs["host"] == "new-host.example.com"  # Host was updated
         assert source.job_inputs["password"] == "original_password"  # Password preserved
 
+    def test_update_with_empty_string_password_preserves_existing(self):
+        """Regression test: sending password="" (empty string) should not overwrite stored password.
+
+        This reproduces the bug where the frontend form sends an empty string for password
+        when the user doesn't enter a new value, causing the stored password to be lost.
+        """
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="test_empty_pw",
+            job_inputs={
+                "source_type": "Postgres",
+                "host": "db.example.com",
+                "port": "5432",
+                "database": "mydb",
+                "user": "dbuser",
+                "password": "original_password",
+                "schema": "public",
+            },
+        )
+
+        # Send update with password as empty string (simulating frontend form behavior)
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {
+                    "host": "new-host.example.com",
+                    "password": "",  # Frontend sends empty string when user doesn't enter new password
+                },
+            },
+        )
+
+        assert response.status_code == 200
+
+        # Verify password was preserved, not overwritten with empty string
+        source.refresh_from_db()
+        assert source.job_inputs["host"] == "new-host.example.com"  # Host was updated
+        assert source.job_inputs["password"] == "original_password"  # Password preserved
+
+    def test_update_with_new_password_updates_password(self):
+        """Test that explicitly providing a new password does update it."""
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="test_new_pw",
+            job_inputs={
+                "source_type": "Postgres",
+                "host": "db.example.com",
+                "port": "5432",
+                "database": "mydb",
+                "user": "dbuser",
+                "password": "original_password",
+                "schema": "public",
+            },
+        )
+
+        # Send update with a new password value
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {
+                    "password": "new_password",
+                },
+            },
+        )
+
+        assert response.status_code == 200
+
+        # Verify password was actually updated
+        source.refresh_from_db()
+        assert source.job_inputs["password"] == "new_password"
+
+    def test_update_source_without_ssh_tunnel_does_not_crash(self):
+        """Regression test: updating a source that has no ssh_tunnel should not crash.
+
+        The bug was that setdefault("ssh_tunnel", {}) returns None if the key exists
+        with value None, then calling .setdefault("auth", {}) on None crashes.
+        """
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="test_no_ssh",
+            job_inputs={
+                "source_type": "Postgres",
+                "host": "db.example.com",
+                "port": "5432",
+                "database": "mydb",
+                "user": "dbuser",
+                "password": "original_password",
+                "schema": "public",
+                # No ssh_tunnel key at all
+            },
+        )
+
+        # Update without providing ssh_tunnel
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {
+                    "host": "new-host.example.com",
+                },
+            },
+        )
+
+        # Should not crash with AttributeError: 'NoneType' object has no attribute 'setdefault'
+        assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.json()}"
+
+        source.refresh_from_db()
+        assert source.job_inputs["host"] == "new-host.example.com"
+        assert source.job_inputs["password"] == "original_password"
+
     def test_snowflake_auth_type_create_and_update(self):
         """Test that we can create and update the auth type for a Snowflake source"""
         with patch(
