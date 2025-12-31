@@ -1,5 +1,5 @@
-import { selectPipelineFactory } from './pipeline-selector'
-import { pipelines } from './pipelines-registry'
+import { pipelines } from './registry'
+import { selectPipelineFactory } from './selector'
 
 describe('selectPipelineFactory', () => {
     describe('valid selections', () => {

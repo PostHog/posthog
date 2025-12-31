@@ -1,4 +1,4 @@
-import { PipelineRegistry } from '../pipelines/registry-types'
+import { PipelineRegistry } from '../platform/types'
 import { MainPipelineConfig, MainPipelineContext, MainPipelineInput, createMainPipeline } from './main-pipeline'
 
 // Pipeline-specific type aliases

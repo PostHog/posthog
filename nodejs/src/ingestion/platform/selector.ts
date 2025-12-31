@@ -1,5 +1,5 @@
-import { Config, Context, Input, pipelines } from './pipelines-registry'
-import { PipelineFactory } from './pipelines/registry-types'
+import { Config, Context, Input, pipelines } from './registry'
+import { PipelineFactory } from './types'
 
 // Type alias for pipeline factory
 export type Factory = PipelineFactory<Input, Context, Config>
