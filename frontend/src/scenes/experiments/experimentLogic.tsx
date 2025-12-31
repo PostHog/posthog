@@ -1135,7 +1135,8 @@ export const experimentLogic = kea<experimentLogicType>([
                     payload?.start_date !== undefined ||
                     payload?.end_date !== undefined ||
                     payload?.metrics !== undefined ||
-                    payload?.metrics_secondary !== undefined
+                    payload?.metrics_secondary !== undefined ||
+                    payload?.stats_config !== undefined
                 actions.refreshExperimentResults(forceRefresh)
             }
         },
