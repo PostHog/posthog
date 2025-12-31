@@ -177,7 +177,7 @@ function CollapsibleBreakdownSection({
                 <LemonCollapse
                     multiple={false}
                     embedded
-                    className={isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}
+                    className={`breakdown-collapse breakdown-collapse--${isAlternatingRow ? 'alt-row' : 'normal-row'}`}
                     panels={[
                         {
                             key: 'breakdowns',
