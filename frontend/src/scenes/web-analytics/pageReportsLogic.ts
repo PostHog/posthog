@@ -117,7 +117,7 @@ FROM (
     SELECT
         e.session.session_id as session_id,
         min(e.timestamp) as ts,
-        avg(toFloat(e.properties.$prev_pageview_duration)) as session_avg_duration
+        avg(least(toFloat(e.properties.$prev_pageview_duration), 1800) as session_avg_duration
     FROM events as e
     ANY LEFT JOIN events as prev
         ON e.properties.$prev_pageview_id = toString(prev.uuid)
