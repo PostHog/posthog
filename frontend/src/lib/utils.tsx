@@ -9,19 +9,16 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import {
     ActionType,
     ActorType,
-    CyclotronJobFiltersType,
     DateMappingOption,
     EventType,
     GroupActorType,
     IntervalType,
-    PropertyFilterType,
     PropertyOperator,
     PropertyType,
     TimeUnitType,
 } from '~/types'
 
 import { CUSTOM_OPTION_KEY } from './components/DateFilter/types'
-import { INSIGHT_ALERT_FIRING_EVENT_ID } from './constants'
 import { LemonTagType } from './lemon-ui/LemonTag'
 import { getAppContext } from './utils/getAppContext'
 
@@ -2330,20 +2327,3 @@ export const formatPercentage = (x: number, options?: { precise?: boolean }): st
 export function isUUIDLike(candidate: string): boolean {
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(candidate)
 }
-
-export const buildAlertFilterConfig = (alertId: string): CyclotronJobFiltersType => ({
-    properties: [
-        {
-            key: 'alert_id',
-            value: alertId,
-            operator: PropertyOperator.Exact,
-            type: PropertyFilterType.Event,
-        },
-    ],
-    events: [
-        {
-            id: INSIGHT_ALERT_FIRING_EVENT_ID,
-            type: 'events',
-        },
-    ],
-})
