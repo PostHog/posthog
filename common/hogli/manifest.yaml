@@ -418,7 +418,7 @@ tests:
 quality:
     lint:
         cmd: ./bin/ruff.sh check . && pnpm --filter=@posthog/frontend run lint
-        description: Run code quality checks for Python and JavaScript
+        description: Run Python and JS/TS linting
     format:
         cmd: pnpm format
         description: Format both backend and frontend code
