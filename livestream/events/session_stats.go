@@ -21,11 +21,12 @@ type SessionStats struct {
 	store *expirable.LRU[string, string]
 
 	// Track counts per token for O(1) lookups
-	// We can't use the eviction callback reliably for decrementing
-	// because expirable.LRU evicts in batches and the callback may not fire
-	// for TTL expirations. Instead, we track counts separately.
+	// The eviction callback (onEvict) decrements these when entries expire or get evicted
 	counts   map[string]*atomic.Int64
 	countsMu sync.RWMutex
+
+	// Mutex for Add operations to prevent race between existence check and counter increment
+	addMu sync.Mutex
 }
 
 // NewSessionStatsKeeper creates a new SessionStats with the specified max LRU entries.
@@ -104,8 +105,13 @@ func (ss *SessionStats) CountForToken(token string) int {
 func (ss *SessionStats) Add(token, sessionId string) {
 	key := token + ":" + sessionId
 
+	// Lock to prevent race between existence check and counter increment
+	// This ensures two concurrent Add() calls for the same key don't both increment
+	ss.addMu.Lock()
+	defer ss.addMu.Unlock()
+
 	// Check if already exists (don't double-count)
-	if _, exists := ss.store.Get(key); exists {
+	if ss.store.Contains(key) {
 		// Refresh TTL by re-adding
 		ss.store.Add(key, token)
 		return
