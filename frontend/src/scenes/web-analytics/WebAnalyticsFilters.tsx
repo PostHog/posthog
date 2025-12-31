@@ -94,7 +94,6 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
 
                     <WebAnalyticsDomainSelector />
                     <WebAnalyticsDeviceToggle />
-                    <FilterPresetsDropdown />
                     <LiveUserCount
                         docLink="https://posthog.com/docs/web-analytics/faq#i-am-online-but-the-online-user-count-is-not-reflecting-my-user"
                         dataAttr="web-analytics-live-user-count"
