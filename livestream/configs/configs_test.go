@@ -42,6 +42,9 @@ func TestLoadConfig(t *testing.T) {
 				JWT: JWTConfig{
 					Secret: "token",
 				},
+				SessionRecording: SessionRecordingConfig{
+					MaxLRUEntries: 2000000,
+				},
 			},
 			wantErr: false,
 		},
