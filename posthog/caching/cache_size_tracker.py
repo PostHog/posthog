@@ -12,12 +12,12 @@ from posthog import redis
 logger = structlog.get_logger(__name__)
 
 CACHE_EVICTION_COUNTER = Counter(
-    "posthog_cache_size_limit_evictions_total",
+    "query_cache_size_limit_evictions_total",
     "Cache entries evicted due to per-team size limits",
 )
 
 CACHE_EVICTION_BYTES_COUNTER = Counter(
-    "posthog_cache_size_limit_evicted_bytes_total",
+    "query_cache_size_limit_evicted_bytes_total",
     "Bytes evicted due to per-team size limits",
 )
 
