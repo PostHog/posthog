@@ -1661,6 +1661,7 @@
                 "webAnalytics",
                 "webAnalyticsWebVitals",
                 "webAnalyticsHealth",
+                "webAnalyticsLive",
                 "persons"
             ],
             "type": "string"
@@ -21353,6 +21354,7 @@
                 "customer_analytics_usage_metric_created",
                 "nav_panel_advertisement_clicked",
                 "feature_preview_enabled",
+                "workflow_created",
                 "vercel_integration"
             ],
             "type": "string"

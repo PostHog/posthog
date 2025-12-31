@@ -4,7 +4,16 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
-import { IconEllipsis, IconGear, IconInfo, IconLock, IconLogomark, IconNotebook, IconSupport } from '@posthog/icons'
+import {
+    IconBook,
+    IconEllipsis,
+    IconGear,
+    IconInfo,
+    IconLock,
+    IconLogomark,
+    IconNotebook,
+    IconSupport,
+} from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItems, LemonModal } from '@posthog/lemon-ui'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
@@ -21,7 +30,9 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { SidePanelTab } from '~/types'
 
+import { SidePanelChangelog } from './panels/SidePanelChangelog'
 import { SidePanelDocs } from './panels/SidePanelDocs'
+import { SidePanelHealth, SidePanelHealthIcon } from './panels/SidePanelHealth'
 import { SidePanelMax } from './panels/SidePanelMax'
 import { SidePanelSdkDoctor, SidePanelSdkDoctorIcon } from './panels/SidePanelSdkDoctor'
 import { SidePanelSettings } from './panels/SidePanelSettings'
@@ -63,6 +74,12 @@ export const SIDE_PANEL_TABS: Record<
         label: 'Docs',
         Icon: IconInfo,
         Content: SidePanelDocs,
+        noModalSupport: true,
+    },
+    [SidePanelTab.Changelog]: {
+        label: 'Changelog',
+        Icon: IconBook,
+        Content: SidePanelChangelog,
         noModalSupport: true,
     },
 
@@ -107,6 +124,11 @@ export const SIDE_PANEL_TABS: Record<
         label: 'SDK Doctor',
         Icon: SidePanelSdkDoctorIcon,
         Content: SidePanelSdkDoctor,
+    },
+    [SidePanelTab.Health]: {
+        label: 'Pipeline status',
+        Icon: SidePanelHealthIcon,
+        Content: SidePanelHealth,
     },
 }
 

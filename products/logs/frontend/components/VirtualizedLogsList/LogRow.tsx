@@ -45,7 +45,7 @@ export interface LogRowProps {
     tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime' | 'displayTimezone'>
     onTogglePin: (log: ParsedLogMessage) => void
     onToggleExpand: () => void
-    onSetCursor: () => void
+    onSetCursor?: () => void
     rowWidth?: number
     attributeColumns?: string[]
     attributeColumnWidths?: Record<string, number>
@@ -94,7 +94,7 @@ export function LogRow({
             e.preventDefault()
             onShiftClick(logIndex)
         } else {
-            onSetCursor()
+            onSetCursor?.()
         }
     }
 
@@ -109,8 +109,7 @@ export function LogRow({
                     'flex items-center cursor-pointer hover:bg-fill-highlight-100 group',
                     isSelected && 'bg-fill-highlight-100',
                     isAtCursor && 'bg-primary-highlight',
-                    pinned && 'bg-warning-highlight',
-                    pinned && showPinnedWithOpacity && 'opacity-50'
+                    pinned && showPinnedWithOpacity && 'bg-warning-highlight opacity-50'
                 )}
                 onMouseDown={handleMouseDown}
             >
