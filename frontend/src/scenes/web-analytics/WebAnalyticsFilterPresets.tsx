@@ -39,6 +39,7 @@ export const FilterPresetsDropdown = (): JSX.Element => {
 
     const handleDelete = (preset: WebAnalyticsFilterPresetType, e: React.MouseEvent): void => {
         e.stopPropagation()
+        setDropdownOpen(false)
         openDeleteModal(preset)
     }
 
@@ -49,7 +50,10 @@ export const FilterPresetsDropdown = (): JSX.Element => {
             <div
                 key={preset.short_id}
                 className="flex items-center justify-between gap-2 px-2 py-1.5 hover:bg-bg-light rounded cursor-pointer group"
-                onClick={() => applyPreset(preset)}
+                onClick={() => {
+                    applyPreset(preset)
+                    setDropdownOpen(false)
+                }}
             >
                 <div className="flex items-center gap-2 flex-1 min-w-0">
                     {isActive && <IconCheck className="text-success shrink-0 text-base" />}
@@ -80,7 +84,15 @@ export const FilterPresetsDropdown = (): JSX.Element => {
     const dropdownContent = (
         <div className="w-72 max-h-96 overflow-y-auto">
             <div className="p-2">
-                <LemonButton fullWidth size="small" icon={<IconPlus />} onClick={() => openSaveModal()}>
+                <LemonButton
+                    fullWidth
+                    size="small"
+                    icon={<IconPlus />}
+                    onClick={() => {
+                        setDropdownOpen(false)
+                        openSaveModal()
+                    }}
+                >
                     Save current filters
                 </LemonButton>
             </div>

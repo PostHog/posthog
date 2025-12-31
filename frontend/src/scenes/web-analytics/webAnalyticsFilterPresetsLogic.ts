@@ -34,7 +34,6 @@ export const webAnalyticsFilterPresetsLogic = kea<webAnalyticsFilterPresetsLogic
         checkForPresetRedirect: true,
         openSaveModal: true,
         closeSaveModal: true,
-        setDropdownOpen: (open: boolean) => ({ open }),
         setPresetFormName: (name: string) => ({ name }),
         setPresetFormDescription: (description: string) => ({ description }),
         resetPresetForm: true,
@@ -56,15 +55,6 @@ export const webAnalyticsFilterPresetsLogic = kea<webAnalyticsFilterPresetsLogic
                 openSaveModal: () => true,
                 closeSaveModal: () => false,
                 saveCurrentFiltersAsPresetSuccess: () => false,
-            },
-        ],
-        dropdownOpen: [
-            false,
-            {
-                setDropdownOpen: (_, { open }) => open,
-                applyPreset: () => false,
-                openSaveModal: () => false,
-                openDeleteModal: () => false,
             },
         ],
         presetFormName: [
