@@ -3064,7 +3064,7 @@ const api = {
                     ...(types ? { type: types.join(',') } : {}),
                     ...(search ? { search } : {}),
                     ...(limit ? { limit } : {}),
-                    ...(full ? { full: 'true' } : {}),
+                    ...(full ? { full: 'false' } : {}),
                 })
                 .get()
         },
