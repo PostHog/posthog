@@ -12,11 +12,11 @@ This directory contains the pipeline registry infrastructure that enables config
 
 Pipelines are selected via environment variables:
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `INGESTION_PIPELINE_NAME` | Pipeline name (e.g., `general`) | `general` |
-| `INGESTION_PIPELINE_LANE` | Lane within pipeline (e.g., `default`, `overflow`) | `default` |
-| `INGESTION_PIPELINE_IMPLEMENTATION` | Implementation within lane | `default` |
+| Variable                            | Description                                        | Default   |
+| ----------------------------------- | -------------------------------------------------- | --------- |
+| `INGESTION_PIPELINE_NAME`           | Pipeline name (e.g., `general`)                    | `general` |
+| `INGESTION_PIPELINE_LANE`           | Lane within pipeline (e.g., `default`, `overflow`) | `default` |
+| `INGESTION_PIPELINE_IMPLEMENTATION` | Implementation within lane                         | `default` |
 
 ## Adding a New Pipeline
 
@@ -29,8 +29,8 @@ Pipelines are selected via environment variables:
 import { pipeline as replayPipeline } from '../replay'
 
 export const pipelines = {
-    general: generalPipeline,
-    replay: replayPipeline,
+  general: generalPipeline,
+  replay: replayPipeline,
 }
 ```
 

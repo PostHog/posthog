@@ -1,5 +1,5 @@
-import { BatchPipeline } from './batch-pipeline.interface'
-import { BatchPipelineBuilder } from './builders/batch-pipeline-builders'
+import { BatchPipeline } from '../pipelines/batch-pipeline.interface'
+import { BatchPipelineBuilder } from '../pipelines/builders/batch-pipeline-builders'
 
 /**
  * Generic factory function type for creating pipelines.
