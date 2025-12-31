@@ -287,6 +287,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
     propsChanged(({ actions, props }, oldProps) => {
         if (props.logs !== oldProps.logs) {
             actions.setLogs(props.logs)
+            actions.recomputeRowHeights()
         }
     }),
 
