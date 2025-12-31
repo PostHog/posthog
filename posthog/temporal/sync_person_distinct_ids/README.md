@@ -4,7 +4,7 @@ Temporal workflow to fix dangling persons in ClickHouse by syncing missing disti
 
 ## Problem
 
-Persons exist in ClickHouse `person` table with `is_deleted = 0` but have no corresponding `person_distinct_id2` records. Investigation showed ~12,192 orphaned persons across 21 teams, and this is ongoing.
+Persons can exist in ClickHouse `person` table with `is_deleted = 0` but have no corresponding `person_distinct_id2` records. This can happen due to race conditions or incomplete data migrations.
 
 ### Orphan Categories
 
