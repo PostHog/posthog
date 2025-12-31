@@ -289,16 +289,16 @@ export function PlayerShareRecording(props: PlayerShareLogicProps): JSX.Element 
     )
 }
 
+const shareTitleMapping = {
+    private: 'Share private link',
+    public: 'Share public link',
+    linear: 'Share to Linear',
+    github: 'Share to Github Issues',
+}
+
 export function openPlayerShareDialog(props: PlayerShareLogicProps): void {
     LemonDialog.open({
-        title:
-            props.shareType === 'private'
-                ? 'Share private link'
-                : props.shareType === 'public'
-                  ? 'Share public link'
-                  : props.shareType === 'linear'
-                    ? 'Share to Linear'
-                    : 'Share to Github Issues',
+        title: props.shareType ? shareTitleMapping[props.shareType] : '',
         content: <PlayerShareRecording {...props} />,
         maxWidth: '85vw',
         zIndex: '1162',
