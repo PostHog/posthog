@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import {
     IconBookmark,
@@ -25,18 +26,11 @@ import { WebAnalyticsFilterPresetType } from '~/types'
 import { webAnalyticsFilterPresetsLogic } from './webAnalyticsFilterPresetsLogic'
 
 export const FilterPresetsDropdown = (): JSX.Element => {
-    const { pinnedPresets, recentPresets, presetsLoading, activePreset, hasPresets, dropdownOpen, presetToDelete } =
+    const [dropdownOpen, setDropdownOpen] = useState(false)
+    const { pinnedPresets, recentPresets, presetsLoading, activePreset, hasPresets, presetToDelete } =
         useValues(webAnalyticsFilterPresetsLogic)
-    const {
-        applyPreset,
-        deletePreset,
-        updatePreset,
-        openSaveModal,
-        setDropdownOpen,
-        clearPreset,
-        openDeleteModal,
-        closeDeleteModal,
-    } = useActions(webAnalyticsFilterPresetsLogic)
+    const { applyPreset, deletePreset, updatePreset, openSaveModal, clearPreset, openDeleteModal, closeDeleteModal } =
+        useActions(webAnalyticsFilterPresetsLogic)
 
     const handleTogglePin = (preset: WebAnalyticsFilterPresetType, e: React.MouseEvent): void => {
         e.stopPropagation()
@@ -135,6 +129,7 @@ export const FilterPresetsDropdown = (): JSX.Element => {
                 visible={dropdownOpen}
                 onClickOutside={() => setDropdownOpen(false)}
                 placement="bottom-start"
+                fallbackPlacements={['bottom-end']}
                 overlay={dropdownContent}
             >
                 <LemonButton

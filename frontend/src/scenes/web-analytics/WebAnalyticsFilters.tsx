@@ -51,13 +51,13 @@ const CondensedWebAnalyticsFilterBar = ({ tabs }: { tabs: JSX.Element }): JSX.El
                     <ReloadAll iconOnly />
                     <DateFilter allowTimePrecision dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
                     <WebAnalyticsCompareFilter />
-                    <FilterPresetsDropdown />
                 </>
             }
             right={
                 <>
                     <ShareButton />
                     <WebVitalsPercentileToggle />
+                    <FilterPresetsDropdown />
                     <FiltersPopover />
                     <PathCleaningToggle value={isPathCleaningEnabled} onChange={setIsPathCleaningEnabled} />
                     <WebAnalyticsDomainSelector />
