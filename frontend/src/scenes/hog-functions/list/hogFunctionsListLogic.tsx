@@ -8,7 +8,6 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
-import { buildAlertFilterConfig } from 'lib/utils/alertUtils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { projectLogic } from 'scenes/projectLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -28,19 +27,14 @@ export type HogFunctionListFilters = {
     createdBy?: string | null
 }
 
-type HogFunctionListLogicBaseProps = {
+export type HogFunctionListLogicProps = {
     logicKey?: string
     type: HogFunctionTypeType
     additionalTypes?: HogFunctionTypeType[]
+    forceFilterGroups?: CyclotronJobFiltersType[]
     syncFiltersWithUrl?: boolean
     manualFunctions?: HogFunctionType[]
 }
-
-export type HogFunctionListLogicProps = HogFunctionListLogicBaseProps &
-    (
-        | { alertId: string; forceFilterGroups?: never }
-        | { alertId?: never; forceFilterGroups?: CyclotronJobFiltersType[] }
-    )
 
 export const shouldShowHogFunction = (hogFunction: HogFunctionType, user?: UserType | null): boolean => {
     if (!user) {
@@ -103,19 +97,10 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
             [] as HogFunctionType[],
             {
                 loadHogFunctions: async () => {
-                    const types = [props.type, ...(props.additionalTypes ?? [])]
-                    if (props.alertId) {
-                        return (
-                            await api.hogFunctions.list({
-                                filter_groups: [buildAlertFilterConfig(props.alertId)],
-                                types,
-                            })
-                        ).results
-                    }
                     return (
                         await api.hogFunctions.list({
                             filter_groups: props.forceFilterGroups,
-                            types,
+                            types: [props.type, ...(props.additionalTypes || [])],
                             // TODO: This is a temporary fix. We need proper server-side pagination
                             // once we rework the data pipelines UI and batch exports is no longer
                             // part of the same list
