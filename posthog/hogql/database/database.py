@@ -1186,9 +1186,7 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
             properties_path=["poe", "properties"],
         )
 
-    # :KLUDGE: Currently calculated at runtime via the `revenue_analytics` table,
-    # it'd be wise to make these computable fields in the future, but that's a big uplift
-    revenue_fields = ["revenue", "revenue_last_30_days"]
+    revenue_fields = ["revenue", "mrr"]
     with timings.measure("revenue_analytics_virtual_fields"):
         for field in revenue_fields:
             with timings.measure(field):

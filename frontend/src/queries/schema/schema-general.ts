@@ -2349,7 +2349,7 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     issueId?: ErrorTrackingIssue['id']
     orderBy: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions' | 'revenue'
     orderDirection?: 'ASC' | 'DESC'
-    revenuePeriod?: 'all_time' | 'last_30_days'
+    revenuePeriod?: 'all_time' | 'mrr'
     revenueEntity?: 'person' | 'group_0' | 'group_1' | 'group_2' | 'group_3' | 'group_4'
     dateRange: DateRange
     status?: ErrorTrackingIssue['status'] | 'all'

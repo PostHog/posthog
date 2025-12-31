@@ -27,7 +27,7 @@ export const ORDER_BY_OPTIONS: Record<ErrorTrackingQueryOrderBy, string> = {
 }
 const DEFAULT_ORDER_BY: ErrorTrackingQueryOrderBy = 'last_seen'
 const DEFAULT_ORDER_DIRECTION = 'DESC'
-const DEFAULT_REVENUE_PERIOD = 'last_30_days'
+const DEFAULT_REVENUE_PERIOD = 'mrr'
 const DEFAULT_REVENUE_ENTITY = 'person'
 const DEFAULT_ASSIGNEE = null
 const DEFAULT_STATUS = 'active'

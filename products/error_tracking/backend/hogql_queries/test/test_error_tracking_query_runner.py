@@ -48,14 +48,19 @@ from ee.models.rbac.role import Role
 class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
     distinct_id_one = "user_1"
     distinct_id_two = "user_2"
+
     group0_id = "lolol0:xxx"
     group1_id = "lolol1:xxx"
+
     issue_name_one = "TypeError"
     issue_name_two = "ReferenceError"
     issue_id_one = "01936e7f-d7ff-7314-b2d4-7627981e34f0"
     issue_id_two = "01936e80-5e69-7e70-b837-871f5cdad28b"
     issue_id_three = "01936e80-aa51-746f-aec4-cdf16a5c5332"
+    issue_one_fingerprint = "issue_one_fingerprint"
+    issue_two_fingerprint = "issue_two_fingerprint"
     issue_three_fingerprint = "issue_three_fingerprint"
+
     PURCHASE_EVENT_NAME = "purchase"
     REVENUE_PROPERTY = "revenue"
 
@@ -124,14 +129,14 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             self.create_events_and_issue(
                 issue_id=self.issue_id_one,
                 issue_name=self.issue_name_one,
-                fingerprint="issue_one_fingerprint",
+                fingerprint=self.issue_one_fingerprint,
                 distinct_ids=[self.distinct_id_one, self.distinct_id_two],
                 timestamp=now() - relativedelta(hours=3),
             )
             self.create_events_and_issue(
                 issue_id=self.issue_id_two,
                 issue_name=self.issue_name_two,
-                fingerprint="issue_two_fingerprint",
+                fingerprint=self.issue_two_fingerprint,
                 distinct_ids=[self.distinct_id_one],
                 timestamp=now() - relativedelta(hours=2),
             )
