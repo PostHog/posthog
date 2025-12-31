@@ -158,14 +158,14 @@ class TestWebAuthnLogin(APIBaseTest):
     def test_login_complete_success(self, mock_verify):
         from webauthn.helpers import bytes_to_base64url
 
-        from posthog.api.webauthn import user_id_to_handle
+        from posthog.api.webauthn import user_uuid_to_handle
 
         self.client.post("/api/webauthn/login/begin/")
 
         mock_verify.return_value = MagicMock(new_sign_count=1)
 
-        # user handle is the user.pk encoded as bytes
-        user_handle = user_id_to_handle(self.user.pk)
+        # user handle is the user.uuid encoded as bytes
+        user_handle = user_uuid_to_handle(self.user.uuid)
 
         response = self.client.post(
             "/api/webauthn/login/complete/",
@@ -193,14 +193,14 @@ class TestWebAuthnLogin(APIBaseTest):
     def test_login_with_unverified_credential_fails(self, mock_verify):
         from webauthn.helpers import bytes_to_base64url
 
-        from posthog.api.webauthn import user_id_to_handle
+        from posthog.api.webauthn import user_uuid_to_handle
 
         self.credential.verified = False
         self.credential.save()
 
         self.client.post("/api/webauthn/login/begin/")
 
-        user_handle = user_id_to_handle(self.user.pk)
+        user_handle = user_uuid_to_handle(self.user.uuid)
 
         response = self.client.post(
             "/api/webauthn/login/complete/",

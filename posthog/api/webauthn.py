@@ -1,4 +1,5 @@
 import json
+import uuid
 from typing import Any, cast
 
 from django.contrib.auth import login
@@ -56,9 +57,9 @@ SUPPORTED_PUB_KEY_ALGS = [
 ]
 
 
-def user_id_to_handle(user_id: Any) -> bytes:
-    """Convert a user ID to bytes for use as a WebAuthn user handle."""
-    return str(user_id).encode("utf-8")
+def user_uuid_to_handle(user_uuid: uuid.UUID) -> bytes:
+    """Convert a user's UUID to bytes for use as a WebAuthn user handle."""
+    return user_uuid.bytes
 
 
 class WebAuthnRegistrationViewSet(viewsets.ViewSet):
@@ -94,8 +95,8 @@ class WebAuthnRegistrationViewSet(viewsets.ViewSet):
             for cred in existing_credentials
         ]
 
-        # Use user.pk as the user handle for discoverable credentials
-        user_handle = user_id_to_handle(user.pk)
+        # Use user.uuid as the user handle for discoverable credentials
+        user_handle = user_uuid_to_handle(user.uuid)
 
         options = generate_registration_options(
             rp_id=get_webauthn_rp_id(),
