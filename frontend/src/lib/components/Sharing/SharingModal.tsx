@@ -329,8 +329,8 @@ export function SharingModalContent({
                                                                 )}
                                                             </div>
                                                         }
-                                                        onChange={() => {
-                                                            const newWhitelabelValue = !value
+                                                        onChange={(showBranding: boolean) => {
+                                                            const newWhitelabelValue = !showBranding
                                                             if (newWhitelabelValue) {
                                                                 guardAvailableFeature(
                                                                     AvailableFeature.WHITE_LABELLING,
