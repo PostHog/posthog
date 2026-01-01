@@ -209,6 +209,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             description=result.content.description,
             insight_id=artifact_or_insight_id,
             insight_model_id=result.model.id if isinstance(result, ModelArtifactResult) else None,
+            insight_short_id=result.model.short_id if isinstance(result, ModelArtifactResult) else None,
         )
 
         # The agent wants to read the schema, just return it
