@@ -1,3 +1,5 @@
+import '../../DataTable/DataTable.scss'
+
 import { useValues } from 'kea'
 import posthog from 'posthog-js'
 
@@ -115,10 +117,12 @@ export const Table = (props: TableProps): JSX.Element => {
 
     return (
         <LemonTable
+            className="DataVisualizationTable"
             dataSource={tabularData}
             columns={tableColumns}
             loading={responseLoading}
             pagination={{ pageSize: DEFAULT_PAGE_SIZE }}
+            maxHeaderWidth="15rem"
             emptyState={
                 responseError ? (
                     <InsightErrorState
