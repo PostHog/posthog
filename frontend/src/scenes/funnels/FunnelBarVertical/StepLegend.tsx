@@ -45,16 +45,20 @@ export function StepLegend({ step, stepIndex, showTime, showPersonsModal }: Step
         aggregationTargetLabel.plural
     )
 
+    const conversionBasisLabel =
+        funnelsFilter?.funnelStepReference === FunnelStepReference.previous ? 'of prev' : 'of first'
     const convertedCountPresentationWithPercentage = (
         <>
             {convertedCountPresentation}{' '}
-            <span className="text-secondary">({percentage(step.conversionRates.fromBasisStep, 2)})</span>
+            <span className="text-secondary">
+                ({percentage(step.conversionRates.fromBasisStep, 2)} {conversionBasisLabel})
+            </span>
         </>
     )
     const droppedOffCountPresentationWithPercentage = (
         <>
             {droppedOffCountPresentation}{' '}
-            <span className="text-secondary">({percentage(1 - step.conversionRates.fromPrevious, 2)})</span>
+            <span className="text-secondary">({percentage(1 - step.conversionRates.fromPrevious, 2)} of prev)</span>
         </>
     )
 
