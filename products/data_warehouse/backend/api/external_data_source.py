@@ -218,13 +218,15 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             # Reconstruct ssh_tunnel (if needed) structure for UI handling
             if "ssh_tunnel" in job_inputs and isinstance(job_inputs["ssh_tunnel"], dict):
                 existing_ssh_tunnel: dict = job_inputs["ssh_tunnel"]
-                existing_auth: dict = existing_ssh_tunnel.get("auth", {})
+                # Check both 'auth' (new format) and 'auth_type' (legacy format from migration 0807)
+                existing_auth: dict = existing_ssh_tunnel.get("auth") or existing_ssh_tunnel.get("auth_type") or {}
                 ssh_tunnel = {
                     "enabled": existing_ssh_tunnel.get("enabled", False),
                     "host": existing_ssh_tunnel.get("host", None),
                     "port": existing_ssh_tunnel.get("port", None),
                     "auth": {
-                        "selection": existing_auth.get("type", None),
+                        # Check both 'type' (new format) and 'selection' (legacy format)
+                        "selection": existing_auth.get("type") or existing_auth.get("selection"),
                         "username": existing_auth.get("username", None),
                         # Note: password, passphrase, private_key intentionally omitted
                         # to prevent them being sent back as null and overwriting stored values
@@ -302,7 +304,10 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         existing_ssh_tunnel = existing_job_inputs.get("ssh_tunnel")
         incoming_ssh_tunnel = incoming_job_inputs.get("ssh_tunnel")
         if existing_ssh_tunnel and incoming_ssh_tunnel is not None:
-            existing_auth = (existing_ssh_tunnel or {}).get("auth") or {}
+            # Check both 'auth' (new format) and 'auth_type' (legacy format from migration 0807)
+            existing_auth = (
+                (existing_ssh_tunnel or {}).get("auth") or (existing_ssh_tunnel or {}).get("auth_type") or {}
+            )
             incoming_auth = (
                 (incoming_ssh_tunnel or {}).get("auth") or (incoming_ssh_tunnel or {}).get("auth_type") or {}
             )

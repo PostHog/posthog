@@ -1,4 +1,6 @@
 import { useActions, useValues } from 'kea'
+import '../../DataTable/DataTable.scss'
+
 import posthog from 'posthog-js'
 
 import { IconPin, IconPinFilled } from '@posthog/icons'
@@ -141,11 +143,13 @@ export const Table = (props: TableProps): JSX.Element => {
 
     return (
         <LemonTable
+            className="DataVisualizationTable"
             dataSource={tabularData}
             columns={tableColumns}
             pinnedColumns={pinnedColumns}
             loading={responseLoading}
             pagination={{ pageSize: DEFAULT_PAGE_SIZE }}
+            maxHeaderWidth="15rem"
             emptyState={
                 responseError ? (
                     <InsightErrorState
