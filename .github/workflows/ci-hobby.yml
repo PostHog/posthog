@@ -385,6 +385,11 @@ jobs:
                   exit 0
               env:
                   DIGITALOCEAN_TOKEN: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}
+                  DIGITALOCEAN_SSH_PRIVATE_KEY: ${{ secrets.DO_DEPLOY_SSH_PRIVATE_KEY }}
+                  GH_TOKEN: ${{ github.token }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  RUN_ID: ${{ github.run_id }}
+                  RUN_ATTEMPT: ${{ github.run_attempt }}
             - name: Generate demo data
               if: env.TEST_EXIT_CODE == '0' && env.PREVIEW_MODE == 'true' && env.HOBBY_DROPLET_NEW == 'true'
               timeout-minutes: 15
