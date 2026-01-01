@@ -100,8 +100,9 @@ export class CdpApi {
                     ? {
                           url: hub.CDP_REDIS_HOST,
                           options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
+                          name: 'cdp-api-redis',
                       }
-                    : { url: hub.REDIS_URL },
+                    : { url: hub.REDIS_URL, name: 'cdp-api-redis-fallback' },
                 poolMinSize: hub.REDIS_POOL_MIN_SIZE,
                 poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
             })
