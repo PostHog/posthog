@@ -10,7 +10,12 @@ import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 
 import { FunnelsFilter } from '~/queries/schema/schema-general'
-import { EditorFilterProps, FunnelConversionWindow, FunnelConversionWindowTimeUnit } from '~/types'
+import { EditorFilterProps, FunnelConversionWindowTimeUnit } from '~/types'
+
+interface LocalConversionWindow {
+    funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit
+    funnelWindowInterval: number | undefined
+}
 
 export const TIME_INTERVAL_BOUNDS: Record<FunnelConversionWindowTimeUnit, number[]> = {
     [FunnelConversionWindowTimeUnit.Second]: [1, 3600],
@@ -33,7 +38,7 @@ export function FunnelConversionWindowFilter({ insightProps }: Pick<EditorFilter
         funnelWindowIntervalUnit = FunnelConversionWindowTimeUnit.Day,
     } = (insightFilter || {}) as FunnelsFilter
 
-    const [localConversionWindow, setLocalConversionWindow] = useState<FunnelConversionWindow>({
+    const [localConversionWindow, setLocalConversionWindow] = useState<LocalConversionWindow>({
         funnelWindowInterval,
         funnelWindowIntervalUnit,
     })
@@ -47,15 +52,19 @@ export function FunnelConversionWindowFilter({ insightProps }: Pick<EditorFilter
     const intervalBounds = TIME_INTERVAL_BOUNDS[funnelWindowIntervalUnit ?? FunnelConversionWindowTimeUnit.Day]
 
     const setConversionWindow = useDebouncedCallback((): void => {
-        if (Number.isNaN(localConversionWindow.funnelWindowInterval)) {
+        const interval = localConversionWindow.funnelWindowInterval
+        if (interval === undefined || Number.isNaN(interval)) {
             return
         }
 
         if (
-            localConversionWindow.funnelWindowInterval !== funnelWindowInterval ||
+            interval !== funnelWindowInterval ||
             localConversionWindow.funnelWindowIntervalUnit !== funnelWindowIntervalUnit
         ) {
-            updateInsightFilter(localConversionWindow)
+            updateInsightFilter({
+                funnelWindowInterval: interval,
+                funnelWindowIntervalUnit: localConversionWindow.funnelWindowIntervalUnit,
+            })
         }
     }, 200)
 
@@ -82,17 +91,25 @@ export function FunnelConversionWindowFilter({ insightProps }: Pick<EditorFilter
                     type="number"
                     className="max-w-20"
                     fullWidth={false}
-                    min={intervalBounds[0]}
                     max={intervalBounds[1]}
-                    value={localConversionWindow.funnelWindowInterval || funnelWindowInterval}
+                    value={localConversionWindow.funnelWindowInterval ?? funnelWindowInterval}
                     onChange={(funnelWindowInterval) => {
                         setLocalConversionWindow((state) => ({
                             ...state,
-                            funnelWindowInterval: Number(funnelWindowInterval),
+                            funnelWindowInterval:
+                                funnelWindowInterval === '' ? undefined : Number(funnelWindowInterval),
                         }))
+                    }}
+                    onBlur={() => {
+                        const value = localConversionWindow.funnelWindowInterval
+                        if (value === undefined || value < intervalBounds[0]) {
+                            setLocalConversionWindow((state) => ({
+                                ...state,
+                                funnelWindowInterval: intervalBounds[0],
+                            }))
+                        }
                         setConversionWindow()
                     }}
-                    onBlur={setConversionWindow}
                     onPressEnter={setConversionWindow}
                 />
                 <LemonSelect
