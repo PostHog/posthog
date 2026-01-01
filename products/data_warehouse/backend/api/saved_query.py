@@ -43,6 +43,7 @@ from posthog.temporal.common.client import sync_connect
 
 from products.data_warehouse.backend.data_load.saved_query_service import (
     pause_saved_query_schedule,
+    saved_query_workflow_exists,
     sync_saved_query_workflow,
     trigger_saved_query_schedule,
 )
@@ -375,7 +376,7 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
                 # update the temporal schedule if the view is materialized
                 if view.is_materialized:
                     try:
-                        sync_saved_query_workflow(view, create=False)
+                        sync_saved_query_workflow(view, create=not saved_query_workflow_exists(str(view.id)))
                     except Exception as e:
                         capture_exception(e)
                         logger.exception(
