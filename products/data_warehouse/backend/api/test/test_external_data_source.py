@@ -1314,6 +1314,73 @@ class TestExternalDataSource(APIBaseTest):
         assert source.job_inputs["host"] == "new-host.example.com"
         assert source.job_inputs["password"] == "original_password"
 
+    def test_update_legacy_auth_type_format_preserves_credentials(self):
+        """
+        Regression test for sources created via migration 0807 that use 'auth_type' instead of 'auth'.
+
+        Migration 0807 stored SSH tunnel auth as 'auth_type' (the alias), but newer code stores
+        it as 'auth' (the field name). The update flow must handle both formats to preserve
+        credentials for migrated sources.
+        """
+        # Create a source with legacy 'auth_type' format (as created by migration 0807)
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="test_legacy_auth",
+            job_inputs={
+                "source_type": "Postgres",
+                "host": "db.example.com",
+                "port": "5432",
+                "database": "mydb",
+                "user": "dbuser",
+                "password": "db_password",
+                "schema": "public",
+                "ssh_tunnel": {
+                    "enabled": "True",
+                    "host": "ssh.example.com",
+                    "port": "22",
+                    # Legacy format: 'auth_type' instead of 'auth'
+                    "auth_type": {
+                        "selection": "password",
+                        "username": "sshuser",
+                        "password": "ssh_secret_password",
+                        "passphrase": "",
+                        "private_key": "",
+                    },
+                },
+            },
+        )
+
+        # Step 1: GET the source - should properly read auth_type and return as auth
+        get_response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+        assert get_response.status_code == 200
+        get_data = get_response.json()
+
+        # Verify the GET response has the auth data (read from auth_type)
+        assert get_data["job_inputs"]["ssh_tunnel"]["auth"]["selection"] == "password"
+        assert get_data["job_inputs"]["ssh_tunnel"]["auth"]["username"] == "sshuser"
+
+        # Step 2: PATCH with the exact data from GET
+        patch_response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": get_data["job_inputs"]},
+        )
+
+        # Should succeed, not fail with validation error
+        assert (
+            patch_response.status_code == 200
+        ), f"Expected 200, got {patch_response.status_code}: {patch_response.json()}"
+
+        # Verify credentials are preserved
+        source.refresh_from_db()
+        assert source.job_inputs["password"] == "db_password"  # Main DB password preserved
+        # After update, it should be normalized to 'auth' format
+        assert source.job_inputs["ssh_tunnel"]["auth"]["password"] == "ssh_secret_password"  # SSH password preserved
+
     def test_snowflake_auth_type_create_and_update(self):
         """Test that we can create and update the auth type for a Snowflake source"""
         with patch(
