@@ -328,10 +328,17 @@ const cinemaModeStory = (mocks: Record<string, any> = {}): StoryFn => {
     return Story
 }
 
-const cinemaModeParameters = { testOptions: { viewport: { width: 1300, height: 720 } } }
+const cinemaModeWideParameters = { testOptions: { viewport: { width: 1300, height: 720 } } }
+const cinemaModeNarrowParameters = { testOptions: { viewport: { width: 568, height: 1024 } } }
 
 export const CinemaModeWithIntro: StoryFn = cinemaModeStory()
-CinemaModeWithIntro.parameters = cinemaModeParameters
+CinemaModeWithIntro.parameters = cinemaModeWideParameters
 
 export const CinemaModeSeenIntro: StoryFn = cinemaModeStory({ '/api/users/@me/': userSeenReplayIntroMock })
-CinemaModeSeenIntro.parameters = cinemaModeParameters
+CinemaModeSeenIntro.parameters = cinemaModeWideParameters
+
+export const CinemaModeWithIntroNarrow: StoryFn = cinemaModeStory()
+CinemaModeWithIntroNarrow.parameters = cinemaModeNarrowParameters
+
+export const CinemaModeSeenIntroNarrow: StoryFn = cinemaModeStory({ '/api/users/@me/': userSeenReplayIntroMock })
+CinemaModeSeenIntroNarrow.parameters = cinemaModeNarrowParameters
