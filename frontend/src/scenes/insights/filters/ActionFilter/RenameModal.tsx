@@ -52,7 +52,7 @@ export function RenameModal({ typeKey, view }: RenameModalProps): JSX.Element {
                 onChange={(value) => setName(value)}
                 suffix={
                     <span
-                        className="text-secondary truncate max-w-[200px]"
+                        className="text-secondary truncate max-w-24"
                         title={getDisplayNameFromEntityFilter(selectedFilter, false) ?? ''}
                     >
                         {getDisplayNameFromEntityFilter(selectedFilter, false) ?? ''}
