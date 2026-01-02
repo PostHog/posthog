@@ -5,6 +5,7 @@ import { UnexpectedNeverError, getDefaultInterval } from 'lib/utils'
 
 import { hogqlQuery } from '~/queries/query'
 import {
+    Breakdown,
     BreakdownFilter,
     ProductKey,
     QueryLogTags,
@@ -312,6 +313,8 @@ export enum PathTab {
 
 export enum GeographyTab {
     MAP = 'MAP',
+    POINTS = 'POINTS',
+    SUBDIVISIONS = 'SUBDIVISIONS',
     COUNTRIES = 'COUNTRIES',
     REGIONS = 'REGIONS',
     CITIES = 'CITIES',
@@ -409,6 +412,28 @@ export const getWebAnalyticsBreakdownFilter = (breakdown: WebStatsBreakdown): Br
         breakdown_type: property.type,
         breakdown: property.key,
     }
+}
+
+export const isPointsMapBreakdown = (breakdowns: Breakdown[] | undefined): boolean => {
+    if (!breakdowns) {
+        return false
+    }
+
+    return (
+        breakdowns.some((b) => b.property === '$geoip_latitude') &&
+        breakdowns.some((b) => b.property === '$geoip_longitude')
+    )
+}
+
+export const isSubdivisionsMapBreakdown = (breakdowns: Breakdown[] | undefined): boolean => {
+    if (!breakdowns) {
+        return false
+    }
+
+    return (
+        breakdowns.some((b) => b.property === '$geoip_country_code') &&
+        breakdowns.some((b) => b.property === '$geoip_subdivision_1_code')
+    )
 }
 
 export const GEOIP_TEMPLATE_IDS = ['template-geoip', 'plugin-posthog-plugin-geoip']

@@ -1563,6 +1563,96 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                           canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
                                       }
                                     : null,
+                                shouldShowGeoIPQueries && featureFlags[FEATURE_FLAGS.SHOW_DETAILED_WEB_ANALYTICS_MAPS]
+                                    ? {
+                                          id: GeographyTab.POINTS,
+                                          title: 'Point map',
+                                          linkText: 'Points',
+                                          query: {
+                                              kind: NodeKind.InsightVizNode,
+                                              source: {
+                                                  kind: NodeKind.TrendsQuery,
+                                                  breakdownFilter: {
+                                                      breakdowns: [
+                                                          {
+                                                              property: '$geoip_latitude',
+                                                              type: 'event',
+                                                          },
+                                                          {
+                                                              property: '$geoip_longitude',
+                                                              type: 'event',
+                                                          },
+                                                      ],
+                                                  },
+                                                  dateRange,
+                                                  series: [
+                                                      {
+                                                          event: '$pageview',
+                                                          name: 'Pageview',
+                                                          kind: NodeKind.EventsNode,
+                                                          math: BaseMathType.UniqueUsers,
+                                                      },
+                                                  ],
+                                                  trendsFilter: {
+                                                      display: ChartDisplayType.WorldMap,
+                                                  },
+                                                  conversionGoal,
+                                                  filterTestAccounts,
+                                                  properties: webAnalyticsFilters,
+                                                  tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                              },
+                                              hidePersonsModal: true,
+                                              embedded: true,
+                                          },
+                                          insightProps: createInsightProps(TileId.GEOGRAPHY, GeographyTab.POINTS),
+                                          canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
+                                      }
+                                    : null,
+                                shouldShowGeoIPQueries && featureFlags[FEATURE_FLAGS.SHOW_DETAILED_WEB_ANALYTICS_MAPS]
+                                    ? {
+                                          id: GeographyTab.SUBDIVISIONS,
+                                          title: 'Subdivisions map',
+                                          linkText: 'Subdivisions',
+                                          query: {
+                                              kind: NodeKind.InsightVizNode,
+                                              source: {
+                                                  kind: NodeKind.TrendsQuery,
+                                                  breakdownFilter: {
+                                                      breakdowns: [
+                                                          {
+                                                              property: '$geoip_country_code',
+                                                              type: 'event',
+                                                          },
+                                                          {
+                                                              property: '$geoip_subdivision_1_code',
+                                                              type: 'event',
+                                                          },
+                                                      ],
+                                                  },
+                                                  dateRange,
+                                                  series: [
+                                                      {
+                                                          event: '$pageview',
+                                                          name: 'Pageview',
+                                                          kind: NodeKind.EventsNode,
+                                                          math: BaseMathType.UniqueUsers,
+                                                      },
+                                                  ],
+                                                  trendsFilter: {
+                                                      display: ChartDisplayType.WorldMap,
+                                                  },
+                                                  conversionGoal,
+                                                  filterTestAccounts,
+                                                  properties: webAnalyticsFilters,
+                                                  tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                              },
+                                              hidePersonsModal: true,
+                                              embedded: true,
+                                          },
+                                          insightProps: createInsightProps(TileId.GEOGRAPHY, GeographyTab.SUBDIVISIONS),
+                                          canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
+                                      }
+                                    : null,
                                 shouldShowGeoIPQueries
                                     ? createTableTab(
                                           TileId.GEOGRAPHY,
