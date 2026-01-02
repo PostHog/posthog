@@ -58,6 +58,7 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                             name: formValues.name || workflow.name || '',
                             description: formValues.description || workflow.description || '',
                             image_url: formValues.image_url || undefined,
+                            scope: formValues.scope || undefined,
                         }
 
                         await actions.updateTemplateFromWorkflow(props.editTemplateId, updatedWorkflow)
