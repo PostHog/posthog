@@ -17,7 +17,7 @@ class HogFlowBatchJob(UUIDTModel):
 
     class Meta:
         indexes = [
-            models.Index(fields=["status", "team"]),
+            models.Index(fields=["team"]),
         ]
 
     class State(models.TextChoices):
