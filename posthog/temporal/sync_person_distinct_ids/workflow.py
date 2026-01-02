@@ -34,7 +34,7 @@ class SyncPersonDistinctIdsWorkflowInputs:
     """
 
     team_id: int
-    batch_size: int = 500
+    batch_size: int = 100
     dry_run: bool = True
     delete_ch_only_orphans: bool = False
     categorize_orphans: bool = False

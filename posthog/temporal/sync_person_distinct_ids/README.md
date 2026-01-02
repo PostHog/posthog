@@ -29,7 +29,7 @@ This workflow:
 @dataclasses.dataclass
 class SyncPersonDistinctIdsWorkflowInputs:
     team_id: int
-    batch_size: int = 500
+    batch_size: int = 100
     dry_run: bool = True  # Safe by default
     delete_ch_only_orphans: bool = False  # If True, mark CH-only orphans as deleted
     categorize_orphans: bool = False  # If True, run extra query to distinguish truly orphaned vs CH-only
@@ -216,7 +216,7 @@ python manage.py setup_orphan_test_data --team-id 1 --cleanup
 ## Design Decisions
 
 1. **Single team per workflow** - Run separate instances for different teams (simpler, better isolation)
-2. **Batch size 500** - Balances throughput vs memory
+2. **Batch size 100** - Balances throughput vs memory
 3. **Idempotent** - `person_distinct_id2` uses `ReplacingMergeTree` with version dedup
 4. **Dry run by default** - Safe; logs what would happen without making changes
 5. **Mark CH-only orphans deleted opt-in** - Destructive action requires explicit flag
