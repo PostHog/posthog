@@ -89,7 +89,19 @@ services:
             SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'any'
             OBJECT_STORAGE_ENABLED: true
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
+            POSTHOG_SKIP_MIGRATION_CHECKS: '1'
         image: $REGISTRY_URL:$POSTHOG_APP_TAG
+        depends_on:
+            db:
+                condition: service_healthy
+            redis:
+                condition: service_healthy
+            clickhouse:
+                condition: service_started
+            kafka:
+                condition: service_healthy
+            web:
+                condition: service_started
     web:
         extends:
             file: docker-compose.base.yml
@@ -135,6 +147,7 @@ services:
             OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
             SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'any'
             SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'any'
+            SESSION_RECORDING_V2_S3_TIMEOUT_MS: 120000
             OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
             SESSION_RECORDING_V2_S3_ENDPOINT: http://seaweedfs:8333
             OBJECT_STORAGE_ENABLED: true
@@ -190,6 +203,18 @@ services:
         restart: on-failure
         volumes:
             - seaweedfs:/data
+        healthcheck:
+            test:
+                [
+                    'CMD',
+                    'sh',
+                    '-c',
+                    "echo 's3.bucket.list' | /usr/bin/weed shell -master=localhost:9333 2>&1 | grep -q posthog",
+                ]
+            interval: 5s
+            timeout: 10s
+            retries: 30
+            start_period: 10s
 
     asyncmigrationscheck:
         extends:
@@ -288,6 +313,11 @@ services:
         extends:
             file: docker-compose.base.yml
             service: property-defs-rs
+        depends_on:
+            kafka-init:
+                condition: service_completed_successfully
+            db:
+                condition: service_healthy
 
     livestream:
         extends:
@@ -334,18 +364,20 @@ services:
                     fi
                 done
                 echo "Kafka broker is accepting requests, creating topics..."
-                # Create topic - ignore error if it already exists (exit code 0 or topic exists error)
-                if rpk topic create exceptions_ingestion --brokers kafka:9092 -p 1 -r 1 2>&1; then
-                    echo "Topic created successfully"
-                else
-                    # Check if topic already exists
-                    if rpk topic list --brokers kafka:9092 | grep -q exceptions_ingestion; then
-                        echo "Topic already exists, continuing"
+                # Create topics needed by rust services
+                # Note: $$ escapes $ for docker-compose variable substitution
+                for topic in exceptions_ingestion clickhouse_events_json; do
+                    if rpk topic create "$$topic" --brokers kafka:9092 -p 1 -r 1 2>&1; then
+                        echo "Topic $$topic created successfully"
                     else
-                        echo "Failed to create topic"
-                        exit 1
+                        if rpk topic list --brokers kafka:9092 | grep -q "$$topic"; then
+                            echo "Topic $$topic already exists, continuing"
+                        else
+                            echo "Failed to create topic $$topic"
+                            exit 1
+                        fi
                     fi
-                fi
+                done
                 echo "Final topic list:"
                 rpk topic list --brokers kafka:9092
                 echo "Topics ready"
@@ -383,7 +415,7 @@ services:
             kafka-init:
                 condition: service_completed_successfully
             seaweedfs:
-                condition: service_started
+                condition: service_healthy
             db:
                 condition: service_healthy
             redis:
