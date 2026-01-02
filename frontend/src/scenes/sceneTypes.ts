@@ -152,7 +152,6 @@ export enum Scene {
     Wizard = 'Wizard',
     EarlyAccessFeature = 'EarlyAccessFeature',
     EndpointsScene = 'EndpointsScene',
-    EndpointsUsage = 'EndpointsUsage',
     Game368Hedgehogs = 'Game368Hedgehogs',
     LLMAnalytics = 'LLMAnalytics',
     LLMAnalyticsDataset = 'LLMAnalyticsDataset',

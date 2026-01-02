@@ -123,6 +123,11 @@ export const API_KEY_SCOPE_PRESETS: {
         label: 'Zapier integration',
         scopes: ['action:read', 'query:read', 'project:read', 'organization:read', 'user:read', 'webhook:write'],
     },
+    {
+        value: 'n8n',
+        label: 'n8n integration',
+        scopes: ['action:read', 'query:read', 'project:read', 'organization:read', 'user:read', 'webhook:write'],
+    },
     { value: 'analytics', label: 'Performing analytics queries', scopes: ['query:read'] },
     { value: 'endpoints', label: 'Endpoint execution', scopes: ['endpoint:read'] },
     {

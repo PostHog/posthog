@@ -1,6 +1,6 @@
 import { instrumented } from '~/common/tracing/tracing-utils'
 
-import { HealthCheckResult, Hub } from '../../types'
+import { HealthCheckResult, PluginsServerConfig } from '../../types'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
@@ -12,17 +12,27 @@ import {
     CyclotronJobQueueKind,
 } from '../types'
 import { isLegacyPluginHogFunction, isNativeHogFunction, isSegmentPluginHogFunction } from '../utils'
-import { CdpConsumerBase } from './cdp-base.consumer'
+import { CdpConsumerBase, CdpConsumerBaseHub } from './cdp-base.consumer'
+
+/**
+ * Hub type for CdpCyclotronWorker.
+ * Extends CdpConsumerBaseHub with cyclotron-specific fields.
+ */
+export type CdpCyclotronWorkerHub = CdpConsumerBaseHub &
+    PluginsServerConfig & // For CyclotronJobQueue (to be narrowed later)
+    Pick<PluginsServerConfig, 'CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND'>
 
 /**
  * The future of the CDP consumer. This will be the main consumer that will handle all hog jobs from Cyclotron
  */
-export class CdpCyclotronWorker extends CdpConsumerBase {
+export class CdpCyclotronWorker<
+    THub extends CdpCyclotronWorkerHub = CdpCyclotronWorkerHub,
+> extends CdpConsumerBase<THub> {
     protected name = 'CdpCyclotronWorker'
     protected cyclotronJobQueue: CyclotronJobQueue
     protected queue: CyclotronJobQueueKind
 
-    constructor(hub: Hub, queue?: CyclotronJobQueueKind) {
+    constructor(hub: THub, queue?: CyclotronJobQueueKind) {
         super(hub)
         this.queue = queue ?? hub.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND
 

@@ -2,6 +2,12 @@ import { RedisV2, getRedisPipelineResults } from '~/common/redis/redis-v2'
 
 import { Hub } from '../../../types'
 
+/** Narrowed Hub type for HogRateLimiterService */
+export type HogRateLimiterServiceHub = Pick<
+    Hub,
+    'CDP_RATE_LIMITER_BUCKET_SIZE' | 'CDP_RATE_LIMITER_REFILL_RATE' | 'CDP_RATE_LIMITER_TTL'
+>
+
 export const BASE_REDIS_KEY =
     process.env.NODE_ENV == 'test' ? '@posthog-test/hog-rate-limiter' : '@posthog/hog-rate-limiter'
 const REDIS_KEY_TOKENS = `${BASE_REDIS_KEY}/tokens`
@@ -13,7 +19,7 @@ export type HogRateLimit = {
 
 export class HogRateLimiterService {
     constructor(
-        private hub: Hub,
+        private hub: HogRateLimiterServiceHub,
         private redis: RedisV2
     ) {}
 

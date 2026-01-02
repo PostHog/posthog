@@ -7,7 +7,6 @@ import { defaultConfig } from '~/config/config'
 import { parseJSON } from '~/utils/json-parse'
 import { captureException } from '~/utils/posthog'
 
-import { Hub } from '../../../types'
 import { logger } from '../../../utils/logger'
 import { HogFlowManagerService } from '../hogflows/hogflow-manager.service'
 import { HogFunctionManagerService } from '../managers/hog-function-manager.service'
@@ -58,7 +57,6 @@ export class EmailTrackingService {
     private sesWebhookHandler: SesWebhookHandler
 
     constructor(
-        private hub: Hub,
         private hogFunctionManager: HogFunctionManagerService,
         private hogFlowManager: HogFlowManagerService,
         private hogFunctionMonitoringService: HogFunctionMonitoringService

@@ -814,8 +814,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.310.1
-        version: 1.310.1
+        specifier: 1.313.0
+        version: 1.313.0
       posthog-js-lite:
         specifier: 4.2.2
         version: 4.2.2
@@ -1151,15 +1151,6 @@ importers:
       fsevents:
         specifier: ^2.3.2
         version: 2.3.3
-
-  playwright:
-    dependencies:
-      '@playwright/test':
-        specifier: 1.45.0
-        version: 1.45.0
-      '@posthog/frontend':
-        specifier: workspace:*
-        version: link:../frontend
 
   nodejs:
     dependencies:
@@ -1501,6 +1492,15 @@ importers:
         specifier: ^4.7.0
         version: 4.20.5
 
+  playwright:
+    dependencies:
+      '@playwright/test':
+        specifier: 1.45.0
+        version: 1.45.0
+      '@posthog/frontend':
+        specifier: workspace:*
+        version: link:../frontend
+
   products/actions:
     dependencies:
       '@posthog/icons':
@@ -1746,8 +1746,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.310.1
-        version: 1.310.1
+        specifier: 1.313.0
+        version: 1.313.0
       react:
         specifier: '*'
         version: 18.2.0
@@ -2385,8 +2385,8 @@ importers:
         specifier: ^3.4.1
         version: 3.4.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.310.1
-        version: 1.310.1
+        specifier: 1.313.0
+        version: 1.313.0
       react:
         specifier: '*'
         version: 18.2.0
@@ -2457,8 +2457,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.310.1
-        version: 1.310.1
+        specifier: 1.313.0
+        version: 1.313.0
       react:
         specifier: '*'
         version: 18.2.0
@@ -16455,8 +16455,8 @@ packages:
   posthog-js-lite@4.2.2:
     resolution: {integrity: sha512-fFCoGtMICWwoW0tsEdyFS7OFFgwe7bTTha/SKEtUdyJ56UyJ8wi6VghxyPkO2GVWpco5Za/edT1z1ovGYPCyLQ==}
 
-  posthog-js@1.310.1:
-    resolution: {integrity: sha512-UkR6zzlWNtqHDXHJl2Yk062DOmZyVKTPL5mX4j4V+u3RiYbMHJe47+PpMMUsvK1R2e1r/m9uSlHaJMJRzyUjGg==}
+  posthog-js@1.313.0:
+    resolution: {integrity: sha512-CL8RkC7m9BTZrix86w0fdnSCVqC/gxrfs6c4Wfkz/CldFD7f2912S2KqnWFmwRVDGIwm9IR82YhublQ88gdDKw==}
 
   posthog-node@5.10.4:
     resolution: {integrity: sha512-sy020/Q4mt18eCkVo/cGEJD+wgdxeg5DTgNUaA85awBCbuEP43BOdCTOOw/K2Tvgw2oZfag3PFyhkVuQ6nJfBg==}
@@ -16486,6 +16486,9 @@ packages:
 
   preact@10.28.0:
     resolution: {integrity: sha512-rytDAoiXr3+t6OIP3WGlDd0ouCUG1iCWzkcY3++Nreuoi17y6T5i/zRhe6uYfoVcxq6YU+sBtJouuRDsq8vvqA==}
+
+  preact@10.28.1:
+    resolution: {integrity: sha512-u1/ixq/lVQI0CakKNvLDEcW5zfCjUQfZdK9qqWuIJtsezuyG6pk9TWj75GMuI/EzRSZB/VAE43sNWWZfiy8psw==}
 
   prelude-ls@1.2.1:
     resolution: {integrity: sha512-vkcDPrRZo1QZLbn5RLGPpg/WmIQ65qoWWhcGKf/b5eplkkarX0m9z8ppCat4mlOqUsWpyNuYgO3VRyrYHSzX5g==}
@@ -28330,7 +28333,7 @@ snapshots:
       commander: 9.4.1
       expect-playwright: 0.8.0
       glob: 10.4.5
-      jest: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.18.8)(typescript@5.2.2))
+      jest: 29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
       jest-circus: 29.7.0
       jest-environment-node: 29.7.0
       jest-junit: 16.0.0
@@ -34968,7 +34971,7 @@ snapshots:
   jest-playwright-preset@4.0.0(jest-circus@29.7.0)(jest-environment-node@29.7.0)(jest-runner@29.7.0)(jest@29.7.0):
     dependencies:
       expect-playwright: 0.8.0
-      jest: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.18.8)(typescript@5.2.2))
+      jest: 29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
       jest-circus: 29.7.0
       jest-environment-node: 29.7.0
       jest-process-manager: 0.4.0
@@ -35248,7 +35251,7 @@ snapshots:
     dependencies:
       ansi-escapes: 6.0.0
       chalk: 5.4.1
-      jest: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.18.8)(typescript@5.2.2))
+      jest: 29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
       jest-regex-util: 29.6.3
       jest-watcher: 29.7.0
       slash: 5.1.0
@@ -38214,12 +38217,12 @@ snapshots:
     dependencies:
       '@posthog/core': 1.7.1
 
-  posthog-js@1.310.1:
+  posthog-js@1.313.0:
     dependencies:
       '@posthog/core': 1.9.0
       core-js: 3.40.0
       fflate: 0.4.8
-      preact: 10.28.0
+      preact: 10.28.1
       web-vitals: 4.2.4
 
   posthog-node@5.10.4:
@@ -38248,6 +38251,8 @@ snapshots:
   pprof-format@2.2.1: {}
 
   preact@10.28.0: {}
+
+  preact@10.28.1: {}
 
   prelude-ls@1.2.1: {}
 

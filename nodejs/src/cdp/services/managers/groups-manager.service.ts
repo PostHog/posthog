@@ -6,6 +6,9 @@ import { logger } from '~/utils/logger'
 import { GroupTypeIndex, Hub, Team } from '../../../types'
 import { GroupType, HogFunctionInvocationGlobals } from '../../types'
 
+/** Narrowed Hub type for GroupsManagerService */
+export type GroupsManagerServiceHub = Pick<Hub, 'teamManager' | 'groupRepository' | 'SITE_URL'>
+
 export type GroupsMap = Record<string, GroupType>
 export type GroupsCache = Record<Team['id'], GroupsMap>
 
@@ -26,7 +29,7 @@ const GROUP_TYPES_CACHE_TTL_MS = 60 * 10 * 1000 // 10 minutes
 export class GroupsManagerService {
     groupTypesMappingCache: LRUCache<number, { group_type: string; group_type_index: number }[]>
 
-    constructor(private hub: Hub) {
+    constructor(private hub: GroupsManagerServiceHub) {
         // There is only 5 per team so we can have a very high cache and a very long cooldown
         this.groupTypesMappingCache = new LRUCache({ max: 100_000, ttl: GROUP_TYPES_CACHE_TTL_MS })
     }

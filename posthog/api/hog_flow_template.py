@@ -59,7 +59,8 @@ class OnlyStaffCanEditGlobalHogFlowTemplate(BasePermission):
         if request.method in SAFE_METHODS:
             return True
 
-        if obj.scope == HogFlowTemplate.Scope.GLOBAL:
+        # Prevent non-staff from editing global templates / updating team template to global
+        if obj.scope == HogFlowTemplate.Scope.GLOBAL or request.data.get("scope") == HogFlowTemplate.Scope.GLOBAL:
             return request.user.is_staff
 
         return True
@@ -197,6 +198,9 @@ class HogFlowTemplateSerializer(serializers.ModelSerializer):
         data.pop("team_id", None)
         data.pop("created_at", None)
         data.pop("updated_at", None)
+        data.pop("created_by", None)
+        data.pop("status", None)
+        data.pop("version", None)
 
         return data
 

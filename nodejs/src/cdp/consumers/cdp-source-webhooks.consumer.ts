@@ -4,7 +4,7 @@ import { ModifiedRequest } from '~/api/router'
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { HogFlow } from '~/schema/hogflow'
 
-import { HealthCheckResult, HealthCheckResultOk, Hub } from '../../types'
+import { HealthCheckResult, HealthCheckResultOk, Hub, PluginsServerConfig } from '../../types'
 import { logger } from '../../utils/logger'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { UUID, UUIDT } from '../../utils/utils'
@@ -23,7 +23,7 @@ import {
 } from '../types'
 import { logEntry } from '../utils'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
-import { CdpConsumerBase } from './cdp-base.consumer'
+import { CdpConsumerBase, CdpConsumerBaseHub } from './cdp-base.consumer'
 
 const DISALLOWED_HEADERS = [
     'x-forwarded-for',
@@ -73,12 +73,20 @@ export class SourceWebhookError extends Error {
     }
 }
 
-export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
+/**
+ * Hub type for CdpSourceWebhooksConsumer.
+ * Extends CdpConsumerBaseHub with webhook-specific fields.
+ */
+export type CdpSourceWebhooksConsumerHub = CdpConsumerBaseHub &
+    PluginsServerConfig & // For CyclotronJobQueue (to be narrowed later)
+    Pick<Hub, 'SITE_URL'>
+
+export class CdpSourceWebhooksConsumer extends CdpConsumerBase<CdpSourceWebhooksConsumerHub> {
     protected name = 'CdpSourceWebhooksConsumer'
     private cyclotronJobQueue: CyclotronJobQueue
     private promiseScheduler: PromiseScheduler
 
-    constructor(hub: Hub) {
+    constructor(hub: CdpSourceWebhooksConsumerHub) {
         super(hub)
         this.promiseScheduler = new PromiseScheduler()
         this.cyclotronJobQueue = new CyclotronJobQueue(hub, 'hog')
