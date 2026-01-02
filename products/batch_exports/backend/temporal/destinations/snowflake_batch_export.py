@@ -944,7 +944,7 @@ class SnowflakeClient:
             SnowflakeQueryServerTimeoutError: If the COPY INTO query exceeds the timeout set in the user's account.
         """
         select_fields = ", ".join(
-            f'PARSE_JSON($1:"{field.name}")'
+            f"PARSE_JSON($1:\"{field.name}\", 'd')"
             if field.data_type == JsonType() and field.name.lower() != "elements"
             else f'$1:"{field.name}"'
             for field in table
