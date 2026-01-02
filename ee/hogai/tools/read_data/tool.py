@@ -14,10 +14,10 @@ from posthog.models import Dashboard, Team, User
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.artifacts.manager import ModelArtifactResult
-from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
 from ee.hogai.chat_agent.sql.mixins import HogQLDatabaseMixin
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
+from ee.hogai.context.entity_search import EntitySearchContext
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
@@ -26,8 +26,8 @@ from ee.hogai.tools.read_data.prompts import (
     BILLING_INSUFFICIENT_ACCESS_PROMPT,
     DASHBOARD_NOT_FOUND_PROMPT,
     INSIGHT_NOT_FOUND_PROMPT,
-    READ_DATA_ARTIFACTS_PROMPT,
     READ_DATA_BILLING_PROMPT,
+    READ_DATA_ENTITY_LIST_PROMPT,
     READ_DATA_PROMPT,
     READ_DATA_WAREHOUSE_SCHEMA_PROMPT,
 )
@@ -77,10 +77,24 @@ class ReadBillingInfo(BaseModel):
     kind: Literal["billing_info"] = "billing_info"
 
 
-class ReadArtifacts(BaseModel):
-    """Reads conversation artifacts created by the agent."""
+class ReadEntitiesList(BaseModel):
+    """Lists PostHog entities and conversation artifacts with pagination, sorted by most recently updated first."""
 
-    kind: Literal["artifacts"] = "artifacts"
+    kind: Literal["entities_list"] = "entities_list"
+    entity_type: Literal[
+        "insight",
+        "dashboard",
+        "cohort",
+        "action",
+        "experiment",
+        "feature_flag",
+        "notebook",
+        "survey",
+        "error_tracking_issue",
+        "artifact",
+    ] = Field(description="Specify the type of entity to list.")
+    limit: int = Field(default=100, ge=1, le=100, description="The number of entities to return per page.")
+    offset: int = Field(default=0, ge=0, description="The number of entities to skip.")
 
 
 class ReadErrorTrackingIssue(BaseModel):
@@ -98,6 +112,7 @@ ReadDataQuery = (
     | ReadBillingInfo
     | ReadArtifacts
     | ReadErrorTrackingIssue
+    | ReadEntitiesList
 )
 
 
@@ -137,10 +152,6 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
 
         has_billing_access = await context_manager.check_user_has_billing_access()
 
-        # Subagents don't have access to artifacts
-        if can_read_artifacts:
-            prompt_vars["artifacts_prompt"] = READ_DATA_ARTIFACTS_PROMPT
-            kinds.append(ReadArtifacts)
         if has_billing_access:
             prompt_vars["billing_prompt"] = READ_DATA_BILLING_PROMPT
             kinds.append(ReadBillingInfo)
@@ -151,6 +162,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             ReadInsight,
             ReadDashboard,
             ReadErrorTrackingIssue,
+            ReadEntitiesList,
         )
         ReadDataKind = Union[tuple(base_kinds + tuple(kinds))]  # type: ignore[valid-type]
 
@@ -196,8 +208,8 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 return await self._read_data_warehouse_schema(), None
             case ReadDataWarehouseTableSchema() as data_warehouse_table:
                 return await self._read_data_warehouse_table_schema(data_warehouse_table.table_name), None
-            case ReadArtifacts():
-                return await self._read_artifacts()
+            case ReadEntitiesList() as schema:
+                return await self._list_entities(schema.entity_type, schema.limit, schema.offset)
             case ReadInsight() as schema:
                 return await self._read_insight(schema.insight_id, schema.execute)
             case ReadDashboard() as schema:
@@ -252,19 +264,29 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
 
         return "", ToolMessagesArtifact(messages=[artifact_message, tool_call_message])
 
-    async def _read_artifacts(self) -> tuple[str, None]:
-        conversation_artifacts = await self._context_manager.artifacts.aget_conversation_artifact_messages()
-        formatted_artifacts = []
+    async def _list_entities(
+        self,
+        entity_type: str,
+        limit: int,
+        offset: int,
+    ) -> tuple[str, None]:
+        entities_context = EntitySearchContext(team=self._team, user=self._user, context_manager=self._context_manager)
+        all_entities, total_count = await entities_context.list_entities(entity_type, limit, offset)
 
-        for message in conversation_artifacts:
-            viz_content = unwrap_visualization_artifact_content(message)
-            if viz_content:
-                formatted_artifacts.append(
-                    f"- id: {message.artifact_id}\n- name: {viz_content.name}\n- description: {viz_content.description}\n- query: {viz_content.query}"
-                )
-        if len(formatted_artifacts) == 0:
-            return "No artifacts available", None
-        return "\n\n".join(formatted_artifacts), None
+        # Format entities using YAML
+        formatted_entities = entities_context.format_entities_as_yaml(all_entities)
+
+        # Build pagination metadata
+        has_more = total_count > offset + limit
+        next_offset = offset + limit if has_more else None
+
+        return format_prompt_string(
+            READ_DATA_ENTITY_LIST_PROMPT,
+            results="\n---\n".join(formatted_entities),
+            offset=offset,
+            limit=limit,
+            next_offset=next_offset,
+        ), None
 
     async def _read_data_warehouse_schema(self) -> str:
         database = await self._aget_database()

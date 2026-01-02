@@ -5,6 +5,10 @@ from datetime import timedelta
 from django.db import IntegrityError, models
 from django.utils import timezone
 
+from pydantic import RootModel
+
+from posthog.schema import DocumentArtifactContent, VisualizationArtifactContent
+
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDModel, UUIDTModel
@@ -221,6 +225,13 @@ class CoreMemory(UUIDTModel):
         return MAX_ONBOARDING_QUESTIONS - answers_given
 
 
+AgentArtifactContentUnion = DocumentArtifactContent | VisualizationArtifactContent
+
+
+class AgentArtifactData(RootModel[AgentArtifactContentUnion]):
+    pass
+
+
 class AgentArtifact(UUIDModel, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields):
     class Type(models.TextChoices):
         VISUALIZATION = "visualization", "Visualization"
@@ -252,3 +263,7 @@ class AgentArtifact(UUIDModel, CreatedMetaFields, UpdatedMetaFields, DeletedMeta
                     self.short_id = generate_short_id()
                 else:
                     raise
+
+    @property
+    def content(self) -> AgentArtifactContentUnion:
+        return AgentArtifactData(root=self.data).root

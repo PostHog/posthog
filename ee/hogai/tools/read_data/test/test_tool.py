@@ -5,7 +5,6 @@ from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from posthog.schema import (
-    ArtifactMessage,
     ArtifactSource,
     AssistantToolCallMessage,
     AssistantTrendsEventsNode,
@@ -82,65 +81,227 @@ class TestReadDataTool(BaseTest):
             mock_context_class.assert_called_once()
             assert tool is not None
 
-    async def test_arun_impl_artifacts_returns_formatted_artifacts(self):
-        """Test that artifacts kind returns formatted artifact data."""
-        team = MagicMock()
-        user = MagicMock()
-
-        viz_content = VisualizationArtifactContent(
-            query=AssistantTrendsQuery(series=[]),
-            name="Test Chart",
-            description="A test visualization",
-        )
-        artifact_message = ArtifactMessage(
-            id=str(uuid4()),
-            artifact_id="artifact-123",
-            source=ArtifactSource.ARTIFACT,
-            content=viz_content,
-        )
-
-        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
-        context_manager = MagicMock()
-        context_manager.artifacts = MagicMock()
-        context_manager.artifacts.aget_conversation_artifact_messages = AsyncMock(return_value=[artifact_message])
-
-        tool = ReadDataTool(
-            team=team,
-            user=user,
-            state=state,
-            context_manager=context_manager,
-        )
-
-        result, _ = await tool._arun_impl({"kind": "artifacts"})
-
-        context_manager.artifacts.aget_conversation_artifact_messages.assert_called_once_with()
-        assert "artifact-123" in result
-        assert "Test Chart" in result
-        assert "A test visualization" in result
-
-    async def test_arun_impl_artifacts_returns_no_artifacts_message(self):
-        """Test that artifacts kind returns 'No artifacts available' when empty."""
+    async def test_arun_impl_entities_list_returns_artifacts(self):
+        """Test that entities_list kind returns formatted artifact data."""
         team = MagicMock()
         user = MagicMock()
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
         context_manager = MagicMock()
-        context_manager.artifacts = MagicMock()
-        context_manager.artifacts.aget_conversation_artifact_messages = AsyncMock(return_value=[])
-        context_manager.artifacts.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
 
-        tool = ReadDataTool(
-            team=team,
-            user=user,
-            state=state,
-            context_manager=context_manager,
-        )
+        entities_data = [
+            {
+                "type": "artifact",
+                "result_id": "artifact-123",
+                "extra_fields": {"name": "Test Chart", "description": "A test visualization"},
+            }
+        ]
+        formatted_yaml = [
+            "name: Test Chart\ntype: Artifact\nartifact_id: 'artifact-123'\ndescription: A test visualization"
+        ]
 
-        result, _ = await tool._arun_impl({"kind": "artifacts"})
+        with patch("ee.hogai.tools.read_data.tool.EntitySearchContext") as MockEntitySearchContext:
+            mock_instance = MagicMock()
+            mock_instance.list_entities = AsyncMock(return_value=(entities_data, 1))
+            mock_instance.format_entities_as_yaml = MagicMock(return_value=formatted_yaml)
+            MockEntitySearchContext.return_value = mock_instance
 
-        assert result == "No artifacts available"
+            tool = ReadDataTool(
+                team=team,
+                user=user,
+                state=state,
+                context_manager=context_manager,
+            )
+
+            result, _ = await tool._arun_impl(
+                {"kind": "entities_list", "entity_type": "artifact", "limit": 100, "offset": 0}
+            )
+
+            MockEntitySearchContext.assert_called_once_with(team=team, user=user, context_manager=context_manager)
+            mock_instance.list_entities.assert_called_once_with("artifact", 100, 0)
+            mock_instance.format_entities_as_yaml.assert_called_once_with(entities_data)
+
+            assert "Offset 0, limit 100" in result
+            assert "Test Chart" in result
+            assert "Artifact" in result
+            assert "artifact-123" in result
+            assert "You reached the end of results" in result
+
+    async def test_arun_impl_entities_list_returns_empty_results(self):
+        """Test that entities_list kind returns empty results when no entities found."""
+        team = MagicMock()
+        user = MagicMock()
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+
+        with patch("ee.hogai.tools.read_data.tool.EntitySearchContext") as MockEntitySearchContext:
+            mock_instance = MagicMock()
+            mock_instance.list_entities = AsyncMock(return_value=([], 0))
+            mock_instance.format_entities_as_yaml = MagicMock(return_value=[])
+            MockEntitySearchContext.return_value = mock_instance
+
+            tool = ReadDataTool(
+                team=team,
+                user=user,
+                state=state,
+                context_manager=context_manager,
+            )
+
+            result, _ = await tool._arun_impl(
+                {"kind": "entities_list", "entity_type": "artifact", "limit": 100, "offset": 0}
+            )
+
+            mock_instance.list_entities.assert_called_once_with("artifact", 100, 0)
+            assert "Offset 0, limit 100" in result
+            assert "You reached the end of results" in result
+
+    async def test_arun_impl_entities_list_with_pagination(self):
+        """Test pagination functionality with multiple pages."""
+        team = MagicMock()
+        user = MagicMock()
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+
+        # First page: offset=0, limit=2, total=5
+        first_page_data = [
+            {"type": "artifact", "result_id": "artifact-1", "extra_fields": {"name": "Chart 1"}},
+            {"type": "artifact", "result_id": "artifact-2", "extra_fields": {"name": "Chart 2"}},
+        ]
+        first_page_yaml = ["name: Chart 1\ntype: Artifact", "name: Chart 2\ntype: Artifact"]
+
+        with patch("ee.hogai.tools.read_data.tool.EntitySearchContext") as MockEntitySearchContext:
+            mock_instance = MagicMock()
+            mock_instance.list_entities = AsyncMock(return_value=(first_page_data, 5))
+            mock_instance.format_entities_as_yaml = MagicMock(return_value=first_page_yaml)
+            MockEntitySearchContext.return_value = mock_instance
+
+            tool = ReadDataTool(team=team, user=user, state=state, context_manager=context_manager)
+            result, _ = await tool._arun_impl(
+                {"kind": "entities_list", "entity_type": "artifact", "limit": 2, "offset": 0}
+            )
+
+            assert "Offset 0, limit 2" in result
+            assert "To see more results, use offset=2" in result
+            assert "Chart 1" in result
+            assert "Chart 2" in result
+
+        # Second page: offset=2, limit=2, total=5
+        second_page_data = [
+            {"type": "artifact", "result_id": "artifact-3", "extra_fields": {"name": "Chart 3"}},
+            {"type": "artifact", "result_id": "artifact-4", "extra_fields": {"name": "Chart 4"}},
+        ]
+        second_page_yaml = ["name: Chart 3\ntype: Artifact", "name: Chart 4\ntype: Artifact"]
+
+        with patch("ee.hogai.tools.read_data.tool.EntitySearchContext") as MockEntitySearchContext:
+            mock_instance = MagicMock()
+            mock_instance.list_entities = AsyncMock(return_value=(second_page_data, 5))
+            mock_instance.format_entities_as_yaml = MagicMock(return_value=second_page_yaml)
+            MockEntitySearchContext.return_value = mock_instance
+
+            tool = ReadDataTool(team=team, user=user, state=state, context_manager=context_manager)
+            result, _ = await tool._arun_impl(
+                {"kind": "entities_list", "entity_type": "artifact", "limit": 2, "offset": 2}
+            )
+
+            assert "Offset 2, limit 2" in result
+            assert "To see more results, use offset=4" in result
+
+        # Last page: offset=4, limit=2, total=5 (only 1 item left)
+        last_page_data = [
+            {"type": "artifact", "result_id": "artifact-5", "extra_fields": {"name": "Chart 5"}},
+        ]
+        last_page_yaml = ["name: Chart 5\ntype: Artifact"]
+
+        with patch("ee.hogai.tools.read_data.tool.EntitySearchContext") as MockEntitySearchContext:
+            mock_instance = MagicMock()
+            mock_instance.list_entities = AsyncMock(return_value=(last_page_data, 5))
+            mock_instance.format_entities_as_yaml = MagicMock(return_value=last_page_yaml)
+            MockEntitySearchContext.return_value = mock_instance
+
+            tool = ReadDataTool(team=team, user=user, state=state, context_manager=context_manager)
+            result, _ = await tool._arun_impl(
+                {"kind": "entities_list", "entity_type": "artifact", "limit": 2, "offset": 4}
+            )
+
+            assert "Offset 4, limit 2" in result
+            assert "You reached the end of results" in result
+            assert "Chart 5" in result
+
+    async def test_arun_impl_entities_list_default_pagination(self):
+        """Test that default pagination values are used when not specified."""
+        team = MagicMock()
+        user = MagicMock()
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+
+        entities_data = [
+            {"type": "artifact", "result_id": "artifact-1", "extra_fields": {"name": "Chart 1"}},
+        ]
+        formatted_yaml = ["name: Chart 1\ntype: Artifact"]
+
+        with patch("ee.hogai.tools.read_data.tool.EntitySearchContext") as MockEntitySearchContext:
+            mock_instance = MagicMock()
+            mock_instance.list_entities = AsyncMock(return_value=(entities_data, 1))
+            mock_instance.format_entities_as_yaml = MagicMock(return_value=formatted_yaml)
+            MockEntitySearchContext.return_value = mock_instance
+
+            tool = ReadDataTool(team=team, user=user, state=state, context_manager=context_manager)
+            # Don't specify limit and offset - should default to limit=100, offset=0
+            result, _ = await tool._arun_impl({"kind": "entities_list", "entity_type": "artifact"})
+
+            # Verify defaults are used
+            mock_instance.list_entities.assert_called_once_with("artifact", 100, 0)
+            assert "Offset 0, limit 100" in result
+
+    async def test_arun_impl_entities_list_validates_limit_bounds(self):
+        """Test that limit validation works (1-100 range)."""
+        from pydantic import ValidationError
+
+        team = MagicMock()
+        user = MagicMock()
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+
+        tool = ReadDataTool(team=team, user=user, state=state, context_manager=context_manager)
+
+        # Test limit=0 should fail
+        with pytest.raises(ValidationError):
+            await tool._arun_impl({"kind": "entities_list", "entity_type": "artifact", "limit": 0, "offset": 0})
+
+        # Test limit=101 should fail
+        with pytest.raises(ValidationError):
+            await tool._arun_impl({"kind": "entities_list", "entity_type": "artifact", "limit": 101, "offset": 0})
+
+        # Test limit=1 should work
+        with patch("ee.hogai.tools.read_data.tool.EntitySearchContext") as MockEntitySearchContext:
+            mock_instance = MagicMock()
+            mock_instance.list_entities = AsyncMock(return_value=([], 0))
+            mock_instance.format_entities_as_yaml = MagicMock(return_value=[])
+            MockEntitySearchContext.return_value = mock_instance
+
+            result, _ = await tool._arun_impl(
+                {"kind": "entities_list", "entity_type": "artifact", "limit": 1, "offset": 0}
+            )
+            mock_instance.list_entities.assert_called_once_with("artifact", 1, 0)
+
+        # Test limit=100 should work
+        with patch("ee.hogai.tools.read_data.tool.EntitySearchContext") as MockEntitySearchContext:
+            mock_instance = MagicMock()
+            mock_instance.list_entities = AsyncMock(return_value=([], 0))
+            mock_instance.format_entities_as_yaml = MagicMock(return_value=[])
+            MockEntitySearchContext.return_value = mock_instance
+
+            result, _ = await tool._arun_impl(
+                {"kind": "entities_list", "entity_type": "artifact", "limit": 100, "offset": 0}
+            )
+            mock_instance.list_entities.assert_called_once_with("artifact", 100, 0)
 
     async def test_create_tool_class_with_artifacts(self):
-        """Test that tool has artifacts in description when can_read_artifacts is True."""
+        """Test that tool accepts entities_list with artifact entity type."""
         team = MagicMock()
         user = MagicMock()
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
@@ -153,11 +314,13 @@ class TestReadDataTool(BaseTest):
             context_manager=context_manager,
             can_read_artifacts=True,
         )
-        assert "# Artifacts" in tool.description
+        assert "# List entities" in tool.description
+        assert "entity_type" in tool.description
+        assert "artifact" in tool.description
         assert "billing_info" not in tool.description
 
     async def test_create_tool_class_without_artifacts(self):
-        """Test that tool has artifacts in description when can_read_artifacts is True."""
+        """Test that tool still has entities_list regardless of can_read_artifacts value."""
         team = MagicMock()
         user = MagicMock()
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
@@ -170,10 +333,11 @@ class TestReadDataTool(BaseTest):
             context_manager=context_manager,
             can_read_artifacts=False,
         )
-        assert "# Artifacts" not in tool.description
+        assert "# List entities" in tool.description
+        assert "entity_type" in tool.description
 
     async def test_create_tool_class_with_artifacts_and_billing_access(self):
-        """Test that tool has artifacts and billing in description when can_read_artifacts and can_read_billing are True."""
+        """Test that tool has entities_list and billing in description when billing access is granted."""
         team = MagicMock()
         user = MagicMock()
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
@@ -186,7 +350,8 @@ class TestReadDataTool(BaseTest):
             context_manager=context_manager,
             can_read_artifacts=True,
         )
-        assert "# Artifacts" in tool.description
+        assert "# List entities" in tool.description
+        assert "entity_type" in tool.description
         assert "billing_info" in tool.description
         assert "Billing information" in tool.description
 

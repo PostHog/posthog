@@ -10,7 +10,6 @@ from posthog.schema import (
     ArtifactContentType,
     ArtifactMessage,
     ArtifactSource,
-    DocumentArtifactContent,
     VisualizationArtifactContent,
     VisualizationMessage,
 )
@@ -21,11 +20,9 @@ from posthog.models.team import Team
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.core.mixins import AssistantContextMixin
 from ee.hogai.utils.types.base import ArtifactRefMessage, AssistantMessageUnion
-from ee.models.assistant import AgentArtifact
+from ee.models.assistant import AgentArtifact, AgentArtifactContentUnion
 
-ArtifactContentUnion = DocumentArtifactContent | VisualizationArtifactContent
-
-T = TypeVar("T", bound=ArtifactContentUnion)
+T = TypeVar("T", bound=AgentArtifactContentUnion)
 S = TypeVar("S", bound=ArtifactSource)
 M = TypeVar("M")
 
@@ -261,19 +258,24 @@ class ArtifactManager(AssistantContextMixin):
 
         return result
 
-    async def aget_conversation_artifact_messages(self) -> list[ArtifactMessage]:
+    async def aget_conversation_artifacts(
+        self,
+        limit: int | None = None,
+        offset: int | None = None,
+    ) -> tuple[list[AgentArtifact], int]:
         """Get all artifacts created in a conversation, by the agent and subagents."""
+        offset = offset or 0
         conversation_id = cast(UUID, self._get_thread_id(self._config))
-        artifacts = list(AgentArtifact.objects.filter(team=self._team, conversation_id=conversation_id).all())
-        return [
-            ArtifactMessage(
-                id=artifact.short_id,
-                artifact_id=artifact.short_id,
-                source=ArtifactSource.ARTIFACT,
-                content=VisualizationArtifactContent.model_validate(artifact.data),
-            )
-            for artifact in artifacts
-        ]
+
+        artifacts = AgentArtifact.objects.filter(team=self._team, conversation_id=conversation_id)
+        total_count = await artifacts.acount()
+
+        if limit:
+            artifacts = artifacts[offset : offset + limit]
+        elif offset:
+            artifacts = artifacts[offset:]
+
+        return [artifact async for artifact in artifacts], total_count
 
     # -------------------------------------------------------------------------
     # Private helpers
