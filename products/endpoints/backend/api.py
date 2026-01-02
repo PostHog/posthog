@@ -3,7 +3,6 @@ import builtins
 from datetime import timedelta
 from typing import Union, cast
 
-from django.core.cache import cache
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
@@ -46,7 +45,6 @@ from posthog.api.utils import action
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, get_query_tag_value, tag_queries
-from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -54,7 +52,6 @@ from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
-from posthog.rate_limit import APIQueriesBurstThrottle, APIQueriesSustainedThrottle
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.types import InsightQueryNode
 
@@ -66,6 +63,11 @@ from products.data_warehouse.backend.models.external_data_schema import (
 from products.endpoints.backend.materialization import convert_insight_query_to_hogql
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.openapi import generate_openapi_spec
+from products.endpoints.backend.rate_limit import (
+    EndpointBurstThrottle,
+    EndpointSustainedThrottle,
+    clear_endpoint_materialization_cache,
+)
 
 from common.hogvm.python.utils import HogVMException
 
@@ -103,18 +105,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         return None  # We use Pydantic models instead
 
     def get_throttles(self):
-        return [APIQueriesBurstThrottle(), APIQueriesSustainedThrottle()]
-
-    def check_team_api_queries_concurrency(self):
-        cache_key = f"team/{self.team_id}/feature/{AvailableFeature.API_QUERIES_CONCURRENCY}"
-        cached = cache.get(cache_key)
-        if cached is not None:
-            return cached
-        if self.team:
-            new_val = self.team.organization.is_feature_available(AvailableFeature.API_QUERIES_CONCURRENCY)
-            cache.set(cache_key, new_val)
-            return new_val
-        return False
+        return [EndpointBurstThrottle(), EndpointSustainedThrottle()]
 
     def _serialize_endpoint(self, endpoint: Endpoint) -> dict:
         result = {
@@ -403,6 +394,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             endpoint.saved_query.soft_delete()
             endpoint.saved_query = None
             endpoint.save()
+        clear_endpoint_materialization_cache(self.team_id, endpoint.name)
 
     def destroy(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Delete an endpoint and clean up materialized query."""
