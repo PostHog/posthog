@@ -27,6 +27,7 @@ import { workflowSceneLogic } from './workflowSceneLogic'
 export interface WorkflowLogicProps {
     id?: string
     templateId?: string
+    editTemplateId?: string
 }
 
 export const TRIGGER_NODE_ID = 'trigger_node'
@@ -144,12 +145,20 @@ export const workflowLogic = kea<workflowLogicType>([
             {
                 loadWorkflow: async () => {
                     if (!props.id || props.id === 'new') {
+                        if (props.editTemplateId) {
+                            // Editing a template - load it and add a temporary status field for the editor
+                            const templateWorkflow = await api.hogFlowTemplates.getHogFlowTemplate(props.editTemplateId)
+                            return {
+                                ...templateWorkflow,
+                                status: 'draft' as const, // Temporary status for editor compatibility, won't be saved
+                            } as HogFlow
+                        }
                         if (props.templateId) {
                             const templateWorkflow = await api.hogFlowTemplates.getHogFlowTemplate(props.templateId)
 
                             const newWorkflow = {
                                 ...templateWorkflow,
-                                name: `${templateWorkflow.name} (copy)`,
+                                name: templateWorkflow.name,
                                 status: 'draft' as const,
                                 version: 1,
                             }
@@ -223,7 +232,11 @@ export const workflowLogic = kea<workflowLogicType>([
         },
     })),
     selectors({
-        logicProps: [() => [(_, props) => props], (props): WorkflowLogicProps => props],
+        logicProps: [() => [(_, props: WorkflowLogicProps) => props], (props): WorkflowLogicProps => props],
+        isTemplateEditMode: [
+            () => [(_, props: WorkflowLogicProps) => props],
+            (props: WorkflowLogicProps): boolean => !!props.editTemplateId,
+        ],
         workflowLoading: [(s) => [s.originalWorkflowLoading], (originalWorkflowLoading) => originalWorkflowLoading],
         edgesByActionId: [
             (s) => [s.workflow],
