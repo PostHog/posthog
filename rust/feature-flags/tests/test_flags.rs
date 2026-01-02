@@ -6045,3 +6045,111 @@ async fn test_session_recording_script_config(
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_cohort_date_matching_with_milliseconds_format() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+
+    let distinct_id = "test_user".to_string();
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+
+    // Create a cohort with date comparison using is_date_after operator
+    let cohort_filters = json!({
+        "properties": {
+            "type": "OR",
+            "values": [{
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "signup_date",
+                        "type": "person",
+                        "value": "2025-12-01",
+                        "operator": "is_date_after"
+                    }
+                ]
+            }]
+        }
+    });
+
+    // Insert cohort and get the actual ID
+    let cohort = context
+        .insert_cohort(
+            team.id,
+            Some("Test Date with Milliseconds".to_string()),
+            cohort_filters,
+            false,
+        )
+        .await
+        .unwrap();
+
+    // Create a feature flag using the cohort's actual ID
+    let flag_json = json!([{
+        "id": 1,
+        "key": "test-date-with-milliseconds",
+        "name": "Test Date with Milliseconds",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [{
+                "properties": [{
+                    "key": "id",
+                    "type": "cohort",
+                    "value": cohort.id,
+                    "operator": "in"
+                }],
+                "rollout_percentage": 100
+            }]
+        }
+    }]);
+
+    insert_flags_for_team_in_redis(client.clone(), team.id, Some(flag_json.to_string())).await?;
+
+    // Insert person with date in ISO 8601 format with milliseconds (no timezone)
+    // This format fails to parse in the Rust dateparser library
+    context
+        .insert_person(
+            team.id,
+            distinct_id.clone(),
+            Some(json!({
+                "signup_date": "2025-12-19T00:00:00.000",
+            })),
+        )
+        .await
+        .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+
+    assert_eq!(res.status(), StatusCode::OK);
+    let json_data = res.json::<Value>().await?;
+
+    // The flag should be enabled because 2025-12-19 is after 2025-12-01
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "test-date-with-milliseconds": {
+                    "key": "test-date-with-milliseconds",
+                    "enabled": true
+                }
+            }
+        })
+    );
+
+    Ok(())
+}
