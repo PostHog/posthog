@@ -1,3 +1,5 @@
+from typing import Optional
+
 import structlog
 from slack_sdk.errors import SlackApiError
 from temporalio import activity, workflow
@@ -73,8 +75,8 @@ def get_subscription_failure_metric(
 
 async def deliver_subscription_report_async(
     subscription_id: int,
-    previous_value: str | None = None,
-    invite_message: str | None = None,
+    previous_value: Optional[str] = None,
+    invite_message: Optional[str] = None,
 ) -> None:
     """Async function for delivering subscription reports."""
     logger.info("deliver_subscription_report_async.starting", subscription_id=subscription_id)
