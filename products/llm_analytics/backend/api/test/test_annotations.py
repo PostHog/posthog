@@ -37,3 +37,25 @@ class TestLLMAnalyticsAnnotationsAPI(APIBaseTest):
         ids = [r["target_id"] for r in payload["results"]]
         self.assertIn("trace-1", ids)
         self.assertNotIn("trace-2", ids)
+
+    def test_can_create_annotation_and_sets_created_by(self):
+        res = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/annotations/",
+            data={
+                "target_type": "trace",
+                "target_id": "trace-post",
+                "content": "created via api",
+                "rating": 4,
+                "data": {"source": "test"},
+            },
+            format="json",
+        )
+        self.assertEqual(res.status_code, 201)
+
+        payload = res.json()
+
+        # created_by is serialized (basic user) and should match the authed user
+        self.assertEqual(payload["created_by"]["id"], self.user.id)
+
+        obj = LLMAnalyticsAnnotation.objects.get(team_id=self.team.id, target_id="trace-post")
+        self.assertEqual(obj.created_by_id, self.user.id)
