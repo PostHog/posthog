@@ -1128,14 +1128,24 @@ export class ApiClient {
                 tileOrder: number[]
             }): Promise<Result<{ success: boolean; message: string; tiles: Array<{ id: number; order: number }> }>> => {
                 // Calculate new layout positions based on the specified order
-                // Each tile gets a y position based on its index (row-based layout)
-                const tiles = tileOrder.map((tileId, index) => ({
-                    id: tileId,
-                    layouts: {
-                        sm: { x: 0, y: index * 5, w: 6, h: 5 },
-                        xs: { x: 0, y: index * 5, w: 6, h: 5 },
-                    },
-                }))
+                // Use 2-column grid for larger layouts (sm and above), single column for xs
+                const tileWidth = 6 // Half of 12-column grid
+                const tileHeight = 5
+
+                const tiles = tileOrder.map((tileId, index) => {
+                    const row = Math.floor(index / 2)
+                    const col = index % 2
+
+                    return {
+                        id: tileId,
+                        layouts: {
+                            // 2-column layout for sm and larger screens
+                            sm: { x: col * tileWidth, y: row * tileHeight, w: tileWidth, h: tileHeight },
+                            // Single column for xs (mobile)
+                            xs: { x: 0, y: index * tileHeight, w: 6, h: tileHeight },
+                        },
+                    }
+                })
 
                 const result = await this.fetchWithSchema(
                     `${this.baseUrl}/api/projects/${projectId}/dashboards/${dashboardId}/`,
