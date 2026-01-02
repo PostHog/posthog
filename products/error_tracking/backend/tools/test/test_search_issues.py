@@ -18,6 +18,7 @@ from posthog.schema import (
     DateRange,
     ErrorTrackingIssue as ErrorTrackingIssueSchema,
     ErrorTrackingQuery,
+    MaxErrorTrackingSearchResponse,
     OrderBy1,
 )
 
@@ -155,7 +156,8 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
         result_text, artifact = await tool._arun_impl(query=query)
 
         self.assertIn("No issues found", result_text)
-        self.assertIsNone(artifact)
+        self.assertIsInstance(artifact, MaxErrorTrackingSearchResponse)
+        self.assertEqual(artifact.issues, [])
 
     async def test_returns_active_issues_by_default(self):
         tool = await self._create_tool()
@@ -167,7 +169,8 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIn("TypeError", result_text)
         self.assertIn("ReferenceError", result_text)
         self.assertNotIn("SyntaxError", result_text)
-        self.assertIsNone(artifact)
+        self.assertIsInstance(artifact, MaxErrorTrackingSearchResponse)
+        self.assertEqual(len(artifact.issues), 2)
 
     async def test_returns_resolved_issues_when_filtered(self):
         tool = await self._create_tool()
@@ -178,7 +181,8 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIn("Found 1 issue", result_text)
         self.assertIn("SyntaxError", result_text)
         self.assertNotIn("TypeError", result_text)
-        self.assertIsNone(artifact)
+        self.assertIsInstance(artifact, MaxErrorTrackingSearchResponse)
+        self.assertEqual(len(artifact.issues), 1)
 
     async def test_returns_all_issues_when_status_all(self):
         tool = await self._create_tool()
@@ -190,7 +194,8 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIn("TypeError", result_text)
         self.assertIn("ReferenceError", result_text)
         self.assertIn("SyntaxError", result_text)
-        self.assertIsNone(artifact)
+        self.assertIsInstance(artifact, MaxErrorTrackingSearchResponse)
+        self.assertEqual(len(artifact.issues), 3)
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_search_query_filters_by_text(self, mock_process_query):
@@ -214,7 +219,9 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         self.assertIn("Found 1 issue", result_text)
         self.assertIn("TypeError", result_text)
-        self.assertIsNone(artifact)
+        self.assertIsInstance(artifact, MaxErrorTrackingSearchResponse)
+        self.assertEqual(len(artifact.issues), 1)
+        self.assertEqual(artifact.search_query, "TypeError")
         call_args = mock_process_query.call_args
         query_dict = call_args[0][1]
         self.assertEqual(query_dict["searchQuery"], "TypeError")
@@ -248,7 +255,9 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
         result_text, artifact = await tool._arun_impl(query=query)
 
         self.assertIn("Found 2 issues", result_text)
-        self.assertIsNone(artifact)
+        self.assertIsInstance(artifact, MaxErrorTrackingSearchResponse)
+        self.assertEqual(len(artifact.issues), 2)
+        self.assertEqual(artifact.limit, 2)
         call_args = mock_process_query.call_args
         query_dict = call_args[0][1]
         self.assertEqual(query_dict["limit"], 2)
@@ -263,7 +272,8 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIn("Occurrences:", result_text)
         self.assertIn("Users:", result_text)
         self.assertIn("Sessions:", result_text)
-        self.assertIsNone(artifact)
+        self.assertIsInstance(artifact, MaxErrorTrackingSearchResponse)
+        self.assertEqual(len(artifact.issues), 2)
 
     async def test_limits_excessive_limit_to_100(self):
         tool = await self._create_tool()
@@ -272,9 +282,10 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
         result_text, artifact = await tool._arun_impl(query=query)
 
         self.assertIn("Found 3 issues", result_text)
-        self.assertIsNone(artifact)
+        self.assertIsInstance(artifact, MaxErrorTrackingSearchResponse)
+        self.assertEqual(artifact.limit, 100)
 
-    async def test_defaults_to_25_when_no_limit(self):
+    async def test_defaults_to_50_when_no_limit(self):
         tool = await self._create_tool()
         query = self._create_query(status="all")
         query.limit = None
@@ -282,7 +293,8 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
         result_text, artifact = await tool._arun_impl(query=query)
 
         self.assertIn("Found 3 issues", result_text)
-        self.assertIsNone(artifact)
+        self.assertIsInstance(artifact, MaxErrorTrackingSearchResponse)
+        self.assertEqual(artifact.limit, 50)
 
 
 class TestSearchErrorTrackingIssuesToolFormatting(NonAtomicBaseTest):
@@ -348,55 +360,51 @@ class TestSearchErrorTrackingIssuesToolFormatting(NonAtomicBaseTest):
     async def test_format_results_empty(self):
         tool = await self._create_tool()
 
-        result = tool._format_results({"results": []})
+        result = tool._format_results([])
 
         self.assertIn("No issues found", result)
 
     async def test_format_results_single(self):
         tool = await self._create_tool()
 
-        response = {
-            "results": [
-                {
-                    "id": "01936e7f-d7ff-7314-b2d4-7627981e34f0",
-                    "name": "Error",
-                    "status": "active",
-                    "first_seen": "2025-01-10T10:00:00Z",
-                    "last_seen": "2025-01-15T11:00:00Z",
-                    "aggregations": {"occurrences": 1, "users": 1, "sessions": 0, "volume_buckets": []},
-                }
-            ]
-        }
+        issues = [
+            {
+                "id": "01936e7f-d7ff-7314-b2d4-7627981e34f0",
+                "name": "Error",
+                "status": "active",
+                "first_seen": "2025-01-10T10:00:00Z",
+                "last_seen": "2025-01-15T11:00:00Z",
+                "aggregations": {"occurrences": 1, "users": 1, "sessions": 0, "volume_buckets": []},
+            }
+        ]
 
-        result = tool._format_results(response)
+        result = tool._format_results(issues)
 
         self.assertIn("Found 1 issue", result)
 
     async def test_format_results_multiple(self):
         tool = await self._create_tool()
 
-        response = {
-            "results": [
-                {
-                    "id": "01936e7f-d7ff-7314-b2d4-7627981e34f1",
-                    "name": "Error 1",
-                    "status": "active",
-                    "first_seen": "2025-01-10T10:00:00Z",
-                    "last_seen": "2025-01-15T11:00:00Z",
-                    "aggregations": {"occurrences": 1, "users": 1, "sessions": 0, "volume_buckets": []},
-                },
-                {
-                    "id": "01936e7f-d7ff-7314-b2d4-7627981e34f2",
-                    "name": "Error 2",
-                    "status": "active",
-                    "first_seen": "2025-01-10T10:00:00Z",
-                    "last_seen": "2025-01-15T11:00:00Z",
-                    "aggregations": {"occurrences": 2, "users": 2, "sessions": 1, "volume_buckets": []},
-                },
-            ]
-        }
+        issues = [
+            {
+                "id": "01936e7f-d7ff-7314-b2d4-7627981e34f1",
+                "name": "Error 1",
+                "status": "active",
+                "first_seen": "2025-01-10T10:00:00Z",
+                "last_seen": "2025-01-15T11:00:00Z",
+                "aggregations": {"occurrences": 1, "users": 1, "sessions": 0, "volume_buckets": []},
+            },
+            {
+                "id": "01936e7f-d7ff-7314-b2d4-7627981e34f2",
+                "name": "Error 2",
+                "status": "active",
+                "first_seen": "2025-01-10T10:00:00Z",
+                "last_seen": "2025-01-15T11:00:00Z",
+                "aggregations": {"occurrences": 2, "users": 2, "sessions": 1, "volume_buckets": []},
+            },
+        ]
 
-        result = tool._format_results(response)
+        result = tool._format_results(issues)
 
         self.assertIn("Found 2 issues", result)
         self.assertIn("1. Error 1", result)
@@ -405,21 +413,19 @@ class TestSearchErrorTrackingIssuesToolFormatting(NonAtomicBaseTest):
     async def test_format_results_limits_to_10(self):
         tool = await self._create_tool()
 
-        response = {
-            "results": [
-                {
-                    "id": f"01936e7f-d7ff-7314-b2d4-7627981e34{i:02d}",
-                    "name": f"Error {i}",
-                    "status": "active",
-                    "first_seen": "2025-01-10T10:00:00Z",
-                    "last_seen": "2025-01-15T11:00:00Z",
-                    "aggregations": {"occurrences": i, "users": i, "sessions": 0, "volume_buckets": []},
-                }
-                for i in range(15)
-            ]
-        }
+        issues = [
+            {
+                "id": f"01936e7f-d7ff-7314-b2d4-7627981e34{i:02d}",
+                "name": f"Error {i}",
+                "status": "active",
+                "first_seen": "2025-01-10T10:00:00Z",
+                "last_seen": "2025-01-15T11:00:00Z",
+                "aggregations": {"occurrences": i, "users": i, "sessions": 0, "volume_buckets": []},
+            }
+            for i in range(15)
+        ]
 
-        result = tool._format_results(response)
+        result = tool._format_results(issues)
 
         self.assertIn("Found 15 issues", result)
         self.assertIn("...and 5 more issues", result)
