@@ -169,6 +169,11 @@ export enum NodeKind {
 
     // Customer analytics
     UsageMetricsQuery = 'UsageMetricsQuery',
+
+    // Endpoints usage queries
+    EndpointsUsageOverviewQuery = 'EndpointsUsageOverviewQuery',
+    EndpointsUsageTableQuery = 'EndpointsUsageTableQuery',
+    EndpointsUsageTrendsQuery = 'EndpointsUsageTrendsQuery',
 }
 
 export type AnyDataNode =
@@ -221,6 +226,9 @@ export type AnyDataNode =
     | TraceQuery
     | VectorSearchQuery
     | UsageMetricsQuery
+    | EndpointsUsageOverviewQuery
+    | EndpointsUsageTableQuery
+    | EndpointsUsageTrendsQuery
 
 /**
  * @discriminator kind
@@ -313,6 +321,11 @@ export type QuerySchema =
     // Customer analytics
     | UsageMetricsQuery
 
+    // Endpoints usage
+    | EndpointsUsageOverviewQuery
+    | EndpointsUsageTableQuery
+    | EndpointsUsageTrendsQuery
+
 // Keep this, because QuerySchema itself will be collapsed as it is used in other models
 export type QuerySchemaRoot = QuerySchema
 
@@ -355,6 +368,8 @@ export interface QueryLogTags {
     scene?: string
     /** Product responsible for this query. Use string, there's no need to churn the Schema when we add a new product **/
     productKey?: string
+    /** Name of the query, preferably unique. For example web_analytics_vitals */
+    name?: string
 }
 
 /** @internal - no need to emit to schema.json. */
@@ -913,6 +928,7 @@ export interface DataTableNode
                     | ExperimentFunnelsQuery
                     | ExperimentTrendsQuery
                     | TracesQuery
+                    | EndpointsUsageTableQuery
                 )['response']
             >
         >,
@@ -950,6 +966,7 @@ export interface DataTableNode
         | ExperimentTrendsQuery
         | TracesQuery
         | TraceQuery
+        | EndpointsUsageTableQuery
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
@@ -4942,6 +4959,101 @@ export interface UsageMetricsQuery extends DataNode<UsageMetricsQueryResponse> {
     group_type_index?: integer
     /** Group key. Required with group_type_index for group queries. */
     group_key?: string
+}
+
+/*
+ * Endpoints Usage Analytics
+ */
+
+export enum EndpointsUsageBreakdown {
+    Endpoint = 'Endpoint',
+    MaterializationType = 'MaterializationType',
+    ApiKey = 'ApiKey',
+    Status = 'Status',
+}
+
+export type EndpointsUsageOrderByField =
+    | 'requests'
+    | 'bytes_read'
+    | 'cpu_seconds'
+    | 'avg_query_duration_ms'
+    | 'error_rate'
+export type EndpointsUsageOrderByDirection = 'ASC' | 'DESC'
+export type EndpointsUsageOrderBy = [EndpointsUsageOrderByField, EndpointsUsageOrderByDirection]
+
+/** Base interface for Endpoints usage queries */
+interface EndpointsUsageQueryBase<R extends Record<string, any>> extends DataNode<R> {
+    dateRange?: DateRange
+    /** Filter to specific endpoints by name */
+    endpointNames?: string[]
+    /** Filter by materialization type */
+    materializationType?: 'materialized' | 'inline' | null
+}
+
+export type EndpointsUsageOverviewItemKey =
+    | 'total_requests'
+    | 'total_bytes_read'
+    | 'total_cpu_seconds'
+    | 'avg_query_duration_ms'
+    | 'p95_query_duration_ms'
+    | 'error_rate'
+    | 'materialized_requests'
+    | 'inline_requests'
+
+export interface EndpointsUsageOverviewItem {
+    key: EndpointsUsageOverviewItemKey
+    value: number | null
+    previous?: number | null
+    changeFromPreviousPct?: number | null
+}
+
+export interface EndpointsUsageOverviewQueryResponse extends AnalyticsQueryResponseBase {
+    results: EndpointsUsageOverviewItem[]
+}
+
+export type CachedEndpointsUsageOverviewQueryResponse = CachedQueryResponse<EndpointsUsageOverviewQueryResponse>
+
+export interface EndpointsUsageOverviewQuery extends EndpointsUsageQueryBase<EndpointsUsageOverviewQueryResponse> {
+    kind: NodeKind.EndpointsUsageOverviewQuery
+    /** Compare to previous period */
+    compareFilter?: CompareFilter
+}
+
+export interface EndpointsUsageTableQueryResponse extends AnalyticsQueryResponseBase {
+    results: unknown[]
+    columns?: unknown[]
+    types?: unknown[]
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+}
+
+export type CachedEndpointsUsageTableQueryResponse = CachedQueryResponse<EndpointsUsageTableQueryResponse>
+
+export interface EndpointsUsageTableQuery extends EndpointsUsageQueryBase<EndpointsUsageTableQueryResponse> {
+    kind: NodeKind.EndpointsUsageTableQuery
+    breakdownBy: EndpointsUsageBreakdown
+    orderBy?: EndpointsUsageOrderBy
+    limit?: integer
+    offset?: integer
+}
+
+export interface EndpointsUsageTrendsQueryResponse extends AnalyticsQueryResponseBase {
+    results: Record<string, any>[]
+}
+
+export type CachedEndpointsUsageTrendsQueryResponse = CachedQueryResponse<EndpointsUsageTrendsQueryResponse>
+
+export interface EndpointsUsageTrendsQuery extends EndpointsUsageQueryBase<EndpointsUsageTrendsQueryResponse> {
+    kind: NodeKind.EndpointsUsageTrendsQuery
+    /** Metric to trend */
+    metric: 'bytes_read' | 'cpu_seconds' | 'requests' | 'query_duration' | 'error_rate'
+    /** Optional breakdown for stacked charts */
+    breakdownBy?: EndpointsUsageBreakdown
+    /** Time interval */
+    interval?: IntervalType
+    /** Compare to previous period */
+    compareFilter?: CompareFilter
 }
 
 export interface CustomerAnalyticsConfig {
