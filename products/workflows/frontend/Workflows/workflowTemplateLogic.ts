@@ -124,7 +124,7 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                     try {
                         const template = await api.hogFlowTemplates.getHogFlowTemplate(props.editTemplateId)
                         actions.setTemplateFormValues({
-                            name: workflow.name || '', // Use current workflow name
+                            name: workflow.name,
                             description: workflow.description || '', // Use current workflow description
                             image_url: template.image_url || null,
                             scope: template.scope || 'team',
