@@ -499,7 +499,7 @@ export class CdpApi {
             const hogFlow = await this.hogFlowManager.getHogFlow(id)
 
             if (!hogFlow || hogFlow.team_id !== team.id) {
-                return res.status(404).json({ error: 'Hog flow not found' })
+                return res.status(404).json({ error: 'Workflow not found' })
             }
 
             // Queue a message for the CDP batch producer to consume
