@@ -2,6 +2,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, selecto
 import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
 import { lazyLoaders, loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { LemonDialog } from '@posthog/lemon-ui'
 
@@ -179,7 +180,15 @@ export const workflowLogic = kea<workflowLogicType>([
                     updates = sanitizeWorkflow(updates, values.hogFunctionTemplatesById)
 
                     if (!props.id || props.id === 'new') {
-                        return api.hogFlows.createHogFlow(updates)
+                        const result = await api.hogFlows.createHogFlow(updates)
+
+                        if (props.templateId) {
+                            posthog.capture('hog_flow_created_from_template', {
+                                workflow_id: result.id,
+                                template_id: props.templateId,
+                            })
+                        }
+                        return result
                     }
 
                     return api.hogFlows.updateHogFlow(props.id, updates)
