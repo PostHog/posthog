@@ -29,14 +29,18 @@ def create_default_modifiers_for_user(
     else:
         modifiers = modifiers.model_copy()
 
-    modifiers.useMaterializedViews = posthoganalytics.feature_enabled(
-        "data-modeling",
-        str(user.distinct_id),
-        person_properties={
-            "email": user.email,
-        },
-        only_evaluate_locally=True,
-        send_feature_flag_events=False,
+    modifiers.useMaterializedViews = (
+        posthoganalytics.feature_enabled(
+            "data-modeling",
+            str(user.distinct_id),
+            person_properties={
+                "email": user.email,
+            },
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+        if user.email
+        else True
     )
 
     return create_default_modifiers_for_team(team, modifiers)
