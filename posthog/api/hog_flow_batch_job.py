@@ -23,7 +23,6 @@ class HogFlowBatchJobSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "id",
-            "status",
             "created_at",
             "created_by",
             "updated_at",

@@ -56,7 +56,7 @@ class Migration(migrations.Migration):
                 ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
             ],
             options={
-                "indexes": [models.Index(fields=["status", "team"], name="posthog_hog_status_8bc026_idx")],
+                "indexes": [models.Index(fields=["team"], name="posthog_hog_status_8bc026_idx")],
             },
         ),
     ]
