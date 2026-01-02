@@ -60,6 +60,7 @@ from products.llm_analytics.backend.api import (
     EvaluationConfigViewSet,
     EvaluationRunViewSet,
     EvaluationViewSet,
+    LLMAnalyticsAnnotationsViewSet,
     LLMAnalyticsSummarizationViewSet,
     LLMAnalyticsTextReprViewSet,
     LLMAnalyticsTranslateViewSet,
@@ -1055,6 +1056,13 @@ environments_router.register(
     r"llm_analytics/summarization",
     LLMAnalyticsSummarizationViewSet,
     "environment_llm_analytics_summarization",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/annotations",
+    LLMAnalyticsAnnotationsViewSet,
+    "environment_llm_analytics_annotations",
     ["team_id"],
 )
 
