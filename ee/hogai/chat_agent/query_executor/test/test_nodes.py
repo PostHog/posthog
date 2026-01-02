@@ -87,9 +87,7 @@ class TestQueryExecutorNode(ClickhouseTestMixin, NonAtomicBaseTest):
         new_state = cast(PartialAssistantState, new_state)
         mock_process_query_dict.assert_called_once()  # Query processing started
         msg = cast(AssistantToolCallMessage, new_state.messages[0])
-        self.assertIn(
-            "Here is the results table of the TrendsQuery created to answer your latest question:", msg.content
-        )
+        self.assertIn("Here is the results table of the TrendsQuery insight:", msg.content)
         self.assertEqual(msg.type, "tool")
         self.assertEqual(msg.tool_call_id, "tool1")
         self.assertIsNotNone(msg.id)
@@ -143,9 +141,7 @@ class TestQueryExecutorNode(ClickhouseTestMixin, NonAtomicBaseTest):
         new_state = cast(PartialAssistantState, new_state)
         mock_process_query_dict.assert_called_once()  # Query processing started
         msg = cast(AssistantToolCallMessage, new_state.messages[0])
-        self.assertIn(
-            "Here is the results table of the TrendsQuery created to answer your latest question:", msg.content
-        )
+        self.assertIn("Here is the results table of the TrendsQuery insight:", msg.content)
         self.assertIn(f"Insight ID: {insight.short_id}", msg.content)
         self.assertIn("Name: test insight", msg.content)
         self.assertIn("Description: test description", msg.content)
@@ -307,9 +303,7 @@ class TestQueryExecutorNode(ClickhouseTestMixin, NonAtomicBaseTest):
             new_state = cast(PartialAssistantState, new_state)
             mock_process_query_dict.assert_called_once()  # Query processing started
             msg = cast(AssistantMessage, new_state.messages[0])
-            self.assertIn(
-                "Here is the results table of the TrendsQuery created to answer your latest question:", msg.content
-            )
+            self.assertIn("Here is the results table of the TrendsQuery insight:", msg.content)
             self.assertEqual(msg.type, "tool")
             self.assertIsNotNone(msg.id)
 
