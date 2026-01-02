@@ -456,8 +456,8 @@ describe('workflowTemplateLogic', () => {
 
             // Verify API call with correct data
             expect(mockApi.updateHogFlowTemplate).toHaveBeenCalledWith(
+                'template-id',
                 expect.objectContaining({
-                    id: 'template-id',
                     name: 'Updated Workflow',
                     description: 'Updated Description',
                     actions: expect.any(Array),
