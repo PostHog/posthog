@@ -31,7 +31,7 @@ class SyncPersonDistinctIdsWorkflowInputs:
     team_id: int
     batch_size: int = 100
     dry_run: bool = True  # Safe by default
-    delete_ch_only_orphans: bool = False  # If True, mark CH-only orphans as deleted
+    delete_ch_only_orphans: bool = False  # If True, mark CH-only orphans as deleted (requires categorize_orphans=True)
     categorize_orphans: bool = False  # If True, run extra query to distinguish truly orphaned vs CH-only
     limit: int | None = None  # Max persons to process (for testing)
     person_ids: list[str] | None = None  # Specific person UUIDs to process (for testing)
@@ -80,6 +80,8 @@ This avoids inefficient OFFSET pagination - instead of N queries each scanning O
 | false   | false                  | **Yes**    | No                    |
 | false   | true                   | **Yes**    | **Yes**               |
 
+**Note:** `delete_ch_only_orphans=true` requires `categorize_orphans=true`. This ensures we only delete persons that are confirmed to be CH-only (not in PG at all), not truly orphaned persons (in PG but without DIDs).
+
 ## CLI Usage
 
 ```bash
@@ -97,7 +99,7 @@ python manage.py start_temporal_workflow sync-person-distinct-ids \
 
 # Dry run with delete_ch_only_orphans - shows what would be marked deleted too
 python manage.py start_temporal_workflow sync-person-distinct-ids \
-    '{"team_id": 2, "delete_ch_only_orphans": true}'
+    '{"team_id": 2, "delete_ch_only_orphans": true, "categorize_orphans": true}'
 
 # Dry run with categorization - reports truly orphaned vs CH-only separately
 python manage.py start_temporal_workflow sync-person-distinct-ids \
@@ -110,7 +112,7 @@ python manage.py start_temporal_workflow sync-person-distinct-ids \
 
 # Production: sync AND mark CH-only orphans as deleted
 python manage.py start_temporal_workflow sync-person-distinct-ids \
-    '{"team_id": 2, "dry_run": false, "delete_ch_only_orphans": true}' \
+    '{"team_id": 2, "dry_run": false, "delete_ch_only_orphans": true, "categorize_orphans": true}' \
     --workflow-id "sync-person-distinct-ids-team-2"
 ```
 
@@ -174,7 +176,7 @@ python manage.py start_temporal_workflow sync-person-distinct-ids \
 
 # Sync + mark CH-only orphans as deleted
 python manage.py start_temporal_workflow sync-person-distinct-ids \
-    '{"team_id": 1, "dry_run": false, "delete_ch_only_orphans": true}'
+    '{"team_id": 1, "dry_run": false, "delete_ch_only_orphans": true, "categorize_orphans": true}'
 ```
 
 ### Verify results
@@ -204,14 +206,14 @@ python manage.py setup_orphan_test_data --team-id 1 --cleanup
 
 ### Test scenarios
 
-| Scenario         | Command                                                              | Expected Result                              |
-| ---------------- | -------------------------------------------------------------------- | -------------------------------------------- |
-| Dry run          | `'{"team_id": 1}'`                                                   | Logs counts, no changes                      |
-| Categorized      | `'{"team_id": 1, "categorize_orphans": true}'`                       | Reports truly orphaned vs CH-only separately |
-| Sync only        | `'{"team_id": 1, "dry_run": false}'`                                 | Fixable orphans get DIDs synced              |
-| Sync + delete    | `'{"team_id": 1, "dry_run": false, "delete_ch_only_orphans": true}'` | DIDs synced + CH-only marked deleted         |
-| Limit            | `'{"team_id": 1, "limit": 2}'`                                       | Only process first 2 orphans                 |
-| Specific persons | `'{"team_id": 1, "person_ids": ["uuid-1"]}'`                         | Only process specified UUIDs                 |
+| Scenario         | Command                                                                                          | Expected Result                              |
+| ---------------- | ------------------------------------------------------------------------------------------------ | -------------------------------------------- |
+| Dry run          | `'{"team_id": 1}'`                                                                               | Logs counts, no changes                      |
+| Categorized      | `'{"team_id": 1, "categorize_orphans": true}'`                                                   | Reports truly orphaned vs CH-only separately |
+| Sync only        | `'{"team_id": 1, "dry_run": false}'`                                                             | Fixable orphans get DIDs synced              |
+| Sync + delete    | `'{"team_id": 1, "dry_run": false, "delete_ch_only_orphans": true, "categorize_orphans": true}'` | DIDs synced + CH-only marked deleted         |
+| Limit            | `'{"team_id": 1, "limit": 2}'`                                                                   | Only process first 2 orphans                 |
+| Specific persons | `'{"team_id": 1, "person_ids": ["uuid-1"]}'`                                                     | Only process specified UUIDs                 |
 
 ## Design Decisions
 

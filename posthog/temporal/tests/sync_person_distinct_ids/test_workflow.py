@@ -287,6 +287,7 @@ class TestSyncPersonDistinctIdsWorkflow:
                         person_ids=person_uuids,  # Specify exact persons to process
                         dry_run=False,
                         delete_ch_only_orphans=True,
+                        categorize_orphans=True,
                     ),
                     id=str(uuid.uuid4()),
                     task_queue=task_queue_name,

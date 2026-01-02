@@ -41,6 +41,14 @@ class SyncPersonDistinctIdsWorkflowInputs:
     limit: int | None = None
     person_ids: list[str] | None = None
 
+    def __post_init__(self):
+        if self.delete_ch_only_orphans and not self.categorize_orphans:
+            raise ValueError(
+                "delete_ch_only_orphans=True requires categorize_orphans=True. "
+                "Without categorization, we cannot distinguish CH-only orphans from "
+                "truly orphaned persons (in PG but without DIDs)."
+            )
+
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
         return {
@@ -170,14 +178,10 @@ class SyncPersonDistinctIdsWorkflow(PostHogWorkflow):
                 distinct_ids_synced += sync_result.distinct_ids_synced
 
             # Mark CH-only orphans as deleted (if enabled)
-            # When categorize_orphans is enabled, only delete persons confirmed to be CH-only
-            # Otherwise, delete all persons_not_found (which includes truly orphaned)
-            persons_to_delete = (
-                lookup_result.persons_ch_only if inputs.categorize_orphans else lookup_result.persons_not_found
-            )
-            if inputs.delete_ch_only_orphans and persons_to_delete:
+            # Validation ensures categorize_orphans=True when delete_ch_only_orphans=True
+            if inputs.delete_ch_only_orphans and lookup_result.persons_ch_only:
                 # Build version map for persons to delete
-                delete_versions = {uuid: person_versions.get(uuid, 0) for uuid in persons_to_delete}
+                delete_versions = {uuid: person_versions.get(uuid, 0) for uuid in lookup_result.persons_ch_only}
                 delete_result = await temporalio.workflow.execute_activity(
                     mark_ch_only_orphans_deleted,
                     MarkChOnlyOrphansDeletedInputs(
