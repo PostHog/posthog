@@ -26,6 +26,9 @@ from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from posthog.person_db_router import PERSONS_DB_FOR_WRITE
 from posthog.settings.base_variables import TEST
 
+# Import KeyTextTransform to allow annotating JSONB key values (supports keys with hyphens)
+from django.contrib.postgres.fields.jsonb import KeyTextTransform
+
 if TYPE_CHECKING:
     from posthog.models.team import Team
 
@@ -488,15 +491,23 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         if not emails:
             return []
 
-        uuids = [
-            str(uuid)
-            for uuid in Person.objects.db_manager(READ_DB_FOR_PERSONS)
-            .filter(team_id=team_id)
-            .filter(properties__email__in=emails)
-            .values_list("uuid", flat=True)
-        ]
+        # Try a small set of common JSON property key variants for email.
+        # This is a minimal pragmatic fix for mixed-case keys in existing datasets.
 
-        return uuids
+        qs = Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team_id=team_id)
+
+        candidate_keys = ["email", "Email", "EMAIL", "e-mail"]  # add more if needed
+
+        uuids_set: set[str] = set()
+        for key in candidate_keys:
+            # Annotate the JSONB key value into a column and filter by that value.
+            # KeyTextTransform allows matching keys that contain characters like hyphens.
+            annotated = qs.annotate(_prop_val=KeyTextTransform(key, "properties")).filter(_prop_val__in=emails)
+            for uuid in annotated.values_list("uuid", flat=True):
+                uuids_set.add(str(uuid))
+
+        # Return list to upstream; order doesn't matter for cohort insertion dedupe
+        return list(uuids_set)
 
     def insert_users_list_by_uuid_into_pg_only(
         self,
