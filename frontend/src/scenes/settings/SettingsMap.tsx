@@ -59,6 +59,7 @@ import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { MarketingAnalyticsSettingsWrapper } from './environment/MarketingAnalyticsSettingsWrapper'
 import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
+import { ReplayIntegrations } from './environment/ReplayIntegrations'
 import {
     NetworkCaptureSettings,
     ReplayAuthorizedDomains,
@@ -444,6 +445,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                     </>
                 ),
                 component: <ReplayDataRetentionSettings />,
+            },
+            {
+                id: 'replay-integrations',
+                title: 'Integrations',
+                component: <ReplayIntegrations />,
             },
         ],
     },

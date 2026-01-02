@@ -457,6 +457,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setMuted: (muted: boolean) => ({ muted }),
         setSkipToFirstMatchingEvent: (skipToFirstMatchingEvent: boolean) => ({ skipToFirstMatchingEvent }),
         forcePause: true,
+        createExternalReference: (integrationId: number, config: Record<string, any>) => ({
+            integrationId,
+            config,
+        }),
     }),
     reducers(() => ({
         // used in visual regression testing to make sure the player is paused
@@ -1775,6 +1779,27 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             // The AudioMuteReplayerPlugin will be recreated with the updated mute state
             if (values.player) {
                 actions.tryInitReplayer()
+            }
+        },
+        createExternalReference: async ({
+            integrationId,
+            config,
+        }: {
+            integrationId: number
+            config: Record<string, any>
+        }) => {
+            if (!values.sessionRecordingId) {
+                return
+            }
+
+            try {
+                await api.recordings.createExternalReference(values.sessionRecordingId, integrationId, config)
+
+                // Reload the recording metadata to get the updated external_references
+                actions.loadRecordingData()
+            } catch (error) {
+                console.error('Failed to create external reference:', error)
+                throw error
             }
         },
     })),
