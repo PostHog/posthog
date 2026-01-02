@@ -1,3 +1,4 @@
+import { FeatureCollection } from 'geojson'
 import { useValues } from 'kea'
 import maplibregl, { Popup } from 'maplibre-gl'
 import { Protocol } from 'pmtiles'
@@ -36,7 +37,7 @@ const createPopupContent = (text: string, subtext?: string): HTMLElement => {
 
 const setupPointsOverlay = (
     map: maplibregl.Map,
-    geoJSON: GeoJSON.FeatureCollection,
+    geoJSON: FeatureCollection,
     backgroundColor: string,
     aggregationLabel: string
 ): Popup => {
@@ -123,7 +124,7 @@ const setupPointsOverlay = (
 
 const setupSubdivisionsOverlay = (
     map: maplibregl.Map,
-    geoJSON: GeoJSON.FeatureCollection,
+    geoJSON: FeatureCollection,
     seriesByIsoCode: Record<string, TrendResult>,
     aggregationLabel: string,
     onDataPointClick?: (data: { breakdown: string[] }, series: TrendResult) => void

@@ -110,6 +110,12 @@ export default defineConfig(({ mode }) => {
                     target: 'http://localhost:8000',
                     changeOrigin: true,
                 },
+                '/pmtiles': {
+                    target: 'https://posthog-prod-maps.s3.us-east-1.amazonaws.com',
+                    changeOrigin: true,
+                    rewrite: (path) => path.replace(/^\/pmtiles/, ''),
+                    secure: false,
+                },
             },
         },
         define: {

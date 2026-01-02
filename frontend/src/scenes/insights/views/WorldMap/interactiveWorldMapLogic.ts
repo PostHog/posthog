@@ -1,3 +1,4 @@
+import { FeatureCollection } from 'geojson'
 import { connect, kea, key, path, props, selectors } from 'kea'
 
 import { isPointsMapBreakdown } from 'scenes/web-analytics/common'
@@ -69,9 +70,9 @@ export const interactiveWorldMapLogic = kea<interactiveWorldMapLogicType>([
             (s) => [s.visualizationMode, s.pointsGeoJSON, s.subdivisionsGeoJSON],
             (
                 visualizationMode: InteractiveWorldMapMode,
-                pointsGeoJSON: GeoJSON.FeatureCollection,
-                subdivisionsGeoJSON: GeoJSON.FeatureCollection
-            ): GeoJSON.FeatureCollection =>
+                pointsGeoJSON: FeatureCollection,
+                subdivisionsGeoJSON: FeatureCollection
+            ): FeatureCollection =>
                 visualizationMode === InteractiveWorldMapMode.Points ? pointsGeoJSON : subdivisionsGeoJSON,
         ],
     }),

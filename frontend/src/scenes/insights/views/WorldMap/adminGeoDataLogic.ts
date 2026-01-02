@@ -1,8 +1,8 @@
+import { FeatureCollection } from 'geojson'
 import { afterMount, kea, path } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import type { adminGeoDataLogicType } from './adminGeoDataLogicType'
-import type { FeatureCollection } from './types'
 
 const BASE_URL = 'https://posthog-prod-maps.s3.us-east-1.amazonaws.com'
 const ADMIN_GEOJSON_URL = `${BASE_URL}/admin1_50m.json`

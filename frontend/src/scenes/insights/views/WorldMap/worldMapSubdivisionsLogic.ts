@@ -1,3 +1,4 @@
+import { Feature, FeatureCollection } from 'geojson'
 import { connect, kea, key, path, props, selectors } from 'kea'
 
 import { hexToRGB } from 'lib/utils'
@@ -111,11 +112,11 @@ export const worldMapSubdivisionsLogic = kea<worldMapSubdivisionsLogicType>([
         geoJSON: [
             (s) => [s.adminGeoData, s.subdivisionsByCode, s.maxValue, s.backgroundColor],
             (
-                adminGeoData: GeoJSON.FeatureCollection | null,
+                adminGeoData: FeatureCollection | null,
                 subdivisionsByCode: Record<string, WorldMapSubdivisionData>,
                 maxValue: number,
                 backgroundColor: string
-            ): GeoJSON.FeatureCollection | null => {
+            ): FeatureCollection | null => {
                 if (!adminGeoData) {
                     return null
                 }
@@ -134,7 +135,7 @@ export const worldMapSubdivisionsLogic = kea<worldMapSubdivisionsLogicType>([
 
                 return {
                     type: 'FeatureCollection',
-                    features: adminGeoData.features.map((feature: GeoJSON.Feature) => {
+                    features: adminGeoData.features.map((feature: Feature) => {
                         const isoCode: string | undefined = feature.properties?.iso_3166_2
                         const data = isoCode ? subdivisionsByCode[isoCode] : undefined
 

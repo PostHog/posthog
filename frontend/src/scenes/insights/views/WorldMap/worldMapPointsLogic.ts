@@ -1,3 +1,4 @@
+import { FeatureCollection } from 'geojson'
 import { connect, kea, key, path, props, selectors } from 'kea'
 
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -76,7 +77,7 @@ export const worldMapPointsLogic = kea<worldMapPointsLogicType>([
         hasData: [(s) => [s.points], (points: WorldMapPointData[]): boolean => points.length > 0],
         geoJSON: [
             (s) => [s.points],
-            (points: WorldMapPointData[]): GeoJSON.FeatureCollection => ({
+            (points: WorldMapPointData[]): FeatureCollection => ({
                 type: 'FeatureCollection',
                 features: points
                     .filter((p) => isValidCoordinate(p.lat, p.lng))
