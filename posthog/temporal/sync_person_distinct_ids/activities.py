@@ -1,6 +1,7 @@
 import os
 import json
 import dataclasses
+from urllib.parse import quote_plus
 
 from django.conf import settings
 
@@ -32,8 +33,8 @@ def get_persons_database_url() -> str:
         port = db.get("PORT", "5432")
         name = db.get("NAME", "")
         if password:
-            return f"postgres://{user}:{password}@{host}:{port}/{name}"
-        return f"postgres://{user}@{host}:{port}/{name}"
+            return f"postgres://{quote_plus(user)}:{quote_plus(password)}@{host}:{port}/{name}"
+        return f"postgres://{quote_plus(user)}@{host}:{port}/{name}"
 
     return settings.DATABASE_URL
 
