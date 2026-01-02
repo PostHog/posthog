@@ -47,7 +47,7 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
         setRevenueEntity: (revenueEntity: ErrorTrackingQueryRevenueEntity) => ({ revenueEntity }),
         setRevenuePeriod: (revenuePeriod: ErrorTrackingQueryRevenuePeriod) => ({ revenuePeriod }),
         setAssignee: (assignee: ErrorTrackingIssue['assignee']) => ({ assignee }),
-        setStatus: (status: ErrorTrackingQuery['status']) => ({ status }),
+        setStatus: (status: ErrorTrackingQueryStatus) => ({ status }),
     }),
 
     reducers({

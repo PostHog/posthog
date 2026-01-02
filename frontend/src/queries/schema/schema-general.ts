@@ -2353,7 +2353,7 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     revenuePeriod?: 'all_time' | 'mrr'
     revenueEntity?: 'person' | 'group_0' | 'group_1' | 'group_2' | 'group_3' | 'group_4'
     dateRange: DateRange
-    status?: ErrorTrackingIssue['status'] | 'all'
+    status?: ErrorTrackingQueryStatus
     assignee?: ErrorTrackingIssueAssignee | null
     filterGroup?: PropertyGroupFilter
     filterTestAccounts?: boolean
@@ -2456,12 +2456,18 @@ export enum QuickFilterContext {
     LogsFilters = 'logs-filters',
 }
 
+/** @title ErrorTrackingIssueStatus */
+export type ErrorTrackingIssueStatus = 'archived' | 'active' | 'resolved' | 'pending_release' | 'suppressed'
+
+/** @title ErrorTrackingQueryStatus */
+export type ErrorTrackingQueryStatus = ErrorTrackingIssueStatus | 'all'
+
 export interface ErrorTrackingRelationalIssue {
     id: string
     name: string | null
     description: string | null
     assignee: ErrorTrackingIssueAssignee | null
-    status: 'archived' | 'active' | 'resolved' | 'pending_release' | 'suppressed'
+    status: ErrorTrackingIssueStatus
     /**  @format date-time */
     first_seen: string
     external_issues?: ErrorTrackingExternalReference[]
