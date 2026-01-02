@@ -1,5 +1,3 @@
-from typing import Optional
-
 import structlog
 from slack_sdk.errors import SlackApiError
 from temporalio import activity, workflow
@@ -8,7 +6,7 @@ from temporalio.common import MetricCounter, MetricMeter
 from posthog.exceptions_capture import capture_exception
 from posthog.models.subscription import Subscription
 from posthog.sync import database_sync_to_async
-from posthog.tasks.exporter import is_user_query_error_type
+from posthog.tasks.exports.failure_handler import is_user_query_error_type
 
 from ee.tasks.subscriptions.email_subscriptions import send_email_subscription_report
 from ee.tasks.subscriptions.slack_subscriptions import (
@@ -75,8 +73,8 @@ def get_subscription_failure_metric(
 
 async def deliver_subscription_report_async(
     subscription_id: int,
-    previous_value: Optional[str] = None,
-    invite_message: Optional[str] = None,
+    previous_value: str | None = None,
+    invite_message: str | None = None,
 ) -> None:
     """Async function for delivering subscription reports."""
     logger.info("deliver_subscription_report_async.starting", subscription_id=subscription_id)

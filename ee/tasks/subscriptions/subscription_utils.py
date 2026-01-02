@@ -18,7 +18,13 @@ from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.subscription import Subscription
 from posthog.sync import database_sync_to_async
 from posthog.tasks import exporter
-from posthog.tasks.exporter import EXCEPTIONS_TO_RETRY, USER_QUERY_ERRORS
+from posthog.tasks.exports.failure_handler import (
+    EXCEPTIONS_TO_RETRY,
+    EXPORT_FAILED_COUNTER,
+    FAILURE_TYPE_TIMEOUT_GENERATION,
+    USER_QUERY_ERRORS,
+    classify_failure_type,
+)
 from posthog.utils import wait_for_parallel_celery_group
 
 logger = structlog.get_logger(__name__)
@@ -247,9 +253,12 @@ async def generate_assets_async(
                         team_id=resource.team_id,
                     )
 
+                failure_type = classify_failure_type(e)
                 asset.exception = str(e)
                 asset.exception_type = type(e).__name__
+                asset.failure_type = failure_type
                 await database_sync_to_async(asset.save, thread_sensitive=False)()
+                EXPORT_FAILED_COUNTER.labels(type=asset.export_type, failure_type=failure_type).inc()
 
         # Reserve buffer time for email/Slack delivery after exports
         buffer_seconds = 120  # 2 minutes
@@ -276,6 +285,15 @@ async def generate_assets_async(
             )
         except TimeoutError:
             get_asset_generation_timeout_metric("temporal").add(1)
+
+            # Mark incomplete assets as timed out
+            for asset in assets:
+                if not asset.has_content and not asset.exception:
+                    asset.failure_type = FAILURE_TYPE_TIMEOUT_GENERATION
+                    await database_sync_to_async(asset.save, thread_sensitive=False)(update_fields=["failure_type"])
+                    EXPORT_FAILED_COUNTER.labels(
+                        type=asset.export_type, failure_type=FAILURE_TYPE_TIMEOUT_GENERATION
+                    ).inc()
 
             # Get failure info for logging
             failure_info = _get_failed_asset_info(assets, resource)

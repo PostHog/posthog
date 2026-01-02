@@ -1,54 +1,21 @@
 import base64
-from typing import Optional
 
 import pytest
 from posthog.test.base import APIBaseTest
-from unittest import TestCase
 from unittest.mock import MagicMock, patch
-
-from parameterized import parameterized
 
 from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import ExportedAsset
 from posthog.tasks import exporter
-from posthog.tasks.exporter import export_asset_direct, is_user_query_error_type
+from posthog.tasks.exporter import export_asset_direct
 from posthog.tasks.exports.image_exporter import get_driver
 
 
-class TestIsUserQueryErrorType(TestCase):
-    @parameterized.expand(
-        [
-            # User query errors - should return True
-            ("QueryError", True),
-            ("SyntaxError", True),
-            ("CHQueryErrorIllegalAggregation", True),
-            ("CHQueryErrorIllegalTypeOfArgument", True),
-            ("CHQueryErrorNoCommonType", True),
-            ("CHQueryErrorNotAnAggregate", True),
-            ("CHQueryErrorTypeMismatch", True),
-            ("CHQueryErrorUnknownFunction", True),
-            ("ClickHouseQueryTimeOut", True),
-            ("ClickHouseQueryMemoryLimitExceeded", True),
-            # Non-user errors - should return False
-            ("TimeoutError", False),
-            ("ValueError", False),
-            ("CHQueryErrorS3Error", False),
-            ("CHQueryErrorTooManySimultaneousQueries", False),
-            ("ClickHouseAtCapacity", False),
-            ("ConcurrencyLimitExceeded", False),
-            (None, False),
-            ("", False),
-        ]
-    )
-    def test_is_user_query_error_type(self, exception_type: str | None, expected: bool) -> None:
-        assert is_user_query_error_type(exception_type) == expected
-
-
 class MockWebDriver(MagicMock):
-    def find_element_by_css_selector(self, name: str) -> Optional[MagicMock]:
+    def find_element_by_css_selector(self, name: str) -> MagicMock | None:
         return MagicMock()  # Always return something for wait_for_css_selector
 
-    def find_element_by_class_name(self, name: str) -> Optional[MagicMock]:
+    def find_element_by_class_name(self, name: str) -> MagicMock | None:
         return None  # Never return anything for Spinner
 
 

@@ -4,7 +4,7 @@ import time
 import uuid
 import tempfile
 from datetime import timedelta
-from typing import Literal, Optional
+from typing import Literal
 from urllib.parse import quote
 
 from django.conf import settings
@@ -30,7 +30,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import InsightVariable
 from posthog.models.exported_asset import ExportedAsset, get_public_access_token, save_content
 from posthog.schema_migrations.upgrade_manager import upgrade_query
-from posthog.tasks.exporter import EXPORT_FAILED_COUNTER, EXPORT_SUCCEEDED_COUNTER, EXPORT_TIMER
+from posthog.tasks.exporter import EXPORT_SUCCEEDED_COUNTER, EXPORT_TIMER
 from posthog.tasks.exports.exporter_utils import log_error_if_site_url_not_reachable
 from posthog.utils import absolute_uri
 
@@ -43,7 +43,7 @@ def _extract_cache_key(result: dict | BaseModel) -> str | None:
     return result.get("cache_key")
 
 
-def _build_cache_keys_param(insight_cache_keys: Optional[dict[int, str]]) -> str:
+def _build_cache_keys_param(insight_cache_keys: dict[int, str] | None) -> str:
     if not insight_cache_keys:
         return ""
     return f"&cache_keys={quote(json.dumps(insight_cache_keys))}"
@@ -94,8 +94,8 @@ def get_driver() -> webdriver.Chrome:
 
 def _export_to_png(
     exported_asset: ExportedAsset,
-    max_height_pixels: Optional[int] = None,
-    insight_cache_keys: Optional[dict[int, str]] = None,
+    max_height_pixels: int | None = None,
+    insight_cache_keys: dict[int, str] | None = None,
 ) -> None:
     """
     Exporting an Insight means:
@@ -214,9 +214,9 @@ def _screenshot_asset(
     screenshot_width: ScreenWidth,
     wait_for_css_selector: CSSSelector,
     screenshot_height: int = 600,
-    max_height_pixels: Optional[int] = None,
+    max_height_pixels: int | None = None,
 ) -> None:
-    driver: Optional[webdriver.Chrome] = None
+    driver: webdriver.Chrome | None = None
     try:
         driver = get_driver()
         # Set initial window size with a more reasonable height to prevent initial rendering issues
@@ -354,7 +354,7 @@ def _screenshot_asset(
             driver.quit()
 
 
-def export_image(exported_asset: ExportedAsset, max_height_pixels: Optional[int] = None) -> None:
+def export_image(exported_asset: ExportedAsset, max_height_pixels: int | None = None) -> None:
     with posthoganalytics.new_context():
         posthoganalytics.tag("team_id", exported_asset.team_id if exported_asset else "unknown")
         posthoganalytics.tag("asset_id", exported_asset.id if exported_asset else "unknown")
@@ -439,5 +439,4 @@ def export_image(exported_asset: ExportedAsset, max_height_pixels: Optional[int]
             capture_exception(e, additional_properties={"celery_task": "image_export", "team_id": team_id})
 
             logger.error("image_exporter.failed", exception=e, exc_info=True)
-            EXPORT_FAILED_COUNTER.labels(type="image").inc()
             raise

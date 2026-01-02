@@ -1,34 +1,21 @@
 from time import perf_counter
-from typing import Optional
 
-from django.db import OperationalError, transaction
+from django.db import transaction
 
 import structlog
 import posthoganalytics
 from celery import current_task, shared_task
 from prometheus_client import Counter, Histogram
-from urllib3.exceptions import MaxRetryError, ProtocolError
 
-from posthog.hogql.errors import (
-    QueryError,
-    SyntaxError as HogQLSyntaxError,
-)
-
-from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.errors import (
-    CHQueryErrorIllegalAggregation,
-    CHQueryErrorIllegalTypeOfArgument,
-    CHQueryErrorNoCommonType,
-    CHQueryErrorNotAnAggregate,
-    CHQueryErrorS3Error,
-    CHQueryErrorTooManySimultaneousQueries,
-    CHQueryErrorTypeMismatch,
-    CHQueryErrorUnknownFunction,
-)
 from posthog.event_usage import groups
-from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.models import ExportedAsset
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
+from posthog.tasks.exports.failure_handler import (
+    EXCEPTIONS_TO_RETRY,
+    EXPORT_FAILED_COUNTER,
+    USER_QUERY_ERRORS,
+    classify_failure_type,
+)
 from posthog.tasks.utils import CeleryQueue
 
 logger = structlog.get_logger(__name__)
@@ -48,52 +35,12 @@ EXPORT_ASSET_UNKNOWN_COUNTER = Counter(
     "An export task was for an unknown asset",
     labelnames=["type"],
 )
-EXPORT_FAILED_COUNTER = Counter(
-    "exporter_task_failed",
-    "An export task failed",
-    labelnames=["type"],
-)
 EXPORT_TIMER = Histogram(
     "exporter_task_duration_seconds",
     "Time spent exporting an asset",
     labelnames=["type"],
     buckets=(1, 5, 10, 30, 60, 120, 240, 300, 360, 420, 480, 540, 600, float("inf")),
 )
-
-EXCEPTIONS_TO_RETRY = (
-    CHQueryErrorS3Error,
-    CHQueryErrorTooManySimultaneousQueries,
-    OperationalError,
-    ProtocolError,
-    ConcurrencyLimitExceeded,
-    MaxRetryError,  # This is from urllib, e.g. HTTP retries instead of "job retries"
-    ClickHouseAtCapacity,
-)
-
-USER_QUERY_ERRORS = (
-    QueryError,
-    HogQLSyntaxError,
-    ClickHouseQueryMemoryLimitExceeded,  # Users should reduce the date range on their query (or materialise)
-    ClickHouseQueryTimeOut,  # Users should switch to materialised queries if they run into this
-    CHQueryErrorIllegalTypeOfArgument,
-    CHQueryErrorNoCommonType,
-    CHQueryErrorNotAnAggregate,
-    CHQueryErrorUnknownFunction,
-    CHQueryErrorTypeMismatch,
-    CHQueryErrorIllegalAggregation,
-)
-
-# Intentionally uncategorized errors (neither retryable nor user errors):
-# - CHQueryErrorUnsupportedMethod: Known to be caused by missing UDFs (infrastructure issue, but not retryable)
-# These should be revisited as we gather more data on their root causes.
-
-# User query error class names for checking exception_type field
-USER_QUERY_ERROR_NAMES = frozenset(cls.__name__ for cls in USER_QUERY_ERRORS)
-
-
-def is_user_query_error_type(exception_type: str | None) -> bool:
-    """Check if an exception type is a user query error."""
-    return exception_type in USER_QUERY_ERROR_NAMES
 
 
 # export_asset is used in chords/groups and so must not ignore its results
@@ -114,8 +61,8 @@ def is_user_query_error_type(exception_type: str | None) -> bool:
 @transaction.atomic
 def export_asset(
     exported_asset_id: int,
-    limit: Optional[int] = None,  # For CSV/XLSX: max row count
-    max_height_pixels: Optional[int] = None,  # For images: max screenshot height in pixels
+    limit: int | None = None,  # For CSV/XLSX: max row count
+    max_height_pixels: int | None = None,  # For images: max screenshot height in pixels
 ) -> None:
     # if Celery is lagging then you can end up with an exported asset that has had a TTL added
     # and that TTL has passed, in the exporter we don't care about that.
@@ -128,8 +75,8 @@ def export_asset(
 
 def export_asset_direct(
     exported_asset: ExportedAsset,
-    limit: Optional[int] = None,  # For CSV/XLSX: max row count
-    max_height_pixels: Optional[int] = None,  # For images: max screenshot height in pixels
+    limit: int | None = None,  # For CSV/XLSX: max row count
+    max_height_pixels: int | None = None,  # For images: max screenshot height in pixels
 ) -> None:
     from posthog.tasks.exports import csv_exporter, image_exporter
 
@@ -184,7 +131,8 @@ def export_asset_direct(
         )
         exported_asset.exception = None
         exported_asset.exception_type = None
-        exported_asset.save(update_fields=["exception", "exception_type"])
+        exported_asset.failure_type = None
+        exported_asset.save(update_fields=["exception", "exception_type", "failure_type"])
     except Exception as e:
         is_retriable = isinstance(e, EXCEPTIONS_TO_RETRY)
         is_user_error = isinstance(e, USER_QUERY_ERRORS)
@@ -221,6 +169,9 @@ def export_asset_direct(
         if is_retriable:
             raise
 
+        failure_type = classify_failure_type(e)
         exported_asset.exception = str(e)
         exported_asset.exception_type = type(e).__name__
+        exported_asset.failure_type = failure_type
         exported_asset.save()
+        EXPORT_FAILED_COUNTER.labels(type=exported_asset.export_type, failure_type=failure_type).inc()

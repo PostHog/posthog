@@ -1,6 +1,5 @@
 import secrets
 from datetime import timedelta
-from typing import Optional
 
 from django.conf import settings
 from django.db import models
@@ -89,6 +88,8 @@ class ExportedAsset(models.Model):
     exception = models.TextField(null=True, blank=True)
     # The exception class name (e.g., "QueryError", "TimeoutError") for categorization
     exception_type = models.CharField(max_length=255, null=True, blank=True)
+    # Classification of the failure, see exporter.py for details
+    failure_type = models.CharField(max_length=256, null=True, blank=True)
 
     # DEPRECATED: We now use JWT for accessing assets
     access_token = models.CharField(max_length=400, null=True, blank=True, default=get_default_access_token)
@@ -125,6 +126,13 @@ class ExportedAsset(models.Model):
         return self.content is not None or self.content_location is not None
 
     @property
+    def export_type(self) -> str:
+        """Returns 'csv' for tabular exports, 'image' for visual exports."""
+        if self.export_format in (self.ExportFormat.CSV, self.ExportFormat.XLSX):
+            return "csv"
+        return "image"
+
+    @property
     def filename(self):
         ext = self.ExportFormat(self.export_format).name.lower()
         filename = "export"
@@ -152,7 +160,7 @@ class ExportedAsset(models.Model):
             "insight_id": self.insight_id,
         }
 
-    def get_public_content_url(self, expiry_delta: Optional[timedelta] = None):
+    def get_public_content_url(self, expiry_delta: timedelta | None = None):
         token = get_public_access_token(self, expiry_delta)
         return absolute_uri(f"/exporter/{self.filename}?token={token}")
 
@@ -167,7 +175,7 @@ class ExportedAsset(models.Model):
         return [format_choice.value for format_choice in cls.SUPPORTED_FORMATS]
 
 
-def get_public_access_token(asset: ExportedAsset, expiry_delta: Optional[timedelta] = None) -> str:
+def get_public_access_token(asset: ExportedAsset, expiry_delta: timedelta | None = None) -> str:
     if not expiry_delta:
         expiry_delta = timedelta(days=PUBLIC_ACCESS_TOKEN_EXP_DAYS)
     return encode_jwt(
