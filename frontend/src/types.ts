@@ -415,6 +415,19 @@ export interface PersonalAPIKeyType {
     scoped_teams?: TeamType['id'][] | null
 }
 
+export interface ProjectSecretAPIKeyType {
+    id: string
+    label: string
+    value?: string
+    mask_value?: string | null
+    created_at: string
+    last_used_at: string | null
+    last_rolled_at: string | null
+    team_id: number
+    scopes: string[]
+    created_by: UserBasicType | null
+}
+
 export interface OrganizationBasicType {
     id: string
     name: string
@@ -4878,6 +4891,7 @@ export enum ActivityScope {
     FEATURE_FLAG = 'FeatureFlag',
     PERSON = 'Person',
     PERSONAL_API_KEY = 'PersonalAPIKey',
+    PROJECT_SECRET_API_KEY = 'ProjectSecretAPIKey',
     GROUP = 'Group',
     INSIGHT = 'Insight',
     PLUGIN = 'Plugin',

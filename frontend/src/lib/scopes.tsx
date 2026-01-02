@@ -172,7 +172,14 @@ export const PROJECT_SECRET_API_KEY_SCOPE_PRESETS: {
     label: string
     scopes: string[]
     description: string
-}[] = []
+}[] = [
+    {
+        value: 'local_evaluation',
+        label: 'Local feature flag evaluation',
+        scopes: ['feature_flag:read'],
+        description: 'Evaluate feature flags locally',
+    },
+]
 
 export const DEFAULT_OAUTH_SCOPES = ['openid', 'email', 'profile']
 

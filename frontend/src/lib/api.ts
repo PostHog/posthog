@@ -46,6 +46,7 @@ import {
     Node,
     NodeKind,
     PersistedFolder,
+    ProjectSecretAPIKeyRequest,
     QueryLogTags,
     QuerySchema,
     QueryStatusResponse,
@@ -155,6 +156,7 @@ import {
     PluginConfigWithPluginInfoNew,
     PluginLogEntry,
     ProductTour,
+    ProjectSecretAPIKeyType,
     ProjectType,
     PropertyDefinition,
     PropertyDefinitionType,
@@ -1544,6 +1546,15 @@ export class ApiRequest {
 
     public personalApiKey(id: PersonalAPIKeyType['id']): ApiRequest {
         return this.personalApiKeys().addPathComponent(id)
+    }
+
+    // Project API Keys
+    public projectSecretApiKeys(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('project_secret_api_keys')
+    }
+
+    public projectSecretApiKey(id: ProjectSecretAPIKeyType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.projectSecretApiKeys(teamId).addPathComponent(id)
     }
 
     // Request finalization
@@ -4485,6 +4496,27 @@ const api = {
         },
         async roll(id: PersonalAPIKeyType['id']): Promise<PersonalAPIKeyType> {
             return await new ApiRequest().personalApiKey(id).withAction('roll').create()
+        },
+    },
+
+    projectSecretApiKeys: {
+        async list(): Promise<ProjectSecretAPIKeyType[]> {
+            return await new ApiRequest().projectSecretApiKeys().get()
+        },
+        async create(data: ProjectSecretAPIKeyRequest): Promise<ProjectSecretAPIKeyType> {
+            return await new ApiRequest().projectSecretApiKeys().create({ data })
+        },
+        async update(
+            id: ProjectSecretAPIKeyType['id'],
+            data: Partial<ProjectSecretAPIKeyRequest>
+        ): Promise<ProjectSecretAPIKeyType> {
+            return await new ApiRequest().projectSecretApiKey(id).update({ data })
+        },
+        async delete(id: ProjectSecretAPIKeyType['id']): Promise<void> {
+            return await new ApiRequest().projectSecretApiKey(id).delete()
+        },
+        async roll(id: ProjectSecretAPIKeyType['id']): Promise<ProjectSecretAPIKeyType> {
+            return await new ApiRequest().projectSecretApiKey(id).withAction('roll').create()
         },
     },
 
