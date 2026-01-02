@@ -247,7 +247,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
                 queuePriority: 1,
                 state: {
                     event: expect.objectContaining({
-                        event: '$incoming_webhook',
+                        event: '$batch_hog_flow_invocation',
                         distinct_id: 'distinct-1',
                     }),
                     actionStepCount: 0,
@@ -264,7 +264,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
                 queuePriority: 1,
                 state: {
                     event: expect.objectContaining({
-                        event: '$incoming_webhook',
+                        event: '$batch_hog_flow_invocation',
                         distinct_id: 'distinct-2',
                     }),
                     actionStepCount: 0,

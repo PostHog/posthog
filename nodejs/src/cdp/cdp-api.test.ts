@@ -618,6 +618,16 @@ describe('CDP API', () => {
             })
         })
 
+        it('errors if missing team', async () => {
+            const nonExistentTeamId = 99999
+            const res = await supertest(app)
+                .post(`/api/projects/${nonExistentTeamId}/hog_flows/${batchHogFlow.id}/batch_invocations/job-123`)
+                .send({})
+
+            expect(res.status).toEqual(404)
+            expect(res.body.error).toEqual('Team not found')
+        })
+
         it('errors if missing hog flow', async () => {
             const nonExistentUuid = new UUIDT().toString()
             const res = await supertest(app)
