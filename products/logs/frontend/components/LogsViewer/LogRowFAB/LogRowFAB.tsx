@@ -53,6 +53,7 @@ export function LogRowFAB({
                         onTogglePrettify?.(log)
                     }}
                     tooltip={isPrettified ? 'Collapse JSON' : 'Prettify JSON'}
+                    aria-label={isPrettified ? 'Collapse JSON' : 'Prettify JSON'}
                     className={cn(isPrettified ? 'text-brand-blue' : 'text-muted')}
                 />
                 <LemonButton
@@ -64,6 +65,7 @@ export function LogRowFAB({
                         onTogglePin(log)
                     }}
                     tooltip={pinned ? 'Unpin log' : 'Pin log'}
+                    aria-label={pinned ? 'Unpin log' : 'Pin log'}
                     className={cn(pinned ? 'text-warning' : 'text-muted')}
                 />
                 <LemonButton
@@ -75,6 +77,7 @@ export function LogRowFAB({
                         void copyToClipboard(log.body, 'log message')
                     }}
                     tooltip="Copy log message"
+                    aria-label="Copy log message"
                     className="text-muted"
                     data-attr="logs-viewer-copy-message"
                 />
@@ -87,6 +90,7 @@ export function LogRowFAB({
                         copyLinkToLog(log.uuid)
                     }}
                     tooltip="Copy link to log"
+                    aria-label="Copy link to log"
                     className="text-muted"
                     data-attr="logs-viewer-copy-link"
                 />

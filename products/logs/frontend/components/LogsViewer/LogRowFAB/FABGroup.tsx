@@ -11,4 +11,3 @@ export function FABGroup({ children }: FABGroupProps): JSX.Element {
         </div>
     )
 }
-
