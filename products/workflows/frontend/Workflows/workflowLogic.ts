@@ -158,7 +158,7 @@ export const workflowLogic = kea<workflowLogicType>([
 
                             const newWorkflow = {
                                 ...templateWorkflow,
-                                name: `${templateWorkflow.name} (copy)`,
+                                name: templateWorkflow.name,
                                 status: 'draft' as const,
                                 version: 1,
                             }
