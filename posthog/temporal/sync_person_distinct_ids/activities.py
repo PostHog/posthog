@@ -127,11 +127,14 @@ async def find_orphaned_persons(inputs: FindOrphanedPersonsInputs) -> FindOrphan
 
 @dataclasses.dataclass
 class PersonDistinctIdMapping:
-    """Maps a person UUID to their distinct IDs from PostgreSQL."""
+    """Maps a person UUID to their distinct IDs from PostgreSQL.
+
+    Each distinct ID has its own version, as versions are per-DID and increment
+    during merges when DIDs move between persons.
+    """
 
     person_uuid: str
-    distinct_ids: list[str]
-    version: int
+    distinct_id_versions: dict[str, int]  # Maps distinct_id -> version
 
 
 @dataclasses.dataclass
@@ -184,26 +187,22 @@ async def lookup_pg_distinct_ids(inputs: LookupPgDistinctIdsInputs) -> LookupPgD
                 )
                 rows = await cursor.fetchall()
 
-        person_to_distinct_ids: dict[str, list[tuple[str, int]]] = {}
+        person_to_distinct_ids: dict[str, dict[str, int]] = {}
         for row in rows:
             person_uuid, distinct_id, version = row
             if person_uuid not in person_to_distinct_ids:
-                person_to_distinct_ids[person_uuid] = []
-            person_to_distinct_ids[person_uuid].append((distinct_id, version))
+                person_to_distinct_ids[person_uuid] = {}
+            person_to_distinct_ids[person_uuid][distinct_id] = version
 
         mappings: list[PersonDistinctIdMapping] = []
         persons_not_found: list[str] = []
 
         for person_uuid in inputs.person_uuids:
             if person_uuid in person_to_distinct_ids:
-                distinct_id_data = person_to_distinct_ids[person_uuid]
-                distinct_ids = [did for did, _ in distinct_id_data]
-                max_version = max(v for _, v in distinct_id_data)
                 mappings.append(
                     PersonDistinctIdMapping(
                         person_uuid=person_uuid,
-                        distinct_ids=distinct_ids,
-                        version=max_version,
+                        distinct_id_versions=person_to_distinct_ids[person_uuid],
                     )
                 )
             else:
@@ -284,7 +283,7 @@ async def sync_distinct_ids_to_ch(inputs: SyncDistinctIdsToChInputs) -> SyncDist
     async with Heartbeater() as heartbeater:
         logger = LOGGER.bind(team_id=inputs.team_id, mapping_count=len(inputs.mappings), dry_run=inputs.dry_run)
 
-        total_distinct_ids = sum(len(m.distinct_ids) for m in inputs.mappings)
+        total_distinct_ids = sum(len(m.distinct_id_versions) for m in inputs.mappings)
         heartbeater.details = (f"Syncing {total_distinct_ids} distinct IDs to ClickHouse",)
 
         if inputs.dry_run:
@@ -297,8 +296,7 @@ async def sync_distinct_ids_to_ch(inputs: SyncDistinctIdsToChInputs) -> SyncDist
                 await logger.ainfo(
                     "DRY RUN: Would sync",
                     person_uuid=mapping.person_uuid,
-                    distinct_ids=mapping.distinct_ids,
-                    version=mapping.version,
+                    distinct_id_versions=mapping.distinct_id_versions,
                 )
             return SyncDistinctIdsToChResult(
                 distinct_ids_synced=total_distinct_ids,
@@ -312,12 +310,12 @@ async def sync_distinct_ids_to_ch(inputs: SyncDistinctIdsToChInputs) -> SyncDist
         )
 
         for mapping in inputs.mappings:
-            for distinct_id in mapping.distinct_ids:
+            for distinct_id, version in mapping.distinct_id_versions.items():
                 create_person_distinct_id(
                     team_id=inputs.team_id,
                     distinct_id=distinct_id,
                     person_id=mapping.person_uuid,
-                    version=mapping.version,
+                    version=version,
                     is_deleted=False,
                     sync=False,
                 )

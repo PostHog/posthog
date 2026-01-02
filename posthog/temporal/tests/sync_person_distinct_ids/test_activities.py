@@ -164,8 +164,8 @@ class TestLookupPgDistinctIds:
 
         assert len(result.mappings) == 1
         assert result.mappings[0].person_uuid == person_uuid
-        assert len(result.mappings[0].distinct_ids) == 1
-        assert distinct_id in result.mappings[0].distinct_ids
+        assert len(result.mappings[0].distinct_id_versions) == 1
+        assert distinct_id in result.mappings[0].distinct_id_versions
         assert len(result.persons_not_found) == 0
 
     @pytest.mark.asyncio
@@ -214,6 +214,7 @@ class TestLookupPgDistinctIds:
 
     @pytest.mark.asyncio
     async def test_finds_multiple_distinct_ids_for_person(self):
+        """Each distinct ID should be returned with its own version."""
         person_uuid = str(uuid.uuid4())
         distinct_ids = [f"{self.prefix}-multi-{i}" for i in range(3)]
         self.created_person_uuids.append(person_uuid)
@@ -235,9 +236,12 @@ class TestLookupPgDistinctIds:
         )
 
         assert len(result.mappings) == 1
-        assert len(result.mappings[0].distinct_ids) == 3
-        assert set(result.mappings[0].distinct_ids) == set(distinct_ids)
-        assert result.mappings[0].version == 2  # Max version
+        assert len(result.mappings[0].distinct_id_versions) == 3
+        assert set(result.mappings[0].distinct_id_versions.keys()) == set(distinct_ids)
+        # Each distinct ID should have its own version, not the max
+        assert result.mappings[0].distinct_id_versions[distinct_ids[0]] == 0
+        assert result.mappings[0].distinct_id_versions[distinct_ids[1]] == 1
+        assert result.mappings[0].distinct_id_versions[distinct_ids[2]] == 2
         assert len(result.persons_not_found) == 0
 
 
@@ -263,7 +267,7 @@ class TestSyncDistinctIdsToCh:
         self.created_distinct_ids.append(distinct_id)
         insert_person_to_ch(self.team.id, person_uuid, version=0)
 
-        mapping = PersonDistinctIdMapping(person_uuid=person_uuid, distinct_ids=[distinct_id], version=0)
+        mapping = PersonDistinctIdMapping(person_uuid=person_uuid, distinct_id_versions={distinct_id: 0})
 
         result: SyncDistinctIdsToChResult = await self.activity_environment.run(
             sync_distinct_ids_to_ch,
@@ -282,7 +286,7 @@ class TestSyncDistinctIdsToCh:
         self.created_distinct_ids.append(distinct_id)
         insert_person_to_ch(self.team.id, person_uuid, version=0)
 
-        mapping = PersonDistinctIdMapping(person_uuid=person_uuid, distinct_ids=[distinct_id], version=0)
+        mapping = PersonDistinctIdMapping(person_uuid=person_uuid, distinct_id_versions={distinct_id: 0})
 
         result: SyncDistinctIdsToChResult = await self.activity_environment.run(
             sync_distinct_ids_to_ch,
@@ -300,7 +304,9 @@ class TestSyncDistinctIdsToCh:
         self.created_distinct_ids.extend(distinct_ids)
         insert_person_to_ch(self.team.id, person_uuid, version=0)
 
-        mapping = PersonDistinctIdMapping(person_uuid=person_uuid, distinct_ids=distinct_ids, version=0)
+        mapping = PersonDistinctIdMapping(
+            person_uuid=person_uuid, distinct_id_versions={did: 0 for did in distinct_ids}
+        )
 
         result: SyncDistinctIdsToChResult = await self.activity_environment.run(
             sync_distinct_ids_to_ch,
@@ -309,6 +315,48 @@ class TestSyncDistinctIdsToCh:
 
         assert result.distinct_ids_synced == 3
         assert result.persons_synced == 1
+
+    @pytest.mark.asyncio
+    async def test_syncs_distinct_ids_with_individual_versions(self):
+        """Each distinct ID should be synced with its own version from PostgreSQL.
+
+        This is important because distinct ID versions are per-DID, not per-person.
+        They increment during merges when DIDs move between persons. If we use
+        the wrong version, future merges might be ignored because the new version
+        after merging could be lower in PG than what we synced to CH.
+        """
+        person_uuid = str(uuid.uuid4())
+        did1 = f"{self.prefix}-version-0"
+        did2 = f"{self.prefix}-version-5"
+        self.created_person_uuids.append(person_uuid)
+        self.created_distinct_ids.extend([did1, did2])
+        insert_person_to_ch(self.team.id, person_uuid, version=0)
+
+        # Simulate distinct IDs with different versions (e.g., did2 went through more merges)
+        mapping = PersonDistinctIdMapping(
+            person_uuid=person_uuid,
+            distinct_id_versions={did1: 0, did2: 5},
+        )
+
+        result: SyncDistinctIdsToChResult = await self.activity_environment.run(
+            sync_distinct_ids_to_ch,
+            SyncDistinctIdsToChInputs(team_id=self.team.id, mappings=[mapping], dry_run=False),
+        )
+
+        assert result.distinct_ids_synced == 2
+        assert result.persons_synced == 1
+
+        # Verify each distinct ID has its correct version in ClickHouse
+        ch_did1 = get_ch_distinct_id(self.team.id, did1)
+        ch_did2 = get_ch_distinct_id(self.team.id, did2)
+
+        assert ch_did1 is not None
+        assert ch_did1["version"] == 0  # did1 should have version 0
+        assert str(ch_did1["person_id"]) == person_uuid
+
+        assert ch_did2 is not None
+        assert ch_did2["version"] == 5  # did2 should have version 5
+        assert str(ch_did2["person_id"]) == person_uuid
 
 
 @pytest.mark.django_db(transaction=True)
