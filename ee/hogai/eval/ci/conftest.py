@@ -85,7 +85,7 @@ def call_root_for_insight_generation(demo_org_team_user):
             }
 
         artifact_manager = ArtifactManager(team=demo_org_team_user[1], user=demo_org_team_user[2], config=config)
-        enriched_message = await artifact_manager.aget_enriched_message(final_state.messages[-3])
+        enriched_message = await artifact_manager.aenrich_message(final_state.messages[-3])
         content = unwrap_visualization_artifact_content(enriched_message)
         if content is None:
             return {
