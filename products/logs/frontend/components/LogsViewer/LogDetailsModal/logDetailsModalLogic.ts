@@ -4,6 +4,8 @@ import { ParsedLogMessage } from 'products/logs/frontend/types'
 
 import type { logDetailsModalLogicType } from './logDetailsModalLogicType'
 
+export type LogDetailsTab = 'details' | 'explore-ai'
+
 export const logDetailsModalLogic = kea<logDetailsModalLogicType>([
     path(['products', 'logs', 'frontend', 'components', 'LogsViewer', 'LogDetailsModal', 'logDetailsModalLogic']),
 
@@ -11,6 +13,7 @@ export const logDetailsModalLogic = kea<logDetailsModalLogicType>([
         openLogDetails: (log: ParsedLogMessage) => ({ log }),
         closeLogDetails: true,
         setJsonParseAllFields: (enabled: boolean) => ({ enabled }),
+        setActiveTab: (tab: LogDetailsTab) => ({ tab }),
     }),
 
     reducers({
@@ -32,6 +35,13 @@ export const logDetailsModalLogic = kea<logDetailsModalLogicType>([
             false,
             {
                 setJsonParseAllFields: (_, { enabled }) => enabled,
+            },
+        ],
+        activeTab: [
+            'details' as LogDetailsTab,
+            {
+                setActiveTab: (_, { tab }) => tab,
+                closeLogDetails: () => 'details',
             },
         ],
     }),
