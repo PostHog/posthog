@@ -241,7 +241,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "date_to": "timestamp <= {date_to} + interval 1 day",
             "viewport_width_min": "viewport_width >= round({viewport_width_min} / 16)",
             "viewport_width_max": "viewport_width <= round({viewport_width_max} / 16)",
-            "url_exact": "current_url = {url_exact}",
+            "url_exact": "trimRight(current_url, '/') = trimRight({url_exact}, '/')",
             "url_pattern": "match(current_url, {url_pattern})",
         }
 

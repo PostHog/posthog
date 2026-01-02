@@ -21,11 +21,8 @@
 
 ## Publish to changelog?
 
-<!-- For features only. Check the box if this should go in our company changelog. -->
-<!-- Removing this section or leaving it blank means this feature will probably remain unpublished. -->
+<!-- For features only -->
 
-- [ ] 🚀 Yes, publish to #changelog
+<!-- If publishing, you must provide changelog details in the #changelog Slack channel. You will receive a follow-up PR comment or notification. -->
 
-<!-- If publishing, your PR must include a 1-3 sentence description of the feature plus a screenshot or screen recording if applicable. 🙏 -->
-
-<!-- Check #changelog in Slack for more details. -->
+<!-- If not, write "no" or "do not publish to changelog" to explicitly opt-out of posting to #changelog. Removing this entire section will not prevent posting. -->

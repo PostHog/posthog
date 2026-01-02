@@ -7,7 +7,7 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 import { AppShortcutType } from './appShortcutLogic'
 import { convertPlatformKeybind, useAppShortcut } from './useAppShortcut'
 
-function keybindToKeyboardShortcutProps(keybind: string[]): Record<string, boolean> {
+export function keybindToKeyboardShortcutProps(keybind: string[]): Record<string, boolean> {
     const platformAgnosticKeybind = convertPlatformKeybind(keybind)
     return Object.fromEntries(platformAgnosticKeybind.map((key) => [key, true]))
 }

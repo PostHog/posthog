@@ -1,4 +1,5 @@
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
 import Papa from 'papaparse'
 
 import { dayjs } from 'lib/dayjs'
@@ -59,6 +60,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         resetCursor: true,
         moveCursorDown: (shiftSelect?: boolean) => ({ shiftSelect: shiftSelect ?? false }),
         moveCursorUp: (shiftSelect?: boolean) => ({ shiftSelect: shiftSelect ?? false }),
+        requestScrollToCursor: true, // Signals React to scroll to current cursor position
 
         // Expansion
         toggleExpandLog: (logId: string) => ({ logId }),
@@ -237,6 +239,14 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             null as { logIds?: string[]; timestamp: number } | null,
             {
                 recomputeRowHeights: (_, { logIds }) => ({ logIds, timestamp: Date.now() }),
+            },
+        ],
+
+        // Tracks requests to scroll to cursor - VirtualizedLogsList watches this timestamp
+        scrollToCursorRequest: [
+            0,
+            {
+                requestScrollToCursor: () => Date.now(),
             },
         ],
 
@@ -603,4 +613,12 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             userSetCursorAttribute: clearLinkToLogIdFromUrl,
         }
     }),
+
+    subscriptions(({ actions }) => ({
+        cursorIndex: (cursorIndex) => {
+            if (cursorIndex !== null) {
+                actions.requestScrollToCursor()
+            }
+        },
+    })),
 ])

@@ -10,7 +10,7 @@ from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
 from posthog.middleware import impersonated_session_logout, login_as_user_read_only
-from posthog.views import api_key_search_view, redis_values_view
+from posthog.views import api_key_search_view, redis_edit_ttl_view, redis_values_view
 
 from ee.admin.oauth_views import admin_auth_check, admin_oauth_success
 from ee.api import integration
@@ -114,6 +114,7 @@ if settings.ADMIN_PORTAL_ENABLED:
         path("admin/oauth2/success", admin_oauth_success, name="admin_oauth_success"),
         path("admin/auth_check", admin_auth_check, name="admin_auth_check"),
         path("admin/redisvalues", redis_values_view, name="redis_values"),
+        path("admin/redis/edit-ttl", redis_edit_ttl_view, name="redis_edit_ttl"),
         path("admin/apikeysearch", api_key_search_view, name="api_key_search"),
         path(
             "admin/realtime-cohorts-calculation/",

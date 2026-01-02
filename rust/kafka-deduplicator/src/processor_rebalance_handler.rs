@@ -1,15 +1,19 @@
+use std::sync::Arc;
+
 use anyhow::Result;
 use async_trait::async_trait;
 use dashmap::DashSet;
+use futures::future::join_all;
 use rdkafka::TopicPartitionList;
-use std::sync::Arc;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
+use crate::checkpoint::import::CheckpointImporter;
 use crate::kafka::batch_consumer::BatchConsumerProcessor;
 use crate::kafka::offset_tracker::OffsetTracker;
 use crate::kafka::partition_router::{shutdown_workers, PartitionRouter};
 use crate::kafka::rebalance_handler::RebalanceHandler;
 use crate::kafka::types::Partition;
+use crate::metrics_const::REBALANCE_CHECKPOINT_IMPORT_COUNTER;
 use crate::store_manager::StoreManager;
 
 /// Rebalance handler that coordinates store cleanup and partition workers
@@ -24,6 +28,7 @@ where
     /// Partitions pending cleanup - added on revoke, removed on assign
     /// This tracks which partitions should be cleaned up vs which were re-assigned
     pending_cleanup: DashSet<Partition>,
+    checkpoint_importer: Option<Arc<CheckpointImporter>>,
 }
 
 impl<T, P> ProcessorRebalanceHandler<T, P>
@@ -31,12 +36,17 @@ where
     T: Send + 'static,
     P: BatchConsumerProcessor<T> + 'static,
 {
-    pub fn new(store_manager: Arc<StoreManager>, offset_tracker: Arc<OffsetTracker>) -> Self {
+    pub fn new(
+        store_manager: Arc<StoreManager>,
+        offset_tracker: Arc<OffsetTracker>,
+        checkpoint_importer: Option<Arc<CheckpointImporter>>,
+    ) -> Self {
         Self {
             store_manager,
             router: None,
             offset_tracker,
             pending_cleanup: DashSet::new(),
+            checkpoint_importer,
         }
     }
 
@@ -44,12 +54,129 @@ where
         store_manager: Arc<StoreManager>,
         router: Arc<PartitionRouter<T, P>>,
         offset_tracker: Arc<OffsetTracker>,
+        checkpoint_importer: Option<Arc<CheckpointImporter>>,
     ) -> Self {
         Self {
             store_manager,
             router: Some(router),
             offset_tracker,
             pending_cleanup: DashSet::new(),
+            checkpoint_importer,
+        }
+    }
+
+    /// Set up a single partition: import checkpoint and create store.
+    /// This is called concurrently for all assigned partitions.
+    async fn async_setup_single_partition(&self, partition: &Partition) {
+        // Skip if store already exists
+        if self
+            .store_manager
+            .get(partition.topic(), partition.partition_number())
+            .is_some()
+        {
+            metrics::counter!(
+                REBALANCE_CHECKPOINT_IMPORT_COUNTER,
+                "result" => "skipped",
+                "reason" => "store_exists",
+            )
+            .increment(1);
+            return;
+        }
+
+        // Try to import checkpoint from S3 directly into store directory
+        if let Some(ref importer) = self.checkpoint_importer {
+            match importer
+                .import_checkpoint_for_topic_partition(
+                    partition.topic(),
+                    partition.partition_number(),
+                )
+                .await
+            {
+                Ok(path) => {
+                    // OK now we need to register the new store with the manager
+                    match self.store_manager.restore_imported_store(
+                        partition.topic(),
+                        partition.partition_number(),
+                        &path,
+                    ) {
+                        Ok(_) => {
+                            metrics::counter!(
+                                REBALANCE_CHECKPOINT_IMPORT_COUNTER,
+                                "result" => "success",
+                            )
+                            .increment(1);
+                            info!(
+                                topic = partition.topic(),
+                                partition = partition.partition_number(),
+                                path = %path.display(),
+                                "Imported checkpoint for partition"
+                            );
+
+                            // no need to fall through to get-or-create flow
+                            return;
+                        }
+                        Err(e) => {
+                            metrics::counter!(
+                                REBALANCE_CHECKPOINT_IMPORT_COUNTER,
+                                "result" => "failed",
+                                "reason" => "restore",
+                            )
+                            .increment(1);
+                            error!(
+                                topic = partition.topic(),
+                                partition = partition.partition_number(),
+                                error = %e,
+                                "Failed to restore checkpoint",
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    metrics::counter!(
+                        REBALANCE_CHECKPOINT_IMPORT_COUNTER,
+                        "result" => "failed",
+                        "reason" => "import",
+                    )
+                    .increment(1);
+                    warn!(
+                        topic = partition.topic(),
+                        partition = partition.partition_number(),
+                        error = %e,
+                        "Failed to import checkpoint for partition"
+                    );
+                }
+            }
+        } else {
+            metrics::counter!(
+                REBALANCE_CHECKPOINT_IMPORT_COUNTER,
+                "result" => "skipped",
+                "reason" => "disabled",
+            )
+            .increment(1);
+        }
+
+        // Create the store (will use imported checkpoint files if present)
+        match self
+            .store_manager
+            .get_or_create_for_rebalance(partition.topic(), partition.partition_number())
+            .await
+        {
+            Ok(_) => {
+                info!(
+                    "Pre-created store for partition {}:{}",
+                    partition.topic(),
+                    partition.partition_number()
+                );
+            }
+            Err(e) => {
+                error!(
+                    "Failed to pre-create store for partition {}:{}: {}",
+                    partition.topic(),
+                    partition.partition_number(),
+                    e
+                );
+                // Don't fail - the processor will retry on first message
+            }
         }
     }
 }
@@ -140,7 +267,7 @@ where
     // For slow operations like I/O, draining queues, etc.
     // ============================================
 
-    async fn cleanup_assigned_partitions(&self, partitions: &TopicPartitionList) -> Result<()> {
+    async fn async_setup_assigned_partitions(&self, partitions: &TopicPartitionList) -> Result<()> {
         let partition_infos: Vec<Partition> = partitions
             .elements()
             .into_iter()
@@ -148,41 +275,18 @@ where
             .collect();
 
         info!(
-            "Cleaning up {} assigned partitions (async)",
+            "Setting up {} assigned partitions (async)",
             partition_infos.len()
         );
 
-        // TODO: We should download the checkpoint from S3 here
-        // We should not allow the processor to start until the checkpoint is downloaded
-
-        // Pre-create stores for assigned partitions
+        // Pre-create stores for assigned partitions in parallel
         // This reduces latency on the first message batch by having the store ready
         // If messages arrive before this completes, get_or_create in the processor
         // will handle it and emit a warning (indicating pre-creation didn't complete in time)
-        for partition in &partition_infos {
-            match self
-                .store_manager
-                .get_or_create_for_rebalance(partition.topic(), partition.partition_number())
-                .await
-            {
-                Ok(_) => {
-                    info!(
-                        "Pre-created store for partition {}:{}",
-                        partition.topic(),
-                        partition.partition_number()
-                    );
-                }
-                Err(e) => {
-                    error!(
-                        "Failed to pre-create store for partition {}:{}: {}",
-                        partition.topic(),
-                        partition.partition_number(),
-                        e
-                    );
-                    // Don't fail the whole cleanup - the processor will retry on first message
-                }
-            }
-        }
+        let setup_futures = partition_infos
+            .iter()
+            .map(|p| self.async_setup_single_partition(p));
+        join_all(setup_futures).await;
 
         Ok(())
     }
@@ -325,7 +429,7 @@ mod tests {
 
         // Test handler without router
         let handler: ProcessorRebalanceHandler<String, TestProcessor> =
-            ProcessorRebalanceHandler::new(store_manager.clone(), offset_tracker.clone());
+            ProcessorRebalanceHandler::new(store_manager.clone(), offset_tracker.clone(), None);
         assert!(handler.router.is_none());
 
         // Test handler with router
@@ -335,8 +439,12 @@ mod tests {
             offset_tracker.clone(),
             PartitionRouterConfig::default(),
         ));
-        let handler_with_router =
-            ProcessorRebalanceHandler::with_router(store_manager, router.clone(), offset_tracker);
+        let handler_with_router = ProcessorRebalanceHandler::with_router(
+            store_manager,
+            router.clone(),
+            offset_tracker,
+            None,
+        );
         assert!(handler_with_router.router.is_some());
     }
 
@@ -356,8 +464,12 @@ mod tests {
             PartitionRouterConfig::default(),
         ));
 
-        let handler =
-            ProcessorRebalanceHandler::with_router(store_manager, router.clone(), offset_tracker);
+        let handler = ProcessorRebalanceHandler::with_router(
+            store_manager,
+            router.clone(),
+            offset_tracker,
+            None,
+        );
 
         // Initially no workers
         assert_eq!(router.worker_count(), 0);
@@ -418,6 +530,7 @@ mod tests {
             store_manager.clone(),
             router.clone(),
             offset_tracker,
+            None,
         );
 
         // Assign partition and create a store
@@ -517,6 +630,7 @@ mod tests {
             store_manager.clone(),
             router.clone(),
             offset_tracker,
+            None,
         );
 
         // Step 1: Initial assignment

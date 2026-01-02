@@ -312,6 +312,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             colorMode: values.isDarkModeOn ? 'dark' : 'light',
         }),
         setConditionalFormattingRulesPanelActiveKeys: (keys: string[]) => ({ keys }),
+        toggleColumnPin: (columnName: string) => ({ columnName }),
         _setQuery: (node: DataVisualizationNode) => ({ node }),
     })),
     reducers(({ props }) => ({
@@ -590,6 +591,20 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 },
             },
         ],
+        pinnedColumns: [
+            [] as string[],
+            {
+                _setQuery: (state, { node }) => {
+                    return node.tableSettings?.pinnedColumns ?? state
+                },
+                toggleColumnPin: (state, { columnName }) => {
+                    if (state.includes(columnName)) {
+                        return state.filter((k) => k !== columnName)
+                    }
+                    return [...state, columnName]
+                },
+            },
+        ],
     })),
     selectors({
         columns: [
@@ -859,6 +874,13 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 visualizationType === ChartDisplayType.ActionsTable ||
                 visualizationType === ChartDisplayType.BoldNumber,
         ],
+        isColumnPinned: [
+            (s) => [s.pinnedColumns],
+            (pinnedColumns) =>
+                (columnName: string): boolean => {
+                    return pinnedColumns.includes(columnName)
+                },
+        ],
     }),
     sharedListeners(({ values, actions }) => ({
         axesChanged: () => {
@@ -894,6 +916,15 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 },
             }))
         },
+        pinnedColumnsChanged: () => {
+            actions.setQuery((query) => ({
+                ...query,
+                tableSettings: {
+                    ...query.tableSettings,
+                    pinnedColumns: values.pinnedColumns,
+                },
+            }))
+        },
     })),
     listeners(({ props, actions, sharedListeners }) => ({
         updateChartSettings: ({ settings }) => {
@@ -921,6 +952,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         updateSeries: [sharedListeners.axesChanged],
         deleteYSeries: [sharedListeners.axesChanged],
         updateConditionalFormattingRule: [sharedListeners.conditionalFormattingRules],
+        toggleColumnPin: [sharedListeners.pinnedColumnsChanged],
     })),
     subscriptions(({ actions, values }) => ({
         columns: (value: Column[], oldValue: Column[]) => {

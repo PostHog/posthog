@@ -144,6 +144,7 @@ export enum Scene {
     WebAnalyticsPageReports = 'WebAnalyticsPageReports',
     WebAnalyticsWebVitals = 'WebAnalyticsWebVitals',
     WebAnalyticsHealth = 'WebAnalyticsHealth',
+    WebAnalyticsLive = 'WebAnalyticsLive',
     Endpoints = 'Endpoints',
     Endpoint = 'Endpoint',
     Workflow = 'Workflow',
@@ -151,7 +152,6 @@ export enum Scene {
     Wizard = 'Wizard',
     EarlyAccessFeature = 'EarlyAccessFeature',
     EndpointsScene = 'EndpointsScene',
-    EndpointsUsage = 'EndpointsUsage',
     Game368Hedgehogs = 'Game368Hedgehogs',
     LLMAnalytics = 'LLMAnalytics',
     LLMAnalyticsDataset = 'LLMAnalyticsDataset',
@@ -256,6 +256,10 @@ export interface SceneConfig {
     activityScope?: ActivityScope | string
     /** Default docs path - what the docs side panel will open by default when this scene is active  */
     defaultDocsPath?: string | (() => string) | (() => Promise<string>)
+    /** Team slug for changelog - appended as ?team= to the changelog URL in the side panel */
+    changelogTeamSlug?: string
+    /** Category for changelog - appended as ?category= to the changelog URL in the side panel */
+    changelogCategory?: string
     /** Component import, used only in manifests */
     import?: () => Promise<any>
     /** Custom icon for the tabs */
