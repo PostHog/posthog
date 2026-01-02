@@ -28386,6 +28386,41 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
+        "SessionRecordingExternalReference": {
+            "additionalProperties": false,
+            "properties": {
+                "external_url": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "identifier": {
+                    "type": "string"
+                },
+                "integration": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "display_name": {
+                            "type": "string"
+                        },
+                        "id": {
+                            "type": "number"
+                        },
+                        "kind": {
+                            "$ref": "#/definitions/IntegrationKind"
+                        }
+                    },
+                    "required": ["id", "kind", "display_name"],
+                    "type": "object"
+                },
+                "title": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "integration", "external_url", "title", "identifier"],
+            "type": "object"
+        },
         "SessionRecordingType": {
             "additionalProperties": false,
             "properties": {
@@ -28421,6 +28456,13 @@
                 "expiry_time": {
                     "description": "When the recording expires, in ISO format.",
                     "type": "string"
+                },
+                "external_references": {
+                    "description": "External references to issues in Linear, GitHub, GitLab, etc.",
+                    "items": {
+                        "$ref": "#/definitions/SessionRecordingExternalReference"
+                    },
+                    "type": "array"
                 },
                 "id": {
                     "type": "string"

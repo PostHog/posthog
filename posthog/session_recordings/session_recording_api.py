@@ -243,7 +243,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             )
 
             references = obj.external_references.select_related("integration").all()
-            return SessionRecordingExternalReferenceSerializer(references, many=True, context=self.context).data
+            return list(SessionRecordingExternalReferenceSerializer(references, many=True, context=self.context).data)
         except Exception:
             # Return empty list if table doesn't exist yet (migration not run)
             return []
