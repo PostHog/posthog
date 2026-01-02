@@ -175,6 +175,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: objectstorage
+
         restart: on-failure
         volumes:
             - objectstorage:/data
