@@ -380,7 +380,7 @@ class TestMarkChOnlyOrphansDeleted:
 
         result: MarkChOnlyOrphansDeletedResult = await self.activity_environment.run(
             mark_ch_only_orphans_deleted,
-            MarkChOnlyOrphansDeletedInputs(team_id=self.team.id, person_uuids=[person_uuid], dry_run=True),
+            MarkChOnlyOrphansDeletedInputs(team_id=self.team.id, person_versions={person_uuid: 0}, dry_run=True),
         )
 
         assert result.persons_marked_deleted == 1
@@ -396,7 +396,7 @@ class TestMarkChOnlyOrphansDeleted:
 
         result: MarkChOnlyOrphansDeletedResult = await self.activity_environment.run(
             mark_ch_only_orphans_deleted,
-            MarkChOnlyOrphansDeletedInputs(team_id=self.team.id, person_uuids=[person_uuid], dry_run=False),
+            MarkChOnlyOrphansDeletedInputs(team_id=self.team.id, person_versions={person_uuid: 0}, dry_run=False),
         )
 
         assert result.persons_marked_deleted == 1
@@ -408,12 +408,47 @@ class TestMarkChOnlyOrphansDeleted:
             self.created_person_uuids.append(person_uuid)
             insert_person_to_ch(self.team.id, person_uuid, version=0)
 
+        person_versions = {uuid: 0 for uuid in person_uuids}
         result: MarkChOnlyOrphansDeletedResult = await self.activity_environment.run(
             mark_ch_only_orphans_deleted,
-            MarkChOnlyOrphansDeletedInputs(team_id=self.team.id, person_uuids=person_uuids, dry_run=False),
+            MarkChOnlyOrphansDeletedInputs(team_id=self.team.id, person_versions=person_versions, dry_run=False),
         )
 
         assert result.persons_marked_deleted == 3
+
+    @pytest.mark.asyncio
+    async def test_marks_person_with_high_version_as_deleted(self):
+        """Person with high version should still be marked as deleted.
+
+        The version used for deletion must be higher than the person's current
+        version, otherwise ClickHouse's ReplacingMergeTree will keep the old
+        (non-deleted) record.
+        """
+        person_uuid = str(uuid.uuid4())
+        self.created_person_uuids.append(person_uuid)
+        # Create person with high version (1000)
+        insert_person_to_ch(self.team.id, person_uuid, version=1000)
+
+        # Verify person exists and is not deleted
+        ch_person_before = get_ch_person(self.team.id, person_uuid)
+        assert ch_person_before is not None
+        assert ch_person_before["is_deleted"] == 0
+        assert ch_person_before["version"] == 1000
+
+        result: MarkChOnlyOrphansDeletedResult = await self.activity_environment.run(
+            mark_ch_only_orphans_deleted,
+            MarkChOnlyOrphansDeletedInputs(team_id=self.team.id, person_versions={person_uuid: 1000}, dry_run=False),
+        )
+
+        assert result.persons_marked_deleted == 1
+
+        # Verify person is now marked as deleted (using FINAL to get merged result)
+        ch_person_after = get_ch_person(self.team.id, person_uuid)
+        assert ch_person_after is not None
+        assert ch_person_after["is_deleted"] == 1, (
+            f"Person should be deleted but is_deleted={ch_person_after['is_deleted']}, "
+            f"version={ch_person_after['version']} (original was 1000)"
+        )
 
 
 @pytest.mark.django_db(transaction=True)

@@ -53,6 +53,7 @@ class FindOrphanedPersonsInputs:
 
     team_id: int
     limit: int | None = None
+    person_ids: list[str] | None = None  # If provided, only check these specific persons
 
 
 @dataclasses.dataclass
@@ -71,12 +72,13 @@ async def find_orphaned_persons(inputs: FindOrphanedPersonsInputs) -> FindOrphan
     Batching happens in the workflow when processing (PG lookups, CH writes).
     """
     async with Heartbeater() as heartbeater:
-        logger = LOGGER.bind(team_id=inputs.team_id, limit=inputs.limit)
+        logger = LOGGER.bind(team_id=inputs.team_id, limit=inputs.limit, person_ids_count=len(inputs.person_ids or []))
         await logger.ainfo("Finding orphaned persons in ClickHouse")
 
         heartbeater.details = ("Finding all orphaned persons",)
 
         limit_clause = f"LIMIT {inputs.limit}" if inputs.limit else ""
+        person_ids_clause = "AND id IN %(person_ids)s" if inputs.person_ids else ""
 
         query = f"""
             SELECT
@@ -92,15 +94,20 @@ async def find_orphaned_persons(inputs: FindOrphanedPersonsInputs) -> FindOrphan
                 FROM person_distinct_id2 FINAL
                 WHERE team_id = %(team_id)s
               )
+              {person_ids_clause}
             ORDER BY created_at ASC
             {limit_clause}
             FORMAT JSONEachRow
         """
 
+        query_params: dict = {"team_id": inputs.team_id}
+        if inputs.person_ids:
+            query_params["person_ids"] = inputs.person_ids
+
         async with get_client(team_id=inputs.team_id) as client:
             response = await client.read_query(
                 query,
-                query_parameters={"team_id": inputs.team_id},
+                query_parameters=query_params,
             )
 
         orphaned_persons: list[OrphanedPerson] = []
@@ -337,7 +344,7 @@ class MarkChOnlyOrphansDeletedInputs:
     """Inputs for the mark_ch_only_orphans_deleted activity."""
 
     team_id: int
-    person_uuids: list[str]
+    person_versions: dict[str, int]  # Maps person_uuid -> current version
     dry_run: bool
 
 
@@ -352,30 +359,30 @@ class MarkChOnlyOrphansDeletedResult:
 async def mark_ch_only_orphans_deleted(inputs: MarkChOnlyOrphansDeletedInputs) -> MarkChOnlyOrphansDeletedResult:
     """Mark persons without PostgreSQL data as deleted in ClickHouse."""
     async with Heartbeater() as heartbeater:
-        logger = LOGGER.bind(team_id=inputs.team_id, person_count=len(inputs.person_uuids), dry_run=inputs.dry_run)
+        logger = LOGGER.bind(team_id=inputs.team_id, person_count=len(inputs.person_versions), dry_run=inputs.dry_run)
 
-        heartbeater.details = (f"Marking {len(inputs.person_uuids)} CH-only orphans as deleted",)
+        heartbeater.details = (f"Marking {len(inputs.person_versions)} CH-only orphans as deleted",)
 
         if inputs.dry_run:
             await logger.ainfo(
                 "DRY RUN: Would mark CH-only orphans as deleted",
-                count=len(inputs.person_uuids),
+                count=len(inputs.person_versions),
             )
-            for person_uuid in inputs.person_uuids:
-                await logger.ainfo("DRY RUN: Would mark as deleted", person_uuid=person_uuid)
-            return MarkChOnlyOrphansDeletedResult(persons_marked_deleted=len(inputs.person_uuids))
+            for person_uuid, version in inputs.person_versions.items():
+                await logger.ainfo("DRY RUN: Would mark as deleted", person_uuid=person_uuid, version=version)
+            return MarkChOnlyOrphansDeletedResult(persons_marked_deleted=len(inputs.person_versions))
 
-        await logger.ainfo("Marking CH-only orphans as deleted", count=len(inputs.person_uuids))
+        await logger.ainfo("Marking CH-only orphans as deleted", count=len(inputs.person_versions))
 
-        for person_uuid in inputs.person_uuids:
+        for person_uuid, current_version in inputs.person_versions.items():
             create_person(
                 uuid=person_uuid,
                 team_id=inputs.team_id,
-                version=100,
+                version=current_version + 1,
                 is_deleted=True,
                 sync=False,
             )
 
-        await logger.ainfo("Marked CH-only orphans as deleted", count=len(inputs.person_uuids))
+        await logger.ainfo("Marked CH-only orphans as deleted", count=len(inputs.person_versions))
 
-        return MarkChOnlyOrphansDeletedResult(persons_marked_deleted=len(inputs.person_uuids))
+        return MarkChOnlyOrphansDeletedResult(persons_marked_deleted=len(inputs.person_versions))

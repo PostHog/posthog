@@ -23,7 +23,9 @@ from posthog.temporal.sync_person_distinct_ids.workflow import (
 )
 from posthog.temporal.tests.sync_person_distinct_ids.conftest import (
     cleanup_ch_test_data,
+    get_ch_person,
     get_orphaned_person_count,
+    insert_person_to_ch,
     insert_persons_to_ch_batch,
 )
 
@@ -238,3 +240,68 @@ class TestSyncPersonDistinctIdsWorkflow:
 
         # Verify only truly orphaned remain (fixable synced, CH-only deleted)
         assert get_orphaned_person_count(self.team.id) == self.TRULY_ORPHANED_COUNT
+
+    @pytest.mark.asyncio
+    async def test_workflow_deletes_with_correct_versions(self):
+        """Test that workflow correctly increments versions when marking persons as deleted.
+
+        This is important because ClickHouse's ReplacingMergeTree uses the version
+        column to determine which record to keep. If we use a version lower than
+        the current one, the deletion will be ignored.
+        """
+        # Create 3 CH-only orphans with different versions
+        versions = [1, 1234, 123456789]
+        person_uuids = []
+
+        for version in versions:
+            person_uuid = str(uuid.uuid4())
+            person_uuids.append(person_uuid)
+            self.created_person_uuids.append(person_uuid)
+            insert_person_to_ch(self.team.id, person_uuid, version=version)
+
+        # Verify all persons exist and are not deleted
+        for i, person_uuid in enumerate(person_uuids):
+            ch_person = get_ch_person(self.team.id, person_uuid)
+            assert ch_person is not None
+            assert ch_person["is_deleted"] == 0
+            assert ch_person["version"] == versions[i]
+
+        task_queue_name = str(uuid.uuid4())
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=task_queue_name,
+                workflows=[SyncPersonDistinctIdsWorkflow],
+                activities=[
+                    find_orphaned_persons,
+                    lookup_pg_distinct_ids,
+                    sync_distinct_ids_to_ch,
+                    mark_ch_only_orphans_deleted,
+                ],
+                workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+            ):
+                result = await env.client.execute_workflow(
+                    SyncPersonDistinctIdsWorkflow.run,
+                    SyncPersonDistinctIdsWorkflowInputs(
+                        team_id=self.team.id,
+                        person_ids=person_uuids,  # Specify exact persons to process
+                        dry_run=False,
+                        delete_ch_only_orphans=True,
+                    ),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue_name,
+                )
+
+        # Verify workflow result
+        assert result.dry_run is False
+        assert result.total_orphaned_persons == 3
+        assert result.persons_marked_deleted == 3
+
+        # Verify each person is deleted with version+1
+        for i, person_uuid in enumerate(person_uuids):
+            ch_person = get_ch_person(self.team.id, person_uuid)
+            assert ch_person is not None, f"Person {i} should exist"
+            assert ch_person["is_deleted"] == 1, f"Person {i} should be deleted"
+            assert (
+                ch_person["version"] == versions[i] + 1
+            ), f"Person {i} should have version {versions[i] + 1}, got {ch_person['version']}"

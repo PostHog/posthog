@@ -115,21 +115,21 @@ class SyncPersonDistinctIdsWorkflow(PostHogWorkflow):
             maximum_attempts=5,
         )
 
-        # Step 1: Get all orphaned person UUIDs (either from input or by querying CH)
-        if inputs.person_ids:
-            person_uuids = inputs.person_ids
-        else:
-            find_result = await temporalio.workflow.execute_activity(
-                find_orphaned_persons,
-                FindOrphanedPersonsInputs(
-                    team_id=inputs.team_id,
-                    limit=inputs.limit,
-                ),
-                start_to_close_timeout=dt.timedelta(minutes=10),
-                heartbeat_timeout=dt.timedelta(seconds=60),
-                retry_policy=retry_policy,
-            )
-            person_uuids = [p.person_id for p in find_result.orphaned_persons]
+        # Step 1: Find orphaned persons in ClickHouse
+        # This also fetches versions needed for deletion (ClickHouse needs version+1 to override)
+        find_result = await temporalio.workflow.execute_activity(
+            find_orphaned_persons,
+            FindOrphanedPersonsInputs(
+                team_id=inputs.team_id,
+                limit=inputs.limit,
+                person_ids=inputs.person_ids,  # Filter to specific persons if provided
+            ),
+            start_to_close_timeout=dt.timedelta(minutes=10),
+            heartbeat_timeout=dt.timedelta(seconds=60),
+            retry_policy=retry_policy,
+        )
+        person_uuids = [p.person_id for p in find_result.orphaned_persons]
+        person_versions = {p.person_id: p.version for p in find_result.orphaned_persons}
 
         total_orphaned = len(person_uuids)
 
@@ -177,11 +177,13 @@ class SyncPersonDistinctIdsWorkflow(PostHogWorkflow):
                 lookup_result.persons_ch_only if inputs.categorize_orphans else lookup_result.persons_not_found
             )
             if inputs.delete_ch_only_orphans and persons_to_delete:
+                # Build version map for persons to delete
+                delete_versions = {uuid: person_versions.get(uuid, 0) for uuid in persons_to_delete}
                 delete_result = await temporalio.workflow.execute_activity(
                     mark_ch_only_orphans_deleted,
                     MarkChOnlyOrphansDeletedInputs(
                         team_id=inputs.team_id,
-                        person_uuids=persons_to_delete,
+                        person_versions=delete_versions,
                         dry_run=inputs.dry_run,
                     ),
                     start_to_close_timeout=dt.timedelta(minutes=10),
