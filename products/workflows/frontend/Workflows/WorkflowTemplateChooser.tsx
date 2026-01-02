@@ -32,7 +32,7 @@ export function WorkflowTemplateChooser(): JSX.Element {
 
     const { createWorkflowFromTemplate, createEmptyWorkflow } = useActions(newWorkflowLogic)
 
-    const canEditTemplate = (template: HogFlowTemplate): boolean => {
+    const canManageTemplate = (template: HogFlowTemplate): boolean => {
         if (!canCreateTemplates) {
             return false
         }
@@ -66,7 +66,7 @@ export function WorkflowTemplateChooser(): JSX.Element {
                             template={template}
                             onClick={() => createWorkflowFromTemplate(template)}
                             onEdit={
-                                canEditTemplate(template)
+                                canManageTemplate(template)
                                     ? (e) => {
                                           e.stopPropagation()
                                           router.actions.push(urls.workflowNew(), { editTemplateId: template.id })
@@ -74,9 +74,8 @@ export function WorkflowTemplateChooser(): JSX.Element {
                                     : undefined
                             }
                             onDelete={
-                                template.scope === 'global' && !canCreateTemplates
-                                    ? undefined
-                                    : (e) => {
+                                canManageTemplate(template)
+                                    ? (e) => {
                                           e.stopPropagation()
                                           LemonDialog.open({
                                               title: 'Delete template?',
@@ -107,6 +106,7 @@ export function WorkflowTemplateChooser(): JSX.Element {
                                               secondaryButton: { children: 'Cancel' },
                                           })
                                       }
+                                    : undefined
                             }
                             index={index + 1}
                             data-attr="create-workflow-from-template"
