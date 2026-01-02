@@ -38,6 +38,7 @@ class AgentMode(StrEnum):
     PRODUCT_ANALYTICS = "product_analytics"
     SQL = "sql"
     SESSION_REPLAY = "session_replay"
+    ERROR_TRACKING = "error_tracking"
 
 
 class AggregationAxisFormat(StrEnum):
@@ -293,6 +294,7 @@ class AssistantTool(StrEnum):
     CREATE_HOG_FUNCTION_INPUTS = "create_hog_function_inputs"
     CREATE_MESSAGE_TEMPLATE = "create_message_template"
     FILTER_ERROR_TRACKING_ISSUES = "filter_error_tracking_issues"
+    SEARCH_ERROR_TRACKING_ISSUES = "search_error_tracking_issues"
     FIND_ERROR_TRACKING_IMPACTFUL_ISSUE_EVENT_LIST = "find_error_tracking_impactful_issue_event_list"
     ERROR_TRACKING_EXPLAIN_ISSUE = "error_tracking_explain_issue"
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
@@ -1192,14 +1194,6 @@ class Population(BaseModel):
     success_only: float
 
 
-class Status(StrEnum):
-    ARCHIVED = "archived"
-    ACTIVE = "active"
-    RESOLVED = "resolved"
-    PENDING_RELEASE = "pending_release"
-    SUPPRESSED = "suppressed"
-
-
 class ErrorTrackingExplainIssueToolContext(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1274,20 +1268,19 @@ class OrderDirection1(StrEnum):
     DESC = "DESC"
 
 
-class Status2(StrEnum):
-    ARCHIVED = "archived"
-    ACTIVE = "active"
-    RESOLVED = "resolved"
-    PENDING_RELEASE = "pending_release"
-    SUPPRESSED = "suppressed"
-    ALL = "all"
-
-
 class ErrorTrackingIssueImpactToolOutput(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     events: list[str]
+
+
+class ErrorTrackingIssueStatus(StrEnum):
+    ARCHIVED = "archived"
+    ACTIVE = "active"
+    RESOLVED = "resolved"
+    PENDING_RELEASE = "pending_release"
+    SUPPRESSED = "suppressed"
 
 
 class RevenueEntity(StrEnum):
@@ -1302,14 +1295,6 @@ class RevenueEntity(StrEnum):
 class RevenuePeriod(StrEnum):
     ALL_TIME = "all_time"
     MRR = "mrr"
-
-
-class Status4(StrEnum):
-    ARCHIVED = "archived"
-    ACTIVE = "active"
-    RESOLVED = "resolved"
-    PENDING_RELEASE = "pending_release"
-    SUPPRESSED = "suppressed"
 
 
 class EventDefinition(BaseModel):
@@ -1430,7 +1415,7 @@ class ExperimentMetricOutlierHandling(BaseModel):
     upper_bound_percentile: float | None = None
 
 
-class Status5(StrEnum):
+class Status(StrEnum):
     PENDING = "pending"
     COMPLETED = "completed"
     PARTIAL = "partial"
@@ -9489,7 +9474,7 @@ class ErrorTrackingIssue(BaseModel):
     name: str | None = None
     revenue: float | None = None
     source: str | None = None
-    status: Status
+    status: ErrorTrackingIssueStatus
 
 
 class ErrorTrackingIssueFilteringToolOutput(BaseModel):
@@ -9525,7 +9510,7 @@ class ErrorTrackingIssueFilteringToolOutput(BaseModel):
     orderDirection: OrderDirection1 | None = None
     removedFilterIndexes: list[int] | None = None
     searchQuery: str | None = None
-    status: Status2 | None = None
+    status: ErrorTrackingIssueStatus | str | None = Field(default=None, title="ErrorTrackingQueryStatus")
 
 
 class ErrorTrackingQueryResponse(BaseModel):
@@ -9565,7 +9550,7 @@ class ErrorTrackingRelationalIssue(BaseModel):
     first_seen: AwareDatetime
     id: str
     name: str | None = None
-    status: Status4
+    status: ErrorTrackingIssueStatus
 
 
 class ErrorTrackingSimilarIssuesQueryResponse(BaseModel):
@@ -13396,7 +13381,7 @@ class ErrorTrackingCorrelatedIssue(BaseModel):
     name: str | None = None
     odds_ratio: float
     population: Population
-    status: Status
+    status: ErrorTrackingIssueStatus
 
 
 class ErrorTrackingIssueCorrelationQueryResponse(BaseModel):
@@ -14511,7 +14496,7 @@ class ErrorTrackingQuery(BaseModel):
     revenueEntity: RevenueEntity | None = None
     revenuePeriod: RevenuePeriod | None = None
     searchQuery: str | None = None
-    status: Status2 | None = None
+    status: ErrorTrackingIssueStatus | str | None = Field(default=None, title="ErrorTrackingQueryStatus")
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
     volumeResolution: int
@@ -15578,7 +15563,7 @@ class ExperimentMetricTimeseries(BaseModel):
     metric_uuid: str
     recalculation_created_at: str | None = None
     recalculation_status: str | None = None
-    status: Status5
+    status: Status
     timeseries: dict[str, ExperimentQueryResponse] | None = None
     updated_at: str
 
