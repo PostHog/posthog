@@ -317,7 +317,7 @@ fn parse_date_string(date_str: &str) -> Option<DateTime<Utc>> {
 
     // Fallback: Try parsing ISO 8601 with milliseconds (without timezone)
     // This handles formats like "2025-12-19T00:00:00.000" that dateparser can't handle
-    if let Ok(naive_date) = NaiveDateTime::parse_from_str(date_str, "%Y-%m-%dT%H:%M:%S%.3f") {
+    if let Ok(naive_date) = NaiveDateTime::parse_from_str(date_str, "%Y-%m-%dT%H:%M:%S%.f") {
         return Some(naive_date.and_utc());
     }
 
@@ -1701,5 +1701,17 @@ mod test_match_properties {
         assert_eq!(parsed_date.hour(), 0);
         assert_eq!(parsed_date.minute(), 0);
         assert_eq!(parsed_date.second(), 0);
+    }
+
+    #[test]
+    fn test_parse_iso8601_with_variable_millisecond_precision() {
+        // Test 1 digit milliseconds
+        assert!(parse_date_string("2025-12-19T00:00:00.5").is_some());
+
+        // Test 2 digit milliseconds
+        assert!(parse_date_string("2025-12-19T00:00:00.12").is_some());
+
+        // Test 3 digit milliseconds (existing case)
+        assert!(parse_date_string("2025-12-19T00:00:00.123").is_some());
     }
 }
