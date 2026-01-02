@@ -37,14 +37,25 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             "kind": "HogQLQuery",
             "query": "SELECT event, distinct_id FROM events WHERE event = '$pageview' LIMIT 100",
         }
-        # Mock sync_saved_query_workflow to avoid Temporal connection
+        # Mock Temporal-related functions to avoid connection errors
         self.sync_workflow_patcher = mock.patch(
             "products.data_warehouse.backend.data_load.saved_query_service.sync_saved_query_workflow"
         )
+        self.workflow_exists_patcher = mock.patch(
+            "products.data_warehouse.backend.data_load.saved_query_service.saved_query_workflow_exists",
+            return_value=False,
+        )
+        self.delete_schedule_patcher = mock.patch(
+            "products.data_warehouse.backend.data_load.saved_query_service.delete_saved_query_schedule"
+        )
         self.mock_sync_workflow = self.sync_workflow_patcher.start()
+        self.mock_workflow_exists = self.workflow_exists_patcher.start()
+        self.mock_delete_schedule = self.delete_schedule_patcher.start()
 
     def tearDown(self):
         self.sync_workflow_patcher.stop()
+        self.workflow_exists_patcher.stop()
+        self.delete_schedule_patcher.stop()
         super().tearDown()
 
     def test_enable_materialization_creates_saved_query(self):
