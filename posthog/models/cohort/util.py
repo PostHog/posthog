@@ -301,13 +301,20 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
         cast(dict, cohort.query), team=team, limit_context=LimitContext.COHORT_CALCULATION
     ).to_query()
 
+    uses_distinct_id = False
+
     for select_query in extract_select_queries(query):
         columns: dict[str, ast.Expr] = {}
+        has_asterisk = False
+
         for expr in select_query.select:
-            if isinstance(expr, ast.Alias):
+            if isinstance(expr, ast.Field) and expr.chain == ["*"]:
+                has_asterisk = True
+            elif isinstance(expr, ast.Alias):
                 columns[expr.alias] = expr.expr
             elif isinstance(expr, ast.Field):
                 columns[str(expr.chain[-1])] = expr
+
         column: ast.Expr | None = columns.get("person_id") or columns.get("actor_id") or columns.get("id")
         if isinstance(column, ast.Alias):
             select_query.select = [ast.Alias(expr=column.expr, alias="actor_id")]
@@ -321,7 +328,18 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
             elif isinstance(table, ast.Field) and table.chain[-1] == "persons":
                 select_query.select = [ast.Alias(expr=ast.Field(chain=["id"]), alias="actor_id")]
             else:
-                raise ValueError("Could not find a person_id, actor_id, or id column in the query")
+                # Check if we have a distinct_id column
+                distinct_id_column = columns.get("distinct_id")
+                if distinct_id_column is not None:
+                    # Use distinct_id and mark that we need to resolve it to person_id
+                    select_query.select = [ast.Alias(expr=distinct_id_column, alias="distinct_id")]
+                    uses_distinct_id = True
+                elif has_asterisk:
+                    # For SELECT *, assume distinct_id is available
+                    select_query.select = [ast.Alias(expr=ast.Field(chain=["distinct_id"]), alias="distinct_id")]
+                    uses_distinct_id = True
+                else:
+                    raise ValueError("Could not find a person_id, actor_id, id, or distinct_id column in the query")
 
     hogql_context.enable_select_queries = True
     hogql_context.limit_top_select = False
@@ -329,7 +347,20 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
 
     # Apply HogQL global settings to ensure consistency with regular queries
     settings = HogQLGlobalSettings()
-    return prepare_and_print_ast(query, context=hogql_context, dialect="clickhouse", settings=settings)[0]
+    base_query = prepare_and_print_ast(query, context=hogql_context, dialect="clickhouse", settings=settings)[0]
+
+    # If we're using distinct_id, wrap the query to resolve to person_id
+    if uses_distinct_id:
+        wrapped_query = f"""
+        SELECT DISTINCT person_id as actor_id
+        FROM person_distinct_id2
+        WHERE distinct_id IN (
+            SELECT DISTINCT distinct_id FROM ({base_query})
+        ) AND team_id = %(team_id)s
+        """
+        return wrapped_query
+
+    return base_query
 
 
 def format_static_cohort_query(cohort: Cohort, index: int, prepend: str) -> tuple[str, dict[str, Any]]:
