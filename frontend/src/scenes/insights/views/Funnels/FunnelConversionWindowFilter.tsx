@@ -107,6 +107,11 @@ export function FunnelConversionWindowFilter({ insightProps }: Pick<EditorFilter
                                 ...state,
                                 funnelWindowInterval: intervalBounds[0],
                             }))
+                        } else if (value > intervalBounds[1]) {
+                            setLocalConversionWindow((state) => ({
+                                ...state,
+                                funnelWindowInterval: intervalBounds[1],
+                            }))
                         }
                         setConversionWindow()
                     }}
