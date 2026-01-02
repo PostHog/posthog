@@ -190,15 +190,14 @@ class Command(BaseCommand):
 
         # Mark as deleted in ClickHouse (we can't truly delete, but can mark is_deleted=1)
         if pg_uuids:
-            uuid_list = ", ".join(f"'{u}'" for u in pg_uuids)
             sync_execute(
-                f"""
+                """
                 INSERT INTO person (id, team_id, is_deleted, version, _timestamp, _offset)
                 SELECT id, team_id, 1, version + 100, now(), 0
                 FROM person FINAL
-                WHERE team_id = %(team_id)s AND id IN ({uuid_list})
+                WHERE team_id = %(team_id)s AND id IN %(uuid_list)s
                 """,
-                {"team_id": team.id},
+                {"team_id": team.id, "uuid_list": pg_uuids},
             )
             self.stdout.write(f"  Marked {len(pg_uuids)} persons as deleted in ClickHouse")
 
@@ -211,7 +210,7 @@ class Command(BaseCommand):
         self.stdout.write("Run the workflow with delete_ch_only_orphans=true to clean them up:")
         self.stdout.write(
             f"  python manage.py start_temporal_workflow sync-person-distinct-ids "
-            f'\'{{"team_id": {team.id}, "dry_run": false, "delete_ch_only_orphans": true}}\''
+            f'\'{{"team_id": {team.id}, "dry_run": false, "delete_ch_only_orphans": true, "categorize_orphans": true}}\''
         )
 
     def _insert_person_to_ch(self, team_id: int, person_uuid: str, version: int = 0):
