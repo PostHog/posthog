@@ -1,6 +1,6 @@
-import { useActions, useValues } from 'kea'
 import '../../DataTable/DataTable.scss'
 
+import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { IconPin, IconPinFilled } from '@posthog/icons'
