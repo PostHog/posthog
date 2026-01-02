@@ -59,7 +59,8 @@ class OnlyStaffCanEditGlobalHogFlowTemplate(BasePermission):
         if request.method in SAFE_METHODS:
             return True
 
-        if obj.scope == HogFlowTemplate.Scope.GLOBAL:
+        # Prevent non-staff from editing global templates / updating team template to global
+        if obj.scope == HogFlowTemplate.Scope.GLOBAL or request.data.get("scope") == HogFlowTemplate.Scope.GLOBAL:
             return request.user.is_staff
 
         return True
