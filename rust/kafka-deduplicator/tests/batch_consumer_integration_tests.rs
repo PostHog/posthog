@@ -310,8 +310,8 @@ impl RebalanceHandler for RoutingRebalanceHandler {
         self.inner.setup_revoked_partitions(partitions);
     }
 
-    async fn cleanup_assigned_partitions(&self, partitions: &TopicPartitionList) -> Result<()> {
-        self.inner.cleanup_assigned_partitions(partitions).await
+    async fn async_setup_assigned_partitions(&self, partitions: &TopicPartitionList) -> Result<()> {
+        self.inner.async_setup_assigned_partitions(partitions).await
     }
 
     async fn cleanup_revoked_partitions(&self, partitions: &TopicPartitionList) -> Result<()> {

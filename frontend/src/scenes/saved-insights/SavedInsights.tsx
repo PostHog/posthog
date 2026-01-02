@@ -552,6 +552,21 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: false,
     },
+    [NodeKind.EndpointsUsageOverviewQuery]: {
+        name: 'Endpoints usage overview',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.EndpointsUsageTableQuery]: {
+        name: 'Endpoints usage table',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.EndpointsUsageTrendsQuery]: {
+        name: 'Endpoints usage trends',
+        icon: IconPieChart,
+        inMenu: false,
+    },
 }
 
 export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = {

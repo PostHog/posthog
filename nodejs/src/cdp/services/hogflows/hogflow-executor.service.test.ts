@@ -58,9 +58,13 @@ describe('Hogflow Executor', () => {
             SITE_URL: 'http://localhost:8000',
         })
         const hogExecutor = new HogExecutorService(hub)
-        const hogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub)
-        const hogFlowFunctionsService = new HogFlowFunctionsService(hub, hogFunctionTemplateManager, hogExecutor)
-        const recipientsManager = new RecipientsManagerService(hub)
+        const hogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub.postgres)
+        const hogFlowFunctionsService = new HogFlowFunctionsService(
+            hub.SITE_URL,
+            hogFunctionTemplateManager,
+            hogExecutor
+        )
+        const recipientsManager = new RecipientsManagerService(hub.postgres)
         const recipientPreferencesService = new RecipientPreferencesService(recipientsManager)
 
         await insertHogFunctionTemplate(hub.postgres, {

@@ -1,0 +1,214 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls static %}
+
+{% block extrastyle %}
+{{ block.super }}
+<link rel="stylesheet" href="{% static 'admin/css/forms.css' %}" />
+<style>
+    .ttl-form {
+        max-width: 600px;
+        margin: 20px 0;
+    }
+    .form-row {
+        margin-bottom: 15px;
+    }
+    .form-row label {
+        display: block;
+        font-weight: bold;
+        margin-bottom: 5px;
+        color: var(--body-fg);
+    }
+    .form-row input[type="text"],
+    .form-row input[type="number"] {
+        padding: 8px;
+        width: 100%;
+        max-width: 300px;
+        font-size: 14px;
+        background: var(--darkened-bg, #fff);
+        color: var(--body-fg, #333);
+        border: 2px solid var(--hairline-color, #ccc);
+        border-radius: 4px;
+    }
+    .form-row input[type="number"]:focus {
+        border-color: var(--primary, #417690);
+        outline: 2px solid var(--primary, #417690);
+        outline-offset: 2px;
+    }
+    .key-display {
+        background: var(--darkened-bg, #f8f8f8);
+        color: var(--body-fg, #333);
+        padding: 10px;
+        border: 1px solid var(--hairline-color, #ddd);
+        border-radius: 4px;
+        font-family: monospace;
+        word-break: break-all;
+    }
+    .ttl-preview {
+        margin-top: 8px;
+        padding: 8px;
+        background: #184d18;
+        border-radius: 4px;
+        color: #90ee90;
+        border: 1px solid #2d5a2d;
+    }
+    .ttl-preview.no-ttl {
+        background: #4d4018;
+        color: #ffd966;
+        border-color: #856404;
+    }
+    .button-row {
+        margin-top: 20px;
+    }
+    .button-row input[type="submit"],
+    .button-row a.cancel-button {
+        padding: 10px 20px;
+        font-size: 14px;
+        margin-right: 10px;
+        cursor: pointer;
+    }
+    .button-row a.cancel-button {
+        display: inline-block;
+        text-decoration: none;
+        background: #6c757d;
+        color: white;
+        border-radius: 4px;
+    }
+    .button-row a.cancel-button:hover {
+        background: #5a6268;
+    }
+    .current-ttl {
+        margin-bottom: 15px;
+        padding: 10px;
+        background: var(--darkened-bg, #f0f0f0);
+        color: var(--body-fg, #333);
+        border: 1px solid var(--hairline-color, #ddd);
+        border-radius: 4px;
+    }
+
+    @media (prefers-color-scheme: light) {
+        .ttl-preview {
+            background: #e8f4e8;
+            color: #2d5a2d;
+            border-color: #90ee90;
+        }
+        .ttl-preview.no-ttl {
+            background: #fff3cd;
+            color: #856404;
+            border-color: #ffd966;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+    <a href="{% url 'admin:index' %}">{% translate 'Home' %}</a>
+    &rsaquo; <a href="/admin/redisvalues?c={{ cursor }}{% if query %}&q={{ query|urlencode }}{% endif %}">Redis values</a>
+    &rsaquo; Edit TTL
+</div>
+{% endblock %}
+
+{% block content %}
+<div id="content-main">
+    <div class="ttl-form">
+        <form method="post" action="">
+            {% csrf_token %}
+            <input type="hidden" name="key" value="{{ redis_key }}" />
+            <input type="hidden" name="c" value="{{ cursor }}" />
+            <input type="hidden" name="q" value="{{ query }}" />
+
+            <div class="form-row">
+                <label>{% trans "Redis key" %}</label>
+                <div class="key-display">{{ redis_key }}</div>
+            </div>
+
+            <div class="current-ttl">
+                {% if current_ttl %}
+                    {% trans "Current TTL:" %} {{ current_ttl }} {% trans "seconds" %}
+                {% else %}
+                    {% trans "No TTL set (key does not expire)" %}
+                {% endif %}
+            </div>
+
+            <div class="form-row">
+                <label for="ttl_seconds">{% trans "New TTL (seconds)" %}</label>
+                <input type="number"
+                       name="ttl_seconds"
+                       id="ttl_seconds"
+                       min="0"
+                       placeholder="Leave empty to remove TTL"
+                       value="{{ current_ttl|default:'' }}" />
+                <div id="ttl-preview" class="ttl-preview" role="status" aria-live="polite" style="display: none;"></div>
+            </div>
+
+            <div class="button-row">
+                <input type="submit" value="{% trans 'Save' %}" class="default" />
+                <a href="/admin/redisvalues?c={{ cursor }}{% if query %}&q={{ query|urlencode }}{% endif %}" class="cancel-button">{% trans "Cancel" %}</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script nonce="{{ request.csp_nonce }}">
+(function() {
+    const input = document.getElementById('ttl_seconds');
+    const preview = document.getElementById('ttl-preview');
+
+    function formatDuration(seconds) {
+        if (seconds === 0 || seconds === '') {
+            return null;
+        }
+
+        const units = [
+            { label: 'day', seconds: 86400 },
+            { label: 'hour', seconds: 3600 },
+            { label: 'minute', seconds: 60 },
+            { label: 'second', seconds: 1 }
+        ];
+
+        const parts = [];
+        let remaining = parseInt(seconds, 10);
+
+        for (const unit of units) {
+            if (remaining >= unit.seconds) {
+                const count = Math.floor(remaining / unit.seconds);
+                remaining = remaining % unit.seconds;
+                parts.push(`${count} ${unit.label}${count !== 1 ? 's' : ''}`);
+            }
+        }
+
+        return parts.join(', ');
+    }
+
+    function updatePreview() {
+        const value = input.value.trim();
+
+        if (value === '') {
+            preview.textContent = 'Will remove TTL (key will not expire)';
+            preview.className = 'ttl-preview no-ttl';
+            preview.style.display = 'block';
+            return;
+        }
+
+        const seconds = parseInt(value, 10);
+        if (isNaN(seconds) || seconds < 0) {
+            preview.style.display = 'none';
+            return;
+        }
+
+        if (seconds === 0) {
+            preview.textContent = 'Will remove TTL (key will not expire)';
+            preview.className = 'ttl-preview no-ttl';
+        } else {
+            const formatted = formatDuration(seconds);
+            preview.textContent = `Will set ${formatted} TTL`;
+            preview.className = 'ttl-preview';
+        }
+        preview.style.display = 'block';
+    }
+
+    input.addEventListener('input', updatePreview);
+    updatePreview();
+})();
+</script>
+{% endblock %}

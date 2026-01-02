@@ -251,7 +251,7 @@ def _get_experiment_regular_metrics_timeseries(
     # likely stale experiments. Users can still manually backfill those.
     experiments = Experiment.objects.filter(
         deleted=False,
-        stats_config__timeseries=True,
+        scheduling_config__timeseries=True,
         start_date__isnull=False,
         start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=90),
         end_date__isnull=True,

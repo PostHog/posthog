@@ -1,8 +1,8 @@
 /**
  * @jest-environment jsdom
  */
-import { PLACEHOLDER_SVG_DATA_IMAGE_URL } from '../index'
-import { CanvasReplayerPlugin } from './canvas-plugin'
+import { PLACEHOLDER_SVG_PATTERN_DATA_URL, PLACEHOLDER_SVG_TEXT_DATA_URL } from '../index'
+import { CanvasReplayerPlugin, shouldMaskCanvas } from './canvas-plugin'
 
 // Mock rrweb canvasMutation function
 jest.mock('@posthog/rrweb', () => ({
@@ -334,14 +334,104 @@ describe('CanvasReplayerPlugin', () => {
             expect(typeof plugin.handler).toBe('function')
         })
 
-        it('applies placeholder background to canvas elements on build', () => {
-            const plugin = CanvasReplayerPlugin([])
+        it('applies placeholder background to visible canvas elements on build', () => {
+            // Create a fresh canvas for this test
+            const testCanvas = document.createElement('canvas')
+            testCanvas.width = 300
+            testCanvas.height = 150
 
+            // Create a spy to capture style assignments (since jsdom doesn't support multi-value CSS)
+            const styleAssignments: Record<string, string> = {}
+            const originalStyle = testCanvas.style
+            Object.defineProperty(testCanvas, 'style', {
+                get() {
+                    return new Proxy(originalStyle, {
+                        set(target, prop, value) {
+                            styleAssignments[prop as string] = value
+                            return Reflect.set(target, prop, value)
+                        },
+                        get(target, prop) {
+                            return Reflect.get(target, prop)
+                        },
+                    })
+                },
+            })
+            ;(window.getComputedStyle as jest.Mock).mockReturnValue({
+                visibility: 'visible',
+                display: 'block',
+                opacity: '1',
+            })
+
+            // Verify canvas is in correct state
+            expect(testCanvas.getAttribute('aria-hidden')).toBeNull()
+            expect(shouldMaskCanvas(testCanvas)).toBe(true)
+
+            const plugin = CanvasReplayerPlugin([])
+            plugin.onBuild?.(testCanvas, { id: 1, replayer: mockReplayer })
+
+            // Verify the style assignments were made with the expected values
+            const patternBase64 = PLACEHOLDER_SVG_PATTERN_DATA_URL.match(/base64,([^"]+)/)?.[1] || ''
+            const textBase64 = PLACEHOLDER_SVG_TEXT_DATA_URL.match(/base64,([^"]+)/)?.[1] || ''
+            expect(styleAssignments.backgroundImage).toContain(patternBase64)
+            expect(styleAssignments.backgroundImage).toContain(textBase64)
+            expect(styleAssignments.backgroundRepeat).toBe('no-repeat, repeat')
+            expect(styleAssignments.backgroundPosition).toBe('center, 0 0')
+        })
+    })
+
+    describe('shouldMaskCanvas', () => {
+        it.each([
+            ['aria-hidden="true"', { 'aria-hidden': 'true' }, {}, { width: 300, height: 150 }],
+            ['visibility: hidden', {}, { visibility: 'hidden' }, { width: 300, height: 150 }],
+            ['visibility: collapse', {}, { visibility: 'collapse' }, { width: 300, height: 150 }],
+            ['display: none', {}, { display: 'none' }, { width: 300, height: 150 }],
+            ['opacity: 0', {}, { opacity: '0' }, { width: 300, height: 150 }],
+            ['zero width', {}, {}, { width: 0, height: 150 }],
+            ['zero height', {}, {}, { width: 300, height: 0 }],
+            ['zero width and height', {}, {}, { width: 0, height: 0 }],
+        ])('returns false when canvas has %s', (_description, attributes, styles, dimensions) => {
+            const canvas = document.createElement('canvas')
+            canvas.width = dimensions.width
+            canvas.height = dimensions.height
+            for (const [key, value] of Object.entries(attributes)) {
+                canvas.setAttribute(key, value)
+            }
+
+            ;(window.getComputedStyle as jest.Mock).mockReturnValue({
+                visibility: 'visible',
+                display: 'block',
+                opacity: '1',
+                ...styles,
+            })
+
+            expect(shouldMaskCanvas(canvas)).toBe(false)
+        })
+
+        it('returns true for visible canvas with dimensions', () => {
+            const canvas = document.createElement('canvas')
+            canvas.width = 300
+            canvas.height = 150
+            ;(window.getComputedStyle as jest.Mock).mockReturnValue({
+                visibility: 'visible',
+                display: 'block',
+                opacity: '1',
+            })
+
+            expect(shouldMaskCanvas(canvas)).toBe(true)
+        })
+
+        it('does not apply background to hidden canvases', () => {
+            mockCanvas.setAttribute('aria-hidden', 'true')
+            ;(window.getComputedStyle as jest.Mock).mockReturnValue({
+                visibility: 'visible',
+                display: 'block',
+                opacity: '1',
+            })
+
+            const plugin = CanvasReplayerPlugin([])
             plugin.onBuild?.(mockCanvas, { id: 1, replayer: mockReplayer })
 
-            // jsdom normalizes CSS by removing optional quotes from data URLs
-            const base64Data = PLACEHOLDER_SVG_DATA_IMAGE_URL.match(/base64,([^"]+)/)?.[1]
-            expect(mockCanvas.style.backgroundImage).toContain(`base64,${base64Data}`)
+            expect(mockCanvas.style.backgroundImage).toBe('')
         })
     })
 })

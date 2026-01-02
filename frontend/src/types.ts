@@ -4078,6 +4078,14 @@ export interface Experiment {
     stats_config?: {
         version?: number
         method?: ExperimentStatsMethod
+        bayesian?: {
+            ci_level?: number
+        }
+        frequentist?: {
+            alpha?: number
+        }
+    }
+    scheduling_config?: {
         timeseries?: boolean
     }
     _create_in_folder?: string | null
@@ -5028,7 +5036,8 @@ export interface ExternalDataSourceRevenueAnalyticsConfig {
 
 export interface ExternalDataSourceCreatePayload {
     source_type: ExternalDataSourceType
-    prefix: string
+    prefix?: string
+    description?: string
     payload: Record<string, any>
 }
 export interface ExternalDataSource {
@@ -5037,7 +5046,8 @@ export interface ExternalDataSource {
     connection_id: string
     status: string
     source_type: ExternalDataSourceType
-    prefix: string
+    prefix: string | null
+    description: string | null
     latest_error: string | null
     last_run_at?: Dayjs
     schemas: ExternalDataSourceSchema[]
@@ -5471,6 +5481,8 @@ export enum SDKKey {
     LANGFUSE = 'langfuse',
     LITELLM = 'litellm',
     MANUAL_CAPTURE = 'manual_capture',
+    MOENGAGE = 'moengage',
+    N8N = 'n8n',
     NEXT_JS = 'nextjs',
     NODE_JS = 'nodejs',
     NUXT_JS = 'nuxtjs',
@@ -5490,10 +5502,13 @@ export enum SDKKey {
     SHOPIFY = 'shopify',
     SVELTE = 'svelte',
     TRACELOOP = 'traceloop',
+    TANSTACK_START = 'tanstack_start',
     VERCEL_AI = 'vercel_ai',
+    VITE = 'vite',
     VUE_JS = 'vuejs',
     WEBFLOW = 'webflow',
     WORDPRESS = 'wordpress',
+    ZAPIER = 'zapier',
 }
 
 export enum SDKTag {
