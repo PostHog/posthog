@@ -87,6 +87,16 @@ class EndpointsUsageQueryRunner(AnalyticsQueryRunner[EAR], ABC):
             )
         )
 
+        conditions.append(
+            ast.Call(
+                name="match",
+                args=[
+                    ast.Field(chain=["query_log", "endpoint"]),
+                    ast.Constant(value=r"^/api/(environments|projects)/[0-9]+/endpoints/[^/]+/run/?$"),
+                ],
+            )
+        )
+
         # Date range filter
         if self.query_date_range.date_from():
             conditions.append(
