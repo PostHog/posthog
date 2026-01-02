@@ -12,6 +12,7 @@ use crate::database::{
 };
 use common_database::PostgresReader;
 use common_types::{Person, PersonId, TeamId};
+use once_cell::sync::Lazy;
 use serde_json::Value;
 use sha1::{Digest, Sha1};
 use sqlx::{Acquire, Row};
@@ -41,6 +42,57 @@ use super::{flag_group_type_mapping::GroupTypeIndex, flag_matching::FlagEvaluati
 
 const LONG_SCALE: u64 = 0xfffffffffffffff;
 
+/// Precomputed mapping from property name to its $initial_ equivalent.
+/// Source: posthog/taxonomy/taxonomy.py - PERSON_PROPERTIES_ADAPTED_FROM_EVENT + CAMPAIGN_PROPERTIES
+static INITIAL_PROPERTY_MAP: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
+    HashMap::from([
+        // PERSON_PROPERTIES_ADAPTED_FROM_EVENT
+        ("$app_build", "$initial_app_build"),
+        ("$app_name", "$initial_app_name"),
+        ("$app_namespace", "$initial_app_namespace"),
+        ("$app_version", "$initial_app_version"),
+        ("$browser", "$initial_browser"),
+        ("$browser_version", "$initial_browser_version"),
+        ("$device_type", "$initial_device_type"),
+        ("$current_url", "$initial_current_url"),
+        ("$pathname", "$initial_pathname"),
+        ("$os", "$initial_os"),
+        ("$os_version", "$initial_os_version"),
+        ("$referring_domain", "$initial_referring_domain"),
+        ("$referrer", "$initial_referrer"),
+        ("$screen_height", "$initial_screen_height"),
+        ("$screen_width", "$initial_screen_width"),
+        ("$viewport_height", "$initial_viewport_height"),
+        ("$viewport_width", "$initial_viewport_width"),
+        ("$raw_user_agent", "$initial_raw_user_agent"),
+        // CAMPAIGN_PROPERTIES
+        ("utm_source", "$initial_utm_source"),
+        ("utm_medium", "$initial_utm_medium"),
+        ("utm_campaign", "$initial_utm_campaign"),
+        ("utm_content", "$initial_utm_content"),
+        ("utm_term", "$initial_utm_term"),
+        ("gclid", "$initial_gclid"),
+        ("gad_source", "$initial_gad_source"),
+        ("gclsrc", "$initial_gclsrc"),
+        ("dclid", "$initial_dclid"),
+        ("gbraid", "$initial_gbraid"),
+        ("wbraid", "$initial_wbraid"),
+        ("fbclid", "$initial_fbclid"),
+        ("msclkid", "$initial_msclkid"),
+        ("twclid", "$initial_twclid"),
+        ("li_fat_id", "$initial_li_fat_id"),
+        ("mc_cid", "$initial_mc_cid"),
+        ("igshid", "$initial_igshid"),
+        ("ttclid", "$initial_ttclid"),
+        ("rdt_cid", "$initial_rdt_cid"),
+        ("epik", "$initial_epik"),
+        ("qclid", "$initial_qclid"),
+        ("sccid", "$initial_sccid"),
+        ("irclid", "$initial_irclid"),
+        ("_kx", "$initial__kx"),
+    ])
+});
+
 // Replace the static counter with thread-local storage
 #[cfg(test)]
 thread_local! {
@@ -67,6 +119,34 @@ pub fn calculate_hash(prefix: &str, hashed_identifier: &str, salt: &str) -> Resu
     // as was done in the previous implementation, ensuring consistent feature flag distribution
     let hash_val: u64 = u64::from_be_bytes(hash_value[..8].try_into().unwrap()) >> 4;
     Ok(hash_val as f64 / LONG_SCALE as f64)
+}
+
+/// Populates missing `$initial_` properties from their non-initial counterparts.
+///
+/// This mitigates ingestion lag: `$initial_` properties are set by ingestion upon
+/// first seeing a property value, but there can be a delay when writing these properties.
+/// Without this, feature flag conditions filtering on `$initial_` properties would not
+/// match during this window, even though the current property value exists.
+///
+/// Property name transformations:
+/// - `$browser` -> `$initial_browser`
+/// - `utm_source` -> `$initial_utm_source`
+fn populate_missing_initial_properties(properties: &mut HashMap<String, Value>) {
+    let properties_to_add: Vec<(&str, Value)> = properties
+        .iter()
+        .filter_map(|(key, value)| {
+            let initial_key = INITIAL_PROPERTY_MAP.get(key.as_str())?;
+            if !properties.contains_key(*initial_key) {
+                Some((*initial_key, value.clone()))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    for (key, value) in properties_to_add {
+        properties.insert(key.to_string(), value);
+    }
 }
 
 /// Fetch and locally cache all properties for a given distinct ID and team ID.
@@ -270,6 +350,8 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     // Always add distinct_id to person properties to match Python implementation
     // This allows flags to filter on distinct_id even when no other person properties exist
     all_person_properties.insert("distinct_id".to_string(), Value::String(distinct_id));
+
+    populate_missing_initial_properties(&mut all_person_properties);
 
     flag_evaluation_state.set_person_properties(all_person_properties);
     person_processing_timer.fin();
@@ -2170,5 +2252,111 @@ mod tests {
 
         let row_not_found_error = FlagError::RowNotFound;
         assert!(!should_retry_on_error(&row_not_found_error));
+    }
+
+    #[test]
+    fn test_populate_missing_initial_properties_adds_missing_initial_for_tracked_props() {
+        let mut properties = HashMap::from([
+            ("$browser".to_string(), json!("Chrome")),
+            ("$os".to_string(), json!("iOS")),
+            ("utm_source".to_string(), json!("google")),
+            ("gclid".to_string(), json!("abc123")),
+            ("regular_prop".to_string(), json!("value")),
+        ]);
+
+        populate_missing_initial_properties(&mut properties);
+
+        // $-prefixed tracked properties get $initial_ versions
+        assert_eq!(properties.get("$initial_browser"), Some(&json!("Chrome")));
+        assert_eq!(properties.get("$initial_os"), Some(&json!("iOS")));
+        // Non-$-prefixed tracked properties also get $initial_ versions
+        assert_eq!(
+            properties.get("$initial_utm_source"),
+            Some(&json!("google"))
+        );
+        assert_eq!(properties.get("$initial_gclid"), Some(&json!("abc123")));
+        // Original properties still exist
+        assert_eq!(properties.get("$browser"), Some(&json!("Chrome")));
+        assert_eq!(properties.get("$os"), Some(&json!("iOS")));
+        assert_eq!(properties.get("utm_source"), Some(&json!("google")));
+        // Regular props unchanged, no $initial_ created
+        assert_eq!(properties.get("regular_prop"), Some(&json!("value")));
+        assert!(!properties.contains_key("$initial_regular_prop"));
+    }
+
+    #[test]
+    fn test_populate_missing_initial_properties_ignores_untracked_dollar_props() {
+        let mut properties = HashMap::from([
+            ("$session_id".to_string(), json!("sess_123")),
+            ("$timestamp".to_string(), json!("2024-01-01")),
+            ("$random_prop".to_string(), json!("value")),
+        ]);
+
+        populate_missing_initial_properties(&mut properties);
+
+        // These $-prefixed props are NOT in PROPERTIES_WITH_INITIAL_TRACKING
+        assert!(!properties.contains_key("$initial_session_id"));
+        assert!(!properties.contains_key("$initial_timestamp"));
+        assert!(!properties.contains_key("$initial_random_prop"));
+        assert_eq!(properties.len(), 3);
+    }
+
+    #[test]
+    fn test_populate_missing_initial_properties_preserves_existing_initial() {
+        let mut properties = HashMap::from([
+            ("$browser".to_string(), json!("Firefox")),
+            ("$initial_browser".to_string(), json!("Chrome")), // Already exists with different value
+        ]);
+
+        populate_missing_initial_properties(&mut properties);
+
+        // Existing $initial_ should NOT be overwritten
+        assert_eq!(properties.get("$initial_browser"), Some(&json!("Chrome")));
+        assert_eq!(properties.get("$browser"), Some(&json!("Firefox")));
+    }
+
+    #[test]
+    fn test_populate_missing_initial_properties_handles_campaign_properties() {
+        let mut properties = HashMap::from([
+            ("utm_source".to_string(), json!("newsletter")),
+            ("utm_medium".to_string(), json!("email")),
+            ("fbclid".to_string(), json!("fb_123")),
+            ("msclkid".to_string(), json!("ms_456")),
+        ]);
+
+        populate_missing_initial_properties(&mut properties);
+
+        assert_eq!(
+            properties.get("$initial_utm_source"),
+            Some(&json!("newsletter"))
+        );
+        assert_eq!(properties.get("$initial_utm_medium"), Some(&json!("email")));
+        assert_eq!(properties.get("$initial_fbclid"), Some(&json!("fb_123")));
+        assert_eq!(properties.get("$initial_msclkid"), Some(&json!("ms_456")));
+    }
+
+    #[test]
+    fn test_populate_missing_initial_properties_empty_properties() {
+        let mut properties = HashMap::new();
+
+        populate_missing_initial_properties(&mut properties);
+
+        assert!(properties.is_empty());
+    }
+
+    #[test]
+    fn test_populate_missing_initial_properties_no_tracked_props() {
+        let mut properties = HashMap::from([
+            ("email".to_string(), json!("test@example.com")),
+            ("name".to_string(), json!("Test User")),
+            ("custom_prop".to_string(), json!("custom_value")),
+        ]);
+
+        populate_missing_initial_properties(&mut properties);
+
+        // No changes should be made - none of these are tracked
+        assert_eq!(properties.len(), 3);
+        assert!(!properties.contains_key("$initial_email"));
+        assert!(!properties.contains_key("$initial_name"));
     }
 }
