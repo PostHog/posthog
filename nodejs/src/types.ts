@@ -59,7 +59,7 @@ export enum PluginServerMode {
     cdp_legacy_on_event = 'cdp-legacy-on-event',
     evaluation_scheduler = 'evaluation-scheduler',
     ingestion_logs = 'ingestion-logs',
-    cdp_cyclotron_producer_batch = 'cdp-cyclotron-producer-batch',
+    cdp_batch_hogflow_requests = 'cdp-batch-hogflow-requests',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(

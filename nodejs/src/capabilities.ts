@@ -108,7 +108,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 logsIngestion: true,
             }
-        case PluginServerMode.cdp_cyclotron_producer_batch:
+        case PluginServerMode.cdp_batch_hogflow_requests:
             return {
                 cdpBatchHogFlow: true,
             }
