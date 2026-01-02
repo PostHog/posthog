@@ -5921,6 +5921,7 @@ class TableSettings(BaseModel):
     )
     columns: list[ChartAxis] | None = None
     conditionalFormatting: list[ConditionalFormattingRule] | None = None
+    pinnedColumns: list[str] | None = None
 
 
 class TaskExecutionItem(BaseModel):

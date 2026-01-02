@@ -29866,6 +29866,12 @@
                         "$ref": "#/definitions/ConditionalFormattingRule"
                     },
                     "type": "array"
+                },
+                "pinnedColumns": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 }
             },
             "type": "object"

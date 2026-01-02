@@ -1030,6 +1030,7 @@ export interface ConditionalFormattingRule {
 export interface TableSettings {
     columns?: ChartAxis[]
     conditionalFormatting?: ConditionalFormattingRule[]
+    pinnedColumns?: string[]
 }
 
 export interface SharingConfigurationSettings {
