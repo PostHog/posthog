@@ -2819,45 +2819,62 @@ describe('PostgresPersonRepository', () => {
             expect(persons).toHaveLength(2)
         })
 
-        it('should respect offset parameter', async () => {
+        it('should respect cursor parameter for pagination', async () => {
             const team = await getFirstTeam(hub)
             await createTestPerson(team.id, 'person-1', { active: true })
             await createTestPerson(team.id, 'person-2', { active: true })
             await createTestPerson(team.id, 'person-3', { active: true })
 
-            const allPersons = await repository.fetchPersonsByProperties({
+            const firstBatch = await repository.fetchPersonsByProperties({
                 teamId: team.id,
                 properties: [{ key: 'active', value: true as any, operator: PropertyOperator.Exact, type: 'person' }],
+                options: { limit: 2 },
             })
 
-            const personsWithOffset = await repository.fetchPersonsByProperties({
+            expect(firstBatch).toHaveLength(2)
+
+            // Use the last person's ID as cursor for next batch
+            const cursor = firstBatch[firstBatch.length - 1].id
+            const secondBatch = await repository.fetchPersonsByProperties({
                 teamId: team.id,
                 properties: [{ key: 'active', value: true as any, operator: PropertyOperator.Exact, type: 'person' }],
-                options: { offset: 1 },
+                options: { cursor },
             })
 
-            expect(allPersons).toHaveLength(3)
-            expect(personsWithOffset).toHaveLength(2)
-            // The offset should skip the first person
-            const offsetIds = personsWithOffset.map((p) => p.id).sort()
-            const allIds = allPersons.map((p) => p.id).sort()
-            expect(offsetIds).not.toContain(allIds[0])
+            expect(secondBatch).toHaveLength(1)
+            // Verify that persons in second batch are not in first batch
+            const firstBatchIds = firstBatch.map((p) => p.id)
+            const secondBatchIds = secondBatch.map((p) => p.id)
+            for (const id of secondBatchIds) {
+                expect(firstBatchIds).not.toContain(id)
+            }
         })
 
-        it('should respect both limit and offset parameters', async () => {
+        it('should respect both limit and cursor parameters', async () => {
             const team = await getFirstTeam(hub)
             await createTestPerson(team.id, 'person-1', { active: true })
             await createTestPerson(team.id, 'person-2', { active: true })
             await createTestPerson(team.id, 'person-3', { active: true })
             await createTestPerson(team.id, 'person-4', { active: true })
 
-            const persons = await repository.fetchPersonsByProperties({
+            const firstBatch = await repository.fetchPersonsByProperties({
                 teamId: team.id,
                 properties: [{ key: 'active', value: true as any, operator: PropertyOperator.Exact, type: 'person' }],
-                options: { limit: 2, offset: 1 },
+                options: { limit: 1 },
             })
 
-            expect(persons).toHaveLength(2)
+            expect(firstBatch).toHaveLength(1)
+
+            const cursor = firstBatch[0].id
+            const secondBatch = await repository.fetchPersonsByProperties({
+                teamId: team.id,
+                properties: [{ key: 'active', value: true as any, operator: PropertyOperator.Exact, type: 'person' }],
+                options: { limit: 2, cursor },
+            })
+
+            expect(secondBatch).toHaveLength(2)
+            // Verify cursor filtered out the first person
+            expect(secondBatch.map((p) => p.id)).not.toContain(firstBatch[0].id)
         })
 
         it('should return empty array when properties array is empty', async () => {

@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
-import { Hub, Person, Team } from '~/types'
+import { Hub, Person, PropertyOperator, Team } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
 import { UUIDT } from '~/utils/utils'
 import { PostgresPersonRepository } from '~/worker/ingestion/persons/repositories/postgres-person-repository'
@@ -207,7 +207,17 @@ describe('PersonsManager', () => {
 
             const onPerson = jest.fn()
             await manager.streamMany({
-                filters: { teamId: team.id, properties: [{ name: { $eq: 'test' } }] },
+                filters: {
+                    teamId: team.id,
+                    properties: [
+                        {
+                            type: 'person',
+                            key: 'name',
+                            operator: PropertyOperator.IsSet,
+                            value: 'true',
+                        },
+                    ],
+                },
                 onPerson,
             })
 
