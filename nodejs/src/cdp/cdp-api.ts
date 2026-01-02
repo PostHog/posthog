@@ -530,7 +530,7 @@ export class CdpApi {
 
             res.json({ status: 'queued' })
         } catch (e) {
-            console.error(e)
+            logger.error('Error handling hogflow batch invocation', { error: e })
             res.status(500).json({ error: [e.message] })
         }
     }
