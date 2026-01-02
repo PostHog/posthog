@@ -453,7 +453,7 @@ export class PostgresPersonRepository
     async fetchPersonsByProperties(teamPersons: {
         teamId: TeamId
         properties: PersonPropertyFilter[]
-        options?: { limit?: number; offset?: number }
+        options?: { limit?: number; cursor?: string }
     }): Promise<InternalPersonWithDistinctId[]> {
         if (teamPersons.properties.length === 0) {
             return []
@@ -461,7 +461,7 @@ export class PostgresPersonRepository
 
         const teamId = teamPersons.teamId
         const propertiesConditions = teamPersons.properties
-        const { limit = 1000, offset = 0 } = teamPersons.options || {}
+        const { limit = 1000, cursor } = teamPersons.options || {}
 
         const whereConditions: string[] = []
         const values: any[] = [teamId]
@@ -472,10 +472,16 @@ export class PostgresPersonRepository
             values.push(...filterValues)
         })
 
-        // Add limit and offset at the end
+        // Add cursor condition for cursor-based pagination (more reliable than offset)
+        if (cursor) {
+            const cursorParamIndex = values.length + 1
+            whereConditions.push(`posthog_person.id > $${cursorParamIndex}`)
+            values.push(parseInt(cursor, 10))
+        }
+
+        // Add limit at the end
         const limitParamIndex = values.length + 1
-        const offsetParamIndex = values.length + 2
-        values.push(limit, offset)
+        values.push(limit)
 
         const queryString = `
             SELECT DISTINCT ON (posthog_person.id)
@@ -498,7 +504,6 @@ export class PostgresPersonRepository
               AND (${whereConditions.join(' AND ')})
             ORDER BY posthog_person.id, posthog_persondistinctid.distinct_id
             LIMIT $${limitParamIndex}
-            OFFSET $${offsetParamIndex}
         `
 
         const { rows } = await this.postgres.query<RawPerson & { distinct_id: string }>(

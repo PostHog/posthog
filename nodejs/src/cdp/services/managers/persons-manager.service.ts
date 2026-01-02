@@ -66,11 +66,11 @@ export class PersonsManagerService {
         onPerson: ({ personId, distinctId }: { personId: string; distinctId: string }) => void
     }): Promise<void> {
         const limit = options?.limit || 500
-        let offset = 0
+        let cursor: string | undefined = undefined
 
         let personBatch = await this.personRepository.fetchPersonsByProperties({
             ...filters,
-            options: { limit, offset },
+            options: { limit, cursor },
         })
         while (personBatch.length > 0) {
             for (const personRow of personBatch) {
@@ -85,10 +85,12 @@ export class PersonsManagerService {
                 break
             }
 
-            offset += limit
+            // Use the last person's ID as the cursor for the next batch
+            // This ensures stable, deterministic pagination even if data changes
+            cursor = personBatch[personBatch.length - 1].id.toString()
             personBatch = await this.personRepository.fetchPersonsByProperties({
                 ...filters,
-                options: { limit, offset },
+                options: { limit, cursor },
             })
         }
     }

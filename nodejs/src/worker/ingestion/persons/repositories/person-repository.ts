@@ -50,7 +50,7 @@ export interface PersonRepository {
     fetchPersonsByProperties(teamPersons: {
         teamId: TeamId
         properties: PersonPropertyFilter[]
-        options?: { limit?: number; offset?: number }
+        options?: { limit?: number; cursor?: string }
     }): Promise<InternalPersonWithDistinctId[]>
 
     createPerson(
