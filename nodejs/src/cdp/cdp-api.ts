@@ -509,7 +509,7 @@ export class CdpApi {
             }
 
             if (hogFlow.trigger.type !== 'batch') {
-                return res.status(400).json({ error: 'Only batch hog flows are supported for batch jobs' })
+                return res.status(400).json({ error: 'Only batch Workflows are supported for batch jobs' })
             }
 
             const batchHogFlowRequest = {
