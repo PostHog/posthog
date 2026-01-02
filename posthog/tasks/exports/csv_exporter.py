@@ -1,7 +1,7 @@
 import io
 import datetime
 from collections.abc import Generator
-from typing import Any
+from typing import Any, Optional
 from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
 
 from django.http import QueryDict
@@ -84,7 +84,9 @@ def add_query_params(url: str, params: dict[str, str]) -> str:
     return urlunparse(parsed)
 
 
-def _get_breakdown_info(item: dict, breakdown_filter: dict | None) -> tuple[list[str | int | None], list[dict], bool]:
+def _get_breakdown_info(
+    item: dict, breakdown_filter: Optional[dict]
+) -> tuple[list[str | int | None], list[dict], bool]:
     """Extract breakdown info from query results.
 
     Supports both breakdown formats from BreakdownFilter (posthog/schema.py)
@@ -106,7 +108,7 @@ def _get_breakdown_info(item: dict, breakdown_filter: dict | None) -> tuple[list
     return breakdown_values, breakdowns, has_breakdown_columns
 
 
-def _convert_response_to_csv_data(data: Any, breakdown_filter: dict | None = None) -> Generator[Any, None, None]:
+def _convert_response_to_csv_data(data: Any, breakdown_filter: Optional[dict] = None) -> Generator[Any, None, None]:
     if isinstance(data.get("results"), list):
         results = data.get("results")
         if len(results) > 0 and (isinstance(results[0], list) or isinstance(results[0], tuple)) and data.get("types"):
@@ -417,7 +419,7 @@ def make_api_call(
     body: Any,
     limit: int,
     method: str,
-    next_url: str | None,
+    next_url: Optional[str],
     path: str,
 ) -> requests.models.Response:
     request_url: str = absolute_uri(next_url or path)
@@ -436,7 +438,7 @@ def make_api_call(
     return response
 
 
-def export_tabular(exported_asset: ExportedAsset, limit: int | None = None) -> None:
+def export_tabular(exported_asset: ExportedAsset, limit: Optional[int] = None) -> None:
     if not limit:
         limit = CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL
 

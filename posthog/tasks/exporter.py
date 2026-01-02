@@ -1,4 +1,5 @@
 from time import perf_counter
+from typing import Optional
 
 from django.db import transaction
 
@@ -61,8 +62,8 @@ EXPORT_TIMER = Histogram(
 @transaction.atomic
 def export_asset(
     exported_asset_id: int,
-    limit: int | None = None,  # For CSV/XLSX: max row count
-    max_height_pixels: int | None = None,  # For images: max screenshot height in pixels
+    limit: Optional[int] = None,  # For CSV/XLSX: max row count
+    max_height_pixels: Optional[int] = None,  # For images: max screenshot height in pixels
 ) -> None:
     # if Celery is lagging then you can end up with an exported asset that has had a TTL added
     # and that TTL has passed, in the exporter we don't care about that.
@@ -75,8 +76,8 @@ def export_asset(
 
 def export_asset_direct(
     exported_asset: ExportedAsset,
-    limit: int | None = None,  # For CSV/XLSX: max row count
-    max_height_pixels: int | None = None,  # For images: max screenshot height in pixels
+    limit: Optional[int] = None,  # For CSV/XLSX: max row count
+    max_height_pixels: Optional[int] = None,  # For images: max screenshot height in pixels
 ) -> None:
     from posthog.tasks.exports import csv_exporter, image_exporter
 

@@ -1,4 +1,5 @@
 import base64
+from typing import Optional
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -12,10 +13,10 @@ from posthog.tasks.exports.image_exporter import get_driver
 
 
 class MockWebDriver(MagicMock):
-    def find_element_by_css_selector(self, name: str) -> MagicMock | None:
+    def find_element_by_css_selector(self, name: str) -> Optional[MagicMock]:
         return MagicMock()  # Always return something for wait_for_css_selector
 
-    def find_element_by_class_name(self, name: str) -> MagicMock | None:
+    def find_element_by_class_name(self, name: str) -> Optional[MagicMock]:
         return None  # Never return anything for Spinner
 
 
@@ -73,3 +74,4 @@ class TestExporterTask(APIBaseTest):
         asset.refresh_from_db()
         assert asset.exception == "Unknown table 'foo'"
         assert asset.exception_type == "QueryError"
+        assert asset.failure_type == "user"

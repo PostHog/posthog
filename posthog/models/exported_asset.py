@@ -1,5 +1,6 @@
 import secrets
 from datetime import timedelta
+from typing import Optional
 
 from django.conf import settings
 from django.db import models
@@ -88,7 +89,7 @@ class ExportedAsset(models.Model):
     exception = models.TextField(null=True, blank=True)
     # The exception class name (e.g., "QueryError", "TimeoutError") for categorization
     exception_type = models.CharField(max_length=255, null=True, blank=True)
-    # Classification of the failure, see exporter.py for details
+    # Classification of the failure, see failure_handler.py for details
     failure_type = models.CharField(max_length=256, null=True, blank=True)
 
     # DEPRECATED: We now use JWT for accessing assets
@@ -160,7 +161,7 @@ class ExportedAsset(models.Model):
             "insight_id": self.insight_id,
         }
 
-    def get_public_content_url(self, expiry_delta: timedelta | None = None):
+    def get_public_content_url(self, expiry_delta: Optional[timedelta] = None):
         token = get_public_access_token(self, expiry_delta)
         return absolute_uri(f"/exporter/{self.filename}?token={token}")
 
@@ -175,7 +176,7 @@ class ExportedAsset(models.Model):
         return [format_choice.value for format_choice in cls.SUPPORTED_FORMATS]
 
 
-def get_public_access_token(asset: ExportedAsset, expiry_delta: timedelta | None = None) -> str:
+def get_public_access_token(asset: ExportedAsset, expiry_delta: Optional[timedelta] = None) -> str:
     if not expiry_delta:
         expiry_delta = timedelta(days=PUBLIC_ACCESS_TOKEN_EXP_DAYS)
     return encode_jwt(
