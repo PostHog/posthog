@@ -227,8 +227,11 @@ for attempt in 1 2 3; do
         echo "Stack started successfully"
         break
     else
+        echo "Failed to start stack, showing container logs..."
+        sudo -E docker-compose -f docker-compose.yml logs --tail=100 kafka-init 2>/dev/null || true
+        sudo -E docker-compose -f docker-compose.yml ps -a
         if [ $attempt -lt 3 ]; then
-            echo "Failed to start stack, waiting 30s before retry..."
+            echo "Waiting 30s before retry..."
             sleep 30
         else
             echo "Failed to start stack after 3 attempts"

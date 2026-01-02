@@ -310,6 +310,49 @@ services:
             - db
             - redis
 
+    kafka-init:
+        image: docker.redpanda.com/redpandadata/redpanda:v25.1.9
+        entrypoint: /bin/sh
+        command:
+            - -c
+            - |
+                set -x
+                echo "Waiting for Kafka broker to accept connections..."
+                TIMEOUT=60
+                ELAPSED=0
+                # Use rpk topic list as the readiness check - it's a simple operation
+                # that confirms the broker is accepting Kafka protocol requests
+                until rpk topic list --brokers kafka:9092 2>/dev/null; do
+                    echo "Kafka broker not ready yet (elapsed: ${ELAPSED}s)..."
+                    sleep 2
+                    ELAPSED=$((ELAPSED + 2))
+                    if [ $ELAPSED -ge $TIMEOUT ]; then
+                        echo "Timeout waiting for Kafka broker after ${TIMEOUT}s"
+                        echo "Final attempt to list topics:"
+                        rpk topic list --brokers kafka:9092 || true
+                        exit 1
+                    fi
+                done
+                echo "Kafka broker is accepting requests, creating topics..."
+                # Create topic - ignore error if it already exists (exit code 0 or topic exists error)
+                if rpk topic create exceptions_ingestion --brokers kafka:9092 -p 1 -r 1 2>&1; then
+                    echo "Topic created successfully"
+                else
+                    # Check if topic already exists
+                    if rpk topic list --brokers kafka:9092 | grep -q exceptions_ingestion; then
+                        echo "Topic already exists, continuing"
+                    else
+                        echo "Failed to create topic"
+                        exit 1
+                    fi
+                fi
+                echo "Final topic list:"
+                rpk topic list --brokers kafka:9092
+                echo "Topics ready"
+        depends_on:
+            kafka:
+                condition: service_healthy
+
     cymbal:
         image: ghcr.io/posthog/posthog/cymbal:master
         build:
@@ -337,8 +380,8 @@ services:
             ISSUE_BUCKETS_REDIS_URL: 'redis://redis7:6379/'
             RUST_LOG: 'info'
         depends_on:
-            kafka:
-                condition: service_started
+            kafka-init:
+                condition: service_completed_successfully
             seaweedfs:
                 condition: service_started
             db:

@@ -482,42 +482,13 @@ runcmd:
                         cloud_init_finished = True
                         print("\n📋 Cloud-init completed successfully", flush=True)
 
-                # Show container health diagnostics periodically once cloud-init is done
-                # (fail-fast is handled by the per-iteration check below)
-                if cloud_init_finished:
-                    print("\n🐳 Container status:", flush=True)
-                    _, stopped, containers = self.check_container_health()
-                    if containers:
-                        running_count = len(containers) - len(stopped)
-                        print(f"  Running: {running_count}/{len(containers)} containers", flush=True)
-
-                # Show cloud-init progress if still running
-                if not cloud_init_finished:
-                    print("\n📋 Cloud-init progress:", flush=True)
-                    logs = self.fetch_cloud_init_logs()
-                    if logs:
-                        for line in logs.strip().split("\n")[-10:]:
-                            print(f"  {line}", flush=True)
-
-                last_log_fetch = int(elapsed)
-                print()
-
-            # Fail-fast: check container health on every iteration after cloud-init
-            # This catches restart loops even when HTTP health check fails (502)
-            if cloud_init_finished:
-                all_healthy, stopped, containers = self.check_container_health()
-                if not all_healthy and stopped:
-                    print(f"\n❌ Container health check failed - failing fast", flush=True)
-                    for c in stopped:
-                        print(f"    ❌ {c.get('Service')}: {c.get('State')}", flush=True)
-                        logs_cmd = f"cd hobby && sudo -E docker-compose -f docker-compose.yml logs --tail=50 {c.get('Service')}"
-                        container_logs = self.run_command_on_droplet(logs_cmd, timeout=30)
-                        if container_logs:
-                            print(f"\n   Logs for {c.get('Service')}:", flush=True)
-                            for log_line in container_logs.split("\n")[-30:]:
-                                print(f"     {log_line}", flush=True)
-                    print(f"\n📍 For debugging, SSH to: ssh root@{self.droplet.ip_address}", flush=True)
-                    return False
+                        # Check container health now that deployment finished
+                        print("\n🐳 Checking docker container status...", flush=True)
+                        failing_containers = self.check_container_health()
+                        if failing_containers:
+                            print(f"\n❌ {len(failing_containers)} container(s) failing!", flush=True)
+                            self.fetch_and_print_failing_container_logs(failing_containers)
+                            return False
 
             # Check for success: health check passed AND containers stable for required period
             if health_check_passed and cloud_init_finished:
@@ -578,6 +549,13 @@ runcmd:
             print(f"  (Full logs saved to {artifact_path})", flush=True)
         else:
             print("  ❌ Could not fetch cloud-init logs via SSH", flush=True)
+
+        # Check container health and fetch logs for failing containers
+        print(f"\n🐳 Checking container health...", flush=True)
+        failing_containers = self.check_container_health()
+        if failing_containers:
+            print(f"\n❌ {len(failing_containers)} container(s) failing!", flush=True)
+            self.fetch_and_print_failing_container_logs(failing_containers)
 
         # Provide diagnostic summary
         print(f"\n🔍 Failure Pattern Analysis:", flush=True)
@@ -811,6 +789,102 @@ runcmd:
     def fetch_cloud_init_logs(self):
         """Fetch cloud-init logs via SSH."""
         return self.run_command_on_droplet("cat /var/log/cloud-init-output.log", timeout=30)
+
+    def check_container_health(self):
+        """Check container health including restart counts.
+        Returns list of failing container names (stopped or restarting 3+ times).
+        """
+
+        if not self.droplet or not self.ssh_private_key:
+            return []
+
+        failing_containers = []
+        critical_services = ["web", "db", "clickhouse", "redis", "kafka", "cymbal", "kafka-init"]
+
+        # Get container status with restart count using docker inspect
+        cmd = "cd hobby && sudo -E docker-compose -f docker-compose.yml ps -q 2>/dev/null | xargs -r docker inspect --format '{{.Name}}|{{.State.Status}}|{{.RestartCount}}|{{.State.ExitCode}}' 2>/dev/null || true"
+        result = self.run_command_on_droplet(cmd, timeout=30)
+
+        if not result:
+            print("  ⚠️  Could not get container status", flush=True)
+            return []
+
+        print("  Container Status:", flush=True)
+        for line in result.strip().split("\n"):
+            if not line or "|" not in line:
+                continue
+
+            parts = line.split("|")
+            if len(parts) < 4:
+                continue
+
+            name = parts[0].lstrip("/").replace("hobby-", "").replace("hobby_", "").replace("-1", "").replace("_1", "")
+            status = parts[1]
+            restart_count = int(parts[2]) if parts[2].isdigit() else 0
+            exit_code = int(parts[3]) if parts[3].isdigit() else 0
+
+            # Determine health status
+            is_failing = False
+            reason = ""
+
+            if status == "exited":
+                # Containers that exit with 0 are fine (like kafka-init completing)
+                if exit_code != 0:
+                    is_failing = True
+                    reason = f"exited with code {exit_code}"
+                else:
+                    print(f"    ✅ {name}: completed (exit 0)", flush=True)
+                    continue
+            elif status != "running":
+                is_failing = True
+                reason = f"status: {status}"
+            elif restart_count >= 3:
+                is_failing = True
+                reason = f"restarting ({restart_count} restarts)"
+
+            if is_failing:
+                print(f"    ❌ {name}: {reason}", flush=True)
+                failing_containers.append(name)
+            else:
+                restart_info = f" (restarts: {restart_count})" if restart_count > 0 else ""
+                print(f"    ✅ {name}: {status}{restart_info}", flush=True)
+
+        # Filter to only critical failing containers
+        critical_failing = [c for c in failing_containers if any(svc in c for svc in critical_services)]
+
+        if critical_failing:
+            return critical_failing
+        return failing_containers
+
+    def fetch_and_print_failing_container_logs(self, failing_containers, tail=100):
+        """Fetch and print logs for failing containers, and save to files."""
+        if not failing_containers:
+            return
+
+        for container in failing_containers:
+            print(f"\n📋 Logs for {container}:", flush=True)
+            logs_cmd = (
+                f"cd hobby && sudo -E docker-compose -f docker-compose.yml logs --tail={tail} {container} 2>&1 || true"
+            )
+            container_logs = self.run_command_on_droplet(logs_cmd, timeout=30)
+
+            if container_logs:
+                # Print last 50 lines to console
+                log_lines = container_logs.strip().split("\n")[-50:]
+                for log_line in log_lines:
+                    print(f"    {log_line}", flush=True)
+
+                # Save full logs to file for artifact upload
+                safe_name = container.replace("/", "-").replace(" ", "_")
+                log_path = f"/tmp/container-{safe_name}.log"
+                try:
+                    with open(log_path, "w") as f:
+                        f.write(container_logs)
+                    print(f"    (Full logs saved to {log_path})", flush=True)
+                except Exception as e:
+                    print(f"    ⚠️  Could not save logs: {e}", flush=True)
+            else:
+                print(f"    (no logs available)", flush=True)
 
     def check_cloud_init_status(self):
         """Returns: (finished, success, status_dict)"""
