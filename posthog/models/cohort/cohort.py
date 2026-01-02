@@ -4,7 +4,6 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 
 from django.conf import settings
-from django.contrib.postgres.fields.jsonb import KeyTextTransform
 from django.db import models, transaction
 from django.db.models import Q, QuerySet
 from django.db.models.expressions import F
@@ -491,19 +490,18 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
         # Try a small set of common JSON property key variants for email.
         # This is a minimal pragmatic fix for mixed-case keys in existing datasets.
-        qs = Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team_id=team_id)
-
-        # Build a single query with OR conditions for all key variants
-        # Use standard lookups for simple keys, KeyTextTransform for keys with special characters
         q_filters = Q()
         q_filters |= Q(properties__email__in=emails)
         q_filters |= Q(properties__Email__in=emails)
         q_filters |= Q(properties__EMAIL__in=emails)
-        # KeyTextTransform is needed for keys with hyphens (Django interprets hyphens as field separators)
-        qs = qs.annotate(_prop_e_mail=KeyTextTransform("e-mail", "properties"))
-        q_filters |= Q(_prop_e_mail__in=emails)
 
-        uuids = qs.filter(q_filters).values_list("uuid", flat=True).distinct()
+        uuids = (
+            Person.objects.db_manager(READ_DB_FOR_PERSONS)
+            .filter(team_id=team_id)
+            .filter(q_filters)
+            .values_list("uuid", flat=True)
+            .distinct()
+        )
 
         return [str(uuid) for uuid in uuids]
 
