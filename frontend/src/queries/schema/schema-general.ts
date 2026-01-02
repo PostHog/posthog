@@ -5378,3 +5378,13 @@ export type WebsiteBrowsingHistoryProdInterest =
     | 'workflows'
     | 'logs'
     | 'endpoints'
+
+export interface ProjectSecretAPIKeyRequest {
+    label?: string
+    scopes?: ProjectSecretAPIKeyAllowedScope[]
+}
+
+export enum ProjectSecretAPIKeyAllowedScope {
+    FeatureFlagRead = 'feature_flag:read',
+    _Internal = 'INTERNAL',
+}
