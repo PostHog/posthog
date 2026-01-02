@@ -128,6 +128,7 @@ from . import (
     web_vitals,
 )
 from .column_configuration import ColumnConfigurationViewSet
+from .core_event import CoreEventViewSet
 from .dashboards import dashboard, dashboard_templates
 from .data_management import DataManagementViewSet
 from .external_web_analytics import http as external_web_analytics
@@ -1097,5 +1098,12 @@ environments_router.register(
     r"approval_policies",
     approval_api.ApprovalPolicyViewSet,
     "environment_approval_policies",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"core_events",
+    CoreEventViewSet,
+    "environment_core_events",
     ["team_id"],
 )

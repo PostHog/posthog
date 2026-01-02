@@ -1,62 +1,83 @@
 from django.core.exceptions import ValidationError
 from django.db import models
 
-from posthog.schema import CoreEvent
-
 from posthog.models.team import Team
+from posthog.models.utils import UUIDModel
 
 
-def validate_core_event(event: dict) -> None:
-    """Validate a single core event using the schema's CoreEvent model."""
-
-    try:
-        CoreEvent.model_validate(event)
-    except Exception as e:
-        raise ValidationError(f"Invalid core event: {e}")
-
-    # Prevent "all events" - EventsNode must have a specific event name
-    filter_data = event.get("filter", {})
-    if filter_data.get("kind") == "EventsNode":
-        event_name = filter_data.get("event")
-        if not event_name:
-            raise ValidationError("Core event cannot use 'All events'. Please select a specific event.")
+class CoreEventCategory(models.TextChoices):
+    ACQUISITION = "acquisition", "Acquisition"
+    ACTIVATION = "activation", "Activation"
+    MONETIZATION = "monetization", "Monetization"
+    EXPANSION = "expansion", "Expansion"
+    REFERRAL = "referral", "Referral"
+    RETENTION = "retention", "Retention"
+    CHURN = "churn", "Churn"
+    REACTIVATION = "reactivation", "Reactivation"
 
 
-# Intentionally not inheriting from UUIDModel because we're using a OneToOneField
-# and therefore using the exact same primary key as the Team model.
-class TeamCoreEventsConfig(models.Model):
+class CoreEvent(UUIDModel):
     """
-    Team-level configuration for unified core events.
-
-    Core events are reusable event definitions that can be shared across
+    A reusable event definition that can be shared across
     Marketing analytics, Customer analytics, and Revenue analytics.
     """
 
-    team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True)
+    team = models.ForeignKey(
+        Team,
+        on_delete=models.CASCADE,
+        related_name="core_events",
+    )
 
-    # Mangled field: we validate the schema via getter/setter
-    _core_events = models.JSONField(default=list, db_column="core_events", null=True, blank=True)
+    name = models.CharField(
+        max_length=255,
+        help_text="Display name for this core event",
+    )
+
+    description = models.TextField(
+        blank=True,
+        default="",
+        help_text="Optional description",
+    )
+
+    category = models.CharField(
+        max_length=20,
+        choices=CoreEventCategory.choices,
+        help_text="Category (acquisition, activation, retention, referral, revenue)",
+    )
+
+    # Filter configuration stored as JSON - EventsNode, ActionsNode, or DataWarehouseNode
+    filter = models.JSONField(
+        help_text="Filter configuration - event, action, or data warehouse node",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        verbose_name = "Team Core Events Config"
-        verbose_name_plural = "Team Core Events Configs"
+        verbose_name = "Core Event"
+        verbose_name_plural = "Core Events"
+        ordering = ["created_at"]
 
-    @property
-    def core_events(self) -> list[dict]:
-        """Get the list of core events."""
-        return self._core_events or []
+    def __str__(self) -> str:
+        return f"{self.name} ({self.team_id})"
 
-    @core_events.setter
-    def core_events(self, value: list[dict] | None) -> None:
-        """Set and validate the list of core events."""
-        if value is None:
-            self._core_events = []
-            return
+    def clean(self) -> None:
+        """Validate the filter field."""
+        super().clean()
 
-        if not isinstance(value, list):
-            raise ValidationError("Core events must be a list")
+        if not self.filter:
+            raise ValidationError("Filter configuration is required")
 
-        for event in value:
-            validate_core_event(event)
+        filter_kind = self.filter.get("kind")
+        if filter_kind not in ("EventsNode", "ActionsNode", "DataWarehouseNode"):
+            raise ValidationError(f"Invalid filter kind: {filter_kind}")
 
-        self._core_events = value
+        # Prevent "all events" - EventsNode must have a specific event name
+        if filter_kind == "EventsNode":
+            event_name = self.filter.get("event")
+            if not event_name:
+                raise ValidationError("Core event cannot use 'All events'. Please select a specific event.")
+
+    def save(self, *args, **kwargs) -> None:
+        self.clean()
+        super().save(*args, **kwargs)
