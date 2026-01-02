@@ -276,12 +276,12 @@ describe('PersonsManager', () => {
             expect(fetchSpy.mock.calls[0][0]).toEqual({
                 teamId: team.id,
                 properties: [],
-                options: { limit: 500, offset: 0 },
+                options: { limit: 500, cursor: undefined },
             })
             expect(fetchSpy.mock.calls[1][0]).toEqual({
                 teamId: team.id,
                 properties: [],
-                options: { limit: 500, offset: 500 },
+                options: { limit: 500, cursor: '499' },
             })
             expect(onPerson).toHaveBeenCalledTimes(800)
         })
@@ -374,12 +374,12 @@ describe('PersonsManager', () => {
             expect(fetchSpy.mock.calls[0][0]).toEqual({
                 teamId: team.id,
                 properties: [],
-                options: { limit: 100, offset: 0 },
+                options: { limit: 100, cursor: undefined },
             })
             expect(fetchSpy.mock.calls[1][0]).toEqual({
                 teamId: team.id,
                 properties: [],
-                options: { limit: 100, offset: 100 },
+                options: { limit: 100, cursor: '99' },
             })
             expect(onPerson).toHaveBeenCalledTimes(150)
         })
