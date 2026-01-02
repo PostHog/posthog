@@ -441,21 +441,6 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             },
         },
     },
-    create_and_query_insight: {
-        name: 'Edit the insight',
-        description: "Edit the insight you're viewing",
-        icon: iconForType('product_analytics'),
-        product: Scene.Insight,
-        displayFormatter: (toolCall, { registeredToolMap }) => {
-            const isEditing = registeredToolMap.create_and_query_insight || registeredToolMap.create_insight
-            if (isEditing) {
-                return toolCall.status === 'completed'
-                    ? 'Edited the insight you are viewing'
-                    : 'Editing the insight you are viewing...'
-            }
-            return toolCall.status === 'completed' ? 'Created an insight' : 'Creating an insight...'
-        },
-    },
     create_insight: {
         name: 'Create an insight or edit an existing one',
         description: "Create an insight or edit an existing one you're viewing",

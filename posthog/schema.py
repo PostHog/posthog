@@ -288,7 +288,6 @@ class AssistantTool(StrEnum):
     SEARCH_SESSION_RECORDINGS = "search_session_recordings"
     FIX_HOGQL_QUERY = "fix_hogql_query"
     ANALYZE_USER_INTERVIEWS = "analyze_user_interviews"
-    CREATE_AND_QUERY_INSIGHT = "create_and_query_insight"
     CREATE_HOG_TRANSFORMATION_FUNCTION = "create_hog_transformation_function"
     CREATE_HOG_FUNCTION_FILTERS = "create_hog_function_filters"
     CREATE_HOG_FUNCTION_INPUTS = "create_hog_function_inputs"

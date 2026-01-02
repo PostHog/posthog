@@ -64,7 +64,7 @@ class TestQueryExecutorNode(ClickhouseTestMixin, NonAtomicBaseTest):
                         tool_calls=[
                             AssistantToolCall(
                                 id="tool1",
-                                name="create_and_query_insight",
+                                name="create_insight",
                                 args={"query_kind": "trends", "query_description": "test query"},
                             )
                         ],
@@ -118,7 +118,7 @@ class TestQueryExecutorNode(ClickhouseTestMixin, NonAtomicBaseTest):
                         tool_calls=[
                             AssistantToolCall(
                                 id="tool1",
-                                name="create_and_query_insight",
+                                name="create_insight",
                                 args={"query_kind": "trends", "query_description": "test query"},
                             )
                         ],

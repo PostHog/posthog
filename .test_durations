@@ -1378,7 +1378,6 @@
     "ee/hogai/test/test_assistant.py::TestAssistant::test_conversation_is_locked_when_generating": 2.9391405610000447,
     "ee/hogai/test/test_assistant.py::TestAssistant::test_conversation_metadata_updated": 0.7816685110000208,
     "ee/hogai/test/test_assistant.py::TestAssistant::test_conversation_saves_state_after_cancellation": 0.8327592260000074,
-    "ee/hogai/test/test_assistant.py::TestAssistant::test_create_and_query_insight_contextual_tool": 1.645398276999913,
     "ee/hogai/test/test_assistant.py::TestAssistant::test_exits_infinite_loop_after_fourth_attempt": 2.244537795000042,
     "ee/hogai/test/test_assistant.py::TestAssistant::test_full_funnel_flow": 3.064530284000057,
     "ee/hogai/test/test_assistant.py::TestAssistant::test_full_retention_flow": 5.752526410999735,

@@ -849,7 +849,7 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
                     tool_calls=[
                         {
                             "id": str(uuid4()),
-                            "name": "create_and_query_insight",
+                            "name": "create_insight",
                             "args": {"query_description": "Foobar"},
                         }
                     ],
