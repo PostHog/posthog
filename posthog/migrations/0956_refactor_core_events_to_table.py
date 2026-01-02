@@ -12,9 +12,15 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        # Drop old TeamCoreEventsConfig table (no data migration needed - no existing users)
-        migrations.DeleteModel(
-            name="TeamCoreEventsConfig",
+        # Remove TeamCoreEventsConfig from Django state only (table remains for backwards compatibility)
+        # The table can be dropped in a future migration after this is fully deployed
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.DeleteModel(
+                    name="TeamCoreEventsConfig",
+                ),
+            ],
+            database_operations=[],
         ),
         # Create new CoreEvent table
         migrations.CreateModel(
@@ -57,7 +63,7 @@ class Migration(migrations.Migration):
                             ("churn", "Churn"),
                             ("reactivation", "Reactivation"),
                         ],
-                        help_text="Category (acquisition, activation, retention, referral, revenue)",
+                        help_text="Lifecycle category for this core event",
                         max_length=20,
                     ),
                 ),

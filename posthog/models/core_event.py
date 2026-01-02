@@ -42,7 +42,7 @@ class CoreEvent(UUIDModel):
     category = models.CharField(
         max_length=20,
         choices=CoreEventCategory.choices,
-        help_text="Category (acquisition, activation, retention, referral, revenue)",
+        help_text="Lifecycle category for this core event",
     )
 
     # Filter configuration stored as JSON - EventsNode, ActionsNode, or DataWarehouseNode
@@ -67,6 +67,9 @@ class CoreEvent(UUIDModel):
 
         if not self.filter:
             raise ValidationError("Filter configuration is required")
+
+        if not isinstance(self.filter, dict):
+            raise ValidationError("Filter must be a dictionary")
 
         filter_kind = self.filter.get("kind")
         if filter_kind not in ("EventsNode", "ActionsNode", "DataWarehouseNode"):
