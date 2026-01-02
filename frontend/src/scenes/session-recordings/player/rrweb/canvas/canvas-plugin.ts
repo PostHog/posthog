@@ -13,7 +13,7 @@ import {
 
 import { debounce } from 'lib/utils'
 
-import { PLACEHOLDER_SVG_DATA_IMAGE_URL } from '../index'
+import { PLACEHOLDER_SVG_PATTERN_DATA_URL, PLACEHOLDER_SVG_TEXT_DATA_URL } from '../index'
 import { deserializeCanvasArg } from './deserialize-canvas-args'
 
 type CanvasEventWithTime = eventWithTime & {
@@ -59,6 +59,32 @@ function quickFindClosestCanvasEventIndex(
 const PRELOAD_BUFFER_SIZE = 20
 const BUFFER_TIME = 30000 // 30 seconds
 const DEBOUNCE_MILLIS = 250 // currently using 4fps for all recordings
+
+export function shouldMaskCanvas(canvasElement: HTMLCanvasElement): boolean {
+    if (canvasElement.getAttribute('aria-hidden') === 'true') {
+        return false
+    }
+
+    if (canvasElement.width === 0 || canvasElement.height === 0) {
+        return false
+    }
+
+    const computedStyle = window.getComputedStyle(canvasElement)
+
+    if (computedStyle.visibility === 'hidden' || computedStyle.visibility === 'collapse') {
+        return false
+    }
+
+    if (computedStyle.display === 'none') {
+        return false
+    }
+
+    if (computedStyle.opacity === '0') {
+        return false
+    }
+
+    return true
+}
 
 export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
     const canvases = new Map<number, HTMLCanvasElement>([])
@@ -316,7 +342,17 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
                     el.setAttribute(attr.name, attr.value)
                 }
 
-                canvasElement.style.backgroundImage = PLACEHOLDER_SVG_DATA_IMAGE_URL
+                // Apply mask to all canvases by default, then remove for hidden ones.
+                // This ensures canvases that start hidden but become visible later still have the mask.
+                canvasElement.style.backgroundImage = `${PLACEHOLDER_SVG_TEXT_DATA_URL}, ${PLACEHOLDER_SVG_PATTERN_DATA_URL}`
+                canvasElement.style.backgroundRepeat = 'no-repeat, repeat'
+                canvasElement.style.backgroundPosition = 'center, 0 0'
+
+                if (!shouldMaskCanvas(canvasElement)) {
+                    canvasElement.style.backgroundImage = ''
+                    canvasElement.style.backgroundRepeat = ''
+                    canvasElement.style.backgroundPosition = ''
+                }
 
                 // Store the image but don't replace the canvas yet
                 containers.set(id, el)

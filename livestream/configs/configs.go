@@ -21,6 +21,10 @@ type JWTConfig struct {
 	Secret string
 }
 
+type SessionRecordingConfig struct {
+	MaxLRUEntries int `mapstructure:"max_lru_entries"`
+}
+
 type Config struct {
 	Debug            bool `mapstructure:"debug"`
 	MMDB             MMDBConfig
@@ -29,6 +33,7 @@ type Config struct {
 	CORSAllowOrigins []string `mapstructure:"cors_allow_origins"`
 	Postgres         PostgresConfig
 	JWT              JWTConfig
+	SessionRecording SessionRecordingConfig `mapstructure:"session_recording"`
 }
 
 type KafkaConfig struct {
@@ -47,6 +52,7 @@ func InitConfigs(filename, configPath string) {
 
 	viper.SetDefault("kafka.group_id", "livestream")
 	viper.SetDefault("kafka.session_recording_enabled", true)
+	viper.SetDefault("session_recording.max_lru_entries", 2_000_000_000)
 
 	err := viper.ReadInConfig()
 	if err != nil {
@@ -62,8 +68,9 @@ func InitConfigs(filename, configPath string) {
 	viper.SetEnvPrefix("livestream") // will be uppercased automatically
 	replacer := strings.NewReplacer(".", "_")
 	viper.SetEnvKeyReplacer(replacer)
-	viper.BindEnv("jwt.secret")   // read from LIVESTREAM_JWT_SECRET
-	viper.BindEnv("postgres.url") // read from LIVESTREAM_POSTGRES_URL
+	viper.BindEnv("jwt.secret")                        // read from LIVESTREAM_JWT_SECRET
+	viper.BindEnv("postgres.url")                      // read from LIVESTREAM_POSTGRES_URL
+	viper.BindEnv("session_recording.max_lru_entries") // read from LIVESTREAM_SESSION_RECORDING_MAX_LRU_ENTRIES
 }
 
 func LoadConfig() (*Config, error) {

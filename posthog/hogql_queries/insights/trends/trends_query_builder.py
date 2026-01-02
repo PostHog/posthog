@@ -185,7 +185,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                         {{breakdown_other}} as breakdown_value
                     FROM ranked_breakdown_values
                     WHERE breakdown_rank > {{breakdown_limit}}
-                    GROUP BY breakdown_value, day_start
+                    GROUP BY day_start
                 ) AS other_breakdown_values,
                 (
                     -- Combine and order top N and "other" breakdown values
@@ -326,26 +326,26 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             #   [0, 0, 1],
             #   [0, 1, 0]
             # ]
-            # and turns it into
-            # [0, 1, 1]
+            # and combines them using the appropriate operation (sum for counts, max for max, etc.)
+            array_merge_operation = self._aggregation_operation.get_array_fold_merge_operation()
             return parse_select(
-                """
+                f"""
                 SELECT
                     groupArray(1)(date)[1] as date,
                     arrayFold(
                         (acc, x) -> arrayMap(
-                            i -> acc[i] + x[i],
+                            i -> {array_merge_operation},
                             range(1, length(date) + 1)
                         ),
                         groupArray(ifNull(total, 0)),
                         arrayWithConstant(length(date), reinterpretAsFloat64(0))
                     ) as total,
-                    {breakdown_select}
-                FROM {outer_query}
-                WHERE {breakdown_filter}
+                    {{breakdown_select}}
+                FROM {{outer_query}}
+                WHERE {{breakdown_filter}}
                 GROUP BY breakdown_value
                 ORDER BY
-                    {breakdown_order_by},
+                    {{breakdown_order_by}},
                     arraySum(total) DESC,
                     breakdown_value ASC
             """,

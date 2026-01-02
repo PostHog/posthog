@@ -353,7 +353,7 @@
             "type": "object"
         },
         "AgentMode": {
-            "enum": ["product_analytics", "sql", "session_replay"],
+            "enum": ["product_analytics", "sql", "session_replay", "error_tracking"],
             "type": "string"
         },
         "AggregationAxisFormat": {
@@ -1661,6 +1661,7 @@
                 "webAnalytics",
                 "webAnalyticsWebVitals",
                 "webAnalyticsHealth",
+                "webAnalyticsLive",
                 "persons"
             ],
             "type": "string"
@@ -1894,6 +1895,7 @@
                 "create_hog_function_inputs",
                 "create_message_template",
                 "filter_error_tracking_issues",
+                "search_error_tracking_issues",
                 "find_error_tracking_impactful_issue_event_list",
                 "error_tracking_explain_issue",
                 "experiment_results_summary",
@@ -7796,7 +7798,7 @@
         },
         "CohortPropertyFilter": {
             "additionalProperties": false,
-            "description": "Sync with plugin-server/src/types.ts",
+            "description": "Sync with nodejs/src/types.ts",
             "properties": {
                 "cohort_name": {
                     "type": "string"
@@ -11252,7 +11254,7 @@
         },
         "ElementPropertyFilter": {
             "additionalProperties": false,
-            "description": "Sync with plugin-server/src/types.ts",
+            "description": "Sync with nodejs/src/types.ts",
             "properties": {
                 "key": {
                     "enum": ["tag_name", "text", "href", "selector"],
@@ -11728,8 +11730,7 @@
                     "type": "object"
                 },
                 "status": {
-                    "enum": ["archived", "active", "resolved", "pending_release", "suppressed"],
-                    "type": "string"
+                    "$ref": "#/definitions/ErrorTrackingIssueStatus"
                 }
             },
             "required": [
@@ -11885,8 +11886,7 @@
                     "type": "string"
                 },
                 "status": {
-                    "enum": ["archived", "active", "resolved", "pending_release", "suppressed"],
-                    "type": "string"
+                    "$ref": "#/definitions/ErrorTrackingIssueStatus"
                 }
             },
             "required": ["assignee", "description", "first_seen", "id", "last_seen", "library", "name", "status"],
@@ -12109,8 +12109,7 @@
                     "type": "string"
                 },
                 "status": {
-                    "enum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
-                    "type": "string"
+                    "$ref": "#/definitions/ErrorTrackingQueryStatus"
                 }
             },
             "required": ["orderBy"],
@@ -12128,6 +12127,11 @@
             },
             "required": ["events"],
             "type": "object"
+        },
+        "ErrorTrackingIssueStatus": {
+            "enum": ["archived", "active", "resolved", "pending_release", "suppressed"],
+            "title": "ErrorTrackingIssueStatus",
+            "type": "string"
         },
         "ErrorTrackingQuery": {
             "additionalProperties": false,
@@ -12193,15 +12197,14 @@
                     "type": "string"
                 },
                 "revenuePeriod": {
-                    "enum": ["all_time", "last_30_days"],
+                    "enum": ["all_time", "mrr"],
                     "type": "string"
                 },
                 "searchQuery": {
                     "type": "string"
                 },
                 "status": {
-                    "enum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
-                    "type": "string"
+                    "$ref": "#/definitions/ErrorTrackingQueryStatus"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -12281,6 +12284,18 @@
             "required": ["results"],
             "type": "object"
         },
+        "ErrorTrackingQueryStatus": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/ErrorTrackingIssueStatus"
+                },
+                {
+                    "const": "all",
+                    "type": "string"
+                }
+            ],
+            "title": "ErrorTrackingQueryStatus"
+        },
         "ErrorTrackingRelationalIssue": {
             "additionalProperties": false,
             "properties": {
@@ -12317,8 +12332,7 @@
                     "type": ["string", "null"]
                 },
                 "status": {
-                    "enum": ["archived", "active", "resolved", "pending_release", "suppressed"],
-                    "type": "string"
+                    "$ref": "#/definitions/ErrorTrackingIssueStatus"
                 }
             },
             "required": ["id", "name", "description", "assignee", "status", "first_seen"],
@@ -12484,7 +12498,7 @@
         },
         "EventPropertyFilter": {
             "additionalProperties": false,
-            "description": "Sync with plugin-server/src/types.ts",
+            "description": "Sync with nodejs/src/types.ts",
             "properties": {
                 "key": {
                     "type": "string"
@@ -21072,7 +21086,7 @@
         },
         "PersonPropertyFilter": {
             "additionalProperties": false,
-            "description": "Sync with plugin-server/src/types.ts",
+            "description": "Sync with nodejs/src/types.ts",
             "properties": {
                 "key": {
                     "type": "string"
@@ -21353,6 +21367,7 @@
                 "customer_analytics_usage_metric_created",
                 "nav_panel_advertisement_clicked",
                 "feature_preview_enabled",
+                "workflow_created",
                 "vercel_integration"
             ],
             "type": "string"
@@ -21543,7 +21558,7 @@
             "type": "string"
         },
         "PropertyOperator": {
-            "description": "Sync with plugin-server/src/types.ts",
+            "description": "Sync with nodejs/src/types.ts",
             "enum": [
                 "exact",
                 "is_not",

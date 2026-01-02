@@ -27,7 +27,11 @@ export const OnboardingAIConsent = ({ stepKey }: { stepKey: OnboardingStepKey })
     const { updateOrganization } = useActions(organizationLogic)
 
     const isNotAdmin = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
-    const [aiEnabled, setAiEnabled] = useState(currentOrganization?.is_ai_data_processing_approved ?? false)
+
+    // New accounts have `default=True` on the database, but older accounts may have null/false
+    const isEnabledForOrganization = !!currentOrganization?.is_ai_data_processing_approved
+    const [aiEnabled, setAiEnabled] = useState(isEnabledForOrganization)
+
     const [showFlappyHog, setShowFlappyHog] = useState(false)
     const { trigger: triggerHogfetti, HogfettiComponent } = useHogfetti({ count: 50, duration: 2000 })
 
@@ -38,7 +42,11 @@ export const OnboardingAIConsent = ({ stepKey }: { stepKey: OnboardingStepKey })
     }
 
     return (
-        <OnboardingStep stepKey={stepKey} title="Activate PostHog AI" onContinue={handleContinue}>
+        <OnboardingStep
+            stepKey={stepKey}
+            title={isEnabledForOrganization ? 'PostHog AI is ready' : 'Activate PostHog AI'}
+            onContinue={handleContinue}
+        >
             <HogfettiComponent />
             <FlappyHog isOpen={showFlappyHog} onClose={() => setShowFlappyHog(false)} />
 
@@ -84,10 +92,13 @@ export const OnboardingAIConsent = ({ stepKey }: { stepKey: OnboardingStepKey })
                 <div className="border-2 border-accent-primary rounded-lg p-4 bg-accent-primary-highlight">
                     <div className="flex items-center justify-between gap-4">
                         <div>
-                            <h4 className="font-semibold mb-1">Enable PostHog AI</h4>
+                            <h4 className="font-semibold mb-1">
+                                {isEnabledForOrganization ? 'PostHog AI is enabled' : 'Enable PostHog AI'}
+                            </h4>
                             <p className="text-muted text-sm mb-0">
-                                PostHog AI uses third-party LLM providers (OpenAI and Anthropic) for data analysis. Your
-                                data will not be used for training models.{' '}
+                                It's free to get started, and you can always set spend limits anytime. PostHog AI uses
+                                third-party LLM providers (OpenAI and Anthropic). Your data will not be used for
+                                training models.{' '}
                                 <Link to="https://posthog.com/docs/posthog-ai/faq" target="_blank" disableDocsPanel>
                                     Learn more
                                 </Link>
@@ -107,7 +118,7 @@ export const OnboardingAIConsent = ({ stepKey }: { stepKey: OnboardingStepKey })
                     </div>
                     {isNotAdmin && (
                         <p className="text-warning text-sm mt-2 mb-0">
-                            Only organization admins can enable AI features. Ask an admin to enable this setting.
+                            Only organization admins can manage AI features. Ask an admin to change this setting.
                         </p>
                     )}
                 </div>

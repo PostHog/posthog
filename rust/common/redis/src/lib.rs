@@ -249,7 +249,7 @@ pub trait Client {
     async fn del(&self, k: String) -> Result<(), CustomRedisError>;
     async fn hget(&self, k: String, field: String) -> Result<String, CustomRedisError>;
     async fn scard(&self, k: String) -> Result<u64, CustomRedisError>;
-    async fn mget(&self, keys: Vec<String>) -> Result<Vec<Option<i64>>, CustomRedisError>;
+    async fn mget(&self, keys: Vec<String>) -> Result<Vec<Option<Vec<u8>>>, CustomRedisError>;
 }
 
 // Module declarations

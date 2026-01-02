@@ -48,3 +48,16 @@
         }
     }
 }
+
+.DataVisualizationTable {
+    th {
+        overflow: visible;
+        text-overflow: clip;
+        white-space: normal;
+
+        .LemonTable__header-content div {
+            word-break: break-word;
+            white-space: normal;
+        }
+    }
+}
