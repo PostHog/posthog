@@ -5153,5 +5153,6 @@ export interface ProjectSecretAPIKeyRequest {
 
 export enum ProjectSecretAPIKeyAllowedScope {
     FeatureFlagRead = 'feature_flag:read',
+    EndpointRead = 'endpoint:read',
     _Internal = 'INTERNAL',
 }

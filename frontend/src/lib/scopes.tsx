@@ -179,6 +179,12 @@ export const PROJECT_SECRET_API_KEY_SCOPE_PRESETS: {
         scopes: ['feature_flag:read'],
         description: 'Evaluate feature flags locally',
     },
+    {
+        value: 'endpoint_execution',
+        label: 'Endpoint execution',
+        scopes: ['endpoint:read'],
+        description: 'Execute endpoints',
+    },
 ]
 
 export const DEFAULT_OAUTH_SCOPES = ['openid', 'email', 'profile']

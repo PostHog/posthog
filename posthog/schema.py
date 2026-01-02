@@ -2709,6 +2709,7 @@ class ProductKey(StrEnum):
 
 class ProjectSecretAPIKeyAllowedScope(StrEnum):
     FEATURE_FLAG_READ = "feature_flag:read"
+    ENDPOINT_READ = "endpoint:read"
     INTERNAL = "INTERNAL"
 
 
