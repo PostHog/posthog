@@ -119,9 +119,6 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                 size="small"
                                 onClick={showSaveAsTemplateModal}
                                 loading={isTemplateEditMode && isWorkflowSubmitting}
-                                disabledReason={
-                                    isTemplateEditMode && !workflowChanged ? 'No changes to save' : undefined
-                                }
                             >
                                 {isTemplateEditMode ? 'Update template' : 'Save as template'}
                             </LemonButton>
