@@ -7,13 +7,16 @@ import express from 'ultimate-express'
 
 import { setupExpressApp } from '~/api/router'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { HogFlow } from '~/schema/hogflow'
 
 import { forSnapshot } from '../../tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
 import { Hub, Team } from '../types'
 import { closeHub, createHub } from '../utils/db/hub'
+import { UUIDT } from '../utils/utils'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './_tests/examples'
 import { insertHogFunction as _insertHogFunction, createHogFunction } from './_tests/fixtures'
+import { insertHogFlow as _insertHogFlow } from './_tests/fixtures-hogflows'
 import { deleteKeysWithPrefix } from './_tests/redis'
 import { CdpApi } from './cdp-api'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
@@ -56,6 +59,13 @@ describe('CDP API', () => {
         const item = await _insertHogFunction(hub.postgres, team.id, hogFunction)
         // Trigger the reload that django would do
         api['hogFunctionManager']['onHogFunctionsReloaded'](team.id, [item.id])
+        return item
+    }
+
+    const insertHogFlow = async (hogFlow: Partial<HogFlow>) => {
+        const item = await _insertHogFlow(hub.postgres, { team_id: team.id, ...hogFlow } as HogFlow)
+        // Trigger the reload that django would do
+        api['hogFlowManager']['onHogFlowsReloaded'](team.id, [item.id])
         return item
     }
 
@@ -581,327 +591,135 @@ describe('CDP API', () => {
     })
 
     describe('batch hogflow invocations', () => {
-        let hogFlow: HogFunctionType
+        let batchHogFlow: HogFlow
 
         beforeEach(async () => {
-            hogFlow = await insertHogFunction({
-                name: 'test hog flow',
-                ...HOG_EXAMPLES.simple_fetch,
-                ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                ...HOG_FILTERS_EXAMPLES.no_filters,
+            batchHogFlow = await insertHogFlow({
+                id: new UUIDT().toString(),
+                name: 'test batch hog flow',
+                status: 'active',
+                version: 1,
+                exit_condition: 'exit_on_conversion',
+                edges: [],
+                actions: [],
+                trigger: {
+                    type: 'batch',
+                    filters: {
+                        properties: [
+                            {
+                                key: 'email',
+                                value: 'test@posthog.com',
+                                operator: 'exact',
+                                type: 'person',
+                            },
+                        ],
+                    },
+                },
             })
         })
 
         it('errors if missing hog flow', async () => {
+            const nonExistentUuid = new UUIDT().toString()
             const res = await supertest(app)
-                .post(`/api/projects/${hogFlow.team_id}/hog_flows/missing/batch_invocations`)
-                .send({ batch_events: [globals] })
+                .post(`/api/projects/${batchHogFlow.team_id}/hog_flows/${nonExistentUuid}/batch_invocations/job-123`)
+                .send({})
 
             expect(res.status).toEqual(404)
-            expect(res.body.error).toEqual('Hog flow not found')
+            expect(res.body.error).toEqual('Workflow not found')
         })
 
-        it('errors if batch_events is missing', async () => {
+        it('errors if hog flow is not a batch trigger type', async () => {
+            const nonBatchHogFlow = await insertHogFlow({
+                id: new UUIDT().toString(),
+                name: 'test non-batch hog flow',
+                status: 'active',
+                version: 1,
+                exit_condition: 'exit_on_conversion',
+                edges: [],
+                actions: [],
+                trigger: {
+                    type: 'event',
+                    filters: {},
+                },
+            })
+
             const res = await supertest(app)
-                .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/batch_invocations`)
+                .post(
+                    `/api/projects/${nonBatchHogFlow.team_id}/hog_flows/${nonBatchHogFlow.id}/batch_invocations/job-123`
+                )
                 .send({})
 
             expect(res.status).toEqual(400)
-            expect(res.body.error).toEqual('Missing or empty batch_events array')
+            expect(res.body.error).toEqual('Only batch Workflows are supported for batch jobs')
         })
 
-        it('errors if batch_events is empty array', async () => {
-            const res = await supertest(app)
-                .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/batch_invocations`)
-                .send({ batch_events: [] })
-
-            expect(res.status).toEqual(400)
-            expect(res.body.error).toEqual('Missing or empty batch_events array')
-        })
-
-        it('errors if batch_events is not an array', async () => {
-            const res = await supertest(app)
-                .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/batch_invocations`)
-                .send({ batch_events: 'not-an-array' })
-
-            expect(res.status).toEqual(400)
-            expect(res.body.error).toEqual('Missing or empty batch_events array')
-        })
-
-        it('can invoke multiple events with mocked async functions', async () => {
-            const event1 = {
-                uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d1',
-                event: '$pageview',
-                elements_chain: '',
-                distinct_id: 'user1',
-                timestamp: '2021-09-28T14:00:00Z',
-                properties: {
-                    $lib_version: '1.0.0',
-                },
-            }
-
-            const event2 = {
-                uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d2',
-                event: '$pageview',
-                elements_chain: '',
-                distinct_id: 'user2',
-                timestamp: '2021-09-28T14:05:00Z',
-                properties: {
-                    $lib_version: '1.0.0',
-                },
-            }
+        it('queues batch job request to kafka', async () => {
+            const mockProduce = jest.fn().mockResolvedValue(undefined)
+            hub.kafkaProducer = { produce: mockProduce } as any
 
             const res = await supertest(app)
-                .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/batch_invocations`)
+                .post(`/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-123`)
                 .send({
-                    batch_events: [event1, event2],
-                    mock_async_functions: true,
-                })
-
-            expect(res.status).toEqual(200)
-            expect(res.body.status).toEqual('success')
-            expect(res.body.total).toEqual(2)
-            expect(res.body.successful).toEqual(2)
-            expect(res.body.failed).toEqual(0)
-            expect(res.body.results).toHaveLength(2)
-
-            expect(res.body.results[0]).toMatchObject({
-                event_id: event1.uuid,
-                status: 'success',
-                errors: [],
-            })
-
-            expect(res.body.results[1]).toMatchObject({
-                event_id: event2.uuid,
-                status: 'success',
-                errors: [],
-            })
-        })
-
-        it('can invoke multiple events with real fetch', async () => {
-            mockFetch.mockImplementation(() =>
-                Promise.resolve({
-                    status: 201,
-                    headers: { 'Content-Type': 'application/json' },
-                    json: () => Promise.resolve({ real: true }),
-                    text: () => Promise.resolve(JSON.stringify({ real: true })),
-                    dump: () => Promise.resolve(),
-                })
-            )
-
-            const event1 = {
-                uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d1',
-                event: '$pageview',
-                elements_chain: '',
-                distinct_id: 'user1',
-                timestamp: '2021-09-28T14:00:00Z',
-                properties: {
-                    $lib_version: '1.0.0',
-                },
-            }
-
-            const event2 = {
-                uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d2',
-                event: '$pageview',
-                elements_chain: '',
-                distinct_id: 'user2',
-                timestamp: '2021-09-28T14:05:00Z',
-                properties: {
-                    $lib_version: '1.0.0',
-                },
-            }
-
-            const res = await supertest(app)
-                .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/batch_invocations`)
-                .send({
-                    batch_events: [event1, event2],
-                    mock_async_functions: false,
-                })
-
-            expect(res.status).toEqual(200)
-            expect(res.body.status).toEqual('success')
-            expect(res.body.total).toEqual(2)
-            expect(res.body.successful).toEqual(2)
-            expect(res.body.failed).toEqual(0)
-            expect(mockFetch).toHaveBeenCalledTimes(2)
-        })
-
-        it('handles partial failures correctly', async () => {
-            const validEvent = {
-                uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d1',
-                event: '$pageview',
-                elements_chain: '',
-                distinct_id: 'user1',
-                timestamp: '2021-09-28T14:00:00Z',
-                properties: {
-                    $lib_version: '1.0.0',
-                },
-            }
-
-            const invalidEvent = {
-                uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d2',
-            }
-
-            const res = await supertest(app)
-                .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/batch_invocations`)
-                .send({
-                    batch_events: [validEvent, invalidEvent],
-                    mock_async_functions: true,
-                })
-
-            expect(res.status).toEqual(200)
-            expect(res.body.status).toEqual('partial')
-            expect(res.body.total).toEqual(2)
-            expect(res.body.successful).toEqual(1)
-            expect(res.body.failed).toEqual(1)
-
-            expect(res.body.results[0].status).toEqual('success')
-            expect(res.body.results[1].status).toEqual('error')
-            expect(res.body.results[1].errors).toEqual(['Missing event data'])
-        })
-
-        it('handles complete failure when all events fail', async () => {
-            const invalidEvent1 = {
-                uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d1',
-            }
-
-            const invalidEvent2 = {
-                uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d2',
-            }
-
-            const res = await supertest(app)
-                .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/batch_invocations`)
-                .send({
-                    batch_events: [invalidEvent1, invalidEvent2],
-                    mock_async_functions: true,
-                })
-
-            expect(res.status).toEqual(200)
-            expect(res.body.status).toEqual('error')
-            expect(res.body.total).toEqual(2)
-            expect(res.body.successful).toEqual(0)
-            expect(res.body.failed).toEqual(2)
-        })
-
-        it('can invoke a new hog flow with batch events', async () => {
-            const event1 = {
-                uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d1',
-                event: '$pageview',
-                elements_chain: '',
-                distinct_id: 'user1',
-                timestamp: '2021-09-28T14:00:00Z',
-                properties: {
-                    $lib_version: '1.0.0',
-                },
-            }
-
-            const res = await supertest(app)
-                .post(`/api/projects/${hogFlow.team_id}/hog_flows/new/batch_invocations`)
-                .send({
-                    batch_events: [event1],
-                    configuration: {
-                        ...HOG_EXAMPLES.simple_fetch,
-                        ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                        ...HOG_FILTERS_EXAMPLES.no_filters,
+                    filters: {
+                        filter_test_accounts: true,
                     },
-                    mock_async_functions: true,
                 })
 
             expect(res.status).toEqual(200)
-            expect(res.body.status).toEqual('success')
-            expect(res.body.total).toEqual(1)
-            expect(res.body.successful).toEqual(1)
-        })
-
-        it('supports current_action_id parameter', async () => {
-            const event1 = {
-                uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d1',
-                event: '$pageview',
-                elements_chain: '',
-                distinct_id: 'user1',
-                timestamp: '2021-09-28T14:00:00Z',
-                properties: {
-                    $lib_version: '1.0.0',
-                },
-            }
-
-            const res = await supertest(app)
-                .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/batch_invocations`)
-                .send({
-                    batch_events: [event1],
-                    current_action_id: 'action-123',
-                    mock_async_functions: true,
-                })
-
-            expect(res.status).toEqual(200)
-            expect(res.body.status).toEqual('success')
-            expect(res.body.results[0]).toMatchObject({
-                event_id: event1.uuid,
-                status: 'success',
+            expect(res.body).toEqual({ status: 'queued' })
+            expect(mockProduce).toHaveBeenCalledWith({
+                topic: 'cdp_batch_hogflow_requests_test',
+                value: Buffer.from(
+                    JSON.stringify({
+                        teamId: batchHogFlow.team_id,
+                        hogFlowId: batchHogFlow.id,
+                        batchJobId: 'job-123',
+                        filters: {
+                            properties: (batchHogFlow as any).trigger.filters.properties,
+                            filter_test_accounts: true,
+                        },
+                    })
+                ),
+                key: `${batchHogFlow.team_id}_${batchHogFlow.id}`,
             })
         })
 
-        it('processes events with different properties correctly', async () => {
-            const event1 = {
-                uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d1',
-                event: '$pageview',
-                elements_chain: '',
-                distinct_id: 'user1',
-                timestamp: '2021-09-28T14:00:00Z',
-                properties: {
-                    $lib_version: '1.0.0',
-                    url: 'https://example.com/page1',
-                },
-            }
-
-            const event2 = {
-                uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d2',
-                event: '$autocapture',
-                elements_chain: 'button',
-                distinct_id: 'user2',
-                timestamp: '2021-09-28T14:05:00Z',
-                properties: {
-                    $lib_version: '2.0.0',
-                    url: 'https://example.com/page2',
-                },
-            }
+        it('queues batch job with filters from hog flow config when not provided', async () => {
+            const mockProduce = jest.fn().mockResolvedValue(undefined)
+            hub.kafkaProducer = { produce: mockProduce } as any
 
             const res = await supertest(app)
-                .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/batch_invocations`)
-                .send({
-                    batch_events: [event1, event2],
-                    mock_async_functions: true,
-                })
+                .post(`/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-456`)
+                .send({})
 
             expect(res.status).toEqual(200)
-            expect(res.body.status).toEqual('success')
-            expect(res.body.total).toEqual(2)
-            expect(res.body.successful).toEqual(2)
+            expect(res.body).toEqual({ status: 'queued' })
+            expect(mockProduce).toHaveBeenCalledWith({
+                topic: 'cdp_batch_hogflow_requests_test',
+                value: Buffer.from(
+                    JSON.stringify({
+                        teamId: batchHogFlow.team_id,
+                        hogFlowId: batchHogFlow.id,
+                        batchJobId: 'job-456',
+                        filters: {
+                            properties: (batchHogFlow as any).trigger.filters.properties,
+                            filter_test_accounts: false,
+                        },
+                    })
+                ),
+                key: `${batchHogFlow.team_id}_${batchHogFlow.id}`,
+            })
         })
 
-        it('includes logs from each invocation in results', async () => {
-            const event1 = {
-                uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d1',
-                event: '$pageview',
-                elements_chain: '',
-                distinct_id: 'user1',
-                timestamp: '2021-09-28T14:00:00Z',
-                properties: {
-                    $lib_version: '1.0.0',
-                },
-            }
+        it('errors if kafka producer not available', async () => {
+            hub.kafkaProducer = undefined as any
 
             const res = await supertest(app)
-                .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/batch_invocations`)
-                .send({
-                    batch_events: [event1],
-                    mock_async_functions: true,
-                })
+                .post(`/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-123`)
+                .send({})
 
-            expect(res.status).toEqual(200)
-            expect(res.body.results[0]).toHaveProperty('logs')
-            expect(Array.isArray(res.body.results[0].logs)).toBe(true)
-            expect(res.body.results[0].logs.length).toBeGreaterThan(0)
+            expect(res.status).toEqual(500)
+            expect(res.body.error).toEqual('Kafka producer not available')
         })
     })
 })

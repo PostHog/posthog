@@ -12,7 +12,7 @@ import { logger } from '../../utils/logger'
 import { UUIDT } from '../../utils/utils'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import { HogRateLimiterService } from '../services/monitoring/hog-rate-limiter.service'
-import { CyclotronJobInvocation, HogFunctionFilters, HogFunctionTypeType } from '../types'
+import { CyclotronJobInvocation, HogFunctionFilters } from '../types'
 import { convertBatchHogFlowRequestToHogFunctionInvocationGlobals } from '../utils'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { CdpConsumerBase } from './cdp-base.consumer'
@@ -33,7 +33,6 @@ export interface BatchHogFlowRequestMessage {
 
 export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
     protected name = 'CdpBatchHogFlowRequestsConsumer'
-    protected hogTypes: HogFunctionTypeType[] = ['destination']
     private cyclotronJobQueue: CyclotronJobQueue
     protected kafkaConsumer: KafkaConsumer
 
@@ -227,6 +226,9 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
                     ])
 
                     if (!teamHogFlow || !team) {
+                        logger.error('Batch HogFlow request references missing team or hogflow', {
+                            batchHogFlowRequest,
+                        })
                         return
                     }
 
