@@ -449,14 +449,15 @@ describe('workflowTemplateLogic', () => {
             const templateLogic = workflowTemplateLogic({ id: 'new', editTemplateId: 'template-id' })
             templateLogic.mount()
 
+            const workflowTemplate = { ...workflow, id: 'template-id' }
             await expectLogic(workflowLogicInstance, () => {
-                templateLogic.actions.updateTemplateFromWorkflow('template-id', workflow)
+                templateLogic.actions.updateTemplate(workflowTemplate)
             }).toDispatchActions(['loadWorkflow', 'loadWorkflowSuccess'])
 
             // Verify API call with correct data
             expect(mockApi.updateHogFlowTemplate).toHaveBeenCalledWith(
-                'template-id',
                 expect.objectContaining({
+                    id: 'template-id',
                     name: 'Updated Workflow',
                     description: 'Updated Description',
                     actions: expect.any(Array),

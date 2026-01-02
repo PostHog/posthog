@@ -5,7 +5,7 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { userLogic } from 'scenes/userLogic'
 
-import type { HogFlow, HogFlowTemplate } from './hogflows/types'
+import type { HogFlowTemplate } from './hogflows/types'
 import { workflowLogic } from './workflowLogic'
 import type { workflowTemplateLogicType } from './workflowTemplateLogicType'
 import { workflowTemplatesLogic } from './workflowTemplatesLogic'
@@ -27,7 +27,7 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
     actions({
         showSaveAsTemplateModal: true,
         hideSaveAsTemplateModal: true,
-        updateTemplateFromWorkflow: (templateId: string, workflow: HogFlow) => ({ templateId, workflow }),
+        updateTemplate: (workflowTemplate: HogFlowTemplate) => ({ workflowTemplate }),
     }),
     forms(({ actions, values, props }) => ({
         templateForm: {
@@ -55,13 +55,14 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                     try {
                         const updatedWorkflow = {
                             ...workflow,
+                            id: props.editTemplateId,
                             name: formValues.name || workflow.name || '',
                             description: formValues.description || workflow.description || '',
                             image_url: formValues.image_url || undefined,
                             scope: formValues.scope || undefined,
                         }
 
-                        await actions.updateTemplateFromWorkflow(props.editTemplateId, updatedWorkflow)
+                        await actions.updateTemplate(updatedWorkflow)
 
                         actions.hideSaveAsTemplateModal()
                     } catch (e: any) {
@@ -146,29 +147,15 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                 }
             }
         },
-        updateTemplateFromWorkflow: async ({ templateId, workflow }) => {
-            // Extract only template-relevant fields, excluding workflow-specific ones
-            const templateData: Partial<HogFlowTemplate> = {
-                name: workflow.name,
-                description: workflow.description,
-                image_url: (workflow as any).image_url,
-                trigger: workflow.trigger,
-                trigger_masking: workflow.trigger_masking,
-                conversion: workflow.conversion,
-                exit_condition: workflow.exit_condition,
-                edges: workflow.edges,
-                actions: workflow.actions,
-                abort_action: workflow.abort_action,
-                variables: workflow.variables,
-            }
+        updateTemplate: async ({ workflowTemplate }) => {
             // Remove any undefined fields
-            Object.keys(templateData).forEach((key) => {
-                if (templateData[key as keyof typeof templateData] === undefined) {
-                    delete templateData[key as keyof typeof templateData]
+            Object.keys(workflowTemplate).forEach((key) => {
+                if (workflowTemplate[key as keyof typeof workflowTemplate] === undefined) {
+                    delete workflowTemplate[key as keyof typeof workflowTemplate]
                 }
             })
 
-            await api.hogFlowTemplates.updateHogFlowTemplate(templateId, templateData)
+            await api.hogFlowTemplates.updateHogFlowTemplate(workflowTemplate.id, workflowTemplate)
             lemonToast.success('Template updated')
 
             // Update the template list in workflowTemplatesLogic
