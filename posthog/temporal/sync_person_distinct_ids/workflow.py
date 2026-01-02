@@ -7,6 +7,16 @@ import temporalio.common
 import temporalio.workflow
 
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.sync_person_distinct_ids.activities import (
+    FindOrphanedPersonsInputs,
+    LookupPgDistinctIdsInputs,
+    MarkChOnlyOrphansDeletedInputs,
+    SyncDistinctIdsToChInputs,
+    find_orphaned_persons,
+    lookup_pg_distinct_ids,
+    mark_ch_only_orphans_deleted,
+    sync_distinct_ids_to_ch,
+)
 
 
 @dataclasses.dataclass
@@ -91,17 +101,6 @@ class SyncPersonDistinctIdsWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: SyncPersonDistinctIdsWorkflowInputs) -> SyncPersonDistinctIdsWorkflowResult:
         """Execute the sync workflow."""
-        from posthog.temporal.sync_person_distinct_ids.activities import (
-            FindOrphanedPersonsInputs,
-            LookupPgDistinctIdsInputs,
-            MarkChOnlyOrphansDeletedInputs,
-            SyncDistinctIdsToChInputs,
-            find_orphaned_persons,
-            lookup_pg_distinct_ids,
-            mark_ch_only_orphans_deleted,
-            sync_distinct_ids_to_ch,
-        )
-
         persons_with_pg_ids = 0
         distinct_ids_synced = 0
         persons_without_pg_data = 0

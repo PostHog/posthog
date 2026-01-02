@@ -1,4 +1,5 @@
 import os
+import json
 import dataclasses
 
 from django.conf import settings
@@ -113,8 +114,6 @@ async def find_orphaned_persons(inputs: FindOrphanedPersonsInputs) -> FindOrphan
         orphaned_persons: list[OrphanedPerson] = []
 
         if response:
-            import json
-
             lines = response.decode("utf-8").strip().split("\n")
             for line in lines:
                 if line:
