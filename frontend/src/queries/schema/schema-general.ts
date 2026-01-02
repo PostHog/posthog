@@ -1675,17 +1675,20 @@ export interface EndpointRequest {
     derived_from_insight?: string
 }
 
+/**
+ * Controls how endpoint results are fetched.
+ * - `cache` (default): If available, return cached results. Otherwise, either return the materialized results or run the query against raw data, depending on whether the endpoint is materialized.
+ * - `force`: Forcefully bypass cached results, and either return materialized results or run the query against raw data, depending on whether the endpoint is materialized.
+ * - `direct`: Only valid for a materialized endpoint. Bypass the materialized results and run the query against raw data.
+ */
+export type EndpointRefreshMode = 'cache' | 'force' | 'direct'
+
 export interface EndpointRunRequest {
     /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
     client_query_id?: string
 
-    /**
-     * Whether results should be calculated sync or async, and how much to rely on the cache:
-     * - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
-     * - `'force_blocking'` - calculate synchronously, even if fresh results are already cached
-     * @default 'blocking'
-     */
-    refresh?: RefreshType
+    /** @default 'cache' */
+    refresh?: EndpointRefreshMode
     /**
      * A map for overriding insight query filters.
      *

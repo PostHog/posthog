@@ -11405,6 +11405,11 @@
             "required": ["names"],
             "type": "object"
         },
+        "EndpointRefreshMode": {
+            "description": "Controls how endpoint results are fetched.\n- `cache` (default): If available, return cached results. Otherwise, either return the materialized results or run the query against raw data, depending on whether the endpoint is materialized.\n- `force`: Forcefully bypass cached results, and either return materialized results or run the query against raw data, depending on whether the endpoint is materialized.\n- `direct`: Only valid for a materialized endpoint. Bypass the materialized results and run the query against raw data.",
+            "enum": ["cache", "force", "direct"],
+            "type": "string"
+        },
         "EndpointRequest": {
             "additionalProperties": false,
             "properties": {
@@ -11465,9 +11470,8 @@
                     "type": "object"
                 },
                 "refresh": {
-                    "$ref": "#/definitions/RefreshType",
-                    "default": "blocking",
-                    "description": "Whether results should be calculated sync or async, and how much to rely on the cache:\n- `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache\n- `'force_blocking'` - calculate synchronously, even if fresh results are already cached"
+                    "$ref": "#/definitions/EndpointRefreshMode",
+                    "default": "cache"
                 },
                 "variables": {
                     "description": "A map for overriding HogQL query variables, where the key is the variable name and the value is the variable value. Variable must be set on the endpoint's query between curly braces (i.e. {variable.from_date}) For example: {\"from_date\": \"1970-01-01\"}",

@@ -1,7 +1,7 @@
 import re
 import builtins
 from datetime import timedelta
-from typing import Optional, Union, cast
+from typing import Union, cast
 
 from django.core.cache import cache
 from django.shortcuts import get_object_or_404
@@ -19,6 +19,7 @@ from rest_framework.response import Response
 from posthog.schema import (
     DataWarehouseSyncInterval,
     EndpointLastExecutionTimesRequest,
+    EndpointRefreshMode,
     EndpointRequest,
     EndpointRunRequest,
     HogQLQuery,
@@ -72,6 +73,18 @@ MIN_CACHE_AGE_SECONDS = 300
 MAX_CACHE_AGE_SECONDS = 86400
 
 ENDPOINT_NAME_REGEX = r"^[a-zA-Z][a-zA-Z0-9_-]{0,127}$"
+
+
+def _endpoint_refresh_mode_to_refresh_type(mode: EndpointRefreshMode | None) -> RefreshType:
+    """
+    Map EndpointRefreshMode to RefreshType.
+
+    - cache -> blocking
+    - force/direct -> force_blocking (materialization bypass handled in _should_use_materialized_table)
+    """
+    if mode is None or mode == EndpointRefreshMode.CACHE:
+        return RefreshType.BLOCKING
+    return RefreshType.FORCE_BLOCKING
 
 
 @extend_schema(tags=["endpoints"])
@@ -421,8 +434,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         - Not materialized
         - Materialization incomplete/failed
         - Materialized data is stale (older than sync frequency)
-        - User overrides present (variables, filters, query)
-        - Force refresh requested
+        - User overrides present (variables, query)
+        - 'direct' mode requested (explicitly bypass materialization)
         """
         if not endpoint.is_materialized or not endpoint.saved_query:
             return False
@@ -443,7 +456,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         if data.variables:
             return False
 
-        if data.refresh in ["force_blocking"]:
+        # 'direct' mode explicitly bypasses materialization to run the original query
+        if data.refresh == EndpointRefreshMode.DIRECT:
             return False
 
         if data.query_override:
@@ -456,7 +470,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         query_request_data: dict,
         client_query_id: str | None,
         request: Request,
-        variables_override: Optional[builtins.list[HogQLVariable]] = None,
+        variables_override: builtins.list[HogQLVariable] | None = None,
         cache_age_seconds: int | None = None,
         extra_result_fields: dict | None = None,
         debug: bool = False,
@@ -554,10 +568,12 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 query=select_query.to_hogql(), modifiers=HogQLQueryModifiers(useMaterializedViews=True)
             )
 
+            refresh_type = _endpoint_refresh_mode_to_refresh_type(data.refresh)
+
             query_request_data = {
                 "client_query_id": data.client_query_id,
                 "name": f"{endpoint.name}_materialized",
-                "refresh": data.refresh or RefreshType.BLOCKING,
+                "refresh": refresh_type,
                 "query": materialized_hogql_query.model_dump(),
             }
 
@@ -627,12 +643,14 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             for query_field, value in insight_query_override.items():
                 query[query_field] = value
 
+            refresh_type = _endpoint_refresh_mode_to_refresh_type(data.refresh)
+
             variables_override = self._parse_variables(query, data.variables) if data.variables else None
             query_request_data = {
                 "client_query_id": data.client_query_id,
                 "filters_override": data.filters_override,
                 "name": endpoint.name,
-                "refresh": data.refresh,
+                "refresh": refresh_type,
                 "query": query,
             }
 
@@ -731,6 +749,11 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         if endpoint.query.get("kind") != "HogQLQuery" and data.variables:
             raise ValidationError(
                 "Only query_override and filters_override are allowed when executing an Insight query"
+            )
+        if data.refresh == EndpointRefreshMode.DIRECT and not endpoint.is_materialized:
+            raise ValidationError(
+                "'direct' refresh mode is only valid for materialized endpoints. "
+                "Use 'cache' or 'force' instead, or enable materialization on this endpoint."
             )
 
     @extend_schema(

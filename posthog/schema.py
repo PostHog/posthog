@@ -1165,6 +1165,12 @@ class EndpointLastExecutionTimesRequest(BaseModel):
     names: list[str]
 
 
+class EndpointRefreshMode(StrEnum):
+    CACHE = "cache"
+    FORCE = "force"
+    DIRECT = "direct"
+
+
 class EntityType(StrEnum):
     ACTIONS = "actions"
     EVENTS = "events"
@@ -9325,14 +9331,7 @@ class EndpointRunRequest(BaseModel):
             " $pageview's"
         ),
     )
-    refresh: RefreshType | None = Field(
-        default=RefreshType.BLOCKING,
-        description=(
-            "Whether results should be calculated sync or async, and how much to rely on the cache:\n- `'blocking'` -"
-            " calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in"
-            " the cache\n- `'force_blocking'` - calculate synchronously, even if fresh results are already cached"
-        ),
-    )
+    refresh: EndpointRefreshMode | None = EndpointRefreshMode.CACHE
     variables: dict[str, Any] | None = Field(
         default=None,
         description=(
