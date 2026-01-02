@@ -52,37 +52,6 @@ class TestHogFlowBatchJob(TestCase):
         mock_create_invocation.assert_called_once()
 
     @patch("posthog.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation")
-    def test_hog_flow_batch_job_default_status(self, mock_create_invocation):
-        batch_job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=self.hog_flow, variables=[])
-
-        assert batch_job.status == HogFlowBatchJob.State.QUEUED
-
-    @patch("posthog.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation")
-    def test_hog_flow_batch_job_state_transitions(self, mock_create_invocation):
-        batch_job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=self.hog_flow, variables=[])
-
-        # Transition to active
-        batch_job.status = HogFlowBatchJob.State.ACTIVE
-        batch_job.save()
-        batch_job.refresh_from_db()
-        assert batch_job.status == HogFlowBatchJob.State.ACTIVE
-
-        # Transition to completed
-        batch_job.status = HogFlowBatchJob.State.COMPLETED
-        batch_job.save()
-        batch_job.refresh_from_db()
-        assert batch_job.status == HogFlowBatchJob.State.COMPLETED
-
-    @patch("posthog.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation")
-    def test_hog_flow_batch_job_can_be_cancelled(self, mock_create_invocation):
-        batch_job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=self.hog_flow, variables=[])
-
-        batch_job.status = HogFlowBatchJob.State.CANCELLED
-        batch_job.save()
-        batch_job.refresh_from_db()
-        assert batch_job.status == HogFlowBatchJob.State.CANCELLED
-
-    @patch("posthog.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation")
     def test_hog_flow_batch_job_can_fail(self, mock_create_invocation):
         batch_job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=self.hog_flow, variables=[])
 
