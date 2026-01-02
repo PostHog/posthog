@@ -24,7 +24,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "hog_flow",
-                    models.ForeignKey(to="posthog.hogflow", on_delete=django.db.models.deletion.CASCADE),
+                    models.ForeignKey(to="posthog.hogflow", on_delete=django.db.models.deletion.DO_NOTHING),
                 ),
                 (
                     "variables",
@@ -50,13 +50,16 @@ class Migration(migrations.Migration):
                 (
                     "created_by",
                     models.ForeignKey(
-                        blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.DO_NOTHING,
+                        to=settings.AUTH_USER_MODEL,
                     ),
                 ),
-                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
+                ("team", models.ForeignKey(on_delete=django.db.models.deletion.DO_NOTHING, to="posthog.team")),
             ],
             options={
-                "indexes": [models.Index(fields=["team"], name="posthog_hog_status_8bc026_idx")],
+                "indexes": [models.Index(fields=["team"], name="posthog_hog_team_id_8e9612_idx")],
             },
         ),
     ]
