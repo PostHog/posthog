@@ -4,6 +4,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 
 from django.conf import settings
+from django.contrib.postgres.fields.jsonb import KeyTextTransform
 from django.db import models, transaction
 from django.db.models import Q, QuerySet
 from django.db.models.expressions import F
@@ -25,9 +26,6 @@ from posthog.models.property import Property, PropertyGroup
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from posthog.person_db_router import PERSONS_DB_FOR_WRITE
 from posthog.settings.base_variables import TEST
-
-# Import KeyTextTransform to allow annotating JSONB key values (supports keys with hyphens)
-from django.contrib.postgres.fields.jsonb import KeyTextTransform
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -493,21 +491,21 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
         # Try a small set of common JSON property key variants for email.
         # This is a minimal pragmatic fix for mixed-case keys in existing datasets.
-
         qs = Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team_id=team_id)
 
-        candidate_keys = ["email", "Email", "EMAIL", "e-mail"]  # add more if needed
+        # Build a single query with OR conditions for all key variants
+        # Use standard lookups for simple keys, KeyTextTransform for keys with special characters
+        q_filters = Q()
+        q_filters |= Q(properties__email__in=emails)
+        q_filters |= Q(properties__Email__in=emails)
+        q_filters |= Q(properties__EMAIL__in=emails)
+        # KeyTextTransform is needed for keys with hyphens (Django interprets hyphens as field separators)
+        qs = qs.annotate(_prop_e_mail=KeyTextTransform("e-mail", "properties"))
+        q_filters |= Q(_prop_e_mail__in=emails)
 
-        uuids_set: set[str] = set()
-        for key in candidate_keys:
-            # Annotate the JSONB key value into a column and filter by that value.
-            # KeyTextTransform allows matching keys that contain characters like hyphens.
-            annotated = qs.annotate(_prop_val=KeyTextTransform(key, "properties")).filter(_prop_val__in=emails)
-            for uuid in annotated.values_list("uuid", flat=True):
-                uuids_set.add(str(uuid))
+        uuids = qs.filter(q_filters).values_list("uuid", flat=True).distinct()
 
-        # Return list to upstream; order doesn't matter for cohort insertion dedupe
-        return list(uuids_set)
+        return [str(uuid) for uuid in uuids]
 
     def insert_users_list_by_uuid_into_pg_only(
         self,
