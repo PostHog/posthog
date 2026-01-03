@@ -1,13 +1,13 @@
 from posthog.test.base import APIBaseTest
 from unittest import TestCase
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from parameterized import parameterized
 from prometheus_client import CollectorRegistry, Counter
 
 from posthog.models.exported_asset import ExportedAsset
 from posthog.tasks import exporter
-from posthog.tasks.exporter import export_asset_direct
+from posthog.tasks.exporter import record_export_failure
 from posthog.tasks.exports.failure_handler import (
     FAILURE_TYPE_SYSTEM,
     FAILURE_TYPE_TIMEOUT_GENERATION,
@@ -26,6 +26,38 @@ def get_counter_value(counter: Counter, labels: dict) -> float:
                 if all(sample.labels.get(k) == v for k, v in labels.items()):
                     return sample.value
     return 0.0
+
+
+class TestRecordExportFailure(APIBaseTest):
+    def test_record_export_failure_updates_asset_and_increments_counter(self) -> None:
+        from posthog.hogql.errors import QueryError
+
+        registry = CollectorRegistry()
+        test_counter = Counter(
+            "exporter_task_failed_test",
+            "Test counter",
+            labelnames=["type", "failure_type"],
+            registry=registry,
+        )
+
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            dashboard=None,
+            export_format=ExportedAsset.ExportFormat.PNG,
+        )
+        exception = QueryError("Bad query")
+
+        with patch.object(exporter, "EXPORT_FAILED_COUNTER", test_counter):
+            record_export_failure(asset, exception)
+
+        asset.refresh_from_db()
+        assert asset.failure_type == FAILURE_TYPE_USER
+        assert asset.exception_type == "QueryError"
+        assert asset.exception == "Bad query"
+        assert (
+            get_counter_value(test_counter, {"type": ExportedAsset.ExportFormat.PNG, "failure_type": FAILURE_TYPE_USER})
+            == 1.0
+        )
 
 
 class TestIsUserQueryErrorType(TestCase):
@@ -82,111 +114,3 @@ class TestClassifyFailureType(TestCase):
     )
     def test_classify_failure_type(self, exception_type: str, expected: str) -> None:
         assert classify_failure_type(exception_type) == expected
-
-
-@patch("posthog.tasks.exports.image_exporter.uuid")
-class TestExportFailedCounter(APIBaseTest):
-    """Tests for Prometheus counter wiring on export failures."""
-
-    def _create_test_counter(self, registry: CollectorRegistry) -> Counter:
-        """Create a test counter bound to a fresh registry."""
-        return Counter(
-            "exporter_task_failed_test",
-            "Test counter for export failures",
-            labelnames=["type", "failure_type"],
-            registry=registry,
-        )
-
-    @patch("posthog.tasks.exports.image_exporter.export_image")
-    def test_user_error_increments_counter_with_user_label(self, mock_export: MagicMock, mock_uuid: MagicMock) -> None:
-        from posthog.hogql.errors import QueryError
-
-        registry = CollectorRegistry()
-        test_counter = self._create_test_counter(registry)
-        original_counter = exporter.EXPORT_FAILED_COUNTER
-
-        try:
-            exporter.EXPORT_FAILED_COUNTER = test_counter
-            mock_export.side_effect = QueryError("Bad query")
-
-            asset = ExportedAsset.objects.create(team=self.team, dashboard=None, export_format="image/png")
-            export_asset_direct(asset)
-
-            asset.refresh_from_db()
-            assert asset.failure_type == "user"
-            assert get_counter_value(test_counter, {"type": "image", "failure_type": "user"}) == 1.0
-            assert get_counter_value(test_counter, {"type": "image", "failure_type": "system"}) == 0.0
-        finally:
-            exporter.EXPORT_FAILED_COUNTER = original_counter
-
-    @patch("posthog.tasks.exports.image_exporter.export_image")
-    def test_timeout_error_increments_counter_with_timeout_label(
-        self, mock_export: MagicMock, mock_uuid: MagicMock
-    ) -> None:
-        from celery.exceptions import SoftTimeLimitExceeded
-
-        registry = CollectorRegistry()
-        test_counter = self._create_test_counter(registry)
-        original_counter = exporter.EXPORT_FAILED_COUNTER
-
-        try:
-            exporter.EXPORT_FAILED_COUNTER = test_counter
-            mock_export.side_effect = SoftTimeLimitExceeded("Task timed out")
-
-            asset = ExportedAsset.objects.create(team=self.team, dashboard=None, export_format="image/png")
-            export_asset_direct(asset)
-
-            asset.refresh_from_db()
-            assert asset.failure_type == "timeout_generation"
-            assert get_counter_value(test_counter, {"type": "image", "failure_type": "timeout_generation"}) == 1.0
-            assert get_counter_value(test_counter, {"type": "image", "failure_type": "user"}) == 0.0
-        finally:
-            exporter.EXPORT_FAILED_COUNTER = original_counter
-
-    @patch("posthog.tasks.exports.image_exporter.export_image")
-    def test_unknown_error_increments_counter_with_unknown_label(
-        self, mock_export: MagicMock, mock_uuid: MagicMock
-    ) -> None:
-        registry = CollectorRegistry()
-        test_counter = self._create_test_counter(registry)
-        original_counter = exporter.EXPORT_FAILED_COUNTER
-
-        try:
-            exporter.EXPORT_FAILED_COUNTER = test_counter
-            mock_export.side_effect = RuntimeError("Unexpected error")
-
-            asset = ExportedAsset.objects.create(team=self.team, dashboard=None, export_format="image/png")
-            export_asset_direct(asset)
-
-            asset.refresh_from_db()
-            assert asset.failure_type == "unknown"
-            assert get_counter_value(test_counter, {"type": "image", "failure_type": "unknown"}) == 1.0
-        finally:
-            exporter.EXPORT_FAILED_COUNTER = original_counter
-
-    @patch("posthog.tasks.exports.csv_exporter.export_tabular")
-    def test_csv_export_failure_uses_csv_type_label(self, mock_export: MagicMock, mock_uuid: MagicMock) -> None:
-        from posthog.hogql.errors import QueryError
-
-        registry = CollectorRegistry()
-        test_counter = self._create_test_counter(registry)
-        original_counter = exporter.EXPORT_FAILED_COUNTER
-
-        try:
-            exporter.EXPORT_FAILED_COUNTER = test_counter
-            mock_export.side_effect = QueryError("Bad query")
-
-            asset = ExportedAsset.objects.create(
-                team=self.team,
-                dashboard=None,
-                export_format=ExportedAsset.ExportFormat.CSV,
-                export_context={"path": "/api/test"},
-            )
-            export_asset_direct(asset)
-
-            asset.refresh_from_db()
-            assert asset.failure_type == "user"
-            assert get_counter_value(test_counter, {"type": "csv", "failure_type": "user"}) == 1.0
-            assert get_counter_value(test_counter, {"type": "image", "failure_type": "user"}) == 0.0
-        finally:
-            exporter.EXPORT_FAILED_COUNTER = original_counter
