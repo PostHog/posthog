@@ -64,7 +64,6 @@ def _is_final_export_attempt(exception: Exception, current_retries: int, max_ret
     retry_backoff_max=3,
     max_retries=3,
 )
-@transaction.atomic
 def export_asset(
     self,
     exported_asset_id: int,
@@ -79,8 +78,10 @@ def export_asset(
     ).get(pk=exported_asset_id)
 
     try:
-        export_asset_direct(exported_asset, limit=limit, max_height_pixels=max_height_pixels)
+        with transaction.atomic():
+            export_asset_direct(exported_asset, limit=limit, max_height_pixels=max_height_pixels)
     except Exception as e:
+        # Failure recording must happen OUTSIDE the atomic block so it persists after rollback
         if _is_final_export_attempt(e, self.request.retries, self.max_retries):
             record_export_failure(exported_asset, e)
         raise
