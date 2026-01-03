@@ -34,7 +34,7 @@ export const productSelectionLogic = kea<productSelectionLogicType>([
             onboardingLogic,
             ['setOnCompleteOnboardingRedirectUrl'],
             eventUsageLogic,
-            ['reportOnboardingStarted'],
+            ['reportOnboardingStarted', 'reportOnboardingProductSelectionPath'],
         ],
         values: [teamLogic, ['currentTeam']],
     })),
@@ -60,6 +60,9 @@ export const productSelectionLogic = kea<productSelectionLogicType>([
         setSelectedProducts: (productKeys: ProductKey[]) => ({ productKeys }),
         setFirstProductOnboarding: (productKey: ProductKey | null) => ({ productKey }),
         setRecommendationSource: (source: RecommendationSource) => ({ source }),
+
+        // Pick myself path
+        selectPickMyself: true,
 
         // Continue to onboarding
         handleStartOnboarding: true,
@@ -252,6 +255,24 @@ export const productSelectionLogic = kea<productSelectionLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
+        selectPickMyself: () => {
+            const hasBrowsingHistory = values.hasBrowsingHistory
+            actions.setRecommendationSource(hasBrowsingHistory ? 'browsing_history' : 'manual')
+
+            if (hasBrowsingHistory) {
+                actions.setSelectedProducts(values.browsingHistoryProducts)
+            }
+
+            actions.setShowAllProducts(true)
+            actions.setStep('product_selection')
+
+            // Analytics
+            actions.reportOnboardingProductSelectionPath(hasBrowsingHistory ? 'browsing_history' : 'manual', {
+                recommendedProducts: hasBrowsingHistory ? values.browsingHistoryProducts : [],
+                hasBrowsingHistory,
+            })
+        },
+
         selectUseCase: ({ useCase }) => {
             actions.setRecommendationSource('use_case')
 
@@ -264,10 +285,10 @@ export const productSelectionLogic = kea<productSelectionLogicType>([
             actions.setStep('product_selection')
 
             // Analytics
-            window.posthog?.capture('onboarding_use_case_selected', {
-                use_case: useCase,
-                browsing_history: values.browsingHistory,
-                recommended_products: mergedProducts,
+            actions.reportOnboardingProductSelectionPath('use_case', {
+                useCase,
+                recommendedProducts: mergedProducts,
+                hasBrowsingHistory: values.hasBrowsingHistory,
             })
         },
 
@@ -295,11 +316,9 @@ export const productSelectionLogic = kea<productSelectionLogicType>([
                 actions.setStep('product_selection')
 
                 // Analytics
-                window.posthog?.capture('onboarding_ai_recommendation_received', {
-                    description: values.aiDescription,
-                    browsing_history: values.browsingHistory,
-                    recommended_products: products,
-                    reasoning: aiRecommendation.reasoning,
+                actions.reportOnboardingProductSelectionPath('ai', {
+                    recommendedProducts: products,
+                    hasBrowsingHistory: values.hasBrowsingHistory,
                 })
             }
         },

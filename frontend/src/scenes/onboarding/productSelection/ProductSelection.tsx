@@ -53,17 +53,9 @@ function ChoosePathStep(): JSX.Element {
         aiRecommendationError,
         hasBrowsingHistory,
         browsingHistoryLabels,
-        browsingHistoryProducts,
     } = useValues(productSelectionLogic)
-    const {
-        selectUseCase,
-        setAiDescription,
-        submitAiRecommendation,
-        setStep,
-        setSelectedProducts,
-        setRecommendationSource,
-        setShowAllProducts,
-    } = useActions(productSelectionLogic)
+    const { selectUseCase, setAiDescription, submitAiRecommendation, selectPickMyself } =
+        useActions(productSelectionLogic)
 
     const aiRecommendationsEnabled = useFeatureFlag('ONBOARDING_AI_PRODUCT_RECOMMENDATIONS', 'test')
 
@@ -161,17 +153,7 @@ function ChoosePathStep(): JSX.Element {
                         'p-4',
                         aiRecommendationLoading ? 'opacity-50 pointer-events-none' : 'cursor-pointer'
                     )}
-                    onClick={() => {
-                        if (aiRecommendationLoading) {
-                            return
-                        }
-                        setRecommendationSource(hasBrowsingHistory ? 'browsing_history' : 'manual')
-                        if (hasBrowsingHistory) {
-                            setSelectedProducts(browsingHistoryProducts)
-                        }
-                        setShowAllProducts(true)
-                        setStep('product_selection')
-                    }}
+                    onClick={() => !aiRecommendationLoading && selectPickMyself()}
                     hoverEffect={!aiRecommendationLoading}
                     data-attr="pick-myself-card"
                 >
