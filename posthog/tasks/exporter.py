@@ -43,6 +43,11 @@ def record_export_failure(exported_asset: ExportedAsset, e: Exception) -> None:
     EXPORT_FAILED_COUNTER.labels(type=exported_asset.export_format, failure_type=failure_type).inc()
 
 
+def _is_final_export_attempt(exception: Exception, current_retries: int, max_retries: int) -> bool:
+    is_retriable = isinstance(exception, EXCEPTIONS_TO_RETRY)
+    return not is_retriable or current_retries >= max_retries
+
+
 # export_asset is used in chords/groups and so must not ignore its results
 @shared_task(
     bind=True,
@@ -76,8 +81,7 @@ def export_asset(
     try:
         export_asset_direct(exported_asset, limit=limit, max_height_pixels=max_height_pixels)
     except Exception as e:
-        is_final_attempt = not isinstance(e, EXCEPTIONS_TO_RETRY) or self.request.retries >= self.max_retries
-        if is_final_attempt:
+        if _is_final_export_attempt(e, self.request.retries, self.max_retries):
             record_export_failure(exported_asset, e)
         raise
 

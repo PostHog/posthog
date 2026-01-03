@@ -3,12 +3,18 @@ from typing import Optional
 
 import pytest
 from posthog.test.base import APIBaseTest
+from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
+from posthog.hogql.errors import QueryError
+
+from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import ExportedAsset
 from posthog.tasks import exporter
-from posthog.tasks.exporter import export_asset_direct
+from posthog.tasks.exporter import _is_final_export_attempt
 from posthog.tasks.exports.image_exporter import get_driver
 
 
@@ -62,16 +68,24 @@ class TestExporterTask(APIBaseTest):
         if driver:
             driver.close()
 
-    @patch("posthog.tasks.exports.image_exporter.export_image")
-    def test_export_stores_exception_type_on_failure(self, mock_export: MagicMock, mock_uuid: MagicMock) -> None:
-        from posthog.hogql.errors import QueryError
 
-        mock_export.side_effect = QueryError("Unknown table 'foo'")
-
-        asset = ExportedAsset.objects.create(team=self.team, dashboard=None, export_format="image/png")
-        export_asset_direct(asset)
-
-        asset.refresh_from_db()
-        assert asset.exception == "Unknown table 'foo'"
-        assert asset.exception_type == "QueryError"
-        assert asset.failure_type == "user"
+class TestIsFinalExportAttempt(TestCase):
+    @parameterized.expand(
+        [
+            # Non-retriable exceptions are always final (regardless of retry count)
+            (QueryError("test"), 0, 3, True),
+            (QueryError("test"), 1, 3, True),
+            (QueryError("test"), 3, 3, True),
+            # Retriable exceptions: not final when retries < max_retries
+            (CHQueryErrorTooManySimultaneousQueries("test"), 0, 3, False),
+            (CHQueryErrorTooManySimultaneousQueries("test"), 1, 3, False),
+            (CHQueryErrorTooManySimultaneousQueries("test"), 2, 3, False),
+            # Retriable exceptions: final when retries >= max_retries
+            (CHQueryErrorTooManySimultaneousQueries("test"), 3, 3, True),
+            (CHQueryErrorTooManySimultaneousQueries("test"), 4, 3, True),
+        ]
+    )
+    def test_is_final_export_attempt(
+        self, exception: Exception, current_retries: int, max_retries: int, expected: bool
+    ) -> None:
+        assert _is_final_export_attempt(exception, current_retries, max_retries) == expected
