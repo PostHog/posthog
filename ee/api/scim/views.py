@@ -184,7 +184,10 @@ class SCIMUsersView(SCIMBaseView):
 class SCIMUserDetailView(SCIMBaseView):
     def get_object(self, user_id: int) -> PostHogSCIMUser:
         organization_domain = cast(OrganizationDomain, self.request.auth)
-        user = User.objects.filter(id=user_id).first()
+        user = User.objects.filter(
+            id=user_id,
+            organization_membership__organization=organization_domain.organization,
+        ).first()
         if not user:
             raise User.DoesNotExist()
         return PostHogSCIMUser(user, organization_domain)
