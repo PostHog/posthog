@@ -134,6 +134,9 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
 
                         return response
                     } catch (error) {
+                        const message =
+                            error instanceof Error ? error.message : 'Failed to load SDK Doctor data'
+                        lemonToast.error(message)
                         console.error('Error loading SDK doctor data', error)
                         return null
                     }
