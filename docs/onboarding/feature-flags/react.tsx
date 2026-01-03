@@ -1,75 +1,92 @@
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { StepDefinition } from './js-web'
 
-export const ReactInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, dedent, snippets, Tab } = useMDXComponents()
-
+export const getReactSteps = (
+    CodeBlock: any,
+    Markdown: any,
+    dedent: any,
+    snippets: any,
+    Tab: any
+): StepDefinition[] => {
     const BooleanFlag = snippets?.BooleanFlagSnippet
     const MultivariateFlag = snippets?.MultivariateFlagSnippet
     const FlagPayload = snippets?.FlagPayloadSnippet
 
-    return (
-        <Steps>
-            <Step title="Install PostHog" badge="required">
-                <Markdown>
-                    {dedent`
-                        Install PostHog using your preferred package manager:
-                    `}
-                </Markdown>
-                <CodeBlock
-                    blocks={[
-                        {
-                            language: 'bash',
-                            file: 'npm',
-                            code: dedent`
-                                npm install posthog-js
-                            `,
-                        },
-                        {
-                            language: 'bash',
-                            file: 'yarn',
-                            code: dedent`
-                                yarn add posthog-js
-                            `,
-                        },
-                        {
-                            language: 'bash',
-                            file: 'pnpm',
-                            code: dedent`
-                                pnpm add posthog-js
-                            `,
-                        },
-                    ]}
-                />
-            </Step>
+    return [
+        {
+            title: 'Install PostHog',
+            badge: 'required',
+            content: (
+                <>
+                    <Markdown>
+                        {dedent`
+                            Install PostHog using your preferred package manager:
+                        `}
+                    </Markdown>
+                    <CodeBlock
+                        blocks={[
+                            {
+                                language: 'bash',
+                                file: 'npm',
+                                code: dedent`
+                                    npm install posthog-js
+                                `,
+                            },
+                            {
+                                language: 'bash',
+                                file: 'yarn',
+                                code: dedent`
+                                    yarn add posthog-js
+                                `,
+                            },
+                            {
+                                language: 'bash',
+                                file: 'pnpm',
+                                code: dedent`
+                                    pnpm add posthog-js
+                                `,
+                            },
+                        ]}
+                    />
+                </>
+            ),
+        },
+        {
+            title: 'Initialize PostHog',
+            badge: 'required',
+            content: (
+                <>
+                    <Markdown>
+                        {dedent`
+                            Initialize PostHog at the root of your app (such as \`main.tsx\` or \`App.tsx\`):
+                        `}
+                    </Markdown>
+                    <CodeBlock
+                        language="jsx"
+                        code={dedent`
+                            import { PostHogProvider } from 'posthog-js/react'
 
-            <Step title="Initialize PostHog" badge="required">
-                <Markdown>
-                    {dedent`
-                        Initialize PostHog at the root of your app (such as \`main.tsx\` or \`App.tsx\`):
-                    `}
-                </Markdown>
-                <CodeBlock
-                    language="jsx"
-                    code={dedent`
-                        import { PostHogProvider } from 'posthog-js/react'
-
-                        function App() {
-                            return (
-                                <PostHogProvider
-                                    apiKey="<ph_project_api_key>"
-                                    options={{
-                                        api_host: '<ph_client_api_host>'
-                                    }}
-                                >
-                                    {/* Your app */}
-                                </PostHogProvider>
-                            )
-                        }
-                    `}
-                />
-            </Step>
-
-            <Step title="Use feature flags" badge="required">
+                            function App() {
+                                return (
+                                    <PostHogProvider
+                                        apiKey="<ph_project_api_key>"
+                                        options={{
+                                            api_host: '<ph_client_api_host>'
+                                        }}
+                                    >
+                                        {/* Your app */}
+                                    </PostHogProvider>
+                                )
+                            }
+                        `}
+                    />
+                </>
+            ),
+        },
+        {
+            title: 'Use feature flags',
+            badge: 'required',
+            content: (
                 <Tab.Group tabs={['Using hooks', 'Using PostHogFeature component']}>
                     <Tab.List>
                         <Tab>Using hooks</Tab>
@@ -148,15 +165,34 @@ export const ReactInstallation = (): JSX.Element => {
                         </Tab.Panel>
                     </Tab.Panels>
                 </Tab.Group>
-            </Step>
-
-            <Step title="Running experiments" badge="optional">
+            ),
+        },
+        {
+            title: 'Running experiments',
+            badge: 'optional',
+            content: (
                 <Markdown>
                     {dedent`
                         Experiments run on top of our feature flags. Once you've implemented the flag in your code, you run an experiment by creating a new experiment in the PostHog dashboard.
                     `}
                 </Markdown>
-            </Step>
+            ),
+        },
+    ]
+}
+
+export const ReactInstallation = (): JSX.Element => {
+    const { Steps, Step, CodeBlock, Markdown, dedent, snippets, Tab } = useMDXComponents()
+
+    const steps = getReactSteps(CodeBlock, Markdown, dedent, snippets, Tab)
+
+    return (
+        <Steps>
+            {steps.map((step, index) => (
+                <Step key={index} title={step.title} badge={step.badge}>
+                    {step.content}
+                </Step>
+            ))}
         </Steps>
     )
 }
