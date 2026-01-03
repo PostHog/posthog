@@ -11,30 +11,20 @@ from prometheus_client import Counter, Histogram
 from posthog.event_usage import groups
 from posthog.models import ExportedAsset
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
-from posthog.tasks.exports.failure_handler import (
-    EXCEPTIONS_TO_RETRY,
-    EXPORT_FAILED_COUNTER,
-    USER_QUERY_ERRORS,
-    classify_failure_type,
-)
+from posthog.tasks.exports.failure_handler import EXCEPTIONS_TO_RETRY, USER_QUERY_ERRORS, classify_failure_type
 from posthog.tasks.utils import CeleryQueue
 
 logger = structlog.get_logger(__name__)
 
-EXPORT_QUEUED_COUNTER = Counter(
-    "exporter_task_queued",
-    "An export task was queued",
-    labelnames=["type"],
-)
 EXPORT_SUCCEEDED_COUNTER = Counter(
     "exporter_task_succeeded",
     "An export task succeeded",
     labelnames=["type"],
 )
-EXPORT_ASSET_UNKNOWN_COUNTER = Counter(
-    "exporter_task_unknown_asset",
-    "An export task was for an unknown asset",
-    labelnames=["type"],
+EXPORT_FAILED_COUNTER = Counter(
+    "exporter_task_failed",
+    "An export task failed",
+    labelnames=["type", "failure_type"],
 )
 EXPORT_TIMER = Histogram(
     "exporter_task_duration_seconds",
@@ -111,10 +101,9 @@ def export_asset_direct(
     try:
         if exported_asset.export_format in (ExportedAsset.ExportFormat.CSV, ExportedAsset.ExportFormat.XLSX):
             csv_exporter.export_tabular(exported_asset, limit=limit)
-            EXPORT_QUEUED_COUNTER.labels(type="csv").inc()
         else:
             image_exporter.export_image(exported_asset, max_height_pixels=max_height_pixels)
-            EXPORT_QUEUED_COUNTER.labels(type="image").inc()
+        EXPORT_SUCCEEDED_COUNTER.labels(type=exported_asset.export_format).inc()
 
         logger.info(
             "export_asset.succeeded",
@@ -175,4 +164,4 @@ def export_asset_direct(
         exported_asset.exception_type = type(e).__name__
         exported_asset.failure_type = failure_type
         exported_asset.save()
-        EXPORT_FAILED_COUNTER.labels(type=exported_asset.export_type, failure_type=failure_type).inc()
+        EXPORT_FAILED_COUNTER.labels(type=exported_asset.export_format, failure_type=failure_type).inc()

@@ -1,6 +1,7 @@
 from typing import Optional
 
 import structlog
+import posthoganalytics
 from slack_sdk.errors import SlackApiError
 from temporalio import activity, workflow
 from temporalio.common import MetricCounter, MetricMeter
@@ -173,6 +174,7 @@ async def deliver_subscription_report_async(
                 get_subscription_success_metric("email", "temporal").add(1)
             except Exception as e:
                 get_subscription_failure_metric("email", "temporal").add(1)
+                _capture_delivery_failed_event(subscription, e)
                 logger.error(
                     "deliver_subscription_report_async.email_failed",
                     subscription_id=subscription.id,
@@ -224,6 +226,7 @@ async def deliver_subscription_report_async(
             if not is_user_config_error:
                 get_subscription_failure_metric("slack", "temporal", failure_type="complete").add(1)
 
+            _capture_delivery_failed_event(subscription, e)
             logger.error(
                 "deliver_subscription_report_async.slack_failed",
                 subscription_id=subscription.id,
@@ -246,3 +249,16 @@ async def deliver_subscription_report_async(
         await database_sync_to_async(subscription.save, thread_sensitive=False)(update_fields=["next_delivery_date"])
 
     logger.info("deliver_subscription_report_async.completed", subscription_id=subscription_id)
+
+
+def _capture_delivery_failed_event(subscription: Subscription, e: Exception) -> None:
+    posthoganalytics.capture(
+        "subscription_delivery_failed",
+        distinct_id=subscription.id,
+        properties={
+            "subscription_id": subscription.id,
+            "team_id": subscription.team_id,
+            "target_type": subscription.target_type,
+            "exception": e,
+        },
+    )

@@ -127,13 +127,6 @@ class ExportedAsset(models.Model):
         return self.content is not None or self.content_location is not None
 
     @property
-    def export_type(self) -> str:
-        """Returns 'csv' for tabular exports, 'image' for visual exports."""
-        if self.export_format in (self.ExportFormat.CSV, self.ExportFormat.XLSX):
-            return "csv"
-        return "image"
-
-    @property
     def filename(self):
         ext = self.ExportFormat(self.export_format).name.lower()
         filename = "export"

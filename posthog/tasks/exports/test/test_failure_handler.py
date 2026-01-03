@@ -8,7 +8,14 @@ from prometheus_client import CollectorRegistry, Counter
 from posthog.models.exported_asset import ExportedAsset
 from posthog.tasks import exporter
 from posthog.tasks.exporter import export_asset_direct
-from posthog.tasks.exports.failure_handler import classify_failure_type, is_user_query_error_type
+from posthog.tasks.exports.failure_handler import (
+    FAILURE_TYPE_SYSTEM,
+    FAILURE_TYPE_TIMEOUT_GENERATION,
+    FAILURE_TYPE_UNKNOWN,
+    FAILURE_TYPE_USER,
+    classify_failure_type,
+    is_user_query_error_type,
+)
 
 
 def get_counter_value(counter: Counter, labels: dict) -> float:
@@ -54,23 +61,23 @@ class TestClassifyFailureType(TestCase):
     @parameterized.expand(
         [
             # Timeout errors
-            ("SoftTimeLimitExceeded", "timeout_generation"),
-            ("TimeoutError", "timeout_generation"),
+            ("SoftTimeLimitExceeded", FAILURE_TYPE_TIMEOUT_GENERATION),
+            ("TimeoutError", FAILURE_TYPE_TIMEOUT_GENERATION),
             # User errors (from USER_QUERY_ERRORS)
-            ("QueryError", "user"),
-            ("SyntaxError", "user"),
-            ("CHQueryErrorIllegalAggregation", "user"),
-            ("ClickHouseQueryTimeOut", "user"),
-            ("ClickHouseQueryMemoryLimitExceeded", "user"),
+            ("QueryError", FAILURE_TYPE_USER),
+            ("SyntaxError", FAILURE_TYPE_USER),
+            ("CHQueryErrorIllegalAggregation", FAILURE_TYPE_USER),
+            ("ClickHouseQueryTimeOut", FAILURE_TYPE_USER),
+            ("ClickHouseQueryMemoryLimitExceeded", FAILURE_TYPE_USER),
             # System errors (from EXCEPTIONS_TO_RETRY)
-            ("CHQueryErrorS3Error", "system"),
-            ("CHQueryErrorTooManySimultaneousQueries", "system"),
-            ("OperationalError", "system"),
-            ("ClickHouseAtCapacity", "system"),
+            ("CHQueryErrorS3Error", FAILURE_TYPE_SYSTEM),
+            ("CHQueryErrorTooManySimultaneousQueries", FAILURE_TYPE_SYSTEM),
+            ("OperationalError", FAILURE_TYPE_SYSTEM),
+            ("ClickHouseAtCapacity", FAILURE_TYPE_SYSTEM),
             # Unknown errors
-            ("ValueError", "unknown"),
-            ("RuntimeError", "unknown"),
-            ("", "unknown"),
+            ("ValueError", FAILURE_TYPE_UNKNOWN),
+            ("RuntimeError", FAILURE_TYPE_UNKNOWN),
+            ("", FAILURE_TYPE_UNKNOWN),
         ]
     )
     def test_classify_failure_type(self, exception_type: str, expected: str) -> None:

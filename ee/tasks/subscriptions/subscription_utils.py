@@ -18,9 +18,9 @@ from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.subscription import Subscription
 from posthog.sync import database_sync_to_async
 from posthog.tasks import exporter
+from posthog.tasks.exporter import EXPORT_FAILED_COUNTER
 from posthog.tasks.exports.failure_handler import (
     EXCEPTIONS_TO_RETRY,
-    EXPORT_FAILED_COUNTER,
     FAILURE_TYPE_TIMEOUT_GENERATION,
     USER_QUERY_ERRORS,
     classify_failure_type,
@@ -39,6 +39,10 @@ ASSET_GENERATION_FAILED_MESSAGE = "Failed to generate content"
 
 def _has_asset_failed(asset: ExportedAsset) -> bool:
     return (not asset.content and not asset.content_location) or asset.exception is not None
+
+
+def _has_asset_timedout(asset: ExportedAsset) -> bool:
+    return not asset.has_content and not asset.exception
 
 
 def _get_failed_asset_info(assets: list[ExportedAsset], resource: Union[Subscription, SharingConfiguration]) -> dict:
@@ -123,7 +127,7 @@ def generate_assets(
         assets = [
             ExportedAsset(
                 team=resource.team,
-                export_format="image/png",
+                export_format=ExportedAsset.ExportFormat.PNG,
                 insight=insight,
                 dashboard=resource.dashboard,
             )
@@ -182,7 +186,7 @@ async def generate_assets_async(
         assets = [
             ExportedAsset(
                 team=resource.team,
-                export_format="image/png",
+                export_format=ExportedAsset.ExportFormat.PNG,
                 insight=insight,
                 dashboard=resource.dashboard,
             )
@@ -258,7 +262,7 @@ async def generate_assets_async(
                 asset.exception_type = type(e).__name__
                 asset.failure_type = failure_type
                 await database_sync_to_async(asset.save, thread_sensitive=False)()
-                EXPORT_FAILED_COUNTER.labels(type=asset.export_type, failure_type=failure_type).inc()
+                EXPORT_FAILED_COUNTER.labels(type=asset.export_format, failure_type=failure_type).inc()
 
         # Reserve buffer time for email/Slack delivery after exports
         buffer_seconds = 120  # 2 minutes
@@ -288,12 +292,10 @@ async def generate_assets_async(
 
             # Mark incomplete assets as timed out
             for asset in assets:
-                if not asset.has_content and not asset.exception:
+                if _has_asset_timedout(asset):
                     asset.failure_type = FAILURE_TYPE_TIMEOUT_GENERATION
                     await database_sync_to_async(asset.save, thread_sensitive=False)(update_fields=["failure_type"])
-                    EXPORT_FAILED_COUNTER.labels(
-                        type=asset.export_type, failure_type=FAILURE_TYPE_TIMEOUT_GENERATION
-                    ).inc()
+                    EXPORT_FAILED_COUNTER.labels(type=asset.export_format, failure_type=asset.failure_type).inc()
 
             # Get failure info for logging
             failure_info = _get_failed_asset_info(assets, resource)

@@ -1,12 +1,5 @@
-"""
-Export Failure Classification
-
-Classifies export failures into categories for observability and alerting.
-"""
-
 from django.db import OperationalError
 
-from prometheus_client import Counter
 from urllib3.exceptions import MaxRetryError, ProtocolError
 
 from posthog.hogql.errors import (
@@ -32,17 +25,10 @@ from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitE
 # =============================================================================
 #
 # failure_type values stored on ExportedAsset:
-#   - "timeout_generation": Export timed out during asset generation (Celery soft
-#     timeout or asyncio timeout in subscriptions)
+#   - "timeout_generation": Export timed out during asset generation
 #   - "user": Errors the user can fix by modifying their query or reducing scope
 #   - "system": Infrastructure/capacity errors that may resolve with retries
 #   - "unknown": Errors needing investigation to properly classify
-#
-# To classify a new error:
-#   1. If it's a timeout during generation -> add to TIMEOUT_ERROR_NAMES
-#   2. If user can fix it (bad query, date range too large) -> add to USER_QUERY_ERRORS
-#   3. If it's transient infrastructure (capacity, network) -> add to EXCEPTIONS_TO_RETRY
-#   4. If uncertain, leave uncategorized and investigate the root cause
 #
 # These tuples are authoritative. Historical rows have best-effort accuracy.
 # =============================================================================
@@ -58,15 +44,15 @@ EXCEPTIONS_TO_RETRY = (
     OperationalError,
     ProtocolError,
     ConcurrencyLimitExceeded,
-    MaxRetryError,
+    MaxRetryError,  # This is from urllib, e.g. HTTP retries instead of "job retries"
     ClickHouseAtCapacity,
 )
 
 USER_QUERY_ERRORS = (
     QueryError,
     HogQLSyntaxError,
-    ClickHouseQueryMemoryLimitExceeded,
-    ClickHouseQueryTimeOut,
+    ClickHouseQueryMemoryLimitExceeded,  # Users should reduce the date range on their query (or materialise)
+    ClickHouseQueryTimeOut,  # Users should switch to materialised queries if they run into this
     CHQueryErrorIllegalTypeOfArgument,
     CHQueryErrorNoCommonType,
     CHQueryErrorNotAnAggregate,
@@ -89,19 +75,8 @@ TIMEOUT_ERROR_NAMES = frozenset(
     ]
 )
 
-# Prometheus counter for export failures
-EXPORT_FAILED_COUNTER = Counter(
-    "exporter_task_failed",
-    "An export task failed",
-    labelnames=["type", "failure_type"],
-)
-
 
 def classify_failure_type(exception: Exception | str) -> str:
-    """Classify an exception into failure_type.
-
-    Pass an Exception or exception class name (str) for classification.
-    """
     exception_type = type(exception).__name__ if isinstance(exception, Exception) else exception
 
     if exception_type:
@@ -115,5 +90,4 @@ def classify_failure_type(exception: Exception | str) -> str:
 
 
 def is_user_query_error_type(exception_type: str | None) -> bool:
-    """Check if an exception type is a user query error."""
     return exception_type in USER_QUERY_ERROR_NAMES
