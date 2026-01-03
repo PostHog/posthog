@@ -1,13 +1,20 @@
-import { SDKKey } from '~/types'
+import { BooleanFlagSnippet } from '@posthog/shared-onboarding/feature-flags/_snippets/boolean-flag'
+import { MultivariateFlagSnippet } from '@posthog/shared-onboarding/feature-flags/_snippets/multivariate-flag'
+import { OverridePropertiesSnippet } from '@posthog/shared-onboarding/feature-flags/_snippets/override-properties'
+import { GoInstallation } from '@posthog/shared-onboarding/feature-flags/go'
 
-import { SDKInstallGoInstructions } from '../sdk-install-instructions'
-import { FlagImplementationSnippet } from './flagImplementationSnippet'
+import { OnboardingDocsContentWrapper } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 export function FeatureFlagsGoInstructions(): JSX.Element {
+    const snippets = {
+        BooleanFlagSnippet,
+        MultivariateFlagSnippet,
+        OverridePropertiesSnippet,
+    }
+
     return (
-        <>
-            <SDKInstallGoInstructions />
-            <FlagImplementationSnippet sdkKey={SDKKey.GO} />
-        </>
+        <OnboardingDocsContentWrapper snippets={snippets}>
+            <GoInstallation />
+        </OnboardingDocsContentWrapper>
     )
 }

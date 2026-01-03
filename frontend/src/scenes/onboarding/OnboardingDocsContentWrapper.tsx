@@ -372,7 +372,7 @@ export function OnboardingDocsContentWrapper({
 
     return (
         <OnboardingContext.Provider value={components}>
-            <div className="max-w-screen-md mx-auto">{children}</div>
+            <div className="w-full">{children}</div>
         </OnboardingContext.Provider>
     )
 }

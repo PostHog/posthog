@@ -1,11 +1,11 @@
-import { SDKKey } from '~/types'
+import { APIInstallation } from '@posthog/shared-onboarding/feature-flags/api'
 
-import { FlagImplementationSnippet } from './flagImplementationSnippet'
+import { OnboardingDocsContentWrapper } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 export function FeatureFlagsAPIInstructions(): JSX.Element {
     return (
-        <>
-            <FlagImplementationSnippet sdkKey={SDKKey.API} />
-        </>
+        <OnboardingDocsContentWrapper>
+            <APIInstallation />
+        </OnboardingDocsContentWrapper>
     )
 }

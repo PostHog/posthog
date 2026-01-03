@@ -1,13 +1,20 @@
-import { SDKKey } from '~/types'
+import { BooleanFlagSnippet } from '@posthog/shared-onboarding/feature-flags/_snippets/boolean-flag'
+import { MultivariateFlagSnippet } from '@posthog/shared-onboarding/feature-flags/_snippets/multivariate-flag'
+import { OverridePropertiesSnippet } from '@posthog/shared-onboarding/feature-flags/_snippets/override-properties'
+import { NodeJSInstallation } from '@posthog/shared-onboarding/feature-flags/nodejs'
 
-import { SDKInstallNodeInstructions } from '../sdk-install-instructions'
-import { FlagImplementationSnippet } from './flagImplementationSnippet'
+import { OnboardingDocsContentWrapper } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 export function FeatureFlagsNodeInstructions(): JSX.Element {
+    const snippets = {
+        BooleanFlagSnippet,
+        MultivariateFlagSnippet,
+        OverridePropertiesSnippet,
+    }
+
     return (
-        <>
-            <SDKInstallNodeInstructions />
-            <FlagImplementationSnippet sdkKey={SDKKey.NODE_JS} />
-        </>
+        <OnboardingDocsContentWrapper snippets={snippets}>
+            <NodeJSInstallation />
+        </OnboardingDocsContentWrapper>
     )
 }

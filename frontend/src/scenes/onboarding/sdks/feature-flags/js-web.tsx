@@ -1,16 +1,24 @@
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { BooleanFlagSnippet } from '@posthog/shared-onboarding/feature-flags/_snippets/boolean-flag'
+import { FlagPayloadSnippet } from '@posthog/shared-onboarding/feature-flags/_snippets/flag-payload'
+import { MultivariateFlagSnippet } from '@posthog/shared-onboarding/feature-flags/_snippets/multivariate-flag'
+import { OnFeatureFlagsCallbackSnippet } from '@posthog/shared-onboarding/feature-flags/_snippets/on-feature-flags-callback'
+import { ReloadFlagsSnippet } from '@posthog/shared-onboarding/feature-flags/_snippets/reload-flags'
+import { JSWebInstallation } from '@posthog/shared-onboarding/feature-flags/js-web'
 
-import { SDKKey } from '~/types'
-
-import { SDKInstallJSWebInstructions } from '../sdk-install-instructions'
-import { FlagImplementationSnippet } from './flagImplementationSnippet'
+import { OnboardingDocsContentWrapper } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 export function FeatureFlagsJSWebInstructions(): JSX.Element {
+    const snippets = {
+        BooleanFlagSnippet,
+        MultivariateFlagSnippet,
+        FlagPayloadSnippet,
+        OnFeatureFlagsCallbackSnippet,
+        ReloadFlagsSnippet,
+    }
+
     return (
-        <>
-            <SDKInstallJSWebInstructions />
-            <LemonDivider thick dashed className="my-4" />
-            <FlagImplementationSnippet sdkKey={SDKKey.JS_WEB} />
-        </>
+        <OnboardingDocsContentWrapper snippets={snippets}>
+            <JSWebInstallation />
+        </OnboardingDocsContentWrapper>
     )
 }
