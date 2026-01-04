@@ -594,12 +594,16 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         pinnedColumns: [
             [] as string[],
             {
+                persist: true,
+                storageKey: `data-visualization-pinned-columns-${props.key}`,
+            },
+            {
                 _setQuery: (state, { node }) => {
                     return node.tableSettings?.pinnedColumns ?? state
                 },
                 toggleColumnPin: (state, { columnName }) => {
                     if (state.includes(columnName)) {
-                        return state.filter((k) => k !== columnName)
+                        return state.filter((k: string) => k !== columnName)
                     }
                     return [...state, columnName]
                 },
