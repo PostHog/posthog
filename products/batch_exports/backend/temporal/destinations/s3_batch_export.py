@@ -137,7 +137,7 @@ def get_s3_key_from_inputs(inputs: S3InsertInputs, file_number: int = 0) -> str:
         file_extension=FILE_FORMAT_EXTENSIONS[inputs.file_format],
         compression_extension=COMPRESSION_EXTENSIONS.get(inputs.compression),
         file_number=file_number,
-        include_file_number=inputs.max_file_size_mb is not None,
+        include_file_number=bool(inputs.max_file_size_mb),
     )
 
 
@@ -306,7 +306,7 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> BatchExp
 
     if inputs.file_format not in FILE_FORMAT_EXTENSIONS:
         raise UnsupportedFileFormatError(inputs.file_format)
-    if inputs.compression is not None and inputs.compression not in COMPRESSION_EXTENSIONS:
+    if inputs.compression is not None and inputs.compression not in SUPPORTED_COMPRESSIONS[inputs.file_format]:
         raise UnsupportedCompressionError(inputs.compression)
 
     external_logger = EXTERNAL_LOGGER.bind()
@@ -700,7 +700,7 @@ class ConcurrentS3Consumer(Consumer):
             file_extension=FILE_FORMAT_EXTENSIONS[self.file_format],
             compression_extension=COMPRESSION_EXTENSIONS.get(self.compression),
             file_number=self.current_file_index,
-            include_file_number=self.max_file_size_mb is not None,
+            include_file_number=bool(self.max_file_size_mb),
         )
 
     async def _start_new_file(self):

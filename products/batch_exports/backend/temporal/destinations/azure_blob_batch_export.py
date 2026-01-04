@@ -187,7 +187,7 @@ class AzureBlobConsumer(Consumer):
             file_extension=FILE_FORMAT_EXTENSIONS[self.file_format],
             compression_extension=COMPRESSION_EXTENSIONS.get(self.compression),
             file_number=self.current_file_index,
-            include_file_number=self.max_file_size_mb is not None,
+            include_file_number=bool(self.max_file_size_mb),
         )
         blob_client = self.container_client.get_blob_client(blob_key)
 
@@ -232,7 +232,7 @@ async def insert_into_azure_blob_activity_from_stage(inputs: AzureBlobInsertInpu
 
     if inputs.file_format not in FILE_FORMAT_EXTENSIONS:
         raise UnsupportedFileFormatError(inputs.file_format)
-    if inputs.compression is not None and inputs.compression not in COMPRESSION_EXTENSIONS:
+    if inputs.compression is not None and inputs.compression not in SUPPORTED_COMPRESSIONS[inputs.file_format]:
         raise UnsupportedCompressionError(inputs.compression)
 
     external_logger = EXTERNAL_LOGGER.bind()
@@ -246,7 +246,7 @@ async def insert_into_azure_blob_activity_from_stage(inputs: AzureBlobInsertInpu
         batch_export_model=inputs.batch_export_model,
         file_extension=FILE_FORMAT_EXTENSIONS[inputs.file_format],
         compression_extension=COMPRESSION_EXTENSIONS.get(inputs.compression),
-        include_file_number=inputs.max_file_size_mb is not None,
+        include_file_number=bool(inputs.max_file_size_mb),
     )
 
     external_logger.info(

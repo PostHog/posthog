@@ -1,9 +1,10 @@
 import pytest
 
-from posthog.batch_exports.service import BatchExportModel
+from posthog.batch_exports.service import BatchExportModel, BatchExportSchema
 
 from products.batch_exports.backend.temporal.destinations.azure_blob_batch_export import SUPPORTED_COMPRESSIONS
 from products.batch_exports.backend.tests.temporal.destinations.azure_blob.utils import (
+    TEST_AZURE_BLOB_MODELS,
     assert_clickhouse_records_in_azure_blob,
     list_blobs,
     run_azure_blob_batch_export_workflow,
@@ -11,15 +12,9 @@ from products.batch_exports.backend.tests.temporal.destinations.azure_blob.utils
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
-TEST_MODELS = [
-    pytest.param(BatchExportModel(name="events", schema=None), id="events-model"),
-    pytest.param(BatchExportModel(name="persons", schema=None), id="persons-model"),
-    pytest.param(BatchExportModel(name="sessions", schema=None), id="sessions-model"),
-]
-
 
 @pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
-@pytest.mark.parametrize("model", TEST_MODELS)
+@pytest.mark.parametrize("model", TEST_AZURE_BLOB_MODELS)
 async def test_workflow_exports_model_successfully(
     ateam,
     azure_batch_export,
@@ -32,11 +27,14 @@ async def test_workflow_exports_model_successfully(
     data_interval_start,
     data_interval_end,
     generate_test_data,
-    model: BatchExportModel,
+    model: BatchExportModel | BatchExportSchema | None,
 ):
     """Test that the workflow exports events, persons, or sessions to Azure Blob Storage."""
     if compression and compression not in SUPPORTED_COMPRESSIONS[file_format]:
         pytest.skip(f"Compression {compression} is not supported for file format {file_format}")
+
+    batch_export_model = model if isinstance(model, BatchExportModel) else None
+    batch_export_schema = model if isinstance(model, dict) else None
 
     run = await run_azure_blob_batch_export_workflow(
         team=ateam,
@@ -48,7 +46,8 @@ async def test_workflow_exports_model_successfully(
         integration_id=azure_batch_export.destination.integration.id,
         file_format=file_format,
         compression=compression,
-        batch_export_model=model,
+        batch_export_model=batch_export_model,
+        batch_export_schema=batch_export_schema,
     )
 
     assert run.status == "Completed"

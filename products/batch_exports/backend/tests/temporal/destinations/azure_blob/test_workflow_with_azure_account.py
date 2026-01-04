@@ -21,11 +21,12 @@ from asgiref.sync import sync_to_async
 from azure.storage.blob.aio import BlobServiceClient
 
 from posthog.batch_exports.models import BatchExport, BatchExportDestination
-from posthog.batch_exports.service import BatchExportModel
+from posthog.batch_exports.service import BatchExportModel, BatchExportSchema
 from posthog.models.integration import Integration
 
 from products.batch_exports.backend.temporal.destinations.azure_blob_batch_export import SUPPORTED_COMPRESSIONS
 from products.batch_exports.backend.tests.temporal.destinations.azure_blob.utils import (
+    TEST_AZURE_BLOB_MODELS,
     assert_clickhouse_records_in_azure_blob,
     run_azure_blob_batch_export_workflow,
 )
@@ -37,12 +38,6 @@ pytestmark = [
         "AZURE_STORAGE_CONNECTION_STRING" not in os.environ or "AZURE_TEST_CONTAINER" not in os.environ,
         reason="Real Azure credentials not set (AZURE_STORAGE_CONNECTION_STRING and AZURE_TEST_CONTAINER required)",
     ),
-]
-
-TEST_MODELS = [
-    BatchExportModel(name="events", schema=None),
-    BatchExportModel(name="persons", schema=None),
-    BatchExportModel(name="sessions", schema=None),
 ]
 
 
@@ -125,7 +120,7 @@ async def azure_batch_export(
 
 
 @pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
-@pytest.mark.parametrize("model", TEST_MODELS)
+@pytest.mark.parametrize("model", TEST_AZURE_BLOB_MODELS)
 @pytest.mark.parametrize("file_format", ["JSONLines"], indirect=True)
 @pytest.mark.parametrize("compression", [None], indirect=True)
 async def test_workflow_exports_data_successfully(
@@ -140,9 +135,12 @@ async def test_workflow_exports_data_successfully(
     data_interval_start,
     data_interval_end,
     generate_test_data,
-    model: BatchExportModel,
+    model: BatchExportModel | BatchExportSchema | None,
 ):
     """Test workflow exports events, persons, or sessions to real Azure Storage."""
+    batch_export_model = model if isinstance(model, BatchExportModel) else None
+    batch_export_schema = model if isinstance(model, dict) else None
+
     run = await run_azure_blob_batch_export_workflow(
         team=ateam,
         batch_export_id=str(azure_batch_export.id),
@@ -153,7 +151,8 @@ async def test_workflow_exports_data_successfully(
         integration_id=azure_batch_export.destination.integration.id,
         file_format=file_format,
         compression=compression,
-        batch_export_model=model,
+        batch_export_model=batch_export_model,
+        batch_export_schema=batch_export_schema,
     )
 
     assert run.status == "Completed"
