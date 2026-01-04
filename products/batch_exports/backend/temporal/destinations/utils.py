@@ -49,6 +49,37 @@ def get_manifest_key(
     return posixpath.join(key_prefix, f"{data_interval_start}-{data_interval_end}_manifest.json")
 
 
+def get_object_key(
+    prefix: str,
+    data_interval_start: str | None,
+    data_interval_end: str,
+    batch_export_model: BatchExportModel | None,
+    file_extension: str,
+    compression_extension: str | None = None,
+    file_number: int = 0,
+    include_file_number: bool = False,
+) -> str:
+    """Generate object storage key for batch export files."""
+    key_prefix = get_key_prefix(prefix, data_interval_start, data_interval_end, batch_export_model)
+
+    base_file_name = f"{data_interval_start}-{data_interval_end}"
+
+    if include_file_number:
+        base_file_name = f"{base_file_name}-{file_number}"
+
+    if compression_extension is not None:
+        file_name = f"{base_file_name}.{file_extension}.{compression_extension}"
+    else:
+        file_name = f"{base_file_name}.{file_extension}"
+
+    key = posixpath.join(key_prefix, file_name)
+
+    if posixpath.isabs(key):
+        key = posixpath.relpath(key, "/")
+
+    return key
+
+
 def get_query_timeout(data_interval_start: dt.datetime | None, data_interval_end: dt.datetime) -> float:
     """Get the timeout to use for long running queries.
 

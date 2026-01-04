@@ -1,6 +1,5 @@
 import json
 import datetime as dt
-import posixpath
 import dataclasses
 
 from django.conf import settings
@@ -23,7 +22,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
     get_data_interval,
     start_batch_export_run,
 )
-from products.batch_exports.backend.temporal.destinations.utils import EXTERNAL_LOGGER, get_key_prefix, get_manifest_key
+from products.batch_exports.backend.temporal.destinations.utils import EXTERNAL_LOGGER, get_manifest_key, get_object_key
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer as ProducerFromInternalStage
@@ -86,45 +85,6 @@ class AzureBlobInsertInputs(BatchExportInsertInputs):
     compression: str | None = None
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
-
-
-def get_blob_key(
-    prefix: str,
-    data_interval_start: str | None,
-    data_interval_end: str,
-    batch_export_model: BatchExportModel | None,
-    file_format: str,
-    compression: str | None = None,
-    file_number: int = 0,
-    is_splitting: bool = False,
-) -> str:
-    key_prefix = get_key_prefix(prefix, data_interval_start, data_interval_end, batch_export_model)
-
-    try:
-        file_extension = FILE_FORMAT_EXTENSIONS[file_format]
-    except KeyError:
-        raise UnsupportedFileFormatError(file_format)
-
-    base_file_name = f"{data_interval_start}-{data_interval_end}"
-
-    if is_splitting:
-        base_file_name = f"{base_file_name}-{file_number}"
-
-    if compression is not None:
-        try:
-            compression_extension = COMPRESSION_EXTENSIONS[compression]
-        except KeyError:
-            raise UnsupportedCompressionError(compression)
-        file_name = base_file_name + f".{file_extension}.{compression_extension}"
-    else:
-        file_name = base_file_name + f".{file_extension}"
-
-    key = posixpath.join(key_prefix, file_name)
-
-    if posixpath.isabs(key):
-        key = posixpath.relpath(key, "/")
-
-    return key
 
 
 async def _get_azure_blob_integration(integration_id: int, team_id: int) -> AzureBlobIntegration:
@@ -199,18 +159,6 @@ class AzureBlobConsumer(Consumer):
             max_concurrency=max_concurrency,
         )
 
-    def _get_current_blob_key(self) -> str:
-        return get_blob_key(
-            prefix=self.prefix,
-            data_interval_start=self.data_interval_start,
-            data_interval_end=self.data_interval_end,
-            batch_export_model=self.batch_export_model,
-            file_format=self.file_format,
-            compression=self.compression,
-            file_number=self.current_file_index,
-            is_splitting=self.max_file_size_mb is not None,
-        )
-
     async def consume_chunk(self, data: bytes):
         self.current_buffer.extend(data)
 
@@ -231,7 +179,16 @@ class AzureBlobConsumer(Consumer):
         if not self.current_buffer:
             return
 
-        blob_key = self._get_current_blob_key()
+        blob_key = get_object_key(
+            prefix=self.prefix,
+            data_interval_start=self.data_interval_start,
+            data_interval_end=self.data_interval_end,
+            batch_export_model=self.batch_export_model,
+            file_extension=FILE_FORMAT_EXTENSIONS[self.file_format],
+            compression_extension=COMPRESSION_EXTENSIONS.get(self.compression),
+            file_number=self.current_file_index,
+            include_file_number=self.max_file_size_mb is not None,
+        )
         blob_client = self.container_client.get_blob_client(blob_key)
 
         self.logger.debug("Blob upload started", blob_key=blob_key, size_bytes=len(self.current_buffer))
@@ -272,18 +229,24 @@ async def insert_into_azure_blob_activity_from_stage(inputs: AzureBlobInsertInpu
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
     )
+
+    if inputs.file_format not in FILE_FORMAT_EXTENSIONS:
+        raise UnsupportedFileFormatError(inputs.file_format)
+    if inputs.compression is not None and inputs.compression not in COMPRESSION_EXTENSIONS:
+        raise UnsupportedCompressionError(inputs.compression)
+
     external_logger = EXTERNAL_LOGGER.bind()
 
     azure_integration = await _get_azure_blob_integration(inputs.integration_id, inputs.team_id)
 
-    blob_key = get_blob_key(
+    blob_key = get_object_key(
         prefix=inputs.prefix,
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
         batch_export_model=inputs.batch_export_model,
-        file_format=inputs.file_format,
-        compression=inputs.compression,
-        is_splitting=inputs.max_file_size_mb is not None,
+        file_extension=FILE_FORMAT_EXTENSIONS[inputs.file_format],
+        compression_extension=COMPRESSION_EXTENSIONS.get(inputs.compression),
+        include_file_number=inputs.max_file_size_mb is not None,
     )
 
     external_logger.info(

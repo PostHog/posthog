@@ -219,3 +219,59 @@ async def test_activity_creates_multiple_files_when_splitting(
         compression=compression,
         file_format=file_format,
     )
+
+
+async def test_activity_fails_on_invalid_file_format(
+    activity_environment: ActivityEnvironment,
+    ateam,
+    azure_integration,
+    container_name,
+    blob_prefix,
+):
+    """Test that activity returns error when an invalid file format is requested."""
+    inputs = AzureBlobInsertInputs(
+        team_id=ateam.pk,
+        batch_export_id=str(uuid.uuid4()),
+        container_name=container_name,
+        prefix=blob_prefix,
+        data_interval_start="2024-01-01T00:00:00+00:00",
+        data_interval_end="2024-01-01T01:00:00+00:00",
+        file_format="invalid",
+        compression=None,
+        integration_id=azure_integration.id,
+        destination_default_fields=azure_blob_default_fields(),
+    )
+
+    result = await run_activity(activity_environment, inputs)
+
+    assert result.error is not None
+    assert result.error.type == "UnsupportedFileFormatError"
+    assert "'invalid'" in result.error.message
+
+
+async def test_activity_fails_on_invalid_compression(
+    activity_environment: ActivityEnvironment,
+    ateam,
+    azure_integration,
+    container_name,
+    blob_prefix,
+):
+    """Test that activity returns error when an invalid compression is requested."""
+    inputs = AzureBlobInsertInputs(
+        team_id=ateam.pk,
+        batch_export_id=str(uuid.uuid4()),
+        container_name=container_name,
+        prefix=blob_prefix,
+        data_interval_start="2024-01-01T00:00:00+00:00",
+        data_interval_end="2024-01-01T01:00:00+00:00",
+        file_format="JSONLines",
+        compression="invalid",
+        integration_id=azure_integration.id,
+        destination_default_fields=azure_blob_default_fields(),
+    )
+
+    result = await run_activity(activity_environment, inputs)
+
+    assert result.error is not None
+    assert result.error.type == "UnsupportedCompressionError"
+    assert "'invalid'" in result.error.message

@@ -2,7 +2,6 @@ import json
 import typing
 import asyncio
 import datetime as dt
-import posixpath
 import dataclasses
 
 import pyarrow as pa
@@ -38,7 +37,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
     get_data_interval,
     start_batch_export_run,
 )
-from products.batch_exports.backend.temporal.destinations.utils import get_key_prefix, get_manifest_key
+from products.batch_exports.backend.temporal.destinations.utils import get_manifest_key, get_object_key
 from products.batch_exports.backend.temporal.metrics import ExecutionTimeRecorder
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
@@ -66,6 +65,8 @@ NON_RETRYABLE_ERROR_TYPES = (
     "InvalidS3EndpointError",
     # Invalid file_format input
     "UnsupportedFileFormatError",
+    # Invalid compression input
+    "UnsupportedCompressionError",
 )
 
 FILE_FORMAT_EXTENSIONS = {
@@ -97,6 +98,13 @@ class UnsupportedFileFormatError(Exception):
         super().__init__(f"'{file_format}' is not a supported format for S3 batch exports.")
 
 
+class UnsupportedCompressionError(Exception):
+    """Raised when an unsupported compression is requested."""
+
+    def __init__(self, compression: str):
+        super().__init__(f"'{compression}' is not a supported compression for S3 batch exports.")
+
+
 @dataclasses.dataclass(kw_only=True)
 class S3InsertInputs(BatchExportInsertInputs):
     """Inputs for S3 exports."""
@@ -120,53 +128,16 @@ class S3InsertInputs(BatchExportInsertInputs):
     use_virtual_style_addressing: bool = False
 
 
-def get_s3_key(
-    prefix: str,
-    data_interval_start: str | None,
-    data_interval_end: str,
-    batch_export_model: BatchExportModel | None,
-    file_format: str,
-    compression: str | None = None,
-    file_number: int = 0,
-    use_new_file_naming_scheme: bool = True,
-) -> str:
-    """Return an S3 key given S3InsertInputs."""
-    key_prefix = get_key_prefix(prefix, data_interval_start, data_interval_end, batch_export_model)
-
-    try:
-        file_extension = FILE_FORMAT_EXTENSIONS[file_format]
-    except KeyError:
-        raise UnsupportedFileFormatError(file_format)
-
-    base_file_name = f"{data_interval_start}-{data_interval_end}"
-
-    if use_new_file_naming_scheme:
-        base_file_name = f"{base_file_name}-{file_number}"
-
-    if compression is not None:
-        file_name = base_file_name + f".{file_extension}.{COMPRESSION_EXTENSIONS[compression]}"
-    else:
-        file_name = base_file_name + f".{file_extension}"
-
-    key = posixpath.join(key_prefix, file_name)
-
-    if posixpath.isabs(key):
-        # Keys are relative to root dir, so this would add an extra "/"
-        key = posixpath.relpath(key, "/")
-
-    return key
-
-
 def get_s3_key_from_inputs(inputs: S3InsertInputs, file_number: int = 0) -> str:
-    return get_s3_key(
-        inputs.prefix,
-        inputs.data_interval_start,
-        inputs.data_interval_end,
-        inputs.batch_export_model,
-        inputs.file_format,
-        inputs.compression,
-        file_number,
-        use_new_file_naming_scheme=inputs.max_file_size_mb is not None,
+    return get_object_key(
+        prefix=inputs.prefix,
+        data_interval_start=inputs.data_interval_start,
+        data_interval_end=inputs.data_interval_end,
+        batch_export_model=inputs.batch_export_model,
+        file_extension=FILE_FORMAT_EXTENSIONS[inputs.file_format],
+        compression_extension=COMPRESSION_EXTENSIONS.get(inputs.compression),
+        file_number=file_number,
+        include_file_number=inputs.max_file_size_mb is not None,
     )
 
 
@@ -332,6 +303,12 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> BatchExp
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
     )
+
+    if inputs.file_format not in FILE_FORMAT_EXTENSIONS:
+        raise UnsupportedFileFormatError(inputs.file_format)
+    if inputs.compression is not None and inputs.compression not in COMPRESSION_EXTENSIONS:
+        raise UnsupportedCompressionError(inputs.compression)
+
     external_logger = EXTERNAL_LOGGER.bind()
 
     external_logger.info(
@@ -715,15 +692,15 @@ class ConcurrentS3Consumer(Consumer):
 
     def _get_current_key(self) -> str:
         """Generate the key for the current file"""
-        return get_s3_key(
-            self.prefix,
-            self.data_interval_start,
-            self.data_interval_end,
-            self.batch_export_model,
-            self.file_format,
-            self.compression,
-            self.current_file_index,
-            use_new_file_naming_scheme=self.max_file_size_mb is not None,
+        return get_object_key(
+            prefix=self.prefix,
+            data_interval_start=self.data_interval_start,
+            data_interval_end=self.data_interval_end,
+            batch_export_model=self.batch_export_model,
+            file_extension=FILE_FORMAT_EXTENSIONS[self.file_format],
+            compression_extension=COMPRESSION_EXTENSIONS.get(self.compression),
+            file_number=self.current_file_index,
+            include_file_number=self.max_file_size_mb is not None,
         )
 
     async def _start_new_file(self):

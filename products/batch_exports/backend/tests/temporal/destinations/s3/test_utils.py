@@ -1,6 +1,11 @@
 import pytest
 
-from products.batch_exports.backend.temporal.destinations.s3_batch_export import S3InsertInputs, get_s3_key
+from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
+    COMPRESSION_EXTENSIONS,
+    FILE_FORMAT_EXTENSIONS,
+    S3InsertInputs,
+)
+from products.batch_exports.backend.temporal.destinations.utils import get_object_key
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -215,15 +220,15 @@ base_inputs = {"bucket_name": "test", "region": "test", "team_id": 1}
         ),
     ],
 )
-def test_get_s3_key(inputs, expected):
-    """Test the get_s3_key function renders the expected S3 key given inputs."""
-    result = get_s3_key(
-        inputs.prefix,
-        inputs.data_interval_start,
-        inputs.data_interval_end,
-        inputs.batch_export_model,
-        inputs.file_format,
-        inputs.compression,
-        use_new_file_naming_scheme=inputs.max_file_size_mb is not None,
+def test_get_object_key(inputs, expected):
+    """Test the get_object_key function renders the expected key given inputs."""
+    result = get_object_key(
+        prefix=inputs.prefix,
+        data_interval_start=inputs.data_interval_start,
+        data_interval_end=inputs.data_interval_end,
+        batch_export_model=inputs.batch_export_model,
+        file_extension=FILE_FORMAT_EXTENSIONS[inputs.file_format],
+        compression_extension=COMPRESSION_EXTENSIONS.get(inputs.compression),
+        include_file_number=inputs.max_file_size_mb is not None,
     )
     assert result == expected
