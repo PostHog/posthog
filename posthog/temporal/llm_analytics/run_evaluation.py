@@ -54,6 +54,43 @@ class BooleanWithNAEvalResult(BaseModel):
 
 
 @dataclass
+class OutputTypeConfig:
+    """Configuration for each evaluation output type"""
+
+    response_format: type[BooleanEvalResult] | type[BooleanWithNAEvalResult]
+    instructions: str
+
+
+OUTPUT_TYPE_CONFIGS: dict[str, OutputTypeConfig] = {
+    "boolean": OutputTypeConfig(
+        response_format=BooleanEvalResult,
+        instructions="Provide a brief reasoning (1 sentence) and a boolean verdict (true/false).",
+    ),
+    "boolean_with_na": OutputTypeConfig(
+        response_format=BooleanWithNAEvalResult,
+        instructions="""First, determine if this evaluation criteria is applicable to the given input/output. If the criteria doesn't apply to this case mark it as not applicable.
+
+Note: If the criteria above instructs you to return "N/A", "not applicable", or similar, treat that as applicable=false with verdict=null.
+
+Return:
+- applicable: true if the criteria applies to this input/output, false if it doesn't apply
+- verdict: true if it passes, false if it fails, or null if not applicable
+- reasoning: a brief explanation (1 sentence)""",
+    ),
+}
+
+
+def build_system_prompt(prompt: str, output_type: str) -> str:
+    """Build the system prompt for the LLM judge."""
+    config = OUTPUT_TYPE_CONFIGS.get(output_type, OUTPUT_TYPE_CONFIGS["boolean"])
+    return f"""You are an evaluator. Evaluate the following generation according to this criteria:
+
+{prompt}
+
+{config.instructions}"""
+
+
+@dataclass
 class RunEvaluationInputs:
     evaluation_id: str
     event_data: dict[str, Any]
@@ -221,28 +258,9 @@ async def execute_llm_judge_activity(evaluation: dict[str, Any], event_data: dic
     output_data = extract_text_from_messages(output_raw)
 
     # Build judge prompt based on output type
-    response_format: type[BooleanEvalResult] | type[BooleanWithNAEvalResult]
-    if output_type == "boolean_with_na":
-        system_prompt = f"""You are an evaluator. Evaluate the following generation according to this criteria:
-
-{prompt}
-
-First, determine if this evaluation criteria is applicable to the given input/output. If the criteria doesn't apply to this case (e.g., checking for mathematical accuracy on a greeting, or evaluating a skill that wasn't exercised), mark it as not applicable.
-
-Note: If the criteria above instructs you to return "N/A", "not applicable", or similar, treat that as applicable=false with verdict=null.
-
-Return:
-- applicable: true if the criteria applies to this input/output, false if it doesn't apply
-- verdict: true if it passes, false if it fails, or null if not applicable
-- reasoning: a brief explanation (1 sentence)"""
-        response_format = BooleanWithNAEvalResult
-    else:
-        system_prompt = f"""You are an evaluator. Evaluate the following generation according to this criteria:
-
-{prompt}
-
-Provide a brief reasoning (1 sentence) and a boolean verdict (true/false)."""
-        response_format = BooleanEvalResult
+    output_config = OUTPUT_TYPE_CONFIGS.get(output_type, OUTPUT_TYPE_CONFIGS["boolean"])
+    system_prompt = build_system_prompt(prompt, output_type)
+    response_format = output_config.response_format
 
     user_prompt = f"""Input: {input_data}
 
