@@ -155,6 +155,7 @@ services:
             CDP_REDIS_PORT: 6379
             LOGS_REDIS_HOST: redis7
             LOGS_REDIS_PORT: 6379
+            LOGS_REDIS_TLS: 'false'
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
             CYCLOTRON_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             PERSONS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'

@@ -136,8 +136,9 @@ export class SessionRecordingIngester {
                 ? {
                       url: hub.POSTHOG_SESSION_RECORDING_REDIS_HOST,
                       options: { port: hub.POSTHOG_SESSION_RECORDING_REDIS_PORT ?? 6379 },
+                      name: 'session-recording-redis',
                   }
-                : { url: hub.REDIS_URL },
+                : { url: hub.REDIS_URL, name: 'session-recording-redis-fallback' },
             poolMinSize: this.hub.REDIS_POOL_MIN_SIZE,
             poolMaxSize: this.hub.REDIS_POOL_MAX_SIZE,
         })
