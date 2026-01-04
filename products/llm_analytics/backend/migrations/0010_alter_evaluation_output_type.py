@@ -13,7 +13,7 @@ class Migration(migrations.Migration):
             model_name="evaluation",
             name="output_type",
             field=models.CharField(
-                choices=[("boolean", "Boolean (Pass/Fail)"), ("boolean_with_na", "Boolean with NA (Pass/Fail/NA)")],
+                choices=[("boolean", "Boolean (True/False)"), ("boolean_with_na", "Boolean with NA (True/False/NA)")],
                 max_length=50,
             ),
         ),

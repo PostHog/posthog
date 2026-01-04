@@ -12,8 +12,8 @@ class EvaluationType(models.TextChoices):
 class OutputType(models.TextChoices):
     """What type of result is expected"""
 
-    BOOLEAN = "boolean", "Boolean (Pass/Fail)"
-    BOOLEAN_WITH_NA = "boolean_with_na", "Boolean with NA (Pass/Fail/NA)"
+    BOOLEAN = "boolean", "Boolean (True/False)"
+    BOOLEAN_WITH_NA = "boolean_with_na", "Boolean with NA (True/False/NA)"
 
 
 class LLMJudgeConfig(BaseModel):

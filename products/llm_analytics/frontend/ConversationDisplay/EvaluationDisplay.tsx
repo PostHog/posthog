@@ -32,13 +32,13 @@ export function EvaluationDisplay({ eventProperties }: { eventProperties: EventT
         if (isPass) {
             return (
                 <LemonTag type="success" icon={<IconCheck />}>
-                    Pass
+                    True
                 </LemonTag>
             )
         }
         return (
             <LemonTag type="danger" icon={<IconX />}>
-                Fail
+                False
             </LemonTag>
         )
     }

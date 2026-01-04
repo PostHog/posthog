@@ -160,22 +160,22 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                     options={[
                                         {
                                             value: 'boolean',
-                                            label: 'Pass/Fail',
+                                            label: 'True/False',
                                             labelInMenu: (
                                                 <div>
-                                                    <div className="font-medium">Pass/Fail</div>
+                                                    <div className="font-medium">True/False</div>
                                                     <div className="text-muted text-xs">
-                                                        Evaluation returns true (pass) or false (fail)
+                                                        Evaluation returns true or false
                                                     </div>
                                                 </div>
                                             ),
                                         },
                                         {
                                             value: 'boolean_with_na',
-                                            label: 'Pass/Fail/NA',
+                                            label: 'True/False/NA',
                                             labelInMenu: (
                                                 <div>
-                                                    <div className="font-medium">Pass/Fail/NA</div>
+                                                    <div className="font-medium">True/False/NA</div>
                                                     <div className="text-muted text-xs">
                                                         Evaluation can also return "Not Applicable" when criteria
                                                         doesn't apply
