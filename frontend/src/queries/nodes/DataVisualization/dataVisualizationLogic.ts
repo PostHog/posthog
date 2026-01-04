@@ -16,6 +16,7 @@ import mergeObject from 'lodash.merge'
 
 import { dayjs } from 'lib/dayjs'
 import { RGBToHex, lightenDarkenColor, objectsEqual, uuid } from 'lib/utils'
+import { insightsApi } from 'scenes/insights/utils/api'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -32,7 +33,7 @@ import {
     HogQLVariable,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { ChartDisplayType, DashboardType } from '~/types'
+import { ChartDisplayType, DashboardType, InsightShortId } from '~/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { QueryFeature, getQueryFeatures } from '../DataTable/queryFeatures'
@@ -87,6 +88,8 @@ export interface DataVisualizationLogicProps {
     loadPriority?: number
     /** Dashboard variables to override the ones in the query */
     variablesOverride?: Record<string, HogQLVariable> | null
+    /** Short ID of the insight if this is a saved insight used for auto-saving settings for pinned columns */
+    insightId?: InsightShortId
 }
 
 export interface SelectedYAxis {
@@ -592,7 +595,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             },
         ],
         pinnedColumns: [
-            [] as string[],
+            props.query.tableSettings?.pinnedColumns ?? [],
             {
                 _setQuery: (state, { node }) => {
                     return node.tableSettings?.pinnedColumns ?? state
@@ -882,7 +885,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 },
         ],
     }),
-    sharedListeners(({ values, actions }) => ({
+    sharedListeners(({ props, values, actions }) => ({
         axesChanged: () => {
             const yColumns =
                 values.selectedYAxis?.filter((n: SelectedYAxis | null): n is SelectedYAxis => Boolean(n)) ?? []
@@ -916,14 +919,21 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 },
             }))
         },
-        pinnedColumnsChanged: () => {
-            actions.setQuery((query) => ({
-                ...query,
+        pinnedColumnsChanged: async () => {
+            const newQuery = {
+                ...values.query,
                 tableSettings: {
-                    ...query.tableSettings,
+                    ...values.query.tableSettings,
                     pinnedColumns: values.pinnedColumns,
                 },
-            }))
+            }
+
+            actions.setQuery(() => newQuery)
+
+            // Auto-save if this is a saved insight
+            if (props.insightId) {
+                await insightsApi.updateByShortId(props.insightId, { query: newQuery })
+            }
         },
     })),
     listeners(({ props, actions, sharedListeners }) => ({

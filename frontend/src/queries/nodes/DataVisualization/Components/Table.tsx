@@ -42,6 +42,7 @@ export const Table = (props: TableProps): JSX.Element => {
         response,
         pinnedColumns,
         isColumnPinned,
+        showEditingUI,
     } = useValues(dataVisualizationLogic)
     const { toggleColumnPin } = useActions(dataVisualizationLogic)
 
@@ -54,7 +55,7 @@ export const Table = (props: TableProps): JSX.Element => {
             return {
                 ...columnMeta,
                 key: column.name,
-                title: (
+                title: showEditingUI ? (
                     <div className="flex items-center gap-1">
                         <span>{columnTitle}</span>
                         <Tooltip title={isColumnPinned(column.name) ? 'Unpin column' : 'Pin column'}>
@@ -73,6 +74,8 @@ export const Table = (props: TableProps): JSX.Element => {
                             </span>
                         </Tooltip>
                     </div>
+                ) : (
+                    columnTitle
                 ),
                 render: (_, data, recordIndex: number, rowCount: number) => {
                     return renderColumn(column.name, data[index].formattedValue, data, recordIndex, rowCount, {

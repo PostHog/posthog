@@ -54,4 +54,14 @@ export const insightsApi = {
     async duplicate(insight: QueryBasedInsightModel): Promise<QueryBasedInsightModel> {
         return this.create({ ...insight, name: insight.name ? `${insight.name} (copy)` : insight.name })
     },
+    async updateByShortId(
+        shortId: InsightShortId,
+        insightUpdate: Partial<QueryBasedInsightModel>
+    ): Promise<QueryBasedInsightModel | null> {
+        const insight = await this.getByShortId(shortId, true)
+        if (!insight) {
+            return null
+        }
+        return this.update(insight.id, insightUpdate)
+    },
 }

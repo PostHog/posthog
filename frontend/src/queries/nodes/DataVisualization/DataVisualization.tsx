@@ -24,7 +24,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { shouldQueryBeAsync } from '~/queries/utils'
-import { ChartDisplayType, ExportContext, ExporterFormat, InsightLogicProps } from '~/types'
+import { ChartDisplayType, ExportContext, ExporterFormat, InsightLogicProps, InsightShortId } from '~/types'
 
 import { DateRange } from '../DataNode/DateRange'
 import { ElapsedTime } from '../DataNode/ElapsedTime'
@@ -82,6 +82,14 @@ export function DataTableVisualization({
 
     const vizKey = insightVizDataNodeKey(insightProps)
     const dataNodeCollectionId = insightVizDataCollectionId(insightProps, key)
+
+    // Extract insight ID for auto-saving if this is a saved insight
+    const dashboardItemId = insightProps.dashboardItemId
+    const insightId: InsightShortId | undefined =
+        dashboardItemId && dashboardItemId !== 'new' && !dashboardItemId.startsWith('new-')
+            ? (dashboardItemId as InsightShortId)
+            : undefined
+
     const dataVisualizationLogicProps: DataVisualizationLogicProps = {
         key: vizKey,
         query,
@@ -94,6 +102,7 @@ export function DataTableVisualization({
         },
         cachedResults,
         variablesOverride,
+        insightId,
     }
 
     const dataNodeLogicProps: DataNodeLogicProps = {
