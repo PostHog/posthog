@@ -51,6 +51,7 @@
 
 .DataVisualizationTable {
     th {
+        max-width: 15rem;
         overflow: visible;
         text-overflow: clip;
         white-space: normal;
@@ -70,9 +71,8 @@
         }
     }
 
-    td,
-    th {
-        max-width: 20rem;
+    td {
+        max-width: 15rem;
         white-space: nowrap;
     }
 }

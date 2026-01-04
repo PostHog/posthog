@@ -61,6 +61,7 @@ export const Table = (props: TableProps): JSX.Element => {
         response,
         pinnedColumns,
         isColumnPinned,
+        isPinningEnabled,
     } = useValues(dataVisualizationLogic)
     const { toggleColumnPin } = useActions(dataVisualizationLogic)
 
@@ -78,21 +79,23 @@ export const Table = (props: TableProps): JSX.Element => {
                 title: (
                     <div className="flex items-center gap-1">
                         <span>{formattedTitle}</span>
-                        <Tooltip title={isColumnPinned(column.name) ? 'Unpin column' : 'Pin column'}>
-                            <span
-                                className="inline-flex items-center justify-center cursor-pointer p-1 -m-1"
-                                onClick={(e) => {
-                                    e.stopPropagation()
-                                    toggleColumnPin(column.name)
-                                }}
-                            >
-                                {isColumnPinned(column.name) ? (
-                                    <IconPinFilled className="text-sm" />
-                                ) : (
-                                    <IconPin className="text-sm" />
-                                )}
-                            </span>
-                        </Tooltip>
+                        {isPinningEnabled && (
+                            <Tooltip title={isColumnPinned(column.name) ? 'Unpin column' : 'Pin column'}>
+                                <span
+                                    className="inline-flex items-center justify-center cursor-pointer p-1 -m-1"
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        toggleColumnPin(column.name)
+                                    }}
+                                >
+                                    {isColumnPinned(column.name) ? (
+                                        <IconPinFilled className="text-sm" />
+                                    ) : (
+                                        <IconPin className="text-sm" />
+                                    )}
+                                </span>
+                            </Tooltip>
+                        )}
                     </div>
                 ),
                 render: (_, data, recordIndex: number, rowCount: number) => {
@@ -167,7 +170,7 @@ export const Table = (props: TableProps): JSX.Element => {
             className="DataVisualizationTable"
             dataSource={tabularData}
             columns={tableColumns}
-            pinnedColumns={pinnedColumns}
+            pinnedColumns={isPinningEnabled ? pinnedColumns : undefined}
             loading={responseLoading}
             pagination={{ pageSize: DEFAULT_PAGE_SIZE }}
             maxHeaderWidth="20rem"

@@ -595,7 +595,9 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             [] as string[],
             {
                 persist: true,
-                storageKey: `data-visualization-pinned-columns-${props.key}`,
+                // strips the dashboard suffix from the key so pinned columns persist across
+                // dashboard and insight views
+                storageKey: `data-visualization-pinned-columns-${props.key.split('/on-dashboard-')[0]}`,
             },
             {
                 _setQuery: (state, { node }) => {
@@ -884,6 +886,13 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 (columnName: string): boolean => {
                     return pinnedColumns.includes(columnName)
                 },
+        ],
+        isPinningEnabled: [
+            (s) => [s.activeSceneId],
+            (activeSceneId: Scene | null): boolean => {
+                // disable column pinning in sql editor
+                return activeSceneId !== Scene.SQLEditor
+            },
         ],
     }),
     sharedListeners(({ values, actions }) => ({
