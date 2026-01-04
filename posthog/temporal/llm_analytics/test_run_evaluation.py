@@ -354,3 +354,8 @@ class TestEvalResultModels:
         assert result.reasoning == "Not applicable"
         assert result.applicable is False
         assert result.verdict is None
+
+    def test_boolean_with_na_eval_result_rejects_verdict_when_not_applicable(self):
+        """Test that verdict must be null when applicable is false"""
+        with pytest.raises(ValueError, match="verdict must be null when applicable is false"):
+            BooleanWithNAEvalResult(reasoning="Not applicable", applicable=False, verdict=True)

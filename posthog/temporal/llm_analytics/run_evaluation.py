@@ -47,9 +47,11 @@ class BooleanWithNAEvalResult(BaseModel):
     verdict: bool | None = None
 
     @model_validator(mode="after")
-    def verdict_required_when_applicable(self) -> "BooleanWithNAEvalResult":
+    def validate_verdict_consistency(self) -> "BooleanWithNAEvalResult":
         if self.applicable and self.verdict is None:
             raise ValueError("verdict is required when applicable is true")
+        if not self.applicable and self.verdict is not None:
+            raise ValueError("verdict must be null when applicable is false")
         return self
 
 
