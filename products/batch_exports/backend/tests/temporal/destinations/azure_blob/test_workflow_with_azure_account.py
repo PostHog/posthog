@@ -12,6 +12,7 @@ Example:
 
 import os
 import uuid
+import logging
 
 import pytest
 
@@ -64,11 +65,13 @@ async def azure_container(container_name: str, blob_prefix: str):
     client = BlobServiceClient.from_connection_string(connection_string)
     container_client = client.get_container_client(container_name)
 
-    try:
-        yield container_client
+    yield container_client
 
+    try:
         async for blob in container_client.list_blobs(name_starts_with=blob_prefix):
             await container_client.delete_blob(blob.name)
+    except Exception as e:
+        logging.warning("Failed to cleanup Azure container blobs with prefix %s: %s", blob_prefix, e)
     finally:
         await client.close()
 
