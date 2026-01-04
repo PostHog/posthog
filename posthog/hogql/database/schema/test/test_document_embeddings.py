@@ -79,3 +79,20 @@ class TestDocumentEmbeddingsOrderByPushdown(BaseTest):
 
         assert inner_query.order_by is None, "ORDER BY should not be pushed for non-distance functions"
         assert inner_query.limit is None
+
+    def test_mixed_order_by_only_pushes_distance_expressions(self):
+        """When ORDER BY has both distance and non-distance expressions, only distance expressions are pushed down."""
+        query = """
+            SELECT cosineDistance(embedding, [1.0, 2.0, 3.0]) AS dist, timestamp
+            FROM document_embeddings
+            WHERE model_name = 'text-embedding-3-large-3072'
+            ORDER BY dist ASC, timestamp DESC
+            LIMIT 10
+        """
+        inner_query = self._get_inner_query(query)
+
+        assert inner_query.order_by is not None, "Distance ORDER BY should be pushed down"
+        assert len(inner_query.order_by) == 1, "Only distance ORDER BY should be pushed, not timestamp"
+        assert inner_query.limit is not None
+        assert isinstance(inner_query.limit, ast.Constant)
+        assert inner_query.limit.value == 10

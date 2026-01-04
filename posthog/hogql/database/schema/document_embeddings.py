@@ -190,14 +190,20 @@ class DocumentEmbeddingsTable(LazyTable):
     ) -> tuple[list[ast.OrderExpr] | None, ast.Expr | None]:
         if not node or not node.order_by or not node.limit:
             return None, None
-        if not any(is_vector_distance_order_by(order_expr, node) for order_expr in node.order_by):
+
+        # Only push down ORDER BY expressions that involve vector distance functions.
+        # Non-distance expressions (e.g., ORDER BY timestamp) are left for the outer query,
+        # as they may reference aliases or computed values not available in the inner query.
+        rewriter = FieldReferenceRewriter("document_embeddings", table_name)
+        inner_order_by = []
+        for o in node.order_by:
+            if is_vector_distance_order_by(o, node):
+                resolved_expr = resolve_order_by_alias(o, node) or o.expr
+                inner_order_by.append(ast.OrderExpr(expr=rewriter.visit(resolved_expr), order=o.order))
+
+        if not inner_order_by:
             return None, None
 
-        rewriter = FieldReferenceRewriter("document_embeddings", table_name)
-        inner_order_by = [
-            ast.OrderExpr(expr=rewriter.visit(resolve_order_by_alias(o, node) or o.expr), order=o.order)
-            for o in node.order_by
-        ]
         inner_limit = CloningVisitor(clear_locations=True).visit(node.limit)
         return inner_order_by, inner_limit
 
