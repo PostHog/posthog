@@ -173,7 +173,7 @@ export const Table = (props: TableProps): JSX.Element => {
             pinnedColumns={isPinningEnabled ? pinnedColumns : undefined}
             loading={responseLoading}
             pagination={{ pageSize: DEFAULT_PAGE_SIZE }}
-            maxHeaderWidth="20rem"
+            maxHeaderWidth="15rem"
             emptyState={
                 responseError ? (
                     <InsightErrorState
