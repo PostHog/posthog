@@ -38,6 +38,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
     get_data_interval,
     start_batch_export_run,
 )
+from products.batch_exports.backend.temporal.destinations.utils import get_key_prefix, get_manifest_key
 from products.batch_exports.backend.temporal.metrics import ExecutionTimeRecorder
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
@@ -119,39 +120,6 @@ class S3InsertInputs(BatchExportInsertInputs):
     use_virtual_style_addressing: bool = False
 
 
-def get_allowed_template_variables(
-    data_interval_start: str | None, data_interval_end: str, batch_export_model: BatchExportModel | None
-) -> dict[str, str]:
-    """Derive from inputs a dictionary of supported template variables for the S3 key prefix."""
-    export_datetime = dt.datetime.fromisoformat(data_interval_end)
-
-    return {
-        "second": f"{export_datetime:%S}",
-        "minute": f"{export_datetime:%M}",
-        "hour": f"{export_datetime:%H}",
-        "day": f"{export_datetime:%d}",
-        "month": f"{export_datetime:%m}",
-        "year": f"{export_datetime:%Y}",
-        "data_interval_start": data_interval_start or "START",
-        "data_interval_end": data_interval_end,
-        "table": batch_export_model.name if batch_export_model is not None else "events",
-    }
-
-
-def get_s3_key_prefix(
-    prefix: str, data_interval_start: str | None, data_interval_end: str, batch_export_model: BatchExportModel | None
-) -> str:
-    template_variables = get_allowed_template_variables(data_interval_start, data_interval_end, batch_export_model)
-
-    try:
-        return prefix.format(**template_variables)
-    except (KeyError, ValueError) as e:
-        EXTERNAL_LOGGER.warning(
-            f"The key prefix '{prefix}' will be used as-is since it contains invalid template variables: {str(e)}"
-        )
-        return prefix
-
-
 def get_s3_key(
     prefix: str,
     data_interval_start: str | None,
@@ -163,7 +131,7 @@ def get_s3_key(
     use_new_file_naming_scheme: bool = True,
 ) -> str:
     """Return an S3 key given S3InsertInputs."""
-    key_prefix = get_s3_key_prefix(prefix, data_interval_start, data_interval_end, batch_export_model)
+    key_prefix = get_key_prefix(prefix, data_interval_start, data_interval_end, batch_export_model)
 
     try:
         file_extension = FILE_FORMAT_EXTENSIONS[file_format]
@@ -200,13 +168,6 @@ def get_s3_key_from_inputs(inputs: S3InsertInputs, file_number: int = 0) -> str:
         file_number,
         use_new_file_naming_scheme=inputs.max_file_size_mb is not None,
     )
-
-
-def get_manifest_key(
-    prefix: str, data_interval_start: str | None, data_interval_end: str, batch_export_model: BatchExportModel | None
-) -> str:
-    key_prefix = get_s3_key_prefix(prefix, data_interval_start, data_interval_end, batch_export_model)
-    return posixpath.join(key_prefix, f"{data_interval_start}-{data_interval_end}_manifest.json")
 
 
 class InvalidS3Key(Exception):

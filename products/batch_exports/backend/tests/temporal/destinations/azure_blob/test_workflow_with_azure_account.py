@@ -20,12 +20,12 @@ from asgiref.sync import sync_to_async
 from azure.storage.blob.aio import BlobServiceClient
 
 from posthog.batch_exports.models import BatchExport, BatchExportDestination
-from posthog.batch_exports.service import BatchExportModel, sync_batch_export
+from posthog.batch_exports.service import BatchExportModel
 from posthog.models.integration import Integration
 
 from products.batch_exports.backend.temporal.destinations.azure_blob_batch_export import SUPPORTED_COMPRESSIONS
 from products.batch_exports.backend.tests.temporal.destinations.azure_blob.utils import (
-    assert_exported_data_matches_generated,
+    assert_clickhouse_records_in_azure_blob,
     run_azure_blob_batch_export_workflow,
 )
 
@@ -116,8 +116,6 @@ async def azure_batch_export(
         interval=interval,
     )
 
-    await sync_to_async(sync_batch_export)(batch_export, created=True)
-
     yield batch_export
 
     await sync_to_async(batch_export.delete)()
@@ -136,20 +134,12 @@ async def test_workflow_exports_data_successfully(
     interval,
     file_format,
     compression,
+    data_interval_start,
     data_interval_end,
     generate_test_data,
     model: BatchExportModel,
 ):
     """Test workflow exports events, persons, or sessions to real Azure Storage."""
-    events_created, persons_created = generate_test_data
-
-    if model.name == "events":
-        expected_data = events_created
-    elif model.name == "persons":
-        expected_data = persons_created
-    else:
-        expected_data = events_created
-
     run = await run_azure_blob_batch_export_workflow(
         team=ateam,
         batch_export_id=str(azure_batch_export.id),
@@ -164,21 +154,20 @@ async def test_workflow_exports_data_successfully(
     )
 
     assert run.status == "Completed"
-    if model.name != "sessions":
-        assert run.records_completed == len(expected_data)
-    else:
-        assert run.records_completed is not None
-        assert run.records_completed >= 1
+    assert run.records_completed is not None
+    assert run.records_completed >= 1
     assert run.bytes_exported is not None
     assert run.bytes_exported > 0
 
-    await assert_exported_data_matches_generated(
+    await assert_clickhouse_records_in_azure_blob(
         container=azure_container,
-        prefix=blob_prefix,
-        generated_data=expected_data,
-        file_format=file_format,
+        key_prefix=blob_prefix,
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        batch_export_model=model,
         compression=compression,
-        model_name=model.name,
+        file_format=file_format,
     )
 
 
@@ -195,6 +184,7 @@ async def test_workflow_handles_formats_and_compression(
     interval,
     file_format,
     compression,
+    data_interval_start,
     data_interval_end,
     generate_test_data,
     model: BatchExportModel,
@@ -202,8 +192,6 @@ async def test_workflow_handles_formats_and_compression(
     """Test workflow handles various file formats and compression types with real Azure."""
     if compression and compression not in SUPPORTED_COMPRESSIONS[file_format]:
         pytest.skip(f"Compression {compression} is not supported for file format {file_format}")
-
-    events_created, _ = generate_test_data
 
     run = await run_azure_blob_batch_export_workflow(
         team=ateam,
@@ -219,15 +207,18 @@ async def test_workflow_handles_formats_and_compression(
     )
 
     assert run.status == "Completed"
-    assert run.records_completed == len(events_created)
+    assert run.records_completed is not None
+    assert run.records_completed >= 1
     assert run.bytes_exported is not None
     assert run.bytes_exported > 0
 
-    await assert_exported_data_matches_generated(
+    await assert_clickhouse_records_in_azure_blob(
         container=azure_container,
-        prefix=blob_prefix,
-        generated_data=events_created,
-        file_format=file_format,
+        key_prefix=blob_prefix,
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        batch_export_model=model,
         compression=compression,
-        model_name=model.name,
+        file_format=file_format,
     )

@@ -4,7 +4,6 @@ import asyncio
 import datetime as dt
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
 
 from django.conf import settings
 
@@ -520,23 +519,3 @@ async def generate_test_persons_data(ateam, clickhouse_client, data_interval_sta
         persons_to_export_created.append(person_to_export)
 
     return persons_to_export_created
-
-
-@pytest.fixture(autouse=True)
-def mock_kafka_producer_for_tests(monkeypatch):
-    """Mock Kafka producer to prevent connection attempts during tests.
-
-    The try_produce_app_metrics function attempts to connect to Kafka to send
-    metrics. In test environments without Kafka, this causes workflow failures
-    even when the actual export succeeds.
-    """
-    mock_producer = MagicMock()
-    mock_producer.__aenter__ = AsyncMock(return_value=mock_producer)
-    mock_producer.__aexit__ = AsyncMock(return_value=None)
-    mock_producer.send = AsyncMock()
-    mock_producer.flush = AsyncMock()
-
-    monkeypatch.setattr(
-        "products.batch_exports.backend.temporal.batch_exports.aiokafka.AIOKafkaProducer",
-        lambda **kwargs: mock_producer,
-    )

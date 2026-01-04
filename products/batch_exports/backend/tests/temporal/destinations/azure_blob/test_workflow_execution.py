@@ -4,7 +4,7 @@ from posthog.batch_exports.service import BatchExportModel
 
 from products.batch_exports.backend.temporal.destinations.azure_blob_batch_export import SUPPORTED_COMPRESSIONS
 from products.batch_exports.backend.tests.temporal.destinations.azure_blob.utils import (
-    assert_exported_data_matches_generated,
+    assert_clickhouse_records_in_azure_blob,
     list_blobs,
     run_azure_blob_batch_export_workflow,
 )
@@ -29,6 +29,7 @@ async def test_workflow_exports_model_successfully(
     interval,
     file_format,
     compression,
+    data_interval_start,
     data_interval_end,
     generate_test_data,
     model: BatchExportModel,
@@ -36,15 +37,6 @@ async def test_workflow_exports_model_successfully(
     """Test that the workflow exports events, persons, or sessions to Azure Blob Storage."""
     if compression and compression not in SUPPORTED_COMPRESSIONS[file_format]:
         pytest.skip(f"Compression {compression} is not supported for file format {file_format}")
-
-    events_created, persons_created = generate_test_data
-
-    if model.name == "events":
-        expected_data = events_created
-    elif model.name == "persons":
-        expected_data = persons_created
-    else:
-        expected_data = events_created
 
     run = await run_azure_blob_batch_export_workflow(
         team=ateam,
@@ -60,21 +52,20 @@ async def test_workflow_exports_model_successfully(
     )
 
     assert run.status == "Completed"
-    if model.name != "sessions":
-        assert run.records_completed == len(expected_data)
-    else:
-        assert run.records_completed is not None
-        assert run.records_completed >= 1
+    assert run.records_completed is not None
+    assert run.records_completed >= 1
     assert run.bytes_exported is not None
     assert run.bytes_exported > 0
 
-    await assert_exported_data_matches_generated(
+    await assert_clickhouse_records_in_azure_blob(
         container=azurite_container,
-        prefix=blob_prefix,
-        generated_data=expected_data,
-        file_format=file_format,
+        key_prefix=blob_prefix,
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        batch_export_model=model,
         compression=compression,
-        model_name=model.name,
+        file_format=file_format,
     )
 
 

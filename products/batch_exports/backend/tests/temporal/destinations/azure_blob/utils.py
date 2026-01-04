@@ -3,7 +3,7 @@ import gzip
 import json
 import uuid
 import datetime as dt
-from dataclasses import dataclass
+import operator
 
 from django.conf import settings
 
@@ -22,31 +22,13 @@ from products.batch_exports.backend.temporal.batch_exports import finish_batch_e
 from products.batch_exports.backend.temporal.destinations.azure_blob_batch_export import (
     AzureBlobBatchExportInputs,
     AzureBlobBatchExportWorkflow,
+    azure_blob_default_fields,
     insert_into_azure_blob_activity_from_stage,
 )
 from products.batch_exports.backend.temporal.pipeline.internal_stage import insert_into_internal_stage_activity
-
-
-@dataclass
-class ModelConfig:
-    json_columns: tuple[str, ...]
-    sort_key: str
-
-
-MODEL_CONFIGS = {
-    "events": ModelConfig(
-        json_columns=("properties", "person_properties", "set", "set_once"),
-        sort_key="uuid",
-    ),
-    "persons": ModelConfig(
-        json_columns=("properties",),
-        sort_key="person_id",
-    ),
-    "sessions": ModelConfig(
-        json_columns=(),
-        sort_key="session_id",
-    ),
-}
+from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
+from products.batch_exports.backend.temporal.spmc import Producer, RecordBatchQueue
+from products.batch_exports.backend.tests.temporal.utils.records import get_record_batch_from_queue
 
 
 async def list_blobs(container: ContainerClient, prefix: str = "") -> list[str]:
@@ -82,20 +64,22 @@ def parse_jsonl(data: bytes) -> list[dict]:
     return [json.loads(line) for line in data.decode().strip().split("\n") if line]
 
 
+def normalize_record(record: dict, json_columns: tuple[str, ...]) -> dict:
+    """Format datetimes as ISO strings and parse JSON columns."""
+    normalized = {}
+    for key, value in record.items():
+        if isinstance(value, dt.datetime):
+            normalized[key] = value.isoformat()
+        elif key in json_columns and value is not None:
+            normalized[key] = json.loads(value)
+        else:
+            normalized[key] = value
+    return normalized
+
+
 def parse_parquet(data: bytes, json_columns: tuple[str, ...]) -> list[dict]:
     """Parse Parquet data, converting datetimes to isoformat and parsing JSON columns."""
-    records = []
-    for record in pq.read_table(io.BytesIO(data)).to_pylist():
-        casted_record = {}
-        for k, v in record.items():
-            if isinstance(v, dt.datetime):
-                casted_record[k] = v.isoformat()
-            elif k in json_columns and v is not None:
-                casted_record[k] = json.loads(v)
-            else:
-                casted_record[k] = v
-        records.append(casted_record)
-    return records
+    return [normalize_record(record, json_columns) for record in pq.read_table(io.BytesIO(data)).to_pylist()]
 
 
 async def read_exported_records(
@@ -134,55 +118,137 @@ async def read_manifest(container: ContainerClient, prefix: str) -> dict | None:
     return json.loads(data.decode())
 
 
-def _assert_events_match(exported_records: list[dict], generated_data: list[dict]):
-    assert len(exported_records) == len(generated_data)
-    exported_by_uuid = {r["uuid"]: r for r in exported_records}
-    for event in generated_data:
-        exported = exported_by_uuid.get(event["uuid"])
-        assert exported is not None, f"Event {event['uuid']} not found"
-        assert exported["event"] == event["event"]
-        assert exported["distinct_id"] == event["distinct_id"]
-        assert exported["team_id"] == event["team_id"]
-        assert exported["properties"] == event["properties"]
+def extract_model_configuration(
+    batch_export_model: BatchExportModel | BatchExportSchema | None,
+) -> tuple[str, list[dict] | None, list[dict] | None, dict | None]:
+    """Extract (model_name, fields, filters, extra_query_parameters) from model config."""
+    if batch_export_model is None:
+        return "events", None, None, None
+
+    if isinstance(batch_export_model, BatchExportModel):
+        schema = batch_export_model.schema
+        return (
+            batch_export_model.name,
+            schema["fields"] if schema else None,
+            batch_export_model.filters,
+            schema["values"] if schema else None,
+        )
+
+    return "custom", batch_export_model["fields"], None, batch_export_model["values"]
 
 
-def _assert_persons_match(exported_records: list[dict], generated_data: list[dict]):
-    assert len(exported_records) == len(generated_data)
-    exported_by_person_id = {r["person_id"]: r for r in exported_records}
-    for person in generated_data:
-        exported = exported_by_person_id.get(person["person_id"])
-        assert exported is not None, f"Person {person['person_id']} not found"
-        assert exported["team_id"] == person["team_id"]
-        assert exported["distinct_id"] == person["distinct_id"]
-
-
-def _assert_sessions_match(exported_records: list[dict], generated_events: list[dict]):
-    assert len(exported_records) >= 1
-    expected_session_ids = {e["properties"]["$session_id"] for e in generated_events if e.get("properties")}
-    assert len(expected_session_ids) >= 1, "Test data must include events with $session_id"
-    exported_session_ids = {r["session_id"] for r in exported_records}
-    assert exported_session_ids.issubset(expected_session_ids) or expected_session_ids.issubset(exported_session_ids)
-
-
-MODEL_ASSERTIONS = {
-    "events": _assert_events_match,
-    "persons": _assert_persons_match,
-    "sessions": _assert_sessions_match,
-}
-
-
-async def assert_exported_data_matches_generated(
+async def assert_clickhouse_records_in_azure_blob(
     container: ContainerClient,
-    prefix: str,
-    generated_data: list[dict],
-    file_format: str = "JSONLines",
+    key_prefix: str,
+    team_id: int,
+    data_interval_start: dt.datetime,
+    data_interval_end: dt.datetime,
+    batch_export_model: BatchExportModel | BatchExportSchema | None = None,
     compression: str | None = None,
-    model_name: str = "events",
+    file_format: str = "JSONLines",
+    exclude_events: list[str] | None = None,
+    include_events: list[str] | None = None,
 ):
-    """Assert exported data matches what was generated."""
-    config = MODEL_CONFIGS[model_name]
-    exported_records = await read_exported_records(container, prefix, file_format, compression, config.json_columns)
-    MODEL_ASSERTIONS[model_name](exported_records, generated_data)
+    json_columns = ("properties", "person_properties", "set", "set_once")
+
+    exported_records = await read_exported_records(
+        container=container,
+        prefix=key_prefix,
+        file_format=file_format,
+        compression=compression,
+        json_columns=json_columns,
+    )
+
+    model_name, fields, filters, extra_query_parameters = extract_model_configuration(batch_export_model)
+
+    expected_records = []
+    queue = RecordBatchQueue()
+    producer = Producer(model=SessionsRecordBatchModel(team_id)) if model_name == "sessions" else Producer()
+
+    producer_task = await producer.start(
+        queue=queue,
+        model_name=model_name,
+        team_id=team_id,
+        full_range=(data_interval_start, data_interval_end),
+        done_ranges=[],
+        fields=fields,
+        filters=filters,
+        destination_default_fields=azure_blob_default_fields(),
+        exclude_events=exclude_events,
+        include_events=include_events,
+        is_backfill=False,
+        backfill_details=None,
+        extra_query_parameters=extra_query_parameters,
+        order_columns=None,
+    )
+
+    while not queue.empty() or not producer_task.done():
+        record_batch = await get_record_batch_from_queue(queue, producer_task)
+        if record_batch is None:
+            break
+        for record in record_batch.to_pylist():
+            expected_records.append(normalize_record(record, json_columns))
+
+    assert len(exported_records) > 0, "No records were exported to Azure Blob"
+    assert len(expected_records) > 0, "No expected records were produced from Producer"
+    assert len(exported_records) == len(
+        expected_records
+    ), f"Record count mismatch: exported {len(exported_records)}, expected {len(expected_records)}"
+
+    expected_columns = list(expected_records[0].keys())
+
+    if "team_id" in expected_columns:
+        assert all(
+            record.get("team_id") == team_id for record in exported_records
+        ), f"Some exported records have wrong team_id (expected {team_id})"
+
+    preferred_sort_keys = ("uuid", "session_id", "person_id")
+    effective_sort_key = next((key for key in preferred_sort_keys if key in expected_columns), None)
+    assert effective_sort_key, f"No valid sort key found. Expected one of {preferred_sort_keys} in {expected_columns}"
+
+    exported_records = sorted(exported_records, key=operator.itemgetter(effective_sort_key))
+    expected_records = sorted(expected_records, key=operator.itemgetter(effective_sort_key))
+
+    assert exported_records == expected_records
+
+
+TEST_AZURE_BLOB_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
+    BatchExportModel(
+        name="a-custom-model",
+        schema={
+            "fields": [
+                {"expression": "uuid", "alias": "uuid"},
+                {"expression": "event", "alias": "my_event_name"},
+                {"expression": "nullIf(JSONExtractString(properties, %(hogql_val_0)s), '')", "alias": "browser"},
+                {"expression": "nullIf(JSONExtractString(properties, %(hogql_val_1)s), '')", "alias": "os"},
+                {"expression": "nullIf(properties, '')", "alias": "all_properties"},
+            ],
+            "values": {"hogql_val_0": "$browser", "hogql_val_1": "$os"},
+        },
+    ),
+    BatchExportModel(name="events", schema=None),
+    BatchExportModel(
+        name="events",
+        schema=None,
+        filters=[
+            {"key": "$browser", "operator": "exact", "type": "event", "value": ["Chrome"]},
+            {"key": "$os", "operator": "exact", "type": "event", "value": ["Mac OS X"]},
+        ],
+    ),
+    BatchExportModel(name="persons", schema=None),
+    BatchExportModel(name="sessions", schema=None),
+    {
+        "fields": [
+            {"expression": "uuid", "alias": "uuid"},
+            {"expression": "event", "alias": "my_event_name"},
+            {"expression": "nullIf(JSONExtractString(properties, %(hogql_val_0)s), '')", "alias": "browser"},
+            {"expression": "nullIf(JSONExtractString(properties, %(hogql_val_1)s), '')", "alias": "os"},
+            {"expression": "nullIf(properties, '')", "alias": "all_properties"},
+        ],
+        "values": {"hogql_val_0": "$browser", "hogql_val_1": "$os"},
+    },
+    None,
+]
 
 
 async def run_azure_blob_batch_export_workflow(

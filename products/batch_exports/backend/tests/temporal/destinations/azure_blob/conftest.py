@@ -1,4 +1,5 @@
 import uuid
+import logging
 
 import pytest
 
@@ -7,12 +8,13 @@ from asgiref.sync import sync_to_async
 from azure.storage.blob.aio import BlobServiceClient
 
 from posthog.batch_exports.models import BatchExport, BatchExportDestination
-from posthog.batch_exports.service import sync_batch_export
 from posthog.models.integration import Integration
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
-# Azurite emulator default storage account
+# Azurite emulator default storage account credentials.
+# These are public, hard-coded values from Microsoft's official Azurite documentation.
+# They only work with the local Azurite emulator and cannot access real Azure storage.
 # See: https://github.com/Azure/Azurite#default-storage-account
 AZURITE_ACCOUNT_NAME = "devstoreaccount1"
 AZURITE_ACCOUNT_KEY = "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw=="
@@ -59,10 +61,14 @@ async def azurite_container(container_name: str):
 
     yield container_client
 
-    async for blob in container_client.list_blobs():
-        await container_client.delete_blob(blob.name)
-    await container_client.delete_container()
-    await client.close()
+    try:
+        async for blob in container_client.list_blobs():
+            await container_client.delete_blob(blob.name)
+        await container_client.delete_container()
+    except Exception as e:
+        logging.warning("Failed to cleanup Azurite container %s: %s", container_name, e)
+    finally:
+        await client.close()
 
 
 @pytest_asyncio.fixture
@@ -87,7 +93,6 @@ async def azure_batch_export(
     interval,
     file_format: str,
     compression: str | None,
-    temporal_client,
 ):
     """Azure Blob BatchExport for workflow tests."""
     destination = await sync_to_async(BatchExportDestination.objects.create)(
@@ -107,8 +112,6 @@ async def azure_batch_export(
         destination=destination,
         interval=interval,
     )
-
-    await sync_to_async(sync_batch_export)(batch_export, created=True)
 
     yield batch_export
 
