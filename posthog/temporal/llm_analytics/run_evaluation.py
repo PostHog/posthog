@@ -229,6 +229,8 @@ async def execute_llm_judge_activity(evaluation: dict[str, Any], event_data: dic
 
 First, determine if this evaluation criteria is applicable to the given input/output. If the criteria doesn't apply to this case (e.g., checking for mathematical accuracy on a greeting, or evaluating a skill that wasn't exercised), mark it as not applicable.
 
+Note: If the criteria above instructs you to return "N/A", "not applicable", or similar, treat that as applicable=false with verdict=null.
+
 Return:
 - applicable: true if the criteria applies to this input/output, false if it doesn't apply
 - verdict: true if it passes, false if it fails, or null if not applicable
