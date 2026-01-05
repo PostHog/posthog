@@ -5015,3 +5015,66 @@ class TestSurveyResponseArchive(ClickhouseTestMixin, APIBaseTest):
         self.assertIn(uuid1, uuids)
         self.assertIn(uuid2, uuids)
         self.assertNotIn(uuid3, uuids)
+
+
+class TestSurveySummarizeResponses(APIBaseTest):
+    """Tests for summarize_responses endpoint - only behavior unique to this endpoint."""
+
+    def setUp(self):
+        super().setUp()
+        self.survey = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Test Survey",
+            type="popover",
+            questions=[{"id": "q1", "type": "open", "question": "What do you like?"}],
+            start_date=datetime.now() - timedelta(days=30),
+        )
+        self.cloud_patch = patch("posthog.api.survey.is_cloud", return_value=True)
+        self.api_key_patch = patch("posthog.api.survey.settings.GEMINI_API_KEY", "test-key")
+        self.cloud_patch.start()
+        self.api_key_patch.start()
+
+    def tearDown(self):
+        self.cloud_patch.stop()
+        self.api_key_patch.stop()
+        super().tearDown()
+
+    def test_returns_cached_summary(self):
+        """Cached summaries are returned without calling the LLM."""
+        self.survey.question_summaries = {
+            "q1": {"summary": "Cached content", "responseCount": 50, "generatedAt": "2024-01-01T00:00:00+00:00"}
+        }
+        self.survey.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/{self.survey.id}/summarize_responses/?question_id=q1"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["content"], "Cached content")
+        self.assertTrue(data["cached"])
+
+    def test_empty_responses_handled_gracefully(self):
+        """No responses returns a clear message without calling LLM."""
+        with patch("posthog.api.survey.fetch_responses", return_value=[]):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/surveys/{self.survey.id}/summarize_responses/?question_id=q1"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["content"], "No responses to analyze.")
+
+    def test_llm_errors_return_500(self):
+        """LLM failures are caught and return a user-friendly error."""
+        with (
+            patch("posthog.api.survey.fetch_responses", return_value=["response"]),
+            patch("posthog.api.survey.summarize_responses", side_effect=Exception("API Error")),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/surveys/{self.survey.id}/summarize_responses/?question_id=q1"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.assertIn("Failed to generate summary", str(response.json()))
