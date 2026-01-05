@@ -89,7 +89,19 @@ services:
             SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'any'
             OBJECT_STORAGE_ENABLED: true
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
+            POSTHOG_SKIP_MIGRATION_CHECKS: '1'
         image: $REGISTRY_URL:$POSTHOG_APP_TAG
+        depends_on:
+            db:
+                condition: service_healthy
+            redis:
+                condition: service_healthy
+            clickhouse:
+                condition: service_started
+            kafka:
+                condition: service_healthy
+            web:
+                condition: service_started
     web:
         extends:
             file: docker-compose.base.yml
@@ -100,7 +112,7 @@ services:
         image: $REGISTRY_URL:$POSTHOG_APP_TAG
         environment:
             SITE_URL: https://$DOMAIN
-            LIVESTREAM_HOST: 'https://${DOMAIN}:8666'
+            LIVESTREAM_HOST: 'https://${DOMAIN}/livestream'
             SECRET_KEY: $POSTHOG_SECRET
             OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
             OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
@@ -135,6 +147,7 @@ services:
             OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
             SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'any'
             SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'any'
+            SESSION_RECORDING_V2_S3_TIMEOUT_MS: 120000
             OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
             SESSION_RECORDING_V2_S3_ENDPOINT: http://seaweedfs:8333
             OBJECT_STORAGE_ENABLED: true
@@ -142,6 +155,7 @@ services:
             CDP_REDIS_PORT: 6379
             LOGS_REDIS_HOST: redis7
             LOGS_REDIS_PORT: 6379
+            LOGS_REDIS_TLS: 'false'
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
             CYCLOTRON_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             PERSONS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
@@ -171,10 +185,12 @@ services:
             CADDY_HOST: '$DOMAIN, http://, https://'
         depends_on:
             - web
+            - livestream
     objectstorage:
         extends:
             file: docker-compose.base.yml
             service: objectstorage
+
         restart: on-failure
         volumes:
             - objectstorage:/data
@@ -189,6 +205,18 @@ services:
         restart: on-failure
         volumes:
             - seaweedfs:/data
+        healthcheck:
+            test:
+                [
+                    'CMD',
+                    'sh',
+                    '-c',
+                    "echo 's3.bucket.list' | /usr/bin/weed shell -master=localhost:9333 2>&1 | grep -q posthog",
+                ]
+            interval: 5s
+            timeout: 10s
+            retries: 30
+            start_period: 10s
 
     asyncmigrationscheck:
         extends:
@@ -287,6 +315,11 @@ services:
         extends:
             file: docker-compose.base.yml
             service: property-defs-rs
+        depends_on:
+            kafka-init:
+                condition: service_completed_successfully
+            db:
+                condition: service_healthy
 
     livestream:
         extends:
@@ -294,8 +327,6 @@ services:
             service: livestream
         environment:
             - LIVESTREAM_JWT_SECRET=${POSTHOG_SECRET}
-        ports:
-            - '8666:8080'
         volumes:
             - ./posthog/docker/livestream/configs-hobby.yml:/configs/configs.yml
 
@@ -308,6 +339,51 @@ services:
         depends_on:
             - db
             - redis
+
+    kafka-init:
+        image: docker.redpanda.com/redpandadata/redpanda:v25.1.9
+        entrypoint: /bin/sh
+        command:
+            - -c
+            - |
+                set -x
+                echo "Waiting for Kafka broker to accept connections..."
+                TIMEOUT=60
+                ELAPSED=0
+                # Use rpk topic list as the readiness check - it's a simple operation
+                # that confirms the broker is accepting Kafka protocol requests
+                until rpk topic list --brokers kafka:9092 2>/dev/null; do
+                    echo "Kafka broker not ready yet (elapsed: ${ELAPSED}s)..."
+                    sleep 2
+                    ELAPSED=$((ELAPSED + 2))
+                    if [ $ELAPSED -ge $TIMEOUT ]; then
+                        echo "Timeout waiting for Kafka broker after ${TIMEOUT}s"
+                        echo "Final attempt to list topics:"
+                        rpk topic list --brokers kafka:9092 || true
+                        exit 1
+                    fi
+                done
+                echo "Kafka broker is accepting requests, creating topics..."
+                # Create topics needed by rust services
+                # Note: $$ escapes $ for docker-compose variable substitution
+                for topic in exceptions_ingestion clickhouse_events_json; do
+                    if rpk topic create "$$topic" --brokers kafka:9092 -p 1 -r 1 2>&1; then
+                        echo "Topic $$topic created successfully"
+                    else
+                        if rpk topic list --brokers kafka:9092 | grep -q "$$topic"; then
+                            echo "Topic $$topic already exists, continuing"
+                        else
+                            echo "Failed to create topic $$topic"
+                            exit 1
+                        fi
+                    fi
+                done
+                echo "Final topic list:"
+                rpk topic list --brokers kafka:9092
+                echo "Topics ready"
+        depends_on:
+            kafka:
+                condition: service_healthy
 
     cymbal:
         image: ghcr.io/posthog/posthog/cymbal:master
@@ -336,10 +412,10 @@ services:
             ISSUE_BUCKETS_REDIS_URL: 'redis://redis7:6379/'
             RUST_LOG: 'info'
         depends_on:
-            kafka:
-                condition: service_started
+            kafka-init:
+                condition: service_completed_successfully
             seaweedfs:
-                condition: service_started
+                condition: service_healthy
             db:
                 condition: service_healthy
             redis:

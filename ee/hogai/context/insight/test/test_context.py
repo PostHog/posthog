@@ -203,7 +203,11 @@ class TestInsightContext(BaseTest):
         mock_execute.return_value = "Test Results"
 
         query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
-        context = InsightContext(team=self.team, query=query, insight_model_id=456)
+        context = InsightContext(
+            team=self.team,
+            query=query,
+            insight_model_id=456,
+        )
 
         await context.execute_and_format()
 
@@ -242,3 +246,47 @@ class TestInsightContext(BaseTest):
         effective_query = await context._get_effective_query()
 
         self.assertIsNotNone(effective_query)
+
+    def test_insight_url_is_none_when_no_short_id(self):
+        query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
+        context = InsightContext(team=self.team, query=query)
+
+        self.assertIsNone(context.insight_url)
+
+    def test_insight_url_generated_from_short_id(self):
+        query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
+        context = InsightContext(team=self.team, query=query, insight_short_id="abc123")
+
+        self.assertEqual(context.insight_url, f"/project/{self.team.id}/insights/abc123")
+
+    @patch("ee.hogai.context.insight.context.execute_and_format_query")
+    async def test_execute_and_format_includes_insight_url(self, mock_execute):
+        mock_execute.return_value = "Test Results"
+
+        query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
+        context = InsightContext(
+            team=self.team,
+            query=query,
+            name="Test Insight",
+            insight_id="display-id",
+            insight_short_id="xyz789",
+        )
+
+        result = await context.execute_and_format()
+
+        self.assertIn(f"/project/{self.team.id}/insights/xyz789", result)
+
+    @patch("ee.hogai.context.insight.context.execute_and_format_query")
+    async def test_execute_and_format_shows_fallback_when_no_url(self, mock_execute):
+        mock_execute.return_value = "Test Results"
+
+        query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
+        context = InsightContext(
+            team=self.team,
+            query=query,
+            name="Test Insight",
+        )
+
+        result = await context.execute_and_format()
+
+        self.assertIn("This insight cannot be accessed via a URL.", result)

@@ -46,9 +46,9 @@ class TestExecuteSQLTool(ClickhouseTestMixin, NonAtomicBaseTest):
         tool = await self._create_tool()
 
         result_text, artifact_messages = await tool._arun_impl(
-            query="SELECT event, count() as count FROM events GROUP BY event ORDER BY count DESC",
-            name="Event counts",
-            description="Count events by type",
+            "SELECT event, count() as count FROM events GROUP BY event ORDER BY count DESC",
+            "Event counts",
+            "Count events by type",
         )
 
         self.assertEqual(result_text, "")
@@ -58,3 +58,26 @@ class TestExecuteSQLTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIsInstance(artifact_messages.messages[1], AssistantToolCallMessage)
         self.assertIn("test_event", artifact_messages.messages[1].content)
         self.assertIn("another_event", artifact_messages.messages[1].content)
+
+    async def test_artifact_id_in_output(self):
+        _create_event(team=self.team, distinct_id="user1", event="test_event")
+
+        tool = await self._create_tool()
+
+        result_text, artifact_messages = await tool._arun_impl(
+            "SELECT event, count() as count FROM events GROUP BY event",
+            "Test query",
+            "Test description",
+        )
+
+        self.assertEqual(result_text, "")
+        self.assertIsNotNone(artifact_messages)
+        self.assertEqual(len(artifact_messages.messages), 2)
+
+        # Get artifact_id from the first message
+        artifact_id = artifact_messages.messages[0].artifact_id
+        self.assertIsNotNone(artifact_id)
+
+        # Verify artifact_id is included in the second message content
+        tool_call_content = artifact_messages.messages[1].content
+        self.assertIn(artifact_id, tool_call_content)

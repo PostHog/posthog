@@ -64,6 +64,7 @@ import {
     formatLLMUsage,
     getEventType,
     getSessionID,
+    getSessionStartTimestamp,
     getTraceTimestamp,
     isLLMEvent,
     removeMilliseconds,
@@ -210,7 +211,7 @@ function TraceMetadata({
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSIONS_VIEW] ||
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
         ) {
-            return urls.llmAnalyticsSession(sessionId)
+            return urls.llmAnalyticsSession(sessionId, { timestamp: getSessionStartTimestamp(trace.createdAt) })
         }
         // Fallback to filtering traces by session when feature flag is off
         const filter = [

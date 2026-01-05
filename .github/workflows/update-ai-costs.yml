@@ -40,29 +40,29 @@ jobs:
               env:
                   HUSKY: 0
               run: |
-                  cd plugin-server
+                  cd nodejs
                   pnpm install --frozen-lockfile --ignore-scripts
 
             - name: Update AI costs
               run: |
-                  cd plugin-server
+                  cd nodejs
                   pnpm update-ai-costs
 
             - name: Format generated files
               run: |
-                  cd plugin-server
+                  cd nodejs
                   pnpm prettier --write src/ingestion/ai-costs/providers/canonical-providers.ts src/ingestion/ai-costs/providers/llm-costs.json
 
             - name: Check for changes
               id: check-changes
               run: |
-                  if git diff --quiet plugin-server/src/ingestion/ai-costs/providers/canonical-providers.ts plugin-server/src/ingestion/ai-costs/providers/llm-costs.json; then
+                  if git diff --quiet nodejs/src/ingestion/ai-costs/providers/canonical-providers.ts nodejs/src/ingestion/ai-costs/providers/llm-costs.json; then
                     echo "changes=false" >> $GITHUB_OUTPUT
                     echo "No changes detected in AI costs"
                   else
                     echo "changes=true" >> $GITHUB_OUTPUT
                     echo "Changes detected in AI costs"
-                    git diff --stat plugin-server/src/ingestion/ai-costs/providers/canonical-providers.ts plugin-server/src/ingestion/ai-costs/providers/llm-costs.json
+                    git diff --stat nodejs/src/ingestion/ai-costs/providers/canonical-providers.ts nodejs/src/ingestion/ai-costs/providers/llm-costs.json
                   fi
 
             - name: Create Pull Request

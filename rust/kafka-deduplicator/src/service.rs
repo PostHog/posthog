@@ -16,12 +16,16 @@ use crate::deduplication_batch_processor::{
     BatchDeduplicationProcessor, DeduplicationConfig, DuplicateEventProducerWrapper,
 };
 use crate::{
-    checkpoint::config::CheckpointConfig,
-    checkpoint::export::CheckpointExporter,
-    checkpoint::s3_uploader::S3Uploader,
+    checkpoint::{
+        config::CheckpointConfig, export::CheckpointExporter, import::CheckpointImporter,
+        s3_downloader::S3Downloader, s3_uploader::S3Uploader,
+    },
     checkpoint_manager::CheckpointManager,
     config::Config,
-    kafka::{batch_consumer::BatchConsumer, ConsumerConfigBuilder},
+    kafka::{
+        batch_consumer::BatchConsumer, ConsumerConfigBuilder, OffsetTracker, PartitionRouter,
+        PartitionRouterConfig, PartitionWorkerConfig, RoutingProcessor,
+    },
     processor_rebalance_handler::ProcessorRebalanceHandler,
     store::DeduplicationStoreConfig,
     store_manager::{CleanupTaskHandle, StoreManager},
@@ -33,6 +37,7 @@ pub struct KafkaDeduplicatorService {
     consumer: Option<BatchConsumer<CapturedEvent>>,
     store_manager: Arc<StoreManager>,
     checkpoint_manager: Option<CheckpointManager>,
+    checkpoint_importer: Option<Arc<CheckpointImporter>>,
     cleanup_task_handle: Option<CleanupTaskHandle>,
     shutdown_tx: Option<oneshot::Sender<()>>,
     liveness: HealthRegistry,
@@ -43,7 +48,8 @@ pub struct KafkaDeduplicatorService {
 
 impl KafkaDeduplicatorService {
     /// Reset the local checkpoint directory (remove if exists, then create fresh)
-    fn reset_checkpoint_directory(checkpoint_dir: &str) -> Result<()> {
+    fn reset_checkpoint_directory(cfg: &CheckpointConfig) -> Result<()> {
+        let checkpoint_dir = &cfg.local_checkpoint_dir;
         let path = std::path::Path::new(checkpoint_dir);
 
         if path.exists() {
@@ -106,15 +112,37 @@ impl KafkaDeduplicatorService {
             checkpoint_import_window_hours: config.checkpoint_import_window_hours,
             s3_operation_timeout: config.s3_operation_timeout(),
             s3_attempt_timeout: config.s3_attempt_timeout(),
+            checkpoint_import_attempt_depth: config.checkpoint_import_attempt_depth,
+            test_s3_endpoint: None,
         };
 
         // Reset local checkpoint directory on startup (it's temporary storage)
-        Self::reset_checkpoint_directory(&checkpoint_config.local_checkpoint_dir)?;
+        Self::reset_checkpoint_directory(&checkpoint_config)?;
 
         // create exporter conditionally if S3 config is populated
-        let exporter = if !config.aws_region.is_empty() && config.s3_bucket.is_some() {
-            let uploader = Box::new(S3Uploader::new(checkpoint_config.clone()).await.unwrap());
+        let exporter = if config.checkpoint_export_enabled() {
+            let uploader = Box::new(
+                S3Uploader::new(checkpoint_config.clone())
+                    .await
+                    .context("Failed to create S3 uploader")?,
+            );
             Some(Arc::new(CheckpointExporter::new(uploader)))
+        } else {
+            None
+        };
+
+        // if checkpoint import is enabled, create and configure the importer
+        let importer = if config.checkpoint_import_enabled() {
+            let downloader = Box::new(
+                S3Downloader::new(&checkpoint_config)
+                    .await
+                    .context("Failed to create S3 downloader")?,
+            );
+            Some(Arc::new(CheckpointImporter::new(
+                downloader,
+                store_config.path.clone(),
+                config.checkpoint_import_attempt_depth,
+            )))
         } else {
             None
         };
@@ -127,6 +155,7 @@ impl KafkaDeduplicatorService {
             consumer: None,
             store_manager,
             checkpoint_manager: Some(checkpoint_manager),
+            checkpoint_importer: importer,
             cleanup_task_handle,
             shutdown_tx: None,
             liveness,
@@ -228,17 +257,45 @@ impl KafkaDeduplicatorService {
         };
 
         // Create a processor with the store manager and both producers
-        let processor = BatchDeduplicationProcessor::new(
-            dedup_config,
-            self.store_manager.clone(),
-            main_producer,
-            duplicate_producer,
-        )
-        .with_context(|| "Failed to create deduplication processor")?;
+        let processor = Arc::new(
+            BatchDeduplicationProcessor::new(
+                dedup_config,
+                self.store_manager.clone(),
+                main_producer,
+                duplicate_producer,
+            )
+            .with_context(|| "Failed to create deduplication processor")?,
+        );
 
-        // Create rebalance handler with the store manager
-        let rebalance_handler =
-            Arc::new(ProcessorRebalanceHandler::new(self.store_manager.clone()));
+        // Create partition router for parallel processing across partitions
+        let router_config = PartitionRouterConfig {
+            worker_config: PartitionWorkerConfig {
+                channel_buffer_size: self.config.partition_worker_channel_buffer_size,
+            },
+        };
+
+        // Create offset tracker for tracking processed offsets
+        let offset_tracker = Arc::new(OffsetTracker::new());
+
+        let router = Arc::new(PartitionRouter::new(
+            processor,
+            offset_tracker.clone(),
+            router_config,
+        ));
+
+        // Create routing processor that distributes messages to partition workers
+        let routing_processor = Arc::new(RoutingProcessor::new(
+            router.clone(),
+            offset_tracker.clone(),
+        ));
+
+        // Create rebalance handler with the router for partition worker management
+        let rebalance_handler = Arc::new(ProcessorRebalanceHandler::with_router(
+            self.store_manager.clone(),
+            router,
+            offset_tracker.clone(),
+            self.checkpoint_importer.clone(),
+        ));
 
         // Create consumer config using the kafka module's builder
         let consumer_config =
@@ -307,11 +364,12 @@ impl KafkaDeduplicatorService {
             self.config.checkpoint_interval(),
         );
 
-        // Create stateful Kafka consumer that sends to the processor pool
+        // Create stateful Kafka consumer that routes to partition workers
         let kafka_consumer = BatchConsumer::new(
             &consumer_config,
             rebalance_handler,
-            Arc::new(processor),
+            routing_processor,
+            offset_tracker,
             shutdown_rx,
             &self.config.kafka_consumer_topic,
             self.config.kafka_consumer_batch_size,

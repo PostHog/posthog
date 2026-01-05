@@ -100,7 +100,6 @@
     'posthog.tasks.tasks.redis_heartbeat',
     'posthog.tasks.tasks.refresh_activity_log_fields_cache',
     'posthog.tasks.tasks.replay_count_metrics',
-    'posthog.tasks.tasks.schedule_cache_updates_task',
     'posthog.tasks.tasks.send_org_usage_reports',
     'posthog.tasks.tasks.start_poll_query_performance',
     'posthog.tasks.tasks.stop_surveys_reached_target',
