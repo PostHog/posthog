@@ -5,6 +5,7 @@ import { defineConfig } from 'vite'
 
 // import { toolbarDenylistPlugin } from './vite-toolbar-plugin'
 import { htmlGenerationPlugin } from './vite-html-plugin'
+import { posthogJsPlugin } from './vite-posthog-js-plugin'
 import { publicAssetsPlugin } from './vite-public-assets-plugin'
 
 // https://vitejs.dev/config/
@@ -18,6 +19,8 @@ export default defineConfig(({ mode }) => {
             htmlGenerationPlugin(),
             // Copy public assets to src/assets for development
             publicAssetsPlugin(),
+            // Copy posthog-js files from node_modules to dist for development
+            posthogJsPlugin(),
             {
                 name: 'startup-message',
                 configureServer(server) {
@@ -102,6 +105,12 @@ export default defineConfig(({ mode }) => {
             cors: true, // This disables CORS in dev, key for using ngrok (e.g. for testing Slack integration)
             // Configure origin for proper asset URL generation
             origin: 'http://localhost:8234',
+            proxy: {
+                '/static': {
+                    target: 'http://localhost:8000',
+                    changeOrigin: true,
+                },
+            },
         },
         define: {
             global: 'globalThis',

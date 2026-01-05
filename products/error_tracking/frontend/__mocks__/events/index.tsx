@@ -5,6 +5,7 @@ import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic
 import { ErrorEventProperties } from 'lib/components/Errors/types'
 
 import { exceptionCardLogic } from '../../components/ExceptionCard/exceptionCardLogic'
+import java_long from './java_long.json'
 import javascript_empty from './javascript_empty.json'
 import javascript_minified_react_error from './javascript_minified_react_error.json'
 import javascript_no_in_app from './javascript_no_in_app.json'
@@ -29,6 +30,7 @@ export const TEST_EVENTS = {
     python_resolved,
     python_multierror,
     node_long_frame,
+    java_long,
 }
 
 export type TestEventName = keyof typeof TEST_EVENTS

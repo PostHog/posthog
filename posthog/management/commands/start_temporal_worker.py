@@ -41,6 +41,10 @@ from posthog.temporal.delete_recordings import (
     ACTIVITIES as DELETE_RECORDING_ACTIVITIES,
     WORKFLOWS as DELETE_RECORDING_WORKFLOWS,
 )
+from posthog.temporal.dlq_replay import (
+    ACTIVITIES as DLQ_REPLAY_ACTIVITIES,
+    WORKFLOWS as DLQ_REPLAY_WORKFLOWS,
+)
 from posthog.temporal.ducklake import (
     ACTIVITIES as DUCKLAKE_COPY_ACTIVITIES,
     WORKFLOWS as DUCKLAKE_COPY_WORKFLOWS,
@@ -88,6 +92,10 @@ from posthog.temporal.salesforce_enrichment import (
 from posthog.temporal.subscriptions import (
     ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
     WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
+)
+from posthog.temporal.sync_person_distinct_ids import (
+    ACTIVITIES as SYNC_PERSON_DISTINCT_IDS_ACTIVITIES,
+    WORKFLOWS as SYNC_PERSON_DISTINCT_IDS_WORKFLOWS,
 )
 from posthog.temporal.tests.utils.workflow import (
     ACTIVITIES as TEST_ACTIVITIES,
@@ -141,14 +149,18 @@ _task_queue_specs = [
         + USAGE_REPORTS_WORKFLOWS
         + SALESFORCE_ENRICHMENT_WORKFLOWS
         + PRODUCT_ANALYTICS_WORKFLOWS
-        + LLM_ANALYTICS_WORKFLOWS,
+        + LLM_ANALYTICS_WORKFLOWS
+        + DLQ_REPLAY_WORKFLOWS
+        + SYNC_PERSON_DISTINCT_IDS_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
         + USAGE_REPORTS_ACTIVITIES
         + QUOTA_LIMITING_ACTIVITIES
         + SALESFORCE_ENRICHMENT_ACTIVITIES
         + PRODUCT_ANALYTICS_ACTIVITIES
-        + LLM_ANALYTICS_ACTIVITIES,
+        + LLM_ANALYTICS_ACTIVITIES
+        + DLQ_REPLAY_ACTIVITIES
+        + SYNC_PERSON_DISTINCT_IDS_ACTIVITIES,
     ),
     (
         settings.DUCKLAKE_TASK_QUEUE,

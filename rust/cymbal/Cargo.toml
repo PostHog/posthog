@@ -43,6 +43,7 @@ base64 = { workspace = true }
 regex = { workspace = true }
 once_cell = { workspace = true }
 futures.workspace = true
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 
 [dev-dependencies]
 httpmock = { workspace = true }

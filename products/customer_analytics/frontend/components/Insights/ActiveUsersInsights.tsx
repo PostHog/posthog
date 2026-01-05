@@ -1,18 +1,17 @@
 import { useValues } from 'kea'
 
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
-import { isEventsNode } from '~/queries/utils'
 import { ChartDisplayType, InsightLogicProps } from '~/types'
 
 import { CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID } from '../../constants'
 import { InsightDefinition, customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
-import { buildDashboardItemId } from '../../utils'
+import { buildDashboardItemId, isPageviewWithoutFilters } from '../../utils'
 import { CustomerAnalyticsQueryCard } from '../CustomerAnalyticsQueryCard'
 
 export function ActiveUsersInsights(): JSX.Element {
@@ -22,10 +21,7 @@ export function ActiveUsersInsights(): JSX.Element {
         : 'You are currently using the pageview event to define user activity. Consider using a more specific event or action to track activity accurately.'
 
     // Check if using pageview as default, with no properties filter
-    const isOnlyPageview =
-        isEventsNode(activityEvent) &&
-        activityEvent.event === '$pageview' &&
-        (!activityEvent.properties || activityEvent.properties.length === 0)
+    const isOnlyPageview = isPageviewWithoutFilters(activityEvent)
 
     return (
         <div className="space-y-2">
@@ -74,7 +70,9 @@ function PowerUsersTable(): JSX.Element {
         showSourceQueryOptions: false,
         source: {
             kind: NodeKind.ActorsQuery,
-            select: isB2c ? ['person', 'event_count', 'last_seen'] : ['group', 'event_count', 'last_seen'],
+            select: isB2c
+                ? ['person_display_name -- Person', 'event_count', 'last_seen']
+                : ['group', 'event_count', 'last_seen'],
             source: {
                 kind: NodeKind.InsightActorsQuery,
                 source: {
@@ -99,7 +97,12 @@ function PowerUsersTable(): JSX.Element {
     return (
         <>
             <div className="flex items-center gap-2">
-                <h2 className="mb-0 ml-1">Power {customerLabel.plural}</h2>
+                <Tooltip
+                    title={`Power ${customerLabel.plural} are the ${customerLabel.plural} that performed your activity event most frequently in the past 30 days.`}
+                    docLink="https://posthog.com/docs/customer-analytics/dashboard-metrics#power-users"
+                >
+                    <h2 className="mb-0 ml-1">Power {customerLabel.plural}</h2>
+                </Tooltip>
                 <LemonButton size="small" noPadding targetBlank to={buttonTo} tooltip={tooltip} />
             </div>
             <Query

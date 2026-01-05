@@ -85,7 +85,7 @@ export function LiveEventsTable(): JSX.Element {
     const { pauseStream, resumeStream, setFilters, clearEvents } = useActions(liveEventsLogic)
     const tabs = useActivityTabs()
 
-    const isVisible = usePageVisibility()
+    const { isVisible } = usePageVisibility()
     useEffect(() => {
         if (isVisible) {
             resumeStream()

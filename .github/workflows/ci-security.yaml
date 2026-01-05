@@ -119,7 +119,7 @@ jobs:
                     --error \
                     --metrics=off \
                     --verbose \
-                    frontend/ plugin-server/
+                    frontend/ nodejs/
 
     # scans GitHub Actions and other repo-wide config
     semgrep-general:
@@ -140,7 +140,6 @@ jobs:
                     --config "p/trailofbits" \
                     --config "p/github-actions" \
                     --exclude-rule dockerfile.security.no-sudo-in-dockerfile.no-sudo-in-dockerfile \
-                    --exclude-rule trailofbits.yaml.github-actions.aws-secret-key.aws-secret-key \
                     --exclude-rule trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport \
                     --exclude-rule trailofbits.yaml.docker-compose.port-all-interfaces.port-all-interfaces \
                     --error \
@@ -151,7 +150,7 @@ jobs:
                     --exclude ./ee/ \
                     --exclude ./frontend/ \
                     --exclude ./livestream/ \
-                    --exclude ./plugin-server/ \
+                    --exclude ./nodejs/ \
                     --exclude ./posthog/ \
                     --exclude ./products/ \
                     --exclude ./rust/ \

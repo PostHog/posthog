@@ -145,6 +145,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 'deleteDataWarehouseSavedQuerySuccess',
                 'createDataWarehouseSavedQuerySuccess',
                 'runDataWarehouseSavedQuery',
+                'materializeDataWarehouseSavedQuery',
                 'resetDataModelingJobs',
                 'loadDataModelingJobs',
                 'updateDataWarehouseSavedQuerySuccess',
@@ -235,6 +236,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             viewId,
         }),
         syncUrlWithQuery: true,
+        insertTextAtCursor: (text: string) => ({ text }),
     })),
     propsChanged(({ actions, props }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
@@ -392,6 +394,37 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         },
         fixErrorsFailure: () => {
             posthog.capture('ai-error-fixer-failure')
+        },
+        insertTextAtCursor: ({ text }) => {
+            const editor = props.editor
+            if (!editor) {
+                return
+            }
+
+            const position = editor.getPosition()
+            if (!position) {
+                return
+            }
+
+            editor.executeEdits('insert-variable', [
+                {
+                    range: {
+                        startLineNumber: position.lineNumber,
+                        startColumn: position.column,
+                        endLineNumber: position.lineNumber,
+                        endColumn: position.column,
+                    },
+                    text,
+                },
+            ])
+
+            // Move cursor to end of inserted text
+            editor.setPosition({
+                lineNumber: position.lineNumber,
+                column: position.column + text.length,
+            })
+
+            editor.focus()
         },
         shareTab: () => {
             const currentTab = values.activeTab
@@ -735,12 +768,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 const savedQuery = dataWarehouseViewsLogic.values.dataWarehouseSavedQueries.find((q) => q.name === name)
 
                 if (materializeAfterSave && savedQuery) {
-                    await dataWarehouseViewsLogic.asyncActions.updateDataWarehouseSavedQuery({
-                        id: savedQuery.id,
-                        sync_frequency: '24hour',
-                        types: [[]],
-                        lifecycle: 'create',
-                    })
+                    await dataWarehouseViewsLogic.asyncActions.materializeDataWarehouseSavedQuery(savedQuery.id)
                 }
 
                 if (fromDraft) {

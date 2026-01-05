@@ -414,6 +414,7 @@ impl OutputErrProps {
                 EmbeddingModel::OpenAITextEmbeddingLarge,
                 EmbeddingModel::OpenAITextEmbeddingSmall,
             ],
+            metadata: Default::default(),
         }
     }
 }

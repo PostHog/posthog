@@ -1435,3 +1435,155 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert result is not None
         # Should detect severe mismatch (100/0 vs expected 50/50)
         self.assertLess(result.p_value, 0.001)
+
+    def test_srm_handles_zero_rollout_variant_with_observed_samples(self):
+        """
+        Test that SRM calculation handles the case where a 0% rollout variant
+        has observed samples in the data (edge case/data quality issue).
+
+        This reproduces the bug where scipy.chisquare() fails due to
+        sum(observed) ≠ sum(expected) tolerance error.
+        """
+        # Create feature flag with a disabled variant (0% rollout)
+        feature_flag = FeatureFlag.objects.create(
+            name="Test flag with disabled variant",
+            key="test-flag-with-disabled",
+            team=self.team,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": None}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                        {"key": "disabled", "rollout_percentage": 0},  # 0% rollout
+                    ]
+                },
+            },
+            created_by=self.user,
+        )
+
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 1, 10),
+        )
+
+        query = ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=experiment.id,
+            experiment_name=experiment.name,
+            feature_flag=model_to_dict(feature_flag),
+            start_date=experiment.start_date.isoformat(),
+            end_date=experiment.end_date.isoformat(),
+            exposure_criteria=experiment.exposure_criteria,
+        )
+
+        runner = ExperimentExposuresQueryRunner(team=self.team, query=query)
+
+        # THE BUG SCENARIO:
+        # Disabled variant has 0% rollout but somehow has observed samples
+        # This can happen due to:
+        # - Race conditions during feature flag updates
+        # - Data quality issues
+        # - Bucketing edge cases
+        total_exposures = {
+            "control": 50,
+            "test": 50,
+            "disabled": 1,  # 0% rollout variant with 1 sample!
+        }
+
+        # Without fix: This raises ValueError from scipy.chisquare
+        # With fix: Should handle gracefully by excluding disabled from total
+        result = runner._calculate_srm(total_exposures)
+
+        # Should successfully calculate SRM for control and test only
+        self.assertIsNotNone(result)
+        assert result is not None  # for mypy
+        self.assertIsNotNone(result.p_value)
+
+        # Expected counts should only include control and test
+        self.assertEqual(len(result.expected), 2)
+        self.assertIn("control", result.expected)
+        self.assertIn("test", result.expected)
+        self.assertNotIn("disabled", result.expected)
+
+        # Expected should be calculated from 100 total (excluding disabled)
+        # Not 101 total (including disabled)
+        self.assertAlmostEqual(result.expected["control"], 50.0, places=1)
+        self.assertAlmostEqual(result.expected["test"], 50.0, places=1)
+
+        # P-value should be 1.0 (perfect match after excluding disabled)
+        self.assertAlmostEqual(result.p_value, 1.0, places=2)
+
+    def test_srm_handles_variant_with_zero_exposures_missing_from_total(self):
+        """
+        Test that SRM calculation handles the case where a variant with non-zero
+        rollout percentage has zero exposures and is therefore missing from
+        total_exposures entirely.
+
+        This reproduces the bug where scipy.chisquare() fails with:
+        ValueError: sum of observed frequencies must agree with sum of expected frequencies
+        """
+        # Create feature flag with 3 variants
+        feature_flag = FeatureFlag.objects.create(
+            name="Test flag with 3 variants",
+            key="test-flag-three-variants",
+            team=self.team,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": None}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 45},
+                        {"key": "test", "rollout_percentage": 45},
+                        {"key": "variant_c", "rollout_percentage": 10},
+                    ]
+                },
+            },
+            created_by=self.user,
+        )
+
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 1, 10),
+        )
+
+        query = ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=experiment.id,
+            experiment_name=experiment.name,
+            feature_flag=model_to_dict(feature_flag),
+            start_date=experiment.start_date.isoformat(),
+            end_date=experiment.end_date.isoformat(),
+            exposure_criteria=experiment.exposure_criteria,
+        )
+
+        runner = ExperimentExposuresQueryRunner(team=self.team, query=query)
+
+        # THE BUG SCENARIO:
+        # variant_c has 10% rollout but 0 exposures, so it's missing from total_exposures
+        # Without fix: sum(observed)=150, sum(expected)=135 → 11.1% mismatch → ValueError
+        total_exposures = {
+            "control": 80,
+            "test": 70,
+            # "variant_c" is missing because it has 0 exposures!
+        }
+
+        result = runner._calculate_srm(total_exposures)
+
+        self.assertIsNotNone(result)
+        assert result is not None  # for mypy
+
+        # All 3 variants should be in expected (including variant_c with 0 observed)
+        self.assertEqual(len(result.expected), 3)
+        self.assertIn("control", result.expected)
+        self.assertIn("test", result.expected)
+        self.assertIn("variant_c", result.expected)
+
+        # Expected should be based on 150 total (80+70+0) distributed by rollout %
+        self.assertAlmostEqual(result.expected["control"], 150 * 0.45, places=1)  # 67.5
+        self.assertAlmostEqual(result.expected["test"], 150 * 0.45, places=1)  # 67.5
+        self.assertAlmostEqual(result.expected["variant_c"], 150 * 0.10, places=1)  # 15.0
+
+        # Should detect mismatch since variant_c has 0 observed but 15 expected
+        self.assertLess(result.p_value, 0.01)

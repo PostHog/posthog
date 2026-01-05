@@ -39,6 +39,10 @@ from products.batch_exports.backend.temporal.destinations.snowflake_batch_export
     SnowflakeBatchExportWorkflow,
     insert_into_snowflake_activity_from_stage,
 )
+from products.batch_exports.backend.temporal.destinations.workflows_batch_export import (
+    WorkflowsBatchExportWorkflow,
+    insert_into_kafka_activity_from_stage,
+)
 from products.batch_exports.backend.temporal.monitoring import (
     BatchExportMonitoringWorkflow,
     fetch_exported_event_counts,
@@ -61,6 +65,7 @@ WORKFLOWS = [
     DatabricksBatchExportWorkflow,
     HttpBatchExportWorkflow,
     BatchExportMonitoringWorkflow,
+    WorkflowsBatchExportWorkflow,
 ]
 
 ACTIVITIES = [
@@ -71,6 +76,7 @@ ACTIVITIES = [
     get_schedule_frequency,
     insert_into_bigquery_activity_from_stage,
     insert_into_http_activity,
+    insert_into_kafka_activity_from_stage,
     insert_into_postgres_activity_from_stage,
     insert_into_redshift_activity,
     insert_into_redshift_activity_from_stage,

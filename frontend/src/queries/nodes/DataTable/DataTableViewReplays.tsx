@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { ViewReplayButton } from 'lib/components/ViewReplayButton/ViewReplayButton'
+import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, RecordingUniversalFilters } from '~/types'
 
@@ -35,7 +35,7 @@ export function DataTableViewReplays(): JSX.Element | null {
     }
 
     return (
-        <ViewReplayButton
+        <ViewRecordingsPlaylistButton
             filters={filters}
             type="secondary"
             label="View session recordings"

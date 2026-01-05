@@ -24,14 +24,14 @@ from posthog.temporal.llm_analytics.trace_summarization.constants import (
     DEFAULT_BATCH_SIZE,
     DEFAULT_MAX_TRACES_PER_WINDOW,
     DEFAULT_MODE,
+    DEFAULT_MODEL,
+    DEFAULT_PROVIDER,
     DEFAULT_WINDOW_MINUTES,
-    EMBED_TIMEOUT_SECONDS,
-    EVENT_PROCESSING_DELAY_SECONDS,
     GENERATE_SUMMARY_TIMEOUT_SECONDS,
+    MAX_LENGTH_BY_PROVIDER,
     SAMPLE_TIMEOUT_SECONDS,
     WORKFLOW_NAME,
 )
-from posthog.temporal.llm_analytics.trace_summarization.embedding import embed_summaries_activity
 from posthog.temporal.llm_analytics.trace_summarization.models import (
     BatchSummarizationInputs,
     BatchSummarizationMetrics,
@@ -40,6 +40,8 @@ from posthog.temporal.llm_analytics.trace_summarization.models import (
 )
 from posthog.temporal.llm_analytics.trace_summarization.sampling import query_traces_in_window_activity
 from posthog.temporal.llm_analytics.trace_summarization.summarization import generate_and_save_summary_activity
+
+from products.llm_analytics.backend.summarization.models import SummarizationMode, SummarizationProvider
 
 logger = structlog.get_logger(__name__)
 
@@ -62,11 +64,12 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
             team_id=int(inputs[0]),
             max_traces=int(inputs[1]) if len(inputs) > 1 else DEFAULT_MAX_TRACES_PER_WINDOW,
             batch_size=int(inputs[2]) if len(inputs) > 2 else DEFAULT_BATCH_SIZE,
-            mode=inputs[3] if len(inputs) > 3 else DEFAULT_MODE,
+            mode=SummarizationMode(inputs[3]) if len(inputs) > 3 else DEFAULT_MODE,
             window_minutes=int(inputs[4]) if len(inputs) > 4 else DEFAULT_WINDOW_MINUTES,
             window_start=inputs[5] if len(inputs) > 5 else None,
             window_end=inputs[6] if len(inputs) > 6 else None,
-            model=inputs[7] if len(inputs) > 7 else None,
+            provider=SummarizationProvider(inputs[7]) if len(inputs) > 7 else DEFAULT_PROVIDER,
+            model=inputs[8] if len(inputs) > 8 else DEFAULT_MODEL,
         )
 
     @staticmethod
@@ -78,7 +81,9 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
         window_end: str,
         mode: str,
         batch_run_id: str,
+        provider: str | None,
         model: str | None,
+        max_length: int | None,
     ) -> SummarizationActivityResult:
         """Process a single trace with semaphore-controlled concurrency."""
         async with semaphore:
@@ -91,7 +96,9 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
                     window_end,
                     mode,
                     batch_run_id,
+                    provider,
                     model,
+                    max_length,
                 ],
                 activity_id=f"summarize-{trace_id}",
                 schedule_to_close_timeout=timedelta(seconds=GENERATE_SUMMARY_TIMEOUT_SECONDS),
@@ -143,6 +150,9 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
         metrics.traces_queried = len(trace_ids)
 
         # Process traces in batches
+        # Look up max_length based on provider for context window safety
+        max_length = MAX_LENGTH_BY_PROVIDER.get(inputs.provider)
+
         semaphore = asyncio.Semaphore(inputs.batch_size)
         tasks: list[Coroutine[Any, Any, SummarizationActivityResult]] = [
             self._process_trace(
@@ -153,34 +163,35 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
                 window_end=window_end,
                 mode=inputs.mode,
                 batch_run_id=batch_run_id,
+                provider=inputs.provider,
                 model=inputs.model,
+                max_length=max_length,
             )
             for trace_id in trace_ids
         ]
-        results: list[SummarizationActivityResult] = await asyncio.gather(*tasks, return_exceptions=False)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        successful_trace_ids = []
-        for result in results:
-            if result.success:
-                successful_trace_ids.append(result.trace_id)
+        for i, result in enumerate(results):
+            if isinstance(result, BaseException):
+                # Activity failed with an exception - count as failed but don't crash workflow
+                logger.exception(
+                    "Activity failed for trace",
+                    trace_id=trace_ids[i],
+                    error=str(result),
+                )
+                metrics.summaries_failed += 1
+            elif result.success:
+                metrics.summaries_generated += 1
+                # Track embedding request results (actual embedding happens asynchronously via Kafka)
+                if result.embedding_requested:
+                    metrics.embedding_requests_succeeded += 1
+                else:
+                    metrics.embedding_requests_failed += 1
             elif result.skipped:
                 metrics.summaries_skipped += 1
-
-        metrics.summaries_generated = len(successful_trace_ids)
-        metrics.summaries_failed = metrics.traces_queried - metrics.summaries_generated - metrics.summaries_skipped
-
-        # Add a delay to allow events to be processed
-        await temporalio.workflow.sleep(EVENT_PROCESSING_DELAY_SECONDS)
-
-        # Embed summaries
-        embedding_result = await temporalio.workflow.execute_activity(
-            embed_summaries_activity,
-            args=[successful_trace_ids, inputs.team_id, inputs.mode, start_time.isoformat()],
-            schedule_to_close_timeout=timedelta(seconds=EMBED_TIMEOUT_SECONDS),
-            retry_policy=constants.EMBED_RETRY_POLICY,
-        )
-        metrics.embeddings_requested = embedding_result.embeddings_requested
-        metrics.embeddings_failed = embedding_result.embeddings_failed
+            else:
+                # Activity returned but wasn't successful or skipped
+                metrics.summaries_failed += 1
 
         end_time = temporalio.workflow.now()
         metrics.duration_seconds = (end_time - start_time).total_seconds()

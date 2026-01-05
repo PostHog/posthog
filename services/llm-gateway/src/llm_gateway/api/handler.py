@@ -12,10 +12,13 @@ from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.config import get_settings
 from llm_gateway.metrics.prometheus import (
     ACTIVE_STREAMS,
+    CONCURRENT_REQUESTS,
     PROVIDER_ERRORS,
     PROVIDER_LATENCY,
     REQUEST_COUNT,
     REQUEST_LATENCY,
+    STREAMING_CLIENT_DISCONNECT,
+    TIME_TO_FIRST_CHUNK,
     TOKENS_INPUT,
     TOKENS_OUTPUT,
 )
@@ -47,6 +50,13 @@ OPENAI_CONFIG = ProviderConfig(
     output_tokens_field="completion_tokens",
 )
 
+OPENAI_RESPONSES_CONFIG = ProviderConfig(
+    name="openai",
+    endpoint_name="responses",
+    input_tokens_field="input_tokens",
+    output_tokens_field="output_tokens",
+)
+
 
 async def handle_llm_request(
     request_data: dict[str, Any],
@@ -66,18 +76,19 @@ async def handle_llm_request(
         model=model,
     )
 
-    try:
-        if is_streaming:
-            return await _handle_streaming_request(
-                request_data=request_data,
-                user=user,
-                model=model,
-                provider_config=provider_config,
-                llm_call=llm_call,
-                start_time=start_time,
-                timeout=settings.streaming_timeout,
-            )
+    if is_streaming:
+        return await _handle_streaming_request(
+            request_data=request_data,
+            user=user,
+            model=model,
+            provider_config=provider_config,
+            llm_call=llm_call,
+            start_time=start_time,
+            timeout=settings.streaming_timeout,
+        )
 
+    CONCURRENT_REQUESTS.inc()
+    try:
         return await _handle_non_streaming_request(
             request_data=request_data,
             user=user,
@@ -112,6 +123,8 @@ async def handle_llm_request(
                 }
             },
         ) from e
+    finally:
+        CONCURRENT_REQUESTS.dec()
 
 
 async def _handle_streaming_request(
@@ -125,6 +138,7 @@ async def _handle_streaming_request(
 ) -> StreamingResponse:
     async def stream_generator() -> AsyncGenerator[bytes, None]:
         ACTIVE_STREAMS.labels(provider=provider_config.name).inc()
+        CONCURRENT_REQUESTS.inc()
         status_code = "200"
         provider_start = time.monotonic()
         first_chunk_received = False
@@ -135,11 +149,14 @@ async def _handle_streaming_request(
             async for chunk in format_sse_stream(response):
                 if not first_chunk_received:
                     first_chunk_received = True
-                    PROVIDER_LATENCY.labels(provider=provider_config.name, model=model).observe(
-                        time.monotonic() - provider_start
-                    )
+                    time_to_first = time.monotonic() - provider_start
+                    PROVIDER_LATENCY.labels(provider=provider_config.name, model=model).observe(time_to_first)
+                    TIME_TO_FIRST_CHUNK.labels(provider=provider_config.name, model=model).observe(time_to_first)
                 yield chunk
 
+        except asyncio.CancelledError:
+            STREAMING_CLIENT_DISCONNECT.labels(provider=provider_config.name).inc()
+            raise
         except TimeoutError:
             status_code = "504"
             logger.error(f"Streaming timeout for {provider_config.endpoint_name}")
@@ -150,6 +167,7 @@ async def _handle_streaming_request(
             raise
         finally:
             ACTIVE_STREAMS.labels(provider=provider_config.name).dec()
+            CONCURRENT_REQUESTS.dec()
             REQUEST_COUNT.labels(
                 endpoint=provider_config.endpoint_name,
                 provider=provider_config.name,

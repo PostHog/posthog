@@ -19,6 +19,10 @@ fn setup_tracing() {
 
 #[tokio::main]
 async fn main() {
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
+
     setup_tracing();
     info!("Starting up...");
 

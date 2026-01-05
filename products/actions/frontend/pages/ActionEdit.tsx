@@ -3,13 +3,14 @@ import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
-import { IconInfo, IconPlus, IconRewindPlay, IconTrash } from '@posthog/icons'
+import { IconInfo, IconPlus, IconTrash } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { NotFound } from 'lib/components/NotFound'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
+import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -35,13 +36,7 @@ import { tagsModel } from '~/models/tagsModel'
 import { Query } from '~/queries/Query/Query'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { NodeKind, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import {
-    AccessControlLevel,
-    AccessControlResourceType,
-    ActionStepType,
-    FilterLogicalOperator,
-    ReplayTabs,
-} from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ActionStepType, FilterLogicalOperator } from '~/types'
 
 import { ActionHogFunctions } from '../components/ActionHogFunctions'
 import { ActionStep } from '../components/ActionStep'
@@ -139,42 +134,34 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
 
                     <ScenePanelActionsSection>
                         {id && (
-                            <>
-                                <Link
-                                    to={urls.replay(ReplayTabs.Home, {
-                                        filter_group: {
-                                            type: FilterLogicalOperator.And,
-                                            values: [
-                                                {
-                                                    type: FilterLogicalOperator.And,
-                                                    values: [
-                                                        {
-                                                            id: id,
-                                                            type: 'actions',
-                                                            order: 0,
-                                                            name: action.name,
-                                                        },
-                                                    ],
-                                                },
-                                            ],
-                                        },
-                                    })}
-                                    onClick={() => {
-                                        addProductIntentForCrossSell({
-                                            from: ProductKey.ACTIONS,
-                                            to: ProductKey.SESSION_REPLAY,
-                                            intent_context: ProductIntentContext.ACTION_VIEW_RECORDINGS,
-                                        })
-                                    }}
-                                    data-attr={`${RESOURCE_TYPE}-view-recordings`}
-                                    buttonProps={{
-                                        menuItem: true,
-                                    }}
-                                >
-                                    <IconRewindPlay />
-                                    View recordings
-                                </Link>
-                            </>
+                            <ViewRecordingsPlaylistButton
+                                filters={{
+                                    filter_group: {
+                                        type: FilterLogicalOperator.And,
+                                        values: [
+                                            {
+                                                type: FilterLogicalOperator.And,
+                                                values: [
+                                                    {
+                                                        id: id,
+                                                        type: 'actions',
+                                                        order: 0,
+                                                        name: action.name,
+                                                    },
+                                                ],
+                                            },
+                                        ],
+                                    },
+                                }}
+                                onClick={() => {
+                                    addProductIntentForCrossSell({
+                                        from: ProductKey.ACTIONS,
+                                        to: ProductKey.SESSION_REPLAY,
+                                        intent_context: ProductIntentContext.ACTION_VIEW_RECORDINGS,
+                                    })
+                                }}
+                                data-attr={`${RESOURCE_TYPE}-view-recordings`}
+                            />
                         )}
                     </ScenePanelActionsSection>
                     <ScenePanelDivider />

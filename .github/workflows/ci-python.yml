@@ -155,6 +155,11 @@ jobs:
               run: |
                   pytest common/hogli/tests/ -v --cov=common/hogli --cov-report=term
 
+            - name: Run dependency detection script tests
+              shell: bash
+              run: |
+                  pytest bin/test/test_find_python_dependencies.py -v
+
             # - name: Check if "taxonomy.json/taxonomy.tsx" is up to date
             #   if: needs.changes.outputs.python == 'true'
             #   shell: bash
