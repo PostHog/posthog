@@ -12,20 +12,15 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        # Remove TeamCoreEventsConfig - the old JSON-based approach
-        # Use SeparateDatabaseAndState to handle case where table may or may not exist
+        # Remove TeamCoreEventsConfig from Django state only
+        # The table will be dropped in migration 0957 after this is deployed
         migrations.SeparateDatabaseAndState(
             state_operations=[
                 migrations.DeleteModel(
                     name="TeamCoreEventsConfig",
                 ),
             ],
-            database_operations=[
-                migrations.RunSQL(
-                    sql="DROP TABLE IF EXISTS posthog_teamcoreeventsconfig;",
-                    reverse_sql="",  # No reverse since we're dropping
-                ),
-            ],
+            database_operations=[],
         ),
         # Create new CoreEvent table
         migrations.CreateModel(
