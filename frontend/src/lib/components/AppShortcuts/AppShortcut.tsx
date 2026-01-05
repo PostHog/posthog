@@ -2,7 +2,7 @@ import { ReactElement, cloneElement, isValidElement } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { KeyboardShortcutsFromKeybind } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
 import { AppShortcutType } from './appShortcutLogic'
 import { convertPlatformKeybind, useAppShortcut } from './useAppShortcut'
@@ -12,7 +12,7 @@ export function keybindToKeyboardShortcutProps(keybind: string[]): Record<string
     return Object.fromEntries(platformAgnosticKeybind.map((key) => [key, true]))
 }
 
-interface AppShortcutProps extends Omit<AppShortcutType, 'ref' | 'keybind' | 'interaction' | 'callback'> {
+export interface AppShortcutProps extends Omit<AppShortcutType, 'ref' | 'keybind' | 'interaction' | 'callback'> {
     /** The keybind(s) to use for the shortcut - can be a single keybind or multiple alternative keybinds */
     keybind: string[][]
     /** Single React element child - must forward ref to clickable/focusable element */
@@ -55,16 +55,7 @@ export function AppShortcut({
     if (childProps.tooltip && !disabled) {
         finalTooltip = (
             <>
-                {childProps.tooltip}{' '}
-                {keybind.map((kb, index) => (
-                    <span key={index}>
-                        {index > 0 && <span className="text-xs opacity-75"> or </span>}
-                        <KeyboardShortcut
-                            {...keybindToKeyboardShortcutProps(kb)}
-                            className="relative text-xs -top-px"
-                        />
-                    </span>
-                ))}
+                {childProps.tooltip} <KeyboardShortcutsFromKeybind keybind={keybind} />
             </>
         )
     }

@@ -1,3 +1,4 @@
+import { Tooltip } from '@base-ui/react/tooltip'
 import { DropdownMenuContentProps } from '@radix-ui/react-dropdown-menu'
 import { useActions, useValues } from 'kea'
 
@@ -41,6 +42,7 @@ import {
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
+import { tooltipHandle } from 'lib/ui/Tooltip/GlobalTooltip'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -165,26 +167,26 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                     </Label>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem asChild>
-                        <Link
-                            to={urls.settings(user?.organization?.id ? 'user' : 'user-danger-zone')}
-                            buttonProps={{
-                                className: 'flex items-center gap-2 h-fit',
-                                menuItem: true,
-                                truncate: true,
-                            }}
-                            tooltip="Account settings"
-                            tooltipPlacement="right"
-                            data-attr="top-menu-account-owner"
-                        >
-                            <ProfilePicture user={user} size="xs" />
-                            <span className="flex flex-col truncate">
-                                <span className="font-semibold truncate">{user?.first_name}</span>
-                                <span className="text-tertiary text-xs truncate">{user?.email}</span>
-                            </span>
-                            <div className="ml-auto">
-                                <IconGear className="text-tertiary" />
-                            </div>
-                        </Link>
+                        <Tooltip.Trigger payload={{ title: 'Account settings', side: 'right' }} handle={tooltipHandle}>
+                            <Link
+                                to={urls.settings(user?.organization?.id ? 'user' : 'user-danger-zone')}
+                                buttonProps={{
+                                    className: 'flex items-center gap-2 h-fit',
+                                    menuItem: true,
+                                    truncate: true,
+                                }}
+                                data-attr="top-menu-account-owner"
+                            >
+                                <ProfilePicture user={user} size="xs" />
+                                <span className="flex flex-col truncate">
+                                    <span className="font-semibold truncate">{user?.first_name}</span>
+                                    <span className="text-tertiary text-xs truncate">{user?.email}</span>
+                                </span>
+                                <div className="ml-auto">
+                                    <IconGear className="text-tertiary" />
+                                </div>
+                            </Link>
+                        </Tooltip.Trigger>
                     </DropdownMenuItem>
                     {isCloudOrDev ? (
                         <DropdownMenuItem asChild>

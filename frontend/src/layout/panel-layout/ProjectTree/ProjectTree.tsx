@@ -544,7 +544,7 @@ export function ProjectTree({
                     </>
                 )
             }}
-            renderItemTooltip={(item) => {
+            renderItemTooltip={(item, type) => {
                 const user = item.record?.user as UserBasicType | undefined
                 const nameNode: JSX.Element = <span className="font-semibold">{item.displayName}</span>
 
@@ -575,7 +575,8 @@ export function ProjectTree({
                             {tooltipText}
                             {sceneConfigurations[key]?.description || item.name}
 
-                            {item.tags?.length && (
+                            {/* Only show tags for non-new tooltip items (we render them in the title) */}
+                            {type !== 'new' && item.tags?.length && (
                                 <>
                                     {item.tags?.map((tag) => (
                                         <LemonTag
@@ -629,7 +630,11 @@ export function ProjectTree({
                 if (projectTreeMode === 'tree') {
                     return (
                         <>
-                            Name: {nameNode} <br />
+                            {type !== 'new' ? (
+                                <>
+                                    Name: {nameNode} <br />
+                                </>
+                            ) : null}
                             Created by:{' '}
                             <ProfilePicture
                                 user={user || { first_name: 'PostHog' }}

@@ -1,5 +1,6 @@
 import './Link.scss'
 
+import { Tooltip as BaseTooltip } from '@base-ui/react/tooltip'
 import { router } from 'kea-router'
 import React from 'react'
 
@@ -13,6 +14,7 @@ import {
     ContextMenuItem,
     ContextMenuTrigger,
 } from 'lib/ui/ContextMenu/ContextMenu'
+import { TooltipPayload, tooltipHandle } from 'lib/ui/Tooltip/GlobalTooltip'
 import { isExternalLink } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
@@ -78,6 +80,8 @@ export type LinkProps = Pick<React.HTMLProps<HTMLAnchorElement>, 'target' | 'cla
     tooltipPlacement?: TooltipProps['placement']
     tooltipCloseDelayMs?: TooltipProps['closeDelayMs']
 
+    newTooltipPayload?: TooltipPayload
+
     /** Skip the context menu */
     skipContext?: boolean
 }
@@ -138,6 +142,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             role,
             tabIndex,
             skipContext,
+            newTooltipPayload,
             ...props
         },
         ref
@@ -249,14 +254,20 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
         // Wrap with tooltip first (before context menu) so trigger props can be applied to the <a> element
         if ((tooltip && to) || tooltipDocLink) {
             element = (
-                <Tooltip
-                    title={tooltip}
-                    docLink={tooltipDocLink}
-                    placement={tooltipPlacement}
-                    closeDelayMs={tooltipCloseDelayMs}
-                >
-                    {element}
-                </Tooltip>
+                <>
+                    {newTooltipPayload ? (
+                        <BaseTooltip.Trigger payload={newTooltipPayload} handle={tooltipHandle} render={element} />
+                    ) : (
+                        <Tooltip
+                            title={tooltip}
+                            docLink={tooltipDocLink}
+                            placement={tooltipPlacement}
+                            closeDelayMs={tooltipCloseDelayMs}
+                        >
+                            {element}
+                        </Tooltip>
+                    )}
+                </>
             )
         }
 
@@ -275,24 +286,32 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
 
         if (!to) {
             element = (
-                <Tooltip
-                    title={disabledReason ? <span className="italic">{disabledReason}</span> : tooltip || undefined}
-                    placement={tooltipPlacement}
-                    closeDelayMs={tooltipCloseDelayMs}
-                >
-                    <span>
-                        <button
-                            ref={ref as any}
-                            className={cn(elementClasses, className)}
-                            onClick={onClick}
-                            type="button"
-                            disabled={disabled || !!disabledReason}
-                            {...props}
+                <>
+                    {newTooltipPayload ? (
+                        <BaseTooltip.Trigger payload={newTooltipPayload} handle={tooltipHandle} render={element} />
+                    ) : (
+                        <Tooltip
+                            title={
+                                disabledReason ? <span className="italic">{disabledReason}</span> : tooltip || undefined
+                            }
+                            placement={tooltipPlacement}
+                            closeDelayMs={tooltipCloseDelayMs}
                         >
-                            {children}
-                        </button>
-                    </span>
-                </Tooltip>
+                            <span>
+                                <button
+                                    ref={ref as any}
+                                    className={cn(elementClasses, className)}
+                                    onClick={onClick}
+                                    type="button"
+                                    disabled={disabled || !!disabledReason}
+                                    {...props}
+                                >
+                                    {children}
+                                </button>
+                            </span>
+                        </Tooltip>
+                    )}
+                </>
             )
         }
 

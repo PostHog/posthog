@@ -177,7 +177,10 @@ export function Tooltip({
                         })}
                     >
                         <div
-                            className={clsx('bg-surface-tooltip py-1.5 px-2 break-words rounded text-start', className)}
+                            className={clsx(
+                                'bg-surface-tooltip py-1.5 px-2 break-words rounded text-start text-xs',
+                                className
+                            )}
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ ...transitionStyles }}
                         >

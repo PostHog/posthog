@@ -22,6 +22,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '../../ui/ContextMenu/ContextMenu'
 import { SideAction } from '../LemonButton'
+import { LemonTag } from '../LemonTag'
 import { Link } from '../Link/Link'
 import { Spinner } from '../Spinner/Spinner'
 import {
@@ -146,7 +147,7 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     checkedItemCount?: number
     /** The render function for the item. */
     renderItem?: (item: TreeDataItem, children: React.ReactNode) => React.ReactNode
-    renderItemTooltip?: (item: TreeDataItem) => React.ReactNode | undefined
+    renderItemTooltip?: (item: TreeDataItem, type?: 'new') => React.ReactNode | undefined
     renderItemIcon?: (item: TreeDataItem) => React.ReactNode | undefined
     /** Set the IDs of the expanded items. */
     onSetExpandedItemIds?: (ids: string[]) => void
@@ -419,6 +420,35 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                             ? undefined
                                             : renderItemTooltip?.(item)
                                     }
+                                    newTooltipPayload={{
+                                        title: (
+                                            <>
+                                                {item.displayName}
+                                                {item.tags?.length && (
+                                                    <>
+                                                        {item.tags?.map((tag) => (
+                                                            <LemonTag
+                                                                key={tag}
+                                                                type={
+                                                                    tag === 'alpha'
+                                                                        ? 'completion'
+                                                                        : tag === 'beta'
+                                                                          ? 'warning'
+                                                                          : 'success'
+                                                                }
+                                                                size="small"
+                                                                className="ml-2 relative top-[-1px]"
+                                                            >
+                                                                {tag.toUpperCase()}
+                                                            </LemonTag>
+                                                        ))}
+                                                    </>
+                                                )}
+                                            </>
+                                        ),
+                                        content: renderItemTooltip?.(item, 'new'),
+                                        side: 'right',
+                                    }}
                                     tooltipPlacement="right"
                                 >
                                     {size === 'default' && (

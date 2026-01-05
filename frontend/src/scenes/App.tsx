@@ -1,3 +1,4 @@
+import { Tooltip } from '@base-ui/react/tooltip'
 import { BindLogic, useMountedLogic, useValues } from 'kea'
 import { Slide, ToastContainer } from 'react-toastify'
 
@@ -9,6 +10,7 @@ import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrictionLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { GlobalTooltip } from 'lib/ui/Tooltip/GlobalTooltip'
 import { appLogic } from 'scenes/appLogic'
 import { appScenes } from 'scenes/appScenes'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
@@ -133,11 +135,12 @@ function AppScene(): JSX.Element | null {
     }
 
     return (
-        <>
+        <Tooltip.Provider>
             <Navigation sceneConfig={sceneConfig}>{wrappedSceneElement}</Navigation>
             {toastContainer}
             <GlobalModals />
             <GlobalShortcuts />
-        </>
+            <GlobalTooltip />
+        </Tooltip.Provider>
     )
 }

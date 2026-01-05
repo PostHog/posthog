@@ -13,6 +13,7 @@ import {
     IconX,
 } from '@posthog/icons'
 
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
@@ -27,7 +28,7 @@ import { SceneTab } from 'scenes/sceneTypes'
 
 import { sceneLogic } from '~/scenes/sceneLogic'
 
-import { KeyboardShortcut } from '../navigation-3000/components/KeyboardShortcut'
+import { KeyboardShortcutsFromKeybind } from '../navigation-3000/components/KeyboardShortcut'
 
 interface SceneTabContextMenuProps {
     tab: SceneTab
@@ -115,7 +116,8 @@ export function SceneTabContextMenu({ tab, children, onConfigurePinnedTabs }: Sc
                     <ContextMenuSeparator />
                     <ContextMenuItem asChild>
                         <ButtonPrimitive menuItem onClick={() => removeTab(tab)}>
-                            <IconX /> Close tab <KeyboardShortcut command option w />
+                            <IconX /> Close tab{' '}
+                            {tab.active ? <KeyboardShortcutsFromKeybind keybind={[keyBinds.closeActiveTab]} /> : ''}
                         </ButtonPrimitive>
                     </ContextMenuItem>
                     <ContextMenuItem asChild>

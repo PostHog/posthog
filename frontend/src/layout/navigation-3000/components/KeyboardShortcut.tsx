@@ -1,7 +1,9 @@
 import './KeyboardShortcut.scss'
 
 import clsx from 'clsx'
+import { ReactElement } from 'react'
 
+import { AppShortcutProps, keybindToKeyboardShortcutProps } from 'lib/components/AppShortcuts/AppShortcut'
 import { isMac, isMobile } from 'lib/utils'
 
 import { HotKeyOrModifier } from '~/types'
@@ -60,5 +62,21 @@ export function KeyboardShortcut({ className, ...keys }: KeyboardShortcutProps):
                 <span key={key}>{KEY_TO_SYMBOL[key] || key}</span>
             ))}
         </kbd>
+    )
+}
+
+export function KeyboardShortcutsFromKeybind({ keybind }: { keybind: AppShortcutProps['keybind'] }): ReactElement {
+    return (
+        <>
+            {keybind.map((kb, index) => (
+                <span key={index}>
+                    {index > 0 && <span className="text-xs opacity-75"> or </span>}
+                    <KeyboardShortcut
+                        {...keybindToKeyboardShortcutProps(kb)}
+                        className="relative text-xs -top-px bg-transparent text-current"
+                    />
+                </span>
+            ))}
+        </>
     )
 }
