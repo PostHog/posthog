@@ -48,4 +48,4 @@ fi
 
 # Run a no-op command within flox to trigger dependency installation (on-first-use hook)
 echo "Installing flox dependencies..."
-FLOX_DISABLE_METRICS=true timeout --foreground 300 flox activate -- echo "Flox is ready" 2>&1 || echo "Warning: flox activation timed out or failed (exit code: $?)"
+FLOX_DISABLE_METRICS=true timeout --foreground 60 flox activate -- echo "Flox is ready" 2>&1 || echo "Warning: flox activation timed out or failed (exit code: $?)"
