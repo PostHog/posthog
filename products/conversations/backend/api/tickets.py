@@ -1,4 +1,4 @@
-from django.db.models import CharField, Count, OuterRef, QuerySet, Subquery
+from django.db.models import CharField, Count, OuterRef, Q, QuerySet, Subquery
 from django.db.models.functions import Cast
 
 import structlog
@@ -191,8 +191,8 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         search = self.request.query_params.get("search")
         if search and len(search) <= 200:
-            queryset = queryset.filter(anonymous_traits__name__icontains=search) | queryset.filter(
-                anonymous_traits__email__icontains=search
+            queryset = queryset.filter(
+                Q(anonymous_traits__name__icontains=search) | Q(anonymous_traits__email__icontains=search)
             )
 
         return queryset.order_by("-updated_at")

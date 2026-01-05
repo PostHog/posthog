@@ -6,7 +6,6 @@ from typing import Any, Optional
 
 import pytest
 from freezegun import freeze_time
-from inline_snapshot import snapshot
 from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest.mock import patch
 
@@ -4107,38 +4106,9 @@ class TestDecideRemoteConfig(TestDecide):
 
         # NOTE: If this changes it indicates something is wrong as we should keep this exact format
         # for backwards compatibility
-        response_data = response.json()
-        request_id = response_data["requestId"]  # UUID that will change from run to run
-        assert response_data == snapshot(
-            {
-                "supportedCompression": ["gzip", "gzip-js"],
-                "captureDeadClicks": False,
-                "capturePerformance": {"network_timing": True, "web_vitals": False, "web_vitals_allowed_metrics": None},
-                "autocapture_opt_out": False,
-                "autocaptureExceptions": False,
-                "analytics": {"endpoint": "/i/v0/e/"},
-                "elementsChainAsString": True,
-                "errorTracking": {
-                    "autocaptureExceptions": False,
-                    "suppressionRules": [],
-                },
-                "sessionRecording": False,
-                "heatmaps": False,
-                "conversations": False,
-                "surveys": False,
-                "productTours": False,
-                "defaultIdentifiedOnly": True,
-                "siteApps": [],
-                "isAuthenticated": False,
-                # requestId is a UUID
-                "requestId": request_id,
-                "toolbarParams": {},
-                "config": {"enable_collect_everything": True},
-                "featureFlags": {},
-                "errorsWhileComputingFlags": False,
-                "featureFlagPayloads": {},
-            }
-        )
+        dump = response.json()
+        dump["requestId"] = "request_id"  # UUID that will change from run to run, keep it stable
+        assert dump == self.snapshot
 
 
 class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
