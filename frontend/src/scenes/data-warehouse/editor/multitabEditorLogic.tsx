@@ -1131,6 +1131,21 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
     })),
     tabAwareUrlToAction(({ actions, values, props }) => ({
         [urls.sqlEditor()]: async (_, searchParams, hashParams) => {
+            // If the URL doesn't indicate we should be editing a view/insight/draft,
+            // but our current state has one, we need to clear it
+            const urlIndicatesView = searchParams.open_view || hashParams.view
+            const urlIndicatesInsight = searchParams.open_insight || hashParams.insight
+            const urlIndicatesDraft = searchParams.open_draft || hashParams.draft
+            const stateHasView = values.activeTab?.view
+            const stateHasInsight = values.activeTab?.insight
+            const stateHasDraft = values.activeTab?.draft
+
+            // If URL indicates no view/insight/draft but state has one, we need to reset
+            const needsReset =
+                (!urlIndicatesView && stateHasView) ||
+                (!urlIndicatesInsight && stateHasInsight) ||
+                (!urlIndicatesDraft && stateHasDraft)
+
             if (
                 !searchParams.open_query &&
                 !searchParams.open_view &&
@@ -1140,7 +1155,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 !hashParams.q &&
                 !hashParams.view &&
                 !hashParams.insight &&
-                values.queryInput !== null
+                values.queryInput !== null &&
+                !needsReset
             ) {
                 return
             }
@@ -1268,12 +1284,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     // Open query string
                     actions.createTab(searchParams.open_query)
                     tabAdded = true
-                } else if (hashParams.q && values.queryInput === null) {
-                    // only when opening the tab
+                } else if (hashParams.q && (values.queryInput === null || needsReset)) {
+                    // Opening the tab or resetting state when URL no longer indicates view/insight/draft
                     actions.createTab(hashParams.q)
                     tabAdded = true
-                } else if (values.queryInput === null) {
-                    actions.createTab('')
+                } else if (values.queryInput === null || needsReset) {
+                    actions.createTab(values.queryInput ?? '')
                     tabAdded = true
                 }
             }
