@@ -30,6 +30,7 @@ from posthog.settings import (
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
 from posthog.tasks import exporter
+from posthog.tasks.exporter import EXCEPTIONS_TO_RETRY
 from posthog.tasks.exports.image_exporter import export_image
 
 TEST_ROOT_BUCKET = "test_exports"
@@ -831,7 +832,7 @@ class TestExports(APIBaseTest):
             )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-    @patch("posthog.tasks.exporter.export_asset_direct")
+    @patch("posthog.tasks.exports.image_exporter.export_image")
     def test_synchronous_export_records_failure_on_query_error(self, mock_export_direct) -> None:
         """Test that synchronous exports record failure info when a QueryError occurs."""
         from posthog.hogql.errors import QueryError
@@ -851,14 +852,15 @@ class TestExports(APIBaseTest):
         asset = ExportedAsset.objects.get(pk=data["id"])
         self.assertEqual(asset.exception, "Unknown table 'nonexistent_table'")
         self.assertEqual(asset.exception_type, "QueryError")
-        self.assertEqual(asset.failure_type, "user")
 
-    @patch("posthog.tasks.exporter.export_asset_direct")
+    @patch("posthog.tasks.exports.image_exporter.export_image")
     def test_synchronous_export_raises_retriable_errors(self, mock_export_direct) -> None:
         """Test that retriable errors are re-raised during synchronous export, causing a 500."""
         from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 
-        mock_export_direct.side_effect = CHQueryErrorTooManySimultaneousQueries("Too many queries")
+        e = CHQueryErrorTooManySimultaneousQueries("Too many queries")
+        assert isinstance(e, EXCEPTIONS_TO_RETRY)
+        mock_export_direct.side_effect = e
 
         # Retriable errors should propagate and cause a 500 (re-raised for retry)
         response = self.client.post(

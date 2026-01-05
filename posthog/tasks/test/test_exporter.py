@@ -141,10 +141,6 @@ class TestExportAssetFailureRecording(APIBaseTest):
 
     @patch("posthog.tasks.exports.image_exporter.export_image")
     def test_non_retriable_error_records_failure_and_does_not_raise(self, mock_export_direct: MagicMock) -> None:
-        """
-        Test that non-retriable errors (like QueryError) record failure info
-        and do NOT re-raise the exception (swallowed to align with previous behavior).
-        """
         mock_export_direct.side_effect = QueryError("Invalid query syntax")
 
         asset = ExportedAsset.objects.create(
@@ -163,10 +159,6 @@ class TestExportAssetFailureRecording(APIBaseTest):
     def test_retriable_error_raises_and_does_not_record_on_non_final_attempt(
         self, mock_export_direct: MagicMock, mock_is_final: MagicMock
     ) -> None:
-        """
-        Test that retriable errors re-raise for Celery retry and do NOT record
-        failure info on non-final attempts.
-        """
         e = CHQueryErrorTooManySimultaneousQueries("Too many queries")
         assert isinstance(e, EXCEPTIONS_TO_RETRY)
         mock_export_direct.side_effect = e
@@ -190,10 +182,6 @@ class TestExportAssetFailureRecording(APIBaseTest):
     def test_retriable_error_records_failure_on_final_attempt(
         self, mock_export_direct: MagicMock, mock_is_final: MagicMock
     ) -> None:
-        """
-        Test that retriable errors re-raise for Celery retry and do record
-        failure info on final attempts.
-        """
         e = CHQueryErrorTooManySimultaneousQueries("Too many queries")
         assert isinstance(e, EXCEPTIONS_TO_RETRY)
         mock_export_direct.side_effect = e
