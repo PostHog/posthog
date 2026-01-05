@@ -563,8 +563,14 @@ def test_organization_digest_render_payload_with_custom_reason_text():
     payload = org.render_payload(digest, product_suggestion=suggestion)
 
     teams = payload["teams"]
+    assert isinstance(teams, list)
+
     team_report = teams[0]["report"]
-    assert team_report["new_product_suggestion"]["reason_text"] == "Custom reason text for this user"
+    assert isinstance(team_report, dict)
+
+    suggestion_payload = team_report["new_product_suggestion"]
+    assert isinstance(suggestion_payload, dict)
+    assert suggestion_payload["reason_text"] == "Custom reason text for this user"
 
 
 def test_organization_digest_render_payload_suggestion_wrong_team():
@@ -601,8 +607,11 @@ def test_organization_digest_render_payload_suggestion_wrong_team():
     payload = org.render_payload(digest, product_suggestion=suggestion)
 
     teams = payload["teams"]
+    assert isinstance(teams, list)
     assert len(teams) == 1
+
     team_report = teams[0]["report"]
+    assert isinstance(team_report, dict)
     assert "new_product_suggestion" not in team_report
 
 
@@ -632,5 +641,8 @@ def test_organization_digest_render_payload_without_product_suggestion():
     payload = org.render_payload(digest)
 
     teams = payload["teams"]
+    assert isinstance(teams, list)
+
     team_report = teams[0]["report"]
+    assert isinstance(team_report, dict)
     assert "new_product_suggestion" not in team_report

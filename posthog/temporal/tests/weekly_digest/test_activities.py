@@ -741,11 +741,11 @@ async def test_generate_product_suggestion_lookup(mock_redis, common_input, dige
     mock_user_2.id = 101
 
     # Mock product suggestions - user 1 has multiple, but only first should be stored
-    mock_suggestions_user_1 = [
+    mock_suggestions_user_1: list[dict] = [
         {"product_path": "Error tracking", "reason": "sales_led", "reason_text": None},
         {"product_path": "Session replay", "reason": "new_product", "reason_text": "Custom text"},
     ]
-    mock_suggestions_user_2 = []  # No suggestions for user 2
+    mock_suggestions_user_2: list[dict] = []  # No suggestions for user 2
 
     mock_team_queryset = MockAsyncQuerySet([mock_team])
 
