@@ -31,8 +31,10 @@ function MetricSummary({ metric }: { metric: SharedMetric }): JSX.Element {
                 </Link>
             </div>
             {metric.description && <p className="mt-2">{metric.description}</p>}
-            {metric.query.kind === 'ExperimentTrendsQuery' && <MetricDisplayTrends query={metric.query.count_query} />}
-            {metric.query.kind === 'ExperimentFunnelsQuery' && (
+            {metric.query.kind === NodeKind.ExperimentTrendsQuery && (
+                <MetricDisplayTrends query={metric.query.count_query} />
+            )}
+            {metric.query.kind === NodeKind.ExperimentFunnelsQuery && (
                 <MetricDisplayFunnels query={metric.query.funnels_query} />
             )}
         </div>
