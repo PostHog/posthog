@@ -1,7 +1,7 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconChevronRight, IconExternal } from '@posthog/icons'
+import { IconChevronRight, IconExternal, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -13,14 +13,25 @@ import { InsightQueryNode } from '~/queries/schema/schema-general'
 import { QUERY_TYPES_METADATA } from '../saved-insights/SavedInsights'
 import { InsightSuggestion, insightAIAnalysisLogic } from './insightAIAnalysisLogic'
 
-export interface InsightDiveDeeperSectionProps {
+export interface InsightSuggestionsProps {
     insightId: number
     query: InsightQueryNode
 }
 
-function DiveDeeperRow({ suggestion }: { suggestion: InsightSuggestion }): JSX.Element {
+function InsightSuggestionRow({
+    suggestion,
+    index,
+    insightId,
+    query,
+}: {
+    suggestion: InsightSuggestion
+    index: number
+    insightId: number
+    query: InsightQueryNode
+}): JSX.Element {
     const [isExpanded, setIsExpanded] = useState(false)
     const InsightIcon = QUERY_TYPES_METADATA[suggestion.targetQuery.source.kind]?.icon
+    const { reportSuggestionFeedback } = useActions(insightAIAnalysisLogic({ insightId, query }))
 
     return (
         <div className="border border-border rounded bg-surface-primary">
@@ -44,7 +55,22 @@ function DiveDeeperRow({ suggestion }: { suggestion: InsightSuggestion }): JSX.E
                     <div className="p-4">
                         <Query query={suggestion.targetQuery} readOnly embedded />
                     </div>
-                    <div className="flex justify-end p-3 border-t border-border">
+                    <div className="flex justify-between items-center p-3 border-t border-border">
+                        <div className="flex gap-2 items-center">
+                            <span className="text-muted text-xs">Was this suggestion helpful?</span>
+                            <LemonButton
+                                size="small"
+                                icon={<IconThumbsUp />}
+                                onClick={() => reportSuggestionFeedback(index, suggestion.title, true)}
+                                tooltip="Helpful"
+                            />
+                            <LemonButton
+                                size="small"
+                                icon={<IconThumbsDown />}
+                                onClick={() => reportSuggestionFeedback(index, suggestion.title, false)}
+                                tooltip="Not helpful"
+                            />
+                        </div>
                         <LemonButton
                             type="primary"
                             icon={<IconExternal />}
@@ -60,7 +86,7 @@ function DiveDeeperRow({ suggestion }: { suggestion: InsightSuggestion }): JSX.E
     )
 }
 
-export function InsightDiveDeeperSection({ insightId, query }: InsightDiveDeeperSectionProps): JSX.Element | null {
+export function InsightSuggestions({ insightId, query }: InsightSuggestionsProps): JSX.Element | null {
     const { suggestions, suggestionsLoading } = useValues(insightAIAnalysisLogic({ insightId, query }))
 
     if (suggestionsLoading) {
@@ -83,7 +109,13 @@ export function InsightDiveDeeperSection({ insightId, query }: InsightDiveDeeper
 
             <div className="space-y-2">
                 {suggestions.map((suggestion, index) => (
-                    <DiveDeeperRow key={index} suggestion={suggestion} />
+                    <InsightSuggestionRow
+                        key={index}
+                        suggestion={suggestion}
+                        index={index}
+                        insightId={insightId}
+                        query={query}
+                    />
                 ))}
             </div>
         </div>

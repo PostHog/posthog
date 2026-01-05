@@ -8,7 +8,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 
 import { InsightQueryNode } from '~/queries/schema/schema-general'
 
-import { InsightDiveDeeperSection } from './InsightDiveDeeperSection'
+import { InsightSuggestions } from './InsightSuggestions'
 import { insightAIAnalysisLogic } from './insightAIAnalysisLogic'
 import { insightLogic } from './insightLogic'
 import { insightVizDataLogic } from './insightVizDataLogic'
@@ -82,7 +82,7 @@ export function InsightAIAnalysis({ query }: InsightAIAnalysisProps): JSX.Elemen
                             />
                         </div>
                     </div>
-                    <InsightDiveDeeperSection insightId={insight.id} query={query} />
+                    <InsightSuggestions insightId={insight.id} query={query} />
                 </>
             ) : (
                 <div className="text-muted">Failed to generate analysis. Please try again.</div>
