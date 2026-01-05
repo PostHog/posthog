@@ -4,13 +4,13 @@ from django.dispatch import receiver
 
 import structlog
 
-from posthog.models.utils import UUIDTModel
+from posthog.models.utils import RootTeamMixin, UUIDTModel
 from posthog.plugins.plugin_server_api import create_batch_hog_flow_job_invocation
 
 logger = structlog.get_logger(__name__)
 
 
-class HogFlowBatchJob(UUIDTModel):
+class HogFlowBatchJob(RootTeamMixin, UUIDTModel):
     """
     Stores the status and other meta information for a batch of HogFlow jobs (typically used for a broadcast)
     """
@@ -28,13 +28,13 @@ class HogFlowBatchJob(UUIDTModel):
         CANCELLED = "cancelled"
         FAILED = "failed"
 
-    team = models.ForeignKey("Team", on_delete=models.DO_NOTHING)
-    hog_flow = models.ForeignKey("HogFlow", on_delete=models.DO_NOTHING)
+    team = models.ForeignKey("posthog.Team", on_delete=models.DO_NOTHING)
+    hog_flow = models.ForeignKey("posthog.HogFlow", on_delete=models.DO_NOTHING)
     variables = models.JSONField(default=dict)
     status = models.CharField(max_length=20, choices=State.choices, default=State.QUEUED)
 
     created_at = models.DateTimeField(auto_now_add=True)
-    created_by = models.ForeignKey("User", on_delete=models.DO_NOTHING, null=True, blank=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.DO_NOTHING, null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):

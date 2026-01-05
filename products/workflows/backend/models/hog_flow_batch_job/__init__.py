@@ -1,1 +1,3 @@
-from .hog_flow_batch_job import *
+from .hog_flow_batch_job import HogFlowBatchJob
+
+__all__ = ["HogFlowBatchJob"]
