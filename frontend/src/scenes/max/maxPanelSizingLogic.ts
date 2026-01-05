@@ -35,7 +35,7 @@ export const maxPanelSizingLogic = kea<maxPanelSizingLogicType>([
     }),
     reducers({
         isChatHistoryPanelCollapsed: [
-            false, // Start expanded by default when AI_FIRST_EXPERIENCE is enabled
+            false, // Start expanded by default
             { persist: true },
             {
                 toggleChatHistoryPanelCollapsed: (state) => !state,
