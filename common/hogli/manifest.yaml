@@ -514,6 +514,10 @@ tools:
         bin_script: posthog-node
         description: 'TODO: add description for posthog-node'
         hidden: true
+    setup:claude:
+        bin_script: setup-claude
+        description: 'TODO: add description for setup-claude'
+        hidden: true
 utilities:
     nuke:
         steps:
