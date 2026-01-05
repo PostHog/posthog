@@ -391,7 +391,12 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
                     {
                         "id": "xyz",
                         "name": "create_insight",
-                        "args": {"insight_type": "trends", "title": "Test Insight", "query_description": "Foobar"},
+                        "args": {
+                            "insight_type": "trends",
+                            "viz_title": "Test Insight",
+                            "viz_description": "Test Description",
+                            "query_description": "Foobar",
+                        },
                     }
                 ],
             )
@@ -402,9 +407,7 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
         root_mock.side_effect = cycle([res1, res2])
 
         query = AssistantTrendsQuery(series=[])
-        generator_mock.return_value = RunnableLambda(
-            lambda _: TrendsSchemaGeneratorOutput(query=query, name="Test Insight", description="Test Description")
-        )
+        generator_mock.return_value = RunnableLambda(lambda _: TrendsSchemaGeneratorOutput(query=query))
 
         # First run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=True)
@@ -468,7 +471,12 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
                     {
                         "id": "xyz",
                         "name": "create_insight",
-                        "args": {"insight_type": "funnel", "title": "Test Insight", "query_description": "Foobar"},
+                        "args": {
+                            "insight_type": "funnel",
+                            "viz_title": "Test Insight",
+                            "viz_description": "Test Description",
+                            "query_description": "Foobar",
+                        },
                     }
                 ],
             )
@@ -484,9 +492,7 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
                 AssistantFunnelsEventsNode(event="$pageleave"),
             ]
         )
-        generator_mock.return_value = RunnableLambda(
-            lambda _: FunnelsSchemaGeneratorOutput(query=query, name="Test Insight", description="Test Description")
-        )
+        generator_mock.return_value = RunnableLambda(lambda _: FunnelsSchemaGeneratorOutput(query=query))
 
         # First run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=True)
@@ -552,7 +558,12 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
                     {
                         "id": "xyz",
                         "name": "create_insight",
-                        "args": {"insight_type": "retention", "title": "Test Insight", "query_description": "Foobar"},
+                        "args": {
+                            "insight_type": "retention",
+                            "viz_title": "Test Insight",
+                            "viz_description": "Test Description",
+                            "query_description": "Foobar",
+                        },
                     }
                 ],
             )
@@ -568,9 +579,7 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
                 returningEntity=AssistantRetentionActionsNode(name=action.name, id=action.id),
             )
         )
-        generator_mock.return_value = RunnableLambda(
-            lambda _: RetentionSchemaGeneratorOutput(query=query, name="Test Insight", description="Test Description")
-        )
+        generator_mock.return_value = RunnableLambda(lambda _: RetentionSchemaGeneratorOutput(query=query))
 
         # First run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=True)
@@ -635,8 +644,8 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
                         "name": "execute_sql",
                         "args": {
                             "query": "SELECT 1",
-                            "name": "Test Insight",
-                            "description": "Test Description",
+                            "viz_title": "Test Insight",
+                            "viz_description": "Test Description",
                         },
                     }
                 ],
@@ -928,9 +937,7 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
             )
         )
         query = AssistantTrendsQuery(series=[])
-        generator_mock.return_value = RunnableLambda(
-            lambda _: TrendsSchemaGeneratorOutput(query=query, name="Test Insight", description="Test Description")
-        )
+        generator_mock.return_value = RunnableLambda(lambda _: TrendsSchemaGeneratorOutput(query=query))
 
         # Create a graph that only uses the root node
         graph = AssistantGraph(self.team, self.user).compile_full_graph()
@@ -990,7 +997,12 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
                         {
                             "id": "1",
                             "name": "create_insight",
-                            "args": {"title": "Foobar", "query_description": "Foobar", "insight_type": "trends"},
+                            "args": {
+                                "viz_title": "Foobar",
+                                "viz_description": "Test Description",
+                                "query_description": "Foobar",
+                                "insight_type": "trends",
+                            },
                         }
                     ],
                 )
@@ -1232,7 +1244,12 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
                     {
                         "id": "xyz",
                         "name": "create_insight",
-                        "args": {"title": "Foobar", "query_description": "Foobar", "insight_type": "trends"},
+                        "args": {
+                            "viz_title": "Foobar",
+                            "viz_description": "Test Description",
+                            "query_description": "Foobar",
+                            "insight_type": "trends",
+                        },
                     }
                 ],
             )
@@ -1240,9 +1257,7 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
         root_mock.return_value = FakeAnthropicRunnableLambdaWithTokenCounter(root_side_effect)
 
         query = AssistantTrendsQuery(series=[])
-        generator_mock.return_value = RunnableLambda(
-            lambda _: TrendsSchemaGeneratorOutput(query=query, name="Test Insight", description="Test Description")
-        )
+        generator_mock.return_value = RunnableLambda(lambda _: TrendsSchemaGeneratorOutput(query=query))
 
         query_executor_mock.return_value = PartialAssistantState(
             messages=[
@@ -1337,7 +1352,12 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
                             AssistantToolCall(
                                 id="tool-1",
                                 name="create_insight",
-                                args={"title": "Foobar", "query_description": "Foobar", "insight_type": "trends"},
+                                args={
+                                    "viz_title": "Foobar",
+                                    "viz_description": "Test Description",
+                                    "query_description": "Foobar",
+                                    "insight_type": "trends",
+                                },
                             )
                         ],
                     ),
