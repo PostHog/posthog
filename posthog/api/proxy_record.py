@@ -22,7 +22,12 @@ def generate_target_cname(organization_id, domain) -> str:
     m.update(f"{organization_id}".encode())
     m.update(domain.encode())
     digest = m.hexdigest()[:20]
-    return f"{digest}.{settings.PROXY_BASE_CNAME}"
+    base_cname = (
+        settings.CLOUDFLARE_PROXY_BASE_CNAME
+        if settings.CLOUDFLARE_PROXY_ENABLED
+        else settings.PROXY_BASE_CNAME
+    )
+    return f"{digest}.{base_cname}"
 
 
 def _capture_proxy_event(request, record: ProxyRecord, event_type: str) -> None:
