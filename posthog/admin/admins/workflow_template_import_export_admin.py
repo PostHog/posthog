@@ -63,6 +63,268 @@ def _get_team_id_from_domain(request: HttpRequest) -> int:
         )
 
 
+def _handle_template_import(request: HttpRequest, import_form: WorkflowTemplateImportForm) -> HttpResponse:
+    """Handle template import logic"""
+    json_file = import_form.cleaned_data["json_file"]
+    try:
+        team_id = _get_team_id_from_domain(request)
+    except ValueError as e:
+        messages.error(request, str(e))
+        return redirect(request.path)
+    dry_run = import_form.cleaned_data.get("dry_run", False)
+
+    try:
+        # Parse JSON file
+        file_content = json_file.read().decode("utf-8")
+        import_data = json.loads(file_content)
+
+        # Ensure it's a list
+        if not isinstance(import_data, list):
+            import_data = [import_data]
+
+        imported_count = 0
+        updated_count = 0
+        filtered_ids = []
+        errors = []
+
+        # Filter out non-global templates
+        global_templates = []
+        for template_data in import_data:
+            template_scope = template_data.get("scope")
+            if template_scope != HogFlowTemplate.Scope.GLOBAL:
+                template_id = template_data.get("id")
+                if template_id:
+                    filtered_ids.append(str(template_id))
+            else:
+                global_templates.append(template_data)
+
+        if filtered_ids:
+            messages.warning(
+                request,
+                f"{len(filtered_ids)} template(s) will not be imported because they are not official: {', '.join(filtered_ids)}",
+            )
+
+        if dry_run:
+            messages.info(
+                request,
+                "DRY RUN MODE: No templates were actually imported. The results below show what would happen.",
+            )
+
+        # Validate team_id exists and get team object
+        team_exists = True
+        team = None
+        serializer_context = None
+        try:
+            team = Team.objects.get(id=team_id)
+
+            # Create a mock DRF request for serializer context
+            factory = RequestFactory()
+            django_request = factory.post("/")
+            django_request.user = request.user
+            drf_request = Request(django_request)
+
+            # Create serializer context with get_team function
+            def get_team_func():
+                return team
+
+            serializer_context = {
+                "request": drf_request,
+                "team_id": team_id,
+                "get_team": get_team_func,
+                "created_by": request.user,  # Set to the user doing the import
+            }
+        except Team.DoesNotExist:
+            errors.append(f"Team with ID {team_id} does not exist")
+            team_exists = False
+
+        if dry_run:
+            if team_exists:
+                for template_data in global_templates:
+                    try:
+                        template_id = template_data.get("id")
+
+                        template_scope = template_data.get("scope")
+                        if template_scope != HogFlowTemplate.Scope.GLOBAL:
+                            errors.append(
+                                f"Template '{template_data.get('name', 'Unknown')}' must have global scope, got: {template_scope}"
+                            )
+                            continue
+
+                        existing_template = None
+                        if template_id:
+                            try:
+                                existing_template = HogFlowTemplate.objects.get(
+                                    id=template_id, scope=HogFlowTemplate.Scope.GLOBAL
+                                )
+                            except HogFlowTemplate.DoesNotExist:
+                                pass
+
+                        if existing_template:
+                            serializer = HogFlowTemplateSerializer(
+                                instance=existing_template,
+                                data=template_data,
+                                context=serializer_context,
+                                partial=True,
+                            )
+                            if serializer.is_valid():
+                                updated_count += 1
+                            else:
+                                error_msgs = []
+                                for field, field_errors in serializer.errors.items():
+                                    if isinstance(field_errors, list):
+                                        error_msgs.append(f"{field}: {', '.join(str(e) for e in field_errors)}")
+                                    else:
+                                        error_msgs.append(f"{field}: {field_errors}")
+                                errors.append(
+                                    f"Template '{template_data.get('name', 'Unknown')}' (ID: {template_id}) validation failed: {', '.join(error_msgs)}"
+                                )
+                        else:
+                            serializer = HogFlowTemplateSerializer(
+                                data=template_data,
+                                context=serializer_context,
+                            )
+                            if serializer.is_valid():
+                                imported_count += 1
+                            else:
+                                error_msgs = []
+                                for field, field_errors in serializer.errors.items():
+                                    if isinstance(field_errors, list):
+                                        error_msgs.append(f"{field}: {', '.join(str(e) for e in field_errors)}")
+                                    else:
+                                        error_msgs.append(f"{field}: {field_errors}")
+                                errors.append(
+                                    f"Template '{template_data.get('name', 'Unknown')}' validation failed: {', '.join(error_msgs)}"
+                                )
+
+                    except Exception as e:
+                        errors.append(f"Error processing template '{template_data.get('name', 'Unknown')}': {str(e)}")
+        else:
+            # Real import: use transaction
+            if team_exists:
+                with transaction.atomic():
+                    for template_data in global_templates:
+                        try:
+                            template_id = template_data.get("id")
+
+                            template_scope = template_data.get("scope")
+                            if template_scope != HogFlowTemplate.Scope.GLOBAL:
+                                errors.append(
+                                    f"Template '{template_data.get('name', 'Unknown')}' must have global scope, got: {template_scope}"
+                                )
+                                continue
+
+                            existing_template = None
+                            if template_id:
+                                try:
+                                    existing_template = HogFlowTemplate.objects.get(
+                                        id=template_id, scope=HogFlowTemplate.Scope.GLOBAL
+                                    )
+                                except HogFlowTemplate.DoesNotExist:
+                                    pass
+
+                            if existing_template:
+                                # Overwrite existing templates
+                                serializer = HogFlowTemplateSerializer(
+                                    instance=existing_template,
+                                    data=template_data,
+                                    context=serializer_context,
+                                    partial=True,
+                                )
+                                if serializer.is_valid():
+                                    serializer.save()
+                                    updated_count += 1
+                                else:
+                                    error_msgs = []
+                                    for field, field_errors in serializer.errors.items():
+                                        if isinstance(field_errors, list):
+                                            error_msgs.append(f"{field}: {', '.join(str(e) for e in field_errors)}")
+                                        else:
+                                            error_msgs.append(f"{field}: {field_errors}")
+                                    errors.append(
+                                        f"Template '{template_data.get('name', 'Unknown')}' (ID: {template_id}) validation failed: {', '.join(error_msgs)}"
+                                    )
+                            else:
+                                # Pass template_id in context so serializer can preserve it
+                                serializer_context_with_id = {
+                                    **serializer_context,
+                                    "template_id": template_id,
+                                }
+                                serializer = HogFlowTemplateSerializer(
+                                    data=template_data,
+                                    context=serializer_context_with_id,
+                                )
+                                if serializer.is_valid():
+                                    serializer.save()
+                                    imported_count += 1
+                                else:
+                                    error_msgs = []
+                                    for field, field_errors in serializer.errors.items():
+                                        if isinstance(field_errors, list):
+                                            error_msgs.append(f"{field}: {', '.join(str(e) for e in field_errors)}")
+                                        else:
+                                            error_msgs.append(f"{field}: {field_errors}")
+                                    errors.append(
+                                        f"Template '{template_data.get('name', 'Unknown')}' validation failed: {', '.join(error_msgs)}"
+                                    )
+
+                        except Exception as e:
+                            errors.append(
+                                f"Error processing template '{template_data.get('name', 'Unknown')}': {str(e)}"
+                            )
+
+        if imported_count > 0:
+            action = "Would import" if dry_run else "Successfully imported"
+            messages.success(request, f"{action} {imported_count} template(s)")
+        if updated_count > 0:
+            action = "Would update" if dry_run else "Successfully updated"
+            messages.success(request, f"{action} {updated_count} template(s)")
+        if errors:
+            for error in errors:
+                messages.error(request, error)
+
+    except json.JSONDecodeError:
+        messages.error(request, "Invalid JSON file. Please check the file format.")
+    except Exception as e:
+        messages.error(request, f"Failed to import templates: {str(e)}")
+
+    return redirect(request.path)
+
+
+def _handle_template_export(request: HttpRequest, export_form: WorkflowTemplateExportForm) -> HttpResponse:
+    """Handle template export logic"""
+    templates = export_form.cleaned_data["template_ids"]
+
+    export_data = []
+    for template in templates:
+        template_dict = {
+            "name": template.name,
+            "description": template.description,
+            "image_url": template.image_url,
+            "scope": template.scope,
+            "trigger": template.trigger,
+            "trigger_masking": template.trigger_masking,
+            "conversion": template.conversion,
+            "exit_condition": template.exit_condition,
+            "edges": template.edges,
+            "actions": template.actions,
+            "abort_action": template.abort_action,
+            "variables": template.variables,
+            "id": str(template.id),
+            "team_id": template.team_id,
+            "created_at": template.created_at.isoformat() if template.created_at else None,
+            "updated_at": template.updated_at.isoformat() if template.updated_at else None,
+        }
+
+        export_data.append(template_dict)
+
+    response = HttpResponse(
+        json.dumps(export_data, indent=2, default=str),
+        content_type="application/json",
+    )
+    response["Content-Disposition"] = f'attachment; filename="workflow_templates_export.json"'
+    return response
+
+
 def workflow_template_import_export_view(request: HttpRequest) -> HttpResponse:
     """
     Combined custom admin view for importing and exporting workflow templates.
@@ -79,282 +341,11 @@ def workflow_template_import_export_view(request: HttpRequest) -> HttpResponse:
         if "json_file" in request.FILES:
             import_form = WorkflowTemplateImportForm(request.POST, request.FILES)
             if import_form.is_valid():
-                json_file = import_form.cleaned_data["json_file"]
-                try:
-                    team_id = _get_team_id_from_domain(request)
-                except ValueError as e:
-                    messages.error(request, str(e))
-                    return redirect(request.path)
-                dry_run = import_form.cleaned_data.get("dry_run", False)
-
-                try:
-                    # Parse JSON file
-                    file_content = json_file.read().decode("utf-8")
-                    import_data = json.loads(file_content)
-
-                    # Ensure it's a list
-                    if not isinstance(import_data, list):
-                        import_data = [import_data]
-
-                    imported_count = 0
-                    updated_count = 0
-                    filtered_ids = []
-                    errors = []
-
-                    # Filter out non-global templates
-                    global_templates = []
-                    for template_data in import_data:
-                        template_scope = template_data.get("scope")
-                        if template_scope != HogFlowTemplate.Scope.GLOBAL:
-                            template_id = template_data.get("id")
-                            if template_id:
-                                filtered_ids.append(str(template_id))
-                        else:
-                            global_templates.append(template_data)
-
-                    if filtered_ids:
-                        messages.warning(
-                            request,
-                            f"{len(filtered_ids)} template(s) will not be imported because they are not official: {', '.join(filtered_ids)}",
-                        )
-
-                    if dry_run:
-                        messages.info(
-                            request,
-                            "DRY RUN MODE: No templates were actually imported. The results below show what would happen.",
-                        )
-
-                    # Validate team_id exists and get team object
-                    team_exists = True
-                    team = None
-                    serializer_context = None
-                    try:
-                        team = Team.objects.get(id=team_id)
-
-                        # Create a mock DRF request for serializer context
-                        factory = RequestFactory()
-                        django_request = factory.post("/")
-                        django_request.user = request.user
-                        drf_request = Request(django_request)
-
-                        # Create serializer context with get_team function
-                        def get_team_func():
-                            return team
-
-                        serializer_context = {
-                            "request": drf_request,
-                            "team_id": team_id,
-                            "get_team": get_team_func,
-                            "created_by": request.user,  # Set to the user doing the import
-                        }
-                    except Team.DoesNotExist:
-                        errors.append(f"Team with ID {team_id} does not exist")
-                        team_exists = False
-
-                    if dry_run:
-                        if team_exists:
-                            for template_data in global_templates:
-                                try:
-                                    template_id = template_data.get("id")
-
-                                    template_scope = template_data.get("scope")
-                                    if template_scope != HogFlowTemplate.Scope.GLOBAL:
-                                        errors.append(
-                                            f"Template '{template_data.get('name', 'Unknown')}' must have global scope, got: {template_scope}"
-                                        )
-                                        continue
-
-                                    existing_template = None
-                                    if template_id:
-                                        try:
-                                            existing_template = HogFlowTemplate.objects.get(
-                                                id=template_id, scope=HogFlowTemplate.Scope.GLOBAL
-                                            )
-                                        except HogFlowTemplate.DoesNotExist:
-                                            pass
-
-                                    if existing_template:
-                                        serializer = HogFlowTemplateSerializer(
-                                            instance=existing_template,
-                                            data=template_data,
-                                            context=serializer_context,
-                                            partial=True,
-                                        )
-                                        if serializer.is_valid():
-                                            updated_count += 1
-                                        else:
-                                            error_msgs = []
-                                            for field, field_errors in serializer.errors.items():
-                                                if isinstance(field_errors, list):
-                                                    error_msgs.append(
-                                                        f"{field}: {', '.join(str(e) for e in field_errors)}"
-                                                    )
-                                                else:
-                                                    error_msgs.append(f"{field}: {field_errors}")
-                                            errors.append(
-                                                f"Template '{template_data.get('name', 'Unknown')}' (ID: {template_id}) validation failed: {', '.join(error_msgs)}"
-                                            )
-                                    else:
-                                        serializer = HogFlowTemplateSerializer(
-                                            data=template_data,
-                                            context=serializer_context,
-                                        )
-                                        if serializer.is_valid():
-                                            imported_count += 1
-                                        else:
-                                            error_msgs = []
-                                            for field, field_errors in serializer.errors.items():
-                                                if isinstance(field_errors, list):
-                                                    error_msgs.append(
-                                                        f"{field}: {', '.join(str(e) for e in field_errors)}"
-                                                    )
-                                                else:
-                                                    error_msgs.append(f"{field}: {field_errors}")
-                                            errors.append(
-                                                f"Template '{template_data.get('name', 'Unknown')}' validation failed: {', '.join(error_msgs)}"
-                                            )
-
-                                except Exception as e:
-                                    errors.append(
-                                        f"Error processing template '{template_data.get('name', 'Unknown')}': {str(e)}"
-                                    )
-                    else:
-                        # Real import: use transaction
-                        if team_exists:
-                            with transaction.atomic():
-                                for template_data in global_templates:
-                                    try:
-                                        template_id = template_data.get("id")
-
-                                        # Validate scope is global
-                                        template_scope = template_data.get("scope")
-                                        if template_scope != HogFlowTemplate.Scope.GLOBAL:
-                                            errors.append(
-                                                f"Template '{template_data.get('name', 'Unknown')}' must have global scope, got: {template_scope}"
-                                            )
-                                            continue
-
-                                        # Check if template exists (only look for global templates)
-                                        existing_template = None
-                                        if template_id:
-                                            try:
-                                                existing_template = HogFlowTemplate.objects.get(
-                                                    id=template_id, scope=HogFlowTemplate.Scope.GLOBAL
-                                                )
-                                            except HogFlowTemplate.DoesNotExist:
-                                                pass
-
-                                        if existing_template:
-                                            # Always overwrite existing templates
-                                            # Update using serializer
-                                            serializer = HogFlowTemplateSerializer(
-                                                instance=existing_template,
-                                                data=template_data,
-                                                context=serializer_context,
-                                                partial=True,
-                                            )
-                                            if serializer.is_valid():
-                                                serializer.save()
-                                                updated_count += 1
-                                            else:
-                                                error_msgs = []
-                                                for field, field_errors in serializer.errors.items():
-                                                    if isinstance(field_errors, list):
-                                                        error_msgs.append(
-                                                            f"{field}: {', '.join(str(e) for e in field_errors)}"
-                                                        )
-                                                    else:
-                                                        error_msgs.append(f"{field}: {field_errors}")
-                                                errors.append(
-                                                    f"Template '{template_data.get('name', 'Unknown')}' (ID: {template_id}) validation failed: {', '.join(error_msgs)}"
-                                                )
-                                        else:
-                                            # Create using serializer
-                                            # Pass template_id in context so serializer can preserve it
-                                            serializer_context_with_id = {
-                                                **serializer_context,
-                                                "template_id": template_id,
-                                            }
-                                            serializer = HogFlowTemplateSerializer(
-                                                data=template_data,
-                                                context=serializer_context_with_id,
-                                            )
-                                            if serializer.is_valid():
-                                                serializer.save()
-                                                imported_count += 1
-                                            else:
-                                                error_msgs = []
-                                                for field, field_errors in serializer.errors.items():
-                                                    if isinstance(field_errors, list):
-                                                        error_msgs.append(
-                                                            f"{field}: {', '.join(str(e) for e in field_errors)}"
-                                                        )
-                                                    else:
-                                                        error_msgs.append(f"{field}: {field_errors}")
-                                                errors.append(
-                                                    f"Template '{template_data.get('name', 'Unknown')}' validation failed: {', '.join(error_msgs)}"
-                                                )
-
-                                    except Exception as e:
-                                        errors.append(
-                                            f"Error processing template '{template_data.get('name', 'Unknown')}': {str(e)}"
-                                        )
-
-                    # Show success/error messages
-                    if imported_count > 0:
-                        action = "Would import" if dry_run else "Successfully imported"
-                        messages.success(request, f"{action} {imported_count} template(s)")
-                    if updated_count > 0:
-                        action = "Would update" if dry_run else "Successfully updated"
-                        messages.success(request, f"{action} {updated_count} template(s)")
-                    if errors:
-                        for error in errors:
-                            messages.error(request, error)
-
-                except json.JSONDecodeError:
-                    messages.error(request, "Invalid JSON file. Please check the file format.")
-                except Exception as e:
-                    messages.error(request, f"Failed to import templates: {str(e)}")
-
-                # Stay on the same page after submission
-                return redirect(request.path)
+                return _handle_template_import(request, import_form)
         else:
-            # This is an export submission
             export_form = WorkflowTemplateExportForm(request.POST)
             if export_form.is_valid():
-                templates = export_form.cleaned_data["template_ids"]
-
-                # Build export data (always include metadata)
-                export_data = []
-                for template in templates:
-                    template_dict = {
-                        "name": template.name,
-                        "description": template.description,
-                        "image_url": template.image_url,
-                        "scope": template.scope,
-                        "trigger": template.trigger,
-                        "trigger_masking": template.trigger_masking,
-                        "conversion": template.conversion,
-                        "exit_condition": template.exit_condition,
-                        "edges": template.edges,
-                        "actions": template.actions,
-                        "abort_action": template.abort_action,
-                        "variables": template.variables,
-                        "id": str(template.id),
-                        "team_id": template.team_id,
-                        "created_at": template.created_at.isoformat() if template.created_at else None,
-                        "updated_at": template.updated_at.isoformat() if template.updated_at else None,
-                    }
-
-                    export_data.append(template_dict)
-
-                # Create JSON response
-                response = HttpResponse(
-                    json.dumps(export_data, indent=2, default=str),
-                    content_type="application/json",
-                )
-                response["Content-Disposition"] = f'attachment; filename="workflow_templates_export.json"'
-                return response
+                return _handle_template_export(request, export_form)
 
     context = {
         "import_form": import_form,
