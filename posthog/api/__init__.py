@@ -23,6 +23,7 @@ import products.logs.backend.api as logs
 import products.links.backend.api as link
 import products.tasks.backend.api as tasks
 import products.endpoints.backend.api as endpoints
+import products.conversations.backend.api as conversations
 import products.live_debugger.backend.api as live_debugger
 import products.revenue_analytics.backend.api as revenue_analytics
 import products.early_access_features.backend.api as early_access_feature
@@ -884,6 +885,13 @@ register_grandfathered_environment_nested_viewset(
 )
 
 projects_router.register(r"links", link.LinkViewSet, "environment_links", ["team_id"])
+
+projects_router.register(
+    r"conversations/tickets",
+    conversations.TicketViewSet,
+    "environment_conversations_tickets",
+    ["team_id"],
+)
 
 projects_router.register(
     r"hog_function_templates",
