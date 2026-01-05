@@ -48,4 +48,4 @@ fi
 
 # Run a no-op command within flox to trigger dependency installation (on-first-use hook)
 echo "Installing flox dependencies..."
-flox activate -- bash -c 'echo "Flox is ready"'
+timeout 60 flox activate -- bash -c 'echo "Flox is ready"' || echo "Warning: flox activation timed out or failed"
