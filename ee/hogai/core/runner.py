@@ -297,10 +297,12 @@ class BaseAgentRunner(ABC):
                 yield AssistantEventType.MESSAGE, recursion_limit_message
 
                 if self._use_checkpointer:
-                    # Update state to mark as interrupted so the conversation can be resumed
                     await self._graph.aupdate_state(
                         config,
-                        self._partial_state_type(messages=[recursion_limit_message]),
+                        self._partial_state_type(
+                            messages=[recursion_limit_message],
+                            graph_status="interrupted",
+                        ),
                     )
             except LLM_API_EXCEPTIONS as e:
                 # Reset the state for LLM provider errors
