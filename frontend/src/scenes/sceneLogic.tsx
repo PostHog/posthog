@@ -9,7 +9,7 @@ import { useEffect, useState } from 'react'
 import api from 'lib/api'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
-import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
+import { TeamMembershipLevel } from 'lib/constants'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -1346,15 +1346,6 @@ export const sceneLogic = kea<sceneLogicType>([
             cache.initialNavigationTabCreated = true
         }
         actions.loadPinnedTabsFromBackend()
-
-        // Auto-pin AI tab if needed
-        if (!cache.checkedAiAutoPin) {
-            import('./max/maxAutoPinLogic').then(({ maxAutoPinLogic }) => {
-                maxAutoPinLogic.mount()
-                maxAutoPinLogic.actions.checkAndAutoPinAiTab()
-            })
-            cache.checkedAiAutoPin = true
-        }
     }),
 
     urlToAction(({ actions, values, cache }) => {
@@ -1410,14 +1401,6 @@ export const sceneLogic = kea<sceneLogicType>([
             }
         }
         mapping['/'] = (_params, searchParams) => {
-            // Check AI_FIRST_EXPERIENCE flag
-            const isAiFirst = values.featureFlags[FEATURE_FLAGS.AI_FIRST_EXPERIENCE]
-
-            if (isAiFirst) {
-                router.actions.replace(urls.ai())
-                return
-            }
-
             const homepage = values.homepage
 
             if (homepage) {
