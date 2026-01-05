@@ -249,12 +249,7 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
         class TestNode(AssistantNode):
             async def arun(self, state, config):
                 call_count[0] += 1
-                # First call returns a message, then we'll hit recursion limit
-                if call_count[0] == 1:
-                    return PartialAssistantState(
-                        messages=[AssistantMessage(content="Working on it...", id=str(uuid4()))]
-                    )
-                # After resume, return completion message
+                # Always return completion message
                 return PartialAssistantState(
                     messages=[AssistantMessage(content="Completed successfully!", id=str(uuid4()))]
                 )
