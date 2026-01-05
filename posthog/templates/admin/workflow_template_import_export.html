@@ -103,8 +103,11 @@
 <div>
     <h2>Import Official Workflow Templates</h2>
     
-    <div class="alert alert-info">
-        <strong>Note:</strong> Upload a JSON file containing global workflow template(s) to import. Only global templates can be imported. The file should be in the same format as exported templates. Team ID is automatically detected from the domain (us.posthog.com → team 2, eu.posthog.com → team 1). Existing templates will be automatically overwritten.
+    <div class="alert alert-info" style="max-width: 900px;">
+        <strong>Note:</strong> Upload a JSON file containing global workflow template(s) to import.<br>
+        Only global templates can be imported. The file should be in the same format as exported templates.<br>
+        Team ID is automatically detected from the domain (us.posthog.com → team 2, eu.posthog.com → team 1).<br>
+        Existing templates will be automatically overwritten.
     </div>
 
     <form method="post" enctype="multipart/form-data" id="workflow-template-import-form">
@@ -149,8 +152,10 @@
 <div class="section-divider">
     <h2>Export Official Workflow Templates</h2>
     
-    <div class="alert alert-info">
-        <strong>Note:</strong> Select one or more global workflow templates to export. Only global templates can be exported and imported. The exported JSON file includes all metadata and can be imported into another PostHog instance or used for backup purposes.
+    <div class="alert alert-info" style="max-width: 900px;">
+        <strong>Note:</strong> Select one or more global workflow templates to export.<br>
+        Only global templates can be exported and imported.<br>
+        The exported JSON file includes all metadata and can be imported into another PostHog instance or used for backup purposes.
     </div>
 
     <form method="post" id="workflow-template-export-form">
@@ -216,15 +221,10 @@ document.addEventListener('DOMContentLoaded', function() {
                     html += '<thead><tr><th>ID</th><th>Name</th><th>Scope</th></tr></thead>';
                     html += '<tbody>';
                     
-                    const templatesWithIds = [];
                     globalTemplates.forEach(function(template) {
                         const id = template.id || '<em>New (no ID)</em>';
                         const name = template.name || '<em>Unnamed</em>';
                         const scope = template.scope || 'global';
-
-                        if (template.id) {
-                            templatesWithIds.push(template.id);
-                        }
                         
                         html += '<tr>';
                         html += '<td>' + id + '</td>';
