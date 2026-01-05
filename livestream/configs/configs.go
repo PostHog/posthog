@@ -39,6 +39,7 @@ type Config struct {
 type KafkaConfig struct {
 	Brokers                          string `mapstructure:"brokers"`
 	Topic                            string `mapstructure:"topic"`
+	SecurityProtocol                 string `mapstructure:"security_protocol"`
 	SessionRecordingEnabled          bool   `mapstructure:"session_recording_enabled"`
 	SessionRecordingTopic            string `mapstructure:"session_recording_topic"`
 	SessionRecordingBrokers          string `mapstructure:"session_recording_brokers"`
@@ -86,6 +87,13 @@ func LoadConfig() (*Config, error) {
 	}
 	if len(config.CORSAllowOrigins) == 0 {
 		config.CORSAllowOrigins = []string{"*"}
+	}
+	if config.Kafka.SecurityProtocol == "" {
+		if config.Debug {
+			config.Kafka.SecurityProtocol = "PLAINTEXT"
+		} else {
+			config.Kafka.SecurityProtocol = "SSL"
+		}
 	}
 	if config.Kafka.SessionRecordingEnabled {
 		if config.Kafka.SessionRecordingTopic == "" {
