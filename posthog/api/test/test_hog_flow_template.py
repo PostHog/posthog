@@ -438,6 +438,32 @@ class TestHogFlowTemplateAPI(APIBaseTest):
 
         assert HogFlowTemplate.objects.filter(id=template_id).exists()
 
+    def test_cannot_update_team_template_to_global_without_staff(self):
+        """Test that non-staff users cannot update a team template to global scope"""
+        self.user.is_staff = False
+        self.user.save()
+
+        hog_flow_data = self._create_hog_flow_data()
+        hog_flow_data["scope"] = "team"
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
+        assert response.status_code == 201
+        template_id = response.json()["id"]
+
+        template = HogFlowTemplate.objects.get(id=template_id)
+        assert template.scope == "team"
+
+        update_data = self._create_hog_flow_data()
+        update_data["scope"] = "global"
+        update_data["name"] = "Updated Name"
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flow_templates/{template_id}", update_data)
+        assert response.status_code == 403
+        assert "you don't have edit permissions for global workflow templates" in response.json()["detail"].lower()
+
+        template.refresh_from_db()
+        assert template.scope == "team"
+        assert template.name != "Updated Name"  # Update should have failed completely
+
     def test_can_create_update_delete_global_template_with_staff(self):
         """Test that staff users can create, update, and delete global templates"""
         self.user.is_staff = True

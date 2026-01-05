@@ -168,7 +168,7 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                             GROUP BY team_id, person_id
                             HAVING status = 'entered'
                         ) previous_members ON current_matches.id = previous_members.person_id
-                        WHERE status != 'unchanged'
+                        WHERE status IN ('entered', 'left')
                         SETTINGS join_use_nulls = 1, max_execution_time = %(max_execution_time)s
                         FORMAT JSONEachRow
                     """
@@ -180,26 +180,81 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                         query_type="realtime_cohort_calculation",
                     ):
                         status_counts = {"entered": 0, "left": 0}
+                        pending_kafka_messages = []
+                        logger.info(f"Starting to stream query results for cohort {cohort.id}", cohort_id=cohort.id)
                         async with get_client(
                             team_id=cohort.team_id, http_send_timeout=CLICKHOUSE_HTTP_SEND_TIMEOUT_SECONDS
                         ) as client:
                             async for row in client.stream_query_as_jsonl(final_query, query_parameters=query_params):
-                                status = row["status"]
-                                status_counts[status] += 1
-                                payload = {
-                                    "team_id": cohort.team_id,
-                                    "cohort_id": cohort.id,
-                                    "person_id": str(row["person_id"]),
-                                    # DateTime64(6) format required for Kafka JSONEachRow parsing into ClickHouse
-                                    "last_updated": dt.datetime.now(dt.UTC).strftime("%Y-%m-%d %H:%M:%S.%f"),
-                                    "status": status,
-                                }
-                                await asyncio.to_thread(
-                                    kafka_producer.produce,
-                                    topic=KAFKA_COHORT_MEMBERSHIP_CHANGED,
-                                    key=payload["person_id"],
-                                    data=payload,
+                                try:
+                                    status = row["status"]
+                                    status_counts[status] += 1
+                                    payload = {
+                                        "team_id": cohort.team_id,
+                                        "cohort_id": cohort.id,
+                                        "person_id": str(row["person_id"]),
+                                        # DateTime64(6) format required for Kafka JSONEachRow parsing into ClickHouse
+                                        "last_updated": dt.datetime.now(dt.UTC).strftime("%Y-%m-%d %H:%M:%S.%f"),
+                                        "status": status,
+                                    }
+                                    # Produce to Kafka without blocking - collect send results for later flushing
+                                    # Wrap in try-catch to prevent Kafka errors from interrupting stream consumption
+                                    try:
+                                        send_result = kafka_producer.produce(
+                                            topic=KAFKA_COHORT_MEMBERSHIP_CHANGED,
+                                            key=payload["person_id"],
+                                            data=payload,
+                                        )
+                                        pending_kafka_messages.append(send_result)
+                                    except Exception as e:
+                                        logger.exception(
+                                            f"Failed to produce Kafka message for person {payload['person_id']} in cohort {cohort.id}: {e}",
+                                            cohort_id=cohort.id,
+                                            person_id=payload["person_id"],
+                                            error=str(e),
+                                        )
+                                        # Continue processing stream even if Kafka produce fails
+                                except KeyError as e:
+                                    logger.exception(
+                                        f"Row missing expected key in cohort {cohort.id}: {e}",
+                                        cohort_id=cohort.id,
+                                        row=row,
+                                        missing_key=str(e),
+                                    )
+                                    raise
+
+                        # Flush all pending Kafka messages after consuming the stream
+                        logger.info(
+                            f"Stream completed for cohort {cohort.id}. Total messages to check: {len(pending_kafka_messages)}",
+                            cohort_id=cohort.id,
+                            message_count=len(pending_kafka_messages),
+                        )
+                        await asyncio.to_thread(kafka_producer.flush)
+
+                        # Check for any Kafka produce failures
+                        failed_count = 0
+                        for send_result in pending_kafka_messages:
+                            try:
+                                send_result.get(timeout=0)  # Non-blocking check
+                            except Exception as e:
+                                logger.exception(
+                                    f"Kafka send result failure for cohort {cohort.id}: {e}",
+                                    cohort_id=cohort.id,
+                                    error=str(e),
+                                    exception_type=type(e).__name__,
                                 )
+                                failed_count += 1
+
+                        if failed_count > 0:
+                            logger.error(
+                                f"Failed to send {failed_count}/{len(pending_kafka_messages)} Kafka messages for cohort {cohort.id}",
+                                cohort_id=cohort.id,
+                                failed_count=failed_count,
+                                total_count=len(pending_kafka_messages),
+                            )
+                            get_cohort_calculation_failure_metric().add(1)
+                            # Don't break retry loop - let it retry
+                            continue
 
                         if status_counts["entered"] > 0:
                             get_membership_changed_metric("entered").add(status_counts["entered"])

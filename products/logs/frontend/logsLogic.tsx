@@ -47,13 +47,13 @@ const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
 const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MS = 1000
 const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MAX_MS = 5000
 
-const parseLogAttributes = (logs: LogMessage[]): void => {
-    logs.forEach((row) => {
-        Object.keys(row.attributes).forEach((key) => {
-            const value = row.attributes[key]
-            row.attributes[key] = typeof value === 'string' ? value : JSON.stringify(value)
-        })
-    })
+const stringifyLogAttributes = (attributes: Record<string, any>): Record<string, string> => {
+    const result: Record<string, string> = {}
+    for (const key of Object.keys(attributes)) {
+        const value = attributes[key]
+        result[key] = typeof value === 'string' ? value : JSON.stringify(value)
+    }
+    return result
 }
 
 export interface LogsLogicProps {
@@ -464,7 +464,6 @@ export const logsLogic = kea<logsLogicType>([
                     actions.setLogsAbortController(null)
                     actions.setHasMoreLogsToLoad(!!response.hasMore)
                     actions.setNextCursor(response.nextCursor ?? null)
-                    parseLogAttributes(response.results)
                     return response.results
                 },
                 fetchNextLogsPage: async ({ limit }, breakpoint) => {
@@ -493,7 +492,6 @@ export const logsLogic = kea<logsLogicType>([
                     actions.setLogsAbortController(null)
                     actions.setHasMoreLogsToLoad(!!response.hasMore)
                     actions.setNextCursor(response.nextCursor ?? null)
-                    parseLogAttributes(response.results)
                     return [...values.logs, ...response.results]
                 },
                 setLogs: ({ logs }) => logs,
@@ -585,7 +583,13 @@ export const logsLogic = kea<logsLogicType>([
                     } catch {
                         // Not JSON, that's fine
                     }
-                    result.push({ ...log, cleanBody, parsedBody })
+                    result.push({
+                        ...log,
+                        attributes: stringifyLogAttributes(log.attributes),
+                        cleanBody,
+                        parsedBody,
+                        originalLog: log,
+                    })
                 }
 
                 return result
@@ -602,7 +606,13 @@ export const logsLogic = kea<logsLogicType>([
                     } catch {
                         // Not JSON, that's fine
                     }
-                    return { ...log, cleanBody, parsedBody }
+                    return {
+                        ...log,
+                        attributes: stringifyLogAttributes(log.attributes),
+                        cleanBody,
+                        parsedBody,
+                        originalLog: log,
+                    }
                 })
             },
         ],
@@ -871,13 +881,6 @@ export const logsLogic = kea<logsLogicType>([
                     // it's returned from clickhouse as a value on every log row - but the value is fixed per query
                     actions.setLiveLogsCheckpoint(response.results[0].live_logs_checkpoint ?? null)
                 }
-
-                response.results.forEach((row) => {
-                    Object.keys(row.attributes).forEach((key) => {
-                        const value = row.attributes[key]
-                        row.attributes[key] = typeof value === 'string' ? value : JSON.stringify(value)
-                    })
-                })
 
                 const existingUuids = new Set(values.logs.map((log) => log.uuid))
                 const newLogs = response.results.filter((log) => !existingUuids.has(log.uuid))

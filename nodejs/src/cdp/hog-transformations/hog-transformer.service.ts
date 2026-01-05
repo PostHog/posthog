@@ -19,6 +19,70 @@ import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '..
 import { createInvocation } from '../utils/invocation-utils'
 import { getTransformationFunctions } from './transformation-functions'
 
+/**
+ * Narrowed Hub type for HogTransformerService.
+ * This includes all fields needed by HogTransformerService and its dependencies:
+ * - HogFunctionManagerService
+ * - HogExecutorService
+ * - LegacyPluginExecutorService
+ * - HogFunctionMonitoringService
+ * - HogWatcherService
+ * - createRedisV2Pool
+ */
+export type HogTransformerHub = Pick<
+    Hub,
+    // Direct usage in HogTransformerService
+    | 'CDP_HOG_WATCHER_SAMPLE_RATE'
+    | 'geoipService'
+    | 'SITE_URL'
+    // Redis pool config
+    | 'REDIS_URL'
+    | 'REDIS_POOL_MIN_SIZE'
+    | 'REDIS_POOL_MAX_SIZE'
+    | 'CDP_REDIS_HOST'
+    | 'CDP_REDIS_PORT'
+    | 'CDP_REDIS_PASSWORD'
+    // HogFunctionManagerService
+    | 'postgres'
+    | 'pubSub'
+    | 'encryptedFields'
+    // HogExecutorService + EmailService
+    | 'CDP_WATCHER_HOG_COST_TIMING_UPPER_MS'
+    | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
+    | 'CDP_FETCH_BACKOFF_BASE_MS'
+    | 'CDP_FETCH_BACKOFF_MAX_MS'
+    | 'CDP_FETCH_RETRIES'
+    | 'integrationManager'
+    | 'ENCRYPTION_SALT_KEYS'
+    | 'SES_ACCESS_KEY_ID'
+    | 'SES_SECRET_ACCESS_KEY'
+    | 'SES_REGION'
+    | 'SES_ENDPOINT'
+    // LegacyPluginExecutorService
+    | 'postgres'
+    // HogFunctionMonitoringService
+    | 'kafkaProducer'
+    | 'teamManager'
+    | 'internalCaptureService'
+    | 'HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC'
+    | 'HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC'
+    // HogWatcherService
+    | 'CDP_WATCHER_HOG_COST_TIMING_LOWER_MS'
+    | 'CDP_WATCHER_HOG_COST_TIMING'
+    | 'CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS'
+    | 'CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS'
+    | 'CDP_WATCHER_ASYNC_COST_TIMING'
+    | 'CDP_WATCHER_SEND_EVENTS'
+    | 'CDP_WATCHER_BUCKET_SIZE'
+    | 'CDP_WATCHER_REFILL_RATE'
+    | 'CDP_WATCHER_TTL'
+    | 'CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS'
+    | 'CDP_WATCHER_THRESHOLD_DEGRADED'
+    | 'CDP_WATCHER_STATE_LOCK_TTL'
+    | 'CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS'
+    | 'CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS'
+>
+
 export const hogTransformationDroppedEvents = new Counter({
     name: 'hog_transformation_dropped_events',
     help: 'Indicates how many events are dropped by hog transformations',
@@ -60,7 +124,7 @@ export interface TransformationResult {
 export class HogTransformerService {
     private hogExecutor: HogExecutorService
     private hogFunctionManager: HogFunctionManagerService
-    private hub: Hub
+    private hub: HogTransformerHub
     private pluginExecutor: LegacyPluginExecutorService
     private hogFunctionMonitoringService: HogFunctionMonitoringService
     private hogWatcher: HogWatcherService
@@ -70,7 +134,7 @@ export class HogTransformerService {
     private cachedGeoIp?: GeoIp
     private cachedTransformationFunctions?: ReturnType<typeof getTransformationFunctions>
 
-    constructor(hub: Hub) {
+    constructor(hub: HogTransformerHub) {
         this.hub = hub
         // Hog transformer uses CDP Redis instance with fallback to default
         this.redis = createRedisV2PoolFromConfig({
@@ -78,14 +142,15 @@ export class HogTransformerService {
                 ? {
                       url: hub.CDP_REDIS_HOST,
                       options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
+                      name: 'hog-transformer-redis',
                   }
-                : { url: hub.REDIS_URL },
+                : { url: hub.REDIS_URL, name: 'hog-transformer-redis-fallback' },
             poolMinSize: hub.REDIS_POOL_MIN_SIZE,
             poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
         })
         this.hogFunctionManager = new HogFunctionManagerService(hub)
         this.hogExecutor = new HogExecutorService(hub)
-        this.pluginExecutor = new LegacyPluginExecutorService(hub)
+        this.pluginExecutor = new LegacyPluginExecutorService(hub.postgres, hub.geoipService)
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(hub)
         this.hogWatcher = new HogWatcherService(hub, this.redis)
     }

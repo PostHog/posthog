@@ -12,6 +12,7 @@ import { VirtualizedLogsList } from 'products/logs/frontend/components/Virtualiz
 import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
 import { LogsOrderBy, ParsedLogMessage } from 'products/logs/frontend/types'
 
+import { LogDetailsModal } from './LogDetailsModal'
 import { LogsSelectionToolbar } from './LogsSelectionToolbar'
 import { LogsSparkline, LogsSparklineData } from './LogsViewerSparkline'
 import { LogsViewerToolbar } from './LogsViewerToolbar'
@@ -309,6 +310,8 @@ function LogsViewerContent({
                 hasMoreLogsToLoad={hasMoreLogsToLoad}
                 onLoadMore={onLoadMore}
             />
+
+            <LogDetailsModal timezone={timezone} />
         </div>
     )
 }

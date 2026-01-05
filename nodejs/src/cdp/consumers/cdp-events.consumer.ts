@@ -5,13 +5,13 @@ import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { convertToHogFunctionInvocationGlobals } from '../../cdp/utils'
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
-import { HealthCheckResult, Hub, RawClickHouseEvent } from '../../types'
+import { HealthCheckResult, Hub, PluginsServerConfig, RawClickHouseEvent } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { shouldBlockHogFlowDueToQuota } from '../services/hogflows/hogflow-quota-limiting'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
-import { HogRateLimiterService } from '../services/monitoring/hog-rate-limiter.service'
+import { HogRateLimiterService, HogRateLimiterServiceHub } from '../services/monitoring/hog-rate-limiter.service'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import {
     CyclotronJobInvocation,
@@ -21,11 +21,20 @@ import {
     HogFunctionTypeType,
     MinimalAppMetric,
 } from '../types'
-import { CdpConsumerBase } from './cdp-base.consumer'
+import { CdpConsumerBase, CdpConsumerBaseHub } from './cdp-base.consumer'
 import { counterHogFunctionStateOnEvent, counterParseError, counterRateLimited } from './metrics'
 import { shouldBlockInvocationDueToQuota } from './quota-limiting-helper'
 
-export class CdpEventsConsumer extends CdpConsumerBase {
+/**
+ * Hub type for CdpEventsConsumer.
+ * Extends CdpConsumerBaseHub with event consumer-specific fields.
+ */
+export type CdpEventsConsumerHub = CdpConsumerBaseHub &
+    HogRateLimiterServiceHub &
+    PluginsServerConfig & // For CyclotronJobQueue (to be narrowed later)
+    Pick<Hub, 'teamManager' | 'SITE_URL'>
+
+export class CdpEventsConsumer<THub extends CdpEventsConsumerHub = CdpEventsConsumerHub> extends CdpConsumerBase<THub> {
     protected name = 'CdpEventsConsumer'
     protected hogTypes: HogFunctionTypeType[] = ['destination']
     private cyclotronJobQueue: CyclotronJobQueue
@@ -33,7 +42,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
 
     private hogRateLimiter: HogRateLimiterService
 
-    constructor(hub: Hub, topic: string = KAFKA_EVENTS_JSON, groupId: string = 'cdp-processed-events-consumer') {
+    constructor(hub: THub, topic: string = KAFKA_EVENTS_JSON, groupId: string = 'cdp-processed-events-consumer') {
         super(hub)
         this.cyclotronJobQueue = new CyclotronJobQueue(hub, 'hog')
         this.kafkaConsumer = new KafkaConsumer({ groupId, topic })

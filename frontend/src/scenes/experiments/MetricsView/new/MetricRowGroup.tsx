@@ -7,7 +7,7 @@ import { createPortal } from 'react-dom'
 import { IconTrending } from '@posthog/icons'
 
 import { IconTrendingDown } from 'lib/lemon-ui/icons'
-import { humanFriendlyNumber } from 'lib/utils'
+import { humanFriendlyLargeNumber } from 'lib/utils'
 import { VariantTag } from 'scenes/experiments/ExperimentView/components'
 import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
@@ -119,7 +119,7 @@ export function MetricRowGroup({
 
     const { reportExperimentTimeseriesViewed } = useActions(experimentLogic)
 
-    const timeseriesEnabled = experiment.stats_config?.timeseries
+    const timeseriesEnabled = experiment.scheduling_config?.timeseries
 
     // Calculate total rows for loading/error states
     const totalRows = isLoading || error || !result ? 1 : 1 + (result.variant_results?.length || 0)
@@ -279,7 +279,7 @@ export function MetricRowGroup({
                     const { numerator, denominator } = getMetricSubtitleValues(variant, metric)
                     return (
                         <>
-                            {humanFriendlyNumber(numerator)} / {humanFriendlyNumber(denominator)}
+                            {humanFriendlyLargeNumber(numerator)} / {humanFriendlyLargeNumber(denominator)}
                         </>
                     )
                 })()}

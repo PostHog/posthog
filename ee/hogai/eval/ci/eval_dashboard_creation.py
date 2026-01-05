@@ -140,7 +140,7 @@ async def eval_tool_routing_dashboard_creation(call_root_for_dashboard_creation,
                 input="I want to search for two insights one to show users in California for the past 7 days that performed 'chat with ai' events and another one that shows the trend of signups over the last 30 days.",
                 expected=AssistantToolCall(
                     id="4",
-                    name="create_and_query_insight",
+                    name="create_insight",
                     args={
                         "query_description": "List users located in California who performed the 'chat with ai' event in the past 7 days."
                     },
@@ -150,7 +150,7 @@ async def eval_tool_routing_dashboard_creation(call_root_for_dashboard_creation,
                 input="Find an insight that shows the trend of signups over the last 30 days.",
                 expected=AssistantToolCall(
                     id="4",
-                    name="create_and_query_insight",
+                    name="create_insight",
                     args={
                         "query_description": "Show the daily trend of user signups over the last 30 days. Use the event that tracks new user registrations. Display the count of signups per day."
                     },

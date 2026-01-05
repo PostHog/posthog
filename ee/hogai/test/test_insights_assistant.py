@@ -91,7 +91,7 @@ class TestChatAgent(BaseAssistantTest):
                 tool_calls=[
                     {
                         "id": "xyz",
-                        "name": "create_and_query_insight",
+                        "name": "create_insight",
                         "args": {"query_description": "Foobar"},
                     }
                 ],
@@ -148,7 +148,7 @@ class TestChatAgent(BaseAssistantTest):
                 tool_calls=[
                     {
                         "id": "xyz",
-                        "name": "create_and_query_insight",
+                        "name": "create_insight",
                         "args": {"query_description": "Foobar"},
                     }
                 ],
@@ -212,7 +212,7 @@ class TestChatAgent(BaseAssistantTest):
                 tool_calls=[
                     {
                         "id": "xyz",
-                        "name": "create_and_query_insight",
+                        "name": "create_insight",
                         "args": {"query_description": "Foobar"},
                     }
                 ],
@@ -274,7 +274,7 @@ class TestChatAgent(BaseAssistantTest):
                 tool_calls=[
                     {
                         "id": "xyz",
-                        "name": "create_and_query_insight",
+                        "name": "create_insight",
                         "args": {"query_description": "Foobar"},
                     }
                 ],

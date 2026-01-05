@@ -184,17 +184,98 @@ export type CdpConfig = {
     HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC: string
 
     CDP_EMAIL_TRACKING_URL: string
+
+    // Cyclotron (CDP job queue)
+    CYCLOTRON_DATABASE_URL: string
+    CYCLOTRON_SHARD_DEPTH_LIMIT: number
+
+    // SES (Workflows email sending)
+    SES_ENDPOINT: string
+    SES_ACCESS_KEY_ID: string
+    SES_SECRET_ACCESS_KEY: string
+    SES_REGION: string
 }
 
+/**
+ * The mode of db batch writes to use for person batch writing
+ * NO_ASSERT: No assertions are made, we write the latest value in memory to the DB (no locks)
+ * ASSERT_VERSION: Assert that the current db version is the same as the version in memory (no locks)
+ */
+export type PersonBatchWritingDbWriteMode = 'NO_ASSERT' | 'ASSERT_VERSION'
+export type PersonBatchWritingMode = 'BATCH' | 'SHADOW' | 'NONE'
+
 export type IngestionConsumerConfig = {
-    // New config variables used by the new IngestionConsumer
+    // Kafka consumer config
     INGESTION_CONSUMER_GROUP_ID: string
     INGESTION_CONSUMER_CONSUME_TOPIC: string
     INGESTION_CONSUMER_DLQ_TOPIC: string
     /** If set then overflow routing is enabled and the topic is used for overflow events */
     INGESTION_CONSUMER_OVERFLOW_TOPIC: string
+
+    // Ingestion pipeline config
+    INGESTION_CONCURRENCY: number // number of parallel event ingestion queues per batch
+    INGESTION_BATCH_SIZE: number // kafka consumer batch size
+    INGESTION_OVERFLOW_ENABLED: boolean // whether or not overflow rerouting is enabled
+    INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID: string // comma-separated list of token or token:distinct_id to force overflow
+    INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: boolean // whether Kafka message keys should be preserved when rerouted to overflow
     /** If true, use the joined ingestion pipeline instead of the legacy two-stage pipeline */
     INGESTION_JOINED_PIPELINE: boolean
+
+    // Person batch writing config
+    PERSON_BATCH_WRITING_DB_WRITE_MODE: PersonBatchWritingDbWriteMode
+    PERSON_BATCH_WRITING_OPTIMISTIC_UPDATES_ENABLED: boolean
+    PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number
+    PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number
+    PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number
+    PERSONS_PREFETCH_ENABLED: boolean
+
+    // Person properties config
+    PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE: number
+    PERSON_PROPERTIES_DB_CONSTRAINT_LIMIT_BYTES: number
+    PERSON_PROPERTIES_TRIM_TARGET_BYTES: number
+    PERSON_PROPERTIES_UPDATE_ALL: boolean
+    PERSON_JSONB_SIZE_ESTIMATE_ENABLE: number
+
+    // Person merge config
+    PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: number
+    PERSON_MERGE_ASYNC_TOPIC: string
+    PERSON_MERGE_ASYNC_ENABLED: boolean
+    PERSON_MERGE_SYNC_BATCH_SIZE: number
+
+    // Group batch writing config
+    GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number
+    GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number
+    GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number
+
+    // Event overflow config
+    EVENT_OVERFLOW_BUCKET_CAPACITY: number
+    EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
+
+    // Per-token/distinct_id restrictions
+    DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
+    SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: string
+    MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: number
+
+    // Pipeline step config
+    SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
+    PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
+    KAFKA_BATCH_START_LOGGING_ENABLED: boolean
+    TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: number
+
+    // Clickhouse topics
+    CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
+    CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
+
+    // Cookieless server hash mode config
+    COOKIELESS_DISABLED: boolean
+    COOKIELESS_FORCE_STATELESS_MODE: boolean
+    COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS: number
+    COOKIELESS_SESSION_TTL_SECONDS: number
+    COOKIELESS_SALT_TTL_SECONDS: number
+    COOKIELESS_SESSION_INACTIVITY_MS: number
+    COOKIELESS_IDENTIFIES_TTL_SECONDS: number
+    COOKIELESS_REDIS_HOST: string
+    COOKIELESS_REDIS_PORT: number
 }
 
 export type LogsIngestionConsumerConfig = {
@@ -216,15 +297,53 @@ export type LogsIngestionConsumerConfig = {
     LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: string
 }
 
-/**
- * The mode of db batch writes to use for person batch writing
- * NO_ASSERT: No assertions are made, we write the latest value in memory to the DB (no locks)
- * ASSERT_VERSION: Assert that the current db version is the same as the version in memory (no locks)
- */
-export type PersonBatchWritingDbWriteMode = 'NO_ASSERT' | 'ASSERT_VERSION'
-export type PersonBatchWritingMode = 'BATCH' | 'SHADOW' | 'NONE'
+export type SessionRecordingConfig = {
+    // local directory might be a volume mount or a directory on disk (e.g. in local dev)
+    SESSION_RECORDING_LOCAL_DIRECTORY: string
+    SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS: number
+    SESSION_RECORDING_MAX_BUFFER_SIZE_KB: number
+    SESSION_RECORDING_BUFFER_AGE_IN_MEMORY_MULTIPLIER: number
+    SESSION_RECORDING_BUFFER_AGE_JITTER: number
+    SESSION_RECORDING_REMOTE_FOLDER: string
+    SESSION_RECORDING_REDIS_PREFIX: string
+    SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION: boolean
+    SESSION_RECORDING_PARALLEL_CONSUMPTION: boolean
+    SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED: boolean
+    SESSION_RECORDING_REPLAY_EVENTS_INGESTION_ENABLED: boolean
+    // a single partition which will output many more log messages to the console
+    // useful when that partition is lagging unexpectedly
+    // allows comma separated list of partition numbers or '*' for all
+    SESSION_RECORDING_DEBUG_PARTITION: string | undefined
+    // overflow detection, updating Redis for capture to move the traffic away
+    SESSION_RECORDING_OVERFLOW_ENABLED: boolean
+    SESSION_RECORDING_OVERFLOW_BUCKET_CAPACITY: number
+    SESSION_RECORDING_OVERFLOW_BUCKET_REPLENISH_RATE: number
+    SESSION_RECORDING_OVERFLOW_MIN_PER_BATCH: number
+    SESSION_RECORDING_MAX_PARALLEL_FLUSHES: number
 
-export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig, LogsIngestionConsumerConfig {
+    POSTHOG_SESSION_RECORDING_REDIS_HOST: string | undefined
+    POSTHOG_SESSION_RECORDING_REDIS_PORT: number | undefined
+
+    SESSION_RECORDING_MAX_BATCH_SIZE_KB: number
+    SESSION_RECORDING_MAX_BATCH_AGE_MS: number
+    SESSION_RECORDING_V2_S3_BUCKET: string
+    SESSION_RECORDING_V2_S3_PREFIX: string
+    SESSION_RECORDING_V2_S3_ENDPOINT: string
+    SESSION_RECORDING_V2_S3_REGION: string
+    SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: string
+    SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: string
+    SESSION_RECORDING_V2_S3_TIMEOUT_MS: number
+    SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC: string
+    SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: string
+    SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: number
+    SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH: number
+}
+
+export interface PluginsServerConfig
+    extends CdpConfig,
+        IngestionConsumerConfig,
+        LogsIngestionConsumerConfig,
+        SessionRecordingConfig {
     CONTINUOUS_PROFILING_ENABLED: boolean
     PYROSCOPE_SERVER_ADDRESS: string
     PYROSCOPE_APPLICATION_NAME: string
@@ -234,33 +353,8 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     OTEL_TRACES_SAMPLER_ARG: number
     OTEL_MAX_SPANS_PER_GROUP: number
     OTEL_MIN_SPAN_DURATION_MS: number
+    DISABLE_OPENTELEMETRY_TRACING: boolean
     TASKS_PER_WORKER: number // number of parallel tasks per worker thread
-    INGESTION_CONCURRENCY: number // number of parallel event ingestion queues per batch
-    INGESTION_BATCH_SIZE: number // kafka consumer batch size
-    INGESTION_OVERFLOW_ENABLED: boolean // whether or not overflow rerouting is enabled (only used by analytics-ingestion)
-    INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID: string // comma-separated list of either tokens or token:distinct_id combinations to force events to route to overflow
-    INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: boolean // whether or not Kafka message keys should be preserved or discarded when messages are rerouted to overflow
-    PERSON_BATCH_WRITING_DB_WRITE_MODE: PersonBatchWritingDbWriteMode // the mode of db batch writes to use for person batch writing
-    PERSON_BATCH_WRITING_OPTIMISTIC_UPDATES_ENABLED: boolean // whether to use optimistic updates for persons table
-    PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number // maximum number of concurrent updates to persons table per batch
-    PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number // maximum number of retries for optimistic update
-    PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number // starting interval for exponential backoff between retries for optimistic update
-    PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE: number
-    PERSON_PROPERTIES_DB_CONSTRAINT_LIMIT_BYTES: number // maximum size in bytes for person properties JSON as stored, checked via pg_column_size(properties)
-    PERSON_PROPERTIES_TRIM_TARGET_BYTES: number // target size in bytes we trim JSON to before writing (customer-facing 512kb)
-    PERSON_PROPERTIES_UPDATE_ALL: boolean // when true, all property changes trigger person updates (disables filtering of eventToPersonProperties and geoip)
-    // Limit per merge for moving distinct IDs. 0 disables limiting.
-    PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: number
-    // Topic for async person merge processing
-    PERSON_MERGE_ASYNC_TOPIC: string
-    // Enable async person merge processing
-    PERSON_MERGE_ASYNC_ENABLED: boolean
-    // Batch size for sync person merge processing (0 = unlimited)
-    PERSON_MERGE_SYNC_BATCH_SIZE: number
-    GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number // maximum number of concurrent updates to groups table per batch
-    GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number // maximum number of retries for optimistic update
-    GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number // starting interval for exponential backoff between retries for optimistic update
-    PERSONS_PREFETCH_ENABLED: boolean // Enable prefetching persons in batch before processing events
     TASK_TIMEOUT: number // how many seconds until tasks are timed out
     DATABASE_URL: string // Postgres database URL
     DATABASE_READONLY_URL: string // Optional read-only replica to the main Postgres database
@@ -277,8 +371,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     POSTGRES_BEHAVIORAL_COHORTS_HOST: string
     POSTGRES_BEHAVIORAL_COHORTS_USER: string
     POSTGRES_BEHAVIORAL_COHORTS_PASSWORD: string
-    CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
-    CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
     // Redis url pretty much only used locally / self hosted
     REDIS_URL: string
     // Redis params for the ingestion services
@@ -336,88 +428,23 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     PLUGIN_SERVER_MODE: PluginServerMode | null
     PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: string | null // TODO: shouldn't be a string probably
     PLUGIN_LOAD_SEQUENTIALLY: boolean // could help with reducing memory usage spikes on startup
-    MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: number
-    EVENT_OVERFLOW_BUCKET_CAPACITY: number
-    EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
-    KAFKA_BATCH_START_LOGGING_ENABLED: boolean
     /** Label of the PostHog Cloud environment. Null if not running PostHog Cloud. @example 'US' */
     CLOUD_DEPLOYMENT: string | null
     EXTERNAL_REQUEST_TIMEOUT_MS: number
     EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: number
     EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: number
     EXTERNAL_REQUEST_CONNECTIONS: number
-    DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
-    SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: string
     RELOAD_PLUGIN_JITTER_MAX_MS: number
-    SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
-    PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
     CAPTURE_CONFIG_REDIS_HOST: string | null // Redis cluster to use to coordinate with capture (overflow, routing)
     LAZY_LOADER_DEFAULT_BUFFER_MS: number
     LAZY_LOADER_MAX_SIZE: number
     CAPTURE_INTERNAL_URL: string
 
-    // local directory might be a volume mount or a directory on disk (e.g. in local dev)
-    SESSION_RECORDING_LOCAL_DIRECTORY: string
-    SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS: number
-    SESSION_RECORDING_MAX_BUFFER_SIZE_KB: number
-    SESSION_RECORDING_BUFFER_AGE_IN_MEMORY_MULTIPLIER: number
-    SESSION_RECORDING_BUFFER_AGE_JITTER: number
-    SESSION_RECORDING_REMOTE_FOLDER: string
-    SESSION_RECORDING_REDIS_PREFIX: string
-    SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION: boolean
-    SESSION_RECORDING_PARALLEL_CONSUMPTION: boolean
-    SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED: boolean
-    SESSION_RECORDING_REPLAY_EVENTS_INGESTION_ENABLED: boolean
-    // a single partition which will output many more log messages to the console
-    // useful when that partition is lagging unexpectedly
-    // allows comma separated list of partition numbers or '*' for all
-    SESSION_RECORDING_DEBUG_PARTITION: string | undefined
-    // overflow detection, updating Redis for capture to move the traffic away
-    SESSION_RECORDING_OVERFLOW_ENABLED: boolean
-    SESSION_RECORDING_OVERFLOW_BUCKET_CAPACITY: number
-    SESSION_RECORDING_OVERFLOW_BUCKET_REPLENISH_RATE: number
-    SESSION_RECORDING_OVERFLOW_MIN_PER_BATCH: number
-    SESSION_RECORDING_MAX_PARALLEL_FLUSHES: number
-
-    POSTHOG_SESSION_RECORDING_REDIS_HOST: string | undefined
-    POSTHOG_SESSION_RECORDING_REDIS_PORT: number | undefined
-
     ENCRYPTION_SALT_KEYS: string
-
-    CYCLOTRON_DATABASE_URL: string
-    CYCLOTRON_SHARD_DEPTH_LIMIT: number
 
     // posthog
     POSTHOG_API_KEY: string
     POSTHOG_HOST_URL: string
-
-    // cookieless, should match the values in rust/feature-flags/src/config.rs
-    COOKIELESS_DISABLED: boolean
-    COOKIELESS_FORCE_STATELESS_MODE: boolean
-    COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS: number
-    COOKIELESS_SESSION_TTL_SECONDS: number
-    COOKIELESS_SALT_TTL_SECONDS: number
-    COOKIELESS_SESSION_INACTIVITY_MS: number
-    COOKIELESS_IDENTIFIES_TTL_SECONDS: number
-    COOKIELESS_REDIS_HOST: string
-    COOKIELESS_REDIS_PORT: number
-
-    // Timestamp comparison logging (0.0 = disabled, 1.0 = 100% sampling)
-    TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: number
-
-    SESSION_RECORDING_MAX_BATCH_SIZE_KB: number
-    SESSION_RECORDING_MAX_BATCH_AGE_MS: number
-    SESSION_RECORDING_V2_S3_BUCKET: string
-    SESSION_RECORDING_V2_S3_PREFIX: string
-    SESSION_RECORDING_V2_S3_ENDPOINT: string
-    SESSION_RECORDING_V2_S3_REGION: string
-    SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: string
-    SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: string
-    SESSION_RECORDING_V2_S3_TIMEOUT_MS: number
-    SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC: string
-    SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: string
-    SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: number
-    SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH: number
 
     // Destination Migration Diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
@@ -427,15 +454,8 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     PROPERTY_DEFS_CONSUMER_ENABLED_TEAMS: string
     PROPERTY_DEFS_WRITE_DISABLED: boolean
 
+    // Shared between ingestion and CDP (used by hog transformer in both)
     CDP_HOG_WATCHER_SAMPLE_RATE: number
-    // for enablement/sampling of expensive person JSONB sizes; value in [0,1]
-    PERSON_JSONB_SIZE_ESTIMATE_ENABLE: number
-
-    // SES (Workflows email sending)
-    SES_ENDPOINT: string
-    SES_ACCESS_KEY_ID: string
-    SES_SECRET_ACCESS_KEY: string
-    SES_REGION: string
 
     // Pod termination
     POD_TERMINATION_ENABLED: boolean

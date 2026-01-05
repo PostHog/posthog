@@ -4781,6 +4781,7 @@ dependencies = [
  "futures",
  "governor",
  "metrics",
+ "metrics-util",
  "moka",
  "rand 0.8.5",
  "strum 0.26.3",

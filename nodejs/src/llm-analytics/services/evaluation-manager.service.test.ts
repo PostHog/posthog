@@ -20,7 +20,7 @@ describe('EvaluationManagerService', () => {
     beforeEach(async () => {
         hub = await createHub()
         await resetTestDatabase()
-        manager = new EvaluationManagerService(hub)
+        manager = new EvaluationManagerService(hub.postgres, hub.pubSub)
 
         const team = await getTeam(hub, 2)
 
