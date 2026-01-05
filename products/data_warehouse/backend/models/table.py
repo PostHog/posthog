@@ -180,11 +180,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             format="Delta"  # Use deltaLake() to get table schema for evolved tables
             if self.format == "DeltaS3Wrapper"
             else self.format,
-            access_key=self.credential.access_key,
-            access_secret=self.credential.access_secret,
+            access_key=self.credential.access_key if self.credential else None,
+            access_secret=self.credential.access_secret if self.credential else None,
             context=placeholder_context,
             table_size_mib=0,  # Use the non-cluster s3 table function for chdb
-            is_external_data_source=self.external_data_source_id is not None,
         )
         logger = structlog.get_logger(__name__)
         try:
@@ -257,11 +256,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 url=self.url_pattern,
                 queryable_folder=self.queryable_folder,
                 format=self.format,
-                access_key=self.credential.access_key,
-                access_secret=self.credential.access_secret,
+                access_key=self.credential.access_key if self.credential else None,
+                access_secret=self.credential.access_secret if self.credential else None,
                 context=placeholder_context,
                 table_size_mib=self.size_in_s3_mib,
-                is_external_data_source=self.external_data_source_id is not None,
             )
 
             tag_queries(
@@ -287,11 +285,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             url=self.url_pattern,
             queryable_folder=self.queryable_folder,
             format=self.format,
-            access_key=self.credential.access_key,
-            access_secret=self.credential.access_secret,
+            access_key=self.credential.access_key if self.credential else None,
+            access_secret=self.credential.access_secret if self.credential else None,
             context=placeholder_context,
             table_size_mib=0,  # Use the non-cluster s3 table function for chdb
-            is_external_data_source=self.external_data_source_id is not None,
         )
         try:
             # chdb hangs in CI during tests
@@ -337,11 +334,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 url=self.url_pattern,
                 queryable_folder=self.queryable_folder,
                 format=self.format,
-                access_key=self.credential.access_key,
-                access_secret=self.credential.access_secret,
+                access_key=self.credential.access_key if self.credential else None,
+                access_secret=self.credential.access_secret if self.credential else None,
                 context=placeholder_context,
                 table_size_mib=self.size_in_s3_mib,
-                is_external_data_source=self.external_data_source_id is not None,
             )
 
         except Exception as err:
@@ -409,23 +405,16 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 del fields[PARTITION_KEY]
                 fields = {**fields, **default_fields}
 
-        access_key: str | None = None
-        access_secret: str | None = None
-        if self.credential:
-            access_key = self.credential.access_key
-            access_secret = self.credential.access_secret
-
         return HogQLDataWarehouseTable(
             name=self.name,
             url=self.url_pattern,
             queryable_folder=self.queryable_folder,
             format=self.format,
-            access_key=access_key,
-            access_secret=access_secret,
+            access_key=self.credential.access_key if self.credential else None,
+            access_secret=self.credential.access_secret if self.credential else None,
             fields=fields,
             structure=", ".join(structure),
             table_id=str(self.id),
-            is_external_data_source=self.external_data_source_id is not None,
         )
 
     def get_clickhouse_column_type(self, column_name: str) -> Optional[str]:
