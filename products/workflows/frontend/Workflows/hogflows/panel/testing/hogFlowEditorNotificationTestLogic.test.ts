@@ -182,7 +182,7 @@ describe('hogFlowEditorNotificationTestLogic', () => {
     })
 
     describe('person persistence', () => {
-        it('should save and restore person distinct ID across mounts', async () => {
+        it('should save and restore person distinct ID and email across mounts', async () => {
             // Save a person
             await expectLogic(logic, () => {
                 logic.actions.loadSamplePersonByDistinctId({ distinctId: 'test-person-123' })
@@ -190,13 +190,56 @@ describe('hogFlowEditorNotificationTestLogic', () => {
                 savedPersonDistinctId: 'test-person-123',
             })
 
+            // Manually set an email
+            await expectLogic(logic, () => {
+                logic.actions.setEmailAddressOverride('manual@example.com')
+            }).toMatchValues({
+                emailAddressOverride: 'manual@example.com',
+            })
+
             // Unmount and remount to simulate tab switch
             logic.unmount()
             logic = hogFlowEditorNotificationTestLogic({ id: 'test-workflow-id' })
             logic.mount()
 
-            // Verify the saved person persists
+            // Verify both person and email persist
             expect(logic.values.savedPersonDistinctId).toBe('test-person-123')
+            expect(logic.values.emailAddressOverride).toBe('manual@example.com')
+        })
+
+        it('should overwrite manual email when loading a new person', async () => {
+            // Set a manual email
+            logic.actions.setEmailAddressOverride('manual@example.com')
+            expect(logic.values.emailAddressOverride).toBe('manual@example.com')
+
+            // Load a new person with different email
+            const globalsWithEmail: CyclotronJobInvocationGlobals = {
+                event: {
+                    uuid: 'test-uuid',
+                    distinct_id: 'test-distinct-id',
+                    timestamp: '2024-01-01T00:00:00Z',
+                    elements_chain: '',
+                    url: '',
+                    event: '$pageview',
+                    properties: {},
+                },
+                person: {
+                    id: 'person-1',
+                    properties: { email: 'newperson@example.com' },
+                    name: 'New Person',
+                    url: '',
+                },
+                groups: {},
+                project: { id: 1, name: 'Test', url: '' },
+                source: { name: 'Test', url: '' },
+            }
+
+            // Loading new person should overwrite manual email
+            await expectLogic(logic, () => {
+                logic.actions.loadSamplePersonByDistinctIdSuccess(globalsWithEmail)
+            }).toMatchValues({
+                emailAddressOverride: 'newperson@example.com',
+            })
         })
     })
 

@@ -47,8 +47,9 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
         loadSamplePersons: true,
         searchPersons: (searchTerm: string) => ({ searchTerm }),
         clearPersonSearch: true,
-        loadSamplePersonByDistinctId: (payload: { distinctId: string }) => ({
+        loadSamplePersonByDistinctId: (payload: { distinctId: string; preserveEmail?: boolean }) => ({
             distinctId: payload.distinctId,
+            preserveEmail: payload.preserveEmail,
         }),
         loadSamplePersonByDistinctIdSuccess: (sampleGlobals: CyclotronJobInvocationGlobals | null) => ({
             sampleGlobals,
@@ -86,10 +87,19 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
         ],
         emailAddressOverride: [
             null as string | null,
+            { persist: true },
             {
                 setEmailAddressOverride: (_, { email }) => email,
-                loadSamplePersonByDistinctIdSuccess: (_, { sampleGlobals }) => {
-                    // Update email override when person changes
+                loadSamplePersonByDistinctIdSuccess: (state, { sampleGlobals }) => {
+                    // Check if we should preserve the email (when restoring on mount)
+                    const preserveEmail = (sampleGlobals as any)?._preserveEmail
+
+                    // If preserveEmail is true and we have a manual override, keep it
+                    if (preserveEmail && state) {
+                        return state
+                    }
+
+                    // Otherwise update with the person's email
                     return sampleGlobals?.person?.properties?.email ?? null
                 },
             },
@@ -236,7 +246,7 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
         },
     })),
     listeners(({ actions, values }) => ({
-        loadSamplePersonByDistinctId: async ({ distinctId }) => {
+        loadSamplePersonByDistinctId: async ({ distinctId, preserveEmail }) => {
             try {
                 // First, get the person by distinct_id
                 const personResponse = await api.persons.list({ distinct_id: distinctId, limit: 1 })
@@ -291,6 +301,10 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
 
                 actions.setSampleGlobalsError(null)
                 const globals = createGlobalsFromResponse(event, person, values.workflow.team_id, values.workflow.name)
+
+                // Pass the preserveEmail flag in the globals for the success handler
+                ;(globals as any)._preserveEmail = preserveEmail
+
                 actions.loadSamplePersonByDistinctIdSuccess(globals)
             } catch (error: any) {
                 actions.setSampleGlobalsError(`Failed to load person: ${error.message || 'Unknown error'}`)
@@ -315,8 +329,11 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
         loadSamplePersonsSuccess: ({ samplePersons }) => {
             // Check if we have a saved person
             if (values.savedPersonDistinctId && !values.sampleGlobals) {
-                // Load the saved person
-                actions.loadSamplePersonByDistinctId({ distinctId: values.savedPersonDistinctId })
+                // Load the saved person, preserving manual email
+                actions.loadSamplePersonByDistinctId({
+                    distinctId: values.savedPersonDistinctId,
+                    preserveEmail: true,
+                })
             } else if (samplePersons.length > 0 && !values.sampleGlobals && !values.savedPersonDistinctId) {
                 // No saved person, load the first one
                 const firstPerson = samplePersons[0]
@@ -350,16 +367,17 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
                 actions.setSampleGlobals(JSON.stringify(reorderedGlobals, null, 2))
             }
 
-            if (sampleGlobals?.person?.properties?.email) {
-                actions.setEmailAddressOverride(sampleGlobals.person.properties.email)
-            }
+            // Don't update email - it's handled by the reducer
         },
     })),
     afterMount(({ actions, values }) => {
         // Check for saved person first
         if (values.savedPersonDistinctId && !values.sampleGlobals) {
-            // Load the saved person directly
-            actions.loadSamplePersonByDistinctId({ distinctId: values.savedPersonDistinctId })
+            // Load the saved person directly, preserving manual email if it exists
+            actions.loadSamplePersonByDistinctId({
+                distinctId: values.savedPersonDistinctId,
+                preserveEmail: true, // Preserve manual email on mount
+            })
         }
 
         // Always load sample persons for the dropdown
