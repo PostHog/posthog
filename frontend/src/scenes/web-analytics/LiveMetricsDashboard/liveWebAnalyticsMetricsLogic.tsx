@@ -270,7 +270,21 @@ const loadQueryData = async (): Promise<[HogQLQueryResponse, TrendsQueryResponse
 
     const usersPageviewsQuery: HogQLQuery = {
         kind: NodeKind.HogQLQuery,
-        query: "SELECT toStartOfMinute(timestamp) AS minute_bucket, arrayDistinct(groupArray(distinct_id)) AS distinct_users, count() as total FROM events WHERE event = '$pageview' AND timestamp >= now() - INTERVAL 30 MINUTE GROUP BY minute_bucket ORDER BY minute_bucket ASC",
+        query: `SELECT 
+                    toStartOfMinute(timestamp) AS minute_bucket, 
+                    arrayDistinct(groupArray(distinct_id)) AS distinct_users, 
+                    count() as total 
+                FROM events 
+                WHERE 
+                    event = '$pageview' AND 
+                    timestamp >= toDateTime({cutoff})
+                GROUP BY 
+                    minute_bucket 
+                ORDER BY 
+                    minute_bucket ASC`,
+        values: {
+            cutoff,
+        },
     }
 
     const deviceQuery: TrendsQuery = {
