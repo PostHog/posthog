@@ -19,6 +19,8 @@ corepack = { pkg-path = "corepack_22", pkg-group = "nodejs", version = "22.17.0"
 brotli = { pkg-path = "brotli", pkg-group = "nodejs" }
 openssl = { pkg-path = "openssl", version = "3.4.1", pkg-group = "openssl" }
 nodemon = { pkg-path = "nodemon" }
+# Linkers for Rust
+gcc = { pkg-path = "gcc", systems = ["aarch64-linux", "x86_64-linux"] }
 # Rust toolchain (based on https://flox.dev/docs/cookbook/languages/rust/)
 cargo = { pkg-path = "cargo", pkg-group = "rust-toolchain", version = "1.88.0" }
 rustc = { pkg-path = "rustc", pkg-group = "rust-toolchain" }
