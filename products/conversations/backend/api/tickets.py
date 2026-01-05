@@ -9,6 +9,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.comment import Comment
+from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from posthog.utils import relative_date_parse
 
 from products.conversations.backend.models import Ticket
@@ -101,8 +102,18 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "ticket"
     queryset = Ticket.objects.all()
     serializer_class = TicketSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
     pagination_class = TicketPagination
+    posthog_feature_flag = {
+        "product-conversations": [
+            "list",
+            "retrieve",
+            "create",
+            "update",
+            "partial_update",
+            "destroy",
+        ]
+    }
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         """Filter tickets by team and add annotations."""

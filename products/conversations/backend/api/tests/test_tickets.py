@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -9,7 +10,36 @@ from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Channel, Priority, Status
 
 
-class TestTicketAPI(APIBaseTest):
+class BaseConversationsAPITest(APIBaseTest):
+    feature_flag_patcher: MagicMock
+    mock_feature_flag: MagicMock
+
+    def setUp(self):
+        super().setUp()
+        # Enable conversations feature flag by default
+        self.set_conversations_feature_flag(True)
+
+    def tearDown(self):
+        if hasattr(self, "feature_flag_patcher"):
+            self.feature_flag_patcher.stop()
+        super().tearDown()
+
+    def set_conversations_feature_flag(self, enabled=True):
+        if hasattr(self, "feature_flag_patcher"):
+            self.feature_flag_patcher.stop()
+
+        self.feature_flag_patcher = patch("posthoganalytics.feature_enabled")  # type: ignore[assignment]
+        self.mock_feature_flag = self.feature_flag_patcher.start()
+
+        def check_flag(flag_name, *_args, **_kwargs):
+            if flag_name == "product-conversations":
+                return enabled
+            return False
+
+        self.mock_feature_flag.side_effect = check_flag
+
+
+class TestTicketAPI(BaseConversationsAPITest):
     def setUp(self):
         super().setUp()
         self.ticket = Ticket.objects.create(
@@ -228,3 +258,23 @@ class TestTicketAPI(APIBaseTest):
                 self.assertIn("last_message_at", ticket_data)
                 self.assertIn("last_message_text", ticket_data)
                 self.assertIn("assigned_to_user", ticket_data)
+
+    def test_feature_flag_required(self):
+        """Verify that product-conversations feature flag is required for API access."""
+        self.set_conversations_feature_flag(False)
+
+        endpoints = [
+            (f"/api/projects/{self.team.id}/conversations/tickets/", "GET"),
+            (f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/", "GET"),
+            (f"/api/projects/{self.team.id}/conversations/tickets/", "POST"),
+            (f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/", "PATCH"),
+            (f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/", "DELETE"),
+        ]
+
+        for url, method in endpoints:
+            response = getattr(self.client, method.lower())(url, format="json")
+            self.assertEqual(
+                response.status_code,
+                status.HTTP_403_FORBIDDEN,
+                f"Failed for {method} {url}: expected 403, got {response.status_code}",
+            )

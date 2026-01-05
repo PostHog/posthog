@@ -533,7 +533,7 @@ class WidgetAuthentication(authentication.BaseAuthentication):
         """
         token = request.headers.get("X-Conversations-Token")
         if not token:
-            raise AuthenticationFailed("X-Conversations-Token header required")
+            return None  # Let other authenticators try
 
         try:
             Team = apps.get_model(app_label="posthog", model_name="Team")

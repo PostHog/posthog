@@ -631,6 +631,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         # Filter out None values from widget_domains if present
         if "widget_domains" in value and value["widget_domains"] is not None:
             value["widget_domains"] = [domain for domain in value["widget_domains"] if domain]
+        # Strip widget_public_token from user input - it's auto-generated only
+        if "widget_public_token" in value:
+            value.pop("widget_public_token")
         return value
 
     def validate_slack_incoming_webhook(self, value: str | None) -> str | None:
@@ -1429,16 +1432,16 @@ def handle_conversations_token_on_update(
     if "conversations_enabled" not in validated_data:
         return validated_data
 
-    # Create a copy to avoid mutating instance.conversations_settings before save
-    current_settings = dict(validated_data.get("conversations_settings") or current_conversations_settings or {})
-    has_token = current_settings.get("widget_public_token")
     is_enabling = validated_data["conversations_enabled"] and not current_conversations_enabled
     is_disabling = not validated_data["conversations_enabled"] and current_conversations_enabled
 
-    if is_enabling and not has_token:
-        conv_settings = dict(validated_data.get("conversations_settings") or current_conversations_settings or {})
-        conv_settings["widget_public_token"] = secrets.token_urlsafe(32)
-        validated_data["conversations_settings"] = conv_settings
+    if is_enabling:
+        # Check if token already exists in current DB state (not user input, which is stripped)
+        has_token = current_conversations_settings and current_conversations_settings.get("widget_public_token")
+        if not has_token:
+            conv_settings = dict(validated_data.get("conversations_settings") or current_conversations_settings or {})
+            conv_settings["widget_public_token"] = secrets.token_urlsafe(32)
+            validated_data["conversations_settings"] = conv_settings
     elif is_disabling:
         conv_settings = dict(validated_data.get("conversations_settings") or current_conversations_settings or {})
         conv_settings["widget_public_token"] = None
