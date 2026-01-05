@@ -340,4 +340,16 @@ describe('processAiErrorNormalization', () => {
 
         expect(result.properties!['$ai_error_normalized']).toBe('["Error <N>","Error <N>"]')
     })
+
+    it('respects user-provided $ai_error_normalized', () => {
+        const event = createEvent({
+            $ai_is_error: true,
+            $ai_error: 'Error with req_abc123',
+            $ai_error_normalized: 'Custom normalized error',
+        })
+
+        const result = processAiErrorNormalization(event)
+
+        expect(result.properties!['$ai_error_normalized']).toBe('Custom normalized error')
+    })
 })

@@ -22,6 +22,11 @@ export function processAiErrorNormalization(event: PluginEvent): PluginEvent {
         return event
     }
 
+    // Respect user-provided normalized error
+    if (event.properties['$ai_error_normalized']) {
+        return event
+    }
+
     const aiError = event.properties['$ai_error']
     if (aiError === undefined || aiError === null) {
         return event
