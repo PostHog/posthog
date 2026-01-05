@@ -33,6 +33,7 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.core_event import TeamCoreEventsConfig
 from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
 from posthog.models.feature_flag import TeamDefaultEvaluationTag
@@ -185,6 +186,7 @@ TEAM_CONFIG_FIELDS = (
     "revenue_analytics_config",
     "marketing_analytics_config",
     "customer_analytics_config",
+    "core_events_config",
     "onboarding_tasks",
     "base_currency",
     "web_analytics_pre_aggregated_tables_enabled",
@@ -300,6 +302,23 @@ class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer):
         ]
 
 
+class TeamCoreEventsConfigSerializer(serializers.ModelSerializer):
+    core_events = serializers.JSONField(required=False)
+
+    class Meta:
+        model = TeamCoreEventsConfig
+        fields = ["core_events"]
+
+    def to_representation(self, instance):
+        return {"core_events": instance.core_events}
+
+    def update(self, instance, validated_data):
+        if "core_events" in validated_data:
+            instance.core_events = validated_data["core_events"]
+        instance.save()
+        return instance
+
+
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
     instance: Team | None
 
@@ -312,6 +331,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     revenue_analytics_config = TeamRevenueAnalyticsConfigSerializer(required=False)
     marketing_analytics_config = TeamMarketingAnalyticsConfigSerializer(required=False)
     customer_analytics_config = TeamCustomerAnalyticsConfigSerializer(required=False)
+    core_events_config = TeamCoreEventsConfigSerializer(required=False)
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
 
     class Meta:
@@ -689,6 +709,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if config_data := validated_data.pop("customer_analytics_config", None):
             self._update_customer_analytics_config(instance, config_data)
 
+        if config_data := validated_data.pop("core_events_config", None):
+            self._update_core_events_config(instance, config_data)
+
         if "session_recording_retention_period" in validated_data:
             self._verify_update_session_recording_retention_period(
                 instance, validated_data["session_recording_retention_period"]
@@ -872,6 +895,19 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             for field in TeamCustomerAnalyticsConfigSerializer.Meta.fields
         }
         self._capture_diff(instance, "customer_analytics_config", old_config, new_config)
+        return instance
+
+    def _update_core_events_config(self, instance: Team, validated_data: dict[str, Any]) -> Team:
+        old_config = {"core_events": instance.core_events_config.core_events.copy()}
+
+        serializer = TeamCoreEventsConfigSerializer(instance.core_events_config, data=validated_data, partial=True)
+        if not serializer.is_valid():
+            raise serializers.ValidationError(_format_serializer_errors(serializer.errors))
+
+        serializer.save()
+
+        new_config = {"core_events": instance.core_events_config.core_events}
+        self._capture_diff(instance, "core_events_config", old_config, new_config)
         return instance
 
     def _verify_update_session_recording_retention_period(self, instance: Team, new_retention_period: str):

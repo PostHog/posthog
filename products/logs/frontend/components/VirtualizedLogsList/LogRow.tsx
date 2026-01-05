@@ -1,21 +1,18 @@
-import { IconBrackets, IconChevronRight, IconPin, IconPinFilled, IconX } from '@posthog/icons'
+import { IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
 
-import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { TZLabel, TZLabelProps } from 'lib/components/TZLabel'
 import { cn } from 'lib/utils/css-classes'
 
 import { LogMessage } from '~/queries/schema/schema-general'
 
 import { ExpandedLogContent } from 'products/logs/frontend/components/LogsViewer/ExpandedLogContent'
-import { LogsViewerRowActions } from 'products/logs/frontend/components/LogsViewer/LogsViewerRowActions'
+import { LogRowFAB } from 'products/logs/frontend/components/LogsViewer/LogRowFAB/LogRowFAB'
 import { AttributeCell } from 'products/logs/frontend/components/VirtualizedLogsList/cells/AttributeCell'
 import { MessageCell } from 'products/logs/frontend/components/VirtualizedLogsList/cells/MessageCell'
 import {
-    ACTIONS_WIDTH,
     CHECKBOX_WIDTH,
     EXPAND_WIDTH,
-    MIN_ATTRIBUTE_COLUMN_WIDTH,
     RESIZER_HANDLE_WIDTH,
     ROW_GAP,
     SEVERITY_WIDTH,
@@ -47,7 +44,7 @@ export interface LogRowProps {
     tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime' | 'displayTimezone'>
     onTogglePin: (log: ParsedLogMessage) => void
     onToggleExpand: () => void
-    onSetCursor: () => void
+    onSetCursor?: () => void
     rowWidth?: number
     attributeColumns?: string[]
     attributeColumnWidths?: Record<string, number>
@@ -96,7 +93,7 @@ export function LogRow({
             e.preventDefault()
             onShiftClick(logIndex)
         } else {
-            onSetCursor()
+            onSetCursor?.()
         }
     }
 
@@ -108,11 +105,10 @@ export function LogRow({
             <div
                 style={{ gap: ROW_GAP }}
                 className={cn(
-                    'flex items-center cursor-pointer hover:bg-fill-highlight-100 group',
+                    'relative flex items-center cursor-pointer hover:bg-fill-highlight-100 group',
                     isSelected && 'bg-fill-highlight-100',
                     isAtCursor && 'bg-primary-highlight',
-                    pinned && 'bg-warning-highlight',
-                    pinned && showPinnedWithOpacity && 'opacity-50'
+                    pinned && showPinnedWithOpacity && 'bg-warning-highlight opacity-50'
                 )}
                 onMouseDown={handleMouseDown}
             >
@@ -179,140 +175,17 @@ export function LogRow({
                     style={getMessageStyle(flexWidth)}
                 />
 
-                {/* Actions */}
-                <div className="flex items-center gap-1 justify-end shrink-0 px-1" style={{ width: ACTIONS_WIDTH }}>
-                    <LemonButton
-                        size="xsmall"
-                        noPadding
-                        icon={<IconBrackets />}
-                        onClick={(e) => {
-                            e.preventDefault()
-                            onTogglePrettify?.(log)
-                        }}
-                        onMouseDown={(e) => e.stopPropagation()}
-                        tooltip={isPrettified ? 'Collapse JSON' : 'Prettify JSON'}
-                        className={cn(
-                            isPrettified ? 'text-brand-blue' : 'text-muted opacity-0 group-hover:opacity-100'
-                        )}
-                    />
-                    <LemonButton
-                        size="xsmall"
-                        noPadding
-                        icon={pinned ? <IconPinFilled /> : <IconPin />}
-                        onClick={(e) => {
-                            e.preventDefault()
-                            onTogglePin(log)
-                        }}
-                        onMouseDown={(e) => e.stopPropagation()}
-                        tooltip={pinned ? 'Unpin log' : 'Pin log'}
-                        className={cn(pinned ? 'text-warning' : 'text-muted opacity-0 group-hover:opacity-100')}
-                    />
-                    <div className="opacity-0 group-hover:opacity-100" onMouseDown={(e) => e.stopPropagation()}>
-                        <LogsViewerRowActions log={log} />
-                    </div>
-                </div>
+                {/* Actions FAB */}
+                <LogRowFAB
+                    log={log}
+                    pinned={pinned}
+                    isPrettified={isPrettified}
+                    onTogglePin={onTogglePin}
+                    onTogglePrettify={onTogglePrettify}
+                    showScrollButtons={!wrapBody}
+                />
             </div>
             {isExpanded && <ExpandedLogContent log={log} logIndex={logIndex} />}
-        </div>
-    )
-}
-
-export interface LogRowHeaderProps {
-    rowWidth: number
-    attributeColumns?: string[]
-    attributeColumnWidths?: Record<string, number>
-    onRemoveAttributeColumn?: (attributeKey: string) => void
-    onResizeAttributeColumn?: (attributeKey: string, width: number) => void
-    // Selection
-    selectedCount?: number
-    totalCount?: number
-    onSelectAll?: () => void
-    onClearSelection?: () => void
-}
-
-export function LogRowHeader({
-    rowWidth,
-    attributeColumns = [],
-    attributeColumnWidths = {},
-    onRemoveAttributeColumn,
-    onResizeAttributeColumn,
-    selectedCount = 0,
-    totalCount = 0,
-    onSelectAll,
-    onClearSelection,
-}: LogRowHeaderProps): JSX.Element {
-    const flexWidth =
-        rowWidth -
-        getFixedColumnsWidth(attributeColumns, attributeColumnWidths) -
-        attributeColumns.length * RESIZER_HANDLE_WIDTH
-
-    const allSelected = totalCount > 0 && selectedCount === totalCount
-    const someSelected = selectedCount > 0 && selectedCount < totalCount
-
-    return (
-        <div
-            style={{ width: rowWidth, gap: ROW_GAP }}
-            className="flex items-center h-8 border-b border-border bg-bg-3000 text-xs font-semibold text-muted sticky top-0 z-10"
-        >
-            {/* Severity + Checkbox + Expand header space */}
-            <div className="flex items-center self-stretch">
-                <div style={{ width: SEVERITY_WIDTH, flexShrink: 0 }} />
-                <div className="flex items-center justify-center shrink-0" style={{ width: CHECKBOX_WIDTH }}>
-                    <LemonCheckbox
-                        checked={someSelected ? 'indeterminate' : allSelected}
-                        onChange={() => (allSelected ? onClearSelection?.() : onSelectAll?.())}
-                        size="small"
-                    />
-                </div>
-                <div style={{ width: EXPAND_WIDTH, flexShrink: 0 }} />
-            </div>
-
-            {/* Timestamp */}
-            <div className="flex items-center pr-3" style={{ width: TIMESTAMP_WIDTH, flexShrink: 0 }}>
-                Timestamp
-            </div>
-
-            {/* Attribute columns */}
-            {attributeColumns.map((attributeKey) => {
-                const width = getAttributeColumnWidth(attributeKey, attributeColumnWidths)
-                return (
-                    <ResizableElement
-                        key={`attr-${attributeKey}`}
-                        defaultWidth={width + RESIZER_HANDLE_WIDTH}
-                        minWidth={MIN_ATTRIBUTE_COLUMN_WIDTH + RESIZER_HANDLE_WIDTH}
-                        maxWidth={Infinity}
-                        onResize={(newWidth) =>
-                            onResizeAttributeColumn?.(attributeKey, newWidth - RESIZER_HANDLE_WIDTH)
-                        }
-                        className="flex items-center h-full shrink-0 group/header"
-                        innerClassName="h-full"
-                    >
-                        <div className="flex items-center pr-3 gap-1 h-full w-full">
-                            <span className="truncate flex-1" title={attributeKey}>
-                                {attributeKey}
-                            </span>
-                            {onRemoveAttributeColumn && (
-                                <LemonButton
-                                    size="xsmall"
-                                    noPadding
-                                    icon={<IconX className="text-muted" />}
-                                    onClick={() => onRemoveAttributeColumn(attributeKey)}
-                                    tooltip="Remove column"
-                                    className="opacity-0 group-hover/header:opacity-100 shrink-0"
-                                />
-                            )}
-                        </div>
-                    </ResizableElement>
-                )
-            })}
-
-            {/* Message */}
-            <div className="flex items-center px-1" style={getMessageStyle(flexWidth)}>
-                Message
-            </div>
-
-            {/* Actions (no label) */}
-            <div className="flex items-center px-1" style={{ width: ACTIONS_WIDTH, flexShrink: 0 }} />
         </div>
     )
 }

@@ -12,6 +12,8 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSwitchGroupConfig
+
 from posthog.hogql.database.database import Database
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -25,6 +27,7 @@ from posthog.models.activity_logging.external_data_utils import (
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
 from posthog.temporal.data_imports.sources import SourceRegistry
+from posthog.temporal.data_imports.sources.common.base import FieldType
 from posthog.temporal.data_imports.sources.common.config import Config
 
 from products.data_warehouse.backend.api.external_data_schema import (
@@ -49,6 +52,17 @@ from products.data_warehouse.backend.models.util import validate_source_prefix
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
+
+
+def get_password_field_names(fields: list[FieldType]) -> set[str]:
+    """Extract field names that have PASSWORD type from a source config's fields."""
+    password_fields: set[str] = set()
+    for field in fields:
+        if isinstance(field, SourceFieldInputConfig) and field.type == SourceFieldInputConfigType.PASSWORD:
+            password_fields.add(field.name)
+        elif isinstance(field, SourceFieldSwitchGroupConfig):
+            password_fields.update(get_password_field_names(field.fields))
+    return password_fields
 
 
 class ExternalDataSourceRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
@@ -125,6 +139,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "source_type",
             "latest_error",
             "prefix",
+            "description",
             "last_run_at",
             "schemas",
             "job_inputs",
@@ -204,17 +219,18 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             # Reconstruct ssh_tunnel (if needed) structure for UI handling
             if "ssh_tunnel" in job_inputs and isinstance(job_inputs["ssh_tunnel"], dict):
                 existing_ssh_tunnel: dict = job_inputs["ssh_tunnel"]
-                existing_auth: dict = existing_ssh_tunnel.get("auth", {})
+                # Check both 'auth' (new format) and 'auth_type' (legacy format from migration 0807)
+                existing_auth: dict = existing_ssh_tunnel.get("auth") or existing_ssh_tunnel.get("auth_type") or {}
                 ssh_tunnel = {
                     "enabled": existing_ssh_tunnel.get("enabled", False),
                     "host": existing_ssh_tunnel.get("host", None),
                     "port": existing_ssh_tunnel.get("port", None),
                     "auth": {
-                        "selection": existing_auth.get("type", None),
+                        # Check both 'type' (new format) and 'selection' (legacy format)
+                        "selection": existing_auth.get("type") or existing_auth.get("selection"),
                         "username": existing_auth.get("username", None),
-                        "password": None,
-                        "passphrase": None,
-                        "private_key": None,
+                        # Note: password, passphrase, private_key intentionally omitted
+                        # to prevent them being sent back as null and overwriting stored values
                     },
                 }
                 job_inputs["ssh_tunnel"] = ssh_tunnel
@@ -271,16 +287,39 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         return ExternalDataSchemaSerializer(instance.schemas, many=True, read_only=True, context=self.context).data
 
     def update(self, instance: ExternalDataSource, validated_data: Any) -> Any:
-        """Update source ensuring we merge with existing job inputs to allow partial updates."""
-        existing_job_inputs = instance.job_inputs
+        existing_job_inputs = instance.job_inputs or {}
+        incoming_job_inputs = validated_data.get("job_inputs", {})
 
         source_type_model = ExternalDataSourceType(instance.source_type)
         source = SourceRegistry.get_source(source_type_model)
+        password_fields = get_password_field_names(source.get_source_config.fields)
 
-        if existing_job_inputs:
-            new_job_inputs = {**existing_job_inputs, **validated_data.get("job_inputs", {})}
-        else:
-            new_job_inputs = validated_data.get("job_inputs", {})
+        new_job_inputs = {**existing_job_inputs, **incoming_job_inputs}
+
+        # Preserve sensitive credentials not explicitly provided (API response omits them for security)
+        for key in password_fields:
+            if existing_job_inputs.get(key) and not incoming_job_inputs.get(key):
+                new_job_inputs[key] = existing_job_inputs[key]
+
+        # SSH tunnel auth is a special config not exposed in source fields - preserve its credentials too
+        existing_ssh_tunnel = existing_job_inputs.get("ssh_tunnel")
+        incoming_ssh_tunnel = incoming_job_inputs.get("ssh_tunnel")
+        if existing_ssh_tunnel and incoming_ssh_tunnel is not None:
+            # Check both 'auth' (new format) and 'auth_type' (legacy format from migration 0807)
+            existing_auth = (
+                (existing_ssh_tunnel or {}).get("auth") or (existing_ssh_tunnel or {}).get("auth_type") or {}
+            )
+            incoming_auth = (
+                (incoming_ssh_tunnel or {}).get("auth") or (incoming_ssh_tunnel or {}).get("auth_type") or {}
+            )
+
+            new_ssh_tunnel = new_job_inputs.get("ssh_tunnel") or {}
+            new_job_inputs["ssh_tunnel"] = new_ssh_tunnel
+            new_auth = new_ssh_tunnel.setdefault("auth", {})
+
+            for key in ("password", "passphrase", "private_key"):
+                if existing_auth.get(key) and not incoming_auth.get(key):
+                    new_auth[key] = existing_auth[key]
 
         is_valid, errors = source.validate_config(new_job_inputs)
         if not is_valid:
@@ -360,6 +399,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         prefix = request.data.get("prefix", None)
+        description = request.data.get("description", None)
         source_type = request.data["source_type"]
 
         # Validate prefix characters
@@ -409,6 +449,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             source_type=source_type_model,
             job_inputs=source_config.to_dict(),
             prefix=prefix,
+            description=description,
         )
 
         source_schemas = source.get_schemas(source_config, self.team_id)
@@ -704,6 +745,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 class ExternalDataSourceContext(ActivityContextBase):
     source_type: str
     prefix: str | None
+    description: str | None
     created_by_user_id: str | None
     created_by_user_email: str | None
     created_by_user_name: str | None
@@ -727,6 +769,7 @@ def handle_external_data_source_change(
     context = ExternalDataSourceContext(
         source_type=external_data_source.source_type or "",
         prefix=external_data_source.prefix,
+        description=external_data_source.description,
         created_by_user_id=created_by_user_id,
         created_by_user_email=created_by_user_email,
         created_by_user_name=created_by_user_name,

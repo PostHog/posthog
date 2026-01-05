@@ -37,7 +37,7 @@ use rdkafka::TopicPartitionList;
 /// ... workers ALREADY EXIST, messages route successfully ...
 ///
 /// Async worker processes RebalanceEvent::Assign:
-///     └─► cleanup_assigned_partitions() [async] - pre-create stores, download checkpoints
+///     └─► async_setup_assigned_partitions() [async] - pre-create stores, download checkpoints
 /// ```
 ///
 /// ## Rapid Revoke→Assign (Same Partition)
@@ -72,7 +72,7 @@ use rdkafka::TopicPartitionList;
 ///
 /// **Cleanup methods** (`cleanup_*`) - Called asynchronously after callbacks return.
 /// These can be slow and do I/O. They run in the background.
-/// - `cleanup_assigned_partitions`: Post-assignment initialization (e.g., download checkpoints)
+/// - `async_setup_assigned_partitions`: Post-assignment initialization (e.g., download checkpoints)
 /// - `cleanup_revoked_partitions`: Drain queues, delete files
 #[async_trait]
 pub trait RebalanceHandler: Send + Sync {
@@ -106,7 +106,7 @@ pub trait RebalanceHandler: Send + Sync {
 
     /// Called asynchronously after partition assignment.
     /// Use for slow initialization: downloading checkpoints, warming caches.
-    async fn cleanup_assigned_partitions(&self, partitions: &TopicPartitionList) -> Result<()>;
+    async fn async_setup_assigned_partitions(&self, partitions: &TopicPartitionList) -> Result<()>;
 
     /// Called asynchronously after partition revocation.
     /// Use for slow cleanup: draining worker queues, uploading checkpoints, deleting files.
@@ -162,7 +162,7 @@ mod tests {
             }
         }
 
-        async fn cleanup_assigned_partitions(
+        async fn async_setup_assigned_partitions(
             &self,
             _partitions: &TopicPartitionList,
         ) -> Result<()> {
@@ -264,7 +264,7 @@ mod tests {
             .unwrap();
         // 6. Assign cleanup (async, in background)
         handler
-            .cleanup_assigned_partitions(&partitions)
+            .async_setup_assigned_partitions(&partitions)
             .await
             .unwrap();
 

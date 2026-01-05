@@ -170,6 +170,11 @@ export enum NodeKind {
 
     // Customer analytics
     UsageMetricsQuery = 'UsageMetricsQuery',
+
+    // Endpoints usage queries
+    EndpointsUsageOverviewQuery = 'EndpointsUsageOverviewQuery',
+    EndpointsUsageTableQuery = 'EndpointsUsageTableQuery',
+    EndpointsUsageTrendsQuery = 'EndpointsUsageTrendsQuery',
 }
 
 export type AnyDataNode =
@@ -222,6 +227,9 @@ export type AnyDataNode =
     | TraceQuery
     | VectorSearchQuery
     | UsageMetricsQuery
+    | EndpointsUsageOverviewQuery
+    | EndpointsUsageTableQuery
+    | EndpointsUsageTrendsQuery
 
 /**
  * @discriminator kind
@@ -314,6 +322,11 @@ export type QuerySchema =
     // Customer analytics
     | UsageMetricsQuery
 
+    // Endpoints usage
+    | EndpointsUsageOverviewQuery
+    | EndpointsUsageTableQuery
+    | EndpointsUsageTrendsQuery
+
 // Keep this, because QuerySchema itself will be collapsed as it is used in other models
 export type QuerySchemaRoot = QuerySchema
 
@@ -356,6 +369,8 @@ export interface QueryLogTags {
     scene?: string
     /** Product responsible for this query. Use string, there's no need to churn the Schema when we add a new product **/
     productKey?: string
+    /** Name of the query, preferably unique. For example web_analytics_vitals */
+    name?: string
 }
 
 /** @internal - no need to emit to schema.json. */
@@ -925,6 +940,7 @@ export interface DataTableNode
                     | ExperimentFunnelsQuery
                     | ExperimentTrendsQuery
                     | TracesQuery
+                    | EndpointsUsageTableQuery
                 )['response']
             >
         >,
@@ -962,6 +978,7 @@ export interface DataTableNode
         | ExperimentTrendsQuery
         | TracesQuery
         | TraceQuery
+        | EndpointsUsageTableQuery
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
@@ -1042,6 +1059,7 @@ export interface ConditionalFormattingRule {
 export interface TableSettings {
     columns?: ChartAxis[]
     conditionalFormatting?: ConditionalFormattingRule[]
+    pinnedColumns?: string[]
 }
 
 export interface SharingConfigurationSettings {
@@ -1490,6 +1508,7 @@ export type RetentionFilter = {
     showTrendLines?: boolean
     /** The selected interval to display across all cohorts (null = show all intervals for each cohort) */
     selectedInterval?: integer | null
+    goalLines?: GoalLine[]
 }
 
 export interface RetentionValue {
@@ -1685,17 +1704,20 @@ export interface EndpointRequest {
     derived_from_insight?: string
 }
 
+/**
+ * Controls how endpoint results are fetched.
+ * - `cache` (default): If available, return cached results. Otherwise, either return the materialized results or run the query against raw data, depending on whether the endpoint is materialized.
+ * - `force`: Forcefully bypass cached results, and either return materialized results or run the query against raw data, depending on whether the endpoint is materialized.
+ * - `direct`: Only valid for a materialized endpoint. Bypass the materialized results and run the query against raw data.
+ */
+export type EndpointRefreshMode = 'cache' | 'force' | 'direct'
+
 export interface EndpointRunRequest {
     /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
     client_query_id?: string
 
-    /**
-     * Whether results should be calculated sync or async, and how much to rely on the cache:
-     * - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
-     * - `'force_blocking'` - calculate synchronously, even if fresh results are already cached
-     * @default 'blocking'
-     */
-    refresh?: RefreshType
+    /** @default 'cache' */
+    refresh?: EndpointRefreshMode
     /**
      * A map for overriding insight query filters.
      *
@@ -2360,10 +2382,10 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     issueId?: ErrorTrackingIssue['id']
     orderBy: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions' | 'revenue'
     orderDirection?: 'ASC' | 'DESC'
-    revenuePeriod?: 'all_time' | 'last_30_days'
+    revenuePeriod?: 'all_time' | 'mrr'
     revenueEntity?: 'person' | 'group_0' | 'group_1' | 'group_2' | 'group_3' | 'group_4'
     dateRange: DateRange
-    status?: ErrorTrackingIssue['status'] | 'all'
+    status?: ErrorTrackingQueryStatus
     assignee?: ErrorTrackingIssueAssignee | null
     filterGroup?: PropertyGroupFilter
     filterTestAccounts?: boolean
@@ -2466,12 +2488,18 @@ export enum QuickFilterContext {
     LogsFilters = 'logs-filters',
 }
 
+/** @title ErrorTrackingIssueStatus */
+export type ErrorTrackingIssueStatus = 'archived' | 'active' | 'resolved' | 'pending_release' | 'suppressed'
+
+/** @title ErrorTrackingQueryStatus */
+export type ErrorTrackingQueryStatus = ErrorTrackingIssueStatus | 'all'
+
 export interface ErrorTrackingRelationalIssue {
     id: string
     name: string | null
     description: string | null
     assignee: ErrorTrackingIssueAssignee | null
-    status: 'archived' | 'active' | 'resolved' | 'pending_release' | 'suppressed'
+    status: ErrorTrackingIssueStatus
     /**  @format date-time */
     first_seen: string
     external_issues?: ErrorTrackingExternalReference[]
@@ -3649,6 +3677,7 @@ export interface BreakdownFilter {
     breakdown_limit?: integer
     breakdown?: string | integer | (string | integer)[] | null
     breakdown_normalize_url?: boolean
+    breakdown_path_cleaning?: boolean
     /**
      * @maxLength 3
      */
@@ -4549,6 +4578,32 @@ export enum MarketingAnalyticsHelperForColumnNames {
     CostPer = 'Cost per',
 }
 
+/** Category for core events (lifecycle stages) */
+export enum CoreEventCategory {
+    Acquisition = 'acquisition',
+    Activation = 'activation',
+    Monetization = 'monetization',
+    Expansion = 'expansion',
+    Referral = 'referral',
+    Retention = 'retention',
+    Churn = 'churn',
+    Reactivation = 'reactivation',
+}
+
+/** Unified core event stored in Team settings */
+export interface CoreEvent {
+    /** Unique identifier */
+    id: string
+    /** Display name */
+    name: string
+    /** Optional description */
+    description?: string
+    /** Category (acquisition, activation, retention, referral, revenue) */
+    category: CoreEventCategory
+    /** Filter configuration - event, action, or data warehouse node (includes math support for sum, etc.) */
+    filter: EventsNode | ActionsNode | DataWarehouseNode
+}
+
 export interface SourceFieldSSHTunnelConfig {
     type: 'ssh-tunnel'
     label: string
@@ -4918,6 +4973,101 @@ export interface UsageMetricsQuery extends DataNode<UsageMetricsQueryResponse> {
     group_key?: string
 }
 
+/*
+ * Endpoints Usage Analytics
+ */
+
+export enum EndpointsUsageBreakdown {
+    Endpoint = 'Endpoint',
+    MaterializationType = 'MaterializationType',
+    ApiKey = 'ApiKey',
+    Status = 'Status',
+}
+
+export type EndpointsUsageOrderByField =
+    | 'requests'
+    | 'bytes_read'
+    | 'cpu_seconds'
+    | 'avg_query_duration_ms'
+    | 'error_rate'
+export type EndpointsUsageOrderByDirection = 'ASC' | 'DESC'
+export type EndpointsUsageOrderBy = [EndpointsUsageOrderByField, EndpointsUsageOrderByDirection]
+
+/** Base interface for Endpoints usage queries */
+interface EndpointsUsageQueryBase<R extends Record<string, any>> extends DataNode<R> {
+    dateRange?: DateRange
+    /** Filter to specific endpoints by name */
+    endpointNames?: string[]
+    /** Filter by materialization type */
+    materializationType?: 'materialized' | 'inline' | null
+}
+
+export type EndpointsUsageOverviewItemKey =
+    | 'total_requests'
+    | 'total_bytes_read'
+    | 'total_cpu_seconds'
+    | 'avg_query_duration_ms'
+    | 'p95_query_duration_ms'
+    | 'error_rate'
+    | 'materialized_requests'
+    | 'inline_requests'
+
+export interface EndpointsUsageOverviewItem {
+    key: EndpointsUsageOverviewItemKey
+    value: number | null
+    previous?: number | null
+    changeFromPreviousPct?: number | null
+}
+
+export interface EndpointsUsageOverviewQueryResponse extends AnalyticsQueryResponseBase {
+    results: EndpointsUsageOverviewItem[]
+}
+
+export type CachedEndpointsUsageOverviewQueryResponse = CachedQueryResponse<EndpointsUsageOverviewQueryResponse>
+
+export interface EndpointsUsageOverviewQuery extends EndpointsUsageQueryBase<EndpointsUsageOverviewQueryResponse> {
+    kind: NodeKind.EndpointsUsageOverviewQuery
+    /** Compare to previous period */
+    compareFilter?: CompareFilter
+}
+
+export interface EndpointsUsageTableQueryResponse extends AnalyticsQueryResponseBase {
+    results: unknown[]
+    columns?: unknown[]
+    types?: unknown[]
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+}
+
+export type CachedEndpointsUsageTableQueryResponse = CachedQueryResponse<EndpointsUsageTableQueryResponse>
+
+export interface EndpointsUsageTableQuery extends EndpointsUsageQueryBase<EndpointsUsageTableQueryResponse> {
+    kind: NodeKind.EndpointsUsageTableQuery
+    breakdownBy: EndpointsUsageBreakdown
+    orderBy?: EndpointsUsageOrderBy
+    limit?: integer
+    offset?: integer
+}
+
+export interface EndpointsUsageTrendsQueryResponse extends AnalyticsQueryResponseBase {
+    results: Record<string, any>[]
+}
+
+export type CachedEndpointsUsageTrendsQueryResponse = CachedQueryResponse<EndpointsUsageTrendsQueryResponse>
+
+export interface EndpointsUsageTrendsQuery extends EndpointsUsageQueryBase<EndpointsUsageTrendsQueryResponse> {
+    kind: NodeKind.EndpointsUsageTrendsQuery
+    /** Metric to trend */
+    metric: 'bytes_read' | 'cpu_seconds' | 'requests' | 'query_duration' | 'error_rate'
+    /** Optional breakdown for stacked charts */
+    breakdownBy?: EndpointsUsageBreakdown
+    /** Time interval */
+    interval?: IntervalType
+    /** Compare to previous period */
+    compareFilter?: CompareFilter
+}
+
 export interface CustomerAnalyticsConfig {
     activity_event: EventsNode | ActionsNode
     signup_pageview_event: EventsNode | ActionsNode
@@ -5043,6 +5193,9 @@ export enum ProductIntentContext {
     LLM_ANALYTICS_VIEWED = 'llm_analytics_viewed',
     LLM_ANALYTICS_DOCS_VIEWED = 'llm_analytics_docs_viewed',
 
+    // Logs
+    LOGS_DOCS_VIEWED = 'logs_docs_viewed',
+
     // Product Analytics
     TAXONOMIC_FILTER_EMPTY_STATE = 'taxonomic filter empty state',
     CREATE_EXPERIMENT_FROM_FUNNEL_BUTTON = 'create_experiment_from_funnel_button',
@@ -5099,11 +5252,22 @@ export enum ProductIntentContext {
     MARKETING_ANALYTICS_DASHBOARD_INTERACTION = 'marketing_analytics_dashboard_interaction',
     MARKETING_ANALYTICS_ADS_INTEGRATION_VISITED = 'marketing_analytics_ads_integration_visited',
 
+    // Customer Analytics
+    CUSTOMER_ANALYTICS_DASHBOARD_BUSINESS_MODE_CHANGED = 'customer_analytics_dashboard_business_mode_changed',
+    CUSTOMER_ANALYTICS_DASHBOARD_CONFIGURATION_BUTTON_CLICKED = 'customer_analytics_dashboard_configuration_button_clicked',
+    CUSTOMER_ANALYTICS_DASHBOARD_FILTERS_CHANGED = 'customer_analytics_dashboard_filters_changed',
+    CUSTOMER_ANALYTICS_DASHBOARD_EVENTS_SAVED = 'customer_analytics_dashboard_events_saved',
+    CUSTOMER_ANALYTICS_VIEWED = 'customer_analytics_viewed',
+    CUSTOMER_ANALYTICS_USAGE_METRIC_CREATED = 'customer_analytics_usage_metric_created',
+
     // Nav Panel Advertisement
     NAV_PANEL_ADVERTISEMENT_CLICKED = 'nav_panel_advertisement_clicked',
 
     // Feature previews
     FEATURE_PREVIEW_ENABLED = 'feature_preview_enabled',
+
+    // Workflows
+    WORKFLOW_CREATED = 'workflow_created',
 
     // Used by the backend but defined here for type safety
     VERCEL_INTEGRATION = 'vercel_integration',

@@ -8,8 +8,6 @@ from posthog.schema import ArtifactContentType, ArtifactSource, AssistantToolCal
 
 from posthog.models import Team, User
 
-from products.data_warehouse.backend.prompts import SQL_ASSISTANT_ROOT_SYSTEM_PROMPT
-
 from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.chat_agent.sql.mixins import HogQLGeneratorMixin
 from ee.hogai.chat_agent.sql.prompts import (
@@ -26,6 +24,7 @@ from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import NodePath
 
 from .prompts import (
+    EXECUTE_SQL_CONTEXT_PROMPT,
     EXECUTE_SQL_RECOVERABLE_ERROR_PROMPT,
     EXECUTE_SQL_SYSTEM_PROMPT,
     EXECUTE_SQL_UNRECOVERABLE_ERROR_PROMPT,
@@ -34,17 +33,18 @@ from .prompts import (
 
 class ExecuteSQLToolArgs(BaseModel):
     query: str = Field(description="The final SQL query to be executed.")
-    name: str = Field(
-        description="Short, concise name of the query (2-5 words) that will be displayed as a header in the query tile."
+    viz_title: str = Field(
+        description="Short, concise name of the SQL query (2-5 words) that will be displayed as a header in the visualization."
     )
-    description: str = Field(description="Short, concise description of the query (1 sentence)")
+    viz_description: str = Field(
+        description="Short, concise summary of the SQL query (1 sentence) that will be displayed as a description in the visualization."
+    )
 
 
 class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
     name: str = "execute_sql"
     args_schema: type[BaseModel] = ExecuteSQLToolArgs
-    context_prompt_template: str = SQL_ASSISTANT_ROOT_SYSTEM_PROMPT
-    show_tool_call_message: bool = False
+    context_prompt_template: str = EXECUTE_SQL_CONTEXT_PROMPT
 
     @classmethod
     async def create_tool_class(
@@ -65,8 +65,10 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
         )
         return cls(team=team, user=user, state=state, node_path=node_path, config=config, description=prompt)
 
-    async def _arun_impl(self, query: str, name: str, description: str) -> tuple[str, ToolMessagesArtifact | None]:
-        parsed_query = self._parse_output({"query": query, "name": name, "description": description})
+    async def _arun_impl(
+        self, query: str, viz_title: str, viz_description: str
+    ) -> tuple[str, ToolMessagesArtifact | None]:
+        parsed_query = self._parse_output({"query": query})
         try:
             await self._quality_check_output(
                 output=parsed_query,
@@ -76,9 +78,7 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
 
         # Display an ephemeral visualization message to the user.
         artifact = await self._context_manager.artifacts.create(
-            VisualizationArtifactContent(
-                query=parsed_query.query, name=parsed_query.name, description=parsed_query.description
-            ),
+            VisualizationArtifactContent(query=parsed_query.query, name=viz_title, description=viz_description),
             "SQL Query",
         )
         artifact_message = self._context_manager.artifacts.create_message(
@@ -90,8 +90,8 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
         insight_context = InsightContext(
             team=self._team,
             query=parsed_query.query,
-            name=parsed_query.name,
-            description=parsed_query.description,
+            name=viz_title,
+            description=viz_description,
             insight_id=artifact_message.artifact_id,
         )
 
