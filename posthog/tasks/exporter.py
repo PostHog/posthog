@@ -99,7 +99,7 @@ def is_user_query_error_type(exception_type: str | None) -> bool:
 def record_export_failure(exported_asset: ExportedAsset, e: Exception) -> None:
     exported_asset.exception = str(e)
     exported_asset.exception_type = type(e).__name__
-    exported_asset.save()
+    exported_asset.save(update_fields=["exception", "exception_type"])
 
 
 def _is_final_export_attempt(exception: Exception, current_retries: int, max_retries: int) -> bool:
