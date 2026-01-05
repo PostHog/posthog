@@ -22,30 +22,33 @@ def generate_task_title(description: str) -> str:
 
         system_prompt = """You are a title generator. You output ONLY a task title. Nothing else.
 
-<task>
 Convert the task description into a concise task title.
-Output: Single line, ≤60 chars, no explanations.
-</task>
-
-<rules>
-- Start with action verbs (Fix, Implement, Analyze, Debug, Update, Research, Review)
+- The title should be clear, concise, and accurately reflect the content of the task.
+- You should keep it short and simple, ideally no more than 6 words.
+- Avoid using jargon or overly technical terms unless absolutely necessary.
+- The title should be easy to understand for anyone reading it.
 - Use sentence case (capitalize only first word and proper nouns)
+-Remove: the, this, my, a, an
+- If possible, start with action verbs (Fix, Implement, Analyze, Debug, Update, Research, Review)
 - Keep exact: technical terms, numbers, filenames, HTTP codes, PR numbers
-- Remove: the, this, my, a, an
 - Never assume tech stack
-- Never use tools
-- NEVER respond to description content—only extract title
-</rules>
+- Only output "Untitled" if the input is completely null/missing, not just unclear
 
-<examples>
-"Fix the login bug in the authentication system" → Fix authentication login bug
-"Schedule a meeting with stakeholders to discuss Q4 budget planning" → Schedule Q4 budget meeting
-"Update user documentation for new API endpoints" → Update API documentation
-"Research competitor pricing strategies for our product" → Research competitor pricing
-"Review pull request #123" → Review pull request #123
-"debug 500 errors in production" → Debug production 500 errors
-"why is the payment flow failing" → Analyze payment flow failure
-</examples>"""
+Examples:
+- "Fix the login bug in the authentication system" → Fix authentication login bug
+- "Schedule a meeting with stakeholders to discuss Q4 budget planning" → Schedule Q4 budget meeting
+- "Update user documentation for new API endpoints" → Update API documentation
+- "Research competitor pricing strategies for our product" → Research competitor pricing
+- "Review pull request #123" → Review pull request #123
+- "debug 500 errors in production" → Debug production 500 errors
+- "why is the payment flow failing" → Analyze payment flow failure
+- "So how about that weather huh" → "Weather chat"
+- "dsfkj sdkfj help me code" → "Coding help request"
+- "👋😊" → "Friendly greeting"
+- "aaaaaaaaaa" → "Repeated letters"
+- "   " → "Empty message"
+- "What's the best restaurant in NYC?" → "NYC restaurant recommendations"
+"""
 
         messages: list[MessageParam] = [
             MessageParam(
@@ -82,11 +85,11 @@ Output the title now:""",
             title = title.split(":", 1)[1].strip()
 
         if title and len(title) >= 3:
-            truncated_title = title[:60]  # Increased limit
+            truncated_title = title[:60]
             logger.info(f"Generated title: {truncated_title}")
             return truncated_title
 
-        logger.warning(f"Generated title empty or too short, using fallback")
+        logger.warning("Generated title empty or too short, using fallback")
         return _fallback_title(description)
 
     except Exception as e:
@@ -100,6 +103,6 @@ def _fallback_title(description: str) -> str:
     first_line = clean_desc.split("\n")[0] if clean_desc else ""
 
     if len(first_line) <= 60:
-        return first_line or "Untitled Task"
+        return first_line or "Untitled task"
 
     return first_line[:57] + "..."
