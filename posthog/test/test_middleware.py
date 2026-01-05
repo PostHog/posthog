@@ -9,6 +9,7 @@ from django.core.cache import cache
 from django.urls import reverse
 
 from rest_framework import status
+from social_core.exceptions import AuthCanceled
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
@@ -927,3 +928,24 @@ class TestActiveOrganizationMiddleware(APIBaseTest):
         response = self.client.get("/dashboard")
         # Should redirect to login or show appropriate response
         self.assertIn(response.status_code, [status.HTTP_302_FOUND, status.HTTP_200_OK])
+
+
+class TestSocialAuthExceptionMiddleware(APIBaseTest):
+    CONFIG_AUTO_LOGIN = False
+
+    def test_oauth_cancelled_redirects_to_login(self):
+        """Test that AuthCanceled exception on OAuth callback redirects to login with error code"""
+        from django.test import RequestFactory
+
+        from posthog.middleware import SocialAuthExceptionMiddleware
+
+        middleware = SocialAuthExceptionMiddleware(lambda request: None)
+        factory = RequestFactory()
+        request = factory.get("/complete/google-oauth2/")
+        exception = AuthCanceled("google-oauth2", "User cancelled")
+
+        response = middleware.process_exception(request, exception)
+
+        self.assertIsNotNone(response)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(response.url, "/login?error_code=oauth_cancelled")

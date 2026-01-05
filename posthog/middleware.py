@@ -26,7 +26,7 @@ import structlog
 from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
 from rest_framework import status
-from social_core.exceptions import AuthFailed
+from social_core.exceptions import AuthCanceled, AuthFailed
 from statshog.defaults.django import statsd
 
 from posthog.api.decide import get_decide
@@ -813,6 +813,11 @@ class SocialAuthExceptionMiddleware:
         if not request.path.startswith("/complete/"):
             return None
 
+        # Handle AuthCanceled (user cancelled OAuth flow)
+        if isinstance(exception, AuthCanceled):
+            return redirect("/login?error_code=oauth_cancelled")
+
+        # Handle AuthFailed with specific error codes
         if isinstance(exception, AuthFailed) and len(exception.args) >= 1:
             error = exception.args[0]
             if error in (
