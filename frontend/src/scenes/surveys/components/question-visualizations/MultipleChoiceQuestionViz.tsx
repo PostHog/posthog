@@ -15,7 +15,6 @@ import {
     InsightLogicProps,
     MultipleSurveyQuestion,
     OpenQuestionResponseData,
-    SingleChoiceSurveyQuestion,
 } from '~/types'
 
 const insightProps: InsightLogicProps = {
@@ -25,7 +24,7 @@ const insightProps: InsightLogicProps = {
 const barColor = CHART_INSIGHTS_COLORS[2]
 
 interface Props {
-    question: MultipleSurveyQuestion | SingleChoiceSurveyQuestion
+    question: MultipleSurveyQuestion
     questionIndex: number
     responseData: ChoiceQuestionResponseData[]
     totalResponses: number
