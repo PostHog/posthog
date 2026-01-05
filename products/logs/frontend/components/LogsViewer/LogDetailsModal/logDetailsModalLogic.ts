@@ -41,6 +41,7 @@ export const logDetailsModalLogic = kea<logDetailsModalLogicType>([
             'details' as LogDetailsTab,
             {
                 setActiveTab: (_, { tab }) => tab,
+                openLogDetails: () => 'details',
                 closeLogDetails: () => 'details',
             },
         ],

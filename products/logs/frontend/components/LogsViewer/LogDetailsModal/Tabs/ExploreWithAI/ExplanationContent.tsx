@@ -15,34 +15,34 @@ export interface ExplanationContentProps {
 }
 
 export function ExplanationContent({ explanation, onApplyFilter }: ExplanationContentProps): JSX.Element {
-    // Handle both new and potentially cached old schema responses
-    const headline = explanation.headline ?? 'Log Analysis'
-    const impactSummary = explanation.impact_summary ?? ''
-    const technicalExplanation = explanation.technical_explanation ?? ''
-    const severityAssessment = explanation.severity_assessment ?? 'ok'
+    const {
+        headline,
+        impact_summary,
+        technical_explanation,
+        severity_assessment,
+        probable_causes,
+        immediate_actions,
+        key_fields,
+    } = explanation
 
-    const config = SEVERITY_CONFIG[severityAssessment] ?? SEVERITY_CONFIG.ok
-    const isCriticalOrError = severityAssessment === 'critical' || severityAssessment === 'error'
-
-    const probableCauses = explanation.probable_causes ?? []
-    const immediateActions = explanation.immediate_actions ?? []
-    const keyFields = explanation.key_fields ?? []
+    const config = SEVERITY_CONFIG[severity_assessment]
+    const isCriticalOrError = severity_assessment === 'critical' || severity_assessment === 'error'
 
     const collapsePanels = [
-        probableCauses.length > 0 && {
+        probable_causes.length > 0 && {
             key: 'causes',
-            header: `AI hypotheses (${probableCauses.length})`,
-            content: <ProbableCausesSection causes={probableCauses} />,
+            header: `AI hypotheses (${probable_causes.length})`,
+            content: <ProbableCausesSection causes={probable_causes} />,
         },
-        immediateActions.length > 0 && {
+        immediate_actions.length > 0 && {
             key: 'actions',
-            header: `Suggested actions (${immediateActions.filter((a) => a.priority === 'now').length} urgent)`,
-            content: <ImmediateActionsSection actions={immediateActions} />,
+            header: `Suggested actions (${immediate_actions.filter((a) => a.priority === 'now').length} urgent)`,
+            content: <ImmediateActionsSection actions={immediate_actions} />,
         },
-        keyFields.length > 0 && {
+        key_fields.length > 0 && {
             key: 'fields',
-            header: `Key fields (${keyFields.length})`,
-            content: <KeyFieldsSection fields={keyFields} onApplyFilter={onApplyFilter} />,
+            header: `Key fields (${key_fields.length})`,
+            content: <KeyFieldsSection fields={key_fields} onApplyFilter={onApplyFilter} />,
         },
     ].filter(Boolean)
 
@@ -52,14 +52,14 @@ export function ExplanationContent({ explanation, onApplyFilter }: ExplanationCo
             <SeverityBanner
                 type={config.banner}
                 headline={headline}
-                impact={impactSummary}
+                impact={impact_summary}
                 severityLabel={config.label}
             />
 
             {/* Technical Explanation */}
-            {technicalExplanation && (
+            {technical_explanation && (
                 <div className="bg-bg-light rounded p-3 text-sm">
-                    <LemonMarkdown>{technicalExplanation}</LemonMarkdown>
+                    <LemonMarkdown>{technical_explanation}</LemonMarkdown>
                 </div>
             )}
 

@@ -11,9 +11,9 @@ export const SEVERITY_CONFIG: Record<
 }
 
 export const CONFIDENCE_CONFIG: Record<ConfidenceLevel, { type: 'danger' | 'warning' | 'success'; label: string }> = {
-    high: { type: 'danger', label: 'High confidence' },
+    high: { type: 'success', label: 'High confidence' },
     medium: { type: 'warning', label: 'Medium confidence' },
-    low: { type: 'success', label: 'Low confidence' },
+    low: { type: 'danger', label: 'Low confidence' },
 }
 
 export const PRIORITY_TAG_TYPE: Record<ActionPriority, 'highlight' | 'option' | 'muted'> = {
@@ -24,6 +24,6 @@ export const PRIORITY_TAG_TYPE: Record<ActionPriority, 'highlight' | 'option' | 
 
 export const PRIORITY_TOOLTIP: Record<ActionPriority, string> = {
     now: 'AI suggests: do immediately',
-    soon: 'AI suggests: do within 15 minutes',
+    soon: 'AI suggests: address soon',
     later: 'AI suggests: can wait',
 }

@@ -196,6 +196,7 @@ import {
     ErrorTrackingRuleType,
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/types'
 import { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/symbolSetLogic'
+import { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
 import type {
     SessionGroupSummaryListItemType,
     SessionGroupSummaryType,
@@ -679,7 +680,7 @@ export class ApiRequest {
     }
 
     public logsExplainWithAI(projectId?: ProjectType['id']): ApiRequest {
-        return this.environmentsDetail(projectId).addPathComponent('logs').addPathComponent('explainLogWithAI')
+        return this.logs(projectId).addPathComponent('explainLogWithAI')
     }
 
     // # Data management
@@ -2309,23 +2310,7 @@ const api = {
                 .get()
                 .then((response) => Boolean(response.hasLogs))
         },
-        async explain(
-            uuid: string,
-            timestamp: string
-        ): Promise<{
-            headline: string
-            severity_assessment: 'ok' | 'warning' | 'error' | 'critical'
-            impact_summary: string
-            probable_causes: Array<{ hypothesis: string; confidence: 'high' | 'medium' | 'low'; reasoning: string }>
-            immediate_actions: Array<{ action: string; priority: 'now' | 'soon' | 'later'; why: string }>
-            technical_explanation: string
-            key_fields: Array<{
-                field: string
-                value: string
-                significance: string
-                attribute_type: 'log' | 'resource'
-            }>
-        }> {
+        async explain(uuid: string, timestamp: string): Promise<LogExplanation> {
             return new ApiRequest().logsExplainWithAI().create({ data: { uuid, timestamp } })
         },
     },

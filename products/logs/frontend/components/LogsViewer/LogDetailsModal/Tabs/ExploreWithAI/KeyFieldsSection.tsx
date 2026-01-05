@@ -1,4 +1,4 @@
-import { IconSearch } from '@posthog/icons'
+import { IconInfo, IconSearch } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -35,7 +35,7 @@ export function KeyFieldsSection({ fields, onApplyFilter }: KeyFieldsSectionProp
                         </Tooltip>
                     )}
                     <Tooltip title={field.significance}>
-                        <span className="text-warning text-xs">⚠️</span>
+                        <IconInfo className="text-muted-alt shrink-0" />
                     </Tooltip>
                 </div>
             ))}
