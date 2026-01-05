@@ -1,9 +1,12 @@
 import { DismissableLayer } from '@radix-ui/react-dismissable-layer'
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconGear } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { MaxMemorySettings } from 'scenes/settings/environment/MaxMemorySettings'
 import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
 
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
@@ -17,6 +20,17 @@ export function SidebarQuestionInputWithSuggestions(): JSX.Element {
     const { setActiveGroup } = useActions(maxLogic)
     const { coreMemory, coreMemoryLoading } = useValues(maxSettingsLogic)
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
+
+    const isAiFirst = useFeatureFlag('AI_FIRST_EXPERIENCE')
+    const [settingsModalOpen, setSettingsModalOpen] = useState(false)
+
+    const handleSettingsClick = (): void => {
+        if (isAiFirst) {
+            setSettingsModalOpen(true)
+        } else {
+            openSettingsPanel({ sectionId: 'environment-max' })
+        }
+    }
 
     const tip =
         !coreMemoryLoading && !coreMemory?.text
@@ -41,7 +55,7 @@ export function SidebarQuestionInputWithSuggestions(): JSX.Element {
                     additionalSuggestions={[
                         <LemonButton
                             key="edit-max-memory"
-                            onClick={() => openSettingsPanel({ sectionId: 'environment-max' })}
+                            onClick={handleSettingsClick}
                             size="xsmall"
                             type="secondary"
                             icon={<IconGear />}
@@ -50,6 +64,16 @@ export function SidebarQuestionInputWithSuggestions(): JSX.Element {
                     ]}
                 />
             </div>
+            {isAiFirst && (
+                <LemonModal
+                    title="PostHog AI memory"
+                    isOpen={settingsModalOpen}
+                    onClose={() => setSettingsModalOpen(false)}
+                    width="40rem"
+                >
+                    <MaxMemorySettings />
+                </LemonModal>
+            )}
         </DismissableLayer>
     )
 }

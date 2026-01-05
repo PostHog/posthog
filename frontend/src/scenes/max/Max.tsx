@@ -14,6 +14,7 @@ import {
 } from '@posthog/icons'
 import { LemonBanner, Tooltip } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { appLogic } from 'scenes/appLogic'
@@ -33,6 +34,7 @@ import { HistoryPreview } from './HistoryPreview'
 import { Intro } from './Intro'
 import { Thread } from './Thread'
 import { AnimatedBackButton } from './components/AnimatedBackButton'
+import { ChatHistoryPanel } from './components/ChatHistoryPanel'
 import { SidebarQuestionInput } from './components/SidebarQuestionInput'
 import { SidebarQuestionInputWithSuggestions } from './components/SidebarQuestionInputWithSuggestions'
 import { ThreadAutoScroller } from './components/ThreadAutoScroller'
@@ -50,6 +52,8 @@ export function Max({ tabId }: { tabId?: string }): JSX.Element {
     const { closeSidePanel } = useActions(sidePanelLogic)
     const { conversationId: tabConversationId } = useValues(maxLogic({ tabId: tabId || '' }))
     const { conversationId: sidepanelConversationId } = useValues(maxLogic({ tabId: 'sidepanel' }))
+
+    const isAiFirst = useFeatureFlag('AI_FIRST_EXPERIENCE')
 
     if (sidePanelOpen && selectedTab === SidePanelTab.Max && sidepanelConversationId === tabConversationId) {
         return (
@@ -72,19 +76,28 @@ export function Max({ tabId }: { tabId?: string }): JSX.Element {
         )
     }
 
-    return <MaxInstance tabId={tabId ?? ''} />
+    return (
+        <div className="flex grow">
+            {isAiFirst && <ChatHistoryPanel tabId={tabId ?? ''} />}
+            <div className="flex flex-col grow">
+                <MaxInstance tabId={tabId ?? ''} isAiFirst={isAiFirst} />
+            </div>
+        </div>
+    )
 }
 
 export interface MaxInstanceProps {
     sidePanel?: boolean
     tabId: string
     isAIOnlyMode?: boolean
+    isAiFirst?: boolean
 }
 
 export const MaxInstance = React.memo(function MaxInstance({
     sidePanel,
     tabId,
     isAIOnlyMode,
+    isAiFirst,
 }: MaxInstanceProps): JSX.Element {
     const {
         threadVisible,
@@ -119,15 +132,23 @@ export const MaxInstance = React.memo(function MaxInstance({
                     // This makes the transition from one view into another just that bit smoother visually.
                     <div
                         className={clsx(
-                            '@container/max-welcome relative flex flex-col gap-4 px-4 pb-7 grow',
-                            !sidePanel && 'min-h-[calc(100vh-var(--scene-layout-header-height)-120px)]'
+                            '@container/max-welcome relative flex flex-col gap-4 pb-7 grow',
+                            !sidePanel &&
+                                !isAiFirst &&
+                                'min-h-[calc(100vh-var(--scene-layout-header-height)-120px)] px-4',
+                            isAiFirst && 'grow'
                         )}
                     >
                         <div className="flex-1 items-center justify-center flex flex-col gap-3">
                             <Intro />
-                            <SidebarQuestionInputWithSuggestions />
+                            {!isAiFirst && <SidebarQuestionInputWithSuggestions />}
                         </div>
-                        <HistoryPreview sidePanel={sidePanel} />
+                        {!isAiFirst && <HistoryPreview sidePanel={sidePanel} />}
+                        {isAiFirst && (
+                            <div className="sticky bottom-0 bg-primary pb-4">
+                                <SidebarQuestionInputWithSuggestions />
+                            </div>
+                        )}
                     </div>
                 ) : (
                     /** Must be the last child and be a direct descendant of the scrollable element */
@@ -229,6 +250,8 @@ export const MaxInstance = React.memo(function MaxInstance({
             </SidePanelPaneHeader>
             {content}
         </>
+    ) : isAiFirst ? (
+        content
     ) : (
         <SceneContent className="pt-4 px-4 min-h-[calc(100vh-var(--scene-layout-header-height))]">
             <SceneTitleSection
