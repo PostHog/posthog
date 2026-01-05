@@ -1,7 +1,7 @@
 import classNames from 'classnames'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import React, { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import { IconAIText, IconChat, IconComment, IconCopy, IconMessage, IconReceipt, IconSearch } from '@posthog/icons'
@@ -686,6 +686,9 @@ const EventContent = React.memo(
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SUMMARIZATION] ||
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
 
+        // Hide Conversation and Raw tabs if we're viewing a trace (not an event) with no content
+        const hasTraceContent = isLLMEvent(event) || !!(event.inputState || event.outputState)
+
         // Only pre-load for generation events ($ai_input/$ai_output_choices).
         // TODO: Figure out why spans can't load properties async
         const eventData = isGenerationEvent
@@ -707,6 +710,18 @@ const EventContent = React.memo(
 
             setupPlaygroundFromEvent({ model, input: loadedInput, tools })
         }
+
+        // Switch to a valid tab if the current tab is no longer available
+        useEffect(() => {
+            if (!hasTraceContent && (viewMode === TraceViewMode.Conversation || viewMode === TraceViewMode.Raw)) {
+                // Switch to Summary if available, otherwise Evals, otherwise don't switch
+                if (showSummaryTab) {
+                    setViewMode(TraceViewMode.Summary)
+                } else if (showEvalsTab) {
+                    setViewMode(TraceViewMode.Evals)
+                }
+            }
+        }, [hasTraceContent, viewMode, showSummaryTab, showEvalsTab, setViewMode])
 
         return (
             <div className="flex-1 bg-surface-primary max-h-fit border rounded flex flex-col border-primary p-4 overflow-y-auto">
@@ -812,91 +827,95 @@ const EventContent = React.memo(
                             activeKey={viewMode}
                             onChange={setViewMode}
                             tabs={[
-                                {
-                                    key: TraceViewMode.Conversation,
-                                    label: 'Conversation',
-                                    content: (
-                                        <>
-                                            {displayOption === DisplayOption.TextView &&
-                                            (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TEXT_VIEW] ||
-                                                featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]) ? (
-                                                isLLMEvent(event) &&
-                                                (event.event === '$ai_generation' ||
-                                                    event.event === '$ai_span' ||
-                                                    event.event === '$ai_embedding') ? (
-                                                    <TextViewDisplay
-                                                        event={event}
-                                                        trace={trace}
-                                                        lineNumber={lineNumber}
-                                                        onFallback={handleTextViewFallback}
-                                                        onCopyPermalink={copyLinePermalink}
-                                                    />
-                                                ) : !isLLMEvent(event) ? (
-                                                    <TextViewDisplay
-                                                        trace={event}
-                                                        tree={tree}
-                                                        lineNumber={lineNumber}
-                                                        onFallback={handleTextViewFallback}
-                                                        onCopyPermalink={copyLinePermalink}
-                                                    />
-                                                ) : null
-                                            ) : (
-                                                <>
-                                                    {isLLMEvent(event) ? (
-                                                        event.event === '$ai_generation' ? (
-                                                            <EventContentGeneration
-                                                                eventId={event.id}
-                                                                rawInput={event.properties.$ai_input}
-                                                                rawOutput={
-                                                                    event.properties.$ai_output_choices ??
-                                                                    event.properties.$ai_output
-                                                                }
-                                                                tools={event.properties.$ai_tools}
-                                                                errorData={event.properties.$ai_error}
-                                                                httpStatus={event.properties.$ai_http_status}
-                                                                raisedError={event.properties.$ai_is_error}
-                                                                searchQuery={searchQuery}
-                                                            />
-                                                        ) : event.event === '$ai_embedding' ? (
-                                                            <EventContentDisplayAsync
-                                                                eventId={event.id}
-                                                                rawInput={event.properties.$ai_input}
-                                                                rawOutput="Embedding vector generated"
-                                                            />
-                                                        ) : (
-                                                            <EventContentDisplayAsync
-                                                                eventId={event.id}
-                                                                rawInput={event.properties.$ai_input_state}
-                                                                rawOutput={
-                                                                    event.properties.$ai_output_state ??
-                                                                    event.properties.$ai_error
-                                                                }
-                                                                raisedError={event.properties.$ai_is_error}
-                                                            />
-                                                        )
-                                                    ) : (
-                                                        <>
-                                                            <TraceMetricsTable />
-                                                            <EventContentDisplay
-                                                                input={event.inputState}
-                                                                output={event.outputState}
-                                                            />
-                                                        </>
-                                                    )}
-                                                </>
-                                            )}
-                                        </>
-                                    ),
-                                },
-                                {
-                                    key: TraceViewMode.Raw,
-                                    label: 'Raw',
-                                    content: (
-                                        <div className="p-2">
-                                            <JSONViewer src={event} collapsed={2} />
-                                        </div>
-                                    ),
-                                },
+                                ...(hasTraceContent
+                                    ? [
+                                          {
+                                              key: TraceViewMode.Conversation,
+                                              label: 'Conversation',
+                                              content: (
+                                                  <>
+                                                      {displayOption === DisplayOption.TextView &&
+                                                      (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TEXT_VIEW] ||
+                                                          featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]) ? (
+                                                          isLLMEvent(event) &&
+                                                          (event.event === '$ai_generation' ||
+                                                              event.event === '$ai_span' ||
+                                                              event.event === '$ai_embedding') ? (
+                                                              <TextViewDisplay
+                                                                  event={event}
+                                                                  trace={trace}
+                                                                  lineNumber={lineNumber}
+                                                                  onFallback={handleTextViewFallback}
+                                                                  onCopyPermalink={copyLinePermalink}
+                                                              />
+                                                          ) : !isLLMEvent(event) ? (
+                                                              <TextViewDisplay
+                                                                  trace={event}
+                                                                  tree={tree}
+                                                                  lineNumber={lineNumber}
+                                                                  onFallback={handleTextViewFallback}
+                                                                  onCopyPermalink={copyLinePermalink}
+                                                              />
+                                                          ) : null
+                                                      ) : (
+                                                          <>
+                                                              {isLLMEvent(event) ? (
+                                                                  event.event === '$ai_generation' ? (
+                                                                      <EventContentGeneration
+                                                                          eventId={event.id}
+                                                                          rawInput={event.properties.$ai_input}
+                                                                          rawOutput={
+                                                                              event.properties.$ai_output_choices ??
+                                                                              event.properties.$ai_output
+                                                                          }
+                                                                          tools={event.properties.$ai_tools}
+                                                                          errorData={event.properties.$ai_error}
+                                                                          httpStatus={event.properties.$ai_http_status}
+                                                                          raisedError={event.properties.$ai_is_error}
+                                                                          searchQuery={searchQuery}
+                                                                      />
+                                                                  ) : event.event === '$ai_embedding' ? (
+                                                                      <EventContentDisplayAsync
+                                                                          eventId={event.id}
+                                                                          rawInput={event.properties.$ai_input}
+                                                                          rawOutput="Embedding vector generated"
+                                                                      />
+                                                                  ) : (
+                                                                      <EventContentDisplayAsync
+                                                                          eventId={event.id}
+                                                                          rawInput={event.properties.$ai_input_state}
+                                                                          rawOutput={
+                                                                              event.properties.$ai_output_state ??
+                                                                              event.properties.$ai_error
+                                                                          }
+                                                                          raisedError={event.properties.$ai_is_error}
+                                                                      />
+                                                                  )
+                                                              ) : (
+                                                                  <>
+                                                                      <TraceMetricsTable />
+                                                                      <EventContentDisplay
+                                                                          input={event.inputState}
+                                                                          output={event.outputState}
+                                                                      />
+                                                                  </>
+                                                              )}
+                                                          </>
+                                                      )}
+                                                  </>
+                                              ),
+                                          },
+                                          {
+                                              key: TraceViewMode.Raw,
+                                              label: 'Raw',
+                                              content: (
+                                                  <div className="p-2">
+                                                      <JSONViewer src={event} collapsed={2} />
+                                                  </div>
+                                              ),
+                                          },
+                                      ]
+                                    : []),
                                 ...(showSummaryTab
                                     ? [
                                           {
