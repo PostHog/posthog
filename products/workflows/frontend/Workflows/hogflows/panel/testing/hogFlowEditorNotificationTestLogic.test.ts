@@ -181,6 +181,25 @@ describe('hogFlowEditorNotificationTestLogic', () => {
         })
     })
 
+    describe('person persistence', () => {
+        it('should save and restore person distinct ID across mounts', async () => {
+            // Save a person
+            await expectLogic(logic, () => {
+                logic.actions.loadSamplePersonByDistinctId({ distinctId: 'test-person-123' })
+            }).toMatchValues({
+                savedPersonDistinctId: 'test-person-123',
+            })
+
+            // Unmount and remount to simulate tab switch
+            logic.unmount()
+            logic = hogFlowEditorNotificationTestLogic({ id: 'test-workflow-id' })
+            logic.mount()
+
+            // Verify the saved person persists
+            expect(logic.values.savedPersonDistinctId).toBe('test-person-123')
+        })
+    })
+
     describe('loadSamplePersonByDistinctIdSuccess listener', () => {
         it('should reorder globals with person first', async () => {
             const globals: CyclotronJobInvocationGlobals = {
