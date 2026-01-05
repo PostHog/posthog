@@ -16,6 +16,7 @@ use crate::metrics_const::{
 };
 use crate::rocksdb::metrics_consts::ROCKSDB_OLDEST_DATA_AGE_SECONDS_GAUGE;
 use crate::store::{DeduplicationStore, DeduplicationStoreConfig};
+use crate::utils::{format_partition_dir, format_store_path};
 
 /// Information about folder sizes on disk
 #[derive(Debug, Clone)]
@@ -377,14 +378,13 @@ impl StoreManager {
     ///
     /// Must be called after `unregister_store()` to ensure RocksDB is closed first.
     pub fn cleanup_store_files(&self, topic: &str, partition: i32) -> Result<()> {
-        let partition_dir = format!(
-            "{}/{}_{}",
-            self.store_config.path.display(),
-            topic.replace('/', "_"),
-            partition
-        );
+        let partition_dir = self
+            .store_config
+            .path
+            .join(format_partition_dir(topic, partition));
+        let partition_dir_str = partition_dir.to_string_lossy().to_string();
 
-        let partition_path = PathBuf::from(&partition_dir);
+        let partition_path = partition_dir;
 
         if partition_path.exists() {
             match std::fs::remove_dir_all(&partition_path) {
@@ -392,7 +392,7 @@ impl StoreManager {
                     info!(
                         topic = topic,
                         partition = partition,
-                        path = partition_dir,
+                        path = partition_dir_str,
                         "Deleted partition directory"
                     );
                 }
@@ -400,7 +400,7 @@ impl StoreManager {
                     warn!(
                         topic = topic,
                         partition = partition,
-                        path = partition_dir,
+                        path = partition_dir_str,
                         error = %e,
                         "Failed to remove partition directory (usually harmless)"
                     );
@@ -410,7 +410,7 @@ impl StoreManager {
             debug!(
                 topic = topic,
                 partition = partition,
-                path = partition_dir,
+                path = partition_dir_str,
                 "Partition directory doesn't exist"
             );
         }
@@ -696,15 +696,14 @@ impl StoreManager {
     /// Build the path for a store based on topic and partition
     /// Each store gets a unique timestamp-based subdirectory to avoid conflicts
     fn build_store_path(&self, topic: &str, partition: i32) -> String {
-        // Create a unique subdirectory for this store instance
-        let timestamp = chrono::Utc::now().timestamp_millis();
-        format!(
-            "{}/{}_{}/{}",
-            self.store_config.path.display(),
-            topic.replace('/', "_"),
+        format_store_path(
+            &self.store_config.path,
+            topic,
             partition,
-            timestamp
+            chrono::Utc::now(),
         )
+        .to_string_lossy()
+        .to_string()
     }
 
     /// Ensure the parent directory for a store path exists
@@ -826,11 +825,7 @@ impl StoreManager {
         let mut assigned_dirs = std::collections::HashSet::new();
         for entry in self.stores.iter() {
             let partition = entry.key();
-            let dir_name = format!(
-                "{}_{}",
-                partition.topic().replace('/', "_"),
-                partition.partition_number()
-            );
+            let dir_name = format_partition_dir(partition.topic(), partition.partition_number());
             assigned_dirs.insert(dir_name);
         }
 
