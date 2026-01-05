@@ -183,7 +183,10 @@ ee/frontend/mobile-replay @PostHog/team-replay
 frontend/src/scenes/onboarding/ @PostHog/team-growth
 
 # SDK Doctor - owned by @PostHog/team-growth
-frontend/src/layout/navigation-3000/sidepanel/panels/_SdkDoctor_ @PostHog/team-growth
+frontend/src/layout/navigation-3000/sidepanel/panels/SdkDoctor @PostHog/team-growth
+
+# Weekly digest - owned by @PostHog/team-growth
+posthog/temporal/weekly-digest
 
 # DevEx-adjacent files - owned by @PostHog/team-devex
 .github/dependabot.yml @PostHog/team-devex
