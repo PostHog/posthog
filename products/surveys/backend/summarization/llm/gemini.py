@@ -13,6 +13,17 @@ from .schema import SurveySummaryResponse
 
 logger = structlog.get_logger(__name__)
 
+_client: genai.Client | None = None
+
+
+def _get_client() -> genai.Client:
+    """Get or create the Gemini client singleton."""
+    global _client
+    if _client is None:
+        _client = genai.Client(api_key=settings.GEMINI_API_KEY)
+    return _client
+
+
 SYSTEM_PROMPT = """You are a product manager's assistant specializing in analyzing survey responses.
 
 Your goal is to identify actionable user pain points and needs from survey data.
@@ -57,7 +68,7 @@ def summarize_with_gemini(
     if not responses:
         raise exceptions.ValidationError("responses cannot be empty")
 
-    client = genai.Client(api_key=settings.GEMINI_API_KEY)
+    client = _get_client()
 
     config = GenerateContentConfig(
         system_instruction=SYSTEM_PROMPT,

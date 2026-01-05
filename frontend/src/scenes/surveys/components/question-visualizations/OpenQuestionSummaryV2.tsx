@@ -136,7 +136,7 @@ export function OpenQuestionSummaryV2({
 
     if (error && !summary) {
         return (
-            <div className="border rounded p-4 mb-4 bg-surface-primary border-danger">
+            <div className="border rounded p-4 mb-2 bg-surface-primary border-danger">
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-danger">
                         <IconSparkles />
@@ -154,7 +154,7 @@ export function OpenQuestionSummaryV2({
         // Waiting for consent or initial load
         if (!dataProcessingAccepted) {
             return (
-                <div className="border rounded p-4 mb-4 bg-surface-primary">
+                <div className="border rounded p-4 mb-2 bg-surface-primary">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                             <IconSparkles className="text-warning" />
@@ -181,8 +181,8 @@ export function OpenQuestionSummaryV2({
     const generatedTime = dayjs(summary.generatedAt)
 
     return (
-        <div className="border rounded p-4 mb-4 bg-surface-primary">
-            <div className="flex items-center justify-between mb-3">
+        <div className="border rounded p-4 mb-2 bg-surface-primary">
+            <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
                     <IconSparkles className="text-warning" />
                     <span className="font-semibold">Response summary</span>
@@ -221,7 +221,7 @@ export function OpenQuestionSummaryV2({
                 <LemonMarkdown>{summary.content}</LemonMarkdown>
             </div>
 
-            <div className="flex items-center justify-between mt-3 pt-3 border-t text-xs text-muted">
+            <div className="flex items-center justify-between mt-2 pt-2 border-t text-xs text-muted">
                 <span>
                     Based on {summary.responseCount} responses
                     {generatedTime.isValid() && ` • Generated ${generatedTime.fromNow()}`}
