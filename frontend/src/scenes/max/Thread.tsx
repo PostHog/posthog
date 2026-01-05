@@ -41,7 +41,6 @@ import {
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { NotFound } from 'lib/components/NotFound'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { inStorybookTestRunner, pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
@@ -116,7 +115,6 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
     const { conversationLoading, conversationId } = useValues(maxLogic)
     const { threadGrouped, streamingActive, threadLoading } = useValues(maxThreadLogic)
     const { isPromptVisible, isDetailedFeedbackVisible, isThankYouVisible, traceId } = useFeedback(conversationId)
-    const isAiFirst = useFeatureFlag('AI_FIRST_EXPERIENCE')
 
     const ticketPromptData = useMemo(
         () => getTicketPromptData(threadGrouped, streamingActive),
@@ -132,7 +130,6 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
         <div
             className={cn(
                 '@container/thread flex flex-col items-stretch w-full max-w-180 self-center gap-1.5 grow mx-auto',
-                isAiFirst && 'h-[calc(100vh-var(--scene-layout-header-height))]',
                 className
             )}
         >

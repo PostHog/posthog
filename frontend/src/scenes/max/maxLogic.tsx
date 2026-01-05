@@ -483,6 +483,9 @@ export const maxLogic = kea<maxLogicType>([
         startNewConversation: () => {
             return [urls.ai(), {}, router.values.location.hash]
         },
+        openConversation: ({ conversationId }) => {
+            return [urls.ai(conversationId), {}, router.values.location.hash]
+        },
         setConversationId: ({ conversationId }) => {
             // Only set the URL parameter if this is a new conversation (using frontendConversationId)
             if (conversationId && conversationId === values.frontendConversationId) {

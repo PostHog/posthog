@@ -26,7 +26,7 @@ export function ConversationHistory({ sidePanel = false, compact = false }: Conv
 
     if (compact) {
         return (
-            <div className="flex flex-col gap-1 w-full">
+            <div className="flex flex-col gap-1 w-full pb-10">
                 {conversationHistory.length > 0 ? (
                     conversationHistory.map((conversation) => (
                         <CompactConversationCard
@@ -171,6 +171,7 @@ function CompactConversationCard({
         >
             <span className="flex-1 line-clamp-1 text-primary">{conversation.title}</span>
             {conversation.status === ConversationStatus.InProgress && <Spinner className="h-3 w-3" />}
+            <span className="opacity-30 text-xs">{formatConversationDate(conversation.updated_at)}</span>
         </Link>
     )
 }

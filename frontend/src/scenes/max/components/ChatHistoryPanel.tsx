@@ -68,23 +68,24 @@ export const ChatHistoryPanel = memo(function ChatHistoryPanel({ tabId }: ChatHi
                         className={cn('size-4 text-tertiary', isChatHistoryPanelCollapsed && 'rotate-180')}
                     />
                 </ButtonPrimitive>
-                {!isChatHistoryPanelCollapsed && <h3 className="text-sm font-semibold mb-0 flex-1">Chat history</h3>}
+                {!isChatHistoryPanelCollapsed && (
+                    <>
+                        <h3 className="text-sm font-semibold mb-0 flex-1">Chat history</h3>
+                        <ButtonPrimitive iconOnly onClick={() => startNewConversation()} tooltip="New chat">
+                            <IconPlusSmall />
+                        </ButtonPrimitive>
+                    </>
+                )}
             </div>
             {!isChatHistoryPanelCollapsed && (
                 <BindLogic logic={maxLogic} props={{ tabId }}>
-                    <ConversationHistory compact />
                     <ScrollableShadows
                         direction="vertical"
-                        className="flex flex-col z-20 overflow-auto"
-                        innerClassName="flex flex-col px-2 pb-2"
+                        className="flex flex-col z-20 h-full"
+                        innerClassName="flex flex-col px-2 h-full pb-10"
                         styledScrollbars
                     >
-                        <div className="sticky bottom-0 pt-2 bg-primary mt-auto">
-                            <ButtonPrimitive fullWidth onClick={() => startNewConversation()}>
-                                <IconPlusSmall />
-                                New chat
-                            </ButtonPrimitive>
-                        </div>
+                        <ConversationHistory compact />
                     </ScrollableShadows>
                 </BindLogic>
             )}
