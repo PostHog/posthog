@@ -1176,6 +1176,7 @@ export enum SessionRecordingSidebarTab {
     SESSION_SUMMARY = 'ai-summary',
     INSPECTOR = 'inspector',
     NETWORK_WATERFALL = 'network-waterfall',
+    LINKED_ISSUES = 'linked-issues',
 }
 
 export enum SessionRecordingSidebarStacking {
@@ -1662,6 +1663,18 @@ export interface SessionRecordingSegmentType {
     is_active: boolean
 }
 
+export interface SessionRecordingExternalReference {
+    id: string
+    integration: {
+        id: number
+        kind: IntegrationKind
+        display_name: string
+    }
+    external_url: string
+    title: string
+    identifier: string
+}
+
 export interface SessionRecordingType {
     id: string
     /** Whether this recording has been viewed by you already. */
@@ -1705,6 +1718,8 @@ export interface SessionRecordingType {
     expiry_time?: string
     /** Number of whole days left until the recording expires. */
     recording_ttl?: number
+    /** External references to third party issues. */
+    external_references?: SessionRecordingExternalReference[]
 }
 
 export interface SessionRecordingUpdateType {

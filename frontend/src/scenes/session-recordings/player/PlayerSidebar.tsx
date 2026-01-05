@@ -44,6 +44,7 @@ export function PlayerSidebar(): JSX.Element {
         SessionRecordingSidebarTab.OVERVIEW,
         SessionRecordingSidebarTab.INSPECTOR,
         SessionRecordingSidebarTab.NETWORK_WATERFALL,
+        SessionRecordingSidebarTab.LINKED_ISSUES,
     ]
 
     // Show AI summary tab in the second position if the flag is enabled

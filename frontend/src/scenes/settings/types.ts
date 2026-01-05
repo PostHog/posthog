@@ -62,6 +62,7 @@ export type SettingSectionId =
 
 export type SettingId =
     | 'replay-triggers'
+    | 'replay-integrations'
     | 'display-name'
     | 'snippet'
     | 'authorized-urls'
