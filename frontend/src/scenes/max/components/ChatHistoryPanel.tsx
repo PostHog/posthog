@@ -46,7 +46,7 @@ export const ChatHistoryPanel = memo(function ChatHistoryPanel({ tabId }: ChatHi
     return (
         <div
             className={cn(
-                'relative bg-primary border-r border-primary transition-opacity duration-100 flex flex-col shrink-0 h-[calc(100vh-var(--scene-layout-header-height))] max-w-[var(--chat-history-panel-width)]',
+                'relative bg-primary border-r border-primary transition-opacity duration-100 max-w-[var(--chat-history-panel-width)]',
                 isChatHistoryPanelCollapsed ? 'w-12' : `w-[var(--chat-history-panel-width)]`,
                 chatHistoryPanelWillCollapse && 'opacity-50'
             )}
@@ -72,13 +72,13 @@ export const ChatHistoryPanel = memo(function ChatHistoryPanel({ tabId }: ChatHi
             </div>
             {!isChatHistoryPanelCollapsed && (
                 <BindLogic logic={maxLogic} props={{ tabId }}>
+                    <ConversationHistory compact />
                     <ScrollableShadows
                         direction="vertical"
                         className="flex flex-col z-20 overflow-auto"
                         innerClassName="flex flex-col px-2 pb-2"
                         styledScrollbars
                     >
-                        <ConversationHistory compact />
                         <div className="sticky bottom-0 pt-2 bg-primary mt-auto">
                             <ButtonPrimitive fullWidth onClick={() => startNewConversation()}>
                                 <IconPlusSmall />

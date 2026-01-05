@@ -77,9 +77,9 @@ export function Max({ tabId }: { tabId?: string }): JSX.Element {
     }
 
     return (
-        <div className="flex grow">
+        <div className="flex grow overflow-hidden">
             {isAiFirst && <ChatHistoryPanel tabId={tabId ?? ''} />}
-            <div className="flex flex-col grow">
+            <div className={clsx('flex flex-col grow', isAiFirst && 'overflow-auto')}>
                 <MaxInstance tabId={tabId ?? ''} isAiFirst={isAiFirst} />
             </div>
         </div>
@@ -132,14 +132,13 @@ export const MaxInstance = React.memo(function MaxInstance({
                     // This makes the transition from one view into another just that bit smoother visually.
                     <div
                         className={clsx(
-                            '@container/max-welcome relative flex flex-col gap-4 pb-7 grow',
+                            '@container/max-welcome relative flex flex-col gap-4 pb-7 grow items-center justify-center',
                             !sidePanel &&
                                 !isAiFirst &&
-                                'min-h-[calc(100vh-var(--scene-layout-header-height)-120px)] px-4',
-                            isAiFirst && 'grow'
+                                'min-h-[calc(100vh-var(--scene-layout-header-height)-120px)] px-4'
                         )}
                     >
-                        <div className="flex-1 items-center justify-center flex flex-col gap-3">
+                        <div className="items-center justify-center flex flex-col gap-3">
                             <Intro />
                             {!isAiFirst && <SidebarQuestionInputWithSuggestions />}
                         </div>
@@ -251,7 +250,7 @@ export const MaxInstance = React.memo(function MaxInstance({
             {content}
         </>
     ) : isAiFirst ? (
-        content
+        <div className="flex flex-col h-[calc(100vh-var(--scene-layout-header-height)-120px)]">{content}</div>
     ) : (
         <SceneContent className="pt-4 px-4 min-h-[calc(100vh-var(--scene-layout-header-height))]">
             <SceneTitleSection

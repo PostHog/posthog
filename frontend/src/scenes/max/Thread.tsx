@@ -2,7 +2,6 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import React, { useLayoutEffect, useMemo, useState } from 'react'
-import { twMerge } from 'tailwind-merge'
 
 import {
     IconBrain,
@@ -42,8 +41,10 @@ import {
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { NotFound } from 'lib/components/NotFound'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { inStorybookTestRunner, pluralize } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -115,6 +116,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
     const { conversationLoading, conversationId } = useValues(maxLogic)
     const { threadGrouped, streamingActive, threadLoading } = useValues(maxThreadLogic)
     const { isPromptVisible, isDetailedFeedbackVisible, isThankYouVisible, traceId } = useFeedback(conversationId)
+    const isAiFirst = useFeatureFlag('AI_FIRST_EXPERIENCE')
 
     const ticketPromptData = useMemo(
         () => getTicketPromptData(threadGrouped, streamingActive),
@@ -128,8 +130,9 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
 
     return (
         <div
-            className={twMerge(
+            className={cn(
                 '@container/thread flex flex-col items-stretch w-full max-w-180 self-center gap-1.5 grow mx-auto',
+                isAiFirst && 'h-[calc(100vh-var(--scene-layout-header-height))]',
                 className
             )}
         >
@@ -281,7 +284,7 @@ function MessageContainer({
 }): JSX.Element {
     return (
         <div
-            className={twMerge(
+            className={cn(
                 'relative flex',
                 groupType === 'human' ? 'flex-row-reverse ml-4 @md/thread:ml-10 ' : 'mr-4 @md/thread:mr-10',
                 className
