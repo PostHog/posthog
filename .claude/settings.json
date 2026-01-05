@@ -6,7 +6,16 @@
                 "hooks": [
                     {
                         "type": "command",
-                        "command": "bin/setup-remote-claude-execution"
+                        "command": "bin/setup-claude"
+                    }
+                ]
+            },
+            {
+                "matcher": "resume",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "bin/setup-claude"
                     }
                 ]
             }
