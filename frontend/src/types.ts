@@ -4929,6 +4929,7 @@ export enum ActivityScope {
     HEATMAP = 'Heatmap',
     USER = 'User',
     LLM_TRACE = 'LLMTrace',
+    LOG = 'Log',
 }
 
 export type CommentType = {

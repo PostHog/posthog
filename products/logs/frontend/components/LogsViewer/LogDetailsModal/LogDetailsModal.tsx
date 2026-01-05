@@ -8,6 +8,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { logsViewerLogic } from '../logsViewerLogic'
+import { LogComments } from './LogComments'
 import { LogExploreAI } from './Tabs/ExploreWithAI'
 import { LogDetailsTab, logDetailsModalLogic } from './logDetailsModalLogic'
 
@@ -136,6 +137,11 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
                                         onApplyFilter={handleApplyFilter}
                                     />
                                 ),
+                            },
+                            {
+                                key: 'comments',
+                                label: 'Comments',
+                                content: <LogComments log={selectedLog} />,
                             },
                         ]}
                     />
