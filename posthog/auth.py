@@ -519,6 +519,31 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
         return self.keyword
 
 
+class WidgetAuthentication(authentication.BaseAuthentication):
+    """
+    Authenticate widget requests via conversations_settings.widget_public_token.
+    This provides team-level authentication only. User-level scoping
+    is enforced via widget_session_id validation in each endpoint.
+    """
+
+    def authenticate(self, request: Request) -> Optional[tuple[None, Any]]:
+        """
+        Returns (None, team) on success.
+        No user object since this is public widget auth.
+        """
+        token = request.headers.get("X-Conversations-Token")
+        if not token:
+            raise AuthenticationFailed("X-Conversations-Token header required")
+
+        try:
+            Team = apps.get_model(app_label="posthog", model_name="Team")
+            team = Team.objects.get(conversations_settings__widget_public_token=token, conversations_enabled=True)
+        except Team.DoesNotExist:
+            raise AuthenticationFailed("Invalid token or conversations not enabled")
+
+        return (None, team)
+
+
 def authenticate_secondarily(endpoint):
     """
     DEPRECATED: Used for supporting legacy endpoints not on DRF.

@@ -10,228 +10,35 @@ Security model:
 This prevents users from accessing others' chats by knowing their email.
 """
 
-import uuid
-import hashlib
 import logging
-from datetime import datetime
-from typing import Optional
 
-from django.db.models import F, Q
+from django.db.models import CharField, Count, F, OuterRef, Q, Subquery
+from django.db.models.functions import Cast
 
-from rest_framework import status
-from rest_framework.authentication import BaseAuthentication
-from rest_framework.exceptions import AuthenticationFailed, ValidationError
+from rest_framework import serializers, status
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.throttling import SimpleRateThrottle
 from rest_framework.views import APIView
 
-from posthog.api.utils import on_permitted_recording_domain
+from posthog.auth import WidgetAuthentication
 from posthog.models import Team
 from posthog.models.comment import Comment
+from posthog.rate_limit import WidgetTeamThrottle, WidgetUserBurstThrottle
 
+from products.conversations.backend.api.serializers import (
+    WidgetMarkReadSerializer,
+    WidgetMessageSerializer,
+    WidgetMessagesQuerySerializer,
+    WidgetTicketsQuerySerializer,
+    validate_origin,
+)
 from products.conversations.backend.models import Ticket
-from products.conversations.backend.models.constants import Status
 
 logger = logging.getLogger(__name__)
 
-# Widget-specific throttle classes
 
-
-class WidgetUserBurstThrottle(SimpleRateThrottle):
-    """Rate limit per widget_session_id or IP for POST/GET requests."""
-
-    scope = "widget_user_burst"
-    rate = "30/minute"
-
-    def get_cache_key(self, request, view):
-        # Throttle by widget_session_id if available, otherwise by IP
-        widget_session_id = request.data.get("widget_session_id") or request.query_params.get("widget_session_id")
-        if widget_session_id:
-            ident = hashlib.sha256(widget_session_id.encode()).hexdigest()
-        else:
-            ident = self.get_ident(request)
-        return self.cache_format % {"scope": self.scope, "ident": ident}
-
-
-class WidgetTeamThrottle(SimpleRateThrottle):
-    """Rate limit per team token."""
-
-    scope = "widget_team"
-    rate = "1000/hour"
-
-    def get_cache_key(self, request, view):
-        # Throttle by team token
-        token = request.headers.get("X-Conversations-Token", "")
-        ident = hashlib.sha256(token.encode()).hexdigest()
-        return self.cache_format % {"scope": self.scope, "ident": ident}
-
-
-class WidgetAuthentication(BaseAuthentication):
-    """
-    Authenticate widget requests via conversations_settings.widget_public_token.
-    This provides team-level authentication only. User-level scoping
-    is enforced via widget_session_id validation in each endpoint.
-    """
-
-    def authenticate(self, request: Request) -> tuple[None, Team]:
-        """
-        Returns (None, team) on success.
-        No user object since this is public widget auth.
-        """
-        token = request.headers.get("X-Conversations-Token")
-        if not token:
-            raise AuthenticationFailed("X-Conversations-Token header required")
-
-        try:
-            team = Team.objects.get(conversations_settings__widget_public_token=token, conversations_enabled=True)
-        except Team.DoesNotExist:
-            raise AuthenticationFailed("Invalid token or conversations not enabled")
-
-        return (None, team)
-
-
-# Validation helpers
-def validate_widget_session_id(widget_session_id: Optional[str]) -> str:
-    """
-    Validate widget_session_id is present and is a valid UUID.
-    Widget session ID is used for access control - must be unguessable.
-    Note: This is NOT the same as PostHog's session replay session_id.
-    """
-    if not widget_session_id:
-        raise ValidationError("widget_session_id is required")
-
-    if len(widget_session_id) > 64:
-        raise ValidationError("widget_session_id too long (max 64 chars)")
-
-    # Validate UUID format
-    try:
-        uuid.UUID(widget_session_id)
-    except ValueError:
-        raise ValidationError("widget_session_id must be a valid UUID")
-
-    return widget_session_id
-
-
-def validate_distinct_id(distinct_id: Optional[str]) -> str:
-    if not distinct_id:
-        raise ValidationError("distinct_id is required")
-
-    distinct_id = str(distinct_id)
-
-    if len(distinct_id) > 400:
-        raise ValidationError("distinct_id too long")
-
-    return distinct_id
-
-
-def sanitize_message_content(content: str) -> str:
-    if not content or not content.strip():
-        raise ValidationError("message content is required")
-
-    if len(content) > 5000:
-        raise ValidationError("Message too long (max 5000 chars)")
-
-    return content.strip()
-
-
-def validate_traits(traits: dict) -> dict:
-    """Validate customer traits dictionary."""
-    if not isinstance(traits, dict):
-        raise ValidationError("traits must be a dictionary")
-
-    validated = {}
-    for key, value in traits.items():
-        # Only allow string values for MVP
-        if not isinstance(value, str | int | float | bool | None):
-            continue
-
-        # Convert to string and validate length
-        str_value = str(value) if value is not None else None
-        if str_value and len(str_value) > 500:
-            raise ValidationError(f"Trait value too long for {key} (max 500 chars)")
-
-        validated[key] = str_value
-
-    return validated
-
-
-def validate_ticket_id(ticket_id) -> str:
-    if not ticket_id:
-        raise ValidationError("ticket_id is required")
-
-    ticket_id_str = str(ticket_id)
-
-    try:
-        uuid.UUID(ticket_id_str)
-    except ValueError:
-        raise ValidationError("ticket_id must be a valid UUID")
-
-    return ticket_id_str
-
-
-def validate_pagination(limit_str: Optional[str], offset_str: Optional[str], max_limit: int = 500) -> tuple[int, int]:
-    """Validate and parse pagination parameters."""
-    try:
-        limit = int(limit_str) if limit_str else 100
-    except (ValueError, TypeError):
-        raise ValidationError("limit must be a valid integer")
-
-    try:
-        offset = int(offset_str) if offset_str else 0
-    except (ValueError, TypeError):
-        raise ValidationError("offset must be a valid integer")
-
-    if limit < 1 or limit > max_limit:
-        raise ValidationError(f"limit must be between 1 and {max_limit}")
-    if offset < 0:
-        raise ValidationError("offset must be non-negative")
-
-    return limit, offset
-
-
-def validate_timestamp(timestamp: Optional[str]) -> Optional[str]:
-    """Validate ISO timestamp format."""
-    if not timestamp:
-        return None
-
-    try:
-        datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-    except (ValueError, AttributeError):
-        raise ValidationError("Invalid timestamp format, expected ISO 8601")
-
-    return timestamp
-
-
-def validate_status_filter(status_filter: Optional[str]) -> Optional[str]:
-    """Validate status filter against allowed values."""
-    if not status_filter:
-        return None
-
-    valid_statuses = [s.value for s in Status]
-    if status_filter not in valid_statuses:
-        raise ValidationError(f"Invalid status, must be one of: {', '.join(valid_statuses)}")
-
-    return status_filter
-
-
-def validate_origin(request: Request, team: Team) -> bool:
-    """
-    Validate request origin to prevent token reuse on unauthorized domains.
-    Checks against team.conversations_settings.widget_domains if configured.
-    Empty list = allow all domains.
-    """
-    settings = team.conversations_settings or {}
-    domains = settings.get("widget_domains") or []
-
-    if not domains:
-        return True
-
-    return on_permitted_recording_domain(domains, request._request)
-
-
-# API Views
 class WidgetMessageView(APIView):
     """
     POST /api/conversations/v1/widget/message
@@ -257,18 +64,27 @@ class WidgetMessageView(APIView):
         if not validate_origin(request, team):
             return Response({"error": "Origin not allowed"}, status=status.HTTP_403_FORBIDDEN)
 
-        try:
-            # Validate and extract data
-            widget_session_id = validate_widget_session_id(request.data.get("widget_session_id"))
-            distinct_id = validate_distinct_id(request.data.get("distinct_id"))
-            message_content = sanitize_message_content(request.data.get("message", ""))
-            traits = validate_traits(request.data.get("traits", {}))
-            raw_ticket_id = request.data.get("ticket_id")
-            ticket_id = validate_ticket_id(raw_ticket_id) if raw_ticket_id else None
+        # Validate and extract data
+        serializer = WidgetMessageSerializer(data=request.data)
+        if not serializer.is_valid():
+            logger.warning("Validation error in WidgetMessageView", extra={"errors": serializer.errors})
+            return Response(
+                {"error": "Invalid request data", "details": serializer.errors}, status=status.HTTP_400_BAD_REQUEST
+            )
 
-        except ValidationError:
-            logger.exception("Validation error in WidgetMessageView")
-            return Response({"error": "Invalid request data"}, status=status.HTTP_400_BAD_REQUEST)
+        widget_session_id = str(serializer.validated_data["widget_session_id"])
+        distinct_id = serializer.validated_data["distinct_id"]
+        message_content = serializer.validated_data["message"]
+        traits = serializer.validated_data.get("traits", {})
+
+        # Handle optional ticket_id (UUID field)
+        raw_ticket_id = request.data.get("ticket_id")
+        ticket_id = None
+        if raw_ticket_id:
+            try:
+                ticket_id = str(serializers.UUIDField().to_internal_value(raw_ticket_id))
+            except ValidationError:
+                return Response({"error": "Invalid ticket_id format"}, status=status.HTTP_400_BAD_REQUEST)
 
         # Find or create ticket
         if ticket_id:
@@ -362,14 +178,27 @@ class WidgetMessagesView(APIView):
 
         team: Team = request.auth  # type: ignore[assignment]
 
+        # Validate ticket_id (URL parameter)
         try:
-            validate_ticket_id(ticket_id)
-            widget_session_id = validate_widget_session_id(request.query_params.get("widget_session_id"))
-            after = validate_timestamp(request.query_params.get("after"))
-            limit, _ = validate_pagination(request.query_params.get("limit"), None, max_limit=500)
+            ticket_id = str(serializers.UUIDField().to_internal_value(ticket_id))
         except ValidationError:
-            logger.exception("Validation error in WidgetMessagesView")
-            return Response({"error": "Invalid request data"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": "Invalid ticket_id format"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Validate query parameters
+        query_serializer = WidgetMessagesQuerySerializer(data=request.query_params)
+        if not query_serializer.is_valid():
+            return Response(
+                {"error": "Invalid request data", "details": query_serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        widget_session_id = str(query_serializer.validated_data["widget_session_id"])
+        after = query_serializer.validated_data.get("after")
+        limit = request.query_params.get("limit", 500)
+        try:
+            limit = min(int(limit), 500)
+        except (ValueError, TypeError):
+            limit = 500
 
         # Get ticket
         try:
@@ -381,10 +210,10 @@ class WidgetMessagesView(APIView):
         if ticket.widget_session_id != widget_session_id:
             return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
 
-        # Build query
+        # Build query - prefetch created_by to avoid N+1 queries
         messages_query = Comment.objects.filter(
             team=team, scope="conversations_ticket", item_id=str(ticket_id), deleted=False
-        )
+        ).select_related("created_by")
 
         # Filter by timestamp if provided
         if after:
@@ -451,15 +280,18 @@ class WidgetTicketsView(APIView):
 
         team: Team = request.auth  # type: ignore[assignment]
 
-        try:
-            widget_session_id = validate_widget_session_id(request.query_params.get("widget_session_id"))
-            status_filter = validate_status_filter(request.query_params.get("status"))
-            limit, offset = validate_pagination(
-                request.query_params.get("limit", "10"), request.query_params.get("offset"), max_limit=50
+        # Validate query parameters
+        query_serializer = WidgetTicketsQuerySerializer(data=request.query_params)
+        if not query_serializer.is_valid():
+            return Response(
+                {"error": "Invalid request data", "details": query_serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST,
             )
-        except ValidationError:
-            logger.exception("Validation error in WidgetTicketsView")
-            return Response({"error": "Invalid request data"}, status=status.HTTP_400_BAD_REQUEST)
+
+        widget_session_id = str(query_serializer.validated_data["widget_session_id"])
+        status_filter = query_serializer.validated_data.get("status")
+        limit = query_serializer.validated_data["limit"]
+        offset = query_serializer.validated_data["offset"]
 
         # Build query - filter by widget_session_id, not distinct_id
         tickets_query = Ticket.objects.filter(team=team, widget_session_id=widget_session_id)
@@ -467,29 +299,62 @@ class WidgetTicketsView(APIView):
         if status_filter:
             tickets_query = tickets_query.filter(status=status_filter)
 
+        # Add annotations to avoid N+1 queries
+        message_count_subquery = (
+            Comment.objects.filter(
+                team_id=team.id,
+                scope="conversations_ticket",
+                item_id=Cast(OuterRef("id"), output_field=CharField()),
+                deleted=False,
+            )
+            .values("item_id")
+            .annotate(count=Count("id"))
+            .values("count")
+        )
+
+        last_message_subquery = (
+            Comment.objects.filter(
+                team_id=team.id,
+                scope="conversations_ticket",
+                item_id=Cast(OuterRef("id"), output_field=CharField()),
+                deleted=False,
+            )
+            .order_by("-created_at")
+            .values("content")[:1]
+        )
+
+        last_message_at_subquery = (
+            Comment.objects.filter(
+                team_id=team.id,
+                scope="conversations_ticket",
+                item_id=Cast(OuterRef("id"), output_field=CharField()),
+                deleted=False,
+            )
+            .order_by("-created_at")
+            .values("created_at")[:1]
+        )
+
+        tickets_query = tickets_query.annotate(
+            message_count=Subquery(message_count_subquery),
+            last_message=Subquery(last_message_subquery),
+            last_message_at=Subquery(last_message_at_subquery),
+        )
+
         # Order and paginate
         tickets = tickets_query.order_by("-created_at")[offset : offset + limit]
         total_count = tickets_query.count()
 
-        # Get message data for each ticket
+        # Serialize tickets
         ticket_list = []
         for ticket in tickets:
-            # Get message count and last message
-            comments = Comment.objects.filter(
-                team=team, scope="conversations_ticket", item_id=str(ticket.id), deleted=False
-            ).order_by("-created_at")
-
-            message_count = comments.count()
-            last_comment = comments.first()
-
             ticket_list.append(
                 {
                     "id": str(ticket.id),
                     "status": ticket.status,
                     "unread_count": ticket.unread_customer_count,  # Unread messages for customer
-                    "last_message": last_comment.content if last_comment else None,
-                    "last_message_at": last_comment.created_at.isoformat() if last_comment else None,
-                    "message_count": message_count,
+                    "last_message": ticket.last_message,
+                    "last_message_at": ticket.last_message_at.isoformat() if ticket.last_message_at else None,
+                    "message_count": ticket.message_count or 0,
                     "created_at": ticket.created_at.isoformat(),
                 }
             )
@@ -514,12 +379,20 @@ class WidgetMarkReadView(APIView):
 
         team: Team = request.auth  # type: ignore[assignment]
 
+        # Validate ticket_id (URL parameter)
         try:
-            validate_ticket_id(ticket_id)
-            widget_session_id = validate_widget_session_id(request.data.get("widget_session_id"))
+            ticket_id = str(serializers.UUIDField().to_internal_value(ticket_id))
         except ValidationError:
-            logger.exception("Validation error in WidgetMarkReadView")
-            return Response({"error": "Invalid request data"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": "Invalid ticket_id format"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Validate request body
+        body_serializer = WidgetMarkReadSerializer(data=request.data)
+        if not body_serializer.is_valid():
+            return Response(
+                {"error": "Invalid request data", "details": body_serializer.errors}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        widget_session_id = str(body_serializer.validated_data["widget_session_id"])
 
         # Get ticket
         try:

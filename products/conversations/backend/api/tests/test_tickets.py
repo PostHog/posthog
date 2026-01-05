@@ -1,5 +1,6 @@
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.comment import Comment
@@ -56,175 +57,164 @@ class TestTicketAPI(APIBaseTest):
         self.ticket.refresh_from_db()
         self.assertEqual(self.ticket.unread_team_count, 0)
 
-    def test_update_ticket_status(self):
+    @parameterized.expand(
+        [
+            ("status", Status.RESOLVED, Status.RESOLVED, None),
+            ("priority", Priority.HIGH, Priority.HIGH, None),
+            ("assigned_to", "user_id", "user_id", "user_id"),
+        ]
+    )
+    def test_update_ticket_field(self, field_name, update_value, expected_response_value, expected_nested_field):
+        # Replace placeholders with actual values
+        if update_value == "user_id":
+            update_value = self.user.id
+        if expected_response_value == "user_id":
+            expected_response_value = self.user.id
+
         response = self.client.patch(
             f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
-            {"status": Status.RESOLVED},
+            {field_name: update_value},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["status"], Status.RESOLVED)
+        self.assertEqual(response.json()[field_name], expected_response_value)
 
-        self.ticket.refresh_from_db()
-        self.assertEqual(self.ticket.status, Status.RESOLVED)
+        # Some fields have nested representations
+        if expected_nested_field:
+            self.assertEqual(response.json()["assigned_to_user"]["id"], self.user.id)
 
-    def test_update_ticket_priority(self):
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
-            {"priority": Priority.HIGH},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["priority"], Priority.HIGH)
+        # Verify database was updated (except for nested fields)
+        if field_name != "assigned_to":
+            self.ticket.refresh_from_db()
+            self.assertEqual(getattr(self.ticket, field_name), expected_response_value)
 
-    def test_update_ticket_assigned_to(self):
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
-            {"assigned_to": self.user.id},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["assigned_to"], self.user.id)
-        self.assertEqual(response.json()["assigned_to_user"]["id"], self.user.id)
+    @parameterized.expand(
+        [
+            ("status", Status.NEW, "status", Status.NEW, {"status": Status.RESOLVED}),
+            ("priority", Priority.HIGH, "priority", Priority.HIGH, {"priority": Priority.LOW}),
+            ("channel_source", Channel.WIDGET, "channel_source", Channel.WIDGET, {"channel_source": Channel.EMAIL}),
+            ("assigned_to=unassigned", None, "assigned_to", None, {"assigned_to": "user"}),
+            ("assigned_to={user_id}", "user_id", "assigned_to", "user_id", {}),
+            ("distinct_id=user-123", "user-123", "distinct_id", "user-123", {"distinct_id": "different-user"}),
+        ]
+    )
+    def test_filter_tickets(
+        self, filter_param, expected_value, response_field, expected_response_value, other_ticket_attrs
+    ):
+        """Test filtering tickets by various fields."""
+        # Update self.ticket if needed
+        if expected_value == "user_id":
+            self.ticket.assigned_to = self.user
+            self.ticket.save()
+            filter_param = filter_param.format(user_id=self.user.id)
+            expected_response_value = self.user.id
+        elif expected_value and expected_value != "user-123":
+            setattr(self.ticket, response_field, expected_value)
+            self.ticket.save()
 
-    def test_filter_by_status(self):
-        Ticket.objects.create(
-            team=self.team,
-            channel_source=Channel.WIDGET,
-            widget_session_id="resolved-session",
-            distinct_id="user-456",
-            status=Status.RESOLVED,
-        )
-        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?status={Status.NEW}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
-        self.assertEqual(response.json()["results"][0]["status"], Status.NEW)
-
-    def test_filter_by_priority(self):
-        self.ticket.priority = Priority.HIGH
-        self.ticket.save()
-        Ticket.objects.create(
-            team=self.team,
-            channel_source=Channel.WIDGET,
-            widget_session_id="low-priority",
-            distinct_id="user-789",
-            priority=Priority.LOW,
-        )
-        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?priority={Priority.HIGH}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
-        self.assertEqual(response.json()["results"][0]["priority"], Priority.HIGH)
-
-    def test_filter_by_channel_source(self):
-        Ticket.objects.create(
-            team=self.team,
-            channel_source=Channel.EMAIL,
-            widget_session_id="email-session",
-            distinct_id="user-email",
-        )
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/conversations/tickets/?channel_source={Channel.WIDGET}"
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
-        self.assertEqual(response.json()["results"][0]["channel_source"], Channel.WIDGET)
-
-    def test_filter_by_assigned_to_unassigned(self):
-        Ticket.objects.create(
-            team=self.team,
-            channel_source=Channel.WIDGET,
-            widget_session_id="assigned-session",
-            distinct_id="user-assigned",
-            assigned_to=self.user,
-        )
-        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?assigned_to=unassigned")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
-        self.assertIsNone(response.json()["results"][0]["assigned_to"])
-
-    def test_filter_by_assigned_to_user(self):
-        self.ticket.assigned_to = self.user
-        self.ticket.save()
-        Ticket.objects.create(
-            team=self.team,
-            channel_source=Channel.WIDGET,
-            widget_session_id="unassigned-session",
-            distinct_id="user-unassigned",
-        )
-        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?assigned_to={self.user.id}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
-        self.assertEqual(response.json()["results"][0]["assigned_to"], self.user.id)
-
-    def test_filter_by_distinct_id(self):
+        # Create another ticket with different attributes
+        if "user" in other_ticket_attrs.get("assigned_to", ""):
+            other_ticket_attrs["assigned_to"] = self.user
         Ticket.objects.create(
             team=self.team,
             channel_source=Channel.WIDGET,
             widget_session_id="other-session",
-            distinct_id="different-user",
+            distinct_id="other-user",
+            **other_ticket_attrs,
         )
-        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?distinct_id=user-123")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
-        self.assertEqual(response.json()["results"][0]["distinct_id"], "user-123")
 
-    def test_invalid_status_filter_ignored(self):
-        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?status=invalid")
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?{filter_param}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
 
-    def test_invalid_priority_filter_ignored(self):
-        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?priority=invalid")
+        result = response.json()["results"][0]
+        if expected_response_value is None:
+            self.assertIsNone(result[response_field])
+        else:
+            self.assertEqual(result[response_field], expected_response_value)
+
+    @parameterized.expand([("status", "invalid"), ("priority", "invalid")])
+    def test_invalid_filter_ignored(self, filter_name, invalid_value):
+        """Test that invalid filter values are ignored and all tickets are returned."""
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?{filter_name}={invalid_value}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
 
-    def test_message_count_annotation(self):
-        Comment.objects.create(
-            team=self.team,
-            scope="conversations_ticket",
-            item_id=str(self.ticket.id),
-            content="First message",
-        )
-        Comment.objects.create(
-            team=self.team,
-            scope="conversations_ticket",
-            item_id=str(self.ticket.id),
-            content="Second message",
-        )
-        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["message_count"], 2)
+    @parameterized.expand(
+        [
+            (
+                "message_count",
+                [("First message", False), ("Second message", False)],
+                {"message_count": 2},
+            ),
+            (
+                "last_message",
+                [("First message", False), ("Latest message", False)],
+                {"last_message_text": "Latest message", "last_message_at": "not_none"},
+            ),
+            (
+                "deleted_messages_excluded",
+                [("Active message", False), ("Deleted message", True)],
+                {"message_count": 1},
+            ),
+        ]
+    )
+    def test_message_annotations(self, test_name, messages, expected_fields):
+        """Test that message-related fields are correctly annotated on tickets."""
+        for content, deleted in messages:
+            Comment.objects.create(
+                team=self.team,
+                scope="conversations_ticket",
+                item_id=str(self.ticket.id),
+                content=content,
+                deleted=deleted,
+            )
 
-    def test_last_message_annotation(self):
-        Comment.objects.create(
-            team=self.team,
-            scope="conversations_ticket",
-            item_id=str(self.ticket.id),
-            content="First message",
-        )
-        Comment.objects.create(
-            team=self.team,
-            scope="conversations_ticket",
-            item_id=str(self.ticket.id),
-            content="Latest message",
-        )
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["last_message_text"], "Latest message")
-        self.assertIsNotNone(response.json()["last_message_at"])
 
-    def test_deleted_messages_not_counted(self):
-        Comment.objects.create(
-            team=self.team,
-            scope="conversations_ticket",
-            item_id=str(self.ticket.id),
-            content="Active message",
-            deleted=False,
-        )
-        Comment.objects.create(
-            team=self.team,
-            scope="conversations_ticket",
-            item_id=str(self.ticket.id),
-            content="Deleted message",
-            deleted=True,
-        )
-        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["message_count"], 1)
+        for field_name, expected_value in expected_fields.items():
+            if expected_value == "not_none":
+                self.assertIsNotNone(response.json()[field_name])
+            else:
+                self.assertEqual(response.json()[field_name], expected_value)
+
+    def test_list_tickets_no_n_plus_one_queries(self):
+        """Verify ticket list doesn't trigger N+1 queries for messages and assigned users."""
+        # Create 10 tickets with messages and assigned users
+        for i in range(10):
+            ticket = Ticket.objects.create(
+                team=self.team,
+                channel_source=Channel.WIDGET,
+                widget_session_id=f"session-{i}",
+                distinct_id=f"user-{i}",
+                assigned_to=self.user,
+            )
+            # Add 2 messages per ticket
+            Comment.objects.create(
+                team=self.team,
+                scope="conversations_ticket",
+                item_id=str(ticket.id),
+                content=f"Message 1 for ticket {i}",
+            )
+            Comment.objects.create(
+                team=self.team,
+                scope="conversations_ticket",
+                item_id=str(ticket.id),
+                content=f"Message 2 for ticket {i}",
+            )
+
+        # Query count should be constant regardless of number of tickets:
+        # 1. Load team
+        # 2. Load tickets with annotations (message_count, last_message_at, last_message_text) + select_related(assigned_to)
+        # If this fails, run with -v and check the actual query count, then adjust
+        with self.assertNumQueries(2):
+            response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            # Should have original ticket + 10 new tickets = 11 total
+            self.assertEqual(response.json()["count"], 11)
+            # Verify all annotated fields are present
+            for ticket_data in response.json()["results"]:
+                self.assertIn("message_count", ticket_data)
+                self.assertIn("last_message_at", ticket_data)
+                self.assertIn("last_message_text", ticket_data)
+                self.assertIn("assigned_to_user", ticket_data)

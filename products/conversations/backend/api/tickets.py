@@ -107,6 +107,7 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         """Filter tickets by team and add annotations."""
         queryset = queryset.filter(team_id=self.team_id)
+        queryset = queryset.select_related("assigned_to")
 
         # Add message count annotation using Subquery
         # Cast ticket UUID id to string to match Comment.item_id CharField
