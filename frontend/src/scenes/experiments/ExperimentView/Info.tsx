@@ -23,6 +23,7 @@ import type { ExperimentSceneLogicProps } from '../experimentSceneLogic'
 import { getExperimentStatus } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
 import { ExperimentDuration } from './ExperimentDuration'
+import { ExperimentReloadAction } from './ExperimentReloadAction'
 import { RunningTimeNew } from './RunningTimeNew'
 import { StatsMethodModal } from './StatsMethodModal'
 import { StatusTag } from './components'
@@ -95,6 +96,7 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
     const { isDescriptionModalOpen } = useValues(modalsLogic)
 
     const useNewCalculator = featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_CALCULATOR] === 'test'
+    const useNewReloadAction = featureFlags[FEATURE_FLAGS.EXPERIMENTS_RELOAD_ACTION] === 'test'
     const [tempDescription, setTempDescription] = useState(experiment.description || '')
 
     useEffect(() => {
@@ -270,11 +272,17 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
                                             onClick={openRunningTimeConfigModal}
                                         />
                                     )}
-                                    <ExperimentLastRefresh
-                                        isRefreshing={primaryMetricsResultsLoading || secondaryMetricsResultsLoading}
-                                        lastRefresh={lastRefresh}
-                                        onClick={() => refreshExperimentResults(true)}
-                                    />
+                                    {useNewReloadAction ? (
+                                        <ExperimentReloadAction />
+                                    ) : (
+                                        <ExperimentLastRefresh
+                                            isRefreshing={
+                                                primaryMetricsResultsLoading || secondaryMetricsResultsLoading
+                                            }
+                                            lastRefresh={lastRefresh}
+                                            onClick={() => refreshExperimentResults(true)}
+                                        />
+                                    )}
                                 </>
                             )}
                             <div className="flex flex-col">

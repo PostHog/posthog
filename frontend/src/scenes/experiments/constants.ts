@@ -32,6 +32,16 @@ export const EXPERIMENT_VARIANT_MULTIPLE = '$multiple'
 
 export const EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS = 50
 export const EXPERIMENT_MIN_METRIC_VALUE_FOR_RESULTS = 10
+
+// Autorefresh constants
+export const EXPERIMENT_MIN_REFRESH_INTERVAL_MINUTES = 5
+export const EXPERIMENT_AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 1800 // 30 min
+
+// Autorefresh interval options (in seconds)
+export const EXPERIMENT_REFRESH_INTERVAL_SECONDS = [300, 900, 1800] // 5min, 15min, 30min
+if (process.env.NODE_ENV === 'development') {
+    EXPERIMENT_REFRESH_INTERVAL_SECONDS.unshift(10) // 10s for dev
+}
 export const CONCLUSION_DISPLAY_CONFIG: Record<
     ExperimentConclusion,
     { title: string; description: string; color: string }
