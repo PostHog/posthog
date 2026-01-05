@@ -1,12 +1,12 @@
 # Generated manually - Drops the old TeamCoreEventsConfig table
-# This is the second step after migration 0956 removed the model from Django state
+# This is the second step after migration 0957 removed the model from Django state
 
 from django.db import migrations
 
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0956_refactor_core_events_to_table"),
+        ("posthog", "0957_refactor_core_events_to_table"),
     ]
 
     operations = [
