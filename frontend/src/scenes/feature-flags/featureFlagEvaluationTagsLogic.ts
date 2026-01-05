@@ -14,13 +14,11 @@ export const featureFlagEvaluationTagsLogic = kea<featureFlagEvaluationTagsLogic
     key((props) => props.flagId || 'new'),
     actions({
         setEditingTags: (editing: boolean) => ({ editing }),
-        setShowEvaluationOptions: (show: boolean) => ({ show }),
         setDraftTags: (tags: string[]) => ({ tags }),
         setDraftEvaluationTags: (evaluationTags: string[]) => ({ evaluationTags }),
     }),
     reducers(() => ({
         editingTags: [false as boolean, { setEditingTags: (_, { editing }) => editing }],
-        showEvaluationOptions: [false as boolean, { setShowEvaluationOptions: (_, { show }) => show }],
         draftTags: [
             null as string[] | null,
             {
@@ -50,10 +48,6 @@ export const featureFlagEvaluationTagsLogic = kea<featureFlagEvaluationTagsLogic
     }),
     listeners(({ actions, values, props }) => ({
         setDraftTags: () => {
-            if (values.draftTags && values.draftTags.length === 0 && values.showEvaluationOptions) {
-                actions.setShowEvaluationOptions(false)
-            }
-
             // Remove evaluation tags that are no longer in the main tags list
             if (values.draftTags && values.draftEvaluationTags) {
                 const validEvaluationTags = values.draftEvaluationTags.filter(
@@ -80,7 +74,6 @@ export const featureFlagEvaluationTagsLogic = kea<featureFlagEvaluationTagsLogic
         beforeUnmount: () => {
             // Reset state when component unmounts to ensure fresh state for next mount
             actions.setEditingTags(false)
-            actions.setShowEvaluationOptions(false)
         },
     })),
 ])
