@@ -51,7 +51,10 @@ class UpdateDashboardToolArgs(BaseModel):
         default=None,
     )
     replace_insights: bool | None = Field(
-        description="Whether to replace the existing insights in the dashboard with the provided insights. True will replace all existing with the provided insights, keeping the provided ordering. False will append new insights to the end of the dashboard.",
+        description="CRITICAL: This controls whether to REMOVE ALL existing insights or keep them. "
+        "True = REMOVE ALL existing insights and ONLY keep the insights you provide in insight_ids (use this when you want to replace/reorder insights, but remember to include ALL insights you want to keep). "
+        "False = APPEND the provided insights to the existing insights (use this when adding new insights without removing any). "
+        "WARNING: If you set this to True and only provide one insight_id, ALL other existing insights will be DELETED from the dashboard!",
         default=False,
     )
     name: str | None = Field(
