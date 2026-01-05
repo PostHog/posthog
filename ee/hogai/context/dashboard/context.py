@@ -128,6 +128,7 @@ class DashboardContext:
             description=data.description,
             insight_id=data.short_id,
             insight_model_id=data.db_id,
+            insight_short_id=data.short_id,
             dashboard_filters=self.dashboard_filters,
             filters_override=data.filters_override,
             variables_override=data.variables_override,

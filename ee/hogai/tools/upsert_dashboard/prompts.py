@@ -8,6 +8,12 @@ Use this tool to create or update a dashboard with provided insights.
 
 # When NOT to use this tool
 - The user wants to save a single insight.
+
+# Understanding replace_insights
+- `replace_insights=False` (default): Appends provided insights to existing ones
+- `replace_insights=True`: Dashboard will contain exactly the insights you specify in `insight_ids`
+
+Example: Dashboard has [A, B, C]. To replace B with D, use `replace_insights=True` with `insight_ids=[A, D, C]`. Using just `insight_ids=[D]` would remove A and C.
 """.strip()
 
 

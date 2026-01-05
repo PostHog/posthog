@@ -34,6 +34,10 @@ export function NewWorkflowModal(): JSX.Element {
                             autoFocus
                         />
                     </div>
+                    <div className="text-xs text-muted">
+                        We're still expanding our portfolio of templates. Check back soon if you can't find what you're
+                        looking for!
+                    </div>
                 </div>
             }
         >

@@ -21,7 +21,7 @@ concurrency:
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-    # Job to decide if we should run plugin server ci
+    # Job to decide if we should run nodejs services ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
     changes:
         runs-on: ubuntu-latest
@@ -43,7 +43,7 @@ jobs:
                   filters: |
                       nodejs:
                         - .github/workflows/ci-nodejs.yml
-                        - 'plugin-server/**'
+                        - 'nodejs/**'
                         - 'posthog/clickhouse/**'
                         - 'ee/migrations/**'
                         - 'posthog/management/commands/setup_test_environment.py'
@@ -73,14 +73,14 @@ jobs:
 
             - name: Install package.json dependencies with pnpm
               run: |
-                  pnpm --filter=@posthog/plugin-server... install --frozen-lockfile
-                  bin/turbo --filter=@posthog/plugin-server prepare
+                  pnpm --filter=@posthog/nodejs... install --frozen-lockfile
+                  bin/turbo --filter=@posthog/nodejs prepare
 
             - name: Check formatting with prettier
-              run: pnpm --filter=@posthog/plugin-server prettier:check
+              run: pnpm --filter=@posthog/nodejs prettier:check
 
             - name: Lint with ESLint
-              run: pnpm --filter=@posthog/plugin-server lint
+              run: pnpm --filter=@posthog/nodejs lint
 
     build:
         if: needs.changes.outputs.nodejs == 'true'
@@ -103,15 +103,15 @@ jobs:
 
             - name: Install package.json dependencies with pnpm
               run: |
-                  pnpm --filter=@posthog/plugin-server... install --frozen-lockfile
-                  bin/turbo --filter=@posthog/plugin-server prepare
+                  pnpm --filter=@posthog/nodejs... install --frozen-lockfile
+                  bin/turbo --filter=@posthog/nodejs prepare
 
             - name: Check builds correctly
-              run: pnpm --filter=@posthog/plugin-server build
+              run: pnpm --filter=@posthog/nodejs build
 
             - name: Sanity check output
               run: |
-                  cd plugin-server
+                  cd nodejs
                   # We expect it to fail but check that the error isn't "MODULE_NOT_FOUND"
                   if node dist/index.js 2>&1 | grep "MODULE_NOT_FOUND"; then
                       echo "❌ Build is invalid - failed with 'MODULE_NOT_FOUND' error"
@@ -206,7 +206,7 @@ jobs:
                   ./bin/download-mmdb
 
             - name: Install package.json dependencies with pnpm
-              run: pnpm --filter=@posthog/plugin-server... install --frozen-lockfile
+              run: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
 
             - name: Wait for Clickhouse, Redis, Kafka
               run: |
@@ -220,7 +220,7 @@ jobs:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
                   BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
 
-              run: pnpm --filter=@posthog/plugin-server setup:test
+              run: pnpm --filter=@posthog/nodejs setup:test
 
             - name: Test with Jest
               env:
@@ -229,13 +229,12 @@ jobs:
                   BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
                   PERSONS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_persons'
                   PERSONS_READONLY_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_persons'
-                  PERSONS_READONLY_MIGRATION_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_persons_migration'
                   REDIS_URL: 'redis://localhost'
                   NODE_OPTIONS: '--max_old_space_size=4096'
                   SHARD_INDEX: ${{ matrix.shard }}
                   SHARD_COUNT: 3
                   LOG_LEVEL: info
-              run: bin/turbo run test --filter=@posthog/plugin-server
+              run: bin/turbo run test --filter=@posthog/nodejs
 
             - name: Output logs on failure
               if: failure()

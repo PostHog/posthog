@@ -45,6 +45,15 @@ pub struct CheckpointConfig {
 
     /// Timeout for a single S3 operation attempt
     pub s3_attempt_timeout: Duration,
+
+    /// Number of recent historical checkpoint attempts to try to import,
+    /// starting from most recent, when attempting to import from remote
+    /// storage. A failed download or corrupt files will result in fallback
+    /// to the next most recent checkpoint attempt this many times
+    pub checkpoint_import_attempt_depth: usize,
+
+    /// Test-only: S3 endpoint URL for MinIO/localstack (not used in production)
+    pub test_s3_endpoint: Option<String>,
 }
 
 impl Default for CheckpointConfig {
@@ -64,6 +73,8 @@ impl Default for CheckpointConfig {
             checkpoint_import_window_hours: 24,
             s3_operation_timeout: Duration::from_secs(120),
             s3_attempt_timeout: Duration::from_secs(20),
+            checkpoint_import_attempt_depth: 10,
+            test_s3_endpoint: None,
         }
     }
 }

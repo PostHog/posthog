@@ -88,7 +88,7 @@ impl BatchConsumerContext {
 
                     // Call cleanup handler (downloads checkpoints, etc.)
                     // Note: setup_assigned_partitions was already called synchronously
-                    if let Err(e) = handler.cleanup_assigned_partitions(&tpl).await {
+                    if let Err(e) = handler.async_setup_assigned_partitions(&tpl).await {
                         error!("Partition assignment cleanup failed: {}", e);
                     }
                 }

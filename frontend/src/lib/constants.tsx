@@ -274,8 +274,6 @@ export const FEATURE_FLAGS = {
     LLM_ANALYTICS_TRANSLATION: 'llm-analytics-translation', // owner: #team-llm-analytics
     LLM_ANALYTICS_PROMPTS: 'llm-analytics-prompts', // owner: #team-llm-analytics
     LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT: 'llm-observability-show-input-output', // owner: #team-llm-analytics
-    LOGS_PRE_EARLY_ACCESS: 'logs-internal', // owner: #team-logs
-    LOGS_VIRTUALIZED_LIST: 'logs-virtualized-list', // owner: #team-logs
     LOGS: 'logs', // owner: #team-logs
     MANAGE_INSIGHTS_THROUGH_TERRAFORM: 'manage-insights-through-terraform', // owner: @vasco #team-analytics-platform
     MANAGED_VIEWSETS: 'managed-viewsets', // owner: @rafaeelaudibert #team-revenue-analytics
@@ -287,6 +285,7 @@ export const FEATURE_FLAGS = {
     MESSAGING_SES: 'messaging-ses', // owner #team-workflows
     NOTEBOOKS_COLLAPSIBLE_SECTIONS: 'notebooks-collapsible-sections', // owner: @daibhin @benjackwhite
     PAGE_REPORTS_AVERAGE_PAGE_VIEW: 'page-reports-average-page-view', // owner: @jordanm-posthog #team-web-analytics
+    PHAI_ERROR_TRACKING_MODE: 'posthog-ai-error-tracking-mode', // owner: #team-posthog-ai
     PHAI_TASKS: 'phai-tasks', // owner: #team-array
     PHAI_WEB_SEARCH: 'phai-web-search', // owner: @Twixes #team-posthog-ai
     PRODUCT_ANALYTICS_DASHBOARD_COLORS: 'dashboard-colors', // owner: @thmsobrmlr #team-product-analytics
@@ -342,6 +341,7 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_CONVERSION_GOAL_PREAGG: 'web-analytics-conversion-goal-preagg', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_EMPTY_ONBOARDING: 'web-analytics-empty-onboarding', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_HIGHER_CONCURRENCY: 'web-analytics-higher-concurrency', // owner: @lricoy #team-web-analytics
+    WEB_ANALYTICS_LIVE_METRICS: 'web-analytics-live-metrics', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_MARKETING: 'marketing-analytics', // owner: @jabahamondes #team-web-analytics
     NEW_TEAM_CORE_EVENTS: 'new-team-core-events', // owner: @jabahamondes #team-web-analytics
     WEB_ANALYTICS_OPEN_AS_INSIGHT: 'web-analytics-open-as-insight', // owner: @lricoy #team-web-analytics
@@ -355,7 +355,6 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_HEALTH_TAB: 'web_analytics_health_tab', // owner: @jordanm-posthog #team-web-analytics
     AVERAGE_PAGE_VIEW_COLUMN: 'average-page-view-column', // owner: @jordanm-posthog #team-web-analytics
     NEW_TAB_PROJECT_EXPLORER: 'new-tab-project-explorer', // owner: #team-platform-ux
-    LIVE_EVENTS_ACTIVE_RECORDINGS: 'live-events-active-recordings', // owner: @pauldambra #team-replay
     EXPERIMENTS_SAMPLE_RATIO_MISMATCH: 'experiments-sample-ratio-mismatch', // owner: @jurajmajerik #team-experiments
     // PLEASE KEEP THIS ALPHABETICALLY ORDERED
 } as const

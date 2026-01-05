@@ -280,6 +280,7 @@
          "posthog_experiment"."primary_metrics_ordered_uuids",
          "posthog_experiment"."secondary_metrics_ordered_uuids",
          "posthog_experiment"."stats_config",
+         "posthog_experiment"."scheduling_config",
          "posthog_experiment"."conclusion",
          "posthog_experiment"."conclusion_comment"
   FROM "posthog_experiment"
@@ -1042,6 +1043,7 @@
          "posthog_experiment"."primary_metrics_ordered_uuids",
          "posthog_experiment"."secondary_metrics_ordered_uuids",
          "posthog_experiment"."stats_config",
+         "posthog_experiment"."scheduling_config",
          "posthog_experiment"."conclusion",
          "posthog_experiment"."conclusion_comment"
   FROM "posthog_experiment"
