@@ -138,6 +138,43 @@ jobs:
             - name: Check toolbar for CSP eval violations
               run: pnpm --filter=@posthog/frontend check-toolbar-csp-eval
 
+    frontend-bundle-size:
+        name: Frontend bundle size
+        needs: [changes]
+        if: needs.changes.outputs.frontend == 'true' && github.event_name == 'pull_request'
+        runs-on: depot-ubuntu-24.04
+        steps:
+            - uses: actions/checkout@v4
+            - name: Install pnpm
+              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+
+            - name: Set up Node.js
+              uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
+              with:
+                  node-version: 22.17.1
+                  cache: 'pnpm'
+
+            - name: Install package.json dependencies with pnpm
+              run: |
+                  pnpm --filter=@posthog/playwright... install --frozen-lockfile
+                  bin/turbo --filter=@posthog/frontend prepare
+
+            - name: Build products
+              run: pnpm --filter=@posthog/frontend build:products
+
+            - name: Check frontend bundle size
+              uses: preactjs/compressed-size-action@946a292cd35bd1088e0d7eb92b69d1a8d5b5d76a # v2
+              with:
+                  build-script: '--filter=@posthog/frontend build'
+                  install-script: 'pnpm --filter=@posthog/frontend... install'
+                  compression: 'none'
+                  # Check all JS bundles in the dist folder
+                  pattern: 'frontend/dist/*.js'
+                  # Exclude source maps
+                  exclude: 'frontend/dist/*.js.map'
+                  # Alert if total bundle increases by more than 100KB
+                  minimum-change-threshold: 100000
+
     frontend-typescript-checks:
         name: Frontend typechecking
         needs: [changes]
