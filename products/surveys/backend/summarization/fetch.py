@@ -18,6 +18,7 @@ def fetch_responses(
     end_date: datetime,
     team: Team,
     limit: int = 100,
+    exclude_values: list[str] | None = None,
 ) -> list[str]:
     """
     Fetch survey responses for a specific question.
@@ -30,6 +31,7 @@ def fetch_responses(
         end_date: End date for filtering responses
         team: The team to query
         limit: Maximum number of responses to fetch
+        exclude_values: List of values to exclude (e.g., predefined choices for choice questions)
 
     Returns:
         List of response strings
@@ -60,4 +62,11 @@ def fetch_responses(
         query=cast(ast.SelectQuery, q),
     )
 
-    return [x[0] for x in query_response.results if x[0]]
+    responses = [x[0] for x in query_response.results if x[0]]
+
+    # Filter out predefined choices for choice questions
+    if exclude_values:
+        exclude_set = set(exclude_values)
+        responses = [r for r in responses if r not in exclude_set]
+
+    return responses

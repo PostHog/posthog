@@ -10,7 +10,9 @@ class SurveyTheme(BaseModel):
 
     theme: str = Field(description="Theme name (2-5 words)")
     description: str = Field(description="Brief description with 1-2 supporting quotes")
-    frequency: Literal["common", "moderate", "rare"] = Field(description="How prevalent this theme is across responses")
+    frequency: Literal[">50%", "25-50%", "10-25%", "<10%"] = Field(
+        description="Estimated percentage of responses mentioning this theme"
+    )
 
 
 class SurveySummaryResponse(BaseModel):

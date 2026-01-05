@@ -2,12 +2,6 @@
 
 from .llm.schema import SurveySummaryResponse
 
-FREQUENCY_LABELS = {
-    "common": "Common",
-    "moderate": "Moderate",
-    "rare": "Rare",
-}
-
 
 def format_as_markdown(summary: SurveySummaryResponse) -> str:
     """Convert structured summary to markdown format for display."""
@@ -16,9 +10,8 @@ def format_as_markdown(summary: SurveySummaryResponse) -> str:
     if summary.themes:
         lines.append("**Key Themes:**")
         for theme in summary.themes:
-            frequency_label = FREQUENCY_LABELS.get(theme.frequency, "")
-            frequency_suffix = f" ({frequency_label})" if frequency_label else ""
-            lines.append(f"- **{theme.theme}**{frequency_suffix}: {theme.description}")
+            # frequency is already a percentage string like ">50%", "25-50%", etc.
+            lines.append(f"- **{theme.theme}** ({theme.frequency}): {theme.description}")
         lines.append("")
 
     if summary.key_insight:

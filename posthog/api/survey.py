@@ -1536,23 +1536,27 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             hour=0, minute=0, second=0, microsecond=0
         ) + timedelta(days=1)
 
-        # Extract the question text from the survey
+        # Extract the question text and choices from the survey
         question_text = None
+        question_choices = None
         if survey.questions and question_id:
             # Find the question with the matching ID
             for question in survey.questions:
                 if question.get("id", None) == question_id:
                     question_text = question.get("question")
+                    question_choices = question.get("choices")
                     break
         elif survey.questions and question_index is not None:
             # Fallback to question index if question_id is not provided
             if 0 <= question_index < len(survey.questions):
                 question_text = survey.questions[question_index].get("question")
+                question_choices = survey.questions[question_index].get("choices")
 
         if question_text is None:
             raise exceptions.ValidationError("the text of the question is required")
 
         # Fetch responses using the new module
+        # For choice questions, exclude predefined choices to only get open-ended "Other" responses
         responses = fetch_responses(
             survey_id=survey_id,
             question_index=question_index,
@@ -1560,6 +1564,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             start_date=(survey.start_date or survey.created_at).replace(hour=0, minute=0, second=0, microsecond=0),
             end_date=end_date,
             team=self.team,
+            exclude_values=question_choices,
         )
         response_count = len(responses)
 

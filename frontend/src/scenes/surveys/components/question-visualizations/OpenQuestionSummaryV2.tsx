@@ -228,7 +228,7 @@ export function OpenQuestionSummaryV2({
                                     ? ` of ${totalResponses} responses (sampled)`
                                     : ' responses'}
                                 {generatedTime.isValid() && ` • ${generatedTime.fromNow()}`}
-                                {' • AI-generated'}
+                                {' • AI-generated • May not be accurate'}
                             </span>
                             {dataProcessingAccepted || !showConsentPopover ? (
                                 <LemonButton

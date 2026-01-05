@@ -40,6 +40,7 @@ Guidelines:
 - Identify patterns and themes across responses (maximum 5 themes)
 - Use actual quotes to support your analysis
 - Prioritize themes by how frequently they appear
+- For each theme, estimate the percentage of responses that mention it (>50%, 25-50%, 10-25%, or <10%)
 - Focus on actionable insights that can drive product improvements
 - Keep the overview to 1-2 sentences
 - Keep the key insight to 1 sentence"""
