@@ -1,9 +1,9 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { logger } from '../../utils/logger'
-import { CostModelSource } from './cost-model-matching'
+import { CostModelSource } from './costs/cost-model-matching'
+import type { ModelCost, ModelCostRow } from './costs/providers/types'
 import { normalizeTraceProperties, processAiEvent } from './process-ai-event'
-import type { ModelCost, ModelCostRow } from './providers/types'
 
 jest.mock('../../utils/logger', () => ({
     logger: {
@@ -75,7 +75,7 @@ const costsByModel: Record<string, MockModelRow> = {
     },
 }
 
-jest.mock('./providers', () => {
+jest.mock('./costs/providers', () => {
     const excludedFromOpenRouter = new Set(['claude-2', 'backup-model', 'fallback-model'])
 
     const providerOverrides: Record<string, string> = {
