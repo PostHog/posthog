@@ -159,22 +159,70 @@ def summarize_insight_result(result: Any) -> Any:
     return result
 
 
-def get_insight_analysis(query: InsightVizNode, team: Team, insight_result: Optional[dict[str, Any]]) -> str:
+def get_query_specific_instructions(kind: NodeKind) -> str:
+    if kind == NodeKind.TRENDS_QUERY:
+        return (
+            "Focus on identifying significant changes in volume, growth trends, and seasonality. "
+            "Compare the current period to the start. Identify which breakdown segment (if any) is driving the trend."
+        )
+    elif kind == NodeKind.FUNNEL_QUERY:
+        return (
+            "Focus on conversion rates between steps. Identify the specific step with the largest drop-off (the bottleneck). "
+            "Compare conversion performance across breakdown segments if available."
+        )
+    elif kind == NodeKind.RETENTION_QUERY:
+        return (
+            "Focus on the retention curve shape. Identify when the drop-off stabilizes. "
+            "Compare retention rates between different cohorts or breakdown segments."
+        )
+    elif kind == NodeKind.STICKINESS_QUERY:
+        return "Focus on how frequently users engage. Identify if there is a core group of power users."
+    elif kind == NodeKind.LIFECYCLE_QUERY:
+        return "Focus on the balance between new, returning, resurrecting, and dormant users. Identify which group is dominating the total count."
+
+    return "Focus on the most significant patterns and anomalies in the data."
+
+
+def get_insight_analysis(
+    query: InsightVizNode,
+    team: Team,
+    insight_result: Optional[dict[str, Any]],
+    insight_name: Optional[str] = None,
+    insight_description: Optional[str] = None,
+) -> str:
     """Generate an AI analysis of the insight, highlighting main points and actionable items."""
     try:
+        # We strip out large data like persons/urls but keep the filter and results
         result_summary = (
             json.dumps(summarize_insight_result(insight_result), default=str)
             if insight_result
             else "No results available"
         )
 
+        specific_instructions = get_query_specific_instructions(query.source.kind)
+
+        context_str = ""
+        if insight_name:
+            context_str += f"Insight Name: {insight_name}\n"
+        if insight_description:
+            context_str += f"Insight Description: {insight_description}\n"
+
         prompt = (
-            "You are an expert data analyst using PostHog. "
-            "Analyze the following insight configuration and its results. "
-            "Provide a concise summary of the key findings. "
-            "Focus only on significant trends, anomalies, or actionable takeaways. "
-            "Skip generic explanations or obvious statements. "
-            "Keep it short and to the point.\n\n"
+            "You are a senior product data analyst. "
+            "Your goal is to explain *what* is happening in this insight and *why* it matters. "
+            "\n\n"
+            f"Specific Analysis Context: {specific_instructions}\n"
+            f"{context_str}\n"
+            "Output Requirements:\n"
+            "1. **Headline**: Start with a single, high-impact sentence summarizing the most important finding.\n"
+            "2. **Evidence**: Provide 2-3 concise bullet points (-) supporting the headline. You MUST quantify changes (e.g., '+15%', '2x higher', 'dropped by 30%') using the data provided.\n"
+            "3. **Takeaway**: End with one specific recommendation or question for further investigation.\n"
+            "\n"
+            "Style Rules:\n"
+            "- Be direct. Remove fluff like 'The chart shows', 'We can observe', or 'Based on the data'.\n"
+            "- Focus on *changes* and *differences*.\n"
+            "- Use plain text only (no markdown formatting like bold/italics) as the output will be rendered as raw text.\n"
+            "\n"
             f"Query Configuration: {query.model_dump_json(exclude_none=True)}\n\n"
             f"Results Summary: {result_summary}"
         )

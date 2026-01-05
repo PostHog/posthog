@@ -1209,7 +1209,13 @@ When set, the specified dashboard's filters and date range override will be appl
         except Exception:
             result = None
 
-        analysis = get_insight_analysis(query, self.team, result)
+        analysis = get_insight_analysis(
+            query,
+            self.team,
+            result,
+            insight_name=insight.name,
+            insight_description=insight.description,
+        )
 
         return Response({"result": analysis})
 
