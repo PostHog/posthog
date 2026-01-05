@@ -10,6 +10,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { ZenModeButton } from './ZenModeButton'
+
 export function MinimalNavigation(): JSX.Element {
     const { user } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
@@ -22,6 +24,7 @@ export function MinimalNavigation(): JSX.Element {
         <nav className="flex items-center gap-2 p-2 border-b">
             <LemonButton noPadding icon={<IconLogomark className="text-3xl mx-2" />} to={logoUrl} />
             <div className="flex items-center justify-end gap-2 flex-1">
+                <ZenModeButton />
                 {(currentOrganization?.teams?.length ?? 0 > 1) ? (
                     <ProjectMenu
                         buttonProps={{
