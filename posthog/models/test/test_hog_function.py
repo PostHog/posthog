@@ -1,7 +1,9 @@
 import json
 
 from posthog.test.base import QueryMatchingTest
+from unittest.mock import Mock, patch
 
+from django.core.management import call_command
 from django.test import TestCase
 
 from posthog.models.action.action import Action
@@ -284,7 +286,30 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
 
         assert json.dumps(hog_function_3.filters["bytecode"]) == f'["_H", {HOGQL_BYTECODE_VERSION}, 29]'
 
-    def test_geoip_transformation_created_when_enabled(self):
+    @patch("posthog.plugins.plugin_server_api.get_hog_function_templates")
+    def test_geoip_transformation_created_when_enabled(self, mock_get_templates):
+        # Mock the response from plugin server
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = [
+            {
+                "id": "template-geoip",
+                "name": "GeoIP",
+                "description": "Adds geoip data to the event",
+                "type": "transformation",
+                "code": "return event",
+                "inputs_schema": [],
+                "status": "stable",
+                "free": True,
+                "category": ["Custom"],
+                "code_language": "hog",
+                "icon_url": "/static/transformations/geoip.png",
+            }
+        ]
+        mock_get_templates.return_value = mock_response
+        # Run the command to sync templates
+        call_command("sync_hog_function_templates")
+
         with self.settings(DISABLE_MMDB=False):
             team = Team.objects.create_with_data(organization=self.org, name="Test Team", initiating_user=self.user)
 
@@ -293,11 +318,11 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
         geoip = transformations.first()
         assert geoip
         assert geoip.name == "GeoIP"
-        assert geoip.description == "Enrich events with GeoIP data"
+        assert geoip.description == "Adds geoip data to the event"
         assert geoip.icon_url == "/static/transformations/geoip.png"
         assert geoip.enabled
         assert geoip.execution_order == 1
-        assert geoip.template_id == "plugin-posthog-plugin-geoip"
+        assert geoip.template_id == "template-geoip"
 
     def test_geoip_transformation_not_created_when_disabled(self):
         with self.settings(DISABLE_MMDB=True):
