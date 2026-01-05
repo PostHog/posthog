@@ -27,7 +27,7 @@ if [ "$OS" = "ubuntu" ] || [ "$OS" = "debian" ]; then
   echo "Latest flox version: ${FLOX_VERSION}"
 
   # Download and install .deb package
-  FLOX_DEB="flox-${FLOX_VERSION}.${DEB_ARCH}-linux.deb"
+  FLOX_DEB="flox-${FLOX_VERSION}.${ARCH}-linux.deb"
   wget -O "/tmp/${FLOX_DEB}" "https://downloads.flox.dev/by-env/stable/deb/${FLOX_DEB}"
   if [ ! -s "/tmp/${FLOX_DEB}" ]; then
     echo "❌ Unsupported architecture: ${ARCH}"
