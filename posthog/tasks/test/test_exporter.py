@@ -14,12 +14,7 @@ from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import ExportedAsset
 from posthog.tasks import exporter
-from posthog.tasks.exporter import (
-    EXCEPTIONS_TO_RETRY,
-    _is_final_export_attempt,
-    export_asset_direct,
-    is_user_query_error_type,
-)
+from posthog.tasks.exporter import EXCEPTIONS_TO_RETRY, _is_final_export_attempt, is_user_query_error_type
 from posthog.tasks.exports.image_exporter import get_driver
 
 
@@ -107,7 +102,7 @@ class TestExporterTask(APIBaseTest):
         mock_export.side_effect = QueryError("Unknown table 'foo'")
 
         asset = ExportedAsset.objects.create(team=self.team, dashboard=None, export_format="image/png")
-        export_asset_direct(asset)
+        exporter.export_asset(asset.id)
 
         asset.refresh_from_db()
         assert asset.exception == "Unknown table 'foo'"
