@@ -423,7 +423,7 @@ def export_image(exported_asset: ExportedAsset, max_height_pixels: Optional[int]
                             insight_cache_keys[insight.id] = cache_key
 
             if exported_asset.export_format == "image/png":
-                with EXPORT_TIMER.labels(type="image").time():
+                with EXPORT_TIMER.labels(type=exported_asset.export_format).time():
                     _export_to_png(
                         exported_asset,
                         max_height_pixels=max_height_pixels,
