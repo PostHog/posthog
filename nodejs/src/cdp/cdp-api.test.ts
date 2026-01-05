@@ -107,9 +107,17 @@ describe('CDP API', () => {
         await closeHub(hub)
     })
 
-    it('errors if missing hog function or team', async () => {
+    it('errors if missing hog function', async () => {
         const res = await supertest(app)
-            .post(`/api/projects/${hogFunction.team_id}/hog_functions/missing/invocations`)
+            .post(`/api/projects/${hogFunction.team_id}/hog_functions/${new UUIDT().toString()}/invocations`)
+            .send({ globals })
+
+        expect(res.status).toEqual(404)
+    })
+
+    it('errors if missing team', async () => {
+        const res = await supertest(app)
+            .post(`/api/projects/${new UUIDT().toString()}/hog_functions/${hogFunction.id}/invocations`)
             .send({ globals })
 
         expect(res.status).toEqual(404)
@@ -556,6 +564,10 @@ describe('CDP API', () => {
             await deleteKeysWithPrefix(redis, BASE_REDIS_KEY)
         })
 
+        afterAll(() => {
+            jest.restoreAllMocks()
+        })
+
         it('returns the states of all hog functions', async () => {
             await api['hogWatcher'].forceStateChange(hogFunction, HogWatcherState.degraded)
             await api['hogWatcher'].forceStateChange(hogFunctionMultiFetch, HogWatcherState.disabled)
@@ -592,8 +604,10 @@ describe('CDP API', () => {
 
     describe('batch hogflow invocations', () => {
         let batchHogFlow: HogFlow
+        let originalKafkaProducer: any
 
         beforeEach(async () => {
+            originalKafkaProducer = hub.kafkaProducer
             batchHogFlow = await insertHogFlow({
                 id: new UUIDT().toString(),
                 name: 'test batch hog flow',
@@ -618,8 +632,12 @@ describe('CDP API', () => {
             })
         })
 
+        afterEach(() => {
+            hub.kafkaProducer = originalKafkaProducer
+        })
+
         it('errors if missing team', async () => {
-            const nonExistentTeamId = 99999
+            const nonExistentTeamId = new UUIDT().toString()
             const res = await supertest(app)
                 .post(`/api/projects/${nonExistentTeamId}/hog_flows/${batchHogFlow.id}/batch_invocations/job-123`)
                 .send({})
