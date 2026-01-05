@@ -1,4 +1,5 @@
 import json
+from typing import Any
 
 from django import forms
 from django.contrib import admin, messages
@@ -28,9 +29,11 @@ class WorkflowTemplateExportForm(forms.Form):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # Set queryset after form initialization to only show global templates
-        self.fields["template_ids"].queryset = HogFlowTemplate.objects.filter(
-            scope=HogFlowTemplate.Scope.GLOBAL
-        ).order_by("-updated_at")
+        template_ids_field = self.fields["template_ids"]
+        assert isinstance(template_ids_field, forms.ModelMultipleChoiceField)
+        template_ids_field.queryset = HogFlowTemplate.objects.filter(scope=HogFlowTemplate.Scope.GLOBAL).order_by(
+            "-updated_at"
+        )
 
 
 class WorkflowTemplateImportForm(forms.Form):
@@ -101,7 +104,7 @@ def _handle_template_import(request: HttpRequest, import_form: WorkflowTemplateI
         # Validate team_id exists and get team object
         team_exists = True
         team = None
-        serializer_context = None
+        serializer_context: dict[str, Any] | None = None
         try:
             team = Team.objects.get(id=team_id)
 
@@ -127,6 +130,7 @@ def _handle_template_import(request: HttpRequest, import_form: WorkflowTemplateI
 
         # Real import: use transaction
         if team_exists:
+            assert serializer_context is not None  # mypy: team_exists ensures context is set
             with transaction.atomic():
                 for template_data in global_templates:
                     try:
