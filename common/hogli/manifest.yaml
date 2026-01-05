@@ -514,6 +514,10 @@ tools:
         bin_script: posthog-node
         description: 'TODO: add description for posthog-node'
         hidden: true
+    plugin:server:
+        bin_script: plugin-server
+        description: 'TODO: add description for plugin-server'
+        hidden: true
 utilities:
     nuke:
         steps:
