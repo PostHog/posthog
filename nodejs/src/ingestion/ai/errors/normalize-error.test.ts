@@ -223,6 +223,22 @@ describe('normalizeError', () => {
             expect(normalizeError('   ')).toBe('')
         })
     })
+
+    describe('truncation', () => {
+        it('truncates very long error messages', () => {
+            const longError = 'Error: ' + 'x'.repeat(2000)
+            const result = normalizeError(longError)
+            expect(result.length).toBeLessThanOrEqual(1003) // 1000 + '...'
+            expect(result).toMatch(/\.\.\.$/)
+        })
+
+        it('does not truncate short error messages', () => {
+            const shortError = 'Error: something went wrong'
+            const result = normalizeError(shortError)
+            expect(result).toBe('Error: something went wrong')
+            expect(result).not.toMatch(/\.\.\.$/)
+        })
+    })
 })
 
 describe('processAiErrorNormalization', () => {

@@ -8,6 +8,10 @@
  * to least specific to prevent pattern interference.
  */
 
+// Truncate very long error messages to avoid storage bloat
+// Most useful error info is at the beginning anyway
+const MAX_ERROR_LENGTH = 1000
+
 // Step 1: UUIDs and request IDs (e.g., req_abc123, 550e8400-e29b-41d4-a716-446655440000)
 const UUID_AND_REQ_ID_PATTERN = /(req_[a-zA-Z0-9]+|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/gi
 
@@ -79,7 +83,8 @@ export function normalizeError(rawError: string): string {
         return ''
     }
 
-    let normalized = rawError
+    // Truncate before processing to avoid wasting CPU on text that will be discarded
+    let normalized = rawError.length > MAX_ERROR_LENGTH ? rawError.slice(0, MAX_ERROR_LENGTH) + '...' : rawError
 
     // Apply steps in order (most specific to least specific)
     normalized = normalized.replace(UUID_AND_REQ_ID_PATTERN, '<ID>')
