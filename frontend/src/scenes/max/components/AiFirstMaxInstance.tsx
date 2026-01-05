@@ -130,7 +130,7 @@ function ChatArea({ threadVisible, conversationId, conversation, onStartNewConve
 
             {/* Input - always in flow, mt-auto pushes to bottom when messages exist */}
             <div
-                className={`w-full max-w-3xl mx-auto px-4 transition-all duration-300 ease-out ${
+                className={`w-full max-w-3xl mx-auto px-4 transition-all duration-300 ease-out z-50 ${
                     hasMessages ? 'sticky bottom-0 bg-primary py-2 max-w-none' : 'pb-4'
                 }`}
             >
