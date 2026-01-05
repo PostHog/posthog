@@ -70,10 +70,12 @@
     {% if original.allow_impersonation != False %}
         <form method="POST" id="loginas-form" action="{% url 'loginas-user-login' object_id %}" style="display: none">
             {% csrf_token %}
+            <input type="hidden" name="read_only" value="false" />
         </form>
 
-        <form method="POST" id="loginas-readonly-form" action="{% url 'loginas-user-login-read-only' object_id %}" style="display: none">
+        <form method="POST" id="loginas-readonly-form" action="{% url 'loginas-user-login' object_id %}" style="display: none">
             {% csrf_token %}
+            <input type="hidden" name="read_only" value="true" />
         </form>
     {% endif %}
 {% endblock %}
