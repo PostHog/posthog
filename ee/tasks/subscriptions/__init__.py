@@ -252,11 +252,9 @@ async def deliver_subscription_report_async(
 
 
 def _capture_delivery_failed_event(subscription: Subscription, e: Exception) -> None:
-    if not subscription.created_by:
-        return None
-
+    distinct_id = subscription.created_by.distinct_id if subscription.created_by else subscription.team_id
     posthoganalytics.capture(
-        distinct_id=str(subscription.created_by.distinct_id),
+        distinct_id=str(distinct_id),
         event="subscription_delivery_failed",
         properties={
             "subscription_id": subscription.id,

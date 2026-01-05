@@ -84,7 +84,10 @@ def export_asset(
         # Failure recording must happen OUTSIDE the atomic block so it persists after rollback
         if _is_final_export_attempt(e, self.request.retries, self.max_retries):
             record_export_failure(exported_asset, e)
-        raise
+
+        # Only re-raise the exception if we retry on it, otherwise we will "swallow" it to align with previous behavior.
+        if isinstance(e, EXCEPTIONS_TO_RETRY):
+            raise
 
 
 def export_asset_direct(
