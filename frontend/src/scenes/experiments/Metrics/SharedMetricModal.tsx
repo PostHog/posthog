@@ -9,10 +9,11 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { ExperimentMetric, NodeKind } from '~/queries/schema/schema-general'
 import { AvailableFeature, Experiment } from '~/types'
 
 import { MetricDisplayFunnels, MetricDisplayTrends } from '../ExperimentView/components'
+import { getDefaultMetricTitle } from '../MetricsView/shared/utils'
 import { SharedMetric } from '../SharedMetrics/sharedMetricLogic'
 import { MetricContext } from './experimentMetricModalLogic'
 import { sharedMetricModalLogic } from './sharedMetricModalLogic'
@@ -37,6 +38,11 @@ function MetricSummary({ metric }: { metric: SharedMetric }): JSX.Element {
             {metric.query.kind === NodeKind.ExperimentFunnelsQuery && (
                 <MetricDisplayFunnels query={metric.query.funnels_query} />
             )}
+            <div className="text-xs text-muted">
+                <p>Type: {metric.query.metric_type}</p>
+                <p>Metric: {getDefaultMetricTitle(metric.query as ExperimentMetric)}</p>
+                <p>Goal: {metric.query.goal}</p>
+            </div>
         </div>
     )
 }
