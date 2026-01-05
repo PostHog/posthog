@@ -22,7 +22,6 @@ import { cn } from 'lib/utils/css-classes'
 
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '../../ui/ContextMenu/ContextMenu'
 import { SideAction } from '../LemonButton'
-import { LemonTag } from '../LemonTag'
 import { Link } from '../Link/Link'
 import { Spinner } from '../Spinner/Spinner'
 import {
@@ -421,32 +420,10 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                             : renderItemTooltip?.(item)
                                     }
                                     newTooltipPayload={{
-                                        title: (
-                                            <>
-                                                {item.displayName}
-                                                {item.tags?.length && (
-                                                    <>
-                                                        {item.tags?.map((tag) => (
-                                                            <LemonTag
-                                                                key={tag}
-                                                                type={
-                                                                    tag === 'alpha'
-                                                                        ? 'completion'
-                                                                        : tag === 'beta'
-                                                                          ? 'warning'
-                                                                          : 'success'
-                                                                }
-                                                                size="small"
-                                                                className="ml-2 relative top-[-1px]"
-                                                            >
-                                                                {tag.toUpperCase()}
-                                                            </LemonTag>
-                                                        ))}
-                                                    </>
-                                                )}
-                                            </>
-                                        ),
-                                        content: renderItemTooltip?.(item, 'new'),
+                                        title:
+                                            isDragging || isEmptyFolder || mode === 'table'
+                                                ? undefined
+                                                : renderItemTooltip?.(item),
                                         side: 'right',
                                     }}
                                     tooltipPlacement="right"
