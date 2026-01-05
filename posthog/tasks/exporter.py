@@ -96,8 +96,20 @@ def is_user_query_error_type(exception_type: str | None) -> bool:
     return exception_type in USER_QUERY_ERROR_NAMES
 
 
+def record_export_failure(exported_asset: ExportedAsset, e: Exception) -> None:
+    exported_asset.exception = str(e)
+    exported_asset.exception_type = type(e).__name__
+    exported_asset.save(update_fields=["exception", "exception_type"])
+
+
+def _is_final_export_attempt(exception: Exception, current_retries: int, max_retries: int) -> bool:
+    is_retriable = isinstance(exception, EXCEPTIONS_TO_RETRY)
+    return not is_retriable or current_retries >= max_retries
+
+
 # export_asset is used in chords/groups and so must not ignore its results
 @shared_task(
+    bind=True,
     acks_late=True,
     ignore_result=False,
     # we let the hogql query run for HOGQL_INCREASED_MAX_EXECUTION_TIME, give this some breathing room
@@ -111,8 +123,8 @@ def is_user_query_error_type(exception_type: str | None) -> bool:
     retry_backoff_max=3,
     max_retries=3,
 )
-@transaction.atomic
 def export_asset(
+    self,
     exported_asset_id: int,
     limit: Optional[int] = None,  # For CSV/XLSX: max row count
     max_height_pixels: Optional[int] = None,  # For images: max screenshot height in pixels
@@ -123,7 +135,17 @@ def export_asset(
     exported_asset: ExportedAsset = ExportedAsset.objects_including_ttl_deleted.select_related(
         "created_by", "team", "team__organization"
     ).get(pk=exported_asset_id)
-    export_asset_direct(exported_asset, limit=limit, max_height_pixels=max_height_pixels)
+
+    try:
+        with transaction.atomic():
+            export_asset_direct(exported_asset, limit=limit, max_height_pixels=max_height_pixels)
+    except Exception as e:
+        if _is_final_export_attempt(e, self.request.retries, self.max_retries):
+            record_export_failure(exported_asset, e)
+
+        # Only re-raise the exception if we retry on it, otherwise we will "swallow" it to align with previous behavior.
+        if isinstance(e, EXCEPTIONS_TO_RETRY):
+            raise
 
 
 def export_asset_direct(
@@ -218,9 +240,4 @@ def export_asset_direct(
             groups=groups(team.organization, team),
         )
 
-        if is_retriable:
-            raise
-
-        exported_asset.exception = str(e)
-        exported_asset.exception_type = type(e).__name__
-        exported_asset.save()
+        raise
