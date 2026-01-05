@@ -235,8 +235,6 @@ class OAuthValidator(OAuth2Validator):
         Check refresh_token exists and refers to the right client.
         Override to use token_checksum for lookup instead of plaintext token.
         """
-        from datetime import timedelta
-
         token_checksum = hashlib.sha256(refresh_token.encode("utf-8")).hexdigest()
         rt = OAuthRefreshToken.objects.filter(token_checksum=token_checksum).select_related("access_token").first()
 
@@ -507,31 +505,39 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
 
         token_checksum = hashlib.sha256(token_value.encode("utf-8")).hexdigest()
 
-        token: OAuthAccessToken | OAuthRefreshToken | None = None
         try:
-            token = OAuthAccessToken.objects.get(token_checksum=token_checksum)
+            access_token = OAuthAccessToken.objects.get(token_checksum=token_checksum)
+            if access_token.is_valid():
+                data = {
+                    "active": True,
+                    "scope": access_token.scope,
+                    "scoped_teams": access_token.scoped_teams or [],
+                    "scoped_organizations": access_token.scoped_organizations or [],
+                    "exp": int(calendar.timegm(access_token.expires.timetuple())),
+                }
+                if access_token.application:
+                    data["client_id"] = access_token.application.client_id
+                return JsonResponse(data)
+            return JsonResponse({"active": False}, status=200)
         except OAuthAccessToken.DoesNotExist:
-            try:
-                token = OAuthRefreshToken.objects.get(token_checksum=token_checksum)
-            except OAuthRefreshToken.DoesNotExist:
-                pass
+            pass
 
-        if token is None:
+        try:
+            refresh_token = OAuthRefreshToken.objects.get(token_checksum=token_checksum)
+            if refresh_token.revoked is None:
+                data: dict = {
+                    "active": True,
+                    "scoped_teams": refresh_token.scoped_teams or [],
+                    "scoped_organizations": refresh_token.scoped_organizations or [],
+                }
+                if refresh_token.application:
+                    data["client_id"] = refresh_token.application.client_id
+                return JsonResponse(data)
             return JsonResponse({"active": False}, status=200)
+        except OAuthRefreshToken.DoesNotExist:
+            pass
 
-        if token.is_valid():
-            data = {
-                "active": True,
-                "scope": token.scope,
-                "scoped_teams": token.scoped_teams or [],
-                "scoped_organizations": token.scoped_organizations or [],
-                "exp": int(calendar.timegm(token.expires.timetuple())),
-            }
-            if token.application:
-                data["client_id"] = token.application.client_id
-            return JsonResponse(data)
-        else:
-            return JsonResponse({"active": False}, status=200)
+        return JsonResponse({"active": False}, status=200)
 
     def get(self, request, *args, **kwargs):
         """
