@@ -23,7 +23,7 @@ import {
 } from '~/types'
 
 import type { productToursLogicType } from './productToursLogicType'
-import { captureScreenshot, getElementMetadata, getSmartUrlDefaults } from './utils'
+import { captureScreenshot, getElementMetadata } from './utils'
 
 const RECENT_GOALS_KEY = 'posthog-product-tours-recent-goals'
 
@@ -336,9 +336,6 @@ export const productToursLogic = kea<productToursLogicType>([
                 // Update history if step order changed (or create initial version for new tours)
                 const stepOrderHistory = getUpdatedStepOrderHistory(stepsForApi, existingHistory)
 
-                // For new tours, set smart URL defaults based on current page
-                const urlDefaults = !isUpdate ? getSmartUrlDefaults() : null
-
                 const payload = {
                     name,
                     content: {
@@ -346,15 +343,6 @@ export const productToursLogic = kea<productToursLogicType>([
                         ...existingTour?.content,
                         steps: stepsForApi,
                         step_order_history: stepOrderHistory,
-                        // Set smart URL defaults for new tours (don't override existing conditions)
-                        ...(!isUpdate && !existingTour?.content?.conditions
-                            ? {
-                                  conditions: {
-                                      url: urlDefaults?.url,
-                                      urlMatchType: urlDefaults?.urlMatchType,
-                                  },
-                              }
-                            : {}),
                     },
                 }
                 const url = isUpdate
