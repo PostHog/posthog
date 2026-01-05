@@ -64,10 +64,12 @@ AS SELECT
     toStartOfMinute(timestamp) AS minute,
     1 AS event_count
 FROM {database}.sharded_events
+WHERE timestamp >= now() - INTERVAL {ttl_days} DAY
 """.format(
         mv_name=MV_NAME,
         target_table=target_table,
         database=settings.CLICKHOUSE_DATABASE,
+        ttl_days=DISTINCT_ID_USAGE_TTL_DAYS,
     )
 
 
