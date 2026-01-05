@@ -22,23 +22,17 @@ ARCH=$(uname -m)
 if [ "$OS" = "ubuntu" ] || [ "$OS" = "debian" ]; then
   echo "Detected Debian/Ubuntu, installing via .deb package..."
 
-  # Map architecture
-  if [ "$ARCH" = "x86_64" ]; then
-    DEB_ARCH="amd64"
-  elif [ "$ARCH" = "aarch64" ]; then
-    DEB_ARCH="arm64"
-  else
-    echo "Unsupported architecture: $ARCH"
-    exit 1
-  fi
-
   # Get latest version
   FLOX_VERSION=$(curl -s https://downloads.flox.dev/by-env/stable/LATEST_VERSION)
   echo "Latest flox version: ${FLOX_VERSION}"
 
   # Download and install .deb package
-  FLOX_DEB="flox-${FLOX_VERSION}.${DEB_ARCH}.deb"
+  FLOX_DEB="flox-${FLOX_VERSION}.${DEB_ARCH}-linux.deb"
   wget -O "/tmp/${FLOX_DEB}" "https://downloads.flox.dev/by-env/stable/deb/${FLOX_DEB}"
+  if [ ! -s "/tmp/${FLOX_DEB}" ]; then
+    echo "❌ Unsupported architecture: ${ARCH}"
+    exit 1
+  fi
   sudo dpkg -i "/tmp/${FLOX_DEB}"
   rm "/tmp/${FLOX_DEB}"
 else
