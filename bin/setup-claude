@@ -6,7 +6,7 @@ if [ "$CLAUDE_CODE_REMOTE" != "true" ]; then
 fi
 
 # Install flox
-echo "🔄 Installing flox in remote environment..."
+echo "Installing flox in remote environment..."
 
 # Detect OS and architecture
 if [ -f /etc/os-release ]; then
@@ -44,10 +44,8 @@ fi
 # Activate flox environment for Claude session
 if [ -n "$CLAUDE_ENV_FILE" ]; then
   echo 'export PATH="$HOME/.flox/bin:$PATH"' >> "$CLAUDE_ENV_FILE"
-  # Write in-place activation command (runs when Claude sources the env file)
-  echo 'eval "$(flox activate)"' >> "$CLAUDE_ENV_FILE"
 fi
 
 # Run a no-op command within flox to trigger dependency installation (on-first-use hook)
-echo "🔄 Installing flox dependencies..."
-flox activate -- echo "✅ Flox is ready"
+echo "Installing flox dependencies..."
+flox activate -- echo "Flox is ready"
