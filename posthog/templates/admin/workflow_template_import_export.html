@@ -250,40 +250,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         html += '</div>';
                     }
                     
-                    // Check for existing templates if there are IDs (only check global templates)
-                    if (templatesWithIds.length > 0) {
-                        fetch('{% url "workflow-template-check-existing" %}', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
-                            },
-                            body: JSON.stringify({ template_ids: templatesWithIds })
-                        })
-                        .then(response => response.json())
-                        .then(data => {
-                            if (data.existing && Object.keys(data.existing).length > 0) {
-                                let warningHtml = '<div class="overwrite-warning">';
-                                warningHtml += '<strong>⚠️ Warning: The following templates already exist and may be overwritten:</strong>';
-                                warningHtml += '<ul>';
-                                for (const [id, info] of Object.entries(data.existing)) {
-                                    warningHtml += '<li><strong>ID:</strong> ' + id + ', <strong>Name:</strong> ' + info.name + '</li>';
-                                }
-                                warningHtml += '</ul>';
-                                warningHtml += '<p>These templates will be automatically overwritten during import.</p>';
-                                warningHtml += '</div>';
-                                previewContent.innerHTML = html + warningHtml;
-                            } else {
-                                previewContent.innerHTML = html;
-                            }
-                        })
-                        .catch(error => {
-                            console.error('Error checking existing templates:', error);
-                            previewContent.innerHTML = html + '<p class="preview-error">Error checking for existing templates.</p>';
-                        });
-                    } else {
-                        previewContent.innerHTML = html;
-                    }
+                    previewContent.innerHTML = html;
                     previewSection.classList.add('visible');
                 } catch (error) {
                     previewContent.innerHTML = '<p class="preview-error">Error parsing JSON: ' + error.message + '</p>';

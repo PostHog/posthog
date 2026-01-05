@@ -4,7 +4,7 @@ from django import forms
 from django.contrib import admin, messages
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
-from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.http import HttpRequest, HttpResponse
 from django.shortcuts import redirect, render
 from django.test import RequestFactory
 
@@ -151,15 +151,12 @@ def workflow_template_import_export_view(request: HttpRequest) -> HttpResponse:
                         errors.append(f"Team with ID {team_id} does not exist")
                         team_exists = False
 
-                    # Use transaction only for real imports, not dry runs
                     if dry_run:
-                        # Dry run: process without transaction
                         if team_exists:
                             for template_data in global_templates:
                                 try:
                                     template_id = template_data.get("id")
 
-                                    # Validate scope is global
                                     template_scope = template_data.get("scope")
                                     if template_scope != HogFlowTemplate.Scope.GLOBAL:
                                         errors.append(
@@ -167,17 +164,16 @@ def workflow_template_import_export_view(request: HttpRequest) -> HttpResponse:
                                         )
                                         continue
 
-                                    # Check if template exists
                                     existing_template = None
                                     if template_id:
                                         try:
-                                            existing_template = HogFlowTemplate.objects.get(id=template_id)
+                                            existing_template = HogFlowTemplate.objects.get(
+                                                id=template_id, scope=HogFlowTemplate.Scope.GLOBAL
+                                            )
                                         except HogFlowTemplate.DoesNotExist:
                                             pass
 
                                     if existing_template:
-                                        # Always overwrite existing templates
-                                        # Validate using serializer
                                         serializer = HogFlowTemplateSerializer(
                                             instance=existing_template,
                                             data=template_data,
@@ -199,7 +195,6 @@ def workflow_template_import_export_view(request: HttpRequest) -> HttpResponse:
                                                 f"Template '{template_data.get('name', 'Unknown')}' (ID: {template_id}) validation failed: {', '.join(error_msgs)}"
                                             )
                                     else:
-                                        # Validate using serializer
                                         serializer = HogFlowTemplateSerializer(
                                             data=template_data,
                                             context=serializer_context,
@@ -239,11 +234,13 @@ def workflow_template_import_export_view(request: HttpRequest) -> HttpResponse:
                                             )
                                             continue
 
-                                        # Check if template exists
+                                        # Check if template exists (only look for global templates)
                                         existing_template = None
                                         if template_id:
                                             try:
-                                                existing_template = HogFlowTemplate.objects.get(id=template_id)
+                                                existing_template = HogFlowTemplate.objects.get(
+                                                    id=template_id, scope=HogFlowTemplate.Scope.GLOBAL
+                                                )
                                             except HogFlowTemplate.DoesNotExist:
                                                 pass
 
@@ -273,9 +270,14 @@ def workflow_template_import_export_view(request: HttpRequest) -> HttpResponse:
                                                 )
                                         else:
                                             # Create using serializer
+                                            # Pass template_id in context so serializer can preserve it
+                                            serializer_context_with_id = {
+                                                **serializer_context,
+                                                "template_id": template_id,
+                                            }
                                             serializer = HogFlowTemplateSerializer(
                                                 data=template_data,
-                                                context=serializer_context,
+                                                context=serializer_context_with_id,
                                             )
                                             if serializer.is_valid():
                                                 serializer.save()
@@ -365,28 +367,3 @@ def workflow_template_import_export_view(request: HttpRequest) -> HttpResponse:
         "has_permission": True,
     }
     return render(request, "admin/workflow_template_import_export.html", context)
-
-
-def check_existing_workflow_templates_view(request: HttpRequest) -> JsonResponse:
-    """AJAX endpoint to check if templates with given IDs exist"""
-    if not request.user.is_staff:
-        raise PermissionDenied
-
-    if request.method != "POST":
-        return JsonResponse({"error": "Method not allowed"}, status=405)
-
-    try:
-        data = json.loads(request.body)
-        template_ids = data.get("template_ids", [])
-
-        if not template_ids:
-            return JsonResponse({"existing": []})
-
-        # Check which templates exist
-        existing_templates = HogFlowTemplate.objects.filter(id__in=template_ids).values("id", "name", "scope")
-
-        existing_dict = {str(t["id"]): {"name": t["name"], "scope": t["scope"]} for t in existing_templates}
-
-        return JsonResponse({"existing": existing_dict})
-    except Exception as e:
-        return JsonResponse({"error": str(e)}, status=400)

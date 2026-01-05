@@ -108,10 +108,7 @@ if settings.ADMIN_PORTAL_ENABLED:
     )
     from posthog.admin.admins.realtime_cohort_calculation_admin import analyze_realtime_cohort_calculation_view
     from posthog.admin.admins.resave_cohorts_admin import resave_cohorts_view
-    from posthog.admin.admins.workflow_template_import_export_admin import (
-        check_existing_workflow_templates_view,
-        workflow_template_import_export_view,
-    )
+    from posthog.admin.admins.workflow_template_import_export_admin import workflow_template_import_export_view
 
     admin_urlpatterns = [
         path("admin/oauth2/callback", admin_oauth2_callback, name="admin_oauth2_callback"),
@@ -139,11 +136,6 @@ if settings.ADMIN_PORTAL_ENABLED:
             "admin/workflow-template-import-export/",
             admin.site.admin_view(workflow_template_import_export_view),
             name="workflow-template-import-export",
-        ),
-        path(
-            "admin/workflow-template-check-existing/",
-            admin.site.admin_view(check_existing_workflow_templates_view),
-            name="workflow-template-check-existing",
         ),
         path(
             "admin/logout/",
