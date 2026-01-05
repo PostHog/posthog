@@ -299,10 +299,7 @@ class BaseAgentRunner(ABC):
                 if self._use_checkpointer:
                     await self._graph.aupdate_state(
                         config,
-                        self._partial_state_type(
-                            messages=[recursion_limit_message],
-                            graph_status="interrupted",
-                        ),
+                        self._partial_state_type(messages=[recursion_limit_message]),
                     )
             except LLM_API_EXCEPTIONS as e:
                 # Reset the state for LLM provider errors
