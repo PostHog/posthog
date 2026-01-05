@@ -29,8 +29,8 @@ class Settings(BaseSettings):
     openai_api_base_url: str | None = None  # Used for regional endpoints
     gemini_api_key: str | None = None
 
-    # Used to send gateway errors to error tracking and LLM analytics events
-    posthog_api_key: str | None = None
+    # Project token for LLM analytics events
+    posthog_project_token: str | None = None
     posthog_host: str = "https://us.i.posthog.com"
 
     metrics_enabled: bool = True

@@ -16,10 +16,10 @@ def _ensure_initialized() -> bool:
         return True
 
     settings = get_settings()
-    if not settings.posthog_api_key:
+    if not settings.posthog_project_token:
         return False
 
-    posthoganalytics.api_key = settings.posthog_api_key
+    posthoganalytics.api_key = settings.posthog_project_token
     _initialized = True
     return True
 

@@ -16,11 +16,15 @@ def init_analytics_service() -> "LLMAnalyticsService | None":
     """Initialize the analytics service on startup."""
     global _analytics_service
     settings = get_settings()
-    if not settings.posthog_api_key:
-        logger.info("PostHog API key not configured, LLM analytics disabled")
+    api_key = settings.posthog_project_token
+
+    if not api_key:
+        logger.info(
+            "LLM analytics disabled - to enable, set LLM_GATEWAY_POSTHOG_PROJECT_TOKEN in mprocs.yaml"
+        )
         return None
     _analytics_service = LLMAnalyticsService(
-        api_key=settings.posthog_api_key,
+        api_key=api_key,
         host=settings.posthog_host,
     )
     logger.info("LLM analytics service initialized")
