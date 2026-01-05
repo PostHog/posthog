@@ -86,7 +86,7 @@ class TestWorkflowTemplateImportExportAdmin(BaseTest):
 
         response = self.client.post(
             "/admin/workflow-template-import-export/",
-            {"json_file": json_file, "dry_run": False},
+            {"json_file": json_file},
         )
 
         # Should redirect on success
@@ -110,7 +110,7 @@ class TestWorkflowTemplateImportExportAdmin(BaseTest):
 
         response = self.client.post(
             "/admin/workflow-template-import-export/",
-            {"json_file": json_file, "dry_run": False},
+            {"json_file": json_file},
         )
 
         # Should redirect with error message
@@ -137,7 +137,7 @@ class TestWorkflowTemplateImportExportAdmin(BaseTest):
 
         response = self.client.post(
             "/admin/workflow-template-import-export/",
-            {"json_file": json_file, "dry_run": False},
+            {"json_file": json_file},
         )
 
         # Should redirect (errors are shown via messages)
@@ -161,7 +161,7 @@ class TestWorkflowTemplateImportExportAdmin(BaseTest):
 
         response = self.client.post(
             "/admin/workflow-template-import-export/",
-            {"json_file": json_file, "dry_run": False},
+            {"json_file": json_file},
         )
 
         # Should redirect
@@ -207,7 +207,7 @@ class TestWorkflowTemplateImportExportAdmin(BaseTest):
 
         response = self.client.post(
             "/admin/workflow-template-import-export/",
-            {"json_file": json_file, "dry_run": False},
+            {"json_file": json_file},
         )
 
         # Should redirect on success

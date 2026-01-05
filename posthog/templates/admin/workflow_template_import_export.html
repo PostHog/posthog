@@ -124,17 +124,6 @@
                 {% endif %}
                 {{ import_form.json_file.errors }}
             </div>
-            
-            <div class="form-row">
-                <label for="{{ import_form.dry_run.id_for_label }}">
-                    {{ import_form.dry_run.label }}:
-                </label>
-                {{ import_form.dry_run }}
-                {% if import_form.dry_run.help_text %}
-                    <p class="help">{{ import_form.dry_run.help_text }}</p>
-                {% endif %}
-                {{ import_form.dry_run.errors }}
-            </div>
         </fieldset>
         
         <div class="preview-section" id="preview-section">
