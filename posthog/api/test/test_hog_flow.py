@@ -645,7 +645,9 @@ class TestHogFlowAPI(APIBaseTest):
         assert "delay" in action_types  # Delay is present
         assert action_types.count("function") == 2  # Two function actions
 
-    @patch("products.workflows.backend.models.hog_flow_batch_job.create_batch_hog_flow_job_invocation")
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
     def test_hog_flow_batch_jobs_endpoint_creates_job(self, mock_create_invocation):
         hog_flow, _ = self._create_hog_flow_with_action(
             {
