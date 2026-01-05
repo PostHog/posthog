@@ -303,7 +303,7 @@ export function EmailActionTestContent(): JSX.Element | null {
                             <LemonButton
                                 type="secondary"
                                 onClick={() => setPersonSelectorOpen(!personSelectorOpen)}
-                                tooltip="Select a person to load test data (selection is saved)"
+                                tooltip="Select a person to load test data"
                                 size="small"
                                 loading={sampleGlobalsLoading}
                                 className="mt-1"
