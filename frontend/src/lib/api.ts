@@ -3926,8 +3926,14 @@ const api = {
         async summarize_responses(
             surveyId: Survey['id'],
             questionIndex: number | undefined,
-            questionId: string | undefined
-        ): Promise<any> {
+            questionId: string | undefined,
+            forceRefresh: boolean = false
+        ): Promise<{
+            content: string
+            response_count: number
+            generated_at: string
+            cached: boolean
+        }> {
             const apiRequest = new ApiRequest().survey(surveyId).withAction('summarize_responses')
             const queryParams: Record<string, string> = {}
 
@@ -3937,7 +3943,7 @@ const api = {
             if (questionId !== undefined) {
                 queryParams['question_id'] = questionId
             }
-            return await apiRequest.withQueryString(queryParams).create()
+            return await apiRequest.withQueryString(queryParams).create({ data: { force_refresh: forceRefresh } })
         },
         async getSummaryHeadline(
             surveyId: Survey['id'],
