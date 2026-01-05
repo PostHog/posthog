@@ -1,0 +1,16 @@
+#!/bin/bash
+
+# Only run in remote environments
+if [ "$CLAUDE_CODE_REMOTE" != "true" ]; then
+  exit 0
+fi
+
+echo "Installing flox in remote environment..."
+curl -L https://get.flox.dev | bash
+
+# Add flox to PATH if needed
+if [ -n "$CLAUDE_ENV_FILE" ]; then
+  echo 'export PATH="$HOME/.flox/bin:$PATH"' >> "$CLAUDE_ENV_FILE"
+fi
+
+echo "✅ Flox is activated"

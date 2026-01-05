@@ -1,0 +1,35 @@
+{
+    "hooks": {
+        "SessionStart": [
+            {
+                "matcher": "startup",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "bin/setup-remote-claude-execution"
+                    }
+                ]
+            }
+        ],
+        "PostToolUse": [
+            {
+                "matcher": "Edit|Write",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "bash -c 'FILE=$(echo \"$TOOL_ARGS\" | grep -o \"file_path[^,}]*\" | cut -d\\\" -f3); if [[ \"$FILE\" =~ \\.py$ ]]; then ruff check \"$FILE\" --fix && ruff format \"$FILE\"; fi'"
+                    }
+                ]
+            },
+            {
+                "matcher": "Edit|Write",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "bash -c 'FILE=$(echo \"$TOOL_ARGS\" | grep -o \"file_path[^,}]*\" | cut -d\\\" -f3); if [[ \"$FILE\" =~ frontend/.*\\.(ts|tsx|js|jsx)$ ]]; then pnpm --filter=@posthog/frontend format \"$FILE\"; fi'"
+                    }
+                ]
+            }
+        ]
+    }
+}
