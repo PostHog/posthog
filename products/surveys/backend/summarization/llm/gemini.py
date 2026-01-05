@@ -1,6 +1,7 @@
 """Gemini provider for survey summarization."""
 
 import uuid
+from dataclasses import dataclass
 
 from django.conf import settings
 
@@ -13,6 +14,15 @@ from rest_framework import exceptions
 from ..constants import DEFAULT_MODEL
 from ..models import GeminiModel
 from .schema import SurveySummaryResponse
+
+
+@dataclass
+class SummarizationResult:
+    """Result of survey summarization including trace_id for feedback mapping."""
+
+    summary: SurveySummaryResponse
+    trace_id: str
+
 
 logger = structlog.get_logger(__name__)
 
@@ -68,7 +78,7 @@ def summarize_with_gemini(
     survey_id: str | None = None,
     question_id: str | None = None,
     team_id: int | None = None,
-) -> SurveySummaryResponse:
+) -> SummarizationResult:
     """
     Generate survey summary using Gemini API with structured outputs.
 
@@ -82,7 +92,7 @@ def summarize_with_gemini(
         team_id: Team ID for analytics
 
     Returns:
-        Structured survey summary response
+        SummarizationResult with summary and trace_id for feedback mapping
     """
     if not responses:
         raise exceptions.ValidationError("responses cannot be empty")
@@ -116,7 +126,8 @@ def summarize_with_gemini(
         if not response.text:
             raise exceptions.ValidationError("Gemini returned empty response")
 
-        return SurveySummaryResponse.model_validate_json(response.text)
+        summary = SurveySummaryResponse.model_validate_json(response.text)
+        return SummarizationResult(summary=summary, trace_id=trace_id)
 
     except exceptions.ValidationError:
         raise

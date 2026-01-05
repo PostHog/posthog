@@ -2,8 +2,7 @@
 
 from ..constants import DEFAULT_MODEL
 from ..models import GeminiModel
-from .gemini import summarize_with_gemini
-from .schema import SurveySummaryResponse
+from .gemini import SummarizationResult, summarize_with_gemini
 
 
 def summarize_responses(
@@ -15,7 +14,7 @@ def summarize_responses(
     survey_id: str | None = None,
     question_id: str | None = None,
     team_id: int | None = None,
-) -> SurveySummaryResponse:
+) -> SummarizationResult:
     """
     Generate AI-powered summary of survey responses.
 
@@ -29,7 +28,7 @@ def summarize_responses(
         team_id: Team ID for analytics
 
     Returns:
-        Structured survey summary with themes and insights
+        SummarizationResult with summary and trace_id for feedback mapping
     """
     return summarize_with_gemini(
         question_text,

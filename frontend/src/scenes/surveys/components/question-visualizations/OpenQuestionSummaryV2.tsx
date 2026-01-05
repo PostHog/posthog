@@ -27,6 +27,7 @@ interface SummaryData {
     content: string
     responseCount: number
     generatedAt: string
+    traceId?: string
     cached: boolean
 }
 
@@ -69,6 +70,7 @@ export function OpenQuestionSummaryV2({
                     content: result.content,
                     responseCount: result.response_count,
                     generatedAt: result.generated_at,
+                    traceId: result.trace_id,
                     cached: result.cached,
                 })
             } catch (e: any) {
@@ -113,6 +115,7 @@ export function OpenQuestionSummaryV2({
             survey_id: survey.id,
             question_id: questionId,
             answer_rating: newRating,
+            $ai_trace_id: summary?.traceId,
         })
     }
 

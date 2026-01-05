@@ -1517,6 +1517,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                         "content": cached_summary.get("summary", ""),
                         "response_count": cached_summary.get("responseCount", 0),
                         "generated_at": cached_summary.get("generatedAt"),
+                        "trace_id": cached_summary.get("traceId"),
                         "cached": True,
                     }
                 )
@@ -1580,7 +1581,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
 
         # Generate summary using Gemini
         try:
-            structured_summary = summarize_responses(
+            result = summarize_responses(
                 question_text,
                 responses,
                 distinct_id=str(user.distinct_id),
@@ -1588,16 +1589,30 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                 question_id=question_id,
                 team_id=self.team.pk,
             )
-            content = format_as_markdown(structured_summary)
+            content = format_as_markdown(result.summary)
+            trace_id = result.trace_id
+        except exceptions.ValidationError:
+            raise
+        except exceptions.APIException:
+            raise
         except Exception as e:
-            logger.exception("Failed to generate survey summary", error=str(e))
+            logger.exception(
+                "Failed to generate survey summary",
+                survey_id=survey_id,
+                question_id=question_id,
+                error_type=type(e).__name__,
+                error=str(e),
+            )
             raise exceptions.APIException("Failed to generate summary. Please try again.")
+
+        generated_at = datetime.now(UTC).isoformat()
 
         # Prepare response data
         response_data = {
             "content": content,
             "response_count": response_count,
-            "generated_at": datetime.now(UTC).isoformat(),
+            "generated_at": generated_at,
+            "trace_id": trace_id,
             "cached": False,
         }
 
@@ -1606,9 +1621,10 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             if survey.question_summaries is None:
                 survey.question_summaries = {}
             survey.question_summaries[question_id] = {
-                "summary": response_data["content"],
+                "summary": content,
                 "responseCount": response_count,
-                "generatedAt": response_data["generated_at"],
+                "generatedAt": generated_at,
+                "traceId": trace_id,
             }
             survey.save(update_fields=["question_summaries"])
 
