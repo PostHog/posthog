@@ -80,33 +80,43 @@ export const normalizeTraceProperties = (event: EventWithProperties): EventWithP
 }
 
 const setCostsOnEvent = (event: EventWithProperties, cost: ResolvedModelCost): void => {
-    event.properties['$ai_input_cost_usd'] = parseFloat(calculateInputCost(event, cost))
-    event.properties['$ai_output_cost_usd'] = parseFloat(calculateOutputCost(event, cost))
-    event.properties['$ai_request_cost_usd'] = parseFloat(calculateRequestCost(event, cost))
-    event.properties['$ai_web_search_cost_usd'] = parseFloat(calculateWebSearchCost(event, cost))
+    const inputCost = calculateInputCost(event, cost)
+    const outputCost = calculateOutputCost(event, cost)
+    const requestCost = calculateRequestCost(event, cost)
+    const webSearchCost = calculateWebSearchCost(event, cost)
 
-    // Sum all cost components for total
-    let total = bigDecimal.add(event.properties['$ai_input_cost_usd'], event.properties['$ai_output_cost_usd'])
-    total = bigDecimal.add(total, event.properties['$ai_request_cost_usd'])
-    total = bigDecimal.add(total, event.properties['$ai_web_search_cost_usd'])
+    event.properties['$ai_input_cost_usd'] = parseFloat(inputCost)
+    event.properties['$ai_output_cost_usd'] = parseFloat(outputCost)
+    event.properties['$ai_request_cost_usd'] = parseFloat(requestCost)
+    event.properties['$ai_web_search_cost_usd'] = parseFloat(webSearchCost)
+
+    // Sum all cost components for total using strings (BigDecimal returns strings)
+    let total = bigDecimal.add(inputCost, outputCost)
+    total = bigDecimal.add(total, requestCost)
+    total = bigDecimal.add(total, webSearchCost)
 
     event.properties['$ai_total_cost_usd'] = parseFloat(total)
 }
 
 const processCost = (event: EventWithProperties): EventWithProperties => {
-    // If we already have input and output costs, we can skip the rest of the logic
-    if (event.properties['$ai_input_cost_usd'] && event.properties['$ai_output_cost_usd']) {
+    const inputCost = event.properties['$ai_input_cost_usd']
+    const outputCost = event.properties['$ai_output_cost_usd']
+
+    // If we already have valid input and output costs, we can skip the rest of the logic
+    if (inputCost && outputCost && isBigDecimalInput(inputCost) && isBigDecimalInput(outputCost)) {
         if (!event.properties['$ai_total_cost_usd']) {
-            let total = bigDecimal.add(event.properties['$ai_input_cost_usd'], event.properties['$ai_output_cost_usd'])
+            let total = bigDecimal.add(inputCost, outputCost)
 
             // Add pre-calculated request cost if present
-            if (event.properties['$ai_request_cost_usd']) {
-                total = bigDecimal.add(total, event.properties['$ai_request_cost_usd'])
+            const requestCost = event.properties['$ai_request_cost_usd']
+            if (requestCost && isBigDecimalInput(requestCost)) {
+                total = bigDecimal.add(total, requestCost)
             }
 
             // Add pre-calculated web search cost if present
-            if (event.properties['$ai_web_search_cost_usd']) {
-                total = bigDecimal.add(total, event.properties['$ai_web_search_cost_usd'])
+            const webSearchCost = event.properties['$ai_web_search_cost_usd']
+            if (webSearchCost && isBigDecimalInput(webSearchCost)) {
+                total = bigDecimal.add(total, webSearchCost)
             }
 
             event.properties['$ai_total_cost_usd'] = parseFloat(total)
@@ -204,4 +214,8 @@ export const extractCoreModelParams = (event: EventWithProperties): EventWithPro
 
 const isString = (property: unknown): property is string => {
     return typeof property === 'string'
+}
+
+const isBigDecimalInput = (value: unknown): value is string | number => {
+    return typeof value === 'string' || typeof value === 'number'
 }
