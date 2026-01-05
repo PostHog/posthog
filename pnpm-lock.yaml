@@ -429,6 +429,9 @@ importers:
       '@posthog/products-cohorts':
         specifier: workspace:*
         version: link:../products/cohorts
+      '@posthog/products-conversations':
+        specifier: workspace:*
+        version: link:../products/conversations
       '@posthog/products-customer-analytics':
         specifier: workspace:*
         version: link:../products/customer_analytics
@@ -1565,6 +1568,39 @@ importers:
       react:
         specifier: '*'
         version: 18.2.0
+
+  products/conversations:
+    dependencies:
+      '@posthog/icons':
+        specifier: 0.35.2
+        version: 0.35.2(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@posthog/lemon-ui':
+        specifier: '*'
+        version: 0.0.0(antd@5.26.0(date-fns@2.29.3)(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0))(kea-router@3.4.1(kea@3.1.7(react@18.2.0)))(kea@3.1.7(react@18.2.0))(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@types/react':
+        specifier: '*'
+        version: 17.0.52
+      '@types/react-dom':
+        specifier: '*'
+        version: 18.3.7(@types/react@17.0.52)
+      clsx:
+        specifier: '*'
+        version: 1.2.1
+      kea:
+        specifier: ^3.1.7
+        version: 3.1.7(react@18.2.0)
+      kea-loaders:
+        specifier: ^3.1.1
+        version: 3.1.1(kea@3.1.7(react@18.2.0))
+      kea-router:
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.7(react@18.2.0))
+      react:
+        specifier: '*'
+        version: 18.2.0
+      react-dom:
+        specifier: '*'
+        version: 18.2.0(react@18.2.0)
 
   products/customer_analytics:
     dependencies:

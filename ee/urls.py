@@ -108,6 +108,7 @@ if settings.ADMIN_PORTAL_ENABLED:
     )
     from posthog.admin.admins.realtime_cohort_calculation_admin import analyze_realtime_cohort_calculation_view
     from posthog.admin.admins.resave_cohorts_admin import resave_cohorts_view
+    from posthog.admin.admins.workflow_template_import_export_admin import workflow_template_import_export_view
 
     admin_urlpatterns = [
         path("admin/oauth2/callback", admin_oauth2_callback, name="admin_oauth2_callback"),
@@ -132,6 +133,11 @@ if settings.ADMIN_PORTAL_ENABLED:
             name="backfill-precalculated-person-properties",
         ),
         path(
+            "admin/workflow-template-import-export/",
+            admin.site.admin_view(workflow_template_import_export_view),
+            name="workflow-template-import-export",
+        ),
+        path(
             "admin/logout/",
             admin.site.admin_view(impersonated_session_logout),
             name="loginas-logout",
@@ -152,7 +158,7 @@ urlpatterns: list[Any] = [
     path("api/saml/metadata/", authentication.saml_metadata_view),
     path("api/sentry_stats/", sentry_stats.sentry_stats),
     path("max/chat/", csrf_exempt(MaxChatViewSet.as_view({"post": "create"})), name="max_chat"),
-    path("login/vercel/", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_redirect"})),
+    path("login/vercel", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_redirect"})),
     path("login/vercel/continue", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_continue"})),
     path("webhooks/vercel", csrf_exempt(vercel_webhooks.vercel_webhook), name="vercel_webhooks"),
     path("scim/v2/<uuid:domain_id>/Users", csrf_exempt(scim_views.SCIMUsersView.as_view()), name="scim_users"),

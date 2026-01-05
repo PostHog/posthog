@@ -9,7 +9,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0955_alter_organization_is_ai_data_processing_approved"),
+        ("posthog", "0956_team_conversations_enabled_and_more"),
     ]
 
     operations = [

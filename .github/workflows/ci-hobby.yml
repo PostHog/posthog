@@ -283,7 +283,7 @@ jobs:
 
     hobby-test:
         runs-on: ubuntu-24.04
-        timeout-minutes: 40
+        timeout-minutes: 60
         name: Setup DO Hobby Instance and test
         needs: [wait-for-docker-image, changes]
         if: always() && ((needs.changes.outputs.should_run == 'true' && needs.wait-for-docker-image.result == 'success') || github.event_name == 'push')
@@ -377,7 +377,7 @@ jobs:
                       console.log(`Updated deployment ${deploymentId} to in_progress`);
             - name: Run smoke tests on DO
               id: test
-              timeout-minutes: 30
+              timeout-minutes: 45
               run: |
                   set +e
                   uv run bin/hobby-ci.py test

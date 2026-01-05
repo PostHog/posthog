@@ -122,9 +122,9 @@ async def find_orphaned_persons(inputs: FindOrphanedPersonsInputs) -> FindOrphan
                     orphaned_persons.append(
                         OrphanedPerson(
                             person_id=data["person_id"],
-                            team_id=data["team_id"],
+                            team_id=int(data["team_id"]),
                             created_at=data["created_at"],
-                            version=data["version"],
+                            version=int(data["version"]),
                         )
                     )
 
