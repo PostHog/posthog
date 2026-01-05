@@ -154,6 +154,27 @@ class SurveyList(RootModel):
     root: list[DigestSurvey]
 
 
+PRODUCT_SUGGESTION_REASON_DEFAULTS: dict[str, str] = {
+    "new_product": "This is a brand new product. Give it a try!",
+    "sales_led": "This product is recommended for you by our team.",
+}
+
+
+class DigestProductSuggestion(BaseModel):
+    team_id: int
+    product_path: str  # This is the product name (e.g., "Product analytics")
+    reason: str | None
+    reason_text: str | None
+
+    def get_readable_reason_text(self) -> str | None:
+        """Returns human-readable reason text for email interpolation."""
+        if self.reason_text:
+            return self.reason_text
+        if self.reason:
+            return PRODUCT_SUGGESTION_REASON_DEFAULTS.get(self.reason)
+        return None
+
+
 # mypy and ruff do not agree about TypeAlias
 # ruff: noqa: UP040
 
@@ -199,21 +220,31 @@ class TeamDigest(BaseModel):
     def count_items(self) -> int:
         return sum(len(f.root) for f in self._fields())
 
-    def render_payload(self) -> dict[str, str | int | dict[str, list | dict]]:
+    def render_payload(
+        self, product_suggestion: "DigestProductSuggestion | None" = None
+    ) -> dict[str, str | int | dict[str, list | dict]]:
+        report: dict[str, list | dict] = {
+            "new_dashboards": self.dashboards.model_dump(),
+            "new_event_definitions": self.event_definitions.model_dump(),
+            "new_experiments_launched": self.experiments_launched.model_dump(),
+            "new_experiments_completed": self.experiments_completed.model_dump(),
+            "new_external_data_sources": self.external_data_sources.model_dump(),
+            "new_feature_flags": self.feature_flags.model_dump(),
+            "interesting_saved_filters": [f.render_payload() for f in self.filters.root],
+            "expiring_recordings": self.expiring_recordings.model_dump(),
+            "new_surveys_launched": self.surveys_launched.model_dump(),
+        }
+
+        if product_suggestion:
+            report["new_product_suggestion"] = {
+                "product_path": product_suggestion.product_path,
+                "reason_text": product_suggestion.get_readable_reason_text(),
+            }
+
         return {
             "team_name": self.name,
             "team_id": self.id,
-            "report": {
-                "new_dashboards": self.dashboards.model_dump(),
-                "new_event_definitions": self.event_definitions.model_dump(),
-                "new_experiments_launched": self.experiments_launched.model_dump(),
-                "new_experiments_completed": self.experiments_completed.model_dump(),
-                "new_external_data_sources": self.external_data_sources.model_dump(),
-                "new_feature_flags": self.feature_flags.model_dump(),
-                "interesting_saved_filters": [f.render_payload() for f in self.filters.root],
-                "expiring_recordings": self.expiring_recordings.model_dump(),
-                "new_surveys_launched": self.surveys_launched.model_dump(),
-            },
+            "report": report,
         }
 
 
@@ -240,11 +271,24 @@ class OrganizationDigest(BaseModel):
     def count_items(self) -> int:
         return sum(td.count_items() for td in self.team_digests)
 
-    def render_payload(self, digest: Digest) -> dict[str, str | list | dict[str, str] | int | None]:
+    def render_payload(
+        self,
+        digest: Digest,
+        product_suggestion: "DigestProductSuggestion | None" = None,
+    ) -> dict[str, str | list | dict[str, str] | int | None]:
+        teams = []
+        for td in self.team_digests:
+            if td.is_empty():
+                continue
+            suggestion_for_team = (
+                product_suggestion if product_suggestion and product_suggestion.team_id == td.id else None
+            )
+            teams.append(td.render_payload(product_suggestion=suggestion_for_team))
+
         return {
             "organization_name": self.name,
             "organization_id": str(self.id),
-            "teams": [td.render_payload() for td in self.team_digests if not td.is_empty()],
+            "teams": teams,
             "scope": "user",
             "template_name": "weekly_digest_report",
             "period": digest.render_payload(),

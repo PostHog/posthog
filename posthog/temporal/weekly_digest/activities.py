@@ -35,12 +35,14 @@ from posthog.temporal.weekly_digest.queries import (
     query_saved_filters,
     query_surveys_launched,
     query_teams_for_digest,
+    query_user_product_suggestions,
     queryset_to_list,
 )
 from posthog.temporal.weekly_digest.types import (
     ClickHouseResponse,
     CommonInput,
     DashboardList,
+    DigestProductSuggestion,
     DigestResourceType,
     EventDefinitionList,
     ExperimentList,
@@ -361,6 +363,64 @@ async def generate_user_notification_lookup(input: GenerateDigestDataBatchInput)
         )
 
 
+@activity.defn(name="generate-product-suggestion-lookup")
+async def generate_product_suggestion_lookup(input: GenerateDigestDataBatchInput) -> None:
+    async with Heartbeater():
+        bind_contextvars(
+            digest_key=input.digest.key,
+            period_start=input.digest.period_start,
+            period_end=input.digest.period_end,
+            batch_start=input.batch[0],
+            batch_end=input.batch[1],
+        )
+        logger = LOGGER.bind()
+        logger.info("Generating product suggestions batch")
+
+        team_count = 0
+        user_count = 0
+        suggestion_count = 0
+        users_with_suggestion: set[int] = set()
+
+        async with redis.from_url(_redis_url(input.common)) as r:
+            batch_start, batch_end = input.batch
+            async for team in query_teams_for_digest()[batch_start:batch_end]:
+                try:
+                    async for user in await database_sync_to_async(team.all_users_with_access)():
+                        # Only store one suggestion per user (first one found)
+                        if user.id in users_with_suggestion:
+                            continue
+
+                        suggestions = await queryset_to_list(
+                            query_user_product_suggestions(
+                                user.id, team.id, input.digest.period_start, input.digest.period_end
+                            )
+                        )
+
+                        if suggestions:
+                            suggestion = DigestProductSuggestion(team_id=team.id, **suggestions[0])
+                            key: str = f"{input.digest.key}-product-suggestion-{user.id}"
+                            await r.setex(key, input.common.redis_ttl, suggestion.model_dump_json())
+                            users_with_suggestion.add(user.id)
+                            suggestion_count += 1
+
+                        user_count += 1
+                    team_count += 1
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to generate product suggestions for team {team.id}, skipping...",
+                        error=str(e),
+                        team_id=team.id,
+                    )
+                    continue
+
+        logger.info(
+            "Finished generating product suggestions batch",
+            user_count=user_count,
+            team_count=team_count,
+            suggestion_count=suggestion_count,
+        )
+
+
 @activity.defn(name="count-organizations")
 async def count_organizations() -> int:
     async with Heartbeater():
@@ -539,7 +599,16 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                             empty_user_digest_count += 1
                             continue
 
-                        payload = user_specific_digest.render_payload(input.digest)
+                        # Load product suggestion for the user (at most one)
+                        product_suggestion: DigestProductSuggestion | None = None
+                        raw_suggestion: str | None = await r.get(f"{input.digest.key}-product-suggestion-{user.id}")
+                        if raw_suggestion:
+                            product_suggestion = DigestProductSuggestion.model_validate_json(raw_suggestion)
+
+                        payload = user_specific_digest.render_payload(
+                            input.digest,
+                            product_suggestion=product_suggestion,
+                        )
 
                         if input.dry_run:
                             logger.info(
