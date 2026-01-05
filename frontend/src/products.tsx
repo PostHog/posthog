@@ -994,7 +994,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         intents: [ProductKey.CONVERSATIONS],
         category: 'Unreleased',
         href: urls.conversationsTickets(),
-        type: 'chat',
+        type: 'conversations',
         flag: FEATURE_FLAGS.PRODUCT_CONVERSATIONS,
         tags: ['alpha'],
         iconType: 'chat',

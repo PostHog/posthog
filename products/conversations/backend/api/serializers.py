@@ -23,12 +23,20 @@ class WidgetMessageSerializer(serializers.Serializer):
         return value.strip()
 
     def validate_traits(self, value):
-        """Validate traits dictionary - only allow simple types."""
         if not isinstance(value, dict):
             raise serializers.ValidationError("traits must be a dictionary")
 
+        if len(value) > 50:
+            raise serializers.ValidationError(f"Too many traits: {len(value)} (max 50)")
+
         validated = {}
         for key, val in value.items():
+            # Validate key is a string with reasonable length
+            if not isinstance(key, str):
+                continue
+            if len(key) > 200:
+                raise serializers.ValidationError(f"Trait key too long: '{key[:50]}...' (max 200 chars)")
+
             # Only allow simple types for MVP
             if not isinstance(val, str | int | float | bool | type(None)):
                 continue
@@ -36,7 +44,7 @@ class WidgetMessageSerializer(serializers.Serializer):
             # Convert to string and validate length
             str_value = str(val) if val is not None else None
             if str_value and len(str_value) > 500:
-                raise serializers.ValidationError(f"Trait value too long for {key} (max 500 chars)")
+                raise serializers.ValidationError(f"Trait value too long for '{key}' (max 500 chars)")
 
             validated[key] = str_value
 

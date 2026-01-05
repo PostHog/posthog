@@ -687,9 +687,12 @@ class WidgetTeamThrottle(SimpleRateThrottle):
     rate = "1000/hour"
 
     def get_cache_key(self, request, view):
-        # Throttle by team token
+        # Throttle by team token if available, otherwise by IP
         token = request.headers.get("X-Conversations-Token", "")
-        ident = hashlib.sha256(token.encode()).hexdigest()
+        if token:
+            ident = hashlib.sha256(token.encode()).hexdigest()
+        else:
+            ident = self.get_ident(request)
         return self.cache_format % {"scope": self.scope, "ident": ident}
 
 

@@ -11,7 +11,7 @@
             "path": "Conversations",
             "category": "Unreleased",
             "iconType": "chat",
-            "type": "chat",
+            "type": "conversations",
             "intents": ["conversations"]
         },
         {

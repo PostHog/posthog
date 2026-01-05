@@ -426,9 +426,10 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
                 **validated_data["modifiers"],
             }
 
-        if "conversations_settings" in validated_data:
+        # Merge conversations_settings with existing values, unless explicitly clearing with null
+        if "conversations_settings" in validated_data and validated_data["conversations_settings"] is not None:
             existing_settings = team.conversations_settings or {}
-            new_settings = validated_data["conversations_settings"] or {}
+            new_settings = validated_data["conversations_settings"]
             validated_data["conversations_settings"] = {**existing_settings, **new_settings}
 
         validated_data = handle_conversations_token_on_update(

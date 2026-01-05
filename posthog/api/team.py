@@ -789,10 +789,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 **validated_data["session_replay_config"],
             }
 
-        # Handle conversations_settings merging
-        if "conversations_settings" in validated_data:
+        # Merge conversations_settings with existing values, unless explicitly clearing with null
+        if "conversations_settings" in validated_data and validated_data["conversations_settings"] is not None:
             existing_settings = instance.conversations_settings or {}
-            new_settings = validated_data["conversations_settings"] or {}
+            new_settings = validated_data["conversations_settings"]
             validated_data["conversations_settings"] = {**existing_settings, **new_settings}
 
         validated_data = handle_conversations_token_on_update(
@@ -1429,17 +1429,18 @@ def handle_conversations_token_on_update(
     if "conversations_enabled" not in validated_data:
         return validated_data
 
-    current_settings = validated_data.get("conversations_settings") or current_conversations_settings or {}
+    # Create a copy to avoid mutating instance.conversations_settings before save
+    current_settings = dict(validated_data.get("conversations_settings") or current_conversations_settings or {})
     has_token = current_settings.get("widget_public_token")
     is_enabling = validated_data["conversations_enabled"] and not current_conversations_enabled
     is_disabling = not validated_data["conversations_enabled"] and current_conversations_enabled
 
     if is_enabling and not has_token:
-        conv_settings = validated_data.get("conversations_settings") or current_conversations_settings or {}
+        conv_settings = dict(validated_data.get("conversations_settings") or current_conversations_settings or {})
         conv_settings["widget_public_token"] = secrets.token_urlsafe(32)
         validated_data["conversations_settings"] = conv_settings
     elif is_disabling:
-        conv_settings = validated_data.get("conversations_settings") or current_conversations_settings or {}
+        conv_settings = dict(validated_data.get("conversations_settings") or current_conversations_settings or {})
         conv_settings["widget_public_token"] = None
         validated_data["conversations_settings"] = conv_settings
 
