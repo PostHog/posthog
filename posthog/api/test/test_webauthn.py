@@ -128,7 +128,7 @@ class TestWebAuthnLogin(APIBaseTest):
         self.assertIn("timeout", data)
         self.assertIn("rpId", data)
         self.assertEqual(data["allowCredentials"], [])
-        self.assertEqual(data["userVerification"], "preferred")
+        self.assertEqual(data["userVerification"], "required")
 
     def test_login_complete_without_challenge_fails(self):
         response = self.client.post("/api/webauthn/login/complete/", {})

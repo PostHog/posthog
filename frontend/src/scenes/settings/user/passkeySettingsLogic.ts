@@ -52,6 +52,12 @@ export interface RegistrationBeginResponse {
     attestation: string
 }
 
+export interface RegistrationCompleteResponse {
+    success: boolean
+    message: string
+    credential_id: string
+}
+
 export interface VerificationBeginResponse {
     challenge: string
     timeout: number
@@ -203,16 +209,20 @@ export const passkeySettingsLogic = kea<passkeySettingsLogicType>([
                         })
 
                         // Step 3: Send attestation to server
-                        await api.create('api/webauthn/register/complete', {
-                            ...attestation,
-                            label,
-                        })
+                        const { credential_id: credentialId } = await api.create<RegistrationCompleteResponse>(
+                            'api/webauthn/register/complete',
+                            {
+                                ...attestation,
+                                label,
+                            }
+                        )
 
                         // Step 4: Begin verification
                         actions.setRegistrationStep('verifying')
 
-                        const verifyResponse =
-                            await api.create<VerificationBeginResponse>('api/webauthn/register/verify')
+                        const verifyResponse = await api.create<VerificationBeginResponse>(
+                            `api/webauthn/credentials/${credentialId}/verify`
+                        )
 
                         // Step 5: Verify with authenticator
                         const assertion = await startAuthentication({
@@ -226,7 +236,7 @@ export const passkeySettingsLogic = kea<passkeySettingsLogicType>([
                         })
 
                         // Step 6: Complete verification
-                        await api.create('api/webauthn/register/verify_complete', assertion)
+                        await api.create(`api/webauthn/credentials/${credentialId}/verify_complete`, assertion)
 
                         actions.setRegistrationStep('complete')
                         lemonToast.success('Passkey added successfully!')
