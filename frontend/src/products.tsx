@@ -1144,7 +1144,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'logs' as FileSystemIconType,
         iconColor: ['var(--color-product-logs-light)'] as FileSystemIconColor,
         href: urls.logs(),
-        flag: FEATURE_FLAGS.LOGS_PRE_EARLY_ACCESS,
         tags: ['beta'],
         sceneKey: 'Logs',
         sceneKeys: ['Logs'],
