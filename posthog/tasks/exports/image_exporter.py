@@ -30,7 +30,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import InsightVariable
 from posthog.models.exported_asset import ExportedAsset, get_public_access_token, save_content
 from posthog.schema_migrations.upgrade_manager import upgrade_query
-from posthog.tasks.exporter import EXPORT_FAILED_COUNTER, EXPORT_SUCCEEDED_COUNTER, EXPORT_TIMER
+from posthog.tasks.exporter import EXPORT_TIMER
 from posthog.tasks.exports.exporter_utils import log_error_if_site_url_not_reachable
 from posthog.utils import absolute_uri
 
@@ -429,15 +429,12 @@ def export_image(exported_asset: ExportedAsset, max_height_pixels: Optional[int]
                         max_height_pixels=max_height_pixels,
                         insight_cache_keys=insight_cache_keys or None,
                     )
-                EXPORT_SUCCEEDED_COUNTER.labels(type="image").inc()
             else:
                 raise NotImplementedError(
                     f"Export to format {exported_asset.export_format} is not supported for insights"
                 )
         except Exception as e:
             team_id = str(exported_asset.team.id) if exported_asset else "unknown"
-            capture_exception(e, additional_properties={"celery_task": "image_export", "team_id": team_id})
-
+            capture_exception(e, additional_properties={"task": "image_export", "team_id": team_id})
             logger.error("image_exporter.failed", exception=e, exc_info=True)
-            EXPORT_FAILED_COUNTER.labels(type="image").inc()
             raise
