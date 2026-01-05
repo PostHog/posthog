@@ -261,23 +261,30 @@ class OAuthValidator(OAuth2Validator):
         Revoke an access or refresh token.
         Override to use token_checksum for lookup instead of plaintext token.
         """
-        if token_type_hint not in ["access_token", "refresh_token"]:
-            token_type_hint = None
-
         token_checksum = hashlib.sha256(token.encode("utf-8")).hexdigest()
 
-        token_types = {
-            "access_token": (OAuthAccessToken, "token_checksum"),
-            "refresh_token": (OAuthRefreshToken, "token_checksum"),
-        }
-
-        token_type, lookup_field = token_types.get(token_type_hint, (OAuthAccessToken, "token_checksum"))
-        try:
-            token_type.objects.get(**{lookup_field: token_checksum}).revoke()
-        except ObjectDoesNotExist:
-            for other_type, other_lookup_field in [t for t in token_types.values() if t[0] != token_type]:
-                for t in other_type.objects.filter(**{other_lookup_field: token_checksum}):
-                    t.revoke()
+        if token_type_hint == "access_token":
+            try:
+                OAuthAccessToken.objects.get(token_checksum=token_checksum).revoke()
+                return
+            except OAuthAccessToken.DoesNotExist:
+                for rt in OAuthRefreshToken.objects.filter(token_checksum=token_checksum):
+                    rt.revoke()
+        elif token_type_hint == "refresh_token":
+            try:
+                OAuthRefreshToken.objects.get(token_checksum=token_checksum).revoke()
+                return
+            except OAuthRefreshToken.DoesNotExist:
+                for at in OAuthAccessToken.objects.filter(token_checksum=token_checksum):
+                    at.revoke()
+        else:
+            try:
+                OAuthAccessToken.objects.get(token_checksum=token_checksum).revoke()
+                return
+            except OAuthAccessToken.DoesNotExist:
+                pass
+            for rt in OAuthRefreshToken.objects.filter(token_checksum=token_checksum):
+                rt.revoke()
 
 
 class OAuthAuthorizationView(OAuthLibMixin, APIView):
@@ -525,14 +532,14 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
         try:
             refresh_token = OAuthRefreshToken.objects.get(token_checksum=token_checksum)
             if refresh_token.revoked is None:
-                data: dict = {
+                refresh_data: dict = {
                     "active": True,
                     "scoped_teams": refresh_token.scoped_teams or [],
                     "scoped_organizations": refresh_token.scoped_organizations or [],
                 }
                 if refresh_token.application:
-                    data["client_id"] = refresh_token.application.client_id
-                return JsonResponse(data)
+                    refresh_data["client_id"] = refresh_token.application.client_id
+                return JsonResponse(refresh_data)
             return JsonResponse({"active": False}, status=200)
         except OAuthRefreshToken.DoesNotExist:
             pass
