@@ -84,6 +84,7 @@ def proxy_slack_event_to_secondary_region(request: HttpRequest) -> None:
 
 def handle_app_mention(event: dict, integration: Integration) -> None:
     channel = event.get("channel")
+    user_id = event.get("user")
     slack_team_id = integration.integration_id
     if not channel or not slack_team_id:
         return
@@ -101,14 +102,14 @@ def handle_app_mention(event: dict, integration: Integration) -> None:
             "slack_app_mention_from_external_workspace",
             user_team=user_team,
             app_workspace=slack_team_id,
-            user=event.get("user"),
+            user=user_id,
         )
         return
 
     logger.info(
         "slack_app_mention_received",
         channel=channel,
-        user=event.get("user"),
+        user=user_id,
         text=event.get("text"),
         thread_ts=thread_ts,
         slack_team_id=slack_team_id,
@@ -129,20 +130,13 @@ def handle_app_mention(event: dict, integration: Integration) -> None:
             Conversation.Status.IN_PROGRESS,
             Conversation.Status.CANCELING,
         ]:
-            user_id = event.get("user")
             if user_id:
                 slack.client.chat_postEphemeral(
                     channel=channel,
                     user=user_id,
                     thread_ts=thread_ts,
-                    text="Looks like this PostHog AI conversation is currently in flight already. Please wait for it to complete before sending another message.",
+                    text="Hold your horses! Looks like this PostHog AI conversation is currently in flight already – wait for that to complete.",
                 )
-            logger.info(
-                "slack_app_mention_conversation_in_progress",
-                channel=channel,
-                thread_ts=thread_ts,
-                status=existing_conversation.status,
-            )
             return
 
         # Get our bot's IDs so we can filter out our own messages and check reactions
