@@ -546,7 +546,9 @@ def configure_logger(
             )
 
         base_processors += [
-            structlog.processors.dict_tracebacks,
+            structlog.processors.ExceptionRenderer(
+                structlog.tracebacks.ExceptionDictTransformer(show_locals=False)
+            ),
             EventRenamer("msg"),
             LogMessagesRenderer(event_key="msg"),
         ]
