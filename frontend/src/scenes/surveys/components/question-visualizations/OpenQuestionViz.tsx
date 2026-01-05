@@ -44,7 +44,6 @@ export function OpenQuestionViz({
     responseData,
     totalResponses: _totalResponses,
 }: Props): JSX.Element | null {
-    // _questionIndex and _totalResponses are used in PR2 for AI summarization
     void _questionIndex
     void _totalResponses
 

@@ -26,7 +26,6 @@ interface ProcessedData {
     openEndedResponses: ChoiceQuestionResponseData[]
 }
 
-/** Convert choice responses to open question format for virtualized list */
 function toOpenQuestionFormat(responses: ChoiceQuestionResponseData[]): OpenQuestionResponseData[] {
     return responses.map((r) => ({
         distinctId: r.distinctId || '',
@@ -81,25 +80,22 @@ export function MultipleChoiceQuestionViz({ responseData, totalResponses }: Prop
         const predefinedResponses = responseData.filter((d) => d.isPredefined)
         const nonPredefinedResponses = responseData.filter((d) => !d.isPredefined)
 
-        // Chart shows predefined responses + total count for "Other" if it exists
         const chartData = [...predefinedResponses]
 
-        // If there are open-ended responses, add a summary count for the predefined "Other" option
         if (nonPredefinedResponses.length > 0) {
             const totalOpenEndedCount = nonPredefinedResponses.reduce((sum, d) => sum + d.value, 0)
             chartData.push({
                 label: 'Other (open-ended)',
                 value: totalOpenEndedCount,
-                isPredefined: true, // This represents the predefined "Other" option
+                isPredefined: true,
             })
         }
 
-        // Sort by value descending
         chartData.sort((a, b) => b.value - a.value)
 
         return {
             chartData,
-            openEndedResponses: nonPredefinedResponses, // Show all open-ended responses
+            openEndedResponses: nonPredefinedResponses,
         }
     }, [responseData])
 
