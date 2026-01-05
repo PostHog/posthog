@@ -2,10 +2,10 @@
 
 from .llm.schema import SurveySummaryResponse
 
-FREQUENCY_INDICATORS = {
-    "common": "🔥",
-    "moderate": "📊",
-    "rare": "💡",
+FREQUENCY_LABELS = {
+    "common": "Common",
+    "moderate": "Moderate",
+    "rare": "Rare",
 }
 
 
@@ -16,11 +16,12 @@ def format_as_markdown(summary: SurveySummaryResponse) -> str:
     if summary.themes:
         lines.append("**Key Themes:**")
         for theme in summary.themes:
-            indicator = FREQUENCY_INDICATORS.get(theme.frequency, "•")
-            lines.append(f"- {indicator} **{theme.theme}**: {theme.description}")
+            frequency_label = FREQUENCY_LABELS.get(theme.frequency, "")
+            frequency_suffix = f" ({frequency_label})" if frequency_label else ""
+            lines.append(f"- **{theme.theme}**{frequency_suffix}: {theme.description}")
         lines.append("")
 
     if summary.key_insight:
-        lines.append(f"**💡 Key Insight:** {summary.key_insight}")
+        lines.append(f"**Key Insight:** {summary.key_insight}")
 
     return "\n".join(lines)

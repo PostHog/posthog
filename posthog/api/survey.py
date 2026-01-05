@@ -1575,7 +1575,14 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
 
         # Generate summary using Gemini
         try:
-            structured_summary = summarize_responses(question_text, responses)
+            structured_summary = summarize_responses(
+                question_text,
+                responses,
+                distinct_id=str(user.distinct_id),
+                survey_id=str(survey_id),
+                question_id=question_id,
+                team_id=self.team.pk,
+            )
             content = format_as_markdown(structured_summary)
         except Exception as e:
             logger.exception("Failed to generate survey summary", error=str(e))

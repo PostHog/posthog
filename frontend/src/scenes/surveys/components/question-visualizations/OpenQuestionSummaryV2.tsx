@@ -3,6 +3,7 @@ import posthog from 'posthog-js'
 import { useCallback, useEffect, useState } from 'react'
 
 import {
+    IconChevronDown,
     IconRefresh,
     IconSparkles,
     IconThumbsDown,
@@ -48,6 +49,7 @@ export function OpenQuestionSummaryV2({
     const [error, setError] = useState<string | null>(null)
     const [rating, setRating] = useState<'good' | 'bad' | null>(null)
     const [showConsentPopover, setShowConsentPopover] = useState(false)
+    const [isExpanded, setIsExpanded] = useState(true)
 
     const shouldShowSummary = totalResponses >= MIN_RESPONSES_FOR_SUMMARY
     const needsRefresh = summary && totalResponses - summary.responseCount >= NEW_RESPONSES_THRESHOLD
@@ -181,11 +183,19 @@ export function OpenQuestionSummaryV2({
     const generatedTime = dayjs(summary.generatedAt)
 
     return (
-        <div className="border rounded p-4 mb-2 bg-surface-primary">
-            <div className="flex items-center justify-between mb-2">
+        <div className="border rounded mb-2 bg-surface-primary overflow-hidden">
+            {/* Collapsible header */}
+            <button
+                type="button"
+                className="w-full flex items-center justify-between p-3 hover:bg-surface-secondary transition-colors cursor-pointer"
+                onClick={() => setIsExpanded(!isExpanded)}
+            >
                 <div className="flex items-center gap-2">
                     <IconSparkles className="text-warning" />
                     <span className="font-semibold">Response summary</span>
+                    {!isExpanded && (
+                        <span className="text-xs text-muted ml-2">Based on {summary.responseCount} responses</span>
+                    )}
                 </div>
                 <div className="flex items-center gap-2">
                     {needsRefresh && (
@@ -193,59 +203,83 @@ export function OpenQuestionSummaryV2({
                             {totalResponses - summary.responseCount} new responses
                         </span>
                     )}
-                    {dataProcessingAccepted || !showConsentPopover ? (
-                        <LemonButton
-                            type="tertiary"
-                            size="small"
-                            icon={<IconRefresh />}
-                            onClick={handleRegenerateClick}
-                            loading={loading}
-                            tooltip="Regenerate summary"
-                        />
-                    ) : (
-                        <AIConsentPopoverWrapper showArrow onDismiss={handleDismissPopover}>
-                            <LemonButton
-                                type="tertiary"
-                                size="small"
-                                icon={<IconRefresh />}
-                                onClick={handleRegenerateClick}
-                                loading={loading}
-                                tooltip="Regenerate summary"
-                            />
-                        </AIConsentPopoverWrapper>
-                    )}
+                    <IconChevronDown
+                        className={`transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+                    />
                 </div>
-            </div>
+            </button>
 
-            <div className="prose prose-sm max-w-none">
-                <LemonMarkdown>{summary.content}</LemonMarkdown>
-            </div>
+            {/* Collapsible content */}
+            <div
+                className={`transition-all duration-200 ease-in-out ${
+                    isExpanded ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0 overflow-hidden'
+                }`}
+            >
+                <div className="px-3 pb-3">
+                    <div className="prose prose-sm max-w-none">
+                        <LemonMarkdown>{summary.content}</LemonMarkdown>
+                    </div>
 
-            <div className="flex items-center justify-between mt-2 pt-2 border-t text-xs text-muted">
-                <span>
-                    Based on {summary.responseCount} responses
-                    {generatedTime.isValid() && ` • Generated ${generatedTime.fromNow()}`}
-                </span>
-                <div className="flex items-center gap-1">
-                    {rating === null && <span>Was this helpful?</span>}
-                    {rating !== 'bad' && (
-                        <LemonButton
-                            icon={rating === 'good' ? <IconThumbsUpFilled /> : <IconThumbsUp />}
-                            type="tertiary"
-                            size="xsmall"
-                            tooltip="Good summary"
-                            onClick={() => submitRating('good')}
-                        />
-                    )}
-                    {rating !== 'good' && (
-                        <LemonButton
-                            icon={rating === 'bad' ? <IconThumbsDownFilled /> : <IconThumbsDown />}
-                            type="tertiary"
-                            size="xsmall"
-                            tooltip="Bad summary"
-                            onClick={() => submitRating('bad')}
-                        />
-                    )}
+                    <div className="flex items-center justify-between mt-3 pt-2 border-t text-xs text-muted">
+                        <div className="flex items-center gap-2">
+                            <span>
+                                Based on {summary.responseCount}
+                                {totalResponses > summary.responseCount
+                                    ? ` of ${totalResponses} responses (sampled)`
+                                    : ' responses'}
+                                {generatedTime.isValid() && ` • ${generatedTime.fromNow()}`}
+                                {' • AI-generated'}
+                            </span>
+                            {dataProcessingAccepted || !showConsentPopover ? (
+                                <LemonButton
+                                    type="tertiary"
+                                    size="xsmall"
+                                    icon={<IconRefresh />}
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        handleRegenerateClick()
+                                    }}
+                                    loading={loading}
+                                    tooltip="Regenerate summary"
+                                />
+                            ) : (
+                                <AIConsentPopoverWrapper showArrow onDismiss={handleDismissPopover}>
+                                    <LemonButton
+                                        type="tertiary"
+                                        size="xsmall"
+                                        icon={<IconRefresh />}
+                                        onClick={(e) => {
+                                            e.stopPropagation()
+                                            handleRegenerateClick()
+                                        }}
+                                        loading={loading}
+                                        tooltip="Regenerate summary"
+                                    />
+                                </AIConsentPopoverWrapper>
+                            )}
+                        </div>
+                        <div className="flex items-center gap-1">
+                            {rating === null && <span>Was this helpful?</span>}
+                            {rating !== 'bad' && (
+                                <LemonButton
+                                    icon={rating === 'good' ? <IconThumbsUpFilled /> : <IconThumbsUp />}
+                                    type="tertiary"
+                                    size="xsmall"
+                                    tooltip="Good summary"
+                                    onClick={() => submitRating('good')}
+                                />
+                            )}
+                            {rating !== 'good' && (
+                                <LemonButton
+                                    icon={rating === 'bad' ? <IconThumbsDownFilled /> : <IconThumbsDown />}
+                                    type="tertiary"
+                                    size="xsmall"
+                                    tooltip="Bad summary"
+                                    onClick={() => submitRating('bad')}
+                                />
+                            )}
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

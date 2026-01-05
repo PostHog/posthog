@@ -1358,7 +1358,7 @@ export const surveyLogic = kea<surveyLogicType>([
         isSurveyResultsV2Enabled: [
             (s) => [s.enabledFlags],
             (enabledFlags: FeatureFlagsSet): boolean => {
-                return !!enabledFlags[FEATURE_FLAGS.SURVEY_RESULTS_V2]
+                return !enabledFlags[FEATURE_FLAGS.SURVEY_RESULTS_V2]
             },
         ],
         isExternalSurveyFFEnabled: [
