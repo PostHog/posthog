@@ -51,10 +51,7 @@ class UpdateDashboardToolArgs(BaseModel):
         default=None,
     )
     replace_insights: bool | None = Field(
-        description="Controls how the provided insights relate to existing dashboard insights. "
-        "When False (default), the provided insights are appended to the existing ones. "
-        "When True, the dashboard will contain exactly the insights specified in insight_ids—any existing insights not included will be removed. "
-        "This means to replace one insight while keeping others, include all the insight IDs you want to retain along with the new one.",
+        description="When False (default), appends provided insights to existing ones. When True, the dashboard will contain exactly the insights in insight_ids (others are removed).",
         default=False,
     )
     name: str | None = Field(
