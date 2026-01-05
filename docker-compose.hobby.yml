@@ -112,7 +112,7 @@ services:
         image: $REGISTRY_URL:$POSTHOG_APP_TAG
         environment:
             SITE_URL: https://$DOMAIN
-            LIVESTREAM_HOST: 'https://${DOMAIN}:8666'
+            LIVESTREAM_HOST: 'https://${DOMAIN}/livestream'
             SECRET_KEY: $POSTHOG_SECRET
             OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
             OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
@@ -185,6 +185,7 @@ services:
             CADDY_HOST: '$DOMAIN, http://, https://'
         depends_on:
             - web
+            - livestream
     objectstorage:
         extends:
             file: docker-compose.base.yml
@@ -326,8 +327,6 @@ services:
             service: livestream
         environment:
             - LIVESTREAM_JWT_SECRET=${POSTHOG_SECRET}
-        ports:
-            - '8666:8080'
         volumes:
             - ./posthog/docker/livestream/configs-hobby.yml:/configs/configs.yml
 
