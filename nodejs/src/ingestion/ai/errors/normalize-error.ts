@@ -42,8 +42,8 @@ const OBJECT_ID_PATTERN = /0x[0-9a-fA-F]+/g
 // Step 10: Generic id='xxx' patterns (case insensitive)
 const GENERIC_ID_PATTERN = /id=['"][a-zA-Z0-9_-]+['"]/gi
 
-// Step 11: Token counts (e.g., "tokenCount":7125)
-const TOKEN_COUNT_PATTERN = /"tokenCount":[0-9]+/g
+// Step 11: Token counts (e.g., "tokenCount":7125 or "tokenCount": 7125)
+const TOKEN_COUNT_PATTERN = /"tokenCount":\s*[0-9]+/g
 
 // Step 12: Large numeric IDs (9+ digits, e.g., project IDs like 1234567890)
 const LARGE_NUMERIC_ID_PATTERN = /[0-9]{9,}/g

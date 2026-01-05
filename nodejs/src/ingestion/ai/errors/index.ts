@@ -28,7 +28,16 @@ export function processAiErrorNormalization(event: PluginEvent): PluginEvent {
     }
 
     // Convert to string if needed
-    const errorString = typeof aiError === 'string' ? aiError : String(aiError)
+    let errorString: string
+    if (typeof aiError === 'string') {
+        errorString = aiError
+    } else {
+        try {
+            errorString = JSON.stringify(aiError)
+        } catch {
+            errorString = String(aiError)
+        }
+    }
 
     // Normalize the error message
     const normalizedError = normalizeError(errorString)

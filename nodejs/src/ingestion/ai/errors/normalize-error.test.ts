@@ -127,6 +127,8 @@ describe('normalizeError', () => {
         it.each([
             ['Limit exceeded: "tokenCount":7125', 'Limit exceeded: "tokenCount":<TOKEN_COUNT>'],
             ['Limit exceeded: "tokenCount":15000', 'Limit exceeded: "tokenCount":<TOKEN_COUNT>'],
+            ['Limit exceeded: "tokenCount": 7125', 'Limit exceeded: "tokenCount":<TOKEN_COUNT>'],
+            ['Limit exceeded: "tokenCount":  15000', 'Limit exceeded: "tokenCount":<TOKEN_COUNT>'],
         ])('normalizes "%s" to "%s"', (input, expected) => {
             expect(normalizeError(input)).toBe(expected)
         })
@@ -313,5 +315,29 @@ describe('processAiErrorNormalization', () => {
         const result = processAiErrorNormalization(event)
 
         expect(result.properties!['$ai_error_normalized']).toBe('<N>')
+    })
+
+    it('JSON stringifies object $ai_error', () => {
+        const event = createEvent({
+            $ai_is_error: true,
+            $ai_error: { status: 400, message: 'Bad request', requestId: 'req_abc123' },
+        })
+
+        const result = processAiErrorNormalization(event)
+
+        expect(result.properties!['$ai_error_normalized']).toBe(
+            '{"status":<N>,"message":"Bad request","requestId":"<ID>"}'
+        )
+    })
+
+    it('JSON stringifies array $ai_error', () => {
+        const event = createEvent({
+            $ai_is_error: true,
+            $ai_error: ['Error 1', 'Error 2'],
+        })
+
+        const result = processAiErrorNormalization(event)
+
+        expect(result.properties!['$ai_error_normalized']).toBe('["Error <N>","Error <N>"]')
     })
 })
