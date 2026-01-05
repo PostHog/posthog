@@ -588,6 +588,7 @@ export const logsLogic = kea<logsLogicType>([
                         attributes: stringifyLogAttributes(log.attributes),
                         cleanBody,
                         parsedBody,
+                        originalLog: log,
                     })
                 }
 
@@ -610,6 +611,7 @@ export const logsLogic = kea<logsLogicType>([
                         attributes: stringifyLogAttributes(log.attributes),
                         cleanBody,
                         parsedBody,
+                        originalLog: log,
                     }
                 })
             },
