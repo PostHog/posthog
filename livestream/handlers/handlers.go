@@ -48,9 +48,9 @@ func StatsHandler(stats *events.Stats, sessionStats *events.SessionStats) func(c
 		}
 
 		userStore := stats.GetExistingStoreForToken(token)
-		sessionStore := sessionStats.GetExistingStoreForToken(token)
+		sessionCount := sessionStats.CountForToken(token)
 
-		if userStore == nil && sessionStore == nil {
+		if userStore == nil && sessionCount == 0 {
 			return c.JSON(http.StatusOK, resp{Error: "no stats"})
 		}
 
@@ -58,8 +58,8 @@ func StatsHandler(stats *events.Stats, sessionStats *events.SessionStats) func(c
 		if userStore != nil {
 			siteStats.UsersOnProduct = userStore.Len()
 		}
-		if sessionStore != nil {
-			siteStats.ActiveRecordings = sessionStore.Len()
+		if sessionCount != 0 {
+			siteStats.ActiveRecordings = sessionCount
 		}
 		return c.JSON(http.StatusOK, siteStats)
 	}

@@ -79,7 +79,7 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
-import { EndpointModal } from 'products/endpoints/frontend/EndpointModal'
+import { EndpointFromInsightModal } from 'products/endpoints/frontend/EndpointFromInsightModal'
 
 import { getInsightIconTypeFromQuery, getOverrideWarningPropsForButton } from './utils'
 
@@ -224,7 +224,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         />
                     )}
                     <NewDashboardModal />
-                    <EndpointModal
+                    <EndpointFromInsightModal
                         isOpen={endpointModalOpen}
                         closeModal={() => setEndpointModalOpen(false)}
                         tabId={insightProps.tabId || ''}

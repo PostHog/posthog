@@ -29,8 +29,6 @@ from posthog.schema import (
 from posthog.models import Team, User
 from posthog.models.organization import OrganizationMembership
 
-from products.replay.backend.max_tools import SearchSessionRecordingsTool
-
 from ee.hogai.chat_agent.mode_manager import ChatAgentModeManager, ChatAgentPromptBuilder, ChatAgentToolkit
 from ee.hogai.chat_agent.prompts import (
     ROOT_BILLING_CONTEXT_ERROR_PROMPT,
@@ -38,6 +36,7 @@ from ee.hogai.chat_agent.prompts import (
     ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT,
 )
 from ee.hogai.context import AssistantContextManager
+from ee.hogai.tools.replay.filter_session_recordings import FilterSessionRecordingsTool
 from ee.hogai.utils.tests import FakeChatAnthropic, FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import AssistantNodeName, NodePath
@@ -108,48 +107,14 @@ class TestAgentToolkit(BaseTest):
 
     @parameterized.expand(
         [
-            # (agent_modes_flag, create_form_flag, tasks_flag, expected_tools, unexpected_tools)
+            # (create_form_flag, tasks_flag, expected_tools, unexpected_tools)
             [
-                False,
-                False,
-                False,
-                ["read_taxonomy", "read_data", "search", "todo_write"],
-                ["switch_mode", "create_form", "create_task", "run_task", "list_tasks"],
-            ],
-            [
-                True,
                 False,
                 False,
                 ["read_taxonomy", "read_data", "search", "todo_write", "switch_mode"],
                 ["create_form", "create_task", "run_task", "list_tasks"],
             ],
             [
-                False,
-                True,
-                False,
-                ["read_taxonomy", "read_data", "search", "todo_write", "create_form"],
-                ["switch_mode", "create_task", "run_task", "list_tasks"],
-            ],
-            [
-                False,
-                False,
-                True,
-                [
-                    "read_taxonomy",
-                    "read_data",
-                    "search",
-                    "todo_write",
-                    "create_task",
-                    "run_task",
-                    "get_task_run",
-                    "get_task_run_logs",
-                    "list_tasks",
-                    "list_task_runs",
-                ],
-                ["switch_mode", "create_form"],
-            ],
-            [
-                True,
                 True,
                 True,
                 [
@@ -170,11 +135,8 @@ class TestAgentToolkit(BaseTest):
             ],
         ]
     )
-    def test_toolkit_tools_based_on_feature_flags(
-        self, agent_modes_flag, create_form_flag, tasks_flag, expected_tools, unexpected_tools
-    ):
+    def test_toolkit_tools_based_on_feature_flags(self, create_form_flag, tasks_flag, expected_tools, unexpected_tools):
         with (
-            patch("ee.hogai.chat_agent.mode_manager.has_agent_modes_feature_flag", return_value=agent_modes_flag),
             patch("ee.hogai.chat_agent.mode_manager.has_create_form_tool_feature_flag", return_value=create_form_flag),
             patch("ee.hogai.chat_agent.mode_manager.has_phai_tasks_feature_flag", return_value=tasks_flag),
         ):
@@ -189,6 +151,31 @@ class TestAgentToolkit(BaseTest):
             for unexpected in unexpected_tools:
                 self.assertNotIn(unexpected, tool_names)
 
+    @parameterized.expand(
+        [
+            # (error_tracking_flag, expected_modes, unexpected_modes)
+            [False, ["product_analytics", "sql", "session_replay"], ["error_tracking"]],
+            [True, ["product_analytics", "sql", "session_replay", "error_tracking"], []],
+        ]
+    )
+    def test_mode_registry_based_on_feature_flags(self, error_tracking_flag, expected_modes, unexpected_modes):
+        with patch(
+            "ee.hogai.chat_agent.mode_manager.has_error_tracking_mode_feature_flag", return_value=error_tracking_flag
+        ):
+            node_path = (NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),)
+            context_manager = AssistantContextManager(
+                team=self.team, user=self.user, config=RunnableConfig(configurable={})
+            )
+            mode_manager = ChatAgentModeManager(
+                team=self.team, user=self.user, node_path=node_path, context_manager=context_manager
+            )
+            mode_names = [mode.value for mode in mode_manager.mode_registry.keys()]
+
+            for expected in expected_modes:
+                self.assertIn(expected, mode_names)
+            for unexpected in unexpected_modes:
+                self.assertNotIn(unexpected, mode_names)
+
 
 class TestAgentNode(ClickhouseTestMixin, BaseTest):
     async def test_node_does_not_get_contextual_tool_if_not_configured(self):
@@ -199,7 +186,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
             ),
             patch("ee.hogai.utils.tests.FakeChatOpenAI.bind_tools", return_value=MagicMock()) as mock_bind_tools,
             patch(
-                "products.replay.backend.max_tools.SearchSessionRecordingsTool._arun_impl",
+                "ee.hogai.tools.replay.filter_session_recordings.FilterSessionRecordingsTool._arun_impl",
                 return_value=("Success", {}),
             ),
         ):
@@ -207,14 +194,21 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
             state = AssistantState(messages=[HumanMessage(content="show me long recordings")])
 
             next_state = await node.arun(state, {})
-
             self.assertIsInstance(next_state, PartialAssistantState)
-            self.assertEqual(len(next_state.messages), 1)
-            assistant_message = next_state.messages[0]
-            self.assertIsInstance(assistant_message, AssistantMessage)
-            assert isinstance(assistant_message, AssistantMessage)
-            self.assertEqual(assistant_message.content, "Simple response")
-            self.assertEqual(assistant_message.tool_calls, [])
+            self.assertEqual(len(next_state.messages), 3)
+            # Mode context message
+            self.assertIsInstance(next_state.messages[0], ContextMessage)
+            assert isinstance(next_state.messages[0], ContextMessage)
+            self.assertIn("product_analytics", next_state.messages[0].content)
+            # Original human message
+            self.assertIsInstance(next_state.messages[1], HumanMessage)
+            assert isinstance(next_state.messages[1], HumanMessage)
+            self.assertEqual(next_state.messages[1].content, "show me long recordings")
+            # Assistant message
+            self.assertIsInstance(next_state.messages[2], AssistantMessage)
+            assert isinstance(next_state.messages[2], AssistantMessage)
+            self.assertEqual(next_state.messages[2].content, "Simple response")
+            self.assertEqual(next_state.messages[2].tool_calls, [])
             mock_bind_tools.assert_not_called()
 
     async def test_node_injects_contextual_tool_prompts(self):
@@ -233,33 +227,34 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
             config = RunnableConfig(
                 configurable={
                     "contextual_tools": {
-                        "search_session_recordings": {"current_filters": {"duration": ">"}, "current_session_id": None}
+                        "filter_session_recordings": {"current_filters": {"duration": ">"}, "current_session_id": None}
                     }
                 }
             )
             # Set config before calling arun
             node = _create_agent_node(self.team, self.user, config=config)
             result = await node.arun(state, config)
-
             # Verify the node ran successfully and returned a message
             self.assertIsInstance(result, PartialAssistantState)
-            self.assertEqual(len(result.messages), 3)
-            # Context message
+            self.assertEqual(len(result.messages), 4)
+            # Mode context message
             self.assertIsInstance(result.messages[0], ContextMessage)
-            assert isinstance(result.messages[0], ContextMessage)
-            self.assertIn("search_session_recordings", result.messages[0].content)
+            # Contextual tools context message
+            self.assertIsInstance(result.messages[1], ContextMessage)
+            assert isinstance(result.messages[1], ContextMessage)
+            self.assertIn("filter_session_recordings", result.messages[1].content)
             # Original human message
-            self.assertIsInstance(result.messages[1], HumanMessage)
+            self.assertIsInstance(result.messages[2], HumanMessage)
             # The message should be an AssistantMessage
-            self.assertIsInstance(result.messages[2], AssistantMessage)
-            assert isinstance(result.messages[2], AssistantMessage)
-            self.assertEqual(result.messages[2].content, "I'll help with recordings")
+            self.assertIsInstance(result.messages[3], AssistantMessage)
+            assert isinstance(result.messages[3], AssistantMessage)
+            self.assertEqual(result.messages[3].content, "I'll help with recordings")
 
             # Verify _get_model was called with a SearchSessionRecordingsTool instance in the tools arg
             mock_get_model.assert_called()
             tools_arg = mock_get_model.call_args[0][1]
             self.assertTrue(
-                any(isinstance(tool, SearchSessionRecordingsTool) for tool in tools_arg),
+                any(isinstance(tool, FilterSessionRecordingsTool) for tool in tools_arg),
                 "SearchSessionRecordingsTool instance not found in tools arg",
             )
 
