@@ -8,7 +8,7 @@ on:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-    cancel-in-progress: true
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
     # Job to decide if we should run frontend ci
@@ -56,6 +56,8 @@ jobs:
                         - stylelint*
                         - '**/*.md'
                         - '**/*.mdx'
+                        - '**/*.yaml'
+                        - '**/*.yml'
                         - .config/.markdownlint-cli2.jsonc
 
     frontend-format:
@@ -70,21 +72,10 @@ jobs:
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Set up Node.js
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
                   node-version: 22.17.1
                   cache: 'pnpm'
-
-            - name: Get pnpm cache directory path
-              id: pnpm-cache-dir
-              run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
-
-            - uses: actions/cache@v4
-              id: pnpm-cache
-              with:
-                  path: ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
-                  key: ${{ runner.os }}-pnpm-frontend-${{ hashFiles('pnpm-lock.yaml') }}
-                  restore-keys: ${{ runner.os }}-pnpm-frontend-
 
             - name: Install package.json dependencies with pnpm
               run: |
@@ -103,6 +94,9 @@ jobs:
             - name: Check markdown formatting with prettier
               run: pnpm exec prettier --check "**/*.{md,mdx}"
 
+            - name: Check YAML formatting with prettier
+              run: pnpm exec prettier --check "**/*.{yaml,yml}" --ignore-path .prettierignore
+
             - name: Lint markdown files
               run: pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc "**/*.{md,mdx}"
 
@@ -117,21 +111,10 @@ jobs:
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Set up Node.js
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
                   node-version: 22.17.1
                   cache: 'pnpm'
-
-            - name: Get pnpm cache directory path
-              id: pnpm-cache-dir
-              run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
-
-            - uses: actions/cache@v4
-              id: pnpm-cache
-              with:
-                  path: ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
-                  key: ${{ runner.os }}-pnpm-frontend-${{ hashFiles('pnpm-lock.yaml') }}
-                  restore-keys: ${{ runner.os }}-pnpm-frontend-
 
             - name: Install package.json dependencies with pnpm
               run: |
@@ -167,21 +150,10 @@ jobs:
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Set up Node.js
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
                   node-version: 22.17.1
                   cache: 'pnpm'
-
-            - name: Get pnpm cache directory path
-              id: pnpm-cache-dir
-              run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
-
-            - uses: actions/cache@v4
-              id: pnpm-cache
-              with:
-                  path: ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
-                  key: ${{ runner.os }}-pnpm-frontend-${{ hashFiles('pnpm-lock.yaml') }}
-                  restore-keys: ${{ runner.os }}-pnpm-frontend-
 
             - name: Install package.json dependencies with pnpm
               run: |
@@ -239,7 +211,7 @@ jobs:
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Set up Node.js
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
                   node-version: 22.17.1
                   cache: pnpm
@@ -248,7 +220,7 @@ jobs:
               run: pnpm --filter=@posthog/frontend... install --frozen-lockfile
 
             - name: Test with Jest
-              run: bin/turbo run test --filter=@posthog/frontend
+              run: bin/turbo run test --filter=@posthog/frontend -- --runInBand
               env:
                   NODE_OPTIONS: --max-old-space-size=16384
                   SHARD_INDEX: ${{ matrix.chunk }}

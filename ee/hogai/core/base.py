@@ -64,6 +64,11 @@ class BaseAssistantGraph(Generic[StateType, PartialStateType], ABC):
     @abstractmethod
     def graph_name(self) -> AssistantGraphName: ...
 
+    def compile_full_graph(self, checkpointer: DjangoCheckpointer | None | Literal[False] = None) -> CompiledStateGraph:
+        if not checkpointer and checkpointer is not False:
+            checkpointer = None
+        return self.compile(checkpointer=checkpointer)
+
     @property
     def node_path(self) -> tuple[NodePath, ...]:
         return self._node_path

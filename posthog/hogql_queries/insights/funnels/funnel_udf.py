@@ -23,14 +23,7 @@ class FunnelProtocol(Protocol):
     def _default_breakdown_selector(self) -> str: ...
 
 
-TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
-HUMAN_READABLE_TIMESTAMP_FORMAT = "%-d-%b-%Y"
-
-
 class FunnelUDFMixin:
-    def _add_breakdown_attribution_subquery(self: FunnelProtocol, inner_query: ast.SelectQuery) -> ast.SelectQuery:
-        raise Exception("UDF doesn't use this")
-
     def _prop_vals(self: FunnelProtocol):
         breakdown, breakdownType = self.context.breakdown, self.context.breakdownType
         if not breakdown:
@@ -52,7 +45,7 @@ class FunnelUDFMixin:
             self.context.breakdownAttributionType == BreakdownAttributionType.STEP
             and self.context.funnelsFilter.funnelOrderType != StepOrderValue.UNORDERED
         ):
-            prop = f"prop_{self.context.funnelsFilter.breakdownAttributionValue}"
+            prop = "prop"
         else:
             prop = "prop_basic"
         if self._query_has_array_breakdown():
@@ -90,15 +83,15 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
         return ""
 
     def udf_event_array_filter(self):
-        return self._udf_event_array_filter(1, 3, 4)
+        return self.event_array_filter(1, 3, 4)
 
     # This is the function that calls the UDF
     # This is used by both the query itself and the actors query
     def _inner_aggregation_query(self):
         if self.context.funnelsFilter.funnelOrderType == "strict":
-            inner_event_query = self._get_inner_event_query_for_udf(skip_step_filter=True, skip_entity_filter=True)
+            inner_event_query = self._get_inner_event_query(skip_step_filter=True, skip_entity_filter=True)
         else:
-            inner_event_query = self._get_inner_event_query_for_udf()
+            inner_event_query = self._get_inner_event_query()
 
         # stores the steps as an array of integers from 1 to max_steps
         # so if the event could be step_0, step_1 or step_4, it looks like [1,2,0,0,5]

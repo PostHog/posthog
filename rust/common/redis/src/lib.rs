@@ -232,9 +232,24 @@ pub trait Client {
         seconds: u64,
         format: RedisValueFormat,
     ) -> Result<bool, CustomRedisError>;
+    async fn batch_incr_by_expire_nx(
+        &self,
+        items: Vec<(String, i64)>,
+        ttl_seconds: usize,
+    ) -> Result<(), CustomRedisError>;
+
+    /// Like batch_incr_by_expire_nx but always sets the TTL (no NX flag).
+    /// Compatible with Redis 6.x which doesn't support EXPIRE ... NX.
+    async fn batch_incr_by_expire(
+        &self,
+        items: Vec<(String, i64)>,
+        ttl_seconds: usize,
+    ) -> Result<(), CustomRedisError>;
+
     async fn del(&self, k: String) -> Result<(), CustomRedisError>;
     async fn hget(&self, k: String, field: String) -> Result<String, CustomRedisError>;
     async fn scard(&self, k: String) -> Result<u64, CustomRedisError>;
+    async fn mget(&self, keys: Vec<String>) -> Result<Vec<Option<Vec<u8>>>, CustomRedisError>;
 }
 
 // Module declarations

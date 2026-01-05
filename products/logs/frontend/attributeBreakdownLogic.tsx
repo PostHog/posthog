@@ -1,16 +1,19 @@
 import { connect, kea, key, path, props, selectors } from 'kea'
 
+import { PropertyFilterType } from '~/types'
+
 import type { attributeBreakdownLogicType } from './attributeBreakdownLogicType'
 import { logsLogic } from './logsLogic'
 
 export interface AttributeBreakdownLogicProps {
     attribute: string
+    type: PropertyFilterType
     tabId: string
 }
 
 export const attributeBreakdownLogic = kea<attributeBreakdownLogicType>([
     props({} as AttributeBreakdownLogicProps),
-    key((props) => `${props.tabId}-${props.attribute}`),
+    key((props) => `${props.tabId}-${props.type}-${props.attribute}`),
     path((key) => ['products', 'logs', 'frontend', 'logsAttributeBreakdownsLogic', key]),
 
     connect((props: AttributeBreakdownLogicProps) => ({
@@ -21,8 +24,15 @@ export const attributeBreakdownLogic = kea<attributeBreakdownLogicType>([
         logCount: [(s) => [s.logs], (logs): number => logs.length],
         attributeValues: [
             (s) => [s.logs],
-            (logs): string[] =>
-                logs.filter((l) => props.attribute in l.attributes).map((l) => l.attributes[props.attribute]),
+            (logs): string[] => {
+                let attributesKey: 'attributes' | 'resource_attributes' = 'attributes'
+                if (props.type === PropertyFilterType.LogResourceAttribute) {
+                    attributesKey = 'resource_attributes'
+                }
+                return logs
+                    .filter((l) => props.attribute in l[attributesKey])
+                    .map((l) => l[attributesKey][props.attribute])
+            },
         ],
         breakdowns: [
             (s) => [s.attributeValues],

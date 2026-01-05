@@ -24,7 +24,7 @@ export const SyncMoreNotice = (): JSX.Element | null => {
     }
 
     return (
-        <LemonBanner type="info" className="m-2 h-[265px] min-h-[auto] z-10">
+        <LemonBanner type="info" className="h-[265px] min-h-[auto] z-10">
             <div
                 data-attr="sql-editor-source-empty-state"
                 className="p-4 text-center flex flex-col justify-center items-center relative"

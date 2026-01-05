@@ -5,6 +5,7 @@ import { IconArrowLeft, IconArrowRight, IconCopy } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonInput, LemonModal, LemonTabs, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { InviteMembersButton } from 'lib/components/Account/InviteMembersButton'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -90,16 +91,23 @@ export function OnboardingInstallStep({
     const { currentTeam } = useValues(teamLogic)
 
     const installationComplete = useInstallationComplete(teamPropertyToVerify)
+    const isSkipButtonExperiment = useFeatureFlag('ONBOARDING_SKIP_INSTALL_STEP', 'test')
 
     useEffect(() => {
         setAvailableSDKInstructionsMap(sdkInstructionMap)
     }, [sdkInstructionMap, setAvailableSDKInstructionsMap])
+
+    // In the experiment, show skip at bottom only when installation is NOT complete
+    const showSkipAtBottom = isSkipButtonExperiment && !installationComplete
+    // In the experiment, hide the top skip button (but still show Continue when installation is complete)
+    const showTopSkipButton = !isSkipButtonExperiment || installationComplete
 
     return (
         <OnboardingStep
             title="Install"
             stepKey={stepKey}
             continueDisabledReason={!installationComplete ? 'Installation is not complete' : undefined}
+            showSkip={showSkipAtBottom}
             actions={
                 <div className="pr-2">
                     <RealtimeCheckIndicator
@@ -134,7 +142,9 @@ export function OnboardingInstallStep({
                                 fullWidth={false}
                                 text="Invite developer"
                             />
-                            <NextButton size="small" installationComplete={installationComplete} />
+                            {showTopSkipButton && (
+                                <NextButton size="small" installationComplete={installationComplete} />
+                            )}
                         </div>
                     </div>
                     <LemonTabs
@@ -155,16 +165,40 @@ export function OnboardingInstallStep({
                                     setInstructionsModalOpen(true)
                                 }}
                             >
-                                {typeof sdk.image === 'string' ? (
-                                    <img src={sdk.image} className="w-8 h-8 mb-2" alt={`${sdk.name} logo`} />
-                                ) : typeof sdk.image === 'object' && 'default' in sdk.image ? (
-                                    <img src={sdk.image.default} className="w-8 h-8 mb-2" alt={`${sdk.name} logo`} />
-                                ) : (
-                                    sdk.image
-                                )}
+                                <div className="w-8 h-8 mb-2">
+                                    {typeof sdk.image === 'string' ? (
+                                        <img src={sdk.image} className="w-8 h-8" alt={`${sdk.name} logo`} />
+                                    ) : typeof sdk.image === 'object' && 'default' in sdk.image ? (
+                                        <img src={sdk.image.default} className="w-8 h-8" alt={`${sdk.name} logo`} />
+                                    ) : (
+                                        sdk.image
+                                    )}
+                                </div>
+
                                 <strong>{sdk.name}</strong>
                             </LemonCard>
                         ))}
+
+                        {/* This will open a survey to collect feedback on the SDKs we don't support yet */}
+                        {/* https://us.posthog.com/project/2/surveys/019b47ab-5f19-0000-7f31-4f9681cde589 */}
+                        {searchTerm && (
+                            <LemonCard className="p-4 cursor-pointer flex flex-col items-start justify-center col-span-1 sm:col-span-2">
+                                <div className="flex flex-col items-start gap-2">
+                                    <span className="mb-2 text-muted">
+                                        Don&apos;t see your SDK listed? We are always looking to expand our list of
+                                        supported SDKs.
+                                    </span>
+                                    <LemonButton
+                                        data-attr="onboarding-reach-out-to-us-button"
+                                        type="secondary"
+                                        size="small"
+                                        targetBlank
+                                    >
+                                        Reach out to us
+                                    </LemonButton>
+                                </div>
+                            </LemonCard>
+                        )}
                     </div>
                 </div>
             </div>

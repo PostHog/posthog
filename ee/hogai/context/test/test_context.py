@@ -1,8 +1,8 @@
 import datetime
 from typing import cast
 
-from posthog.test.base import BaseTest, ClickhouseTestMixin
-from unittest.mock import AsyncMock, MagicMock, patch
+from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
@@ -18,7 +18,6 @@ from posthog.schema import (
     FunnelsQuery,
     HogQLQuery,
     HumanMessage,
-    LifecycleQuery,
     MaxActionContext,
     MaxBillingContext,
     MaxBillingContextSettings,
@@ -42,16 +41,15 @@ from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import AssistantMessageUnion
 
 
-class TestAssistantContextManager(ClickhouseTestMixin, BaseTest):
+class TestAssistantContextManager(BaseTest):
     def setUp(self):
         super().setUp()
         self.config = RunnableConfig(configurable={})
         self.context_manager = AssistantContextManager(self.team, self.user, self.config)
 
-    @patch("ee.hogai.context.context.AssistantQueryExecutor")
-    async def test_run_and_format_insight_trends_query(self, mock_query_runner_class):
-        mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.arun_and_format_query = AsyncMock(return_value=("Trend results: 100 users", None))
+    @patch("ee.hogai.context.insight.context.execute_and_format_query")
+    async def test_build_and_execute_insight_trends_query(self, mock_execute):
+        mock_execute.return_value = "Trend results: 100 users"
 
         insight = MaxInsightContext(
             id="123",
@@ -60,29 +58,20 @@ class TestAssistantContextManager(ClickhouseTestMixin, BaseTest):
             query=TrendsQuery(series=[EventsNode(event="pageview")]),
         )
 
-        result = await self.context_manager._arun_and_format_insight(
-            insight, mock_query_runner, dashboard_filters=None, heading="#"
-        )
-        expected = """# Insight: User Trends
+        insight_ctx = self.context_manager._build_insight_context(insight, dashboard_filters=None)
+        result = await self.context_manager._execute_and_format_insight(insight_ctx)
+        assert result is not None
+        # Check the key parts of the result
+        self.assertIn("## Name: User Trends", result)
+        self.assertIn("Insight ID: 123", result)
+        self.assertIn("Description: Daily active users", result)
+        self.assertIn("TrendsQuery", result)
+        self.assertIn("Trend results: 100 users", result)
+        mock_execute.assert_called_once()
 
-Description: Daily active users
-
-Query schema:
-```json
-{"filterTestAccounts":false,"interval":"day","kind":"TrendsQuery","properties":[],"series":[{"event":"pageview","kind":"EventsNode"}]}
-```
-
-Results:
-```
-Trend results: 100 users
-```"""
-        self.assertEqual(result, expected)
-        mock_query_runner.arun_and_format_query.assert_called_once()
-
-    @patch("ee.hogai.context.context.AssistantQueryExecutor")
-    async def test_run_and_format_insight_funnel_query(self, mock_query_runner_class):
-        mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.arun_and_format_query = AsyncMock(return_value=("Funnel results: 50% conversion", None))
+    @patch("ee.hogai.context.insight.context.execute_and_format_query")
+    async def test_build_and_execute_insight_funnel_query(self, mock_execute):
+        mock_execute.return_value = "Funnel results: 50% conversion"
 
         insight = MaxInsightContext(
             id="456",
@@ -91,25 +80,18 @@ Trend results: 100 users
             query=FunnelsQuery(series=[EventsNode(event="sign_up"), EventsNode(event="purchase")]),
         )
 
-        result = await self.context_manager._arun_and_format_insight(insight, mock_query_runner, heading="#")
+        insight_ctx = self.context_manager._build_insight_context(insight, dashboard_filters=None)
+        result = await self.context_manager._execute_and_format_insight(insight_ctx)
+        assert result is not None
+        # Check the key parts of the result
+        self.assertIn("## Name: Conversion Funnel", result)
+        self.assertIn("Insight ID: 456", result)
+        self.assertIn("FunnelsQuery", result)
+        self.assertIn("Funnel results: 50% conversion", result)
 
-        expected = """# Insight: Conversion Funnel
-
-Query schema:
-```json
-{"filterTestAccounts":false,"kind":"FunnelsQuery","properties":[],"series":[{"event":"sign_up","kind":"EventsNode"},{"event":"purchase","kind":"EventsNode"}]}
-```
-
-Results:
-```
-Funnel results: 50% conversion
-```"""
-        self.assertEqual(result, expected)
-
-    @patch("ee.hogai.context.context.AssistantQueryExecutor")
-    async def test_run_and_format_insight_retention_query(self, mock_query_runner_class):
-        mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.arun_and_format_query = AsyncMock(return_value=("Retention: 30% Day 7", None))
+    @patch("ee.hogai.context.insight.context.execute_and_format_query")
+    async def test_build_and_execute_insight_retention_query(self, mock_execute):
+        mock_execute.return_value = "Retention: 30% Day 7"
 
         insight = MaxInsightContext(
             id="789",
@@ -123,24 +105,18 @@ Funnel results: 50% conversion
             ),
         )
 
-        result = await self.context_manager._arun_and_format_insight(insight, mock_query_runner, heading="#")
-        expected = """# Insight: ID 789
+        insight_ctx = self.context_manager._build_insight_context(insight, dashboard_filters=None)
+        result = await self.context_manager._execute_and_format_insight(insight_ctx)
+        assert result is not None
+        # Check the key parts of the result
+        self.assertIn("## Name: Insight", result)  # Falls back to "Insight" when no name
+        self.assertIn("Insight ID: 789", result)
+        self.assertIn("RetentionQuery", result)
+        self.assertIn("Retention: 30% Day 7", result)
 
-Query schema:
-```json
-{"filterTestAccounts":false,"kind":"RetentionQuery","properties":[],"retentionFilter":{"period":"Day","returningEntity":{"id":"$pageview","type":"events"},"targetEntity":{"id":"$pageview","type":"events"},"totalIntervals":8}}
-```
-
-Results:
-```
-Retention: 30% Day 7
-```"""
-        self.assertEqual(result, expected)
-
-    @patch("ee.hogai.context.context.AssistantQueryExecutor")
-    async def test_run_and_format_insight_hogql_query(self, mock_query_runner_class):
-        mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.arun_and_format_query = AsyncMock(return_value=("Query results: 42 events", None))
+    @patch("ee.hogai.context.insight.context.execute_and_format_query")
+    async def test_build_and_execute_insight_hogql_query(self, mock_execute):
+        mock_execute.return_value = "Query results: 42 events"
 
         insight = MaxInsightContext(
             id="101",
@@ -149,39 +125,20 @@ Retention: 30% Day 7
             query=HogQLQuery(query="SELECT count() FROM events"),
         )
 
-        result = await self.context_manager._arun_and_format_insight(insight, mock_query_runner, heading="#")
-        expected = """# Insight: Custom Query
+        insight_ctx = self.context_manager._build_insight_context(insight, dashboard_filters=None)
+        result = await self.context_manager._execute_and_format_insight(insight_ctx)
+        assert result is not None
+        # Check the key parts of the result
+        self.assertIn("## Name: Custom Query", result)
+        self.assertIn("Insight ID: 101", result)
+        self.assertIn("Description: HogQL analysis", result)
+        self.assertIn("HogQLQuery", result)
+        self.assertIn("Query results: 42 events", result)
 
-Description: HogQL analysis
-
-Query schema:
-```json
-{"kind":"HogQLQuery","query":"SELECT count() FROM events"}
-```
-
-Results:
-```
-Query results: 42 events
-```"""
-        self.assertEqual(result, expected)
-
-    @patch("ee.hogai.context.context.AssistantQueryExecutor")
-    async def test_run_and_format_insight_unsupported_query_kind(self, mock_query_runner_class):
-        mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.arun_and_format_query = AsyncMock()
-
-        insight = MaxInsightContext(id="123", name="Unsupported", description=None, query=LifecycleQuery(series=[]))
-
-        result = await self.context_manager._arun_and_format_insight(insight, mock_query_runner)
-
-        self.assertEqual(result, None)
-        mock_query_runner.arun_and_format_query.assert_not_called()
-
-    @patch("ee.hogai.context.context.AssistantQueryExecutor")
+    @patch("ee.hogai.context.insight.context.execute_and_format_query")
     @patch("ee.hogai.context.context.capture_exception")
-    async def test_run_and_format_insight_exception_handling(self, mock_capture_exception, mock_query_runner_class):
-        mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.arun_and_format_query = AsyncMock(side_effect=Exception("Query failed"))
+    async def test_execute_and_format_insight_exception_handling(self, mock_capture_exception, mock_execute):
+        mock_execute.side_effect = Exception("Query failed")
 
         insight = MaxInsightContext(
             id="123",
@@ -190,17 +147,15 @@ Query results: 42 events
             query=TrendsQuery(series=[EventsNode(event="pageview")]),
         )
 
-        result = await self.context_manager._arun_and_format_insight(insight, mock_query_runner)
+        insight_ctx = self.context_manager._build_insight_context(insight, dashboard_filters=None)
+        result = await self.context_manager._execute_and_format_insight(insight_ctx)
 
         self.assertEqual(result, None)
         mock_capture_exception.assert_called_once()
 
-    @patch("ee.hogai.context.context.AssistantQueryExecutor")
-    async def test_format_ui_context_with_dashboard(self, mock_query_runner_class):
-        # Configure the mock to return a proper mock instance with arun_and_format_query method
-        mock_query_runner = MagicMock()
-        mock_query_runner.arun_and_format_query = AsyncMock(return_value=("Dashboard insight results", None))
-        mock_query_runner_class.return_value = mock_query_runner
+    @patch("ee.hogai.context.insight.context.execute_and_format_query")
+    async def test_format_ui_context_with_dashboard(self, mock_execute):
+        mock_execute.return_value = "Dashboard insight results"
 
         # Create mock insight
         insight = MaxInsightContext(
@@ -226,12 +181,10 @@ Query results: 42 events
 
         self.assertIsNotNone(result)
         assert result is not None  # Type guard for mypy
-        self.assertIn("Dashboard: Test Dashboard", result)
+        self.assertIn("## Dashboard name: Test Dashboard", result)
         self.assertIn("Description: Test dashboard description", result)
-        self.assertIn("### Dashboard insights", result)
-        # Since the insights are being executed asynchronously and the mocks aren't working
-        # properly with the context manager, just check the structure is there
-        # The test for actual insight execution is covered in test_run_and_format_insight_trends_query
+        self.assertIn("Dashboard insights:", result)
+        # The insight execution is tested separately - just verify structure here
         self.assertNotIn("# Insights", result)
 
     async def test_format_ui_context_with_events(self):
@@ -294,10 +247,9 @@ Query results: 42 events
         self.assertIn('"Sign Up: User creates account", "Purchase: User makes a purchase"', result)
         self.assertIn("<actions_context>", result)
 
-    @patch("ee.hogai.context.context.AssistantQueryExecutor")
-    async def test_format_ui_context_with_standalone_insights(self, mock_query_runner_class):
-        mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.arun_and_format_query = AsyncMock(return_value=("Standalone insight results", None))
+    @patch("ee.hogai.context.insight.context.execute_and_format_query")
+    async def test_format_ui_context_with_standalone_insights(self, mock_execute):
+        mock_execute.return_value = "Standalone insight results"
 
         # Create mock insight
         insight = MaxInsightContext(
@@ -315,7 +267,8 @@ Query results: 42 events
         self.assertIsNotNone(result)
         assert result is not None  # Type guard for mypy
         self.assertIn("Insights", result)
-        self.assertIn("Insight: Standalone Insight", result)
+        self.assertIn("Name: Standalone Insight", result)  # Uses "Name:" not "Insight:"
+        self.assertIn("Standalone insight results", result)
         self.assertNotIn("# Dashboards", result)
 
     async def test_format_ui_context_empty(self):
@@ -327,10 +280,9 @@ Query results: 42 events
         result = await self.context_manager._format_ui_context(ui_context)
         self.assertIsNone(result)
 
-    @patch("ee.hogai.context.context.AssistantQueryExecutor")
-    async def test_format_ui_context_with_insights(self, mock_query_runner_class):
-        mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.arun_and_format_query = AsyncMock(return_value=("Insight execution results", None))
+    @patch("ee.hogai.context.insight.context.execute_and_format_query")
+    async def test_format_ui_context_with_insights(self, mock_execute):
+        mock_execute.return_value = "Insight execution results"
 
         # Create mock insight
         insight = MaxInsightContext(
@@ -352,11 +304,10 @@ Query results: 42 events
         self.assertIn("Test description", result)
         self.assertIn("Insight execution results", result)
 
-    @patch("ee.hogai.context.context.AssistantQueryExecutor")
+    @patch("ee.hogai.context.insight.context.execute_and_format_query")
     @patch("ee.hogai.context.context.capture_exception")
-    async def test_format_ui_context_with_failed_insights(self, mock_capture_exception, mock_query_runner_class):
-        mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.arun_and_format_query = AsyncMock(side_effect=Exception("Query failed"))
+    async def test_format_ui_context_with_failed_insights(self, mock_capture_exception, mock_execute):
+        mock_execute.side_effect = Exception("Query failed")
 
         # Create mock insight that will fail
         insight = MaxInsightContext(
@@ -657,77 +608,74 @@ Query results: 42 events
 
     async def test_get_context_messages_with_agent_mode_at_start(self):
         """Test that mode prompt is added when feature flag is enabled and message is at start"""
-        with patch("ee.hogai.context.context.has_agent_modes_feature_flag", return_value=True):
-            state = AssistantState(
-                messages=[HumanMessage(content="Test", id="1")],
-                start_id="1",
-                agent_mode=AgentMode.PRODUCT_ANALYTICS,
-            )
+        state = AssistantState(
+            messages=[HumanMessage(content="Test", id="1")],
+            start_id="1",
+            agent_mode=AgentMode.PRODUCT_ANALYTICS,
+        )
 
-            result = await self.context_manager.get_state_messages_with_context(state)
+        result = await self.context_manager.get_state_messages_with_context(state)
 
-            assert result is not None
-            self.assertEqual(len(result), 2)
-            assert isinstance(result[0], ContextMessage)
-            self.assertIn("Your initial mode is", result[0].content)
-            self.assertIn("product_analytics", result[0].content)
-            # Verify metadata is set correctly
-            assert isinstance(result[0].meta, ModeContext)
-            self.assertEqual(result[0].meta.mode, AgentMode.PRODUCT_ANALYTICS)
-            self.assertIsInstance(result[1], HumanMessage)
+        assert result is not None
+        self.assertEqual(len(result), 2)
+        assert isinstance(result[0], ContextMessage)
+        self.assertIn("Your initial mode is", result[0].content)
+        self.assertIn("product_analytics", result[0].content)
+        # Verify metadata is set correctly
+        assert isinstance(result[0].meta, ModeContext)
+        self.assertEqual(result[0].meta.mode, AgentMode.PRODUCT_ANALYTICS)
+        self.assertIsInstance(result[1], HumanMessage)
 
     async def test_get_context_messages_with_agent_mode_switch(self):
         """Test that mode switch prompt is added when mode changes mid-conversation"""
-        with patch("ee.hogai.context.context.has_agent_modes_feature_flag", return_value=True):
-            state = AssistantState(
-                messages=[
-                    ContextMessage(
-                        content="<system_reminder>Your initial mode is product_analytics.</system_reminder>",
-                        id="0",
-                        meta=ModeContext(mode=AgentMode.PRODUCT_ANALYTICS),
-                    ),
-                    HumanMessage(content="First message", id="1"),
-                    AssistantMessage(content="Response", id="2"),
-                    HumanMessage(content="Second message", id="3"),
-                ],
-                start_id="3",
-                agent_mode=AgentMode.SQL,  # Mode changed from product_analytics to SQL
-            )
+        state = AssistantState(
+            messages=[
+                ContextMessage(
+                    content="<system_reminder>Your initial mode is product_analytics.</system_reminder>",
+                    id="0",
+                    meta=ModeContext(mode=AgentMode.PRODUCT_ANALYTICS),
+                ),
+                HumanMessage(content="First message", id="1"),
+                AssistantMessage(content="Response", id="2"),
+                HumanMessage(content="Second message", id="3"),
+            ],
+            start_id="3",
+            agent_mode=AgentMode.SQL,  # Mode changed from product_analytics to SQL
+        )
 
-            result = await self.context_manager.get_state_messages_with_context(state)
+        result = await self.context_manager.get_state_messages_with_context(state)
 
-            assert result is not None
-            # Should have added a mode switch context message before the start message
-            self.assertEqual(len(result), 5)
-            assert isinstance(result[3], ContextMessage)
-            self.assertIn("Your mode has been switched to", result[3].content)
-            self.assertIn("sql", result[3].content)
-            # Verify metadata is set correctly
-            assert isinstance(result[3].meta, ModeContext)
-            self.assertEqual(result[3].meta.mode, AgentMode.SQL)
+        assert result is not None
+        # Should have added a mode switch context message before the start message
+        self.assertEqual(len(result), 5)
+        assert isinstance(result[3], ContextMessage)
+        self.assertIn("Your mode has been switched to", result[3].content)
+        self.assertIn("sql", result[3].content)
+        # Verify metadata is set correctly
+        assert isinstance(result[3].meta, ModeContext)
+        self.assertEqual(result[3].meta.mode, AgentMode.SQL)
 
     async def test_get_context_messages_no_mode_switch_when_same_mode(self):
         """Test that no mode prompt is added when mode hasn't changed"""
-        with patch("ee.hogai.context.context.has_agent_modes_feature_flag", return_value=True):
-            state = AssistantState(
-                messages=[
-                    ContextMessage(
-                        content="<system_reminder>Your initial mode is product_analytics.</system_reminder>",
-                        id="0",
-                        meta=ModeContext(mode=AgentMode.PRODUCT_ANALYTICS),
-                    ),
-                    HumanMessage(content="First message", id="1"),
-                    AssistantMessage(content="Response", id="2"),
-                    HumanMessage(content="Second message", id="3"),
-                ],
-                start_id="3",
-                agent_mode=AgentMode.PRODUCT_ANALYTICS,  # Same mode as initial
-            )
+        state = AssistantState(
+            messages=[
+                ContextMessage(
+                    content="<system_reminder>Your initial mode is product_analytics.</system_reminder>",
+                    id="0",
+                    meta=ModeContext(mode=AgentMode.PRODUCT_ANALYTICS),
+                ),
+                HumanMessage(content="First message", id="1"),
+                AssistantMessage(content="Response", id="2"),
+                HumanMessage(content="Second message", id="3"),
+            ],
+            start_id="3",
+            agent_mode=AgentMode.PRODUCT_ANALYTICS,  # Same mode as initial
+        )
 
-            result = await self.context_manager.get_state_messages_with_context(state)
+        result = await self.context_manager.get_state_messages_with_context(state)
 
-            # Should return None since no context needs to be added
-            self.assertIsNone(result)
+        # Should return None since no context needs to be added
+        self.assertIsNone(result)
 
     def test_get_previous_mode_from_messages_initial(self):
         """Test extraction of initial mode from context messages via metadata"""

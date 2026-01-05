@@ -16,7 +16,7 @@ from structlog import get_logger
 from posthog.hogql.constants import LimitContext
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency
-from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import Product, get_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.metrics import pushed_metrics_registry
@@ -243,6 +243,7 @@ def ingestion_lag() -> None:
     team_ids = settings.INGESTION_LAG_METRIC_TEAM_IDS
 
     try:
+        tag_queries(name="ingestion_lag")
         results = sync_execute(
             query,
             {
@@ -300,6 +301,8 @@ def replay_count_metrics() -> None:
         )
         --group by team_id
         """
+
+        tag_queries(product=Product.REPLAY, name="replay_count_metrics")
 
         results = sync_execute(
             query,
@@ -634,13 +637,6 @@ def sync_insight_cache_states_task() -> None:
     sync_insight_cache_states()
 
 
-@shared_task(ignore_result=True)
-def schedule_cache_updates_task() -> None:
-    from posthog.caching.insight_cache import schedule_cache_updates
-
-    schedule_cache_updates()
-
-
 @shared_task(
     ignore_result=True,
     autoretry_for=(CHQueryErrorTooManySimultaneousQueries,),
@@ -773,16 +769,6 @@ def send_org_usage_reports() -> None:
     from posthog.tasks.usage_report import send_all_org_usage_reports
 
     send_all_org_usage_reports.delay()
-
-
-@shared_task(ignore_result=True)
-def schedule_all_subscriptions() -> None:
-    try:
-        from ee.tasks.subscriptions import schedule_all_subscriptions as _schedule_all_subscriptions
-    except ImportError:
-        pass
-    else:
-        _schedule_all_subscriptions()
 
 
 @shared_task(ignore_result=True, retries=3)
@@ -976,6 +962,8 @@ def sync_feature_flag_last_called() -> None:
         return
 
     start_time = timezone.now()
+
+    tag_queries(product=Product.FEATURE_FLAGS, name="sync_feature_flag_last_called")
 
     try:
         redis_client = get_client()
@@ -1287,3 +1275,31 @@ def refresh_activity_log_fields_cache(flush: bool = False, hours_back: int = 14)
             f"[refresh_activity_log_fields_cache] completed flush and rebuild for "
             f"{processed_orgs}/{org_count} organizations"
         )
+
+
+@shared_task(ignore_result=True)
+def sync_user_product_lists_for_new_team(team_id: int) -> None:
+    """
+    Sync UserProductList for all users who have access to a new team.
+    Called during project creation to avoid request timeouts for large organizations.
+    """
+    from posthog.models.file_system.user_product_list import backfill_user_product_list_for_new_user
+    from posthog.models.team import Team
+
+    try:
+        team = Team.objects.get(id=team_id)
+    except Team.DoesNotExist:
+        logger.info("sync_user_product_lists_for_new_team: Team not found, skipping", team_id=team_id)
+        return
+
+    users = list(team.all_users_with_access())
+    logger.info(
+        "sync_user_product_lists_for_new_team: Starting sync",
+        team_id=team_id,
+        user_count=len(users),
+    )
+
+    for user in users:
+        backfill_user_product_list_for_new_user(user, team)
+
+    logger.info("sync_user_product_lists_for_new_team: Completed", team_id=team_id)

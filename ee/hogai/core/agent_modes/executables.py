@@ -21,6 +21,7 @@ from pydantic import ValidationError
 from posthog.schema import (
     AgentMode,
     AssistantMessage,
+    AssistantTool,
     AssistantToolCallMessage,
     ContextMessage,
     FailureMessage,
@@ -43,7 +44,6 @@ from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolError
 from ee.hogai.utils.anthropic import add_cache_control, convert_to_anthropic_messages
 from ee.hogai.utils.conversation_summarizer import AnthropicConversationSummarizer
-from ee.hogai.utils.feature_flags import has_agent_modes_feature_flag
 from ee.hogai.utils.helpers import convert_tool_messages_to_dict, normalize_ai_message
 from ee.hogai.utils.types import (
     AssistantMessageUnion,
@@ -169,7 +169,6 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
                 summary_message,
                 state.agent_mode_or_default,
                 start_id=start_id,
-                is_modes_feature_flag_enabled=has_agent_modes_feature_flag(self._team, self._user),
             )
             window_id = insertion_result.updated_window_start_id
             start_id = insertion_result.updated_start_id
@@ -184,22 +183,25 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
         add_cache_control(system_prompts[0], ttl="1h")
 
         message = await model.ainvoke(system_prompts + langchain_messages, config)
-        assistant_message = self._process_output_message(message)
 
-        new_messages: list[AssistantMessageUnion] | ReplaceMessages[AssistantMessageUnion] = [assistant_message]
-        # Replace the messages with the new message window
-        if messages_to_replace:
-            new_messages = ReplaceMessages([*messages_to_replace, assistant_message])
+        generated_messages = self._process_output_message(message)
 
         # Set new tool call count
-        tool_call_count = (state.root_tool_calls_count or 0) + 1 if assistant_message.tool_calls else None
+        tool_call_count = (state.root_tool_calls_count or 0) + 1 if generated_messages[-1].tool_calls else None
+
+        # Replace the messages with the new message window
+        new_messages: list[AssistantMessageUnion] | ReplaceMessages[AssistantMessageUnion]
+        if messages_to_replace:
+            new_messages = ReplaceMessages([*messages_to_replace, *generated_messages])
+        else:
+            new_messages = cast(list[AssistantMessageUnion], generated_messages)
 
         return PartialAssistantState(
             messages=new_messages,
             root_tool_calls_count=tool_call_count,
             root_conversation_start_id=window_id,
             start_id=start_id,
-            agent_mode=self._get_updated_agent_mode(assistant_message, state.agent_mode_or_default),
+            agent_mode=self._get_updated_agent_mode(generated_messages[-1], state.agent_mode_or_default),
         )
 
     def router(self, state: AssistantState):
@@ -303,15 +305,13 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
     def _is_hard_limit_reached(self, tool_calls_count: int | None) -> bool:
         return tool_calls_count is not None and tool_calls_count >= self.MAX_TOOL_CALLS
 
-    def _process_output_message(self, message: LangchainAIMessage) -> AssistantMessage:
+    def _process_output_message(self, message: LangchainAIMessage) -> list[AssistantMessage]:
         """Process the output message."""
         return normalize_ai_message(message)
 
     def _get_updated_agent_mode(self, generated_message: AssistantMessage, current_mode: AgentMode) -> AgentMode | None:
-        from ee.hogai.tools.switch_mode import SWITCH_MODE_TOOL_NAME
-
         for tool_call in generated_message.tool_calls or []:
-            if tool_call.name == SWITCH_MODE_TOOL_NAME and (new_mode := tool_call.args.get("new_mode")):
+            if tool_call.name == AssistantTool.SWITCH_MODE and (new_mode := tool_call.args.get("new_mode")):
                 return new_mode
         return current_mode
 
@@ -337,7 +337,10 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
             team=self._team, user=self._user, context_manager=self.context_manager
         )
         available_tools = await toolkit_manager.get_tools(state, config)
-        tool = next((tool for tool in available_tools if tool.get_name() == tool_call.name), None)
+        # Filter to only MaxTool instances (dicts are server-side tools like web_search handled by Anthropic)
+        tool = next(
+            (tool for tool in available_tools if isinstance(tool, MaxTool) and tool.get_name() == tool_call.name), None
+        )
 
         # If the tool doesn't exist, return the message to the agent
         if not tool:

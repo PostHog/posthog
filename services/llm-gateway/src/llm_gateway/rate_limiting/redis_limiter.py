@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import structlog
 from redis.asyncio import Redis
 
+from llm_gateway.metrics.prometheus import REDIS_FALLBACK
 from llm_gateway.rate_limiting.token_bucket import TokenBucketLimiter
 
 logger = structlog.get_logger(__name__)
@@ -17,7 +20,7 @@ class RateLimiter:
 
     def __init__(
         self,
-        redis: Redis | None,
+        redis: Redis[bytes] | None,
         burst_limit: int,
         burst_window: int,
         sustained_limit: int,
@@ -43,7 +46,7 @@ class RateLimiter:
         if self.redis is None:
             return True
 
-        current = await self.redis.incr(key)
+        current: int = await self.redis.incr(key)
         if current == 1:
             await self.redis.expire(key, window)
         return current <= limit
@@ -82,4 +85,5 @@ class RateLimiter:
             return True, None
         except Exception:
             logger.exception("redis_rate_limit_check_failed", user_id=user_id)
+            REDIS_FALLBACK.inc()
             return True, None

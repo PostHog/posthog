@@ -51,6 +51,7 @@ from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.early_access_features.backend.models import EarlyAccessFeature
+from products.product_tours.backend.models import ProductTour
 
 
 class TestExtractEtagFromHeader:
@@ -2453,7 +2454,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             format="json",
         ).json()
 
-        with self.assertNumQueries(FuzzyInt(17, 18)):
+        with self.assertNumQueries(FuzzyInt(18, 19)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -2468,7 +2469,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 format="json",
             ).json()
 
-        with self.assertNumQueries(FuzzyInt(17, 18)):
+        with self.assertNumQueries(FuzzyInt(18, 19)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -2492,7 +2493,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="Flag role access",
         )
 
-        with self.assertNumQueries(FuzzyInt(17, 18)):
+        with self.assertNumQueries(FuzzyInt(18, 19)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 2)
@@ -2611,7 +2612,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Should not cause extra queries for the targeting flags
-        with self.assertNumQueries(FuzzyInt(15, 20)):
+        with self.assertNumQueries(FuzzyInt(15, 21)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             # Should include main_flag but not targeting flags (they're filtered out)
@@ -5110,6 +5111,27 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert len(response["results"]) == 1
         assert response["results"][0]["id"] is not survey.json()["targeting_flag"]["id"]
 
+    def test_get_flags_dont_return_product_tour_internal_targeting_flags(self):
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
+
+        internal_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="product-tour-targeting-test-tour-abc123",
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+        ProductTour.objects.create(
+            team=self.team,
+            name="Test Tour",
+            content={"steps": []},
+            internal_targeting_flag=internal_flag,
+        )
+
+        flags_list = self.client.get("/api/projects/@current/feature_flags")
+        response = flags_list.json()
+        assert len(response["results"]) == 1
+        assert response["results"][0]["key"] == "red_button"
+
     def test_get_flags_with_active_and_created_by_id_filters(self):
         FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
         another_user = User.objects.create(email="foo@bar.com")
@@ -6629,7 +6651,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("ETag", response.headers)
-        self.assertTrue(response.headers["ETag"].startswith('"'))
+        self.assertTrue(response.headers["ETag"].startswith('W/"'))
         self.assertTrue(response.headers["ETag"].endswith('"'))
         self.assertIn("Cache-Control", response.headers)
         self.assertEqual(response.headers["Cache-Control"], "private, must-revalidate")
@@ -6851,8 +6873,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "/api/feature_flag/local_evaluation", headers={"authorization": f"Bearer {personal_api_key}"}
         )
         etag = response1.headers["ETag"]
-        # ETag is returned with quotes, e.g., '"abc123"'
-        self.assertTrue(etag.startswith('"') and etag.endswith('"'))
+        # ETag is returned as weak ETag, e.g., 'W/"abc123"'
+        self.assertTrue(etag.startswith('W/"') and etag.endswith('"'))
 
         # Client sends ETag with quotes (standard format) - should match
         response2 = self.client.get(
@@ -6885,8 +6907,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "/api/feature_flag/local_evaluation", headers={"authorization": f"Bearer {personal_api_key}"}
         )
         etag = response1.headers["ETag"]
-        # Strip quotes to get raw ETag value
-        raw_etag = etag.strip('"')
+        # Strip weak ETag prefix and quotes to get raw ETag value (W/"abc123" -> abc123)
+        raw_etag = etag.removeprefix('W/"').removesuffix('"')
 
         # Client sends ETag without quotes (non-standard but should work)
         response2 = self.client.get(
@@ -7139,7 +7161,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # TODO: Ensure server-side cursors are disabled, since in production we use this with pgbouncer
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(27):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(29):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
         cohort.refresh_from_db()
@@ -7193,7 +7215,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Extra queries because each batch adds its own queries
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(43):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(47):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk, batchsize=2)
 
         cohort.refresh_from_db()
@@ -7204,7 +7226,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(len(response.json()["results"]), 3, response)
 
         # if the batch is big enough, it's fewer queries
-        with self.assertNumQueries(24):
+        with self.assertNumQueries(26):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk, batchsize=10)
 
         cohort.refresh_from_db()
@@ -7268,7 +7290,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(26):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(28):
             # no queries to evaluate flags, because all evaluated using override properties
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
@@ -7285,7 +7307,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort2",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(26):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(28):
             # person3 doesn't match filter conditions so is pre-filtered out
             get_cohort_actors_for_feature_flag(cohort2.pk, "some-feature-new", self.team.pk)
 
@@ -7379,7 +7401,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(41):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(43):
             # forced to evaluate flags by going to db, because cohorts need db query to evaluate
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature-new", self.team.pk)
 

@@ -3,20 +3,22 @@ import { useValues } from 'kea'
 import { IconMinusSquare, IconPlusSquare } from '@posthog/icons'
 import { LemonButton, LemonTable } from '@posthog/lemon-ui'
 
-import { PropertyOperator } from '~/types'
+import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { attributeBreakdownLogic } from './attributeBreakdownLogic'
 
 export const AttributeBreakdowns = ({
     attribute,
+    type,
     addFilter,
     tabId,
 }: {
     attribute: string
-    addFilter: (key: string, value: string, operator?: PropertyOperator) => void
+    type: PropertyFilterType
+    addFilter: (key: string, value: string, operator?: PropertyOperator, type?: PropertyFilterType) => void
     tabId: string
 }): JSX.Element => {
-    const logic = attributeBreakdownLogic({ attribute, tabId })
+    const logic = attributeBreakdownLogic({ attribute, type, tabId })
     const { attributeValues, logCount, breakdowns } = useValues(logic)
 
     const dataSource = Object.entries(breakdowns)
@@ -45,14 +47,14 @@ export const AttributeBreakdowns = ({
                                 <LemonButton
                                     tooltip="Add as filter"
                                     size="xsmall"
-                                    onClick={() => addFilter(attribute, record.value)}
+                                    onClick={() => addFilter(attribute, record.value, PropertyOperator.Exact, type)}
                                 >
                                     <IconPlusSquare />
                                 </LemonButton>
                                 <LemonButton
                                     tooltip="Exclude as filter"
                                     size="xsmall"
-                                    onClick={() => addFilter(attribute, record.value, PropertyOperator.IsNot)}
+                                    onClick={() => addFilter(attribute, record.value, PropertyOperator.IsNot, type)}
                                 >
                                     <IconMinusSquare />
                                 </LemonButton>

@@ -67,7 +67,7 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort import DEFAULT_COHORT_INSERT_BATCH_SIZE, CohortOrEmpty
 from posthog.models.cohort.calculation_history import CohortCalculationHistory
-from posthog.models.cohort.cohort import CohortPeople, CohortType
+from posthog.models.cohort.cohort import CohortType
 from posthog.models.cohort.util import get_all_cohort_dependencies, get_friendly_error_message, print_cohort_hogql_query
 from posthog.models.cohort.validation import CohortTypeValidationSerializer
 from posthog.models.feature_flag.flag_matching import (
@@ -523,6 +523,14 @@ class CohortSerializer(serializers.ModelSerializer):
         cohort = Cohort.objects.create(team_id=self.context["team_id"], **validated_data)
 
         if cohort.is_static:
+            if (
+                self.context.get("from_cohort_id")
+                or self.context.get("from_feature_flag_key")
+                or validated_data.get("query")
+            ):
+                cohort.is_calculating = True
+                cohort.save(update_fields=["is_calculating"])
+
             self._handle_static(cohort, self.context, validated_data, person_ids)
             # Refresh from DB to get updated count field set by _insert_users_list_with_batching
             cohort.refresh_from_db()
@@ -1103,13 +1111,11 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             "get_team": lambda: team,
         }
 
-        # For static cohorts, copy people directly instead of using the insight filter path
-        if cohort.is_static:
-            person_uuids = CohortPeople.objects.filter(cohort_id=cohort.pk).values_list("person__uuid", flat=True)
-            serializer_data["_create_static_person_ids"] = [str(uuid) for uuid in person_uuids]
-        else:
-            # For dynamic cohorts, use the existing insight filter path
-            serializer_context["from_cohort_id"] = cohort.pk
+        # Use from_cohort_id for both static and dynamic cohorts.
+        # This copies people via an async Celery task using ClickHouse directly,
+        # which handles large cohorts efficiently without loading an expensive JOIN
+        # on posthog_people.
+        serializer_context["from_cohort_id"] = cohort.pk
 
         cohort_serializer = CohortSerializer(data=serializer_data, context=serializer_context)
         cohort_serializer.is_valid(raise_exception=True)
@@ -1430,17 +1436,31 @@ def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: dict, *, team_id: 
 
     if from_existing_cohort_id:
         existing_cohort = Cohort.objects.get(pk=from_existing_cohort_id)
-        query = """
-            SELECT DISTINCT person_id as actor_id
-            FROM cohortpeople
-            WHERE team_id = %(team_id)s AND cohort_id = %(from_cohort_id)s AND version = %(version)s
-            ORDER BY person_id
-        """
-        params = {
-            "team_id": team_id,
-            "from_cohort_id": existing_cohort.pk,
-            "version": existing_cohort.version,
-        }
+        if existing_cohort.is_static:
+            # Static cohorts store people in person_static_cohort table (no version column)
+            query = f"""
+                SELECT DISTINCT person_id as actor_id
+                FROM {PERSON_STATIC_COHORT_TABLE}
+                WHERE team_id = %(team_id)s AND cohort_id = %(from_cohort_id)s
+                ORDER BY person_id
+            """
+            params: dict[str, int | None] = {
+                "team_id": team_id,
+                "from_cohort_id": existing_cohort.pk,
+            }
+        else:
+            # Dynamic cohorts store people in cohortpeople table (with version)
+            query = """
+                SELECT DISTINCT person_id as actor_id
+                FROM cohortpeople
+                WHERE team_id = %(team_id)s AND cohort_id = %(from_cohort_id)s AND version = %(version)s
+                ORDER BY person_id
+            """
+            params = {
+                "team_id": team_id,
+                "from_cohort_id": existing_cohort.pk,
+                "version": existing_cohort.version,
+            }
         context = Filter(data=filter_data, team=cohort.team).hogql_context
     else:
         insight_type = filter_data.get("insight")

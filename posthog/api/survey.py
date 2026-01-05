@@ -16,7 +16,6 @@ from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
 
 import nh3
-import orjson
 import structlog
 import posthoganalytics
 from axes.decorators import axes_dispatch
@@ -61,6 +60,7 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils_cors import cors_response
 
+from ee.surveys.summaries.headline_summary import generate_survey_headline
 from ee.surveys.summaries.summarize_surveys import summarize_survey_responses
 
 # Constants for better maintainability
@@ -875,6 +875,9 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         else:
             return SurveySerializer
 
+    def safely_get_queryset(self, queryset):
+        return queryset.exclude(product_tour__isnull=False)
+
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
         related_targeting_flag = instance.targeting_flag
@@ -1517,6 +1520,68 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             r.headers["Server-Timing"] = timings_header
         return r
 
+    @action(methods=["POST"], detail=True, url_path="summary_headline", required_scopes=["survey:read"])
+    def summary_headline(self, request: request.Request, **kwargs):
+        survey_id = kwargs["pk"]
+        logger.info("[summary_headline] request received", survey_id=survey_id)
+
+        if not request.user.is_authenticated:
+            raise exceptions.NotAuthenticated()
+
+        user = cast(User, request.user)
+
+        logger.info("[summary_headline] checking survey exists", survey_id=survey_id)
+        if not Survey.objects.filter(id=survey_id, team__project_id=self.project_id).exists():
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        logger.info("[summary_headline] fetching survey", survey_id=survey_id)
+        survey = self.get_object()
+        logger.info("[summary_headline] survey fetched", survey_id=survey_id)
+        force_refresh = request.data.get("force_refresh", False)
+
+        if not force_refresh and survey.headline_summary and survey.headline_response_count:
+            return Response(
+                {
+                    "headline": survey.headline_summary,
+                    "responses_sampled": survey.headline_response_count,
+                    "has_more": False,
+                }
+            )
+
+        if not self.team.organization.is_ai_data_processing_approved:
+            return Response(
+                {"error": "AI data processing must be approved to generate summaries"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        logger.info("[summary_headline] calling generate_survey_headline", survey_id=survey_id)
+        result = generate_survey_headline(
+            survey=survey,
+            team=self.team,
+            user=user,
+        )
+
+        timings_header = result.pop("timings_header", None)
+
+        survey.headline_summary = result.get("headline")
+        survey.headline_response_count = result.get("responses_sampled", 0)
+        survey.save(update_fields=["headline_summary", "headline_response_count"])
+
+        posthoganalytics.capture(
+            event="survey headline generated",
+            distinct_id=str(user.distinct_id),
+            properties={
+                "survey_id": survey_id,
+                "responses_sampled": result.get("responses_sampled", 0),
+                "has_more": result.get("has_more", False),
+            },
+        )
+
+        r = Response(result)
+        if timings_header:
+            r.headers["Server-Timing"] = timings_header
+        return r
+
     @action(methods=["POST"], detail=True, required_scopes=["survey:write"])
     def duplicate_to_projects(self, request: request.Request, **kwargs):
         """Duplicate a survey to multiple projects in a single transaction.
@@ -1823,9 +1888,12 @@ def surveys(request: Request):
             COUNTER_SURVEYS_API_USE_REMOTE_CONFIG.labels(result="found").inc()
             response = hypercache_response
 
+        except Team.DoesNotExist:
+            COUNTER_SURVEYS_API_USE_REMOTE_CONFIG.labels(result="not_found").inc()
+            pass
         except Exception as e:
             capture_exception(e)
-            COUNTER_SURVEYS_API_USE_REMOTE_CONFIG.labels(result="not_found").inc()
+            COUNTER_SURVEYS_API_USE_REMOTE_CONFIG.labels(result="error").inc()
             pass  # For now fallback
 
     # If we didn't get a hypercache response or we are comparing then load the normal response to compare
@@ -1948,8 +2016,8 @@ def public_survey_page(request, survey_id: str):
     survey_data = serializer.data
     context = {
         "name": survey.name,
-        "survey_data": orjson.dumps(survey_data).decode("utf-8"),
-        "project_config_json": orjson.dumps(project_config).decode("utf-8"),
+        "survey_data": survey_data,
+        "project_config": project_config,
         "debug": settings.DEBUG,
     }
 

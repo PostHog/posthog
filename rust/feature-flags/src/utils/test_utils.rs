@@ -293,11 +293,12 @@ async fn insert_team_group_mappings(
     ];
 
     for (group_type, group_type_index) in group_types {
-        let res = sqlx::query(
+        sqlx::query(
             r#"INSERT INTO posthog_grouptypemapping
             (group_type, group_type_index, name_singular, name_plural, team_id, project_id)
             VALUES
-            ($1, $2, NULL, NULL, $3, $4)"#,
+            ($1, $2, NULL, NULL, $3, $4)
+            ON CONFLICT (project_id, group_type_index) DO NOTHING"#,
         )
         .bind(group_type)
         .bind(group_type_index)
@@ -305,7 +306,6 @@ async fn insert_team_group_mappings(
         .bind(team.id)
         .execute(&mut *persons_conn)
         .await?;
-        assert_eq!(res.rows_affected(), 1);
     }
 
     Ok(())
@@ -402,6 +402,7 @@ pub async fn insert_flag_for_team_in_pg(
             version: None,
             evaluation_runtime: Some("all".to_string()),
             evaluation_tags: None,
+            bucketing_identifier: None,
         },
     };
 
@@ -678,6 +679,7 @@ pub fn create_test_flag(
         version: Some(1),
         evaluation_runtime: Some("all".to_string()),
         evaluation_tags: None,
+        bucketing_identifier: None,
     }
 }
 

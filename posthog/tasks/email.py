@@ -56,7 +56,7 @@ NotificationSettingType = Literal[
 
 def send_message_to_all_staff_users(message: EmailMessage) -> None:
     for user in User.objects.filter(is_active=True, is_staff=True):
-        message.add_recipient(email=user.email, name=user.first_name)
+        message.add_user_recipient(user)
 
     message.send()
 
@@ -152,7 +152,8 @@ def send_invite(invite_id: str) -> None:
         },
         reply_to=invite.created_by.email if invite.created_by and invite.created_by.email else "",
     )
-    message.add_recipient(email=invite.target_email)
+    # Using invite_id that will be aliased to user.distinct_id after invite is accepted
+    message.add_recipient(email=invite.target_email, distinct_id=f"invite_{invite_id}")
     message.send()
 
 
@@ -177,7 +178,7 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
     members_to_email = organization.members.exclude(email=invitee.email)
     if members_to_email:
         for user in members_to_email:
-            message.add_recipient(email=user.email, name=user.first_name)
+            message.add_user_recipient(user)
         message.send()
 
 
@@ -198,7 +199,7 @@ def send_password_reset(user_id: int, token: str) -> None:
             "url": f"{settings.SITE_URL}/reset/{user.uuid}/{token}",
         },
     )
-    message.add_recipient(user.email)
+    message.add_user_recipient(user)
     message.send(send_async=False)
 
 
@@ -216,7 +217,7 @@ def send_password_changed_email(user_id: int) -> None:
             "site_url": settings.SITE_URL,
         },
     )
-    message.add_recipient(user.email)
+    message.add_user_recipient(user)
     message.send()
 
 
@@ -235,7 +236,7 @@ def send_email_verification(user_id: int, token: str, next_url: str | None = Non
             "url": f"{settings.SITE_URL}/verify_email/{user.uuid}/{token}{f'?next={next_url}' if next_url else ''}",
         },
     )
-    message.add_recipient(user.pending_email if user.pending_email is not None else user.email)
+    message.add_user_recipient(user, email_override=user.pending_email)
     message.send(send_async=False)
     posthoganalytics.capture(
         distinct_id=str(user.distinct_id),
@@ -263,7 +264,7 @@ def send_email_mfa_link(user_id: int, token: str) -> None:
             "site_url": settings.SITE_URL,
         },
     )
-    message.add_recipient(user.email)
+    message.add_user_recipient(user)
     message.send(send_async=False)
     posthoganalytics.capture(
         distinct_id=str(user.distinct_id),
@@ -302,7 +303,7 @@ def send_fatal_plugin_error(
         },
     )
     for membership in memberships_to_email:
-        message.add_recipient(email=membership.user.email, name=membership.user.first_name)
+        message.add_user_recipient(membership.user)
     message.send()
 
 
@@ -326,7 +327,7 @@ def send_hog_function_disabled(hog_function_id: str) -> None:
         template_context={"hog_function": hog_function, "team": team},
     )
     for membership in memberships_to_email:
-        message.add_recipient(email=membership.user.email, name=membership.user.first_name)
+        message.add_user_recipient(membership.user)
     message.send()
 
 
@@ -372,7 +373,7 @@ def send_batch_export_run_failure(
     logger.info("Prepared notification email for campaign %s", campaign_key)
 
     for membership in memberships_to_email:
-        message.add_recipient(email=membership.user.email, name=membership.user.first_name)
+        message.add_user_recipient(membership.user)
     message.send()
 
 
@@ -457,7 +458,7 @@ def send_two_factor_auth_enabled_email(user_id: int) -> None:
             "user_email": user.email,
         },
     )
-    message.add_recipient(user.email)
+    message.add_user_recipient(user)
     message.send()
 
 
@@ -474,7 +475,7 @@ def send_two_factor_auth_disabled_email(user_id: int) -> None:
             "user_email": user.email,
         },
     )
-    message.add_recipient(user.email)
+    message.add_user_recipient(user)
     message.send()
 
 
@@ -491,7 +492,7 @@ def send_two_factor_auth_backup_code_used_email(user_id: int) -> None:
             "user_email": user.email,
         },
     )
-    message.add_recipient(user.email)
+    message.add_user_recipient(user)
     message.send()
 
 
@@ -544,7 +545,7 @@ def login_from_new_device_notification(
             "login_method": login_method,
         },
     )
-    message.add_recipient(user.email)
+    message.add_user_recipient(user)
     message.send()
 
     # Capture event using ph_client for reliability in Celery tasks
@@ -624,7 +625,7 @@ def send_error_tracking_issue_assigned(assignment_id: str, assigner_id: int) -> 
         },
     )
     for membership in memberships_to_email:
-        message.add_recipient(email=membership.user.email, name=membership.user.first_name)
+        message.add_user_recipient(membership.user)
     message.send()
 
 
@@ -677,8 +678,10 @@ def send_discussions_mentioned(comment_id: str, mentioned_user_ids: list[int], s
             },
         )
 
+        logger.info(f"Sending discussions mentioned email for comment ({comment.id})")
+
         for membership in memberships_to_email:
-            message.add_recipient(email=membership.user.email, name=membership.user.first_name)
+            message.add_user_recipient(membership.user)
         message.send()
 
 
@@ -738,7 +741,7 @@ def send_hog_functions_digest_email(digest_data: dict, test_email_override: str 
 
     # Add recipients (either filtered list for test override or full list for normal flow)
     for membership in memberships_to_email:
-        message.add_recipient(email=membership.user.email, name=membership.user.first_name)
+        message.add_user_recipient(membership.user)
 
     message.send()
     logger.info(f"Sent HogFunctions digest email to team {team_id} with {len(digest_data['functions'])} functions")
@@ -979,5 +982,5 @@ def send_personal_api_key_exposed(user_id: int, personal_api_key_id: str, old_ma
             "url": f"{settings.SITE_URL}/settings/user-api-keys",
         },
     )
-    message.add_recipient(user.email)
+    message.add_user_recipient(user)
     message.send()

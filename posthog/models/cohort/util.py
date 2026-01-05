@@ -526,10 +526,11 @@ def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, 
     )
 
 
-def get_static_cohort_size(*, cohort_id: int, team_id: int) -> int:
-    count = CohortPeople.objects.filter(cohort_id=cohort_id, person__team_id=team_id).count()
-
-    return count
+def get_static_cohort_size(*, cohort_id: int, team_id: int, using_database: str | None = None) -> int:
+    qs = CohortPeople.objects.filter(cohort_id=cohort_id, person__team_id=team_id)
+    if using_database:
+        qs = qs.using(using_database)
+    return qs.count()
 
 
 def recalculate_cohortpeople(
@@ -655,7 +656,7 @@ def _recalculate_cohortpeople_for_team_hogql(
 
 
 def get_cohort_size(cohort: Cohort, override_version: Optional[int] = None, *, team_id: int) -> Optional[int]:
-    tag_queries(name="get_cohort_size", feature=Feature.COHORT)
+    tag_queries(name="get_cohort_size", feature=Feature.COHORT, cohort_id=cohort.pk, team_id=team_id)
     count_result = sync_execute(
         GET_COHORT_SIZE_SQL,
         {

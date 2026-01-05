@@ -5,7 +5,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TZLabel } from 'lib/components/TZLabel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
+import { liveEventsLogic } from 'scenes/activity/live/liveEventsLogic'
 
 import type { LiveEvent } from '~/types'
 
@@ -41,7 +41,7 @@ const columns: LemonTableColumns<LiveEvent> = [
 ]
 
 export function OnboardingLiveEvents(): JSX.Element | null {
-    const { events } = useValues(liveEventsTableLogic({ tabId: 'onboarding' }))
+    const { events } = useValues(liveEventsLogic)
 
     if (events.length === 0) {
         return null

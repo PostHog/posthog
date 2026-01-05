@@ -66,6 +66,7 @@ pub fn create_simple_flag(properties: Vec<PropertyFilter>, rollout_percentage: f
         version: Some(1),
         evaluation_runtime: Some("all".to_string()),
         evaluation_tags: None,
+        bucketing_identifier: None,
     }
 }
 

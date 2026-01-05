@@ -28,15 +28,23 @@ func TestLoadConfig(t *testing.T) {
 				Parallelism:      7,
 				CORSAllowOrigins: []string{"https://example.com", "https://sub.example.com"},
 				Kafka: KafkaConfig{
-					Brokers: "localhost:9092,localhost:9093",
-					Topic:   "topic",
-					GroupID: "livestream-dev",
+					Brokers:                          "localhost:9092,localhost:9093",
+					Topic:                            "topic",
+					SecurityProtocol:                 "PLAINTEXT",
+					SessionRecordingEnabled:          true,
+					SessionRecordingTopic:            "session_recording_snapshot_item_events",
+					SessionRecordingBrokers:          "localhost:9092,localhost:9093",
+					SessionRecordingSecurityProtocol: "SSL",
+					GroupID:                          "livestream-dev",
 				},
 				Postgres: PostgresConfig{
 					URL: "pg url",
 				},
 				JWT: JWTConfig{
 					Secret: "token",
+				},
+				SessionRecording: SessionRecordingConfig{
+					MaxLRUEntries: 2_000_000_000,
 				},
 			},
 			wantErr: false,

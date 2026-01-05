@@ -7,9 +7,7 @@ import { IconAtSign, IconDashboard, IconGraph, IconPageChart, IconWarning } from
 import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconAction, IconEvent } from 'lib/lemon-ui/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { ModeSelector } from './components/ModeSelector'
 import { maxContextLogic } from './maxContextLogic'
@@ -300,8 +298,7 @@ interface ContextDisplayProps {
 }
 
 export function ContextDisplay({ size = 'default' }: ContextDisplayProps): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { deepResearchMode, showContextUI, submissionDisabledReason } = useValues(maxThreadLogic)
+    const { deepResearchMode, showContextUI, contextDisabledReason } = useValues(maxThreadLogic)
     const { hasData, contextOptions, taxonomicGroupTypes, mainTaxonomicGroupType, toolContextItems } =
         useValues(maxContextLogic)
     const { handleTaxonomicFilterChange } = useActions(maxContextLogic)
@@ -315,7 +312,7 @@ export function ContextDisplay({ size = 'default' }: ContextDisplayProps): JSX.E
     return (
         <div className="px-2 w-full">
             <div className="flex flex-wrap items-start gap-1 w-full">
-                {featureFlags[FEATURE_FLAGS.AGENT_MODES] && <ModeSelector />}
+                <ModeSelector />
                 {deepResearchMode ? (
                     <LemonButton
                         size="xxsmall"
@@ -327,7 +324,7 @@ export function ContextDisplay({ size = 'default' }: ContextDisplayProps): JSX.E
                         Turn off deep research to add context
                     </LemonButton>
                 ) : (
-                    <Tooltip title={submissionDisabledReason ?? 'Add context to help PostHog AI answer your question'}>
+                    <Tooltip title={contextDisabledReason ?? 'Add context to help PostHog AI answer your question'}>
                         <TaxonomicPopover
                             size="xxsmall"
                             type="tertiary"
@@ -340,7 +337,7 @@ export function ContextDisplay({ size = 'default' }: ContextDisplayProps): JSX.E
                             placeholderClass="text-secondary"
                             maxContextOptions={contextOptions}
                             width={450}
-                            disabledReason={submissionDisabledReason}
+                            disabledReason={contextDisabledReason}
                         />
                     </Tooltip>
                 )}

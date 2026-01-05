@@ -246,6 +246,35 @@ class TestProperty(BaseTest):
                 "properties.unknown_prop = 'true'"  # We don't have a type for unknown_prop, so string comparison it is
             ),
         )
+        # Python boolean True (not string "true") should also work
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "event", "key": "boolean_prop", "value": True},
+                team=self.team,
+            ),
+            self._parse_expr("properties.boolean_prop = true"),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "event", "key": "string_prop", "value": True},
+                team=self.team,
+            ),
+            self._parse_expr("properties.string_prop = 'true'"),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "event", "key": "boolean_prop", "value": False},
+                team=self.team,
+            ),
+            self._parse_expr("properties.boolean_prop = false"),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "event", "key": "unknown_prop", "value": True},
+                team=self.team,
+            ),
+            self._parse_expr("properties.unknown_prop = 'true'"),
+        )
 
     def test_property_to_expr_event_list(self):
         # positive
@@ -890,20 +919,20 @@ class TestProperty(BaseTest):
         ) == self._parse_expr("$virt_initial_channel_type = 'Organic Search'")
 
         assert self._property_to_expr(
-            {"type": "person", "key": "$virt_revenue_last_30_days", "value": 100, "operator": "exact"}, scope="person"
-        ) == self._parse_expr("$virt_revenue_last_30_days = 100")
+            {"type": "person", "key": "$virt_mrr", "value": 100, "operator": "exact"}, scope="person"
+        ) == self._parse_expr("$virt_mrr = 100")
 
     def test_virtual_group_properties_on_group_scope(self):
         assert self._property_to_expr(
             {
                 "type": "group",
-                "key": "$virt_revenue_last_30_days",
+                "key": "$virt_mrr",
                 "value": 100,
                 "operator": "exact",
                 "group_type_index": 0,
             },
             scope="group",
-        ) == self._parse_expr("$virt_revenue_last_30_days = 100")
+        ) == self._parse_expr("$virt_mrr = 100")
 
     def test_virtual_person_properties_on_event_scope(self):
         assert self._property_to_expr(

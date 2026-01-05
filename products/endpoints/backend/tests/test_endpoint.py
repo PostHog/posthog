@@ -14,8 +14,10 @@ from posthog.schema import EndpointLastExecutionTimesRequest, EventsNode, Trends
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.insight_variable import InsightVariable
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.models.utils import generate_random_token_personal
 
 from products.endpoints.backend.models import Endpoint
 
@@ -25,6 +27,12 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
     def setUp(self):
         super().setUp()
+        self.api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Test API Key",
+            secure_value=hash_key_value(self.api_key),
+        )
         self.sample_hogql_query = {
             "explain": None,
             "filters": None,
@@ -172,7 +180,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
     def test_delete_endpoint(self):
         """Test deleting a endpoint."""
-        Endpoint.objects.create(
+        endpoint = Endpoint.objects.create(
             name="delete_test",
             team=self.team,
             query=self.sample_hogql_query,
@@ -182,6 +190,12 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         response = self.client.delete(f"/api/environments/{self.team.id}/endpoints/delete_test/")
 
         self.assertIn(response.status_code, [status.HTTP_204_NO_CONTENT, status.HTTP_200_OK])
+        logs = ActivityLog.objects.filter(team_id=self.team.id, scope="Endpoint", activity="deleted")
+        self.assertEqual(logs.count(), 1, list(logs.values("activity", "scope", "item_id")))
+        log = logs.latest("created_at")
+        self.assertEqual(log.item_id, str(endpoint.id))
+        assert log.detail is not None
+        self.assertEqual(log.detail.get("name"), "delete_test")
 
     def test_invalid_query_name_validation(self):
         """Test validation of invalid query names."""
@@ -522,11 +536,17 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             is_active=True,
         )
 
-        # Execute the endpoints to generate query_log entries
-        response1 = self.client.get(f"/api/environments/{self.team.id}/endpoints/test_query_1/run/")
+        # Execute the endpoints using API key to generate query_log entries with is_personal_api_key_request=true
+        response1 = self.client.get(
+            f"/api/environments/{self.team.id}/endpoints/test_query_1/run/",
+            HTTP_AUTHORIZATION=f"Bearer {self.api_key}",
+        )
         self.assertEqual(response1.status_code, status.HTTP_200_OK)
 
-        response2 = self.client.get(f"/api/environments/{self.team.id}/endpoints/test_query_2/run/")
+        response2 = self.client.get(
+            f"/api/environments/{self.team.id}/endpoints/test_query_2/run/",
+            HTTP_AUTHORIZATION=f"Bearer {self.api_key}",
+        )
         self.assertEqual(response2.status_code, status.HTTP_200_OK)
 
         # wait for the queries to end up in query_log :/
@@ -665,7 +685,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         )
 
         # First execution - should calculate fresh
-        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/")
+        response = self.client.post(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {"debug": True})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
 
@@ -675,7 +695,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         cache_key = response_data["cache_key"]
 
         # Second execution immediately - should use cache
-        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/")
+        response = self.client.post(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {"debug": True})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(response_data["cache_key"], cache_key)
@@ -922,7 +942,8 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
                 "date_from": "2025-09-18",
                 "date_to": "2025-09-21",
                 "properties": [{"type": "event", "operator": "exact", "key": "event", "value": "$pageview"}],
-            }
+            },
+            "debug": True,
         }
         expected_filters = [{"key": "event", "label": None, "operator": "exact", "type": "event", "value": "$pageview"}]
 
@@ -1007,3 +1028,227 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
         response_data = response.json()
         self.assertEqual("validation_error", response_data["type"])
+
+    @parameterized.expand(
+        [
+            ("without_variable_override", None, 0),
+            ("with_variable_override", {"test_var": "yes"}, 1),
+        ]
+    )
+    def test_execute_endpoint_with_variable_filtering(self, _name, variables, expected_result_count):
+        variable = InsightVariable.objects.create(
+            team=self.team,
+            name="Test Variable",
+            code_name="test_var",
+            type=InsightVariable.Type.STRING,
+            default_value="no",
+        )
+
+        query_with_variable = {
+            "kind": "HogQLQuery",
+            "query": "SELECT 1 WHERE {variables.test_var} = 'yes'",
+            "variables": {
+                str(variable.id): {
+                    "variableId": str(variable.id),
+                    "code_name": "test_var",
+                    "value": "no",
+                }
+            },
+        }
+
+        Endpoint.objects.create(
+            name="variable_filter_test",
+            team=self.team,
+            query=query_with_variable,
+            created_by=self.user,
+            is_active=True,
+        )
+
+        request_data = {"variables": variables} if variables else {}
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/variable_filter_test/run/", request_data, format="json"
+        )
+
+        response_data = response.json()
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response_data)
+        self.assertEqual(len(response_data["results"]), expected_result_count)
+
+
+class TestEndpointOpenAPISpec(ClickhouseTestMixin, APIBaseTest):
+    """Tests for the OpenAPI specification generation endpoint."""
+
+    def setUp(self):
+        super().setUp()
+        self.sample_hogql_query = {
+            "kind": "HogQLQuery",
+            "query": "SELECT count(1) FROM events",
+        }
+
+    def test_openapi_spec_basic(self):
+        """Test generating OpenAPI spec for a basic endpoint."""
+        Endpoint.objects.create(
+            name="basic-endpoint",
+            team=self.team,
+            query=self.sample_hogql_query,
+            description="A basic test endpoint",
+            created_by=self.user,
+            is_active=True,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/basic-endpoint/openapi.json/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        spec = response.json()
+
+        self.assertEqual(spec["openapi"], "3.0.3")
+        self.assertEqual(spec["info"]["title"], "basic-endpoint")
+        self.assertEqual(spec["info"]["description"], "A basic test endpoint")
+        self.assertEqual(spec["info"]["version"], "1")
+
+        self.assertIn("servers", spec)
+        self.assertEqual(len(spec["servers"]), 1)
+
+        run_path = f"/api/environments/{self.team.id}/endpoints/basic-endpoint/run"
+        self.assertIn(run_path, spec["paths"])
+
+        post_op = spec["paths"][run_path]["post"]
+        self.assertEqual(post_op["operationId"], "run_basic_endpoint")
+        self.assertIn("requestBody", post_op)
+        self.assertIn("responses", post_op)
+        self.assertIn("200", post_op["responses"])
+
+        response_schema = post_op["responses"]["200"]["content"]["application/json"]["schema"]
+        self.assertIn("results", response_schema["properties"])
+        self.assertEqual(response_schema["properties"]["results"]["type"], "array")
+
+    def test_openapi_spec_with_variables(self):
+        """Test that HogQL endpoints with variables include variables in the schema."""
+        from posthog.models.insight_variable import InsightVariable
+
+        variable = InsightVariable.objects.create(
+            team=self.team,
+            name="Country Filter",
+            code_name="country",
+            type=InsightVariable.Type.STRING,
+            default_value="US",
+        )
+
+        query_with_variables = {
+            "kind": "HogQLQuery",
+            "query": "SELECT * FROM events WHERE properties.$country = {variables.country}",
+            "variables": {str(variable.id): {"variableId": str(variable.id), "code_name": "country", "value": "US"}},
+        }
+
+        Endpoint.objects.create(
+            name="endpoint-with-vars",
+            team=self.team,
+            query=query_with_variables,
+            created_by=self.user,
+            is_active=True,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/endpoint-with-vars/openapi.json/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        spec = response.json()
+
+        # Check that EndpointRunRequest schema has variables reference
+        endpoint_schema = spec["components"]["schemas"]["EndpointRunRequest"]
+        self.assertIn("variables", endpoint_schema["properties"])
+
+        # Check Variables schema is defined with the variable
+        self.assertIn("Variables", spec["components"]["schemas"])
+        variables_schema = spec["components"]["schemas"]["Variables"]
+        self.assertEqual(variables_schema["type"], "object")
+        self.assertIn("country", variables_schema["properties"])
+
+    def test_openapi_spec_insight_query(self):
+        """Test that insight queries include query_override in the schema."""
+        insight_query = {
+            "kind": "TrendsQuery",
+            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+        }
+
+        Endpoint.objects.create(
+            name="trends-endpoint",
+            team=self.team,
+            query=insight_query,
+            created_by=self.user,
+            is_active=True,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/trends-endpoint/openapi.json/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        spec = response.json()
+
+        # Check EndpointRunRequest schema in components
+        endpoint_schema = spec["components"]["schemas"]["EndpointRunRequest"]
+        self.assertIn("query_override", endpoint_schema["properties"])
+        self.assertIn("filters_override", endpoint_schema["properties"])
+
+    def test_openapi_spec_dashboard_filter_schema(self):
+        """Test that DashboardFilter schema includes date_from and date_to."""
+        Endpoint.objects.create(
+            name="filter-test-endpoint",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/filter-test-endpoint/openapi.json/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        spec = response.json()
+
+        # Check DashboardFilter schema
+        self.assertIn("DashboardFilter", spec["components"]["schemas"])
+        filter_schema = spec["components"]["schemas"]["DashboardFilter"]
+        self.assertIn("date_from", filter_schema["properties"])
+        self.assertIn("date_to", filter_schema["properties"])
+        self.assertIn("properties", filter_schema["properties"])
+
+    def test_openapi_spec_not_found(self):
+        """Test that requesting spec for non-existent endpoint returns 404."""
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/nonexistent/openapi.json/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_openapi_spec_security_scheme(self):
+        """Test that the spec includes proper security scheme."""
+        Endpoint.objects.create(
+            name="secure-endpoint",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/secure-endpoint/openapi.json/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        spec = response.json()
+
+        self.assertIn("components", spec)
+        self.assertIn("securitySchemes", spec["components"])
+        self.assertIn("PersonalAPIKey", spec["components"]["securitySchemes"])
+        self.assertEqual(spec["components"]["securitySchemes"]["PersonalAPIKey"]["type"], "http")
+        self.assertEqual(spec["components"]["securitySchemes"]["PersonalAPIKey"]["scheme"], "bearer")
+
+    def test_openapi_spec_version_reflects_endpoint_version(self):
+        """Test that the spec version matches the endpoint's current version."""
+        Endpoint.objects.create(
+            name="versioned-endpoint",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+            current_version=3,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/versioned-endpoint/openapi.json/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        spec = response.json()
+        self.assertEqual(spec["info"]["version"], "3")

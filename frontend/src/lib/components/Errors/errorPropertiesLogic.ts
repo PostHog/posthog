@@ -20,8 +20,8 @@ import {
 import { dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
+import { KeyedStackFrameRecords, stackFrameLogic } from './Frame/stackFrameLogic'
 import type { errorPropertiesLogicType } from './errorPropertiesLogicType'
-import { KeyedStackFrameRecords, stackFrameLogic } from './stackFrameLogic'
 
 export interface ErrorPropertiesLogicProps {
     properties?: ErrorEventProperties
@@ -34,7 +34,7 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
     key((props) => props.id),
 
     connect(() => ({
-        values: [preflightLogic, ['isCloudOrDev'], stackFrameLogic, ['stackFrameRecords']],
+        values: [preflightLogic, ['isCloudOrDev'], stackFrameLogic, ['stackFrameRecords', 'stackFrameRecordsLoading']],
         actions: [stackFrameLogic, ['loadFromRawIds']],
     })),
 

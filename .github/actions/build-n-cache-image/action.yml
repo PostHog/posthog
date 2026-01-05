@@ -11,13 +11,10 @@ inputs:
     push-image:
         required: false
         default: 'false'
-        description: Whether to push the built image - requires aws-access-key and aws-access-secret
-    aws-access-key:
+        description: Whether to push the built image - requires aws-role-to-assume
+    aws-role-to-assume:
         required: false
-        description: AWS key to log into ECR (required when push-image is true)
-    aws-access-secret:
-        required: false
-        description: AWS secret to log into ECR (required when push-image is true)
+        description: AWS role to assume for ECR access (required when push-image is true)
     dockerhub-username:
         required: false
         description: Dockerhub username for pushing image
@@ -40,6 +37,12 @@ outputs:
     build-id:
         description: The ID of the build
         value: ${{ steps.build.outputs.build-id }}
+    digest:
+        description: The digest of the image that was built
+        value: ${{ steps.build.outputs.digest }}
+    registry:
+        description: The ECR registry URL
+        value: ${{ steps.aws-ecr.outputs.registry }}
 
 runs:
     using: 'composite'
@@ -58,10 +61,9 @@ runs:
 
         - name: Configure AWS credentials
           if: ${{ inputs.push-image == 'true' }}
-          uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4
+          uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5.1.1
           with:
-              aws-access-key-id: ${{ inputs.aws-access-key }}
-              aws-secret-access-key: ${{ inputs.aws-access-secret }}
+              role-to-assume: ${{ inputs.aws-role-to-assume }}
               aws-region: us-east-1
 
         - name: Login to DockerHub

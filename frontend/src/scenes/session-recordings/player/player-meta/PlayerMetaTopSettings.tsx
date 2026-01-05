@@ -128,7 +128,7 @@ function TTLWarning(): JSX.Element | null {
 
 export function PlayerMetaTopSettings(): JSX.Element {
     const {
-        logicProps: { noInspector },
+        logicProps: { withSidebar },
         hoverModeIsEnabled,
         showPlayerChrome,
     } = useValues(sessionRecordingPlayerLogic)
@@ -168,8 +168,8 @@ export function PlayerMetaTopSettings(): JSX.Element {
                             label="View heatmap"
                             tooltip="Use the HTML from this point in the recording as the background for your heatmap data"
                         />
-                        {noInspector ? null : <InspectDOM />}
-                        {noInspector ? null : <PlayerInspectorButton />}
+                        {withSidebar && <InspectDOM />}
+                        {withSidebar && <PlayerInspectorButton />}
                     </div>
                 </div>
             </SettingsBar>

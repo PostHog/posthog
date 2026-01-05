@@ -1,3 +1,4 @@
+from django.core.cache import cache
 from django.utils import timezone
 
 from rest_framework import serializers
@@ -8,6 +9,8 @@ from posthog.storage import object_storage
 
 from .models import Task, TaskRun
 from .services.title_generator import generate_task_title
+
+PRESIGNED_URL_CACHE_TTL = 55 * 60  # 55 minutes (less than 1 hour URL expiry)
 
 
 class TaskSerializer(serializers.ModelSerializer):
@@ -157,12 +160,18 @@ class TaskRunDetailSerializer(serializers.ModelSerializer):
             "completed_at",
         ]
 
-    def get_log_url(self, obj: TaskRun) -> str:
-        """Return presigned S3 URL for log access."""
+    def get_log_url(self, obj: TaskRun) -> str | None:
+        """Return presigned S3 URL for log access, cached to avoid regeneration."""
+        cache_key = f"task_run_log_url:{obj.id}"
+
+        cached_url = cache.get(cache_key)
+        if cached_url:
+            return cached_url
+
         presigned_url = object_storage.get_presigned_url(obj.log_url, expiration=3600)
 
-        if not presigned_url:
-            raise serializers.ValidationError("Unable to generate presigned URL for logs")
+        if presigned_url:
+            cache.set(cache_key, presigned_url, timeout=PRESIGNED_URL_CACHE_TTL)
 
         return presigned_url
 
@@ -255,3 +264,4 @@ class TaskListQuerySerializer(serializers.Serializer):
     repository = serializers.CharField(
         required=False, help_text="Filter by repository name (can include org/repo format)"
     )
+    created_by = serializers.IntegerField(required=False, help_text="Filter by creator user ID")

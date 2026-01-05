@@ -40,14 +40,17 @@ logger = structlog.get_logger(__name__)
 
 class SummarizeSessionsToolArgs(BaseModel):
     recordings_filters_or_explicit_session_ids: MaxRecordingUniversalFilters | list[str] = Field(
-        description=dedent("""
+        description=dedent(
+            """
         - User's question converted into a JSON object that will be used to search for relevant session recordings to summarize, based on filter_session_recordings use.
         - If the user provided explicit sessions IDs, or requested ones from context to be use, pass this as a list of those UUIDs.
           Important: If the user refers to a query created by search_session_recordings in the context, use those filters as a filters object instead of the list of UUIDs, as there could be hundreds of UUIDs to pass.
-        """).strip()
+        """
+        ).strip()
     )
     summary_title: str = Field(
-        description=dedent("""
+        description=dedent(
+            """
         - The name of the summary that is expected to be generated from the user's `search_query`.
         - The name should cover in 3-7 words what sessions would be to be summarized in the summary
         - This won't be used for any search of filtering, only to properly label the generated summary.
@@ -56,28 +59,34 @@ class SummarizeSessionsToolArgs(BaseModel):
             - filters: "{"date_from": "-7d", "filter_test_accounts": True}" -> name: "All sessions (last 7 days)"
             - and similar
         * If there's not enough context to generated the summary name - keep it an empty string ("")
-        """).strip()
+        """
+        ).strip()
     )
 
 
 class SummarizeSessionsTool(MaxTool):
     name: Literal["summarize_sessions"] = "summarize_sessions"
-    description: str = dedent("""
+    description: str = dedent(
+        """
         Use this tool to summarize session recordings by analyzing the events within those sessions (and the visual recordings) to find patterns and issues.
 
         If explicit session IDs to summarize were not specified by the user, you should first use the filter_session_recordings tool to filter for relevant recordings.
         Do not use this tool if the preceding filter_session_recordings call returned no results.
 
         To use session summarization, get the filters right rather than accepting subpar ones (no results is likely a filtering issue rather than a data issue)
-        """).strip()
+        """
+    ).strip()
     args_schema: type[BaseModel] = SummarizeSessionsToolArgs
+
+    def get_required_resource_access(self):
+        return [("session_recording", "viewer")]
 
     async def _arun_impl(
         self,
         recordings_filters_or_explicit_session_ids: MaxRecordingUniversalFilters | list[str],
         summary_title: str,
     ) -> tuple[str, ToolMessagesArtifact | None]:
-        # Convert filters to recordings query
+        # If filters - convert filters to recordings query and get session IDs
         if isinstance(recordings_filters_or_explicit_session_ids, MaxRecordingUniversalFilters):
             recordings_query = convert_filters_to_recordings_query(
                 recordings_filters_or_explicit_session_ids.model_dump(exclude_none=True)
@@ -91,15 +100,43 @@ class SummarizeSessionsTool(MaxTool):
                 # If no limit provided (none or negative) or too large - use the default limit
                 recordings_query.limit = MAX_SESSIONS_TO_SUMMARIZE
             # Get session IDs
-            session_ids = await database_sync_to_async(self._get_session_ids_with_filters, thread_sensitive=False)(
-                recordings_query
-            )
+            llm_provided_session_ids = await database_sync_to_async(
+                self._get_session_ids_with_filters, thread_sensitive=False
+            )(recordings_query)
+            llm_provided_session_ids_source: Literal["filters", "explicit"] = "filters"
+        # If explicit session IDs - use them directly
+        elif isinstance(recordings_filters_or_explicit_session_ids, list):
+            llm_provided_session_ids = recordings_filters_or_explicit_session_ids
+            llm_provided_session_ids_source = "explicit"
+        # If unexpected type - raise an error
         else:
-            session_ids = await database_sync_to_async(self._validate_specific_session_ids, thread_sensitive=False)(
-                recordings_filters_or_explicit_session_ids
+            msg = (  # type: ignore[unreachable]
+                f"Unexpected type of recordings_filters_or_explicit_session_ids: "
+                f"{type(recordings_filters_or_explicit_session_ids)}: {recordings_filters_or_explicit_session_ids}"
             )
-        # No sessions found
+            logger.error(msg, signals_type="session-summaries")
+            raise ValueError(msg)
+        # If LLM provided no session ids - nothing to summarize
+        if not llm_provided_session_ids:
+            return "No sessions were found matching the specified criteria.", None
+        # Confirm that the sessions provided by the LLM (through filters or explicitly) are true sessions with events (to avoid DB query failures)
+        session_ids = await database_sync_to_async(self._validate_specific_session_ids, thread_sensitive=False)(
+            llm_provided_session_ids
+        )
+        # LLM provided session ids, but no actual sessions with events were found
         if not session_ids:
+            llm_provided_input = (
+                recordings_filters_or_explicit_session_ids
+                if isinstance(recordings_filters_or_explicit_session_ids, list)
+                else recordings_filters_or_explicit_session_ids.model_dump_json(exclude_none=True)
+            )
+            logger.warning(
+                (
+                    f"No sessions with events were found for the LLM-provided session IDs ({llm_provided_session_ids}) "
+                    f"for the source ({llm_provided_session_ids_source}): {llm_provided_input}"
+                ),
+                signals_type="session-summaries",
+            )
             return "No sessions were found matching the specified criteria.", None
         # We have session IDs - start tracking
         summary_type: Literal["single", "group"] = (
@@ -122,9 +159,7 @@ class SummarizeSessionsTool(MaxTool):
             summaries_content, session_group_summary_id = await self._summarize_sessions(
                 session_ids=session_ids,
                 summary_title=summary_title,
-                session_ids_source="filters"
-                if isinstance(recordings_filters_or_explicit_session_ids, MaxRecordingUniversalFilters)
-                else "explicit",
+                session_ids_source=llm_provided_session_ids_source,
             )
             # Build messages artifact for group summaries (with "Open report" button)
             content, artifact = None, None

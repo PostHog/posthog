@@ -12,6 +12,10 @@ on:
             - rust/**
             - livestream/**
 
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
     # Job to decide if we should run backend ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
@@ -51,13 +55,6 @@ jobs:
         if: needs.changes.outputs.hog == 'true'
 
         steps:
-            # If this run wasn't initiated by the bot (meaning: snapshot update) and we've determined
-            # there are backend changes, cancel previous runs
-            - uses: n1hility/cancel-previous-runs@e709d8e41b16d5d0b8d529d293c5e126c57dc022 # v3
-              if: github.actor != 'posthog-bot'
-              with:
-                  token: ${{ secrets.GITHUB_TOKEN }}
-
             - uses: actions/checkout@v4
               with:
                   fetch-depth: 1
@@ -88,7 +85,7 @@ jobs:
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Set up Node.js
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
                   node-version: 18
                   cache: 'pnpm'
@@ -160,6 +157,9 @@ jobs:
         runs-on: ubuntu-24.04
         needs: check-package-version
         if: needs.changes.outputs.hog == 'true' && needs.check-package-version.outputs.is-new-version == 'true'
+        permissions:
+            contents: read
+            id-token: write
         env:
             COMMITTED_VERSION: ${{ needs.check-package-version.outputs.committed-version }}
             PUBLISHED_VERSION: ${{ needs.check-package-version.outputs.published-version }}
@@ -188,17 +188,13 @@ jobs:
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
             - name: Install pnpm
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
-            - name: Set up Node 18
-              uses: actions/setup-node@v4
+            - name: Set up Node 24
+              uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
-                  node-version: 18
+                  node-version: 24
                   cache: 'pnpm'
                   registry-url: https://registry.npmjs.org
             - name: Install package.json dependencies
               run: pnpm --filter=@posthog/hogvm install --frozen-lockfile
             - name: Publish the package in the npm registry
               run: cd common/hogvm/typescript && npm publish --access public
-              env:
-                  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-            - name: Sleep 60 seconds to allow npm to update the package
-              run: sleep 60

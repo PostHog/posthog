@@ -104,6 +104,33 @@ class TestCompositeCommandExecution:
         # Should only call first two steps before failure
         assert mock_run.call_count == 2
 
+    @patch("hogli.core.command_types._run")
+    def test_inline_steps_execute_directly(self, mock_run: MagicMock) -> None:
+        """Test inline dict steps execute as shell commands."""
+        from hogli.core.manifest import REPO_ROOT
+
+        bin_hogli = str(REPO_ROOT / "bin" / "hogli")
+
+        cmd = CompositeCommand(
+            "nuke",
+            {
+                "steps": [
+                    {"name": "announce", "cmd": "echo hello"},
+                    {"name": "cleanup", "cmd": "rm -rf /tmp/test"},
+                    "dev:reset",
+                ]
+            },
+        )
+
+        cmd.execute()
+
+        assert mock_run.call_count == 3
+        # First two are inline shell commands
+        assert mock_run.call_args_list[0][0][0] == ["bash", "-c", "echo hello"]
+        assert mock_run.call_args_list[1][0][0] == ["bash", "-c", "rm -rf /tmp/test"]
+        # Third is a hogli command
+        assert mock_run.call_args_list[2][0][0] == [bin_hogli, "dev:reset"]
+
 
 class TestRunFunctionErrorHandling:
     """Test _run() handles command failures correctly."""
@@ -224,4 +251,4 @@ class TestConfirmationFeature:
         cmd.execute()
 
         # Should pass --yes to child even though user didn't pass --yes flag
-        mock_run.assert_called_once_with([bin_hogli, "docker:services:down", "--yes"])
+        mock_run.assert_called_once_with([bin_hogli, "docker:services:down", "--yes"], env={})

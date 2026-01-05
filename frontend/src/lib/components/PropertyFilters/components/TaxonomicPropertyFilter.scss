@@ -47,11 +47,9 @@
     flex-wrap: wrap;
     gap: 0.25rem;
     align-items: center;
-    overflow: hidden;
 
     > * {
         max-width: 100%;
-        overflow: hidden;
     }
 
     .TaxonomicPropertyFilter__row--editable & {

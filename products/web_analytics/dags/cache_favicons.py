@@ -6,7 +6,7 @@ import httpx
 import dagster
 from dagster_aws.s3 import S3Resource
 
-from posthog.clickhouse.client import query_with_columns
+from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.cluster import ClickhouseCluster
 
 logger = dagster.get_dagster_logger()
@@ -56,7 +56,7 @@ def upload_if_missing(s3_client, bucket, key, data, content_type):
 @dagster.asset
 def cache_favicons(s3: S3Resource, cluster: dagster.ResourceParam[ClickhouseCluster]):
     top_referrer_query = """
-        SELECT cutToFirstSignificantSubdomainWithWWW(JSONExtractString(properties, '$referrer')) AS referrer
+        SELECT cutToFirstSignificantSubdomainWithWWW(mat_$referrer) AS referrer
         FROM events
         WHERE event = '$pageview'
             AND timestamp >= now() - interval 90 day
@@ -67,9 +67,9 @@ def cache_favicons(s3: S3Resource, cluster: dagster.ResourceParam[ClickhouseClus
     """
 
     logger.info("Querying top referrers.")
-    results = query_with_columns(top_referrer_query)
+    results = sync_execute(top_referrer_query)
 
-    domains = [result["referrer"] for result in results]
+    domains = [result[0] for result in results]
     logger.info(f"Found {len(domains)} results.")
 
     s3_client = s3.get_client()

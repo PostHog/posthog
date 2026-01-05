@@ -23,7 +23,6 @@ from posthog.cloud_utils import is_cloud
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
 from posthog.models.dashboard import Dashboard
-from posthog.models.file_system.user_product_list import backfill_user_product_list_for_new_user
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex
@@ -75,6 +74,8 @@ assert len(CURRENCY_CODE_CHOICES) == 152
 
 DEFAULT_CURRENCY = CurrencyCode.USD.value
 
+ASYNC_USER_PRODUCT_LIST_SYNC_THRESHOLD = 100
+
 
 # keep in sync with posthog/frontend/src/scenes/project/Settings/ExtraTeamSettings.tsx
 class AvailableExtraSettings:
@@ -121,10 +122,13 @@ class TeamManager(models.Manager):
         # Get organization to apply defaults
         organization = kwargs.get("organization") or Organization.objects.get(id=kwargs.get("organization_id"))
 
-        # Apply organization-level IP anonymization default
-        team.anonymize_ips = organization.default_anonymize_ips
+        team.anonymize_ips = kwargs.get("anonymize_ips", organization.default_anonymize_ips)
 
         team.test_account_filters = self.set_test_account_filters(organization.id)
+
+        if team.extra_settings is None:
+            team.extra_settings = {}
+        team.extra_settings.setdefault("recorder_script", "posthog-recorder")
 
         # Create default dashboards
         dashboard = Dashboard.objects.db_manager(self.db).create(name="My App Dashboard", pinned=True, team=team)
@@ -143,14 +147,16 @@ class TeamManager(models.Manager):
         team.save()
 
         # Add UserProductList for all users who have access to this new team
-        self._sync_user_product_lists_for_new_team(team)
+        # For large orgs, dispatch async to avoid request timeouts
+        from posthog.tasks.tasks import sync_user_product_lists_for_new_team
+
+        user_count = OrganizationMembership.objects.filter(organization_id=team.organization_id).count()
+        if user_count > ASYNC_USER_PRODUCT_LIST_SYNC_THRESHOLD:
+            sync_user_product_lists_for_new_team.delay(team.id)
+        else:
+            sync_user_product_lists_for_new_team(team.id)
 
         return team
-
-    def _sync_user_product_lists_for_new_team(self, team: "Team") -> None:
-        """Sync UserProductList for all users who have access to this new team."""
-        for user in team.all_users_with_access():
-            backfill_user_product_list_for_new_user(user, team)
 
     def create(self, **kwargs):
         from ..project import Project
@@ -381,6 +387,9 @@ class Team(UUIDTClassicModel):
     survey_config = field_access_control(models.JSONField(null=True, blank=True), "survey", "editor")
     surveys_opt_in = field_access_control(models.BooleanField(null=True, blank=True), "survey", "editor")
 
+    # Product tours
+    product_tours_opt_in = models.BooleanField(null=True, blank=True)
+
     # Capture / Autocapture
     capture_console_log_opt_in = models.BooleanField(null=True, blank=True, default=True)
     capture_performance_opt_in = models.BooleanField(null=True, blank=True, default=True)
@@ -560,6 +569,13 @@ class Team(UUIDTClassicModel):
         config, _ = TeamCustomerAnalyticsConfig.objects.get_or_create(
             team=self, defaults={"activity_event": DEFAULT_ACTIVITY_EVENT}
         )
+        return config
+
+    @cached_property
+    def core_events_config(self):
+        from posthog.models.core_event import TeamCoreEventsConfig
+
+        config, _ = TeamCoreEventsConfig.objects.get_or_create(team=self)
         return config
 
     @property

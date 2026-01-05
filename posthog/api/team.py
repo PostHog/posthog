@@ -1,7 +1,7 @@
 import json
 from datetime import timedelta
 from functools import cached_property
-from typing import Any, Literal, Optional, cast
+from typing import Any, Literal, cast
 
 from django.conf import settings
 from django.db import transaction
@@ -17,7 +17,7 @@ from posthog.schema import AttributionMode
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
-from posthog.api.utils import action
+from posthog.api.utils import action, raise_if_user_provided_url_unsafe
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
@@ -33,6 +33,7 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.core_event import TeamCoreEventsConfig
 from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
 from posthog.models.feature_flag import TeamDefaultEvaluationTag
@@ -185,6 +186,7 @@ TEAM_CONFIG_FIELDS = (
     "revenue_analytics_config",
     "marketing_analytics_config",
     "customer_analytics_config",
+    "core_events_config",
     "onboarding_tasks",
     "base_currency",
     "web_analytics_pre_aggregated_tables_enabled",
@@ -300,8 +302,25 @@ class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer):
         ]
 
 
+class TeamCoreEventsConfigSerializer(serializers.ModelSerializer):
+    core_events = serializers.JSONField(required=False)
+
+    class Meta:
+        model = TeamCoreEventsConfig
+        fields = ["core_events"]
+
+    def to_representation(self, instance):
+        return {"core_events": instance.core_events}
+
+    def update(self, instance, validated_data):
+        if "core_events" in validated_data:
+            instance.core_events = validated_data["core_events"]
+        instance.save()
+        return instance
+
+
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
-    instance: Optional[Team]
+    instance: Team | None
 
     effective_membership_level = serializers.SerializerMethodField()
     has_group_types = serializers.SerializerMethodField()
@@ -312,6 +331,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     revenue_analytics_config = TeamRevenueAnalyticsConfigSerializer(required=False)
     marketing_analytics_config = TeamMarketingAnalyticsConfigSerializer(required=False)
     customer_analytics_config = TeamCustomerAnalyticsConfigSerializer(required=False)
+    core_events_config = TeamCoreEventsConfigSerializer(required=False)
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
 
     class Meta:
@@ -375,7 +395,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         return representation
 
-    def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
+    def get_effective_membership_level(self, team: Team) -> OrganizationMembership.Level | None:
         # TODO: Map from user_access_controls
         return self.user_permissions.team(team).effective_membership_level
 
@@ -389,7 +409,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             .values(*GROUP_TYPE_MAPPING_SERIALIZER_FIELDS)
         )
 
-    def get_live_events_token(self, team: Team) -> Optional[str]:
+    def get_live_events_token(self, team: Team) -> str | None:
         return encode_jwt(
             {"team_id": team.id, "api_token": team.api_token},
             timedelta(days=7),
@@ -600,6 +620,18 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             return value
         return [domain for domain in value if domain]
 
+    def validate_slack_incoming_webhook(self, value: str | None) -> str | None:
+        if value is None or value == "":
+            return None
+        if not settings.DEBUG:
+            try:
+                raise_if_user_provided_url_unsafe(value)
+            except ValueError:
+                raise exceptions.ValidationError(
+                    "Invalid webhook URL. Ensure the URL is valid and points to an external server."
+                )
+        return value
+
     def validate_receive_org_level_activity_logs(self, value: bool | None) -> bool | None:
         if value is None:
             return value
@@ -677,6 +709,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if config_data := validated_data.pop("customer_analytics_config", None):
             self._update_customer_analytics_config(instance, config_data)
 
+        if config_data := validated_data.pop("core_events_config", None):
+            self._update_core_events_config(instance, config_data)
+
         if "session_recording_retention_period" in validated_data:
             self._verify_update_session_recording_retention_period(
                 instance, validated_data["session_recording_retention_period"]
@@ -739,6 +774,13 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             validated_data["session_replay_config"] = {
                 **instance.session_replay_config,
                 **validated_data["session_replay_config"],
+            }
+
+        # Merge modifiers with existing values so that updating one modifier doesn't wipe out others
+        if "modifiers" in validated_data and validated_data["modifiers"] is not None:
+            validated_data["modifiers"] = {
+                **(instance.modifiers or {}),
+                **validated_data["modifiers"],
             }
 
         updated_team = super().update(instance, validated_data)
@@ -853,6 +895,19 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             for field in TeamCustomerAnalyticsConfigSerializer.Meta.fields
         }
         self._capture_diff(instance, "customer_analytics_config", old_config, new_config)
+        return instance
+
+    def _update_core_events_config(self, instance: Team, validated_data: dict[str, Any]) -> Team:
+        old_config = {"core_events": instance.core_events_config.core_events.copy()}
+
+        serializer = TeamCoreEventsConfigSerializer(instance.core_events_config, data=validated_data, partial=True)
+        if not serializer.is_valid():
+            raise serializers.ValidationError(_format_serializer_errors(serializer.errors))
+
+        serializer.save()
+
+        new_config = {"core_events": instance.core_events_config.core_events}
+        self._capture_diff(instance, "core_events_config", old_config, new_config)
         return instance
 
     def _verify_update_session_recording_retention_period(self, instance: Team, new_retention_period: str):
@@ -1330,7 +1385,7 @@ class RootTeamViewSet(TeamViewSet):
 
 
 def validate_team_attrs(
-    attrs: dict[str, Any], view: TeamAndOrgViewSetMixin, request: request.Request, instance: Optional[Team | Project]
+    attrs: dict[str, Any], view: TeamAndOrgViewSetMixin, request: request.Request, instance: Team | Project | None
 ) -> dict[str, Any]:
     if "primary_dashboard" in attrs:
         if not instance:

@@ -121,6 +121,7 @@ class UserSerializer(serializers.ModelSerializer):
             "is_email_verified",
             "notification_settings",
             "anonymize_data",
+            "allow_impersonation",
             "toolbar_mode",
             "has_password",
             "id",
@@ -433,6 +434,7 @@ class UserViewSet(
         "set_current_organization",
         "allow_sidebar_suggestions",
         "shortcut_position",
+        "has_seen_product_intro_for",
     ]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["is_staff", "email"]
@@ -787,6 +789,7 @@ def redirect_to_site(request):
         "temporaryToken": request.user.temporary_token,
         "actionId": request.GET.get("actionId"),
         "experimentId": request.GET.get("experimentId"),
+        "productTourId": request.GET.get("productTourId"),
         "userIntent": request.GET.get("userIntent"),
         "toolbarVersion": "toolbar",
         "apiURL": request.build_absolute_uri("/")[:-1],

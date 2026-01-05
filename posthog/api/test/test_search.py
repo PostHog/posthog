@@ -1,8 +1,10 @@
 import pytest
 from posthog.test.base import APIBaseTest
+from unittest.mock import Mock
 
 from django.db import connection
 
+from posthog.api.search import class_queryset
 from posthog.helpers.full_text_search import process_query
 from posthog.models import Dashboard, FeatureFlag, Insight, Team
 from posthog.models.event_definition import EventDefinition
@@ -137,6 +139,67 @@ class TestSearch(APIBaseTest):
         response = self.client.get("/api/projects/@current/search?q=sec&entities=event_definition")
 
         self.assertEqual(response.status_code, 200)
+
+    def test_filters(self):
+        # Create feature flags with specific tags to identify them
+        FeatureFlag.objects.create(
+            name="filter test active one", key="filter_active1", team=self.team, created_by=self.user, active=True
+        )
+        FeatureFlag.objects.create(
+            name="filter test active two", key="filter_active2", team=self.team, created_by=self.user, active=True
+        )
+        FeatureFlag.objects.create(
+            name="filter test inactive", key="filter_inactive1", team=self.team, created_by=self.user, active=False
+        )
+
+        # Mock view with user_access_control
+        mock_view = Mock()
+        mock_view.user_access_control.filter_queryset_by_access_level = lambda qs: qs
+
+        # Test without filters - should get all flags for this team
+        qs_no_filter, entity_name = class_queryset(
+            view=mock_view,
+            klass=FeatureFlag,
+            project_id=self.team.project_id,
+            query=None,
+            search_fields={"key": "A", "name": "C"},
+            extra_fields=["key", "name", "active"],
+            filters=None,
+        )
+        count_without_filter = qs_no_filter.count()
+
+        # Test with filters - should get fewer results (only active ones)
+        qs_with_filter, entity_name = class_queryset(
+            view=mock_view,
+            klass=FeatureFlag,
+            project_id=self.team.project_id,
+            query=None,
+            search_fields={"key": "A", "name": "C"},
+            extra_fields=["key", "name", "active"],
+            filters={"active": True},
+        )
+        count_with_filter = qs_with_filter.count()
+
+        # The filtered count should be less than unfiltered (we created 1 inactive flag)
+        self.assertLess(count_with_filter, count_without_filter)
+
+        # Verify all returned flags with filter are active
+        results = list(qs_with_filter)
+        for result in results:
+            self.assertTrue(result["extra_fields"]["active"])
+
+        # Test with specific key filter
+        qs_key_filter, entity_name = class_queryset(
+            view=mock_view,
+            klass=FeatureFlag,
+            project_id=self.team.project_id,
+            query=None,
+            search_fields={"key": "A", "name": "C"},
+            extra_fields=["key", "name"],
+            filters={"key": "filter_active1"},
+        )
+        self.assertEqual(qs_key_filter.count(), 1)
+        self.assertEqual(next(iter(qs_key_filter))["extra_fields"]["key"], "filter_active1")
 
 
 @pytest.mark.django_db

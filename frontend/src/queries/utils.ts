@@ -14,6 +14,9 @@ import {
     DataWarehouseNode,
     DatabaseSchemaQuery,
     DateRange,
+    EndpointsUsageOverviewQuery,
+    EndpointsUsageTableQuery,
+    EndpointsUsageTrendsQuery,
     ErrorTrackingIssueCorrelationQuery,
     ErrorTrackingQuery,
     EventsNode,
@@ -39,6 +42,7 @@ import {
     MathType,
     Node,
     NodeKind,
+    NonIntegratedConversionsTableQuery,
     PathsQuery,
     PersonsNode,
     ProductAnalyticsInsightQueryNode,
@@ -194,6 +198,24 @@ export function isRevenueAnalyticsTopCustomersQuery(
     return node?.kind === NodeKind.RevenueAnalyticsTopCustomersQuery
 }
 
+export function isEndpointsUsageOverviewQuery(node?: Record<string, any> | null): node is EndpointsUsageOverviewQuery {
+    return node?.kind === NodeKind.EndpointsUsageOverviewQuery
+}
+
+export function isEndpointsUsageTableQuery(node?: Record<string, any> | null): node is EndpointsUsageTableQuery {
+    return node?.kind === NodeKind.EndpointsUsageTableQuery
+}
+
+export function isEndpointsUsageTrendsQuery(node?: Record<string, any> | null): node is EndpointsUsageTrendsQuery {
+    return node?.kind === NodeKind.EndpointsUsageTrendsQuery
+}
+
+export function isEndpointsUsageQuery(
+    node?: Record<string, any> | null
+): node is EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery {
+    return isEndpointsUsageOverviewQuery(node) || isEndpointsUsageTableQuery(node) || isEndpointsUsageTrendsQuery(node)
+}
+
 export function isWebOverviewQuery(node?: Record<string, any> | null): node is WebOverviewQuery {
     return node?.kind === NodeKind.WebOverviewQuery
 }
@@ -230,6 +252,12 @@ export function isMarketingAnalyticsAggregatedQuery(
     node?: Record<string, any> | null
 ): node is MarketingAnalyticsAggregatedQuery {
     return node?.kind === NodeKind.MarketingAnalyticsAggregatedQuery
+}
+
+export function isNonIntegratedConversionsTableQuery(
+    node?: Record<string, any> | null
+): node is NonIntegratedConversionsTableQuery {
+    return node?.kind === NodeKind.NonIntegratedConversionsTableQuery
 }
 
 export function isTracesQuery(node?: Record<string, any> | null): node is TracesQuery {
@@ -549,6 +577,8 @@ export const getGoalLines = (query: InsightQueryNode): GoalLine[] | undefined =>
         return query.trendsFilter?.goalLines
     } else if (isFunnelsQuery(query)) {
         return query.funnelsFilter?.goalLines
+    } else if (isRetentionQuery(query)) {
+        return query.retentionFilter?.goalLines
     }
 
     return undefined

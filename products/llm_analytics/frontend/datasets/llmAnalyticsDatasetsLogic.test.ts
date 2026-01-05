@@ -292,13 +292,13 @@ describe('llmAnalyticsDatasetsLogic', () => {
             logic.actions.setFilters({ page: 2 }, false)
             logic.actions.loadDatasetsSuccess({ results: [], count: 100 })
 
-            expect(logic.values.datasetCountLabel).toBe('31-60 of 100 datasets')
+            expect(logic.values.datasetCountLabel).toBe('31-60 of 100 datasets')
         })
 
         it('computes dataset count label correctly for single result', () => {
             logic.actions.loadDatasetsSuccess({ results: [], count: 1 })
 
-            expect(logic.values.datasetCountLabel).toBe('1-1 of 1 dataset')
+            expect(logic.values.datasetCountLabel).toBe('1-1 of 1 dataset')
         })
 
         it('computes dataset count label correctly for no results', () => {
@@ -311,7 +311,7 @@ describe('llmAnalyticsDatasetsLogic', () => {
             logic.actions.setFilters({ page: 4 }, false)
             logic.actions.loadDatasetsSuccess({ results: [], count: 95 })
 
-            expect(logic.values.datasetCountLabel).toBe('91-95 of 95 datasets')
+            expect(logic.values.datasetCountLabel).toBe('91-95 of 95 datasets')
         })
     })
 

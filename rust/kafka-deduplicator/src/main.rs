@@ -2,7 +2,6 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use axum::{routing::get, Router};
-use common_profiler::router::apply_pprof_routes;
 use futures::future::ready;
 use health::HealthRegistry;
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
@@ -23,7 +22,7 @@ use tracing_subscriber::{EnvFilter, Layer};
 
 use kafka_deduplicator::{config::Config, service::KafkaDeduplicatorService};
 
-common_profiler::used_with_profiling!();
+common_alloc::used!();
 
 fn init_tracer(sink_url: &str, sampling_rate: f64, service_name: &str) -> Tracer {
     opentelemetry_otlp::new_pipeline()
@@ -57,7 +56,9 @@ pub async fn index() -> &'static str {
 /// Setup metrics recorder with optimized histogram buckets for kafka-deduplicator
 /// Using fewer buckets to reduce cardinality
 fn setup_kafka_deduplicator_metrics() -> PrometheusHandle {
-    const BUCKETS: &[f64] = &[0.001, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 100.0, 500.0, 5000.0];
+    const BUCKETS: &[f64] = &[
+        0.001, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0,
+    ];
     // similarity scores are all in the range [0.0, 1.0] so we want
     // granular bucket ranges for higher fidelity metrics
     const SIMILARITY_BUCKETS: &[f64] = &[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
@@ -80,6 +81,11 @@ fn setup_kafka_deduplicator_metrics() -> PrometheusHandle {
         100.0 * 1024.0 * 1024.0 * 1024.0,
     ];
 
+    // Buckets for counting unique items (UUIDs, timestamps)
+    const COUNT_BUCKETS: &[f64] = &[
+        1.0, 2.0, 5.0, 10.0, 50.0, 100.0, 500.0, 1000.0, 5000.0, 10000.0,
+    ];
+
     PrometheusBuilder::new()
         .set_buckets(BUCKETS)
         .unwrap()
@@ -96,6 +102,13 @@ fn setup_kafka_deduplicator_metrics() -> PrometheusHandle {
         .set_buckets_for_metric(
             Matcher::Suffix("checkpoint_size_bytes".to_string()),
             CHECKPOINT_SIZE_BYTES_BUCKETS,
+        )
+        .unwrap()
+        .set_buckets_for_metric(Matcher::Suffix("unique_uuids".to_string()), COUNT_BUCKETS)
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Suffix("unique_timestamps".to_string()),
+            COUNT_BUCKETS,
         )
         .unwrap()
         .install_recorder()
@@ -125,12 +138,6 @@ fn start_server(config: &Config, liveness: HealthRegistry) -> JoinHandle<()> {
                 status
             }),
         );
-
-    let router = if config.enable_pprof {
-        apply_pprof_routes(router)
-    } else {
-        router
-    };
 
     // Don't install metrics unless asked to
     // Installing a global recorder when capture is used as a library (during tests etc)
@@ -170,13 +177,23 @@ async fn main() -> Result<()> {
                 FmtSpan::NEW | FmtSpan::CLOSE | FmtSpan::ENTER | FmtSpan::EXIT | FmtSpan::ACTIVE,
             )
             .with_ansi(true)
-            .with_filter(EnvFilter::from_default_env())
+            .with_filter(
+                EnvFilter::builder()
+                    .with_default_directive(LevelFilter::INFO.into())
+                    .from_env_lossy()
+                    .add_directive("pyroscope=warn".parse().unwrap()),
+            )
             .boxed()
         } else {
             // production: use JSON format Loki/Grafana can extract useful filter tags from
             base.json()
                 .with_span_list(false)
-                .with_filter(EnvFilter::from_default_env())
+                .with_filter(
+                    EnvFilter::builder()
+                        .with_default_directive(LevelFilter::INFO.into())
+                        .from_env_lossy()
+                        .add_directive("pyroscope=warn".parse().unwrap()),
+                )
                 .boxed()
         }
     };
@@ -199,6 +216,16 @@ async fn main() -> Result<()> {
         .with(log_layer)
         .with(otel_layer)
         .init();
+
+    // Start continuous profiling if enabled (keep _agent alive for the duration of the program)
+    // NOTE: Must be after tracing is initialized so logs are visible
+    let _profiling_agent = match config.continuous_profiling.start_agent() {
+        Ok(agent) => agent,
+        Err(e) => {
+            tracing::warn!("Failed to start continuous profiling agent: {e}");
+            None
+        }
+    };
 
     info!("Starting Kafka Deduplicator service");
 
