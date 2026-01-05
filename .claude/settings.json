@@ -10,6 +10,16 @@
                         "timeout": 300
                     }
                 ]
+            },
+            {
+                "matcher": "resume",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "bin/setup-claude",
+                        "timeout": 300
+                    }
+                ]
             }
         ],
         "PostToolUse": [
