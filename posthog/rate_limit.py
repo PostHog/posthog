@@ -691,6 +691,8 @@ class WidgetTeamThrottle(SimpleRateThrottle):
         token = request.headers.get("X-Conversations-Token", "")
         ident = hashlib.sha256(token.encode()).hexdigest()
         return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
 class SymbolSetUploadSustainedRateThrottle(PersonalApiKeyRateThrottle):
     scope = "symbol_set_upload_sustained"
     rate = "12000/hour"
