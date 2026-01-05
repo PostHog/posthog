@@ -146,19 +146,35 @@ def get_retention_suggestions(query: RetentionQuery, parent_query: InsightVizNod
     ]
 
 
+def summarize_insight_result(result: Any) -> Any:
+    if isinstance(result, list):
+        return [summarize_insight_result(item) for item in result]
+    if isinstance(result, dict):
+        new_result = {}
+        for k, v in result.items():
+            if k in ["persons_urls", "persons", "action"]:
+                continue
+            new_result[k] = summarize_insight_result(v)
+        return new_result
+    return result
+
+
 def get_insight_analysis(query: InsightVizNode, team: Team, insight_result: Optional[dict[str, Any]]) -> str:
     """Generate an AI analysis of the insight, highlighting main points and actionable items."""
     try:
-        result_summary = json.dumps(insight_result, default=str)[:2000] if insight_result else "No results available"
+        result_summary = (
+            json.dumps(summarize_insight_result(insight_result), default=str)
+            if insight_result
+            else "No results available"
+        )
 
         prompt = (
             "You are an expert data analyst using PostHog. "
             "Analyze the following insight configuration and its results. "
-            "Provide a concise analysis highlighting:\n"
-            "1. Main trends or patterns in the data\n"
-            "2. Actionable insights or recommendations\n"
-            "3. Possible explanations for the observed patterns\n\n"
-            "Keep your response focused and actionable. Avoid generic statements.\n\n"
+            "Provide a concise summary of the key findings. "
+            "Focus only on significant trends, anomalies, or actionable takeaways. "
+            "Skip generic explanations or obvious statements. "
+            "Keep it short and to the point.\n\n"
             f"Query Configuration: {query.model_dump_json(exclude_none=True)}\n\n"
             f"Results Summary: {result_summary}"
         )
@@ -203,7 +219,7 @@ def get_ai_suggestions(
             "- description: A brief explanation of why this is interesting.\n"
             "- query_json: A valid PostHog InsightVizNode JSON object that represents the suggested query.\n\n"
             f"Current Query: {query.model_dump_json(exclude_none=True)}\n\n"
-            f"Results Summary: {json.dumps(insight_result, default=str)[:2000]}..."
+            f"Results Summary: {json.dumps(summarize_insight_result(insight_result), default=str)}..."
             f"{context_section}"
         )
 

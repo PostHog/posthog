@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { IconThumbsDown, IconThumbsUp } from '@posthog/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 
@@ -21,7 +23,9 @@ export function InsightAIAnalysis({ query }: InsightAIAnalysisProps): JSX.Elemen
     const { analysis, isAnalyzing, hasClickedAnalyze } = useValues(
         insightAIAnalysisLogic({ insightId: insight.id, query })
     )
-    const { startAnalysis, resetAnalysis } = useActions(insightAIAnalysisLogic({ insightId: insight.id, query }))
+    const { startAnalysis, resetAnalysis, reportAnalysisFeedback } = useActions(
+        insightAIAnalysisLogic({ insightId: insight.id, query })
+    )
 
     useEffect(() => {
         // Reset analysis when insight changes
@@ -62,6 +66,21 @@ export function InsightAIAnalysis({ query }: InsightAIAnalysisProps): JSX.Elemen
                 <>
                     <div className="bg-surface-secondary border border-border rounded p-4 mb-4 whitespace-pre-wrap">
                         {analysis}
+                        <div className="flex gap-2 justify-end mt-4 border-t border-border pt-2">
+                            <span className="text-muted text-xs flex items-center">Was this analysis helpful?</span>
+                            <LemonButton
+                                size="small"
+                                icon={<IconThumbsUp />}
+                                onClick={() => reportAnalysisFeedback(true)}
+                                tooltip="Helpful"
+                            />
+                            <LemonButton
+                                size="small"
+                                icon={<IconThumbsDown />}
+                                onClick={() => reportAnalysisFeedback(false)}
+                                tooltip="Not helpful"
+                            />
+                        </div>
                     </div>
                     <InsightDiveDeeperSection insightId={insight.id} query={query} />
                 </>
