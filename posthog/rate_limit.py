@@ -505,6 +505,13 @@ class LLMProxySustainedRateThrottle(UserRateThrottle):
     rate = "500/hour"
 
 
+class LLMProxyDailyRateThrottle(UserRateThrottle):
+    # Daily cap for LLM proxy (playground) endpoint
+    # Hard limit to prevent runaway costs from sustained abuse
+    scope = "llm_proxy_daily"
+    rate = "1000/day"
+
+
 class HogQLQueryThrottle(PersonalApiKeyRateThrottle):
     # Lower rate limit for HogQL queries
     scope = "query"
