@@ -40,7 +40,8 @@ if (ip == '127.0.0.1' or
     match(ip, '^10\\.') or 
     match(ip, '^172\\.(1[6-9]|2[0-9]|3[01])\\.')) {
     print('spoofing private ip for local development', ip)
-let response := geoipLookup(ip)
+    ip := '89.160.20.129'
+}
 if (not response) {
     print('geoip lookup failed for ip', ip)
     return event
