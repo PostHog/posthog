@@ -58,6 +58,12 @@ pub struct Exception {
 #[serde(transparent)]
 pub struct ExceptionList(pub Vec<Exception>);
 
+impl From<Vec<Exception>> for ExceptionList {
+    fn from(exceptions: Vec<Exception>) -> Self {
+        ExceptionList(exceptions)
+    }
+}
+
 impl Deref for ExceptionList {
     type Target = Vec<Exception>;
     fn deref(&self) -> &Self::Target {
@@ -436,6 +442,13 @@ impl Stacktrace {
         Some(Stacktrace::Resolved {
             frames: resolved_frames,
         })
+    }
+
+    pub fn get_raw_frames(&self) -> &[RawFrame] {
+        match self {
+            Stacktrace::Raw { frames } => frames,
+            _ => &[],
+        }
     }
 
     pub fn get_frames(&self) -> &[Frame] {
