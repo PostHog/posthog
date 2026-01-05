@@ -51,8 +51,12 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
             distinctId: payload.distinctId,
             preserveEmail: payload.preserveEmail,
         }),
-        loadSamplePersonByDistinctIdSuccess: (sampleGlobals: CyclotronJobInvocationGlobals | null) => ({
+        loadSamplePersonByDistinctIdSuccess: (
+            sampleGlobals: CyclotronJobInvocationGlobals | null,
+            preserveEmail?: boolean
+        ) => ({
             sampleGlobals,
+            preserveEmail,
         }),
         loadSamplePersonByDistinctIdFailure: (error: string, errorObject?: any) => ({ error, errorObject }),
         setEmailAddressOverride: (email: string) => ({ email }),
@@ -90,18 +94,7 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
             { persist: true },
             {
                 setEmailAddressOverride: (_, { email }) => email,
-                loadSamplePersonByDistinctIdSuccess: (state, { sampleGlobals }) => {
-                    // Check if we should preserve the email (when restoring on mount)
-                    const preserveEmail = (sampleGlobals as any)?._preserveEmail
-
-                    // If preserveEmail is true and we have a manual override, keep it
-                    if (preserveEmail && state) {
-                        return state
-                    }
-
-                    // Otherwise update with the person's email
-                    return sampleGlobals?.person?.properties?.email ?? null
-                },
+                // Don't respond to loadSamplePersonByDistinctIdSuccess - handle email updates in the listener instead
             },
         ],
         testResult: [
@@ -301,11 +294,7 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
 
                 actions.setSampleGlobalsError(null)
                 const globals = createGlobalsFromResponse(event, person, values.workflow.team_id, values.workflow.name)
-
-                // Pass the preserveEmail flag in the globals for the success handler
-                ;(globals as any)._preserveEmail = preserveEmail
-
-                actions.loadSamplePersonByDistinctIdSuccess(globals)
+                actions.loadSamplePersonByDistinctIdSuccess(globals, preserveEmail)
             } catch (error: any) {
                 actions.setSampleGlobalsError(`Failed to load person: ${error.message || 'Unknown error'}`)
                 actions.loadSamplePersonByDistinctIdFailure('Failed to load person')
@@ -360,14 +349,22 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
                 actions.setTestInvocationValue('globals', JSON.stringify(values.sampleGlobals, null, 2))
             }
         },
-        loadSamplePersonByDistinctIdSuccess: ({ sampleGlobals }) => {
+        loadSamplePersonByDistinctIdSuccess: ({ sampleGlobals, preserveEmail }) => {
             // Reorder with person first before setting
             if (sampleGlobals) {
                 const reorderedGlobals = reorderGlobalsForEmailAction(sampleGlobals)
                 actions.setSampleGlobals(JSON.stringify(reorderedGlobals, null, 2))
             }
 
-            // Don't update email - it's handled by the reducer
+            // Only update email if we're NOT preserving (user selected new person)
+            // OR if we don't have any email override yet
+            if (!preserveEmail || !values.emailAddressOverride) {
+                // Update email with the person's email
+                if (sampleGlobals?.person?.properties?.email) {
+                    actions.setEmailAddressOverride(sampleGlobals.person.properties.email)
+                }
+            }
+            // If preserveEmail is true AND we have an email override - do nothing (keep the manual email)
         },
     })),
     afterMount(({ actions, values }) => {
