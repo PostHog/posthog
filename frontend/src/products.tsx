@@ -1362,9 +1362,9 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         path: 'Core events',
         category: 'Schema',
         iconType: 'event_definition' as FileSystemIconType,
-        href: urls.eventDefinitions(),
+        href: urls.coreEvents(),
         flag: FEATURE_FLAGS.NEW_TEAM_CORE_EVENTS,
-        sceneKeys: ['EventDefinition', 'EventDefinitions'],
+        sceneKeys: [],
     },
     {
         path: 'Data pipelines',
