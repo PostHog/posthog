@@ -546,6 +546,8 @@ def configure_logger(
             )
 
         base_processors += [
+            # show_locals=False prevents sensitive data from being logged in exception tracebacks. 
+            # The default (True) dumps all local variables at each stack frame.
             structlog.processors.ExceptionRenderer(structlog.tracebacks.ExceptionDictTransformer(show_locals=False)),
             EventRenamer("msg"),
             LogMessagesRenderer(event_key="msg"),
