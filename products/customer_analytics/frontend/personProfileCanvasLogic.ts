@@ -6,19 +6,19 @@ import { uuid } from 'lib/utils'
 import type { personProfileCanvasLogicType } from './personProfileCanvasLogicType'
 
 export const DEFAULT_PERSON_PROFILE_SIDEBAR: JSONContent[] = [
-    { type: 'ph-person' },
+    { type: 'ph-person', title: 'Info' },
     // FIXME: Map bg image is broken
-    // { type: 'ph-map' },
-    { type: 'ph-person-properties' },
-    { type: 'ph-related-groups' },
+    // { type: 'ph-map', title: 'Map' },
+    { type: 'ph-person-properties', title: 'Properties' },
+    { type: 'ph-related-groups', title: 'Related groups' },
 ]
 
 export const DEFAULT_PERSON_PROFILE_CONTENT: JSONContent[] = [
-    { type: 'ph-usage-metrics' },
-    { type: 'ph-person-feed' },
-    { type: 'ph-llm-trace' },
-    { type: 'ph-zendesk-tickets' },
-    { type: 'ph-issues' },
+    { type: 'ph-usage-metrics', title: 'Usage metrics' },
+    { type: 'ph-person-feed', title: 'Session feed' },
+    { type: 'ph-llm-trace', title: 'LLM traces' },
+    { type: 'ph-zendesk-tickets', title: 'Zendesk tickets' },
+    { type: 'ph-issues', title: 'Issues' },
 ]
 
 export interface PersonProfileCanvasLogicProps {
@@ -69,28 +69,31 @@ export function addPersonAttrsToNode({
         case 'ph-issues':
             return {
                 ...node,
-                attrs: { personId, nodeId: uuid(), children },
+                attrs: { personId, nodeId: uuid(), children, title: node.title },
             }
         case 'ph-person-feed':
             return {
                 ...node,
-                attrs: { height: null, title: null, id: personId, distinctId, nodeId: uuid(), __init: null, children },
-            }
-        case 'ph-person':
-            return {
-                ...node,
-                attrs: { id: personId, distinctId, nodeId: uuid(), title: 'Info', children },
+                attrs: {
+                    height: null,
+                    id: personId,
+                    distinctId,
+                    nodeId: uuid(),
+                    __init: null,
+                    children,
+                    title: node.title,
+                },
             }
         case 'ph-person':
         case 'ph-person-properties':
             return {
                 ...node,
-                attrs: { id: personId, distinctId, nodeId: uuid(), children },
+                attrs: { id: personId, distinctId, nodeId: uuid(), children, title: node.title },
             }
         case 'ph-related-groups':
             return {
                 ...node,
-                attrs: { id: personId, nodeId: uuid(), type: 'group', children },
+                attrs: { id: personId, nodeId: uuid(), type: 'group', children, title: node.title },
             }
         default:
             return node
