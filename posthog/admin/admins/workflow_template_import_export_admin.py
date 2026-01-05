@@ -7,6 +7,7 @@ from django.db import transaction
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import redirect, render
 from django.test import RequestFactory
+from django.urls import reverse
 
 from rest_framework.request import Request
 
@@ -70,7 +71,7 @@ def _handle_template_import(request: HttpRequest, import_form: WorkflowTemplateI
         team_id = _get_team_id_from_domain(request)
     except ValueError as e:
         messages.error(request, str(e))
-        return redirect(request.path)
+        return redirect(reverse("workflow-template-import-export"))
     dry_run = import_form.cleaned_data.get("dry_run", False)
 
     try:
@@ -287,7 +288,7 @@ def _handle_template_import(request: HttpRequest, import_form: WorkflowTemplateI
     except Exception as e:
         messages.error(request, f"Failed to import templates: {str(e)}")
 
-    return redirect(request.path)
+    return redirect(reverse("workflow-template-import-export"))
 
 
 def _handle_template_export(request: HttpRequest, export_form: WorkflowTemplateExportForm) -> HttpResponse:

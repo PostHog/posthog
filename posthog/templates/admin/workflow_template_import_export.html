@@ -217,43 +217,83 @@ document.addEventListener('DOMContentLoaded', function() {
                         }
                     });
 
-                    let html = '<table class="preview-table">';
-                    html += '<thead><tr><th>ID</th><th>Name</th><th>Scope</th></tr></thead>';
-                    html += '<tbody>';
+                    const table = document.createElement('table');
+                    table.className = 'preview-table';
                     
+                    const thead = document.createElement('thead');
+                    const headerRow = document.createElement('tr');
+                    ['ID', 'Name', 'Scope'].forEach(function(headerText) {
+                        const th = document.createElement('th');
+                        th.textContent = headerText;
+                        headerRow.appendChild(th);
+                    });
+                    thead.appendChild(headerRow);
+                    table.appendChild(thead);
+                    
+                    const tbody = document.createElement('tbody');
                     globalTemplates.forEach(function(template) {
-                        const id = template.id || '<em>New (no ID)</em>';
-                        const name = template.name || '<em>Unnamed</em>';
+                        const id = template.id || 'New (no ID)';
+                        const name = template.name || 'Unnamed';
                         const scope = template.scope || 'global';
                         
-                        html += '<tr>';
-                        html += '<td>' + id + '</td>';
-                        html += '<td>' + name + '</td>';
-                        html += '<td>' + scope + '</td>';
-                        html += '</tr>';
+                        const tr = document.createElement('tr');
+                        const tdId = document.createElement('td');
+                        tdId.textContent = id;
+                        const tdName = document.createElement('td');
+                        tdName.textContent = name;
+                        const tdScope = document.createElement('td');
+                        tdScope.textContent = scope;
+                        tr.appendChild(tdId);
+                        tr.appendChild(tdName);
+                        tr.appendChild(tdScope);
+                        tbody.appendChild(tr);
                     });
+                    table.appendChild(tbody);
                     
-                    html += '</tbody></table>';
-                    html += '<p><strong>Total to import:</strong> ' + globalTemplates.length + ' template(s)</p>';
+                    const p = document.createElement('p');
+                    const strong = document.createElement('strong');
+                    strong.textContent = 'Total to import:';
+                    p.appendChild(strong);
+                    p.appendChild(document.createTextNode(' ' + globalTemplates.length + ' template(s)'));
                     
-                    // Show warning for filtered templates
+                    previewContent.innerHTML = '';
+                    previewContent.appendChild(table);
+                    previewContent.appendChild(p);
+                    
+                    // Show warning for filtered templates using DOM methods to prevent XSS
                     if (nonGlobalTemplates.length > 0) {
-                        html += '<div class="overwrite-warning">';
-                        html += '<strong>⚠️ Warning: ' + nonGlobalTemplates.length + ' template(s) will not be imported because they are not official/global:</strong>';
-                        html += '<ul>';
+                        const warningDiv = document.createElement('div');
+                        warningDiv.className = 'overwrite-warning';
+                        
+                        const strong = document.createElement('strong');
+                        strong.textContent = '⚠️ Warning: ' + nonGlobalTemplates.length + ' template(s) will not be imported because they are not official/global:';
+                        warningDiv.appendChild(strong);
+                        
+                        const ul = document.createElement('ul');
                         nonGlobalTemplates.forEach(function(template) {
-                            const id = template.id || '<em>No ID</em>';
-                            const name = template.name || '<em>Unnamed</em>';
-                            html += '<li><strong>ID:</strong> ' + id + ', <strong>Name:</strong> ' + name + '</li>';
+                            const li = document.createElement('li');
+                            const strong1 = document.createElement('strong');
+                            strong1.textContent = 'ID:';
+                            li.appendChild(strong1);
+                            li.appendChild(document.createTextNode(' ' + (template.id || 'No ID') + ', '));
+                            const strong2 = document.createElement('strong');
+                            strong2.textContent = 'Name:';
+                            li.appendChild(strong2);
+                            li.appendChild(document.createTextNode(' ' + (template.name || 'Unnamed')));
+                            ul.appendChild(li);
                         });
-                        html += '</ul>';
-                        html += '</div>';
+                        warningDiv.appendChild(ul);
+                        
+                        previewContent.appendChild(warningDiv);
                     }
                     
-                    previewContent.innerHTML = html;
                     previewSection.classList.add('visible');
                 } catch (error) {
-                    previewContent.innerHTML = '<p class="preview-error">Error parsing JSON: ' + error.message + '</p>';
+                    const p = document.createElement('p');
+                    p.className = 'preview-error';
+                    p.textContent = 'Error parsing JSON: ' + error.message;
+                    previewContent.innerHTML = '';
+                    previewContent.appendChild(p);
                     previewSection.classList.add('visible');
                 }
             };
