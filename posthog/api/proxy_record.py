@@ -23,9 +23,7 @@ def generate_target_cname(organization_id, domain) -> str:
     m.update(domain.encode())
     digest = m.hexdigest()[:20]
     base_cname = (
-        settings.CLOUDFLARE_PROXY_BASE_CNAME
-        if settings.CLOUDFLARE_PROXY_ENABLED
-        else settings.PROXY_BASE_CNAME
+        settings.CLOUDFLARE_PROXY_BASE_CNAME if settings.CLOUDFLARE_PROXY_ENABLED else settings.PROXY_BASE_CNAME
     )
     return f"{digest}.{base_cname}"
 
