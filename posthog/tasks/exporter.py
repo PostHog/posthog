@@ -39,7 +39,7 @@ def record_export_failure(exported_asset: ExportedAsset, e: Exception) -> None:
     exported_asset.exception = str(e)
     exported_asset.exception_type = type(e).__name__
     exported_asset.failure_type = failure_type
-    exported_asset.save()
+    exported_asset.save(update_fields=["exception", "exception_type", "failure_type"])
     EXPORT_FAILED_COUNTER.labels(type=exported_asset.export_format, failure_type=failure_type).inc()
 
 
