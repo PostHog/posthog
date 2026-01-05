@@ -42,6 +42,7 @@ if (ip == '127.0.0.1' or
     print('spoofing private ip for local development', ip)
     ip := '89.160.20.129'
 }
+let response := geoipLookup(ip)
 if (not response) {
     print('geoip lookup failed for ip', ip)
     return event
