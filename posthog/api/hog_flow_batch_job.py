@@ -2,7 +2,8 @@ import structlog
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
-from posthog.models.hog_flow_batch_job.hog_flow_batch_job import HogFlowBatchJob
+
+from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 
 logger = structlog.get_logger(__name__)
 
