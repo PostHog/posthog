@@ -167,6 +167,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     })),
     actions({
         setGraphsTab: (tab: string) => ({ tab }),
+        setChannelTab: (tab: string) => ({ tab }),
         setSourceTab: (tab: string) => ({ tab }),
         setDeviceTab: (tab: string) => ({ tab }),
         setPathTab: (tab: string) => ({ tab }),
@@ -262,6 +263,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     }
                     return oldTab
                 },
+            },
+        ],
+        _channelTab: [
+            null as string | null,
+            persistConfig,
+            {
+                setChannelTab: (_, { tab }) => tab,
+                togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.channelTab || oldTab,
             },
         ],
         _sourceTab: [
@@ -465,7 +474,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
         graphsTab: [(s) => [s._graphsTab], (graphsTab: string | null) => graphsTab || GraphsTab.UNIQUE_USERS],
-        sourceTab: [(s) => [s._sourceTab], (sourceTab: string | null) => sourceTab || SourceTab.CHANNEL],
+        channelTab: [(s) => [s._channelTab], (channelTab: string | null) => channelTab || SourceTab.CHANNEL],
+        sourceTab: [(s) => [s._sourceTab], (sourceTab: string | null) => sourceTab || SourceTab.UTM_SOURCE],
         deviceTab: [(s) => [s._deviceTab], (deviceTab: string | null) => deviceTab || DeviceTab.DEVICE_TYPE],
         pathTab: [(s) => [s._pathTab], (pathTab: string | null) => pathTab || PathTab.PATH],
         geographyTab: [(s) => [s._geographyTab], (geographyTab: string | null) => geographyTab || GeographyTab.MAP],
@@ -555,6 +565,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         tabs: [
             (s) => [
                 s.graphsTab,
+                s.channelTab,
                 s.sourceTab,
                 s.deviceTab,
                 s.pathTab,
@@ -562,8 +573,18 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 s.activeHoursTab,
                 s.shouldShowGeoIPQueries,
             ],
-            (graphsTab, sourceTab, deviceTab, pathTab, geographyTab, activeHoursTab, shouldShowGeoIPQueries) => ({
+            (
                 graphsTab,
+                channelTab,
+                sourceTab,
+                deviceTab,
+                pathTab,
+                geographyTab,
+                activeHoursTab,
+                shouldShowGeoIPQueries
+            ) => ({
+                graphsTab,
+                channelTab,
                 sourceTab,
                 deviceTab,
                 pathTab,
@@ -741,7 +762,16 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             ],
             (
                 productTab,
-                { graphsTab, sourceTab, deviceTab, pathTab, geographyTab, shouldShowGeoIPQueries, activeHoursTab },
+                {
+                    graphsTab,
+                    channelTab,
+                    sourceTab,
+                    deviceTab,
+                    pathTab,
+                    geographyTab,
+                    shouldShowGeoIPQueries,
+                    activeHoursTab,
+                },
                 { isPathCleaningEnabled, filterTestAccounts, shouldStripQueryParams },
                 {
                     webAnalyticsFilters,
@@ -1282,16 +1312,16 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     },
                     {
                         kind: 'tabs',
-                        tileId: TileId.SOURCES,
+                        tileId: TileId.CHANNELS,
                         layout: {
                             colSpanClassName: `md:col-span-1`,
-                            orderWhenLargeClassName: 'xxl:order-2',
+                            orderWhenLargeClassName: 'xxl:order-4',
                         },
-                        activeTabId: sourceTab,
-                        setTabId: actions.setSourceTab,
+                        activeTabId: channelTab,
+                        setTabId: actions.setChannelTab,
                         tabs: [
                             createTableTab(
-                                TileId.SOURCES,
+                                TileId.CHANNELS,
                                 SourceTab.CHANNEL,
                                 'Channels',
                                 'Channel',
@@ -1342,7 +1372,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 }
                             ),
                             createTableTab(
-                                TileId.SOURCES,
+                                TileId.CHANNELS,
                                 SourceTab.REFERRING_DOMAIN,
                                 'Referrers',
                                 'Referring domain',
@@ -1356,6 +1386,18 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     },
                                 }
                             ),
+                        ],
+                    },
+                    {
+                        kind: 'tabs',
+                        tileId: TileId.SOURCES,
+                        layout: {
+                            colSpanClassName: `md:col-span-1`,
+                            orderWhenLargeClassName: 'xxl:order-5',
+                        },
+                        activeTabId: sourceTab,
+                        setTabId: actions.setSourceTab,
+                        tabs: [
                             createTableTab(
                                 TileId.SOURCES,
                                 SourceTab.UTM_SOURCE,
@@ -2027,6 +2069,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 urlParams.set('date_to', dateTo ?? '')
                 urlParams.set('interval', interval ?? '')
             }
+            if (_channelTab) {
+                urlParams.set('channel_tab', _channelTab)
+            }
             if (_deviceTab) {
                 urlParams.set('device_tab', _deviceTab)
             }
@@ -2085,6 +2130,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             setConversionGoal: stateToUrl,
             setDates: stateToUrl,
             setInterval: stateToUrl,
+            setChannelTab: stateToUrl,
             setDeviceTab: stateToUrl,
             setSourceTab: stateToUrl,
             setGraphsTab: stateToUrl,
@@ -2111,6 +2157,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 date_from,
                 date_to,
                 interval,
+                channel_tab,
                 device_tab,
                 source_tab,
                 graphs_tab,
@@ -2159,6 +2206,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 (interval && interval !== values.dateFilter.interval)
             ) {
                 actions.setDatesAndInterval(date_from, date_to, interval)
+            }
+            if (channel_tab && channel_tab !== values._channelTab) {
+                actions.setChannelTab(channel_tab)
             }
             if (device_tab && device_tab !== values._deviceTab) {
                 actions.setDeviceTab(device_tab)

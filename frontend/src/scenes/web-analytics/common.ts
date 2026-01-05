@@ -30,6 +30,7 @@ export enum TileId {
     OVERVIEW = 'OVERVIEW',
     GRAPHS = 'GRAPHS',
     PATHS = 'PATHS',
+    CHANNELS = 'CHANNELS',
     SOURCES = 'SOURCES',
     DEVICES = 'DEVICES',
     GEOGRAPHY = 'GEOGRAPHY',
@@ -97,6 +98,7 @@ export const loadPriorityMap: Record<TileId, number> = {
     [TileId.OVERVIEW]: 1,
     [TileId.GRAPHS]: 2,
     [TileId.PATHS]: 3,
+    [TileId.CHANNELS]: 3.5,
     [TileId.SOURCES]: 4,
     [TileId.DEVICES]: 5,
     [TileId.GEOGRAPHY]: 6,
@@ -156,6 +158,7 @@ export const loadPriorityMap: Record<TileId, number> = {
 export const TILES_ALLOWED_ON_PRE_AGGREGATED = [
     TileId.OVERVIEW,
     TileId.PATHS,
+    TileId.CHANNELS,
     TileId.SOURCES,
     TileId.DEVICES,
 
@@ -168,6 +171,7 @@ export const TILE_LABELS: Record<TileId, string> = {
     [TileId.OVERVIEW]: 'Overview stats',
     [TileId.GRAPHS]: 'Trends',
     [TileId.PATHS]: 'Paths',
+    [TileId.CHANNELS]: 'Channels',
     [TileId.SOURCES]: 'Traffic sources',
     [TileId.DEVICES]: 'Device breakdown',
     [TileId.GEOGRAPHY]: 'Geography',

@@ -262,7 +262,9 @@ export const WebTabs = ({
     const { tileVisualizations } = useValues(webAnalyticsLogic)
     const visualization = tileVisualizations[tileId]
 
-    const isVisualizationToggleEnabled = [TileId.SOURCES, TileId.DEVICES, TileId.PATHS].includes(tileId)
+    const isVisualizationToggleEnabled = [TileId.CHANNELS, TileId.SOURCES, TileId.DEVICES, TileId.PATHS].includes(
+        tileId
+    )
 
     const activeTabData = tabs.find((t) => t.id === activeTabId)
 
@@ -339,7 +341,7 @@ export const WebTabs = ({
                 )}
 
                 <LemonSegmentedSelect
-                    shrinkOn={7}
+                    shrinkOn={tileId === TileId.SOURCES ? 1 : 7}
                     size="small"
                     disabled={false}
                     value={activeTabId}
