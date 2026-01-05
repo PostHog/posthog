@@ -55,7 +55,7 @@ import { BasicListItem, ExtendedListItem, NavbarItem, SidebarNavbarItem } from '
 /** Multi-segment item keys are joined using this separator for easy comparisons. */
 export const ITEM_KEY_PART_SEPARATOR = '::'
 
-export type Navigation3000Mode = 'none' | 'minimal' | 'full'
+export type Navigation3000Mode = 'none' | 'minimal' | 'zen' | 'full'
 
 const MINIMUM_SIDEBAR_WIDTH_PX: number = 192
 const DEFAULT_SIDEBAR_WIDTH_PX: number = 288
@@ -107,6 +107,8 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
         focusPreviousItem: true,
         toggleAccordion: (key: string) => ({ key }),
         toggleListItemAccordion: (key: string) => ({ key }),
+        setZenMode: (zenMode: boolean) => ({ zenMode }),
+        toggleZenMode: true,
     }),
     reducers({
         isSidebarShown: [
@@ -233,6 +235,13 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 saveNewItemComplete: () => false,
             },
         ],
+        zenMode: [
+            false,
+            {
+                setZenMode: (_, { zenMode }) => zenMode,
+                toggleZenMode: (state) => !state,
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
         initiateNewItemInCategory: ({ category: categoryKey }) => {
@@ -338,8 +347,11 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
     })),
     selectors({
         mode: [
-            (s) => [s.sceneConfig, s.isCurrentOrganizationUnavailable],
-            (sceneConfig, isCurrentOrganizationUnavailable): Navigation3000Mode => {
+            (s) => [s.sceneConfig, s.isCurrentOrganizationUnavailable, s.zenMode],
+            (sceneConfig, isCurrentOrganizationUnavailable, zenMode): Navigation3000Mode => {
+                if (zenMode) {
+                    return 'zen'
+                }
                 if (isCurrentOrganizationUnavailable) {
                     return 'minimal'
                 }
