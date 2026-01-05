@@ -41,9 +41,11 @@ else
   exit 0
 fi
 
-# Add flox to PATH if needed
+# Activate flox environment for Claude session
 if [ -n "$CLAUDE_ENV_FILE" ]; then
   echo 'export PATH="$HOME/.flox/bin:$PATH"' >> "$CLAUDE_ENV_FILE"
+  # Capture flox environment variables and export them
+  flox activate --trust -- bash -c 'export -p' >> "$CLAUDE_ENV_FILE" 2>/dev/null || true
 fi
 
 echo "✅ Flox is activated"
