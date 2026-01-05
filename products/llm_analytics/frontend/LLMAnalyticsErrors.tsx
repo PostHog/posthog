@@ -58,14 +58,6 @@ export function LLMAnalyticsErrors(): JSX.Element {
                             const displayValue =
                                 errorString.length > 80 ? errorString.slice(0, 77) + '...' : errorString
 
-                            // Extract the first 3 chunks of text between placeholders for filtering
-                            // These chunks are the stable parts of the error message
-                            const tokens = errorString
-                                .split(/<ID>|<TIMESTAMP>|<PATH>|<RESPONSE_ID>|<TOOL_CALL_ID>|<TOKEN_COUNT>|<N>/)
-                                .map((token) => token.trim())
-                                .filter((token) => token.length >= 3) // Only keep meaningful chunks
-                                .slice(0, 3) // Take first 3 chunks
-
                             return (
                                 <div className="flex items-center gap-1">
                                     <Tooltip title={errorString}>
@@ -74,20 +66,18 @@ export function LLMAnalyticsErrors(): JSX.Element {
                                                 combineUrl(urls.llmAnalyticsTraces(), {
                                                     ...searchParams,
                                                     filters: [
-                                                        // First filter: only show traces with errors
                                                         {
                                                             type: PropertyFilterType.Event,
                                                             key: '$ai_is_error',
                                                             operator: PropertyOperator.Exact,
                                                             value: 'true',
                                                         },
-                                                        // Then filter by key words from the error
-                                                        ...tokens.map((token) => ({
+                                                        {
                                                             type: PropertyFilterType.Event,
-                                                            key: '$ai_error',
-                                                            operator: PropertyOperator.IContains,
-                                                            value: token,
-                                                        })),
+                                                            key: '$ai_error_normalized',
+                                                            operator: PropertyOperator.Exact,
+                                                            value: errorString,
+                                                        },
                                                     ],
                                                 }).url
                                             }
