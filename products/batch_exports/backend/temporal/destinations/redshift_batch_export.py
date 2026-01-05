@@ -1111,6 +1111,7 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
             data_interval_start=inputs.batch_export.data_interval_start,
             data_interval_end=inputs.batch_export.data_interval_end,
             max_record_batch_size_bytes=1024 * 1024 * 2,  # 2MB
+            stage_folder=inputs.batch_export.stage_folder,
         )
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
@@ -1408,6 +1409,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
             data_interval_start=inputs.batch_export.data_interval_start,
             data_interval_end=inputs.batch_export.data_interval_end,
             max_record_batch_size_bytes=1024 * 1024 * 60,  # 60MB
+            stage_folder=inputs.batch_export.stage_folder,
         )
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)

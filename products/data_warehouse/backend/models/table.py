@@ -184,6 +184,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             access_secret=self.credential.access_secret,
             context=placeholder_context,
             table_size_mib=0,  # Use the non-cluster s3 table function for chdb
+            is_external_data_source=self.external_data_source_id is not None,
         )
         logger = structlog.get_logger(__name__)
         try:
@@ -260,6 +261,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 access_secret=self.credential.access_secret,
                 context=placeholder_context,
                 table_size_mib=self.size_in_s3_mib,
+                is_external_data_source=self.external_data_source_id is not None,
             )
 
             tag_queries(
@@ -289,6 +291,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             access_secret=self.credential.access_secret,
             context=placeholder_context,
             table_size_mib=0,  # Use the non-cluster s3 table function for chdb
+            is_external_data_source=self.external_data_source_id is not None,
         )
         try:
             # chdb hangs in CI during tests
@@ -338,6 +341,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 access_secret=self.credential.access_secret,
                 context=placeholder_context,
                 table_size_mib=self.size_in_s3_mib,
+                is_external_data_source=self.external_data_source_id is not None,
             )
 
         except Exception as err:
@@ -421,6 +425,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             fields=fields,
             structure=", ".join(structure),
             table_id=str(self.id),
+            is_external_data_source=self.external_data_source_id is not None,
         )
 
     def get_clickhouse_column_type(self, column_name: str) -> Optional[str]:

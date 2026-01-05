@@ -18,11 +18,6 @@ posthog/clickhouse/migrations/** @PostHog/clickhouse
 # HogQL team owns HogQL changes
 posthog/hogql/** @PostHog/hogql
 
-# CDP templates are owned by the workflows team
-# New templates are often added by OSS contributors, and require prompt code reviews to maintain engagement
-plugin-server/src/cdp/templates/** @PostHog/team-workflows
-posthog/cdp/templates/** @PostHog/team-workflows
-
 # Being open source brings us unwanted problems because Github Actions are untrusted and inherently unsafe
 # so we have to be extra careful with changes here. Let's have the security team own these checks.
 .github/workflows/ci-security.yaml @PostHog/team-security
@@ -36,3 +31,8 @@ posthog/cdp/templates/** @PostHog/team-workflows
 # And of course modifying this file can bring us problems so let's have the security team own it.
 # This does not affect CODEOWNERS-soft which is used for assigning non-required reviewers and it's much safer to change.
 CODEOWNERS @PostHog/team-security
+
+# Critical authentication logic
+posthog/api/authentication.py @PostHog/team-security
+posthog/auth.py @PostHog/team-security
+ee/api/scim/auth.py @PostHog/team-security

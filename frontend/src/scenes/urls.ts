@@ -48,6 +48,7 @@ export const urls = {
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
     revenueSettings: (): string => '/data-management/revenue',
+    coreEvents: (): string => '/data-management/core-events',
     marketingAnalytics: (): string => '/data-management/marketing-analytics',
     marketingAnalyticsApp: (): string => '/marketing',
     customCss: (): string => '/themes/custom-css',
@@ -110,6 +111,7 @@ export const urls = {
     signup: (): string => '/signup',
     verifyEmail: (userUuid: string = '', token: string = ''): string =>
         `/verify_email${userUuid ? `/${userUuid}` : ''}${token ? `/${token}` : ''}`,
+    vercelLinkError: (): string => '/integrations/vercel/link-error',
     inviteSignup: (id: string): string => `/signup/${id}`,
     products: (): string => '/products',
     useCaseSelection: (): string => '/onboarding/use-case',
@@ -189,6 +191,8 @@ export const urls = {
     productTours: (): string => '/product_tours',
     productTour: (id: string): string => `/product_tours/${id}`,
     organizationDeactivated: (): string => '/organization-deactivated',
+    approvals: (): string => '/settings/organization-approvals#change-requests',
+    approval: (id: string): string => `/approvals/${id}`,
 }
 
 export interface UrlMatcher {

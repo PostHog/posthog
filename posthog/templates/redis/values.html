@@ -49,17 +49,30 @@
                                 <div class="text"><span>{% trans "TTL" %}</span></div>
                             </th>
                             <th scope="col">
+                                <div class="text"><span>{% trans "Size" %}</span></div>
+                            </th>
+                            <th scope="col">
                                 <div class="text"><span>{% trans "Value" %}</span></div>
                             </th>
                         </tr>
                     </thead>
                     <tbody>
-                        {% for key, tuple in redis_keys.items %}
+                        {% for key_info in redis_keys %}
                         <tr>
-                            <td class="field-key">{{ key }}</td>
-                            {% for item in tuple %}
-                            <td>{{ item }}</td>
-                            {% endfor %}
+                            <td class="field-key">{{ key_info.key }}</td>
+                            <td>{{ key_info.type }}</td>
+                            <td><a href="/admin/redis/edit-ttl?key={{ key_info.key|urlencode }}&c={{ cursor }}&q={{ query|urlencode }}">{{ key_info.ttl }}</a></td>
+                            <td>{{ key_info.size }}</td>
+                            <td>
+                                {% if key_info.is_truncated %}
+                                <details>
+                                    <summary>{{ key_info.value }}</summary>
+                                    <pre style="white-space: pre-wrap; word-break: break-all; margin-top: 8px; padding: 8px; background: var(--darkened-bg, #f5f5f5); border-radius: 4px; max-height: 400px; overflow: auto;">{{ key_info.full_value }}</pre>
+                                </details>
+                                {% else %}
+                                {{ key_info.value }}
+                                {% endif %}
+                            </td>
                         </tr>
                         {% endfor %}
                     </tbody>

@@ -620,6 +620,13 @@ class TestSCIMUsersAPI(APILicensedTest):
         user = User.objects.create_user(
             email="testuser@example.com", password=None, first_name="", last_name="", is_email_verified=True
         )
+        SCIMProvisionedUser.objects.create(
+            user=user,
+            organization_domain=self.domain,
+            username="testuser@example.com",
+            identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
+            active=False,
+        )
 
         patch_data = {
             "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
@@ -671,6 +678,13 @@ class TestSCIMUsersAPI(APILicensedTest):
     def test_patch_add_active_user_with_simple_path(self):
         user = User.objects.create_user(
             email="reactivate@example.com", password=None, first_name="Test", is_email_verified=True
+        )
+        SCIMProvisionedUser.objects.create(
+            user=user,
+            organization_domain=self.domain,
+            username="reactivate@example.com",
+            identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
+            active=False,
         )
         assert not OrganizationMembership.objects.filter(user=user, organization=self.organization).exists()
 

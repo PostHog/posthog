@@ -8,7 +8,6 @@ from contextlib import asynccontextmanager
 from contextvars import ContextVar
 
 import asyncpg
-import litellm
 import structlog
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,6 +17,7 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.responses import Response
 from starlette.types import ASGIApp
 
+from llm_gateway.analytics import init_analytics_service, shutdown_analytics_service
 from llm_gateway.api.health import health_router
 from llm_gateway.api.routes import router
 from llm_gateway.config import get_settings
@@ -108,9 +108,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     settings = get_settings()
 
     if settings.anthropic_api_key:
-        litellm.anthropic_key = settings.anthropic_api_key
+        os.environ["ANTHROPIC_API_KEY"] = settings.anthropic_api_key
     if settings.openai_api_key:
-        litellm.openai_key = settings.openai_api_key
+        os.environ["OPENAI_API_KEY"] = settings.openai_api_key
+    if settings.openai_api_base_url:
+        os.environ["OPENAI_BASE_URL"] = settings.openai_api_base_url
     if settings.gemini_api_key:
         os.environ["GEMINI_API_KEY"] = settings.gemini_api_key
 
@@ -134,7 +136,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         sustained_window=settings.rate_limit_sustained_window,
     )
 
+    init_analytics_service()
+
     yield
+
+    shutdown_analytics_service()
 
     if app.state.redis:
         await app.state.redis.aclose()

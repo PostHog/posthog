@@ -637,13 +637,6 @@ def sync_insight_cache_states_task() -> None:
     sync_insight_cache_states()
 
 
-@shared_task(ignore_result=True)
-def schedule_cache_updates_task() -> None:
-    from posthog.caching.insight_cache import schedule_cache_updates
-
-    schedule_cache_updates()
-
-
 @shared_task(
     ignore_result=True,
     autoretry_for=(CHQueryErrorTooManySimultaneousQueries,),

@@ -37,10 +37,11 @@ export interface HogflowTestInvocation {
     mock_async_functions: boolean
 }
 
-const createExampleEvent = (
+export const createExampleEvent = (
     teamId?: number,
     workflowName?: string | null,
-    eventName: string = '$pageview'
+    eventName: string = '$pageview',
+    email: string = 'example@posthog.com'
 ): CyclotronJobInvocationGlobals => ({
     event: {
         uuid: uuid(),
@@ -58,7 +59,7 @@ const createExampleEvent = (
     person: {
         id: uuid(),
         properties: {
-            email: 'example@posthog.com',
+            email,
         },
         name: 'Example person',
         url: `${window.location.origin}/person/${uuid()}`,
@@ -75,7 +76,7 @@ const createExampleEvent = (
     },
 })
 
-const createGlobalsFromResponse = (
+export const createGlobalsFromResponse = (
     event: any,
     person: any,
     teamId: number,
@@ -144,6 +145,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
         setEventPanelOpen: (eventPanelOpen: string[]) => ({ eventPanelOpen }),
         setEventSelectorOpen: (eventSelectorOpen: boolean) => ({ eventSelectorOpen }),
         setLastSearchedEventName: (eventName: string | null) => ({ eventName }),
+        resetAccumulatedVariables: true,
     }),
     reducers({
         testResult: [
@@ -222,6 +224,18 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             {
                 setLastSearchedEventName: (_, { eventName }) => eventName,
                 loadSampleEventByName: (_, { eventName }) => eventName, // Store the event name when searching
+            },
+        ],
+        // Track variables accumulated from previous step tests
+        accumulatedVariables: [
+            {} as Record<string, any>,
+            {
+                setTestResult: (state, { testResult }) =>
+                    testResult?.variables ? { ...state, ...testResult.variables } : state,
+                resetAccumulatedVariables: () => ({}),
+                // Reset when loading fresh sample globals (starting a new test session)
+                loadSampleGlobals: () => ({}),
+                loadSampleEventByName: () => ({}),
             },
         ],
     }),
@@ -450,6 +464,17 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             },
             { resultEqualityCheck: equal },
         ],
+        workflowVariableDefaults: [
+            (s) => [s.workflow],
+            (workflow): Record<string, any> =>
+                workflow.variables?.reduce(
+                    (acc, variable) => {
+                        acc[variable.key] = variable.default
+                        return acc
+                    },
+                    {} as Record<string, any>
+                ) ?? {},
+        ],
     })),
     forms(({ actions, values }) => ({
         testInvocation: {
@@ -471,13 +496,11 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                         configuration: values.workflowSanitized,
                         globals: {
                             ...JSON.parse(testInvocation.globals),
-                            variables: values.workflow.variables?.reduce(
-                                (acc, variable) => {
-                                    acc[variable.key] = variable.default
-                                    return acc
-                                },
-                                {} as Record<string, any>
-                            ),
+                            // Merge order: defaults < accumulated (variables set by previous test steps take precedence)
+                            variables: {
+                                ...values.workflowVariableDefaults,
+                                ...values.accumulatedVariables,
+                            },
                         },
                         mock_async_functions: testInvocation.mock_async_functions,
                         current_action_id: values.selectedNodeId ?? undefined,
