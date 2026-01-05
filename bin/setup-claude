@@ -48,8 +48,6 @@ if [ -n "$CLAUDE_ENV_FILE" ]; then
   echo 'eval "$(flox activate)"' >> "$CLAUDE_ENV_FILE"
 fi
 
-# Activate flox to install dependencies
-echo "🔄 Activating flox to install dependencies..."
-eval "$(flox activate)"
-
-echo "✅ Flox is activated"
+# Run a no-op command within flox to trigger dependency installation (on-first-use hook)
+echo "🔄 Installing flox dependencies..."
+flox activate -- echo "✅ Flox is ready"
