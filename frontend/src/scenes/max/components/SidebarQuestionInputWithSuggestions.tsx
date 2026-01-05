@@ -6,6 +6,7 @@ import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { cn } from 'lib/utils/css-classes'
 import { MaxMemorySettings } from 'scenes/settings/environment/MaxMemorySettings'
 import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
 
@@ -15,7 +16,11 @@ import { maxLogic } from '../maxLogic'
 import { FloatingSuggestionsDisplay } from './FloatingSuggestionsDisplay'
 import { SidebarQuestionInput } from './SidebarQuestionInput'
 
-export function SidebarQuestionInputWithSuggestions(): JSX.Element {
+export function SidebarQuestionInputWithSuggestions({
+    hideSuggestions = false,
+}: {
+    hideSuggestions?: boolean
+}): JSX.Element {
     const { dataProcessingAccepted, activeSuggestionGroup } = useValues(maxLogic)
     const { setActiveGroup } = useActions(maxLogic)
     const { coreMemory, coreMemoryLoading } = useValues(maxSettingsLogic)
@@ -47,7 +52,13 @@ export function SidebarQuestionInputWithSuggestions(): JSX.Element {
             }}
         >
             <SidebarQuestionInput />
-            <div className="flex flex-col items-center justify-center gap-y-2">
+            <div
+                hidden={hideSuggestions}
+                className={cn(
+                    'flex flex-col items-center justify-center gap-y-2 transition-opacity duration-300 starting:opacity-1 [[hidden]]:opacity-0 [transition-behavior:allow-discrete]',
+                    hideSuggestions && 'opacity-0'
+                )}
+            >
                 <h3 className="text-center text-xs font-medium mb-0 text-secondary">{tip}</h3>
                 <FloatingSuggestionsDisplay
                     type="secondary"

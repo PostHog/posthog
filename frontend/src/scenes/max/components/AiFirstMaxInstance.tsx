@@ -134,7 +134,9 @@ function ChatArea({ threadVisible, conversationId, conversation, onStartNewConve
                     hasMessages ? 'sticky bottom-0 bg-primary py-2 max-w-none' : 'pb-4'
                 }`}
             >
-                {!conversation?.has_unsupported_content && <SidebarQuestionInputWithSuggestions />}
+                {!conversation?.has_unsupported_content && (
+                    <SidebarQuestionInputWithSuggestions hideSuggestions={hasMessages} />
+                )}
             </div>
 
             {/* Bottom spacer - fills space below content, shrinks when messages appear */}
