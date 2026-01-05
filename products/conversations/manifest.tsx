@@ -52,7 +52,7 @@ export const manifest: ProductManifest = {
             type: 'conversations',
             flag: FEATURE_FLAGS.PRODUCT_CONVERSATIONS,
             tags: ['alpha'],
-            iconType: 'chat',
+            iconType: 'conversations',
             iconColor: ['var(--color-product-conversations-light)'] as FileSystemIconColor,
             sceneKey: 'ConversationsTickets',
         },
@@ -61,7 +61,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Conversations',
             category: 'Unreleased',
-            iconType: 'chat' as FileSystemIconType,
+            iconType: 'conversations' as FileSystemIconType,
             iconColor: ['var(--color-product-conversations-light)'] as FileSystemIconColor,
             href: urls.conversationsTickets(),
             sceneKey: 'ConversationsTickets',

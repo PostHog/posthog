@@ -997,7 +997,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         type: 'conversations',
         flag: FEATURE_FLAGS.PRODUCT_CONVERSATIONS,
         tags: ['alpha'],
-        iconType: 'chat',
+        iconType: 'conversations',
         iconColor: ['var(--color-product-conversations-light)'] as FileSystemIconColor,
         sceneKey: 'ConversationsTickets',
         sceneKeys: ['ConversationsTickets', 'ConversationsTicketDetail', 'ConversationsSettings'],
@@ -1349,7 +1349,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
     {
         path: 'Conversations',
         category: 'Unreleased',
-        iconType: 'chat' as FileSystemIconType,
+        iconType: 'conversations' as FileSystemIconType,
         iconColor: ['var(--color-product-conversations-light)'] as FileSystemIconColor,
         href: urls.conversationsTickets(),
         sceneKey: 'ConversationsTickets',

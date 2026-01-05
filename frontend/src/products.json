@@ -10,7 +10,7 @@
         {
             "path": "Conversations",
             "category": "Unreleased",
-            "iconType": "chat",
+            "iconType": "conversations",
             "type": "conversations",
             "intents": ["conversations"]
         },
