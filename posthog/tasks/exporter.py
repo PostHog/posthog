@@ -5,7 +5,7 @@ from django.db import OperationalError, transaction
 
 import structlog
 import posthoganalytics
-from celery import current_task, shared_task
+from celery import Task, current_task, shared_task
 from prometheus_client import Counter, Histogram
 from urllib3.exceptions import MaxRetryError, ProtocolError
 
@@ -124,7 +124,7 @@ def _is_final_export_attempt(exception: Exception, current_retries: int, max_ret
     max_retries=3,
 )
 def export_asset(
-    self,
+    self: Task,
     exported_asset_id: int,
     limit: Optional[int] = None,  # For CSV/XLSX: max row count
     max_height_pixels: Optional[int] = None,  # For images: max screenshot height in pixels
