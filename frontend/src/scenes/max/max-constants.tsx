@@ -156,19 +156,6 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Creating a form...'
         },
     },
-    session_summarization: {
-        name: 'Summarize sessions',
-        description: 'Summarize sessions to analyze real user behavior',
-        flag: 'max-session-summarization',
-        icon: iconForType('session_replay'),
-        beta: true,
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Summarized sessions'
-            }
-            return 'Summarizing sessions...'
-        },
-    },
     create_dashboard: {
         name: 'Create dashboards',
         description: 'Create dashboards with insights based on your requirements',
@@ -454,21 +441,6 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             },
         },
     },
-    create_and_query_insight: {
-        name: 'Edit the insight',
-        description: "Edit the insight you're viewing",
-        icon: iconForType('product_analytics'),
-        product: Scene.Insight,
-        displayFormatter: (toolCall, { registeredToolMap }) => {
-            const isEditing = registeredToolMap.create_and_query_insight || registeredToolMap.create_insight
-            if (isEditing) {
-                return toolCall.status === 'completed'
-                    ? 'Edited the insight you are viewing'
-                    : 'Editing the insight you are viewing...'
-            }
-            return toolCall.status === 'completed' ? 'Created an insight' : 'Creating an insight...'
-        },
-    },
     create_insight: {
         name: 'Create an insight or edit an existing one',
         description: "Create an insight or edit an existing one you're viewing",
@@ -476,7 +448,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         product: Scene.Insight,
         modes: [AgentMode.ProductAnalytics],
         displayFormatter: (toolCall, { registeredToolMap }) => {
-            const isEditing = registeredToolMap.create_and_query_insight || registeredToolMap.create_insight
+            const isEditing = registeredToolMap.create_insight
             if (isEditing) {
                 return toolCall.status === 'completed'
                     ? 'Edited the insight you are viewing'
@@ -513,18 +485,6 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                 return ['Filtered recordings', widgetDef]
             }
             return ['Filtering recordings...', widgetDef]
-        },
-    },
-    generate_hogql_query: {
-        name: 'Write and tweak SQL',
-        description: 'Write and tweak SQL right there',
-        product: Scene.SQLEditor,
-        icon: iconForType('insight/hog'),
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Edited SQL'
-            }
-            return 'Writing and tweaking SQL...'
         },
     },
     analyze_user_interviews: {
@@ -586,6 +546,18 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                 return 'Filtered issues'
             }
             return 'Filtering issues...'
+        },
+    },
+    search_error_tracking_issues: {
+        name: 'Search issues',
+        description: 'Search issues in error tracking',
+        product: Scene.ErrorTracking,
+        icon: iconForType('error_tracking'),
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Found issues'
+            }
+            return 'Searching issues...'
         },
     },
     find_error_tracking_impactful_issue_event_list: {
@@ -924,6 +896,12 @@ export const MODE_DEFINITIONS: Record<AgentMode, ModeDefinition> = {
             Scene.ReplayFilePlayback,
             Scene.ReplaySettings,
         ]),
+    },
+    [AgentMode.ErrorTracking]: {
+        name: 'Error tracking',
+        description: 'Searches and analyzes error tracking issues to help you understand and fix bugs.',
+        icon: iconForType('error_tracking'),
+        scenes: new Set([Scene.ErrorTracking]),
     },
 }
 

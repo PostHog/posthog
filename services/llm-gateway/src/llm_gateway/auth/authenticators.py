@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 import asyncpg
 
 from llm_gateway.auth.models import AuthenticatedUser, has_required_scope
+from llm_gateway.db.postgres import acquire_connection
 
 
 class Authenticator(ABC):
@@ -47,7 +48,7 @@ class PersonalApiKeyAuthenticator(Authenticator):
         return f"sha256${hashed}"
 
     async def authenticate(self, token_hash: str, pool: asyncpg.Pool) -> AuthenticatedUser | None:
-        async with pool.acquire() as conn:
+        async with acquire_connection(pool) as conn:
             row = await conn.fetchrow(
                 """
                 SELECT pak.id, pak.user_id, pak.scopes, u.current_team_id
@@ -87,7 +88,7 @@ class OAuthAccessTokenAuthenticator(Authenticator):
         return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
     async def authenticate(self, token_hash: str, pool: asyncpg.Pool) -> AuthenticatedUser | None:
-        async with pool.acquire() as conn:
+        async with acquire_connection(pool) as conn:
             row = await conn.fetchrow(
                 """
                 SELECT oat.id, oat.user_id, oat.scope, oat.expires,

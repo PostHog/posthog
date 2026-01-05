@@ -1,6 +1,8 @@
-import { BindLogic } from 'kea'
+import { BindLogic, useActions } from 'kea'
 
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { uuid } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Notebook } from 'scenes/notebooks/Notebook/Notebook'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 
@@ -11,6 +13,7 @@ type PersonFeedCanvasProps = {
 }
 
 const PersonFeedCanvas = ({ person }: PersonFeedCanvasProps): JSX.Element => {
+    const { reportPersonProfileViewed } = useActions(eventUsageLogic)
     const id = person.id
     const distinctId = person.distinct_ids[0]
     const shortId = `canvas-${id}`
@@ -24,6 +27,10 @@ const PersonFeedCanvas = ({ person }: PersonFeedCanvasProps): JSX.Element => {
             operator: PropertyOperator.Exact,
         },
     ]
+
+    useOnMountEffect(() => {
+        reportPersonProfileViewed()
+    })
 
     return (
         <BindLogic logic={notebookLogic} props={{ shortId, mode, canvasFiltersOverride: personFilter }}>

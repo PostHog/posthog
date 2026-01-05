@@ -378,6 +378,22 @@ impl Client for RedisClient {
         Ok(())
     }
 
+    async fn batch_incr_by_expire(
+        &self,
+        items: Vec<(String, i64)>,
+        ttl_seconds: usize,
+    ) -> Result<(), CustomRedisError> {
+        let mut pipe = redis::pipe();
+        for (k, by) in items {
+            pipe.cmd("INCRBY").arg(&k).arg(by).ignore();
+            pipe.cmd("EXPIRE").arg(&k).arg(ttl_seconds).ignore();
+        }
+
+        let mut conn = self.connection.clone();
+        pipe.query_async::<()>(&mut conn).await?;
+        Ok(())
+    }
+
     async fn del(&self, k: String) -> Result<(), CustomRedisError> {
         let mut conn = self.connection.clone();
         conn.del::<_, ()>(k).await?;
@@ -398,6 +414,15 @@ impl Client for RedisClient {
         let mut conn = self.connection.clone();
         let result = conn.scard(k).await?;
         Ok(result)
+    }
+
+    async fn mget(&self, keys: Vec<String>) -> Result<Vec<Option<Vec<u8>>>, CustomRedisError> {
+        if keys.is_empty() {
+            return Ok(vec![]);
+        }
+        let mut conn = self.connection.clone();
+        let results: Vec<Option<Vec<u8>>> = conn.mget(&keys).await?;
+        Ok(results)
     }
 }
 

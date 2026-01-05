@@ -12,7 +12,7 @@
             toStartOfMonth(revenue_item.timestamp) AS timestamp,
             sum(revenue_item.amount) AS amount
      FROM `revenue_analytics.events.purchase.revenue_item_events_revenue_view` AS revenue_item
-     WHERE and(equals(is_recurring, true), greaterOrEquals(timestamp, toStartOfMonth(addDays(toDateTime('2025-05-30 00:00:00.000000'), -60))), lessOrEquals(timestamp, toDateTime('2025-05-30 00:00:00.000000')))
+     WHERE and(is_recurring, isNotNull(subscription_id), greaterOrEquals(timestamp, toStartOfMonth(addDays(toDateTime('2025-05-30 00:00:00.000000'), -60))), lessOrEquals(timestamp, toDateTime('2025-05-30 00:00:00.000000')))
      GROUP BY source_label,
               customer_id,
               subscription_id, timestamp

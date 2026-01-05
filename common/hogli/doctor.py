@@ -31,7 +31,7 @@ NODE_ARTIFACT_PATTERNS = (
     "common/plugin_transpiler/dist",
     "common/hogvm/typescript/.parcel-cache",
     "common/hogvm/typescript/dist",
-    "plugin-server/dist",
+    "nodejs/dist",
     "storybook-static",
     "playwright-report",
     "playwright/playwright-report",
