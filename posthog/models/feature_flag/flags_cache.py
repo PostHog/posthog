@@ -25,7 +25,9 @@ Manual operations:
     clear_flags_cache(team_id)
 """
 
+import time
 from collections import defaultdict
+from datetime import timedelta
 from typing import Any
 
 from django.conf import settings
@@ -34,6 +36,7 @@ from django.db import transaction
 from django.db.models import Q
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
+from django.utils import timezone
 
 import structlog
 
@@ -106,11 +109,12 @@ def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str,
     if not teams:
         return {}
 
-    # Load all flags for all teams in one query with evaluation tags pre-loaded
+    # Load all flags for all teams in one query with evaluation tags pre-loaded.
+    # Note: We intentionally don't select_related("team") here because we only need
+    # team_id (already on the model) for grouping, and the Team objects are already
+    # loaded by the caller. Avoiding the join saves memory.
     all_flags = list(
-        FeatureFlag.objects.filter(team__in=teams, active=True, deleted=False)
-        .select_related("team")
-        .annotate(
+        FeatureFlag.objects.filter(team__in=teams, active=True, deleted=False).annotate(
             evaluation_tag_names_agg=ArrayAgg(
                 "evaluation_tags__tag__name",
                 filter=Q(evaluation_tags__isnull=False),
@@ -353,11 +357,66 @@ def _compare_flag_fields(db_flag: dict, cached_flag: dict) -> list[dict]:
     return field_diffs
 
 
+def _get_team_ids_with_flags() -> set[int]:
+    """
+    Get the set of team IDs that have at least one active, non-deleted flag.
+
+    Used by verification to skip expensive DB loads for the ~90% of teams
+    that have zero flags. For those teams, we just verify the cache contains
+    {"flags": []}.
+    """
+    start_time = time.time()
+    result = set(FeatureFlag.objects.filter(active=True, deleted=False).values_list("team_id", flat=True).distinct())
+    duration_ms = (time.time() - start_time) * 1000
+
+    logger.info(
+        "Loaded team IDs with flags",
+        count=len(result),
+        duration_ms=round(duration_ms, 2),
+    )
+
+    return result
+
+
+def _get_team_ids_with_recently_updated_flags(team_ids: list[int]) -> set[int]:
+    """
+    Batch check which teams have active flags updated within the grace period.
+
+    When a flag is updated, an async task updates the cache. If verification
+    runs before the async task completes, it sees a stale cache and tries to
+    "fix" it, causing unnecessary work. This grace period lets recent async
+    updates complete before treating cache misses as genuine errors.
+
+    Only considers active, non-deleted flags. When a flag is deleted or
+    deactivated, the cache update removes it, so we shouldn't skip verification
+    just because a deleted/inactive flag was recently updated.
+
+    Args:
+        team_ids: List of team IDs to check
+
+    Returns:
+        Set of team IDs that have recently updated active flags (should skip fix)
+    """
+    grace_period_minutes = settings.FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES
+    if grace_period_minutes <= 0 or not team_ids:
+        return set()
+
+    cutoff = timezone.now() - timedelta(minutes=grace_period_minutes)
+    return set(
+        FeatureFlag.objects.filter(team_id__in=team_ids, updated_at__gte=cutoff, active=True, deleted=False)
+        .values_list("team_id", flat=True)
+        .distinct()
+    )
+
+
 # Initialize hypercache management config after update_flags_cache is defined
 FLAGS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     hypercache=flags_hypercache,
     update_fn=update_flags_cache,
     cache_name="flags",
+    get_team_ids_needing_full_verification_fn=_get_team_ids_with_flags,
+    empty_cache_value={"flags": []},
+    get_team_ids_to_skip_fix_fn=_get_team_ids_with_recently_updated_flags,
 )
 
 

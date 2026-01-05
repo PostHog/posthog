@@ -337,9 +337,13 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
     listeners(({ actions, values }) => ({
         touchEditingKeyField: ({ key }) => {
             if (key === 'label') {
-                if (values.editingKey.label.toLowerCase().includes('zapier') && !values.editingKey.preset) {
-                    actions.setEditingKeyValue('preset', 'zapier')
-                    actions.setEditingKeyValue('access_type', 'all')
+                // If the label contains a prefillable preset, set the preset and access type
+                const prefillablePresets = ['zapier', 'n8n']
+                for (const preset of prefillablePresets) {
+                    if (values.editingKey.label.toLowerCase().includes(preset) && !values.editingKey.preset) {
+                        actions.setEditingKeyValue('preset', preset)
+                        actions.setEditingKeyValue('access_type', 'all')
+                    }
                 }
             }
         },

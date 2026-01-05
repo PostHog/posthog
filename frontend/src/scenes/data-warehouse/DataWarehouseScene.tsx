@@ -3,6 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -43,14 +45,23 @@ export function DataWarehouseScene(): JSX.Element {
                         <LemonButton type="secondary" to={urls.sqlEditor()} size="small">
                             Create view
                         </LemonButton>
-                        <LemonButton
-                            type="primary"
-                            to={urls.dataWarehouseSourceNew()}
-                            icon={<IconPlusSmall />}
-                            size="small"
+                        <AppShortcut
+                            name="NewDataWarehouseSource"
+                            keybind={[keyBinds.new]}
+                            intent="New source"
+                            interaction="click"
+                            scope={Scene.DataWarehouse}
                         >
-                            New source
-                        </LemonButton>
+                            <LemonButton
+                                type="primary"
+                                to={urls.dataWarehouseSourceNew()}
+                                icon={<IconPlusSmall />}
+                                size="small"
+                                tooltip="New source"
+                            >
+                                New source
+                            </LemonButton>
+                        </AppShortcut>
                     </div>
                 }
             />

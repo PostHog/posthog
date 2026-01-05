@@ -49,7 +49,6 @@ export const productScenes: Record<string, () => Promise<any>> = {
     EarlyAccessFeatures: () => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
     EarlyAccessFeature: () => import('../../products/early_access_features/frontend/EarlyAccessFeature'),
     EndpointsScene: () => import('../../products/endpoints/frontend/EndpointsScene'),
-    EndpointsUsage: () => import('../../products/endpoints/frontend/EndpointsUsage'),
     EndpointScene: () => import('../../products/endpoints/frontend/EndpointScene'),
     ErrorTracking: () => import('../../products/error_tracking/frontend/scenes/ErrorTrackingScene/ErrorTrackingScene'),
     ErrorTrackingIssue: () =>
@@ -205,12 +204,17 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'action',
     },
     CustomerAnalytics: {
+        defaultDocsPath: '/docs/customer-analytics',
         projectBased: true,
         name: 'Customer analytics',
         description: 'Understand how your customers interact with your product ',
         iconType: 'cohort',
     },
-    CustomerAnalyticsConfiguration: { projectBased: true, name: 'Customer analytics configuration' },
+    CustomerAnalyticsConfiguration: {
+        defaultDocsPath: '/docs/customer-analytics/configure-your-dashboard',
+        projectBased: true,
+        name: 'Customer analytics configuration',
+    },
     DataWarehouse: {
         name: 'Data warehouse',
         projectBased: true,
@@ -248,13 +252,6 @@ export const productConfiguration: Record<string, any> = {
         defaultDocsPath: '/docs/endpoints',
         iconType: 'endpoints',
         description: 'Define queries your application will use via the API and monitor their cost and usage.',
-    },
-    EndpointsUsage: {
-        projectBased: true,
-        name: 'Endpoints usage',
-        activityScope: 'Endpoints',
-        layout: 'app-container',
-        iconType: 'endpoints',
     },
     EndpointScene: { projectBased: true, name: 'Endpoint', activityScope: 'Endpoint' },
     ErrorTracking: {
@@ -358,6 +355,7 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'logs',
         description: 'Monitor and analyze your logs to understand and fix issues.',
         defaultDocsPath: '/docs/logs',
+        changelogTeamSlug: 'Logs',
     },
     ManagedMigration: { name: 'Managed migrations', projectBased: true },
     ManagedMigrationNew: { name: 'Managed migrations', projectBased: true },
@@ -438,14 +436,36 @@ export const productUrls = {
     endpoints: (): string => '/endpoints',
     endpoint: (name: string): string => `/endpoints/${name}`,
     endpointsUsage: (params?: {
+        endpointFilter?: string[]
         dateFrom?: string
         dateTo?: string
-        requestNameBreakdownEnabled?: string
-        requestNameFilter?: string[]
+        materializationType?: 'materialized' | 'inline'
+        interval?: string
+        breakdownBy?: string
     }): string => {
-        const queryParams = new URLSearchParams(params as Record<string, string>)
-        const stringifiedParams = queryParams.toString()
-        return `/endpoints/usage${stringifiedParams ? `?${stringifiedParams}` : ''}`
+        if (!params) {
+            return '/endpoints/usage'
+        }
+        const searchParams: Record<string, string> = {}
+        if (params.endpointFilter?.length) {
+            searchParams.endpointFilter = params.endpointFilter.join(',')
+        }
+        if (params.dateFrom) {
+            searchParams.dateFrom = params.dateFrom
+        }
+        if (params.dateTo) {
+            searchParams.dateTo = params.dateTo
+        }
+        if (params.materializationType) {
+            searchParams.materializationType = params.materializationType
+        }
+        if (params.interval) {
+            searchParams.interval = params.interval
+        }
+        if (params.breakdownBy) {
+            searchParams.breakdownBy = params.breakdownBy
+        }
+        return combineUrl('/endpoints/usage', searchParams).url
     },
     errorTracking: (params = {}): string => combineUrl('/error_tracking', params).url,
     errorTrackingConfiguration: (params = {}): string => combineUrl('/error_tracking/configuration', params).url,
@@ -645,6 +665,7 @@ export const productUrls = {
     webAnalyticsPageReports: (): string => `/web/page-reports`,
     webAnalyticsMarketing: (): string => `/web/marketing`,
     webAnalyticsHealth: (): string => `/web/health`,
+    webAnalyticsLive: (): string => `/web/live`,
     workflows: (tab?: WorkflowsSceneTab): string => `/workflows${tab ? `/${tab}` : ''}`,
     workflow: (id: string, tab: string): string => `/workflows/${id}/${tab}`,
     workflowNew: (): string => '/workflows/new/workflow',
@@ -957,7 +978,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         category: 'Analytics',
         iconType: 'cohort',
         href: urls.customerAnalytics(),
-        tags: ['alpha'],
+        tags: ['beta'],
         flag: FEATURE_FLAGS.CUSTOMER_ANALYTICS,
         sceneKey: 'CustomerAnalytics',
         sceneKeys: ['CustomerAnalytics', 'CustomerAnalyticsConfiguration'],
@@ -1019,7 +1040,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'endpoints',
         iconColor: ['var(--color-product-endpoints-light)'] as FileSystemIconColor,
         sceneKey: 'EndpointsScene',
-        sceneKeys: ['EndpointsScene', 'EndpointsUsage', 'EndpointScene'],
+        sceneKeys: ['EndpointsScene', 'EndpointScene'],
     },
     {
         path: 'Error tracking',
@@ -1297,6 +1318,14 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         sceneKeys: ['Comments'],
     },
     {
+        path: 'Core events',
+        category: 'Schema',
+        iconType: 'event_definition' as FileSystemIconType,
+        href: urls.coreEvents(),
+        flag: FEATURE_FLAGS.NEW_TEAM_CORE_EVENTS,
+        sceneKeys: [],
+    },
+    {
         path: 'Data pipelines',
         category: 'Tools',
         type: 'hog_function',
@@ -1324,7 +1353,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         sceneKey: 'EndpointsScene',
         flag: FEATURE_FLAGS.ENDPOINTS,
         tags: ['beta'],
-        sceneKeys: ['EndpointsScene', 'EndpointsUsage', 'EndpointScene'],
+        sceneKeys: ['EndpointsScene', 'EndpointScene'],
     },
     {
         path: 'Event definitions',

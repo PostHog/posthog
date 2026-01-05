@@ -469,7 +469,7 @@ Time period: from and/or to dates or durations. For example: `last 1 week`, `las
 """.strip()
 
 INSIGHT_TOOL_CONTEXT_PROMPT_TEMPLATE = """
-The user is currently editing an insight (aka query). Here is that insight's current definition, which can be edited using the `create_and_query_insight` tool:
+The user is currently editing an insight (aka query). Here is that insight's current definition, which can be edited using the `create_insight` tool:
 
 ```json
 {current_query}
@@ -522,6 +522,10 @@ class CreateInsightTool(MaxTool):
     name: Literal["create_insight"] = "create_insight"
     args_schema: type[BaseModel] = CreateInsightToolArgs
     context_prompt_template: str = INSIGHT_TOOL_CONTEXT_PROMPT_TEMPLATE
+
+    def get_required_resource_access(self):
+        """Creating an insight requires editor-level access to insights."""
+        return [("insight", "editor")]
 
     @classmethod
     async def create_tool_class(

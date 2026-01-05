@@ -17,6 +17,7 @@ export type AppMetricSummaryProps = {
     timeSeries: AppMetricsTimeSeriesResponse | null
     previousPeriodTimeSeries?: AppMetricsTimeSeriesResponse | null
     loading?: boolean
+    hideIfZero?: boolean
 }
 
 export function AppMetricSummary({
@@ -27,7 +28,8 @@ export function AppMetricSummary({
     color,
     colorIfZero,
     loading,
-}: AppMetricSummaryProps): JSX.Element {
+    hideIfZero = false,
+}: AppMetricSummaryProps): JSX.Element | null {
     const total = useMemo(() => {
         if (!timeSeries) {
             return 0
@@ -46,6 +48,11 @@ export function AppMetricSummary({
     }, [previousPeriodTimeSeries])
 
     const diff = (total - totalPreviousPeriod) / totalPreviousPeriod
+
+    // Hide component if hideIfZero is true and there's no data
+    if (hideIfZero && !loading && total === 0 && totalPreviousPeriod === 0) {
+        return null
+    }
 
     return (
         <div className="flex flex-1 flex-col relative border rounded p-3 bg-surface-primary min-w-[16rem]">

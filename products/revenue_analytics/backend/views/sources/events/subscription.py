@@ -48,7 +48,12 @@ def build(handle: SourceHandle) -> BuiltQuery:
             ),
         ],
         select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-        where=events_expr_for_team(team),
+        where=ast.And(
+            exprs=[
+                events_expr_for_team(team),
+                ast.Call(name="isNotNull", args=[ast.Field(chain=["subscription_id"])]),
+            ]
+        ),
         group_by=[
             ast.Field(chain=["subscription_id"]),
             ast.Field(chain=["person_id"]),

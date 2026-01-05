@@ -39,11 +39,15 @@ jobs:
         # Only on PostHog/posthog, as there's no docker login on forks
         if: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name  == github.repository && needs.changes.outputs.docker_files == 'true') || github.event_name == 'merge_group' }}
 
+        outputs:
+            digest: ${{ steps.build.outputs.digest }}
+
         steps:
             - name: Check out
               uses: actions/checkout@v4
 
             - name: Build and cache Docker image in Depot
+              id: build
               uses: ./.github/actions/build-n-cache-image
               with:
                   actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
@@ -53,6 +57,18 @@ jobs:
                   dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
                   pr-number: ${{ github.event.number }}
                   no-cache: ${{ contains(github.event.pull_request.labels.*.name, 'no-depot-docker-cache') }}
+
+            - name: Container image digest
+              run: |
+                  echo "Image digest: ${{ steps.build.outputs.digest }}"
+                  echo "## Container image built :rocket:" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "**Image reference:** \`${{ steps.build.outputs.registry }}/posthog-cloud@${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "**Image SHA:** \`${{ github.sha }}@${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "- Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+                  echo "- Digest: \`${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
 
     deploy_preview:
         name: Deploy preview environment
