@@ -218,24 +218,14 @@ def _handle_template_export(request: HttpRequest, export_form: WorkflowTemplateE
 
     export_data = []
     for template in templates:
-        template_dict = {
-            "name": template.name,
-            "description": template.description,
-            "image_url": template.image_url,
-            "scope": template.scope,
-            "trigger": template.trigger,
-            "trigger_masking": template.trigger_masking,
-            "conversion": template.conversion,
-            "exit_condition": template.exit_condition,
-            "edges": template.edges,
-            "actions": template.actions,
-            "abort_action": template.abort_action,
-            "variables": template.variables,
-            "id": str(template.id),
-            "team_id": template.team_id,
-            "created_at": template.created_at.isoformat() if template.created_at else None,
-            "updated_at": template.updated_at.isoformat() if template.updated_at else None,
-        }
+        serializer = HogFlowTemplateSerializer(template)
+        template_dict = serializer.data
+
+        # Add team_id (not included in serializer fields) and ensure id is a string
+        template_dict["team_id"] = template.team_id
+        template_dict["id"] = str(template_dict["id"])
+
+        template_dict.pop("created_by", None)
 
         export_data.append(template_dict)
 
