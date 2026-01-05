@@ -48,4 +48,4 @@ fi
 
 # Run a no-op command within flox to trigger dependency installation (on-first-use hook)
 echo "Installing flox dependencies..."
-flox activate -- echo "Flox is ready"
+# flox activate -- echo "Flox is ready"
