@@ -34,7 +34,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
         values: [teamLogic, ['currentTeam']],
     })),
     actions(() => ({
-        addEvents: (events: LiveEvent[]) => ({ events }),
+        addEvents: (events: LiveEvent[], newerThan: Date) => ({ events, newerThan }),
         setInitialData: (buckets: { timestamp: number; bucket: SlidingWindowBucket }[]) => ({ buckets }),
         setIsLoading: (loading: boolean) => ({ loading }),
         loadInitialData: true,
@@ -52,17 +52,20 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                     }
                     return window
                 },
-                addEvents: (window, { events }) => {
+                addEvents: (window, { events, newerThan }) => {
                     for (const event of events) {
                         const eventTs = new Date(event.timestamp).getTime() / 1000
+                        const newerThanTs = newerThan.getTime() / 1000
 
-                        const deviceType = event.properties?.$device_type
-                        window.addDataPoint(eventTs, {
-                            pageviews: 1,
-                            devices: new Map([[deviceType, 1]]),
-                            paths: new Map([[event.properties?.$pathname, 1]]),
-                            distinctId: event.distinct_id,
-                        })
+                        if (eventTs > newerThanTs) {
+                            const deviceType = event.properties?.$device_type
+                            window.addDataPoint(eventTs, {
+                                pageviews: 1,
+                                devices: new Map([[deviceType, 1]]),
+                                paths: new Map([[event.properties?.$pathname, 1]]),
+                                distinctId: event.distinct_id,
+                            })
+                        }
                     }
 
                     return window
@@ -147,7 +150,15 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             actions.setIsLoading(true)
 
             try {
-                const [usersPageviewsResponse, deviceResponse, pathsResponse] = await loadQueryData()
+                const handoff = Date.now()
+                const cutoff = new Date(handoff - 30 * 60 * 1000)
+
+                // The SSE stream will drop any events older than this value
+                // Those values will be handled by the HogQL queries
+                cache.newerThan = new Date(handoff)
+
+                actions.updateConnection()
+                const [usersPageviewsResponse, deviceResponse, pathsResponse] = await loadQueryData(cutoff)
 
                 const bucketMap = new Map<number, SlidingWindowBucket>()
 
@@ -156,9 +167,6 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 addPathDataToBuckets(pathsResponse, bucketMap)
 
                 actions.setInitialData([...bucketMap.entries()].map(([timestamp, bucket]) => ({ timestamp, bucket })))
-
-                // Start listening to the SSE connection
-                actions.updateConnection()
             } catch (error) {
                 console.error('Failed to load initial live pageview data:', error)
                 lemonToast.error('Failed to load initial data')
@@ -198,7 +206,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 cache.retryDelay = Math.min(currentDelay * 2, MAX_RETRY_DELAY_MS)
             }
 
-            api.stream(url.toString(), {
+            await api.stream(url.toString(), {
                 headers: {
                     Authorization: `Bearer ${values.currentTeam.live_events_token}`,
                 },
@@ -218,7 +226,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                     // Flush events when we have enough or enough time has passed
                     const timeSinceLastBatch = performance.now() - cache.lastBatchTime
                     if (cache.batch.length >= BATCH_SIZE_THRESHOLD || timeSinceLastBatch > BATCH_FLUSH_INTERVAL_MS) {
-                        actions.addEvents(cache.batch)
+                        actions.addEvents(cache.batch, cache.newerThan)
                         cache.batch = []
                         cache.lastBatchTime = performance.now()
                     }
@@ -265,9 +273,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
     })),
 ])
 
-const loadQueryData = async (): Promise<[HogQLQueryResponse, TrendsQueryResponse, TrendsQueryResponse]> => {
-    const cutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString()
-
+const loadQueryData = async (cutoff: Date): Promise<[HogQLQueryResponse, TrendsQueryResponse, TrendsQueryResponse]> => {
     const usersPageviewsQuery: HogQLQuery = {
         kind: NodeKind.HogQLQuery,
         query: `SELECT 
@@ -292,15 +298,20 @@ const loadQueryData = async (): Promise<[HogQLQueryResponse, TrendsQueryResponse
         interval: 'minute',
         series: [{ kind: NodeKind.EventsNode, event: '$pageview', math: BaseMathType.TotalCount }],
         breakdownFilter: { breakdown_type: 'event', breakdown: '$device_type' },
-        dateRange: { date_from: cutoff },
+        dateRange: { date_from: cutoff.toISOString() },
     }
 
     const pathsQuery: TrendsQuery = {
         kind: NodeKind.TrendsQuery,
         interval: 'minute',
         series: [{ kind: NodeKind.EventsNode, event: '$pageview', math: BaseMathType.TotalCount }],
-        breakdownFilter: { breakdown_type: 'event', breakdown: '$pathname', breakdown_limit: 10 },
-        dateRange: { date_from: cutoff },
+        breakdownFilter: {
+            breakdown_type: 'event',
+            breakdown: '$pathname',
+            breakdown_limit: 10,
+            breakdown_hide_other_aggregation: true,
+        },
+        dateRange: { date_from: cutoff.toISOString() },
     }
 
     return await Promise.all([performQuery(usersPageviewsQuery), performQuery(deviceQuery), performQuery(pathsQuery)])
