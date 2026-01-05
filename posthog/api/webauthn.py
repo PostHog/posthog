@@ -172,8 +172,6 @@ class WebAuthnRegistrationViewSet(viewsets.ViewSet):
 
             # Store credential ID for verification step
             request.session[WEBAUTHN_REGISTRATION_CREDENTIAL_ID_KEY] = str(credential.pk)
-            # Clear registration challenge
-            del request.session[WEBAUTHN_REGISTRATION_CHALLENGE_KEY]
             request.session.save()
 
             logger.info("webauthn_registration_complete", user_id=user.pk, credential_id=credential.pk)
