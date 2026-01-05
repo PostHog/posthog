@@ -227,11 +227,68 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
                 raise GraphRecursionError()
 
         with patch("langgraph.pregel.Pregel.astream", side_effect=FakeStream):
-            output, _ = await self._run_assistant_graph(conversation=self.conversation)
+            output, assistant = await self._run_assistant_graph(conversation=self.conversation)
             self.assertEqual(output[0][0], "message")
-            self.assertEqual(cast(AssistantMessage, output[0][1]).content, "Hello")
+            self.assertEqual(cast(HumanMessage, output[0][1]).content, "Hello")
             self.assertEqual(output[1][0], "message")
-            self.assertIsInstance(output[1][1], FailureMessage)
+            self.assertIsInstance(output[1][1], AssistantMessage)
+            self.assertEqual(
+                cast(AssistantMessage, output[1][1]).content,
+                "I've reached the maximum number of steps. Would you like me to continue?",
+            )
+
+            # Verify state is marked as interrupted
+            config = assistant._get_config()
+            snapshot = await assistant._graph.aget_state(config)
+            self.assertTrue(snapshot.next)  # Should have next nodes to execute
+
+    async def test_recursion_error_can_resume_after_user_response(self):
+        """Test that after hitting recursion limit, the assistant can resume when user responds."""
+        call_count = [0]
+
+        class TestNode(AssistantNode):
+            async def arun(self, state, config):
+                call_count[0] += 1
+                # Always return completion message
+                return PartialAssistantState(
+                    messages=[AssistantMessage(content="Completed successfully!", id=str(uuid4()))]
+                )
+
+        graph = (
+            AssistantGraph(self.team, self.user)
+            .add_node(AssistantNodeName.ROOT, TestNode(self.team, self.user))
+            .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
+            .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
+            .compile()
+        )
+
+        # First run - hit recursion limit
+        class FakeStream:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                raise GraphRecursionError()
+
+        with patch("langgraph.pregel.Pregel.astream", side_effect=FakeStream):
+            output, _ = await self._run_assistant_graph(graph, conversation=self.conversation, message="Start task")
+
+            # Should get the recursion limit message
+            self.assertEqual(len(output), 2)
+            self.assertIsInstance(output[1][1], AssistantMessage)
+            self.assertIn("maximum number of steps", cast(AssistantMessage, output[1][1]).content)
+
+        # Second run - user says "continue"
+        output, _ = await self._run_assistant_graph(graph, conversation=self.conversation, message="yes, continue")
+
+        # Should resume and complete
+        self.assertGreater(len(output), 0)
+        # Find the completion message
+        assistant_messages = [msg for _, msg in output if isinstance(msg, AssistantMessage)]
+        self.assertTrue(any("Completed successfully!" in msg.content for msg in assistant_messages))
 
     async def test_new_conversation_handles_serialized_conversation(self):
         class TestNode(AssistantNode):
