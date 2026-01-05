@@ -1,6 +1,7 @@
-export const baseModifier = ['command', 'option']
+export const baseModifier: string[] = ['command', 'option']
 
 export const keyBinds: Record<string, string[]> = {
+    recentItems: [...baseModifier, 'y'],
     newTab: [...baseModifier, 't'],
     closeActiveTab: [...baseModifier, 'w'],
     toggleShortcutMenu: [...baseModifier, 'k'],
@@ -10,4 +11,18 @@ export const keyBinds: Record<string, string[]> = {
     edit: [...baseModifier, 'e'],
     save: [...baseModifier, 's'],
     dashboardAddTextTile: [...baseModifier, 'a'],
+    filter: [...baseModifier, 'f'],
+    refresh: [...baseModifier, 'r'],
+    run: [...baseModifier, 'enter'],
+    settings: [...baseModifier, 'g'],
+    dateFilter: [...baseModifier, 'd'],
+    tab1: [...baseModifier, '1'],
+    tab2: [...baseModifier, '2'],
+    tab3: [...baseModifier, '3'],
+    tab4: [...baseModifier, '4'],
+    tab5: [...baseModifier, '5'],
+    tab6: [...baseModifier, '6'],
+    tab7: [...baseModifier, '7'],
+    tab8: [...baseModifier, '8'],
+    tab9: [...baseModifier, '9'],
 }

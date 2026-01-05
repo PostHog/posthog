@@ -1,6 +1,6 @@
 import colors from 'ansi-colors'
 import equal from 'fast-deep-equal'
-import { actions, events, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, events, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -13,11 +13,11 @@ import { dayjs } from 'lib/dayjs'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
-import { humanFriendlyDetailedTime } from 'lib/utils'
+import { humanFriendlyDetailedTime, parseTagsFilter } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { Params } from 'scenes/sceneTypes'
 
-import { DateRange, LogMessage, LogsQuery } from '~/queries/schema/schema-general'
+import { DateRange, LogMessage, LogSeverityLevel, LogsQuery } from '~/queries/schema/schema-general'
 import { integer } from '~/queries/schema/type-utils'
 import {
     JsonType,
@@ -33,7 +33,11 @@ import type { logsLogicType } from './logsLogicType'
 import { LogsOrderBy, ParsedLogMessage } from './types'
 
 const DEFAULT_DATE_RANGE = { date_from: '-1h', date_to: null }
+const VALID_SEVERITY_LEVELS: readonly LogSeverityLevel[] = ['trace', 'debug', 'info', 'warn', 'error', 'fatal']
 const DEFAULT_SEVERITY_LEVELS = [] as LogsQuery['severityLevels']
+
+const isValidSeverityLevel = (level: string): level is LogSeverityLevel =>
+    VALID_SEVERITY_LEVELS.includes(level as LogSeverityLevel)
 const DEFAULT_SERVICE_NAMES = [] as LogsQuery['serviceNames']
 const DEFAULT_HIGHLIGHTED_LOG_ID = null as string | null
 const DEFAULT_ORDER_BY = 'latest' as LogsQuery['orderBy']
@@ -79,11 +83,20 @@ export const logsLogic = kea<logsLogicType>([
             if (params.searchTerm && !equal(params.searchTerm, values.searchTerm)) {
                 actions.setSearchTerm(params.searchTerm)
             }
-            if (params.severityLevels && !equal(params.severityLevels, values.severityLevels)) {
-                actions.setSeverityLevels(params.severityLevels)
+            if (params.severityLevels) {
+                const parsed = parseTagsFilter(params.severityLevels)
+                if (parsed) {
+                    const levels = parsed.filter(isValidSeverityLevel)
+                    if (levels.length > 0 && !equal(levels, values.severityLevels)) {
+                        actions.setSeverityLevels(levels)
+                    }
+                }
             }
-            if (params.serviceNames && !equal(params.serviceNames, values.serviceNames)) {
-                actions.setServiceNames(params.serviceNames)
+            if (params.serviceNames) {
+                const names = parseTagsFilter(params.serviceNames)
+                if (names && !equal(names, values.serviceNames)) {
+                    actions.setServiceNames(names)
+                }
             }
             if (params.highlightedLogId !== undefined && params.highlightedLogId !== values.highlightedLogId) {
                 actions.setHighlightedLogId(params.highlightedLogId)
@@ -978,4 +991,10 @@ export const logsLogic = kea<logsLogicType>([
             }
         },
     })),
+
+    afterMount(({ values, actions }) => {
+        if (values.parsedLogs.length === 0) {
+            actions.runQuery()
+        }
+    }),
 ])

@@ -1,9 +1,12 @@
 import { BindLogic } from 'kea'
 import { useActions, useValues } from 'kea'
 
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
+import { Scene } from 'scenes/sceneTypes'
 
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
@@ -25,13 +28,29 @@ export const MarketingAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.
                 top={tabs}
                 left={
                     <div className="flex items-center gap-4">
-                        <ReloadAll />
+                        <AppShortcut
+                            name="MarketingAnalyticsRefresh"
+                            keybind={[keyBinds.refresh]}
+                            intent="Refresh data"
+                            interaction="click"
+                            scope={Scene.MarketingAnalytics}
+                        >
+                            <ReloadAll />
+                        </AppShortcut>
                         <ConversionGoalFilterButton />
                     </div>
                 }
                 right={
                     <>
-                        <AddIntegrationButton />
+                        <AppShortcut
+                            name="MarketingAnalyticsAddIntegration"
+                            keybind={[keyBinds.new]}
+                            intent="Add integration"
+                            interaction="click"
+                            scope={Scene.MarketingAnalytics}
+                        >
+                            <AddIntegrationButton />
+                        </AppShortcut>
                         <IntegrationFilter />
                         <DateFilter
                             allowTimePrecision

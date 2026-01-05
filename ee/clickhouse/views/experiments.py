@@ -87,6 +87,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "metrics",
             "metrics_secondary",
             "stats_config",
+            "scheduling_config",
             "_create_in_folder",
             "conclusion",
             "conclusion_comment",
@@ -447,6 +448,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "metrics",
             "metrics_secondary",
             "stats_config",
+            "scheduling_config",
             "conclusion",
             "conclusion_comment",
             "primary_metrics_ordered_uuids",
@@ -921,6 +923,7 @@ class EnterpriseExperimentsViewSet(
             "metrics": source_experiment.metrics,
             "metrics_secondary": source_experiment.metrics_secondary,
             "stats_config": source_experiment.stats_config,
+            "scheduling_config": source_experiment.scheduling_config,
             "exposure_criteria": source_experiment.exposure_criteria,
             "saved_metrics_ids": saved_metrics_data,
             "feature_flag_key": feature_flag_key,  # Use provided key or fall back to existing

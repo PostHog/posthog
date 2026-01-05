@@ -12,6 +12,7 @@ import { sidePanelNotificationsLogic } from '~/layout/navigation-3000/sidepanel/
 import { AvailableFeature, SidePanelTab } from '~/types'
 
 import { sidePanelContextLogic } from './panels/sidePanelContextLogic'
+import { sidePanelHealthLogic } from './panels/sidePanelHealthLogic'
 import { sidePanelSdkDoctorLogic } from './panels/sidePanelSdkDoctorLogic'
 import { sidePanelStatusIncidentIoLogic } from './panels/sidePanelStatusIncidentIoLogic'
 import { sidePanelStatusLogic } from './panels/sidePanelStatusLogic'
@@ -24,6 +25,8 @@ const ALWAYS_EXTRA_TABS = [
     SidePanelTab.Status,
     SidePanelTab.Exports,
     SidePanelTab.SdkDoctor,
+    SidePanelTab.Health,
+    SidePanelTab.Changelog,
 ]
 
 const TABS_REQUIRING_A_TEAM = [
@@ -34,6 +37,7 @@ const TABS_REQUIRING_A_TEAM = [
     SidePanelTab.Discussion,
     SidePanelTab.AccessControl,
     SidePanelTab.Exports,
+    SidePanelTab.Health,
 ]
 
 export const sidePanelLogic = kea<sidePanelLogicType>([
@@ -55,6 +59,8 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             ['status as incidentioStatus'],
             sidePanelSdkDoctorLogic,
             ['needsAttention'],
+            sidePanelHealthLogic,
+            ['hasIssues'],
             userLogic,
             ['hasAvailableFeature'],
             sidePanelContextLogic,
@@ -106,6 +112,8 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 tabs.push(SidePanelTab.Exports)
                 tabs.push(SidePanelTab.Settings)
                 tabs.push(SidePanelTab.SdkDoctor)
+                tabs.push(SidePanelTab.Health)
+                tabs.push(SidePanelTab.Changelog)
 
                 if (!currentTeam) {
                     return tabs.filter((tab) => !TABS_REQUIRING_A_TEAM.includes(tab))
@@ -124,6 +132,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 s.status,
                 s.incidentioStatus,
                 s.needsAttention,
+                s.hasIssues,
                 s.hasAvailableFeature,
                 s.shouldShowActivationTab,
             ],
@@ -135,6 +144,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 status,
                 incidentioStatus,
                 needsAttention,
+                hasIssues,
                 hasAvailableFeature,
                 shouldShowActivationTab
             ): SidePanelTab[] => {
@@ -159,6 +169,10 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     }
 
                     if (tab === SidePanelTab.SdkDoctor && needsAttention) {
+                        return true
+                    }
+
+                    if (tab === SidePanelTab.Health && hasIssues) {
                         return true
                     }
 

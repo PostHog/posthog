@@ -12,6 +12,7 @@ use rdkafka::util::Timeout;
 use rdkafka::ClientConfig;
 use tracing::{debug, error, warn};
 
+use crate::kafka::offset_tracker::OffsetTracker;
 use crate::kafka::types::Partition;
 use crate::{
     duplicate_event::DuplicateEvent,
@@ -136,6 +137,9 @@ pub struct BatchDeduplicationProcessor {
 
     /// Store manager that handles concurrent store creation and access
     store_manager: Arc<StoreManager>,
+
+    /// Offset tracker for recording producer offsets (used for checkpointing)
+    offset_tracker: Option<Arc<OffsetTracker>>,
 }
 
 #[async_trait]
@@ -180,6 +184,24 @@ impl BatchDeduplicationProcessor {
             producer,
             duplicate_producer,
             store_manager,
+            offset_tracker: None,
+        })
+    }
+
+    /// Create a new deduplication processor with offset tracking for checkpointing
+    pub fn new_with_offset_tracker(
+        config: DeduplicationConfig,
+        store_manager: Arc<StoreManager>,
+        producer: Option<Arc<FutureProducer<KafkaContext>>>,
+        duplicate_producer: Option<DuplicateEventProducerWrapper>,
+        offset_tracker: Arc<OffsetTracker>,
+    ) -> Result<Self> {
+        Ok(Self {
+            config,
+            producer,
+            duplicate_producer,
+            store_manager,
+            offset_tracker: Some(offset_tracker),
         })
     }
 
@@ -304,12 +326,23 @@ impl BatchDeduplicationProcessor {
         // Execute all unique event publishes concurrently
         if !unique_event_futures.is_empty() {
             let results = join_all(unique_event_futures).await;
-            // Check for errors - fail the batch if any unique event fails to publish
+            // Track max producer offset and check for errors
+            let mut max_producer_offset: Option<i64> = None;
             for result in results {
-                if let Err(e) = result {
-                    error!("Failed to publish non-duplicate event: {}", e);
-                    return Err(e);
+                match result {
+                    Ok(offset) => {
+                        max_producer_offset =
+                            Some(max_producer_offset.map_or(offset, |current| current.max(offset)));
+                    }
+                    Err(e) => {
+                        error!("Failed to publish non-duplicate event: {}", e);
+                        return Err(e);
+                    }
                 }
+            }
+            // Record the max producer offset for this input partition (for checkpointing)
+            if let (Some(ref tracker), Some(offset)) = (&self.offset_tracker, max_producer_offset) {
+                tracker.mark_produced(&partition, offset);
             }
         }
 
@@ -626,6 +659,7 @@ impl BatchDeduplicationProcessor {
     /// Publish event to output topic (static version for concurrent execution)
     ///
     /// Takes owned values so it can be collected into a Vec of futures and executed with join_all.
+    /// Returns the producer offset on success, which is used for checkpoint tracking.
     async fn publish_event_static(
         producer: Arc<FutureProducer<KafkaContext>>,
         payload: Vec<u8>,
@@ -633,7 +667,7 @@ impl BatchDeduplicationProcessor {
         key: String,
         output_topic: String,
         timeout: Duration,
-    ) -> Result<()> {
+    ) -> Result<i64> {
         let mut record = FutureRecord::to(&output_topic).key(&key).payload(&payload);
 
         if let Some(ref h) = headers {
@@ -647,12 +681,12 @@ impl BatchDeduplicationProcessor {
             .record(send_duration.as_millis() as f64);
 
         match result {
-            Ok(_) => {
+            Ok((_partition, offset)) => {
                 debug!(
-                    "Successfully published non-duplicate event with key {} to {}",
-                    key, output_topic
+                    "Successfully published non-duplicate event with key {} to {} at offset {}",
+                    key, output_topic, offset
                 );
-                Ok(())
+                Ok(offset)
             }
             Err((e, _)) => {
                 error!(
@@ -1054,6 +1088,7 @@ mod tests {
             producer: None,
             duplicate_producer: None,
             store_manager,
+            offset_tracker: None,
         };
 
         // Create a batch of new events
@@ -1100,6 +1135,7 @@ mod tests {
             producer: None,
             duplicate_producer: None,
             store_manager,
+            offset_tracker: None,
         };
 
         let uuid1 = Uuid::new_v4();
@@ -1144,6 +1180,7 @@ mod tests {
             producer: None,
             duplicate_producer: None,
             store_manager,
+            offset_tracker: None,
         };
 
         let uuid = Uuid::new_v4();
@@ -1194,6 +1231,7 @@ mod tests {
             producer: None,
             duplicate_producer: None,
             store_manager,
+            offset_tracker: None,
         };
 
         let uuid1 = Uuid::new_v4();
@@ -1246,6 +1284,7 @@ mod tests {
             producer: None,
             duplicate_producer: None,
             store_manager,
+            offset_tracker: None,
         };
 
         // First batch - events without UUIDs
@@ -1286,6 +1325,7 @@ mod tests {
             producer: None,
             duplicate_producer: None,
             store_manager,
+            offset_tracker: None,
         };
 
         // Create a large batch of unique events
@@ -1345,6 +1385,7 @@ mod tests {
             producer: None,
             duplicate_producer: None,
             store_manager,
+            offset_tracker: None,
         };
 
         let uuid1 = Uuid::new_v4();
@@ -1397,6 +1438,7 @@ mod tests {
             producer: None,
             duplicate_producer: None,
             store_manager,
+            offset_tracker: None,
         };
 
         let uuid = Uuid::new_v4();
