@@ -5,14 +5,12 @@ import { windowValues } from 'kea-window-values'
 import posthog from 'posthog-js'
 
 import { IconGear } from '@posthog/icons'
-import { LemonTag } from '@posthog/lemon-ui'
 import { errorTrackingQuery } from '@posthog/products-error-tracking/frontend/queries'
 
 import api from 'lib/api'
 import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { FEATURE_FLAGS, RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
@@ -26,6 +24,7 @@ import {
     updateDatesWithInterval,
 } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -39,7 +38,6 @@ import {
     ActionConversionGoal,
     ActionsNode,
     AnyEntityNode,
-    CompareFilter,
     CustomEventConversionGoal,
     DataTableNode,
     EventsNode,
@@ -51,7 +49,6 @@ import {
     WebAnalyticsOrderBy,
     WebAnalyticsOrderByDirection,
     WebAnalyticsOrderByFields,
-    WebAnalyticsPropertyFilter,
     WebAnalyticsPropertyFilters,
     WebStatsBreakdown,
     WebStatsTableQuery,
@@ -63,12 +60,10 @@ import {
     BaseMathType,
     Breadcrumb,
     ChartDisplayType,
-    EventDefinitionType,
     FilterLogicalOperator,
     InsightLogicProps,
     InsightType,
     IntervalType,
-    PropertyFilterBaseValue,
     PropertyFilterType,
     PropertyMathType,
     PropertyOperator,
@@ -90,7 +85,6 @@ import {
     INITIAL_DATE_FROM,
     INITIAL_DATE_TO,
     INITIAL_INTERVAL,
-    INITIAL_WEB_ANALYTICS_FILTER,
     PathTab,
     ProductTab,
     SourceTab,
@@ -100,7 +94,6 @@ import {
     TileVisualizationOption,
     WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
     WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
-    WebAnalyticsStatusCheck,
     WebAnalyticsTile,
     WebVitalsPercentile,
     eventPropertiesToPathClean,
@@ -109,8 +102,9 @@ import {
     personPropertiesToPathClean,
     sessionPropertiesToPathClean,
 } from './common'
+import { webAnalyticsHealthLogic } from './health'
 import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
-import { marketingAnalyticsTilesLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
+import { webAnalyticsFilterLogic } from './webAnalyticsFilterLogic'
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
 
 const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
@@ -127,35 +121,59 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             ['hasAvailableFeature'],
             preflightLogic,
             ['isDev'],
-            authorizedUrlListLogic({ type: AuthorizedUrlListType.WEB_ANALYTICS, actionId: null, experimentId: null }),
-            ['authorizedUrls'],
-            marketingAnalyticsTilesLogic,
-            ['tiles as marketingTiles'],
+            authorizedUrlListLogic({
+                type: AuthorizedUrlListType.WEB_ANALYTICS,
+                actionId: null,
+                experimentId: null,
+                productTourId: null,
+            }),
+            ['authorizedUrls', 'showProposedURLForm', 'isProposedUrlSubmitting', 'suggestions as urlSuggestions'],
+            webAnalyticsHealthLogic,
+            ['webAnalyticsHealthStatus'],
+            webAnalyticsFilterLogic,
+            [
+                'rawWebAnalyticsFilters',
+                'domainFilter',
+                'deviceTypeFilter',
+                'compareFilter',
+                'hasHostFilter',
+                'validatedDomainFilter',
+                'authorizedDomains',
+            ],
+        ],
+        actions: [
+            webAnalyticsHealthLogic,
+            ['trackTabViewed'],
+            authorizedUrlListLogic({
+                type: AuthorizedUrlListType.WEB_ANALYTICS,
+                actionId: null,
+                experimentId: null,
+                productTourId: null,
+            }),
+            [
+                'addUrl as addAuthorizedUrl',
+                'newUrl as newAuthorizedUrl',
+                'cancelProposingUrl as cancelProposingAuthorizedUrl',
+            ],
+            webAnalyticsFilterLogic,
+            [
+                'setWebAnalyticsFilters',
+                'togglePropertyFilter',
+                'setDomainFilter',
+                'setDeviceTypeFilter',
+                'setCompareFilter',
+            ],
         ],
     })),
     actions({
-        setWebAnalyticsFilters: (webAnalyticsFilters: WebAnalyticsPropertyFilters) => ({ webAnalyticsFilters }),
-        togglePropertyFilter: (
-            type: PropertyFilterType.Event | PropertyFilterType.Person | PropertyFilterType.Session,
-            key: string,
-            value: string | number | null,
-            tabChange?: {
-                graphsTab?: string
-                sourceTab?: string
-                deviceTab?: string
-                pathTab?: string
-                geographyTab?: string
-                activeHoursTab?: string
-            }
-        ) => ({ type, key, value, tabChange }),
         setGraphsTab: (tab: string) => ({ tab }),
         setSourceTab: (tab: string) => ({ tab }),
         setDeviceTab: (tab: string) => ({ tab }),
         setPathTab: (tab: string) => ({ tab }),
         setGeographyTab: (tab: string) => ({ tab }),
         setActiveHoursTab: (tab: string) => ({ tab }),
-        setDomainFilter: (domain: string | null) => ({ domain }),
-        setDeviceTypeFilter: (deviceType: DeviceType | null) => ({ deviceType }),
+        openSurveyModal: (path: string) => ({ path }),
+        closeSurveyModal: true,
         clearTablesOrderBy: () => true,
         setTablesOrderBy: (orderBy: WebAnalyticsOrderByFields, direction: WebAnalyticsOrderByDirection) => ({
             orderBy,
@@ -174,7 +192,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setConversionGoal: (conversionGoal: WebAnalyticsConversionGoal | null) => ({ conversionGoal }),
         openAsNewInsight: (tileId: TileId, tabId?: string) => ({ tileId, tabId }),
         setConversionGoalWarning: (warning: ConversionGoalWarning | null) => ({ warning }),
-        setCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
         setProductTab: (tab: ProductTab) => ({ tab }),
         setWebVitalsPercentile: (percentile: WebVitalsPercentile) => ({ percentile }),
         setWebVitalsTab: (tab: WebVitalsMetric) => ({ tab }),
@@ -183,66 +200,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         resetTileVisibility: () => true,
     }),
     loaders(({ values }) => ({
-        // load the status check query here and pass the response into the component, so the response
-        // is accessible in this logic
-        statusCheck: {
-            __default: null as WebAnalyticsStatusCheck | null,
-            loadStatusCheck: async (): Promise<WebAnalyticsStatusCheck> => {
-                const [webVitalsResult, pageviewResult, pageleaveResult, pageleaveScroll] = await Promise.allSettled([
-                    api.eventDefinitions.list({
-                        event_type: EventDefinitionType.Event,
-                        search: '$web_vitals',
-                    }),
-                    api.eventDefinitions.list({
-                        event_type: EventDefinitionType.Event,
-                        search: '$pageview',
-                    }),
-                    api.eventDefinitions.list({
-                        event_type: EventDefinitionType.Event,
-                        search: '$pageleave',
-                    }),
-                    api.propertyDefinitions.list({
-                        event_names: ['$pageleave'],
-                        properties: ['$prev_pageview_max_content_percentage'],
-                    }),
-                ])
-
-                // no need to worry about pagination here, event names beginning with $ are reserved, and we're not
-                // going to add enough reserved event names that match this search term to cause problems
-                const webVitalsEntry =
-                    webVitalsResult.status === 'fulfilled'
-                        ? webVitalsResult.value.results.find((r) => r.name === '$web_vitals')
-                        : undefined
-
-                const pageviewEntry =
-                    pageviewResult.status === 'fulfilled'
-                        ? pageviewResult.value.results.find((r) => r.name === '$pageview')
-                        : undefined
-
-                const pageleaveEntry =
-                    pageleaveResult.status === 'fulfilled'
-                        ? pageleaveResult.value.results.find((r) => r.name === '$pageleave')
-                        : undefined
-
-                const pageleaveScrollEntry =
-                    pageleaveScroll.status === 'fulfilled'
-                        ? pageleaveScroll.value.results.find((r) => r.name === '$prev_pageview_max_content_percentage')
-                        : undefined
-
-                const isSendingWebVitals = !!webVitalsEntry && !isDefinitionStale(webVitalsEntry)
-                const isSendingPageViews = !!pageviewEntry && !isDefinitionStale(pageviewEntry)
-                const isSendingPageLeaves = !!pageleaveEntry && !isDefinitionStale(pageleaveEntry)
-                const isSendingPageLeavesScroll = !!pageleaveScrollEntry && !isDefinitionStale(pageleaveScrollEntry)
-
-                return {
-                    isSendingWebVitals,
-                    isSendingPageViews,
-                    isSendingPageLeaves,
-                    isSendingPageLeavesScroll,
-                    hasAuthorizedUrls: !!values.currentTeam?.app_urls && values.currentTeam.app_urls.length > 0,
-                }
-            },
-        },
         shouldShowGeoIPQueries: {
             _default: null as boolean | null,
             loadShouldShowGeoIPQueries: async (): Promise<boolean> => {
@@ -286,114 +243,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         },
     })),
     reducers({
-        rawWebAnalyticsFilters: [
-            INITIAL_WEB_ANALYTICS_FILTER,
-            persistConfig,
-            {
-                setWebAnalyticsFilters: (_, { webAnalyticsFilters }) => webAnalyticsFilters,
-                togglePropertyFilter: (oldPropertyFilters, { key, value, type }): WebAnalyticsPropertyFilters => {
-                    if (value === null) {
-                        // if there's already an isNotSet filter, remove it
-                        const isNotSetFilterExists = oldPropertyFilters.some(
-                            (f) => f.type === type || f.key === key || f.operator === PropertyOperator.IsNotSet
-                        )
-                        if (isNotSetFilterExists) {
-                            return oldPropertyFilters.filter(
-                                (f) => f.type !== type || f.key !== key || f.operator !== PropertyOperator.IsNotSet
-                            )
-                        }
-                        return [
-                            ...oldPropertyFilters,
-                            {
-                                type,
-                                key,
-                                operator: PropertyOperator.IsNotSet,
-                            },
-                        ]
-                    }
-
-                    const similarFilterExists = oldPropertyFilters.some(
-                        (f) => f.type === type && f.key === key && f.operator === PropertyOperator.Exact
-                    )
-
-                    if (similarFilterExists) {
-                        // if there's already a matching property, turn it off or merge them
-                        return oldPropertyFilters
-                            .map((f: WebAnalyticsPropertyFilter) => {
-                                if (
-                                    f.key !== key ||
-                                    f.type !== type ||
-                                    ![PropertyOperator.Exact, PropertyOperator.IsNotSet].includes(f.operator)
-                                ) {
-                                    return f
-                                }
-                                const oldValue = (Array.isArray(f.value) ? f.value : [f.value]).filter(isNotNil)
-                                let newValue: PropertyFilterBaseValue[]
-                                if (oldValue.includes(value)) {
-                                    // If there are multiple values for this filter, reduce that to just the one being clicked
-                                    if (oldValue.length > 1) {
-                                        newValue = [value]
-                                    } else {
-                                        return null
-                                    }
-                                } else {
-                                    newValue = [...oldValue, value]
-                                }
-                                return {
-                                    type: PropertyFilterType.Event,
-                                    key,
-                                    operator: PropertyOperator.Exact,
-                                    value: newValue,
-                                } as const
-                            })
-                            .filter(isNotNil)
-                    }
-
-                    // no matching property, so add one
-                    const newFilter: WebAnalyticsPropertyFilter = {
-                        type,
-                        key,
-                        value,
-                        operator: PropertyOperator.Exact,
-                    }
-
-                    return [...oldPropertyFilters, newFilter]
-                },
-                setDomainFilter: (state) => {
-                    // the domain and host filters don't interact well, so remove the host filter when the domain filter is set
-                    return state.filter((filter) => filter.key !== '$host')
-                },
-            },
-        ],
-        domainFilter: [
+        surveyModalPath: [
             null as string | null,
-            persistConfig,
             {
-                setDomainFilter: (_: string | null, payload: { domain: string | null }) => {
-                    const { domain } = payload
-                    return domain
-                },
-                togglePropertyFilter: (state, { key }) => {
-                    // the domain and host filters don't interact well, so remove the domain filter when the host filter is set
-                    return key === '$host' ? null : state
-                },
-                setWebAnalyticsFilters: (state, { webAnalyticsFilters }) => {
-                    // the domain and host filters don't interact well, so remove the domain filter when the host filter is set
-                    if (webAnalyticsFilters.some((f) => f.key === '$host')) {
-                        return null
-                    }
-                    return state
-                },
-            },
-        ],
-        deviceTypeFilter: [
-            null as DeviceType | null,
-            persistConfig,
-            {
-                setDeviceTypeFilter: (_: DeviceType | null, payload: unknown) => {
-                    const { deviceType } = payload as { deviceType: DeviceType | null }
-                    return deviceType
-                },
+                openSurveyModal: (_, { path }) => path,
+                closeSurveyModal: () => null,
             },
         ],
         _graphsTab: [
@@ -542,13 +396,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 setConversionGoalWarning: (_, { warning }) => warning,
             },
         ],
-        compareFilter: [
-            { compare: true } as CompareFilter,
-            persistConfig,
-            {
-                setCompareFilter: (_, { compareFilter }) => compareFilter,
-            },
-        ],
         productTab: [
             ProductTab.ANALYTICS as ProductTab,
             {
@@ -632,9 +479,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 return hasAvailableFeature(AvailableFeature.PATHS_ADVANCED) && isPathCleaningEnabled
             },
         ],
-        hasHostFilter: [(s) => [s.rawWebAnalyticsFilters], (filters) => filters.some((f) => f.key === '$host')],
         webAnalyticsFilters: [
-            (s) => [s.rawWebAnalyticsFilters, s.isPathCleaningEnabled, s.domainFilter, s.deviceTypeFilter],
+            (s) => [s.rawWebAnalyticsFilters, s.isPathCleaningEnabled, s.validatedDomainFilter, s.deviceTypeFilter],
             (
                 rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
                 isPathCleaningEnabled: boolean,
@@ -879,37 +725,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 embedded: false,
             }),
         ],
-        authorizedDomains: [
-            (s) => [s.authorizedUrls],
-            (authorizedUrls) => {
-                // There are a couple problems with the raw `authorizedUrls` which we need to fix here:
-                // - They are URLs, we want domains
-                // - There might be duplicates, so clean them up
-                // - There might be duplicates across http/https, so clean them up
-
-                // First create URL objects and group them by hostname+port
-                const urlsByDomain = new Map<string, URL[]>()
-
-                for (const urlStr of authorizedUrls) {
-                    try {
-                        const url = new URL(urlStr)
-                        const key = url.host // hostname + port if present
-                        if (!urlsByDomain.has(key)) {
-                            urlsByDomain.set(key, [])
-                        }
-                        urlsByDomain.get(key)!.push(url)
-                    } catch {
-                        // Silently skip URLs that can't be parsed
-                    }
-                }
-
-                // For each domain, prefer https over http
-                return Array.from(urlsByDomain.values()).map((urls) => {
-                    const preferredUrl = urls.find((url) => url.protocol === 'https:') ?? urls[0]
-                    return preferredUrl.origin
-                })
-            },
-        ],
     }),
     selectors(({ actions }) => ({
         tiles: [
@@ -920,10 +735,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 s.filters,
                 s.featureFlags,
                 s.isGreaterThanMd,
-                s.currentTeam,
                 s.tileVisualizations,
                 s.preAggregatedEnabled,
-                s.marketingTiles,
                 s.hiddenTiles,
             ],
             (
@@ -942,10 +755,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 },
                 featureFlags,
                 isGreaterThanMd,
-                currentTeam,
                 tileVisualizations,
                 preAggregatedEnabled,
-                marketingTiles,
                 hiddenTiles
             ): WebAnalyticsTile[] => {
                 const dateRange = { date_from: dateFrom, date_to: dateTo }
@@ -997,27 +808,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                       }
                     : undefined
 
-                // the queries don't currently include revenue when the conversion goal is an action
-                const includeRevenue = !(conversionGoal && 'actionId' in conversionGoal)
-
-                const revenueEventsSeries: EventsNode[] =
-                    includeRevenue && currentTeam?.revenue_analytics_config
-                        ? (currentTeam.revenue_analytics_config.events.map((e) => ({
-                              name: e.eventName,
-                              event: e.eventName,
-                              custom_name: e.eventName,
-                              math: PropertyMathType.Sum,
-                              kind: NodeKind.EventsNode,
-                              math_property: e.revenueProperty,
-                              math_property_revenue_currency: e.revenueCurrencyProperty,
-                          })) as EventsNode[])
-                        : []
-
-                const conversionRevenueSeries =
-                    conversionGoal && 'customEventName' in conversionGoal && includeRevenue
-                        ? revenueEventsSeries.filter((e) => 'event' in e && e.event === conversionGoal.customEventName)
-                        : []
-
                 const createInsightProps = (tile: TileId, tab?: string): InsightLogicProps => {
                     return {
                         dashboardItemId: getDashboardItemId(tile, tab, false),
@@ -1061,7 +851,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     },
                     showIntervalSelect: true,
                     insightProps: createInsightProps(TileId.GRAPHS, id),
-                    canOpenInsight: true,
+                    canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
+                    canOpenModal: true,
                 })
 
                 const createTableTab = (
@@ -1078,6 +869,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         'visitors',
                         'views',
                         source?.includeBounceRate ? 'bounce_rate' : null,
+                        source?.includeAvgTimeOnPage ? 'avg_time_on_page' : null,
                         'cross_sell',
                     ].filter(isNotNil)
 
@@ -1090,13 +882,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         title,
                         linkText,
                         insightProps: createInsightProps(tileId, tabId),
-                        canOpenModal: true,
                         ...tab,
                     }
 
                     // In case of a graph, we need to use the breakdownFilter and a InsightsVizNode,
                     // which will actually be handled by a WebStatsTrendTile instead of a WebStatsTableTile
                     if (visualization === 'graph') {
+                        const breakdownFilter = getWebAnalyticsBreakdownFilter(breakdownBy)
                         return {
                             ...baseTabProps,
                             query: {
@@ -1109,7 +901,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     trendsFilter: {
                                         display: ChartDisplayType.ActionsLineGraph,
                                     },
-                                    breakdownFilter: getWebAnalyticsBreakdownFilter(breakdownBy),
+                                    breakdownFilter: breakdownFilter
+                                        ? {
+                                              ...breakdownFilter,
+                                              breakdown_path_cleaning: isPathCleaningEnabled,
+                                          }
+                                        : undefined,
                                     filterTestAccounts,
                                     conversionGoal,
                                     properties: webAnalyticsFilters,
@@ -1119,8 +916,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 embedded: true,
                                 hideTooltipOnScroll: true,
                             },
-                            canOpenInsight: true,
-                            canOpenModal: false,
+                            canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
+                            canOpenModal: true,
                         }
                     }
 
@@ -1147,6 +944,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             showActions: true,
                             columns,
                         },
+                        canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
+                        canOpenModal: true,
                     }
                 }
 
@@ -1239,10 +1038,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     ]
                 }
 
-                if (productTab === ProductTab.MARKETING) {
-                    return marketingTiles as unknown as WebAnalyticsTile[]
-                }
-
                 const allTiles: (WebAnalyticsTile | null)[] = [
                     {
                         kind: 'query',
@@ -1259,9 +1054,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             compareFilter,
                             filterTestAccounts,
                             conversionGoal,
-                            includeRevenue,
                         },
                         insightProps: createInsightProps(TileId.OVERVIEW),
+                        canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
+                        canOpenModal: false,
                     },
                     {
                         kind: 'tabs',
@@ -1286,25 +1082,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     ? createGraphsTrendsTab(GraphsTab.NUM_SESSION, 'Unique sessions', 'Sessions', [
                                           sessionsSeries,
                                       ])
-                                    : null,
-                                !conversionGoal && revenueEventsSeries?.length
-                                    ? createGraphsTrendsTab(
-                                          GraphsTab.REVENUE_EVENTS,
-                                          <span>
-                                              Revenue&nbsp;<LemonTag type="warning">BETA</LemonTag>
-                                          </span>,
-                                          'Revenue',
-                                          revenueEventsSeries,
-                                          {
-                                              display:
-                                                  revenueEventsSeries.length > 1
-                                                      ? ChartDisplayType.ActionsAreaGraph
-                                                      : ChartDisplayType.ActionsLineGraph,
-                                          },
-                                          {
-                                              compareFilter: revenueEventsSeries.length > 1 ? undefined : compareFilter,
-                                          }
-                                      )
                                     : null,
                                 conversionGoal && uniqueConversionsSeries
                                     ? createGraphsTrendsTab(
@@ -1332,16 +1109,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               formula: 'A / B',
                                               aggregationAxisFormat: 'percentage_scaled',
                                           }
-                                      )
-                                    : null,
-                                conversionGoal && conversionRevenueSeries.length
-                                    ? createGraphsTrendsTab(
-                                          GraphsTab.CONVERSION_REVENUE,
-                                          <span>
-                                              Conversion Revenue&nbsp;<LemonTag type="warning">BETA</LemonTag>
-                                          </span>,
-                                          'Conversion Revenue',
-                                          conversionRevenueSeries
                                       )
                                     : null,
                             ] as (TabsTileTab | null)[]
@@ -1380,6 +1147,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               includeScrollDepth: false, // TODO needs some perf work before it can be enabled
                                               includeBounceRate: true,
                                               doPathCleaning: isPathCleaningEnabled,
+                                              includeAvgTimeOnPage:
+                                                  !!featureFlags[FEATURE_FLAGS.AVERAGE_PAGE_VIEW_COLUMN],
                                           },
                                           {
                                               docs: {
@@ -1423,6 +1192,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               includeBounceRate: true,
                                               includeScrollDepth: false,
                                               doPathCleaning: isPathCleaningEnabled,
+                                              includeAvgTimeOnPage:
+                                                  !!featureFlags[FEATURE_FLAGS.AVERAGE_PAGE_VIEW_COLUMN],
                                           },
                                           {
                                               docs: {
@@ -1789,7 +1560,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               embedded: true,
                                           },
                                           insightProps: createInsightProps(TileId.GEOGRAPHY, GeographyTab.MAP),
-                                          canOpenInsight: true,
+                                          canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
                                       }
                                     : null,
                                 shouldShowGeoIPQueries
@@ -1869,7 +1640,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                   embedded: true,
                               },
                               insightProps: createInsightProps(TileId.RETENTION),
-                              canOpenInsight: false,
+                              canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
                               canOpenModal: true,
                               docs: {
                                   url: 'https://posthog.com/docs/web-analytics/dashboard#retention',
@@ -2123,7 +1894,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               },
                           }
                         : null,
-                    !conversionGoal && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FRUSTRATING_PAGES_TILE]
+                    !conversionGoal
                         ? {
                               kind: 'query',
                               title: 'Frustrating Pages',
@@ -2151,7 +1922,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               },
                               insightProps: createInsightProps(TileId.FRUSTRATING_PAGES, 'table'),
                               canOpenModal: true,
-                              canOpenInsight: false,
+                              canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
                               docs: {
                                   title: 'Frustrating Pages',
                                   description: (
@@ -2202,7 +1973,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
     // start the loaders after mounting the logic
     afterMount(({ actions }) => {
-        actions.loadStatusCheck()
         actions.loadShouldShowGeoIPQueries()
     }),
 
@@ -2229,6 +1999,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 deviceTypeFilter,
                 tileVisualizations,
             } = values
+
+            // These tabs don't support any filters, so we can just return the base path to keep the url clean
+            if (productTab === ProductTab.HEALTH) {
+                return '/web/health'
+            } else if (productTab === ProductTab.LIVE) {
+                return '/web/live'
+            }
 
             // Make sure we're storing the raw filters only, or else we'll have issues with the domain/device type filters
             // spreading from their individual dropdowns to the global filters list
@@ -2277,9 +2054,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 urlParams.delete('compare_filter')
             }
 
-            const { featureFlags } = featureFlagLogic.values
-            const pageReportsEnabled = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS]
-
             if (productTab === ProductTab.WEB_VITALS) {
                 urlParams.set('percentile', webVitalsPercentile)
             }
@@ -2296,13 +2070,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }
 
             let basePath = '/web'
-            if (pageReportsEnabled && productTab === ProductTab.PAGE_REPORTS) {
+            if (productTab === ProductTab.PAGE_REPORTS) {
                 basePath = '/web/page-reports'
             } else if (productTab === ProductTab.WEB_VITALS) {
                 basePath = '/web/web-vitals'
-            } else if (productTab === ProductTab.MARKETING) {
-                basePath = '/web/marketing'
             }
+
             return `${basePath}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
         }
 
@@ -2353,18 +2126,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 tile_visualizations,
             }: Record<string, any>
         ): void => {
-            const { featureFlags } = featureFlagLogic.values
-            const pageReportsEnabled = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS]
-
-            // If trying to access page reports but the feature flag is not enabled, redirect to analytics
-            if (productTab === ProductTab.PAGE_REPORTS && !pageReportsEnabled) {
-                productTab = ProductTab.ANALYTICS
-            }
-
             if (
-                ![ProductTab.ANALYTICS, ProductTab.WEB_VITALS, ProductTab.PAGE_REPORTS, ProductTab.MARKETING].includes(
-                    productTab
-                )
+                ![
+                    ProductTab.ANALYTICS,
+                    ProductTab.WEB_VITALS,
+                    ProductTab.PAGE_REPORTS,
+                    ProductTab.HEALTH,
+                    ProductTab.LIVE,
+                ].includes(productTab)
             ) {
                 return
             }
@@ -2465,6 +2234,36 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         }
 
         return {
+            setDates: ({ dateFrom, dateTo }) => {
+                eventUsageLogic.actions.reportWebAnalyticsDateRangeChanged({
+                    date_from: dateFrom,
+                    date_to: dateTo,
+                    interval: values.dateFilter.interval,
+                })
+            },
+            setDatesAndInterval: ({ dateFrom, dateTo, interval }) => {
+                eventUsageLogic.actions.reportWebAnalyticsDateRangeChanged({
+                    date_from: dateFrom,
+                    date_to: dateTo,
+                    interval,
+                })
+            },
+            setIsPathCleaningEnabled: ({ isPathCleaningEnabled }) => {
+                eventUsageLogic.actions.reportWebAnalyticsPathCleaningToggled({
+                    enabled: isPathCleaningEnabled,
+                })
+            },
+            setWebVitalsPercentile: () => {
+                eventUsageLogic.actions.reportWebAnalyticsFilterApplied({
+                    filter_type: 'percentile',
+                    total_filter_count: values.webAnalyticsFilters.length,
+                })
+            },
+            setProductTab: ({ tab }) => {
+                if (tab === ProductTab.HEALTH) {
+                    actions.trackTabViewed()
+                }
+            },
             setGraphsTab: ({ tab }) => {
                 checkGraphsTabIsCompatibleWithConversionGoal(tab, values.conversionGoal)
             },
@@ -2478,20 +2277,18 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         breakpoint,
                         actions.setConversionGoalWarning
                     ),
+                ({ conversionGoal }) => {
+                    let goalType: string | null = null
+                    if (conversionGoal && 'actionId' in conversionGoal) {
+                        goalType = 'action'
+                    } else if (conversionGoal && 'customEventName' in conversionGoal) {
+                        goalType = 'custom_event'
+                    }
+                    eventUsageLogic.actions.reportWebAnalyticsConversionGoalSet({ goal_type: goalType })
+                },
             ],
-            [teamLogic.actionTypes.updateCurrentTeam]: async (action) => {
-                const isPreAggregatedEnabled =
-                    values.featureFlags[FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES] &&
-                    action?.modifiers?.useWebAnalyticsPreAggregatedTables
-                const hasConversionGoalPreAggFlag =
-                    values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_PREAGG]
-
-                if (isPreAggregatedEnabled && values.conversionGoal && !hasConversionGoalPreAggFlag) {
-                    actions.setConversionGoal(null)
-                    lemonToast.info(
-                        'Your conversion goal has been cleared as the new query engine does not support it (yet!)'
-                    )
-                }
+            addAuthorizedUrl: ({ url }) => {
+                actions.setDomainFilter(url)
             },
         }
     }),

@@ -10,19 +10,23 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { IconSlack, IconTwilio } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { addProductIntent } from 'lib/utils/product-intents'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { Breadcrumb } from '~/types'
 
 import { MessageChannels } from './Channels/MessageChannels'
 import { OptOutScene } from './OptOuts/OptOutScene'
 import { optOutCategoriesLogic } from './OptOuts/optOutCategoriesLogic'
 import { MessageTemplatesTable } from './TemplateLibrary/MessageTemplatesTable'
+import { NewWorkflowModal } from './Workflows/NewWorkflowModal'
 import { WorkflowsTable } from './Workflows/WorkflowsTable'
+import { newWorkflowLogic } from './Workflows/newWorkflowLogic'
 import type { workflowSceneLogicType } from './WorkflowsSceneType'
 
 const WORKFLOW_SCENE_TABS = ['workflows', 'library', 'channels', 'opt-outs'] as const
@@ -90,8 +94,10 @@ export function WorkflowsScene(): JSX.Element {
     const { currentTab } = useValues(workflowSceneLogic)
     const { openSetupModal } = useActions(integrationsLogic)
     const { openNewCategoryModal } = useActions(optOutCategoriesLogic)
+    const { showNewWorkflowModal, createEmptyWorkflow } = useActions(newWorkflowLogic)
 
     const hasWorkflowsFeatureFlag = useFeatureFlag('WORKFLOWS')
+    const canCreateTemplates = useFeatureFlag('WORKFLOWS_TEMPLATE_CREATION')
 
     if (!hasWorkflowsFeatureFlag) {
         return (
@@ -140,12 +146,7 @@ export function WorkflowsScene(): JSX.Element {
         {
             label: 'Workflows',
             key: 'workflows',
-            content: (
-                <>
-                    <p>Create and manage your workflows</p>
-                    <WorkflowsTable />
-                </>
-            ),
+            content: <WorkflowsTable />,
             link: urls.workflows(),
         },
         {
@@ -153,7 +154,6 @@ export function WorkflowsScene(): JSX.Element {
             key: 'library',
             content: (
                 <>
-                    <p>Create and manage messages</p>
                     <MessageTemplatesTable />
                 </>
             ),
@@ -182,7 +182,22 @@ export function WorkflowsScene(): JSX.Element {
                 actions={
                     <>
                         {currentTab === 'workflows' && (
-                            <LemonButton data-attr="new-workflow" to={urls.workflowNew()} type="primary" size="small">
+                            <LemonButton
+                                data-attr="new-workflow"
+                                onClick={() => {
+                                    void addProductIntent({
+                                        product_type: ProductKey.WORKFLOWS,
+                                        intent_context: ProductIntentContext.WORKFLOW_CREATED,
+                                    })
+                                    if (canCreateTemplates) {
+                                        showNewWorkflowModal()
+                                    } else {
+                                        createEmptyWorkflow()
+                                    }
+                                }}
+                                type="primary"
+                                size="small"
+                            >
                                 New workflow
                             </LemonButton>
                         )}
@@ -223,6 +238,7 @@ export function WorkflowsScene(): JSX.Element {
                 }
             />
             <LemonTabs activeKey={currentTab} tabs={tabs} sceneInset />
+            <NewWorkflowModal />
         </SceneContent>
     )
 }

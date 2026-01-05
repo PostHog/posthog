@@ -16,12 +16,7 @@ import structlog
 from celery import shared_task
 
 from posthog.models.team import Team
-from posthog.storage.hypercache_manager import (
-    HYPERCACHE_BATCH_REFRESH_COUNTER,
-    HYPERCACHE_BATCH_REFRESH_DURATION_HISTOGRAM,
-    HYPERCACHE_COVERAGE_GAUGE,
-    HYPERCACHE_SIGNAL_UPDATE_COUNTER,
-)
+from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
 from posthog.storage.team_metadata_cache import (
     cleanup_stale_expiry_tracking,
     clear_team_metadata_cache,
@@ -81,18 +76,13 @@ def refresh_expiring_team_metadata_cache_entries() -> None:
     try:
         successful, failed = refresh_expiring_caches(ttl_threshold_hours=24)
 
-        # Note: HYPERCACHE_TEAMS_PROCESSED_COUNTER is already incremented by the generic
-        # cache_expiry_manager.refresh_expiring_caches() function, so we don't increment it again here
+        # Note: Teams processed metrics are pushed to Pushgateway by
+        # cache_expiry_manager.refresh_expiring_caches() via push_hypercache_teams_processed_metrics()
 
-        # Only scan once after refresh for metrics
+        # Scan after refresh for metrics (pushes to Pushgateway via get_cache_stats)
         stats_after = get_cache_stats()
 
-        coverage_percent = stats_after.get("cache_coverage_percent", 0)
-        HYPERCACHE_COVERAGE_GAUGE.labels(namespace="team_metadata").set(coverage_percent)
-
         duration = time.time() - start_time
-        HYPERCACHE_BATCH_REFRESH_DURATION_HISTOGRAM.labels(namespace="team_metadata").observe(duration)
-        HYPERCACHE_BATCH_REFRESH_COUNTER.labels(namespace="team_metadata", result="success").inc()
 
         logger.info(
             "Completed team metadata cache refresh",
@@ -107,8 +97,6 @@ def refresh_expiring_team_metadata_cache_entries() -> None:
 
     except Exception as e:
         duration = time.time() - start_time
-        HYPERCACHE_BATCH_REFRESH_DURATION_HISTOGRAM.labels(namespace="team_metadata").observe(duration)
-        HYPERCACHE_BATCH_REFRESH_COUNTER.labels(namespace="team_metadata", result="failure").inc()
         logger.exception(
             "Failed to complete team metadata batch refresh",
             error=str(e),

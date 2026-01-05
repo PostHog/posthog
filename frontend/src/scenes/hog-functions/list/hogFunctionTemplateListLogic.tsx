@@ -250,9 +250,17 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                         ? getConfigurationOverrides(subTemplate?.sub_template_id)
                         : null
 
+                    const filters =
+                        configurationOverrides || subTemplate?.filters
+                            ? {
+                                  ...subTemplate?.filters,
+                                  ...configurationOverrides,
+                              }
+                            : undefined
+
                     const configuration: Record<string, any> = {
                         ...subTemplate,
-                        ...configurationOverrides,
+                        ...(filters ? { filters } : {}),
                     }
 
                     return combineUrl(

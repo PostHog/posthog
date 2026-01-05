@@ -3,7 +3,9 @@ import { useActions, useValues } from 'kea'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -25,6 +27,8 @@ export const FUNNEL_STEP_COUNT_LIMIT = 30
 export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Element | null {
     const { series, querySource } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
+    const { featureFlags } = useValues(featureFlagLogic)
+    const supportsDwhFunnels = featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNEL_DWH_SUPPORT]
 
     const actionFilters = isInsightQueryNode(querySource) ? queryNodeToFilter(querySource) : null
     const setActionFilters = (payload: Partial<FilterType>): void => {
@@ -79,6 +83,11 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                     TaxonomicFilterGroupType.HogQLExpression,
                 ]}
                 addFilterDocLink="https://posthog.com/docs/product-analytics/trends/filters"
+                actionsTaxonomicGroupTypes={[
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                    ...(supportsDwhFunnels ? [TaxonomicFilterGroupType.DataWarehouse] : []),
+                ]}
             />
             <div className="mt-4 deprecated-space-y-4">
                 {showGroupsOptions && (

@@ -17,6 +17,8 @@ import { ErrorTrackingSymbolSet, SymbolSetStatusFilter } from 'lib/components/Er
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 
+import { ReleasePreviewPill } from 'products/error_tracking/frontend/components/ReleasesPreview/ReleasePreviewPill'
+
 import { UploadModal } from './UploadModal'
 import { SymbolSetOrder, symbolSetLogic } from './symbolSetLogic'
 
@@ -88,7 +90,12 @@ const SymbolSetTable = (): JSX.Element => {
                 )
             },
         },
-
+        {
+            title: 'Release',
+            render: (_, { release }) => {
+                return release ? <ReleasePreviewPill release={release} /> : '-'
+            },
+        },
         {
             title: 'Status',
             render: (_, { failure_reason }) => {

@@ -11,6 +11,7 @@ import { HogFunctionTemplateType } from '~/types'
 
 import { CreateActionType, hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
+import { getDelayDescription } from '../steps/stepDelayLogic'
 import { HogFlowAction } from '../types'
 
 export const ACTION_NODES_TO_SHOW: CreateActionType[] = [
@@ -46,8 +47,14 @@ export const ACTION_NODES_TO_SHOW: CreateActionType[] = [
     },
 ]
 
+const DEFAULT_DELAY = '10m'
 export const DELAY_NODES_TO_SHOW: CreateActionType[] = [
-    { type: 'delay', name: 'Delay', description: 'Wait for a specified duration.', config: { delay_duration: '10m' } },
+    {
+        type: 'delay',
+        name: 'Delay',
+        description: getDelayDescription(DEFAULT_DELAY),
+        config: { delay_duration: DEFAULT_DELAY },
+    },
     {
         type: 'wait_until_time_window',
         name: 'Wait until window',
@@ -79,15 +86,7 @@ export const LOGIC_NODES_TO_SHOW: CreateActionType[] = [
         config: {
             conditions: [
                 {
-                    filters: {
-                        events: [
-                            {
-                                id: '$pageview',
-                                name: '$pageview',
-                                type: 'events',
-                            },
-                        ],
-                    },
+                    filters: {},
                 },
             ],
         },
@@ -150,10 +149,10 @@ function HogFlowEditorToolbarNode({
     onDragStart?: (event: React.DragEvent) => void
     children?: React.ReactNode
 }): JSX.Element | null {
-    const { setNewDraggingNode } = useActions(hogFlowEditorLogic)
+    const { setNodeToBeAdded } = useActions(hogFlowEditorLogic)
 
     const onDragStart = (event: React.DragEvent): void => {
-        setNewDraggingNode(action)
+        setNodeToBeAdded(action)
         event.dataTransfer.setData('application/reactflow', action.type)
         event.dataTransfer.effectAllowed = 'move'
         onDragStartProp?.(event)

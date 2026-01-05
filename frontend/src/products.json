@@ -9,7 +9,7 @@
         },
         {
             "path": "Customer analytics",
-            "category": "Unreleased",
+            "category": "Analytics",
             "iconType": "cohort",
             "type": null,
             "intents": ["customer_analytics"]
@@ -85,7 +85,14 @@
             "type": null,
             "intents": ["llm_analytics"]
         },
-        { "path": "Logs", "category": "Unreleased", "iconType": null, "type": null, "intents": ["logs"] },
+        { "path": "Logs", "category": "Behavior", "iconType": null, "type": null, "intents": ["logs"] },
+        {
+            "path": "Marketing analytics",
+            "category": "Analytics",
+            "iconType": null,
+            "type": null,
+            "intents": ["marketing_analytics"]
+        },
         {
             "path": "Product analytics",
             "category": "Analytics",
@@ -94,6 +101,13 @@
             "intents": ["product_analytics"]
         },
         { "path": "Notebooks", "category": "Tools", "iconType": "notebook", "type": "notebook", "intents": [] },
+        {
+            "path": "Product tours",
+            "category": "Behavior",
+            "iconType": "product_tour",
+            "type": "product_tour",
+            "intents": []
+        },
         {
             "path": "Session replay",
             "category": "Behavior",
@@ -123,7 +137,7 @@
             "category": "Analytics",
             "iconType": "web_analytics",
             "type": null,
-            "intents": ["web_analytics", "marketing_analytics"]
+            "intents": ["web_analytics"]
         },
         {
             "path": "Workflows",
@@ -167,6 +181,7 @@
             "type": null,
             "intents": []
         },
+        { "path": "Core events", "category": "Schema", "iconType": null, "type": null, "intents": [] },
         {
             "path": "Sources",
             "category": "Pipeline",

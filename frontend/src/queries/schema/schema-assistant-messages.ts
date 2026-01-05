@@ -2,17 +2,19 @@ import type { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import type { MaxUIContext } from 'scenes/max/maxTypes'
 
 import type { Category, NotebookInfo } from '~/types'
-import { InsightShortId } from '~/types'
+import type { InsightShortId } from '~/types'
 
-import {
+import { DocumentBlock } from './schema-assistant-artifacts'
+import type {
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
     AssistantRetentionQuery,
     AssistantTrendsQuery,
 } from './schema-assistant-queries'
-import {
+import type {
     FunnelsQuery,
     HogQLQuery,
+    QuerySchema,
     RetentionQuery,
     RevenueAnalyticsGrossRevenueQuery,
     RevenueAnalyticsMRRQuery,
@@ -23,6 +25,9 @@ import {
 
 // re-export MaxBillingContext to make it available in the schema
 export type { MaxBillingContext }
+
+// re-export QuerySchema to make it available in the schema
+export type AssistantQuerySchema = QuerySchema
 
 // Define ProsemirrorJSONContent locally to avoid exporting the TipTap type into schema.json
 // which leads to improper type naming
@@ -48,10 +53,29 @@ export enum AssistantMessageType {
     Reasoning = 'ai/reasoning',
     Visualization = 'ai/viz',
     MultiVisualization = 'ai/multi_viz',
+    Artifact = 'ai/artifact',
     Failure = 'ai/failure',
     Notebook = 'ai/notebook',
     Planning = 'ai/planning',
     TaskExecution = 'ai/task_execution',
+}
+
+/** Source of artifact - determines which model to fetch from */
+export enum ArtifactSource {
+    /** Artifact created by the agent (stored in AgentArtifact) */
+    Artifact = 'artifact',
+    /** Reference to a saved insight (stored in Insight model) */
+    Insight = 'insight',
+    /** Legacy visualization message converted to artifact (content stored inline in state) */
+    State = 'state',
+}
+
+/** Type of artifact content */
+export enum ArtifactContentType {
+    /** Visualization artifact (chart, graph, etc.) */
+    Visualization = 'visualization',
+    /** Notebook */
+    Notebook = 'notebook',
 }
 
 export interface BaseAssistantMessage {
@@ -63,6 +87,7 @@ export interface HumanMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Human
     content: string
     ui_context?: MaxUIContext
+    trace_id?: string
 }
 
 export interface AssistantFormOption {
@@ -78,8 +103,30 @@ export interface AssistantForm {
     options: AssistantFormOption[]
 }
 
+export interface MultiQuestionFormQuestionOption {
+    /** The value to use when this option is selected */
+    value: string
+}
+
+export interface MultiQuestionFormQuestion {
+    /** Unique identifier for this question */
+    id: string
+    /** The question text to display */
+    question: string
+    /** Available answer options */
+    options: MultiQuestionFormQuestionOption[]
+    /** Whether to show a "Type your answer" option (default: true) */
+    allow_custom_answer?: boolean
+}
+
+export interface MultiQuestionForm {
+    /** The questions to ask */
+    questions: MultiQuestionFormQuestion[]
+}
+
 export interface AssistantMessageMetadata {
     form?: AssistantForm
+    /** Thinking blocks, as well as server_tool_use and web_search_tool_result ones. Anthropic format of blocks. */
     thinking?: Record<string, unknown>[]
 }
 
@@ -110,9 +157,17 @@ export interface ReasoningMessage extends BaseAssistantMessage {
     substeps?: string[]
 }
 
+export interface ModeContext {
+    type: 'mode'
+    mode: AgentMode
+}
+
+export type ContextMessageMetadata = ModeContext | null
+
 export interface ContextMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Context
     content: string
+    meta?: ContextMessageMetadata
 }
 
 /**
@@ -124,24 +179,20 @@ export type AnyAssistantGeneratedQuery =
     | AssistantRetentionQuery
     | AssistantHogQLQuery
 
-/**
- * The union type with all supported base queries for the assistant.
- */
-export type AnyAssistantSupportedQuery =
-    | TrendsQuery
-    | FunnelsQuery
-    | RetentionQuery
-    | HogQLQuery
-    | RevenueAnalyticsGrossRevenueQuery
-    | RevenueAnalyticsMetricsQuery
-    | RevenueAnalyticsMRRQuery
-    | RevenueAnalyticsTopCustomersQuery
-
 export interface VisualizationItem {
     /** @default '' */
     query: string
     plan?: string
-    answer: AnyAssistantGeneratedQuery | AnyAssistantSupportedQuery
+    answer:
+        | AnyAssistantGeneratedQuery
+        | TrendsQuery
+        | FunnelsQuery
+        | RetentionQuery
+        | HogQLQuery
+        | RevenueAnalyticsGrossRevenueQuery
+        | RevenueAnalyticsMetricsQuery
+        | RevenueAnalyticsMRRQuery
+        | RevenueAnalyticsTopCustomersQuery
     initiator?: string
 }
 
@@ -221,9 +272,39 @@ export interface MultiVisualizationMessage extends BaseAssistantMessage {
     commentary?: string
 }
 
+export interface VisualizationArtifactContent {
+    content_type: ArtifactContentType.Visualization
+    query: AnyAssistantGeneratedQuery | AssistantQuerySchema
+    name?: string | null
+    description?: string | null
+    plan?: string | null
+}
+
+export interface NotebookArtifactContent {
+    content_type: ArtifactContentType.Notebook
+    /** Structured blocks for the notebook content */
+    blocks: DocumentBlock[]
+    /** Title for the notebook */
+    title?: string | null
+}
+
+export type ArtifactContent = VisualizationArtifactContent | NotebookArtifactContent
+
+/** Frontend artifact message containing enriched content field. Do not use in the backend. */
+export interface ArtifactMessage extends BaseAssistantMessage {
+    type: AssistantMessageType.Artifact
+    /** The ID of the artifact (short_id for both drafts and saved insights) */
+    artifact_id: string
+    /** Source of artifact - determines which model to fetch from */
+    source: ArtifactSource
+    /** Content of artifact */
+    content: ArtifactContent
+}
+
 export type RootAssistantMessage =
     | VisualizationMessage
     | MultiVisualizationMessage
+    | ArtifactMessage
     | ReasoningMessage
     | AssistantMessage
     | HumanMessage
@@ -245,6 +326,12 @@ export interface AssistantUpdateEvent {
     id: string
     tool_call_id: string
     content: string
+}
+
+export interface SubagentUpdateEvent {
+    id: string
+    tool_call_id: string
+    content: AssistantToolCall
 }
 
 export enum AssistantGenerationStatusType {
@@ -269,21 +356,19 @@ export interface AssistantToolCallMessage extends BaseAssistantMessage {
 
 export type AssistantTool =
     | 'search_session_recordings'
-    | 'generate_hogql_query'
     | 'fix_hogql_query'
     | 'analyze_user_interviews'
-    | 'create_and_query_insight'
     | 'create_hog_transformation_function'
     | 'create_hog_function_filters'
     | 'create_hog_function_inputs'
     | 'create_message_template'
     | 'filter_error_tracking_issues'
+    | 'search_error_tracking_issues'
     | 'find_error_tracking_impactful_issue_event_list'
     | 'error_tracking_explain_issue'
     | 'experiment_results_summary'
     | 'create_survey'
     | 'analyze_survey_responses'
-    | 'session_summarization'
     | 'create_dashboard'
     | 'edit_current_dashboard'
     | 'read_taxonomy'
@@ -294,15 +379,36 @@ export type AssistantTool =
     | 'filter_web_analytics'
     | 'create_feature_flag'
     | 'create_experiment'
+    | 'create_task'
+    | 'run_task'
+    | 'get_task_run'
+    | 'get_task_run_logs'
+    | 'list_tasks'
+    | 'list_task_runs'
+    | 'list_repositories'
+    | 'web_search'
     | 'execute_sql'
     | 'switch_mode'
     | 'summarize_sessions'
+    | 'filter_session_recordings'
     | 'create_insight'
+    | 'create_form'
+    | 'task'
+    | 'upsert_dashboard'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',
     SQL = 'sql',
     SessionReplay = 'session_replay',
+    ErrorTracking = 'error_tracking',
+}
+
+export enum SlashCommandName {
+    SlashInit = '/init',
+    SlashRemember = '/remember',
+    SlashUsage = '/usage',
+    SlashFeedback = '/feedback',
+    SlashTicket = '/ticket',
 }
 
 /** Exact possible `urls` keys for the `navigate` tool. */
@@ -349,6 +455,8 @@ export enum AssistantNavigateUrl {
     ToolbarLaunch = 'toolbarLaunch',
     WebAnalytics = 'webAnalytics',
     WebAnalyticsWebVitals = 'webAnalyticsWebVitals',
+    WebAnalyticsHealth = 'webAnalyticsHealth',
+    WebAnalyticsLive = 'webAnalyticsLive',
     Persons = 'persons',
 }
 

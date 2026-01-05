@@ -16,7 +16,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestInsightActorsQueryRunner.test_insight_persons_funnels_query
@@ -29,11 +30,11 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
-                                                                                                                                                                                              and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
-                                                                                                                                                                                                                              and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
-                                                                                                                                                                                                                                                             and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
-                                                                                                                                                                                                                                                                                             and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+                  arrayJoin(aggregate_funnel(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                           and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                           and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                          and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                          and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -56,7 +57,7 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'US/Pacific')), lessOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), toDateTime64('2020-01-19 23:59:59.999999', 6, 'US/Pacific'))), in(e.event, tuple('$pageview'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), lessOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific'))), in(e.event, tuple('$pageview'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 1)
@@ -82,7 +83,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestInsightActorsQueryRunner.test_insight_persons_lifecycle_query
@@ -174,7 +176,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestInsightActorsQueryRunner.test_insight_persons_stickiness_groups_query
@@ -190,7 +193,7 @@
            FROM
              (SELECT e.`$group_0` AS aggregation_target,
                      toStartOfInterval(toTimeZone(e.timestamp, 'US/Pacific'), toIntervalDay(1)) AS start_of_interval
-              FROM events AS e SAMPLE 1
+              FROM events AS e
               WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'US/Pacific')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), assumeNotNull(toDateTime('2020-01-19 23:59:59', 'US/Pacific'))), equals(e.event, '$pageview'), notEquals(e.`$group_0`, ''))
               GROUP BY aggregation_target,
                        start_of_interval
@@ -216,7 +219,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestInsightActorsQueryRunner.test_insight_persons_stickiness_query
@@ -232,7 +236,7 @@
            FROM
              (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
                      toStartOfInterval(toTimeZone(e.timestamp, 'US/Pacific'), toIntervalDay(1)) AS start_of_interval
-              FROM events AS e SAMPLE 1
+              FROM events AS e
               LEFT OUTER JOIN
                 (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
@@ -261,7 +265,7 @@
                                                                                                            (SELECT aggregation_target AS aggregation_target, count() AS num_intervals
                                                                                                             FROM
                                                                                                               (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target, toStartOfInterval(toTimeZone(e.timestamp, 'US/Pacific'), toIntervalDay(1)) AS start_of_interval
-                                                                                                               FROM events AS e SAMPLE 1
+                                                                                                               FROM events AS e
                                                                                                                LEFT OUTER JOIN
                                                                                                                  (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
                                                                                                                   FROM person_distinct_id_overrides
@@ -286,7 +290,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestInsightActorsQueryRunner.test_insight_persons_trends_groups_query
@@ -296,7 +301,8 @@
     (SELECT groups.properties___name AS name
      FROM
        (SELECT actor_id AS actor_id,
-               count() AS event_count
+               count() AS event_count,
+               max(timestamp) AS last_seen
         FROM
           (SELECT e.`$group_0` AS actor_id,
                   toTimeZone(e.timestamp, 'US/Pacific') AS timestamp,
@@ -323,7 +329,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestInsightActorsQueryRunner.test_insight_persons_trends_query_with_argmaxV1
@@ -336,7 +343,8 @@
      FROM
        (SELECT actor_id AS actor_id,
                count() AS event_count,
-               groupUniqArray(distinct_id) AS event_distinct_ids
+               groupUniqArray(distinct_id) AS event_distinct_ids,
+               max(timestamp) AS last_seen
         FROM
           (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
                   toTimeZone(e.timestamp, 'US/Pacific') AS timestamp,
@@ -357,7 +365,7 @@
               WHERE equals(person.team_id, 99999)
               GROUP BY person.id
               HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'US/Pacific')), person.version), 1), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-           WHERE and(equals(e.team_id, 99999), ifNull(notEquals(e__person.properties___email, 'tom@posthog.com'), 1), greaterOrEquals(timestamp, toDateTime64('2020-01-09 00:00:00.000000', 6, 'US/Pacific')), less(timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'US/Pacific')), equals(e.event, '$pageview')))
+           WHERE and(equals(e.team_id, 99999), ifNull(notEquals(e__person.properties___email, 'tom@posthog.com'), 1), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), equals(e.event, '$pageview')))
         GROUP BY actor_id) AS source
      INNER JOIN
        (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___name,
@@ -366,7 +374,7 @@
         WHERE and(equals(person.team_id, 99999), in(id,
                                                       (SELECT source.actor_id AS actor_id
                                                        FROM
-                                                         (SELECT actor_id AS actor_id, count() AS event_count, groupUniqArray(distinct_id) AS event_distinct_ids
+                                                         (SELECT actor_id AS actor_id, count() AS event_count, groupUniqArray(distinct_id) AS event_distinct_ids, max(timestamp) AS last_seen
                                                           FROM
                                                             (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id, toTimeZone(e.timestamp, 'US/Pacific') AS timestamp, e.uuid AS uuid, e.distinct_id AS distinct_id
                                                              FROM events AS e
@@ -382,7 +390,7 @@
                                                                 WHERE equals(person.team_id, 99999)
                                                                 GROUP BY person.id
                                                                 HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'US/Pacific')), person.version), 1), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-                                                             WHERE and(equals(e.team_id, 99999), ifNull(notEquals(e__person.properties___email, 'tom@posthog.com'), 1), greaterOrEquals(timestamp, toDateTime64('2020-01-09 00:00:00.000000', 6, 'US/Pacific')), less(timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'US/Pacific')), equals(e.event, '$pageview')))
+                                                             WHERE and(equals(e.team_id, 99999), ifNull(notEquals(e__person.properties___email, 'tom@posthog.com'), 1), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), equals(e.event, '$pageview')))
                                                           GROUP BY actor_id) AS source)))
         GROUP BY person.id
         HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'US/Pacific')), person.version), 1), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
@@ -397,7 +405,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestInsightActorsQueryRunner.test_insight_persons_trends_query_with_argmaxV2
@@ -410,7 +419,8 @@
      FROM
        (SELECT actor_id AS actor_id,
                count() AS event_count,
-               groupUniqArray(distinct_id) AS event_distinct_ids
+               groupUniqArray(distinct_id) AS event_distinct_ids,
+               max(timestamp) AS last_seen
         FROM
           (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
                   toTimeZone(e.timestamp, 'US/Pacific') AS timestamp,
@@ -434,7 +444,7 @@
                                                              WHERE equals(person.team_id, 99999)
                                                              GROUP BY person.id
                                                              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-           WHERE and(equals(e.team_id, 99999), ifNull(notEquals(e__person.properties___email, 'tom@posthog.com'), 1), greaterOrEquals(timestamp, toDateTime64('2020-01-09 00:00:00.000000', 6, 'US/Pacific')), less(timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'US/Pacific')), equals(e.event, '$pageview')))
+           WHERE and(equals(e.team_id, 99999), ifNull(notEquals(e__person.properties___email, 'tom@posthog.com'), 1), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), equals(e.event, '$pageview')))
         GROUP BY actor_id) AS source
      INNER JOIN
        (SELECT person.id AS id,
@@ -446,7 +456,7 @@
                                                        WHERE and(equals(person.team_id, 99999), in(person.id,
                                                                                                      (SELECT source.actor_id AS actor_id
                                                                                                       FROM
-                                                                                                        (SELECT actor_id AS actor_id, count() AS event_count, groupUniqArray(distinct_id) AS event_distinct_ids
+                                                                                                        (SELECT actor_id AS actor_id, count() AS event_count, groupUniqArray(distinct_id) AS event_distinct_ids, max(timestamp) AS last_seen
                                                                                                          FROM
                                                                                                            (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id, toTimeZone(e.timestamp, 'US/Pacific') AS timestamp, e.uuid AS uuid, e.distinct_id AS distinct_id
                                                                                                             FROM events AS e
@@ -465,7 +475,7 @@
                                                                                                                                                               WHERE equals(person.team_id, 99999)
                                                                                                                                                               GROUP BY person.id
                                                                                                                                                               HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-                                                                                                            WHERE and(equals(e.team_id, 99999), ifNull(notEquals(e__person.properties___email, 'tom@posthog.com'), 1), greaterOrEquals(timestamp, toDateTime64('2020-01-09 00:00:00.000000', 6, 'US/Pacific')), less(timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'US/Pacific')), equals(e.event, '$pageview')))
+                                                                                                            WHERE and(equals(e.team_id, 99999), ifNull(notEquals(e__person.properties___email, 'tom@posthog.com'), 1), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), equals(e.event, '$pageview')))
                                                                                                          GROUP BY actor_id) AS source)))
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
@@ -480,6 +490,7 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---

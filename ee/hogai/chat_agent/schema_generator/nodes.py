@@ -1,7 +1,6 @@
 import xml.etree.ElementTree as ET
 from collections.abc import Sequence
 from typing import Generic, Optional, cast
-from uuid import uuid4
 
 from langchain_core.agents import AgentAction
 from langchain_core.exceptions import OutputParserException
@@ -13,15 +12,15 @@ from langchain_core.messages import (
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import VisualizationMessage
+from posthog.schema import ArtifactContentType, ArtifactSource, VisualizationArtifactContent
 
 from posthog.models.group_type_mapping import GroupTypeMapping
 
 from ee.hogai.core.node import AssistantNode
 from ee.hogai.llm import MaxChatOpenAI
-from ee.hogai.utils.feature_flags import has_agent_modes_feature_flag
 from ee.hogai.utils.helpers import find_start_message
 from ee.hogai.utils.types import AssistantState, IntermediateStep, PartialAssistantState
+from ee.hogai.utils.types.base import ArtifactRefMessage
 
 from .parsers import PydanticOutputParserException, parse_pydantic_structured_output
 from .prompts import (
@@ -100,7 +99,6 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         prompt: ChatPromptTemplate,
         config: Optional[RunnableConfig] = None,
     ) -> PartialAssistantState:
-        start_id = state.start_id
         generated_plan = state.plan or ""
         intermediate_steps: Sequence[IntermediateStep] = state.intermediate_steps or []
         validation_error_message = intermediate_steps[-1][1] if intermediate_steps else None
@@ -148,18 +146,27 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
             raise SchemaGenerationException(e.llm_output or "No input was provided.", str(e))
 
         # We've got a result that either passed the quality check or we've exhausted all attempts at iterating - return
+        # Create an artifact with the visualization content
+        artifact = await self.context_manager.artifacts.create(
+            content=VisualizationArtifactContent(
+                query=result.query,
+                name=state.visualization_title,
+                description=state.visualization_description,
+                plan=generated_plan,
+            ),
+            name=state.visualization_title or "Visualization",
+        )
+        artifact_message = self.context_manager.artifacts.create_message(
+            artifact_id=artifact.short_id,
+            source=ArtifactSource.ARTIFACT,
+            content_type=ArtifactContentType.VISUALIZATION,
+        )
+
         return PartialAssistantState(
-            messages=[
-                VisualizationMessage(
-                    query=self._get_insight_plan(state),
-                    plan=generated_plan,
-                    answer=result.query,
-                    initiator=start_id,
-                    id=str(uuid4()),
-                )
-            ],
+            messages=[artifact_message],
             intermediate_steps=None,
             plan=None,
+            rag_context=None,
             query_generation_retry_count=len(intermediate_steps),
         )
 
@@ -179,13 +186,15 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         return ET.tostring(root, encoding="unicode")
 
     async def _construct_messages(
-        self, state: AssistantState, validation_error_message: Optional[str] = None
+        self, state: AssistantState, validation_error_message: str | None = None
     ) -> list[BaseMessage]:
         """
         Reconstruct the conversation for the generation. Take all previously generated questions, plans, and schemas, and return the history.
         """
-        # Only process the last five visualization messages.
-        messages = [message for message in state.messages if isinstance(message, VisualizationMessage)][-5:]
+        # Only process the last five artifact messages.
+        artifact_messages = await self.context_manager.artifacts.aenrich_messages(
+            [message for message in state.messages if isinstance(message, ArtifactRefMessage)][-5:]
+        )
         generated_plan = state.plan
 
         # Add the group mapping prompt to the beginning of the conversation.
@@ -196,26 +205,34 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
             )
         ]
 
-        for message in messages:
+        # Batch fetch all artifact contents (pass full state.messages for State source lookup)
+        artifact_contents = await self.context_manager.artifacts.aget_contents_by_message_id(state.messages)
+
+        for message in artifact_messages:
+            content = artifact_contents.get(message.id or "")
+            if not content:
+                continue
+            plan = content.plan or ""
+            query = content.name or ""
+            answer = content.query
+
             # Plans go first.
             conversation.append(
-                HumanMessagePromptTemplate.from_template(PLAN_PROMPT, template_format="mustache").format(
-                    plan=message.plan or ""
-                )
+                HumanMessagePromptTemplate.from_template(PLAN_PROMPT, template_format="mustache").format(plan=plan)
             )
             # Then questions.
             conversation.append(
                 HumanMessagePromptTemplate.from_template(QUESTION_PROMPT, template_format="mustache").format(
-                    question=message.query or ""
+                    question=query
                 )
             )
             # Then the answer.
-            if message.answer:
-                conversation.append(LangchainAssistantMessage(content=message.answer.model_dump_json()))
+            if answer:
+                conversation.append(LangchainAssistantMessage(content=answer.model_dump_json()))
 
         # Add the initiator message and the generated plan to the end, so instructions are clear.
         if generated_plan:
-            prompt = NEW_PLAN_PROMPT if messages else PLAN_PROMPT
+            prompt = NEW_PLAN_PROMPT if artifact_messages else PLAN_PROMPT
             conversation.append(
                 HumanMessagePromptTemplate.from_template(prompt, template_format="mustache").format(
                     plan=generated_plan or ""
@@ -244,9 +261,6 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         if start_message:
             return start_message.content
         return ""
-
-    def _has_agent_modes_feature_flag(self) -> bool:
-        return has_agent_modes_feature_flag(self._team, self._user)
 
 
 class SchemaGeneratorToolsNode(AssistantNode):

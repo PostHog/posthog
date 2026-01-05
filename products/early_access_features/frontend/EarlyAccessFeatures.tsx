@@ -1,8 +1,10 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { LemonButton, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -32,8 +34,9 @@ const STAGES_IN_ORDER: Record<EarlyAccessFeatureType['stage'], number> = {
 }
 
 export function EarlyAccessFeatures(): JSX.Element {
-    const { earlyAccessFeatures, earlyAccessFeaturesLoading } = useValues(earlyAccessFeaturesLogic)
-    const shouldShowEmptyState = earlyAccessFeatures.length == 0 && !earlyAccessFeaturesLoading
+    const { filteredEarlyAccessFeatures, earlyAccessFeaturesLoading, searchTerm } = useValues(earlyAccessFeaturesLogic)
+    const { setSearchTerm } = useActions(earlyAccessFeaturesLogic)
+    const shouldShowEmptyState = filteredEarlyAccessFeatures.length == 0 && !earlyAccessFeaturesLoading && !searchTerm
 
     return (
         <SceneContent>
@@ -44,9 +47,22 @@ export function EarlyAccessFeatures(): JSX.Element {
                     type: sceneConfigurations[Scene.EarlyAccessFeatures].iconType || 'default_icon_type',
                 }}
                 actions={
-                    <LemonButton size="small" type="primary" to={urls.earlyAccessFeature('new')}>
-                        New feature
-                    </LemonButton>
+                    <AppShortcut
+                        name="NewEarlyAccessFeature"
+                        keybind={[keyBinds.new]}
+                        intent="New early access feature"
+                        interaction="click"
+                        scope={Scene.EarlyAccessFeatures}
+                    >
+                        <LemonButton
+                            size="small"
+                            type="primary"
+                            to={urls.earlyAccessFeature('new')}
+                            tooltip="New feature"
+                        >
+                            New feature
+                        </LemonButton>
+                    </AppShortcut>
                 }
             />
 
@@ -61,47 +77,63 @@ export function EarlyAccessFeatures(): JSX.Element {
                 className="my-0"
             />
             {!shouldShowEmptyState && (
-                <LemonTable
-                    loading={earlyAccessFeaturesLoading}
-                    columns={[
-                        {
-                            title: 'Name',
-                            key: 'name',
-                            render(_, feature) {
-                                return (
-                                    <LemonTableLink
-                                        title={feature.name}
-                                        description={feature.description}
-                                        to={urls.earlyAccessFeature(feature.id)}
-                                    />
-                                )
+                <>
+                    <div className="mb-4">
+                        <LemonInput
+                            type="search"
+                            placeholder="Search early access features..."
+                            value={searchTerm}
+                            onChange={setSearchTerm}
+                            allowClear
+                        />
+                    </div>
+                    <LemonTable
+                        loading={earlyAccessFeaturesLoading}
+                        columns={[
+                            {
+                                title: 'Name',
+                                key: 'name',
+                                render(_, feature) {
+                                    return (
+                                        <LemonTableLink
+                                            title={feature.name}
+                                            description={feature.description}
+                                            to={urls.earlyAccessFeature(feature.id)}
+                                        />
+                                    )
+                                },
+                                sorter: (a, b) => a.name.localeCompare(b.name),
                             },
-                            sorter: (a, b) => a.name.localeCompare(b.name),
-                        },
-                        {
-                            title: 'Stage',
-                            dataIndex: 'stage',
-                            render(_, { stage }) {
-                                return (
-                                    <LemonTag
-                                        type={
-                                            stage === 'beta'
-                                                ? 'warning'
-                                                : stage === 'general-availability'
-                                                  ? 'success'
-                                                  : 'default'
-                                        }
-                                        className="uppercase cursor-default"
-                                    >
-                                        {stage}
-                                    </LemonTag>
-                                )
+                            {
+                                title: 'Stage',
+                                dataIndex: 'stage',
+                                render(_, { stage }) {
+                                    return (
+                                        <LemonTag
+                                            type={
+                                                stage === 'beta'
+                                                    ? 'warning'
+                                                    : stage === 'general-availability'
+                                                      ? 'success'
+                                                      : 'default'
+                                            }
+                                            className="uppercase cursor-default"
+                                        >
+                                            {stage}
+                                        </LemonTag>
+                                    )
+                                },
+                                sorter: (a, b) => STAGES_IN_ORDER[a.stage] - STAGES_IN_ORDER[b.stage],
                             },
-                            sorter: (a, b) => STAGES_IN_ORDER[a.stage] - STAGES_IN_ORDER[b.stage],
-                        },
-                    ]}
-                    dataSource={earlyAccessFeatures}
-                />
+                        ]}
+                        dataSource={filteredEarlyAccessFeatures}
+                        emptyState={
+                            searchTerm ? (
+                                <div className="text-center py-8">No early access features match your search</div>
+                            ) : undefined
+                        }
+                    />
+                </>
             )}
         </SceneContent>
     )

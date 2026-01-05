@@ -10,12 +10,49 @@ use limiters::token_dropper::TokenDropper;
 use opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceRequest;
 use prost::Message;
 use serde::Deserialize;
-use serde_json::json;
+use serde_json::{json, Value};
+use std::fs::File;
+use std::io::Write;
 use std::sync::Arc;
 
 use crate::kafka::KafkaSink;
 
-use tracing::{debug, error};
+use tracing::{debug, error, instrument};
+
+// due to a bug in the otel proto rust library we need to patch the json to support (valid) empty Values
+// see https://github.com/open-telemetry/opentelemetry-rust/issues/1253
+// FIXME: remove once upstream has fixed the issue, OR we should fork upstream and fix the issue ourselves
+fn patch_otel_json(v: &mut Value) {
+    match v {
+        Value::Object(map) => {
+            // In OTel, AnyValue is usually a field named "value"
+            // If we find "value": {}, change it to "value": null
+            if let Some(inner) = map.get_mut("value") {
+                if inner.is_object() && inner.as_object().map(|obj| obj.is_empty()).unwrap_or(false)
+                {
+                    *inner = Value::Null;
+                }
+            }
+            // Recurse through all other keys
+            for (_, val) in map.iter_mut() {
+                patch_otel_json(val);
+            }
+        }
+        Value::Array(arr) => {
+            for val in arr.iter_mut() {
+                patch_otel_json(val);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn parse_otel_message(json_bytes: &Bytes) -> Result<ExportLogsServiceRequest, anyhow::Error> {
+    let mut v: Value = serde_json::from_slice(json_bytes)?;
+    patch_otel_json(&mut v);
+    let result: ExportLogsServiceRequest = serde_json::from_value(v)?;
+    Ok(result)
+}
 
 #[derive(Clone)]
 pub struct Service {
@@ -40,6 +77,21 @@ impl Service {
     }
 }
 
+#[instrument(skip_all, fields(
+    token = tracing::field::Empty,
+    content_type = %headers.get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or(""),
+    user_agent = %headers.get("user-agent")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or(""),
+    content_length = %headers.get("content-length")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or(""),
+    content_encoding = %headers.get("content-encoding")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")))
+]
 pub async fn export_logs_http(
     State(service): State<Service>,
     Query(query_params): Query<QueryParams>,
@@ -90,13 +142,24 @@ pub async fn export_logs_http(
         ));
     }
 
+    tracing::Span::current().record("token", token);
+
     // Try to decode as Protobuf, if this fails, try JSON.
     // We do this over relying on Content-Type headers to be as permissive as possible in what we accept.
     let export_request = match ExportLogsServiceRequest::decode(body.as_ref()) {
         Ok(request) => request,
-        Err(proto_err) => match serde_json::from_slice(&body) {
+        Err(proto_err) => match parse_otel_message(&body) {
             Ok(request) => request,
             Err(json_err) => {
+                // Write last failed event to a file
+                // To make this super simple, we literally write a single event to /tmp/last_failed_event.txt
+                //
+                if let Err(e) = File::create("/tmp/last_failed_event.txt").and_then(|mut file|
+                    // write the raw message to a file prepended by the token for debugging
+                    file.write_all(token.as_bytes()).and_then(|_| file.write_all(&body)))
+                {
+                    error!("Failed to write last failed event to file: {}", e);
+                }
                 error!(
                     "Failed to decode JSON: {} or Protobuf: {}",
                     json_err, proto_err

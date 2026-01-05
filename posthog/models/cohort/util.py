@@ -1,12 +1,15 @@
 import uuid
 from datetime import datetime, timedelta
+from enum import StrEnum
 from typing import Any, Optional, Union, cast
 
 from django.conf import settings
 from django.utils import timezone
 
 import structlog
+from clickhouse_driver.errors import SocketTimeoutError
 from dateutil import parser
+from pydantic import ValidationError as PydanticValidationError
 from rest_framework.exceptions import ValidationError
 
 from posthog.hogql import ast
@@ -20,6 +23,13 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.query_tagging import Feature, tag_queries, tags_context
 from posthog.constants import PropertyOperatorType
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+    EstimatedQueryExecutionTimeTooLong,
+    QuerySizeExceeded,
+)
 from posthog.models import Action, Filter, Team
 from posthog.models.action.util import format_action_filter
 from posthog.models.cohort.calculation_history import CohortCalculationHistory
@@ -47,6 +57,78 @@ TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
 
 # Cohort query timeout settings
 COHORT_QUERY_TIMEOUT_SECONDS = 1200  # Max execution time for ClickHouse cohort calculation queries
+
+
+class CohortErrorCode(StrEnum):
+    CAPACITY = "capacity"
+    INTERRUPTED = "interrupted"
+    TIMEOUT = "timeout"
+    MEMORY_LIMIT = "memory_limit"
+    QUERY_SIZE = "query_size"
+    VALIDATION_ERROR = "validation_error"
+    INVALID_REGEX = "invalid_regex"
+    INCOMPATIBLE_TYPES = "incompatible_types"
+    NO_PROPERTIES = "no_properties"
+    UNKNOWN = "unknown"
+
+
+UNEXPECTED_ERROR_MESSAGE = (
+    "An error occurred while calculating this cohort. Please review your matching criteria or contact support."
+)
+
+ERROR_CODE_MESSAGES: dict[str, str] = {
+    CohortErrorCode.CAPACITY: "The system was busy when this cohort was scheduled to calculate. It will automatically retry.",
+    CohortErrorCode.INTERRUPTED: "Calculation was interrupted. It will automatically retry.",
+    CohortErrorCode.TIMEOUT: "Cohort calculation was terminated for taking too long.",
+    CohortErrorCode.MEMORY_LIMIT: "Cohort calculation was terminated for using too much memory.",
+    CohortErrorCode.QUERY_SIZE: "The matching criteria produced a query that was too large.",
+    CohortErrorCode.INVALID_REGEX: "This cohort contains an invalid regular expression. Please check your regex syntax in the matching criteria.",
+    CohortErrorCode.NO_PROPERTIES: "This cohort has no matching criteria defined. Please add at least one.",
+    CohortErrorCode.VALIDATION_ERROR: UNEXPECTED_ERROR_MESSAGE,
+    CohortErrorCode.INCOMPATIBLE_TYPES: UNEXPECTED_ERROR_MESSAGE,
+    CohortErrorCode.UNKNOWN: UNEXPECTED_ERROR_MESSAGE,
+}
+
+
+def get_friendly_error_message(error_code: str | None) -> str | None:
+    if error_code is None:
+        return None
+    return ERROR_CODE_MESSAGES.get(error_code, ERROR_CODE_MESSAGES[CohortErrorCode.UNKNOWN])
+
+
+# ClickHouse ServerException.code_name -> CohortErrorCode
+# Keys are lowercase; code_name is normalized via .lower() before lookup
+_CLICKHOUSE_ERROR_MAPPING: dict[str, CohortErrorCode] = {
+    "cannot_compile_regexp": CohortErrorCode.INVALID_REGEX,
+    "memory_limit_exceeded": CohortErrorCode.MEMORY_LIMIT,
+    "timeout_exceeded": CohortErrorCode.TIMEOUT,
+    "no_common_type": CohortErrorCode.INCOMPATIBLE_TYPES,
+}
+
+
+def parse_error_code(e: Exception) -> CohortErrorCode:
+    """Translate exceptions into CohortErrorCode for CohortCalculationHistory.error_code field."""
+    match e:
+        case ClickHouseAtCapacity():
+            return CohortErrorCode.CAPACITY
+        case SocketTimeoutError():
+            return CohortErrorCode.INTERRUPTED
+        case ClickHouseQueryTimeOut() | EstimatedQueryExecutionTimeTooLong():
+            return CohortErrorCode.TIMEOUT
+        case ClickHouseQueryMemoryLimitExceeded():
+            return CohortErrorCode.MEMORY_LIMIT
+        case QuerySizeExceeded():
+            return CohortErrorCode.QUERY_SIZE
+        case PydanticValidationError() | ValidationError():
+            return CohortErrorCode.VALIDATION_ERROR
+
+    code_name = getattr(e, "code_name", "").lower()
+    if code_name in _CLICKHOUSE_ERROR_MAPPING:
+        return _CLICKHOUSE_ERROR_MAPPING[code_name]
+
+    return CohortErrorCode.UNKNOWN
+
+
 COHORT_STATS_COLLECTION_DELAY_SECONDS = 60  # Short delay to allow query_log to flush before collecting stats
 
 logger = structlog.get_logger(__name__)
@@ -87,7 +169,7 @@ def run_cohort_query(
 
         # Schedule delayed task to collect stats after query_log_archive is synced
         # Only if we have a history record to update and not in test mode
-        if history and query and not settings.TEST:
+        if history and query and not (settings.TEST or settings.IN_EVAL_TESTING):
             delayed_task = collect_cohort_query_stats.apply_async(
                 args=[cohort_tag, cohort_id, start_time.isoformat(), history.id, query],
                 countdown=COHORT_QUERY_TIMEOUT_SECONDS + COHORT_STATS_COLLECTION_DELAY_SECONDS,
@@ -444,10 +526,11 @@ def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, 
     )
 
 
-def get_static_cohort_size(*, cohort_id: int, team_id: int) -> int:
-    count = CohortPeople.objects.filter(cohort_id=cohort_id, person__team_id=team_id).count()
-
-    return count
+def get_static_cohort_size(*, cohort_id: int, team_id: int, using_database: str | None = None) -> int:
+    qs = CohortPeople.objects.filter(cohort_id=cohort_id, person__team_id=team_id)
+    if using_database:
+        qs = qs.using(using_database)
+    return qs.count()
 
 
 def recalculate_cohortpeople(
@@ -489,7 +572,8 @@ def _recalculate_cohortpeople_for_team(cohort: Cohort, pending_version: int, tea
     except Exception as e:
         history.finished_at = timezone.now()
         history.error = str(e)
-        history.save(update_fields=["finished_at", "error"])
+        history.error_code = parse_error_code(e)
+        history.save(update_fields=["finished_at", "error", "error_code"])
         raise
 
 
@@ -503,7 +587,8 @@ def _recalculate_cohortpeople_for_team_hogql(
         history.finished_at = timezone.now()
         history.count = 0
         history.error = "Cohort has no properties defined"
-        history.save(update_fields=["finished_at", "count", "error"])
+        history.error_code = CohortErrorCode.NO_PROPERTIES
+        history.save(update_fields=["finished_at", "count", "error", "error_code"])
         return 0
     else:
         from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
@@ -571,7 +656,7 @@ def _recalculate_cohortpeople_for_team_hogql(
 
 
 def get_cohort_size(cohort: Cohort, override_version: Optional[int] = None, *, team_id: int) -> Optional[int]:
-    tag_queries(name="get_cohort_size", feature=Feature.COHORT)
+    tag_queries(name="get_cohort_size", feature=Feature.COHORT, cohort_id=cohort.pk, team_id=team_id)
     count_result = sync_execute(
         GET_COHORT_SIZE_SQL,
         {

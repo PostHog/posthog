@@ -4,7 +4,7 @@ import { ErrorPropertyTabEvent, EventPropertyTabs } from 'lib/components/EventPr
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { SurveyResponseDisplay } from 'lib/components/SurveyResponseDisplay/SurveyResponseDisplay'
-import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
@@ -21,6 +21,16 @@ interface EventDetailsProps {
 }
 
 export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Element {
+    const getEventId = (event: ErrorPropertyTabEvent): string => {
+        if ('uuid' in event && event.uuid) {
+            return event.uuid
+        }
+        if ('id' in event && event.id) {
+            return event.id
+        }
+        return ''
+    }
+
     return (
         <EventPropertyTabs
             barClassName="px-2"
@@ -38,14 +48,15 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                             sessionId={properties.$session_id}
                                             recordingStatus={properties.$recording_status}
                                             timestamp={event.timestamp}
-                                            inModal={false}
+                                            hasRecording={properties.has_recording as boolean | undefined}
                                             size="small"
                                             type="secondary"
+                                            openPlayerIn={RecordingPlayerType.NewTab}
                                             data-attr="conversation-view-session-recording-button"
                                         />
                                     </div>
                                 ) : null}
-                                <ConversationDisplay eventProperties={properties} />
+                                <ConversationDisplay eventProperties={properties} eventId={getEventId(event)} />
                             </div>
                         )
                     case 'evaluation':
@@ -65,7 +76,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                             <div className="mx-3">
                                 <SurveyResponseDisplay
                                     eventProperties={properties}
-                                    eventUuid={'uuid' in event ? event.uuid : undefined}
+                                    eventUuid={'uuid' in event && event.uuid ? event.uuid : undefined}
                                 />
                             </div>
                         )

@@ -12,17 +12,13 @@ from posthog.hogql.parser import parse_expr, parse_select
 
 from posthog.hogql_queries.insights.funnels.base import JOIN_ALGOS, FunnelBase
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.hogql_queries.insights.funnels.funnel_udf import FunnelUDFMixin
-from posthog.hogql_queries.insights.funnels.utils import get_funnel_order_class
+from posthog.hogql_queries.insights.funnels.funnel_udf import FunnelUDF, FunnelUDFMixin
 from posthog.hogql_queries.insights.utils.utils import get_start_of_interval_hogql, get_start_of_interval_hogql_str
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date
 from posthog.models.cohort.cohort import Cohort
 from posthog.queries.util import correct_result_for_sampling, get_earliest_timestamp, get_interval_func_ch
 from posthog.utils import DATERANGE_MAP, relative_date_parse
-
-TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
-HUMAN_READABLE_TIMESTAMP_FORMAT = "%-d-%b-%Y"
 
 
 class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
@@ -65,7 +61,7 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
         super().__init__(context)
 
         self.just_summarize = just_summarize
-        self.funnel_order = get_funnel_order_class(self.context.funnelsFilter)(context=self.context)
+        self.funnel_order = FunnelUDF(context=self.context)
 
         # In base, these fields only get added if you're running an actors query
         if "uuid" not in self._extra_event_fields:
@@ -104,11 +100,9 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
         self.context.max_steps_override = max_steps
 
         if self.context.funnelsFilter.funnelOrderType == "strict":
-            inner_event_query = self._get_inner_event_query_for_udf(
-                entity_name="events", skip_step_filter=True, skip_entity_filter=True
-            )
+            inner_event_query = self._get_inner_event_query(skip_step_filter=True, skip_entity_filter=True)
         else:
-            inner_event_query = self._get_inner_event_query_for_udf(entity_name="events")
+            inner_event_query = self._get_inner_event_query()
 
         # stores the steps as an array of integers from 1 to max_steps
         # so if the event could be step_0, step_1 or step_4, it looks like [1,2,0,0,5]

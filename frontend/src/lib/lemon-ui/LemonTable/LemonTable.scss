@@ -1,3 +1,13 @@
+@keyframes LemonTable__row__highlight__animation {
+    0% {
+        background-color: var(--color-accent-highlight-secondary);
+    }
+
+    100% {
+        background-color: transparent;
+    }
+}
+
 .LemonTable {
     --row-base-height: auto;
     --row-horizontal-padding: 0.5rem;
@@ -161,6 +171,10 @@
                 > td:not(.LemonTable__cell--sticky) {
                     background: var(--color-accent-highlight-secondary);
                 }
+            }
+
+            &.LemonTable__row--status-highlight-new {
+                animation: LemonTable__row__highlight__animation 1.5s ease-out;
             }
 
             &:not(.LemonTable__expansion) {

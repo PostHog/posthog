@@ -20,12 +20,12 @@
 
                         {% for category in categories %}
                         <div class="bg-gray-50 rounded-lg p-6 transition-all duration-200 hover:shadow-md">
-                            <div class="flex items-center justify-between">
-                                <div>
+                            <div class="flex items-start justify-between gap-4">
+                                <div class="flex-1 min-w-0">
                                     <h3 class="text-lg font-medium text-gray-900">{{ category.name }}</h3>
                                     <p class="text-sm text-gray-500 mt-1">{{ category.description }}</p>
                                 </div>
-                                <div class="relative inline-block w-12 mr-2 align-middle select-none">
+                                <div class="relative inline-block w-12 flex-shrink-0 align-top select-none">
                                     <input
                                         type="checkbox"
                                         name="{{ category.id }}"

@@ -1,6 +1,6 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
 
-import { AxisSeries, AxisSeriesSettings, dataVisualizationLogic } from '../dataVisualizationLogic'
+import { AxisSeries, AxisSeriesSettings, SelectedYAxis, dataVisualizationLogic } from '../dataVisualizationLogic'
 import type { seriesBreakdownLogicType } from './seriesBreakdownLogicType'
 
 export interface AxisBreakdownSeries<T> {
@@ -113,19 +113,11 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                     return EmptyBreakdownSeries
                 }
 
-                // shouldn't be possible to have more than 1 ySeries with a breakdown
-                if (ySeries.length > 1) {
+                const yAxis = ySeries.filter((n): n is SelectedYAxis => Boolean(n))
+                if (!yAxis || !yAxis.length) {
                     return EmptyBreakdownSeries
                 }
 
-                const selectedYAxis = ySeries[0]
-                if (!selectedYAxis) {
-                    return EmptyBreakdownSeries
-                }
-                const yColumn = columns.find((n) => n.name === selectedYAxis.name)
-                if (!yColumn) {
-                    return EmptyBreakdownSeries
-                }
                 const xColumn = columns.find((n) => n.name === xSeries)
                 if (!xColumn) {
                     return EmptyBreakdownSeries
@@ -147,67 +139,81 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
 
                 let isUnaggregated = false
 
-                const seriesData: AxisBreakdownSeries<number>[] = breakdownColumnValues.map((value) => {
-                    // first filter data by breakdown column value
-                    const filteredData = data.filter((n) => n[breakdownColumn.dataIndex] === value)
-                    if (filteredData.length === 0) {
-                        return {
-                            name: value,
-                            data: [],
-                        }
+                const multipleYSeries = yAxis.length > 1
+
+                const seriesData: AxisBreakdownSeries<number>[] = yAxis.flatMap((selectedYAxis) => {
+                    const yColumn = columns.find((n) => n.name === selectedYAxis.name)
+                    if (!yColumn) {
+                        return []
                     }
 
-                    // check if there are any duplicates of xColumn values
-                    // (if we know there is unaggregated data, we don't need to check again)
-                    if (!isUnaggregated) {
-                        const xColumnValues = filteredData.map((n) => n[xColumn.dataIndex])
-                        const xColumnValuesSet = new Set(xColumnValues)
-                        if (xColumnValues.length !== xColumnValuesSet.size) {
-                            isUnaggregated = true
+                    return breakdownColumnValues.map<AxisBreakdownSeries<number>>((value) => {
+                        const seriesName = multipleYSeries
+                            ? `${selectedYAxis.name} - ${value || '[No value]'}`
+                            : value || '[No value]'
+
+                        // first filter data by breakdown column value
+                        const filteredData = data.filter((n) => n[breakdownColumn.dataIndex] === value)
+                        if (filteredData.length === 0) {
+                            return {
+                                name: seriesName,
+                                data: [],
+                            }
                         }
-                    }
 
-                    // sum y values for each x value, setting to 0 if no corresponding y value
-                    const dataset = xData.map((xValue) => {
-                        const yValue = filteredData
-                            .filter((n) => n[xColumn.dataIndex] === xValue)
-                            .map((n) => {
-                                try {
-                                    const value = n[yColumn.dataIndex]
-                                    const multiplier = selectedYAxis.settings.formatting?.style === 'percent' ? 100 : 1
+                        // check if there are any duplicates of xColumn values
+                        // (if we know there is unaggregated data, we don't need to check again)
+                        if (!isUnaggregated) {
+                            const xColumnValues = filteredData.map((n) => n[xColumn.dataIndex])
+                            const xColumnValuesSet = new Set(xColumnValues)
+                            if (xColumnValues.length !== xColumnValuesSet.size) {
+                                isUnaggregated = true
+                            }
+                        }
 
-                                    if (selectedYAxis.settings.formatting?.decimalPlaces) {
-                                        return parseFloat(
-                                            (parseFloat(value) * multiplier).toFixed(
-                                                selectedYAxis.settings.formatting.decimalPlaces
+                        // sum y values for each x value, setting to 0 if no corresponding y value
+                        const dataset = xData.map((xValue) => {
+                            const yValue = filteredData
+                                .filter((n) => n[xColumn.dataIndex] === xValue)
+                                .map((n) => {
+                                    try {
+                                        const value = n[yColumn.dataIndex]
+                                        const multiplier =
+                                            selectedYAxis.settings.formatting?.style === 'percent' ? 100 : 1
+
+                                        if (selectedYAxis.settings.formatting?.decimalPlaces) {
+                                            return parseFloat(
+                                                (parseFloat(value) * multiplier).toFixed(
+                                                    selectedYAxis.settings.formatting.decimalPlaces
+                                                )
                                             )
-                                        )
+                                        }
+
+                                        const isInt = Number.isInteger(value)
+                                        return isInt ? parseInt(value) * multiplier : parseFloat(value) * multiplier
+                                    } catch {
+                                        return 0
                                     }
+                                })
+                                .reduce((a, b) => a + b, 0)
+                            return yValue
+                        })
 
-                                    const isInt = Number.isInteger(value)
-                                    return isInt ? parseInt(value) * multiplier : parseFloat(value) * multiplier
-                                } catch {
-                                    return 0
-                                }
-                            })
-                            .reduce((a, b) => a + b, 0)
-                        return yValue
-                    })
-
-                    return {
-                        name: value || '[No value]',
-                        data: dataset,
-                        // we copy supported settings over from the selected
-                        // y-axis since we don't support setting these on the
-                        // breakdown series at the moment
-                        settings: {
-                            formatting: selectedYAxis.settings.formatting,
-                            display: {
-                                yAxisPosition: selectedYAxis.settings?.display?.yAxisPosition,
-                                displayType: selectedYAxis.settings?.display?.displayType,
+                        return {
+                            name: seriesName,
+                            data: dataset,
+                            // we copy supported settings over from the selected
+                            // y-axis since we don't support setting these on the
+                            // breakdown series at the moment
+                            settings: {
+                                formatting: selectedYAxis.settings.formatting,
+                                display: {
+                                    yAxisPosition: selectedYAxis.settings?.display?.yAxisPosition,
+                                    displayType: selectedYAxis.settings?.display?.displayType,
+                                },
                             },
-                        },
-                    }
+                        }
+                    })
                 })
 
                 return {

@@ -8,6 +8,8 @@ metadata:
           title: Verify infrastructure readiness
         - key: migrations
           title: Database migrations
+        - key: db
+          title: Database operations
         - key: tests
           title: Run tests
         - key: quality
@@ -64,10 +66,10 @@ metadata:
             name: Celery
             about: Distributed task queue for running background jobs like async exports,
                 scheduled tasks, and email sending.
-        plugin-server:
-            name: Plugin server
-            about: Event ingestion pipeline that processes incoming events, runs plugins,
-                and writes to ClickHouse.
+        nodejs:
+            name: Node.js
+            about: Event ingestion pipeline that processes incoming events, runs CDP workflows,
+                and writes to Kafka (then ClickHouse).
         django:
             name: Django
             about: Python web framework powering PostHog's backend API, admin interface,
@@ -99,7 +101,8 @@ core:
             - postgresql
     dev:sync-user-settings:
         cmd: python manage.py sync_user_settings
-        description: Sync your user settings from PostHog cloud to local dev environment. Requires API key.
+        description: Sync your user settings from PostHog cloud to local dev environment.
+            Requires API key.
         services:
             - postgresql
     dev:shell-plus:
@@ -113,6 +116,7 @@ core:
         steps:
             - docker:services:remove
             - docker:services:up
+            - setup:python
             - check:postgres
             - check:clickhouse
             - migrations:run
@@ -171,7 +175,7 @@ start:
             - django
             - frontend
             - celery
-            - plugin-server
+            - nodejs
             - postgresql
             - redis
             - kafka
@@ -206,10 +210,10 @@ start:
         hidden: true
     start:worker:
         bin_script: start-worker
-        description: Launch all background workers (Celery worker, beat scheduler, plugin-server)
+        description: Launch all background workers (Celery worker, beat scheduler, nodejs)
         services:
             - celery
-            - plugin-server
+            - nodejs
             - kafka
             - temporal
             - redis
@@ -242,7 +246,11 @@ deploy:
         destructive: true
     deploy:migrate-storage-hobby:
         bin_script: migrate-storage-hobby
-        description: "Hobby: Migrate or sync ALL services between MinIO and SeaweedFS via docker-compose\n\nExamples:\n  hogli deploy:migrate-storage-hobby               # Sync all services\n  hogli deploy:migrate-storage-hobby --mode migrate # One-way migrate all (MinIO → SeaweedFS)\n  hogli deploy:migrate-storage-hobby exports -n     # Dry run exports only"
+        description: "Hobby: Migrate or sync ALL services between MinIO and SeaweedFS\
+            \ via docker-compose\n\nExamples:\n  hogli deploy:migrate-storage-hobby    \
+            \           # Sync all services\n  hogli deploy:migrate-storage-hobby --mode\
+            \ migrate # One-way migrate all (MinIO \u2192 SeaweedFS)\n  hogli deploy:migrate-storage-hobby\
+            \ exports -n     # Dry run exports only"
         destructive: true
 build:
     build:frontend:
@@ -292,7 +300,8 @@ docker:
             - docker
     docker:services:remove:
         cmd: docker compose -f docker-compose.dev.yml down -v
-        description: Stop Docker infrastructure services and remove all volumes (complete wipe)
+        description: Stop Docker infrastructure services and remove all volumes (complete
+            wipe)
         services:
             - docker
         destructive: true
@@ -352,15 +361,47 @@ migrations:
     migrations:run:
         bin_script: migrate
         description: Run all database migrations (ClickHouse, Postgres, async) in parallel
+        env:
+            DEBUG: '1'
     migrations:check:
         bin_script: migrate-check
         description: Verify all migrations are ready without applying them
         services:
             - postgresql
             - clickhouse
-    migrations:kafka:
-        bin_script: migrate_kafka_data.py
-        description: Migrate data between Kafka clusters/topics with consumer group tracking
+db:
+    db:upgrade:
+        bin_script: upgrade-postgres
+        description: Upgrade PostgreSQL from version 12 to 15 (interactive migration tool)
+        services:
+            - postgresql
+            - docker
+    db:dump:
+        cmd: "mkdir -p .postgres-backups\nBACKUP_FILE=\"${1:-.postgres-backups/posthog_backup_$(date\
+            \ +%Y%m%d_%H%M%S).sql.gz}\"\ndocker compose exec -T db pg_dumpall --clean -U\
+            \ posthog | gzip > \"$BACKUP_FILE\"\necho \"\u2705 Backup saved to: $BACKUP_FILE\"\
+            \n"
+        description: Dump all PostgreSQL databases to compressed backup file
+        services:
+            - postgresql
+            - docker
+    db:restore:
+        cmd: "set -e\nset -o pipefail\nif [ -z \"$1\" ]; then\n    LATEST=$(ls -t .postgres-backups/*.sql.gz\
+            \ 2>/dev/null | head -1)\n    if [ -z \"$LATEST\" ]; then\n        echo \"\u274C\
+            \ Error: No backup file specified and no backups found in .postgres-backups/\"\
+            \n        echo \"Usage: hogli db:restore [backup-file]\"\n        exit 1\n \
+            \   fi\n    echo \"Using latest backup: $LATEST\"\n    BACKUP_FILE=\"$LATEST\"\
+            \nelse\n    BACKUP_FILE=\"$1\"\nfi\nif [ ! -f \"$BACKUP_FILE\" ]; then\n   \
+            \ echo \"\u274C Error: Backup file not found: $BACKUP_FILE\"\n    exit 1\nfi\n\
+            gunzip -c \"$BACKUP_FILE\" | docker compose exec -T db psql -q -U posthog >\
+            \ /dev/null 2>&1\necho \"\U0001F510 Upgrading password to SCRAM-SHA-256...\"\
+            \ndocker compose exec -T db psql -U posthog -c \"ALTER USER posthog WITH PASSWORD\
+            \ 'posthog';\" > /dev/null 2>&1\necho \"\u2705 Restored from: $BACKUP_FILE\"\
+            \n"
+        description: Restore PostgreSQL databases from backup file (defaults to latest)
+        services:
+            - postgresql
+            - docker
 tests:
     test:python:
         cmd: pytest
@@ -377,7 +418,7 @@ tests:
 quality:
     lint:
         cmd: ./bin/ruff.sh check . && pnpm --filter=@posthog/frontend run lint
-        description: Run code quality checks for Python and JavaScript
+        description: Run Python and JS/TS linting
     format:
         cmd: pnpm format
         description: Format both backend and frontend code
@@ -385,15 +426,16 @@ quality:
         cmd: pnpm prettier --write
         description: Format JSON, YAML files
     format:css:
-        cmd: pnpm stylelint --fix --allow-empty-input && pnpm prettier --write
+        cmd: pnpm stylelint --fix --allow-empty-input "$@" && pnpm prettier --write "$@"
         description: Format CSS/SCSS files
     format:js:
-        cmd: pnpm oxlint --fix --fix-suggestions --quiet && pnpm prettier --write
+        cmd: pnpm oxlint --fix --fix-suggestions --quiet "$@" && pnpm prettier --write
+            "$@"
         description: Format JavaScript/TypeScript files (frontend)
-    format:plugin-server:
-        cmd: pnpm --dir plugin-server exec eslint --fix && pnpm --dir plugin-server exec
-            prettier --write
-        description: Format plugin-server JavaScript files
+    format:nodejs:
+        cmd: pnpm --dir nodejs exec eslint --fix "$@" && pnpm --dir nodejs exec prettier
+            --write "$@"
+        description: Format nodejs JavaScript files
     format:rust:
         cmd: rustfmt
         description: Format Rust files
@@ -410,9 +452,9 @@ tools:
     tool:temporal-django-worker:
         bin_script: temporal-django-worker
         description: Start Temporal worker with graceful shutdown handling
-    tool:plugin-server:
-        bin_script: plugin-server
-        description: Start plugin-server with optional restart loop
+    tool:nodejs:
+        bin_script: nodejs
+        description: Start nodejs with optional restart loop
     tool:download-mmdb:
         bin_script: download-mmdb
         description: Download and cache GeoLite2 MaxMind database with retry logic
@@ -464,7 +506,28 @@ tools:
         bin_script: check_ducklake_up
         description: Healthcheck for Ducklake with self-healing
         hidden: true
+    start:llm:gateway:
+        bin_script: start-llm-gateway
+        description: 'TODO: add description for start-llm-gateway'
+        hidden: true
+    posthog:node:
+        bin_script: posthog-node
+        description: 'TODO: add description for posthog-node'
+        hidden: true
 utilities:
+    nuke:
+        steps:
+            - name: announce
+              cmd: say -v 'Samantha' 'Nuclear launch detected' 2>/dev/null || true
+            - name: node_modules
+              cmd: rm -rf **/node_modules
+            - name: python venvs
+              cmd: rm -rf .venv .flox/cache/venv && uv sync --active
+            - name: rust builds
+              cmd: cd rust && cargo clean && find . -name 'index.node' -type f -delete
+            - dev:reset
+        description: Wipe everything and rebuild (node_modules, Python, Rust, then dev:reset)
+        destructive: true
     utilities:posthog-worktree:
         bin_script: posthog-worktree
         description: Manage isolated git worktrees for PostHog development
@@ -498,3 +561,6 @@ environment:
         cmd: flox activate
         description: Enter Flox development environment shell.
         hidden: true
+    setup:python:
+        cmd: uv sync --active
+        description: Install Python dependencies to active virtual environment

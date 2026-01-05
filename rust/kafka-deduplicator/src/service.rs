@@ -1,27 +1,31 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
 use common_kafka::config::KafkaConfig;
 use common_kafka::kafka_producer::create_kafka_producer;
+use common_types::CapturedEvent;
+
 use health::{HealthHandle, HealthRegistry};
-use rdkafka::consumer::Consumer;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
+use crate::deduplication_batch_processor::{
+    BatchDeduplicationProcessor, DeduplicationConfig, DuplicateEventProducerWrapper,
+};
 use crate::{
-    checkpoint::config::CheckpointConfig,
-    checkpoint::export::CheckpointExporter,
-    checkpoint::s3_uploader::S3Uploader,
+    checkpoint::{
+        config::CheckpointConfig, export::CheckpointExporter, import::CheckpointImporter,
+        s3_downloader::S3Downloader, s3_uploader::S3Uploader,
+    },
     checkpoint_manager::CheckpointManager,
     config::Config,
-    deduplication_processor::{
-        DeduplicationConfig, DeduplicationProcessor, DuplicateEventProducerWrapper,
+    kafka::{
+        batch_consumer::BatchConsumer, ConsumerConfigBuilder, OffsetTracker, PartitionRouter,
+        PartitionRouterConfig, PartitionWorkerConfig, RoutingProcessor,
     },
-    kafka::{stateful_consumer::StatefulKafkaConsumer, ConsumerConfigBuilder},
-    processor_pool::ProcessorPool,
     processor_rebalance_handler::ProcessorRebalanceHandler,
     store::DeduplicationStoreConfig,
     store_manager::{CleanupTaskHandle, StoreManager},
@@ -30,12 +34,11 @@ use crate::{
 /// The main Kafka Deduplicator service that encapsulates all components
 pub struct KafkaDeduplicatorService {
     config: Config,
-    consumer: Option<StatefulKafkaConsumer>,
+    consumer: Option<BatchConsumer<CapturedEvent>>,
     store_manager: Arc<StoreManager>,
     checkpoint_manager: Option<CheckpointManager>,
+    checkpoint_importer: Option<Arc<CheckpointImporter>>,
     cleanup_task_handle: Option<CleanupTaskHandle>,
-    processor_pool_handles: Option<Vec<tokio::task::JoinHandle<()>>>,
-    processor_pool_health: Option<Arc<AtomicBool>>,
     shutdown_tx: Option<oneshot::Sender<()>>,
     liveness: HealthRegistry,
     service_health: Option<HealthHandle>,
@@ -45,7 +48,8 @@ pub struct KafkaDeduplicatorService {
 
 impl KafkaDeduplicatorService {
     /// Reset the local checkpoint directory (remove if exists, then create fresh)
-    fn reset_checkpoint_directory(checkpoint_dir: &str) -> Result<()> {
+    fn reset_checkpoint_directory(cfg: &CheckpointConfig) -> Result<()> {
+        let checkpoint_dir = &cfg.local_checkpoint_dir;
         let path = std::path::Path::new(checkpoint_dir);
 
         if path.exists() {
@@ -108,15 +112,37 @@ impl KafkaDeduplicatorService {
             checkpoint_import_window_hours: config.checkpoint_import_window_hours,
             s3_operation_timeout: config.s3_operation_timeout(),
             s3_attempt_timeout: config.s3_attempt_timeout(),
+            checkpoint_import_attempt_depth: config.checkpoint_import_attempt_depth,
+            test_s3_endpoint: None,
         };
 
         // Reset local checkpoint directory on startup (it's temporary storage)
-        Self::reset_checkpoint_directory(&checkpoint_config.local_checkpoint_dir)?;
+        Self::reset_checkpoint_directory(&checkpoint_config)?;
 
         // create exporter conditionally if S3 config is populated
-        let exporter = if !config.aws_region.is_empty() && config.s3_bucket.is_some() {
-            let uploader = Box::new(S3Uploader::new(checkpoint_config.clone()).await.unwrap());
+        let exporter = if config.checkpoint_export_enabled() {
+            let uploader = Box::new(
+                S3Uploader::new(checkpoint_config.clone())
+                    .await
+                    .context("Failed to create S3 uploader")?,
+            );
             Some(Arc::new(CheckpointExporter::new(uploader)))
+        } else {
+            None
+        };
+
+        // if checkpoint import is enabled, create and configure the importer
+        let importer = if config.checkpoint_import_enabled() {
+            let downloader = Box::new(
+                S3Downloader::new(&checkpoint_config)
+                    .await
+                    .context("Failed to create S3 downloader")?,
+            );
+            Some(Arc::new(CheckpointImporter::new(
+                downloader,
+                store_config.path.clone(),
+                config.checkpoint_import_attempt_depth,
+            )))
         } else {
             None
         };
@@ -129,9 +155,8 @@ impl KafkaDeduplicatorService {
             consumer: None,
             store_manager,
             checkpoint_manager: Some(checkpoint_manager),
+            checkpoint_importer: importer,
             cleanup_task_handle,
-            processor_pool_handles: None,
-            processor_pool_health: None,
             shutdown_tx: None,
             liveness,
             service_health: None,
@@ -232,44 +257,73 @@ impl KafkaDeduplicatorService {
         };
 
         // Create a processor with the store manager and both producers
-        let processor = DeduplicationProcessor::new(
-            dedup_config,
-            self.store_manager.clone(),
-            main_producer,
-            duplicate_producer,
-        )
-        .with_context(|| "Failed to create deduplication processor")?;
+        let processor = Arc::new(
+            BatchDeduplicationProcessor::new(
+                dedup_config,
+                self.store_manager.clone(),
+                main_producer,
+                duplicate_producer,
+            )
+            .with_context(|| "Failed to create deduplication processor")?,
+        );
 
-        // Create rebalance handler with the store manager
-        let rebalance_handler =
-            Arc::new(ProcessorRebalanceHandler::new(self.store_manager.clone()));
+        // Create partition router for parallel processing across partitions
+        let router_config = PartitionRouterConfig {
+            worker_config: PartitionWorkerConfig {
+                channel_buffer_size: self.config.partition_worker_channel_buffer_size,
+            },
+        };
+
+        // Create offset tracker for tracking processed offsets
+        let offset_tracker = Arc::new(OffsetTracker::new());
+
+        let router = Arc::new(PartitionRouter::new(
+            processor,
+            offset_tracker.clone(),
+            router_config,
+        ));
+
+        // Create routing processor that distributes messages to partition workers
+        let routing_processor = Arc::new(RoutingProcessor::new(
+            router.clone(),
+            offset_tracker.clone(),
+        ));
+
+        // Create rebalance handler with the router for partition worker management
+        let rebalance_handler = Arc::new(ProcessorRebalanceHandler::with_router(
+            self.store_manager.clone(),
+            router,
+            offset_tracker.clone(),
+            self.checkpoint_importer.clone(),
+        ));
 
         // Create consumer config using the kafka module's builder
         let consumer_config =
             ConsumerConfigBuilder::new(&self.config.kafka_hosts, &self.config.kafka_consumer_group)
                 .with_tls(self.config.kafka_tls)
+                .with_max_partition_fetch_bytes(
+                    self.config.kafka_consumer_max_partition_fetch_bytes,
+                )
+                .with_topic_metadata_refresh_interval_ms(
+                    self.config.kafka_topic_metadata_refresh_interval_ms,
+                )
+                .with_metadata_max_age_ms(self.config.kafka_metadata_max_age_ms)
                 .with_sticky_partition_assignment(self.config.pod_hostname.as_deref())
-                .offset_reset(&self.config.kafka_consumer_offset_reset)
+                .with_offset_reset(&self.config.kafka_consumer_offset_reset)
+                // Fetch settings for throughput optimization
+                .with_fetch_min_bytes(self.config.kafka_consumer_fetch_min_bytes)
+                .with_fetch_max_bytes(self.config.kafka_consumer_fetch_max_bytes)
+                .with_fetch_wait_max_ms(self.config.kafka_consumer_fetch_wait_max_ms)
+                // Prefetch settings for batching efficiency
+                .with_queued_min_messages(self.config.kafka_consumer_queued_min_messages)
+                .with_queued_max_messages_kbytes(
+                    self.config.kafka_consumer_queued_max_messages_kbytes,
+                )
                 .build();
 
         // Create shutdown channel
         let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
         self.shutdown_tx = Some(shutdown_tx);
-
-        // Create processor pool with configured number of workers
-        let num_workers = self.config.worker_threads;
-        let (message_sender, processor_pool) = ProcessorPool::new(processor, num_workers);
-
-        // Start the processor pool workers and get health status
-        let (pool_handles, pool_health) = processor_pool.start();
-        self.processor_pool_handles = Some(pool_handles);
-        self.processor_pool_health = Some(pool_health.clone());
-
-        // Register processor pool as a separate health component
-        let pool_health_handle = self
-            .liveness
-            .register("processor_pool".to_string(), Duration::from_secs(30))
-            .await;
 
         // start checkpoint manager and async work loop threads, register health monitor
         let checkpoint_health_reporter = self.checkpoint_manager.as_mut().unwrap().start();
@@ -305,44 +359,22 @@ impl KafkaDeduplicatorService {
         }
 
         info!(
-            "Started checkpoint manager (export enabled = {:?}, checkpoint interval = {:?}, checkpoint_cleanup interval = {:?})",
+            "Started checkpoint manager (export enabled = {:?}, checkpoint interval = {:?})",
             self.checkpoint_manager.as_ref().unwrap().export_enabled(),
             self.config.checkpoint_interval(),
-            self.config.checkpoint_cleanup_interval(),
         );
 
-        // Spawn task to report processor pool health
-        let pool_health_reporter = pool_health.clone();
-        let cancellation = self.health_task_cancellation.child_token();
-        let handle = tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(10));
-            loop {
-                tokio::select! {
-                    _ = cancellation.cancelled() => {
-                        break;
-                    }
-                    _ = interval.tick() => {
-                        if pool_health_reporter.load(Ordering::SeqCst) {
-                            pool_health_handle.report_healthy().await;
-                        } else {
-                            // Explicitly report unhealthy when a worker dies
-                            pool_health_handle.report_status(health::ComponentStatus::Unhealthy).await;
-                            error!("Processor pool is unhealthy - worker died");
-                        }
-                    }
-                }
-            }
-        });
-        self.health_task_handles.push(handle);
-
-        // Create stateful Kafka consumer that sends to the processor pool
-        let kafka_consumer = StatefulKafkaConsumer::from_config(
+        // Create stateful Kafka consumer that routes to partition workers
+        let kafka_consumer = BatchConsumer::new(
             &consumer_config,
             rebalance_handler,
-            message_sender,
-            self.config.max_in_flight_messages,
-            self.config.commit_interval(),
+            routing_processor,
+            offset_tracker,
             shutdown_rx,
+            &self.config.kafka_consumer_topic,
+            self.config.kafka_consumer_batch_size,
+            self.config.kafka_consumer_batch_timeout(),
+            self.config.commit_interval(),
         )
         .with_context(|| {
             format!(
@@ -350,17 +382,6 @@ impl KafkaDeduplicatorService {
                 self.config.kafka_consumer_topic, self.config.kafka_consumer_group
             )
         })?;
-
-        // Subscribe to input topic
-        kafka_consumer
-            .inner_consumer()
-            .subscribe(&[&self.config.kafka_consumer_topic])
-            .with_context(|| {
-                format!(
-                    "Failed to subscribe to input topic '{}'",
-                    self.config.kafka_consumer_topic
-                )
-            })?;
 
         info!(
             "Initialized consumer for topic '{}', publishing to '{:?}'",
@@ -435,13 +456,6 @@ impl KafkaDeduplicatorService {
         // Stop the checkpoint manager
         if let Some(mut checkpoint_manager) = self.checkpoint_manager.take() {
             checkpoint_manager.stop().await;
-        }
-
-        // Wait for processor pool workers to finish
-        if let Some(handles) = self.processor_pool_handles.take() {
-            for handle in handles {
-                let _ = handle.await;
-            }
         }
 
         // Wait for consumer to finish with timeout
@@ -520,13 +534,6 @@ impl KafkaDeduplicatorService {
         // Stop the checkpoint manager
         if let Some(mut checkpoint_manager) = self.checkpoint_manager.take() {
             checkpoint_manager.stop().await;
-        }
-
-        // Wait for processor pool workers to finish
-        if let Some(handles) = self.processor_pool_handles.take() {
-            for handle in handles {
-                let _ = handle.await;
-            }
         }
 
         // Wait for consumer to finish with timeout

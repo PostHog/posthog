@@ -1,24 +1,23 @@
-// Stateful Kafka module - coordinates Kafka consumption with external state systems
+// Kafka module - batch consumption with rebalance handling
 pub mod batch_consumer;
 pub mod batch_context;
 pub mod batch_message;
 pub mod config;
-pub mod message;
 pub mod metrics_consts;
+pub mod offset_tracker;
+pub mod partition_router;
+pub mod partition_worker;
 pub mod rebalance_handler;
-pub mod stateful_consumer;
-pub mod stateful_context;
-pub mod tracker;
+pub mod routing_processor;
 pub mod types;
 
-// used in "mod tests" and tests/ directory (integration tests)
-// so not exported as `#[cfg(test)]`
+// Used in "mod tests" and tests/ directory (integration tests)
 pub mod test_utils;
 
-// Public API - what users of the kafka library should use
+// Public API
 pub use config::ConsumerConfigBuilder;
-pub use message::{AckableMessage, MessageProcessor};
+pub use offset_tracker::{OffsetTracker, OffsetTrackerError};
+pub use partition_router::{PartitionRouter, PartitionRouterConfig};
+pub use partition_worker::{PartitionBatch, PartitionWorker, PartitionWorkerConfig};
 pub use rebalance_handler::RebalanceHandler;
-pub use stateful_consumer::StatefulKafkaConsumer;
-pub use stateful_context::StatefulConsumerContext;
-pub use tracker::{InFlightTracker, MessageHandle};
+pub use routing_processor::RoutingProcessor;

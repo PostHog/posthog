@@ -29,6 +29,7 @@ FIVE_DAYS = 60 * 60 * 24 * 5  # 5 days in seconds
 logger = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
+    from posthog.models.tag import Tag
     from posthog.models.team import Team
 
 
@@ -87,6 +88,19 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         null=True,
         blank=True,
         help_text="Specifies where this feature flag should be evaluated",
+    )
+
+    BUCKETING_IDENTIFIER_CHOICES = [
+        ("distinct_id", "User ID (default)"),
+        ("device_id", "Device ID"),
+    ]
+    bucketing_identifier = models.CharField(
+        max_length=50,
+        choices=BUCKETING_IDENTIFIER_CHOICES,
+        default="distinct_id",
+        null=True,
+        blank=True,
+        help_text="Identifier used for bucketing users into rollout and variants",
     )
 
     # Cache projection: evaluation_tag_names is stored in Redis but isn't a DB field.
@@ -687,6 +701,17 @@ class FeatureFlagEvaluationTag(models.Model):
 
     def __str__(self) -> str:
         return f"{self.feature_flag.key} - {self.tag.name}"
+
+    @staticmethod
+    def get_team_ids_using_tag(tag: "Tag") -> list[int]:
+        """
+        Find all teams that have flags using this tag as an evaluation tag.
+
+        Used by signal handlers to invalidate caches when a tag is renamed.
+        """
+        return list(
+            FeatureFlagEvaluationTag.objects.filter(tag=tag).values_list("feature_flag__team_id", flat=True).distinct()
+        )
 
 
 class TeamDefaultEvaluationTag(UUIDModel):

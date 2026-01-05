@@ -3,7 +3,6 @@ import { forms } from 'kea-forms'
 import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { IconWarning } from '@posthog/icons'
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
@@ -11,6 +10,10 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import {
+    VALID_NON_NATIVE_MARKETING_SOURCES,
+    VALID_SELF_MANAGED_MARKETING_SOURCES,
+} from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
 import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import {
@@ -21,6 +24,7 @@ import {
     SourceFieldConfig,
     SourceFieldSwitchGroupConfig,
     SuggestedTable,
+    VALID_NATIVE_MARKETING_SOURCES,
     externalDataSources,
 } from '~/queries/schema/schema-general'
 import {
@@ -161,7 +165,7 @@ export const buildKeaFormDefaultFromSourceDetails = (
 
             return defaults
         },
-        { prefix: '', payload: {} } as Record<string, any>
+        { prefix: '', description: '', payload: {} } as Record<string, any>
     )
 }
 
@@ -272,15 +276,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             ['loadSources'],
             teamLogic,
             ['addProductIntent'],
+            activationLogic,
+            ['markTaskAsCompleted'],
         ],
     })),
     reducers({
-        tablesAllToggledOn: [
-            true as boolean,
-            {
-                toggleAllTables: (_, { selectAll }) => selectAll,
-            },
-        ],
         manualLinkingProvider: [
             null as ManualLinkSourceType | null,
             {
@@ -332,21 +332,23 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         ],
         source: [
-            { payload: {}, prefix: '' } as {
+            { payload: {}, prefix: '', description: '' } as {
                 prefix: string
+                description: string
                 payload: Record<string, any>
             },
             {
                 updateSource: (state, { source }) => {
                     return {
                         prefix: source.prefix ?? state.prefix,
+                        description: source.description ?? state.description,
                         payload: {
                             ...state.payload,
                             ...source.payload,
                         },
                     }
                 },
-                clearSource: () => ({ payload: {}, prefix: '' }),
+                clearSource: () => ({ payload: {}, prefix: '', description: '' }),
             },
         ],
         isLoading: [
@@ -513,6 +515,14 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     type: source,
                 })),
         ],
+        tablesAllToggledOn: [
+            (s) => [s.databaseSchema],
+            (databaseSchema: ExternalDataSourceSyncSchema[]): boolean | 'indeterminate' => {
+                const enabledCount = databaseSchema.filter((schema) => schema.should_sync).length
+                const totalCount = databaseSchema.length
+                return enabledCount === totalCount ? true : enabledCount > 0 ? 'indeterminate' : false
+            },
+        ],
         modalTitle: [
             (s) => [s.currentStep],
             (currentStep) => {
@@ -553,7 +563,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         },
         onSubmit: () => {
             // Shared function that triggers different actions depending on the current step
-
             if (values.currentStep === 1) {
                 return
             }
@@ -566,7 +575,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
 
             if (values.currentStep === 3 && values.selectedConnector?.name) {
-                const maxTablesShownPerSection = 4
                 const ignoredTables = values.databaseSchema.filter(
                     (schema) => !schema.should_sync || schema.sync_type === null
                 )
@@ -579,116 +587,47 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 const fullRefreshTables = values.databaseSchema.filter(
                     (schema) => schema.should_sync && schema.sync_type === 'full_refresh'
                 )
+
                 const confirmation = (
-                    <>
-                        <h4 className="mt-2">Full refresh tables</h4>
-                        <div className={fullRefreshTables.length > 0 ? 'text-warning' : ''}>
-                            {fullRefreshTables.length > 0 && <IconWarning />}
-                            <span className={fullRefreshTables.length > 0 ? 'pl-2' : ''}>
-                                Full refresh syncs can dramatically increase your spend if you aren't mindful of them.{' '}
-                                {fullRefreshTables.length > 0 ? (
-                                    <>You have the following tables setup for full refresh syncs:</>
-                                ) : (
-                                    <>None of your tables are setup for full refresh syncs. Yay!</>
-                                )}
-                            </span>
-                        </div>
-                        {fullRefreshTables.length > 0 && (
-                            <>
-                                <div className="px-4 grid grid-cols-1 gap-2 my-4 lg:grid-cols-2">
-                                    {fullRefreshTables
-                                        .slice(0, Math.min(fullRefreshTables.length, maxTablesShownPerSection))
-                                        .map((table) => (
-                                            <div
-                                                key={table.table}
-                                                className="font-mono px-2 rounded bg-surface-secondary w-min"
-                                            >
-                                                {table.table}
-                                            </div>
-                                        ))}
-                                </div>
-                                <div>
-                                    {fullRefreshTables.length > maxTablesShownPerSection && (
-                                        <div className="my-4">
-                                            and{' '}
-                                            <span className="text-warning font-bold">
-                                                {fullRefreshTables.length - maxTablesShownPerSection}
-                                            </span>{' '}
-                                            more...
-                                        </div>
-                                    )}
-                                </div>
-                            </>
-                        )}
-                        <h4 className="mt-2">Append-only tables</h4>
+                    <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-3 mt-2">
+                        {/* Incremental - Good */}
+                        <div className="font-bold text-success">Incremental</div>
                         <div>
-                            Append-only syncs, while preferrable to full refresh syncs, still need to be configured with
-                            care. The field you select for append-only syncing should not change when a row is updated
-                            &ndash; for example, <span className="font-mono">created_at</span>.{' '}
-                            {appendOnlyTables.length > 0 ? (
-                                <>You have the following tables setup for append-only syncs:</>
-                            ) : (
-                                <>None of your tables are setup for append-only syncs. Sick!</>
-                            )}
+                            <span className="text-muted">
+                                {tableCountFormatter(incrementalTables.length)}
+                                {incrementalTables.length === 69 ? ' (nice)' : ''}
+                                {incrementalTables.length === 67 ? ' (nice but only for genz)' : ''}
+                            </span>{' '}
+                            — Ideal. Syncs only changed rows using a field like{' '}
+                            <span className="font-mono text-xs">updated_at</span>.
                         </div>
-                        {appendOnlyTables.length > 0 && (
-                            <>
-                                <div className="px-4 grid grid-cols-1 gap-2 my-4 lg:grid-cols-2">
-                                    {appendOnlyTables
-                                        .slice(0, Math.min(appendOnlyTables.length, maxTablesShownPerSection))
-                                        .map((table) => (
-                                            <div
-                                                key={table.table}
-                                                className="font-mono px-2 rounded bg-surface-secondary w-min"
-                                            >
-                                                {table.table}
-                                            </div>
-                                        ))}
-                                </div>
-                                <div>
-                                    {appendOnlyTables.length > maxTablesShownPerSection && (
-                                        <div className="my-4">
-                                            and{' '}
-                                            <span className="text-warning font-bold">
-                                                {appendOnlyTables.length - maxTablesShownPerSection}
-                                            </span>{' '}
-                                            more...
-                                        </div>
-                                    )}
-                                </div>
-                            </>
-                        )}
-                        <h4 className="mt-2">Ignored tables</h4>
+
+                        {/* Append-only - Caution */}
+                        <div className="font-bold text-warning">Append-only</div>
                         <div>
-                            If you do not enable the checkbox for a table or configure its sync method, it will be
-                            ignored.{' '}
-                            {ignoredTables.length > 0 ? (
-                                <>
-                                    You currently have{' '}
-                                    <span className="text-warning font-bold">{ignoredTables.length}</span> table(s) set
-                                    to be ignored from future syncs.
-                                </>
-                            ) : (
-                                <>You are syncing all of your tables. You'll be bathing in data soon.</>
-                            )}
+                            <span className="text-muted">{tableCountFormatter(appendOnlyTables.length)}</span> — Use a
+                            field that doesn't change on updates, like{' '}
+                            <span className="font-mono text-xs">created_at</span>.
                         </div>
-                        <h4 className="mt-2">Incremental tables</h4>
+
+                        {/* Full refresh - Danger */}
+                        <div className="font-bold text-danger">Full refresh</div>
                         <div>
-                            The remainder of your tables are setup for incremental syncs, which are typically ideal. The
-                            field you select for syncing incrementally should change each time the row is updated - for
-                            example, <span className="font-mono">updated_at</span>.{' '}
-                            {incrementalTables.length > 0 && (
-                                <>
-                                    You currently have{' '}
-                                    <span className="text-warning font-bold">
-                                        {incrementalTables.length} {incrementalTables.length === 69 && ' (nice)'}
-                                    </span>{' '}
-                                    table(s) set to sync incrementally.
-                                </>
-                            )}
+                            <span className="text-muted">
+                                {tableCountFormatter(fullRefreshTables.length, { none: 'None ✓' })}
+                            </span>{' '}
+                            — Re-syncs all rows every time. Can significantly increase costs.
                         </div>
-                    </>
+
+                        {/* Ignored - Muted */}
+                        <div className="font-bold text-muted">Ignored</div>
+                        <div>
+                            <span className="text-muted">{tableCountFormatter(ignoredTables.length)}</span> — Tables
+                            without sync configured will be skipped.
+                        </div>
+                    </div>
                 )
+
                 LemonDialog.open({
                     title: 'Confirm your table configurations',
                     content: confirmation,
@@ -750,6 +689,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 // This should never happen
                 return
             }
+
             try {
                 const { id } = await api.externalDataSources.create({
                     ...values.source,
@@ -758,11 +698,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
                 lemonToast.success('New data resource created')
 
-                activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.ConnectSource)
-
                 actions.setSourceId(id)
                 actions.resetSourceConnectionDetails()
                 actions.loadSources(null)
+                actions.markTaskAsCompleted(ActivationTask.ConnectSource)
                 actions.onNext()
             } catch (e: any) {
                 lemonToast.error(e.data?.message ?? e.message)
@@ -840,14 +779,41 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
             actions.setIsLoading(false)
         },
-        setManualLinkingProvider: () => {
+        setManualLinkingProvider: ({ provider }) => {
             actions.onNext()
+
+            // Track marketing analytics intent for self-managed marketing sources
+            if (provider && VALID_SELF_MANAGED_MARKETING_SOURCES.includes(provider)) {
+                actions.addProductIntent({
+                    product_type: ProductKey.MARKETING_ANALYTICS,
+                    intent_context: ProductIntentContext.MARKETING_ANALYTICS_ADS_INTEGRATION_VISITED,
+                })
+            }
         },
-        selectConnector: () => {
+        selectConnector: ({ connector }) => {
             actions.addProductIntent({
                 product_type: ProductKey.DATA_WAREHOUSE,
                 intent_context: ProductIntentContext.SELECTED_CONNECTOR,
             })
+
+            // Track interest for marketing ad sources and marketing analytics
+            const isNativeMarketingSource =
+                connector?.name &&
+                VALID_NATIVE_MARKETING_SOURCES.includes(
+                    connector.name as (typeof VALID_NATIVE_MARKETING_SOURCES)[number]
+                )
+            const isExternalMarketingSource =
+                connector?.name &&
+                VALID_NON_NATIVE_MARKETING_SOURCES.includes(
+                    connector.name as (typeof VALID_NON_NATIVE_MARKETING_SOURCES)[number]
+                )
+
+            if (isNativeMarketingSource || isExternalMarketingSource) {
+                actions.addProductIntent({
+                    product_type: ProductKey.MARKETING_ANALYTICS,
+                    intent_context: ProductIntentContext.MARKETING_ANALYTICS_ADS_INTEGRATION_VISITED,
+                })
+            }
         },
         toggleAllTables: ({ selectAll }) => {
             actions.setDatabaseSchemas(
@@ -1024,4 +990,19 @@ export const getErrorsForFields = (
     }
 
     return errors
+}
+
+const tableCountFormatter = (
+    count: number,
+    { none = 'None', one = '1 table', many = 'tables' }: { none?: string; one?: string; many?: string } = {}
+): string => {
+    if (count === 0) {
+        return none
+    }
+
+    if (count === 1) {
+        return one
+    }
+
+    return `${count} ${many}`
 }

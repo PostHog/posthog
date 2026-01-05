@@ -154,6 +154,10 @@ export const teamLogic = kea<teamLogicType>([
                         message = payload.default_evaluation_environments_enabled
                             ? 'Default evaluation environments enabled'
                             : 'Default evaluation environments disabled'
+                    } else if (updatedAttribute === 'require_evaluation_environment_tags') {
+                        message = payload.require_evaluation_environment_tags
+                            ? 'Require evaluation environment tags enabled'
+                            : 'Require evaluation environment tags disabled'
                     } else if (
                         updatedAttribute === 'completed_snippet_onboarding' ||
                         updatedAttribute === 'has_completed_onboarding_for'
@@ -303,7 +307,8 @@ export const teamLogic = kea<teamLogicType>([
         ],
         customerAnalyticsConfig: [
             (s) => [s.currentTeam],
-            (currentTeam: TeamType): CustomerAnalyticsConfig => currentTeam.customer_analytics_config,
+            (currentTeam: TeamType): CustomerAnalyticsConfig =>
+                currentTeam?.customer_analytics_config ?? ({} as CustomerAnalyticsConfig),
         ],
     })),
     listeners(({ actions }) => ({

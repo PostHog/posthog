@@ -22,7 +22,7 @@ from posthog.hogql.database.s3_table import (
 )
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries, wrap_query_error
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
@@ -183,7 +183,8 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             access_key=self.credential.access_key,
             access_secret=self.credential.access_secret,
             context=placeholder_context,
-            table_size_mib=self.size_in_s3_mib,
+            table_size_mib=0,  # Use the non-cluster s3 table function for chdb
+            is_external_data_source=self.external_data_source_id is not None,
         )
         logger = structlog.get_logger(__name__)
         try:
@@ -193,7 +194,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
             quoted_placeholders = {k: f"'{v}'" for k, v in placeholder_context.values.items()}
             # chdb doesn't support parameterized queries
-            chdb_query = f"DESCRIBE TABLE (SELECT * FROM {s3_table_func} LIMIT 1)" % quoted_placeholders
+            chdb_query = f"DESCRIBE TABLE {s3_table_func}" % quoted_placeholders
 
             # TODO: upgrade chdb once https://github.com/chdb-io/chdb/issues/342 is actually resolved
             # See https://github.com/chdb-io/chdb/pull/374 for the fix
@@ -206,7 +207,13 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             else:
                 capture_exception(chdb_error)
 
-            tag_queries(team_id=self.team.pk, table_id=self.id, warehouse_query=True)
+            tag_queries(
+                team_id=self.team.pk,
+                table_id=self.id,
+                warehouse_query=True,
+                name="get_columns",
+                product=Product.WAREHOUSE,
+            )
 
             # The cluster is a little broken right now, and so this can intermittently fail.
             # See https://posthog.slack.com/archives/C076R4753Q8/p1756901693184169 for context
@@ -214,11 +221,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             for i in range(attempts):
                 try:
                     result = sync_execute(
-                        f"""DESCRIBE TABLE (
-                            SELECT *
-                            FROM {s3_table_func}
-                            LIMIT 1
-                        )""",
+                        f"""DESCRIBE TABLE {s3_table_func}""",
                         args=placeholder_context.values,
                     )
                     break
@@ -258,8 +261,16 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 access_secret=self.credential.access_secret,
                 context=placeholder_context,
                 table_size_mib=self.size_in_s3_mib,
+                is_external_data_source=self.external_data_source_id is not None,
             )
 
+            tag_queries(
+                team_id=self.team.pk,
+                table_id=self.id,
+                warehouse_query=True,
+                name="get_max_value_for_column",
+                product=Product.WAREHOUSE,
+            )
             result = sync_execute(
                 f"SELECT max(`{column}`) FROM {s3_table_func}",
                 args=placeholder_context.values,
@@ -279,7 +290,8 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             access_key=self.credential.access_key,
             access_secret=self.credential.access_secret,
             context=placeholder_context,
-            table_size_mib=self.size_in_s3_mib,
+            table_size_mib=0,  # Use the non-cluster s3 table function for chdb
+            is_external_data_source=self.external_data_source_id is not None,
         )
         try:
             # chdb hangs in CI during tests
@@ -297,7 +309,13 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             capture_exception(chdb_error)
 
             try:
-                tag_queries(team_id=self.team.pk, table_id=self.id, warehouse_query=True)
+                tag_queries(
+                    team_id=self.team.pk,
+                    table_id=self.id,
+                    warehouse_query=True,
+                    name="get_count",
+                    product=Product.WAREHOUSE,
+                )
 
                 result = sync_execute(
                     f"SELECT count() FROM {s3_table_func}",
@@ -323,6 +341,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 access_secret=self.credential.access_secret,
                 context=placeholder_context,
                 table_size_mib=self.size_in_s3_mib,
+                is_external_data_source=self.external_data_source_id is not None,
             )
 
         except Exception as err:
@@ -406,6 +425,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             fields=fields,
             structure=", ".join(structure),
             table_id=str(self.id),
+            is_external_data_source=self.external_data_source_id is not None,
         )
 
     def get_clickhouse_column_type(self, column_name: str) -> Optional[str]:

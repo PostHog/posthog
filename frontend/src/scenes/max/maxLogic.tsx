@@ -24,6 +24,7 @@ import { Breadcrumb, Conversation, ConversationDetail, ConversationStatus, SideP
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import type { maxLogicType } from './maxLogicType'
+import { MaxUIContext } from './maxTypes'
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
@@ -87,7 +88,11 @@ export const maxLogic = kea<maxLogicType>([
 
     actions({
         setQuestion: (question: string) => ({ question }), // update the form input
-        askMax: (prompt: string | null) => ({ prompt }), // used by maxThreadLogic to start a conversation
+        askMax: (prompt: string | null, addToThread: boolean = true, uiContext?: Partial<MaxUIContext>) => ({
+            prompt,
+            addToThread,
+            uiContext,
+        }), // used by maxThreadLogic to start a conversation
         scrollThreadToBottom: (behavior?: 'instant' | 'smooth') => ({ behavior }),
         openConversation: (conversationId: string) => ({ conversationId }),
         setConversationId: (conversationId: string) => ({ conversationId }),
@@ -493,12 +498,17 @@ export function getScrollableContainer(element?: Element | null): HTMLElement | 
     if (!element) {
         return null
     }
-    const scrollableEl = element.parentElement // .Navigation3000__scene or .SidePanel3000__content
-    if (scrollableEl && !scrollableEl.classList.contains('SidePanel3000__content')) {
-        // In this case we need to go up to <main>, since .Navigation3000__scene is not scrollable
-        return scrollableEl.parentElement
+    let current = element.parentElement
+    while (current) {
+        if (current.classList.contains('SidePanel3000__content')) {
+            return current
+        }
+        if (current.tagName === 'MAIN') {
+            return current
+        }
+        current = current.parentElement
     }
-    return scrollableEl
+    return null
 }
 
 export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
@@ -577,6 +587,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
     {
         label: 'Feature flags',
         icon: iconForType('feature_flag'),
+        url: urls.featureFlags(),
         suggestions: [
             {
                 content: 'Create a flag to gradually roll out…',
@@ -595,6 +606,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
     {
         label: 'Experiments',
         icon: iconForType('experiment'),
+        url: urls.experiments(),
         suggestions: [
             {
                 content: 'Create an experiment to test…',

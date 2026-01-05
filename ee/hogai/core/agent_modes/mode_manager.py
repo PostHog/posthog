@@ -11,8 +11,6 @@ from ee.hogai.core.agent_modes.toolkit import AgentToolkit, AgentToolkitManager
 from ee.hogai.core.mixins import AssistantContextMixin
 from ee.hogai.utils.types.base import NodePath
 
-from .feature_flags import has_agent_modes_feature_flag
-
 if TYPE_CHECKING:
     from .executables import AgentExecutable, AgentToolsExecutable
     from .factory import AgentModeDefinition
@@ -35,10 +33,7 @@ class AgentModeManager(AssistantContextMixin, ABC):
         self._user = user
         self._node_path = node_path
         self._context_manager = context_manager
-        if has_agent_modes_feature_flag(team, user):
-            self._mode = mode or AgentMode.PRODUCT_ANALYTICS
-        else:
-            self._mode = AgentMode.PRODUCT_ANALYTICS
+        self._mode = mode or AgentMode.PRODUCT_ANALYTICS
 
     @property
     @abstractmethod

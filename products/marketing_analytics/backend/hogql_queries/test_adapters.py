@@ -48,8 +48,18 @@ from products.marketing_analytics.backend.hogql_queries.adapters.tiktok_ads impo
 TEST_DATE_FROM = "2024-01-01"
 TEST_DATE_TO = "2024-12-31"
 TEST_BUCKET_BASE = "test_storage_bucket-posthog.marketing_analytics"
-EXPECTED_COLUMN_COUNT = 6
-EXPECTED_COLUMN_ALIASES = ["campaign", "source", "impressions", "clicks", "cost", "reported_conversion"]
+EXPECTED_COLUMN_COUNT = 9
+EXPECTED_COLUMN_ALIASES = [
+    "match_key",
+    "campaign",
+    "id",
+    "source",
+    "impressions",
+    "clicks",
+    "cost",
+    "reported_conversion",
+    "reported_conversion_value",
+]
 
 
 logger = logging.getLogger(__name__)
@@ -154,6 +164,11 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
                         "schema_valid": True,
                     },
                     "metrics_conversions": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                    "metrics_conversions_value": {
                         "hogql": "FloatDatabaseField",
                         "clickhouse": "Float64",
                         "schema_valid": True,
@@ -1418,16 +1433,18 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert query is not None, "BigQueryAdapter should generate a query"
         results = self._execute_query_and_validate(query)
 
-        total_cost = sum(float(row[4] or 0) for row in results)
-        total_impressions = sum(int(row[2] or 0) for row in results)
-        total_clicks = sum(int(row[3] or 0) for row in results)
+        # Column indices: match_key=0, campaign=1, id=2, source=3, impressions=4,
+        # clicks=5, cost=6, reported_conversion=7, reported_conversion_value=8
+        total_cost = sum(float(row[6] or 0) for row in results)
+        total_impressions = sum(int(row[4] or 0) for row in results)
+        total_clicks = sum(int(row[5] or 0) for row in results)
 
         assert len(results) == 14, "Expected 14 campaigns from BigQuery CSV"
         assert abs(total_cost - 18.66) < 0.01, f"Expected cost $18.66, got ${total_cost}"
         assert total_impressions == 1676, f"Expected 1676 impressions, got {total_impressions}"
         assert total_clicks == 12, f"Expected 12 clicks, got {total_clicks}"
 
-        sources = [row[1] for row in results]
+        sources = [row[3] for row in results]
         assert all(source == "Unknown Source" for source in sources), "All sources should be 'Unknown Source'"
 
     def test_google_ads_adapter_with_real_data(self):
@@ -1451,16 +1468,18 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert query is not None, "GoogleAdsAdapter should generate a query"
         results = self._execute_query_and_validate(query)
 
-        total_cost = sum(float(row[4] or 0) for row in results)
-        total_impressions = sum(int(row[2] or 0) for row in results)
-        total_clicks = sum(int(row[3] or 0) for row in results)
+        # Column indices: match_key=0, campaign=1, id=2, source=3, impressions=4,
+        # clicks=5, cost=6, reported_conversion=7, reported_conversion_value=8
+        total_cost = sum(float(row[6] or 0) for row in results)
+        total_impressions = sum(int(row[4] or 0) for row in results)
+        total_clicks = sum(int(row[5] or 0) for row in results)
 
         assert len(results) == 12, "Expected 12 campaigns from Google Ads JOIN"
         assert abs(total_cost - 644.50) < 0.01, f"Expected cost $644.50, got ${total_cost}"
         assert total_impressions == 1687, f"Expected 1687 impressions, got {total_impressions}"
         assert total_clicks == 72, f"Expected 72 clicks, got {total_clicks}"
 
-        sources = [row[1] for row in results]
+        sources = [row[3] for row in results]
         assert all(source == "google" for source in sources), "All sources should be 'google'"
 
     def test_linkedin_ads_adapter_with_real_data(self):
@@ -1484,16 +1503,18 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert query is not None, "Expected adapter to build a valid query"
         results = self._execute_query_and_validate(query)
 
-        total_cost = sum(float(row[4] or 0) for row in results)
-        total_impressions = sum(int(row[2] or 0) for row in results)
-        total_clicks = sum(int(row[3] or 0) for row in results)
+        # Column indices: match_key=0, campaign=1, id=2, source=3, impressions=4,
+        # clicks=5, cost=6, reported_conversion=7, reported_conversion_value=8
+        total_cost = sum(float(row[6] or 0) for row in results)
+        total_impressions = sum(int(row[4] or 0) for row in results)
+        total_clicks = sum(int(row[5] or 0) for row in results)
 
         assert len(results) == 5, "Expected 5 campaigns from LinkedIn Ads JOIN"
         assert abs(total_cost - 1600.00) < 0.01, f"Expected cost $1600.00, got ${total_cost}"
         assert total_impressions == 485, f"Expected 485 impressions, got {total_impressions}"
         assert total_clicks == 26, f"Expected 26 clicks, got {total_clicks}"
 
-        sources = [row[1] for row in results]
+        sources = [row[3] for row in results]
         assert all(source == "linkedin" for source in sources), "All sources should be 'linkedin'"
 
     def test_reddit_ads_adapter_with_real_data(self):
@@ -1517,16 +1538,18 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert query is not None, "RedditAdsAdapter should generate a query"
         results = self._execute_query_and_validate(query)
 
-        total_cost = sum(float(row[4] or 0) for row in results)
-        total_impressions = sum(int(row[2] or 0) for row in results)
-        total_clicks = sum(int(row[3] or 0) for row in results)
+        # Column indices: match_key=0, campaign=1, id=2, source=3, impressions=4,
+        # clicks=5, cost=6, reported_conversion=7, reported_conversion_value=8
+        total_cost = sum(float(row[6] or 0) for row in results)
+        total_impressions = sum(int(row[4] or 0) for row in results)
+        total_clicks = sum(int(row[5] or 0) for row in results)
 
         assert len(results) == 10, "Expected 10 campaigns from Reddit Ads JOIN"
         assert abs(total_cost - 90.6) < 0.01, f"Expected cost $90.6, got ${total_cost}"
         assert total_impressions == 14299, f"Expected 14299 impressions, got {total_impressions}"
         assert total_clicks == 454, f"Expected 454 clicks, got {total_clicks}"
 
-        sources = [row[1] for row in results]
+        sources = [row[3] for row in results]
         assert all(source == "reddit" for source in sources), "All sources should be 'reddit'"
 
     def test_multi_adapter_union_with_real_data(self):
@@ -1579,9 +1602,11 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         union_query = ast.SelectSetQuery.create_from_queries([facebook_query, tiktok_query], "UNION ALL")
         results = self._execute_query_and_validate(union_query)
 
-        total_cost = sum(float(row[4] or 0) for row in results)
-        total_impressions = sum(int(row[2] or 0) for row in results)
-        total_clicks = sum(int(row[3] or 0) for row in results)
+        # Column indices: match_key=0, campaign=1, id=2, source=3, impressions=4,
+        # clicks=5, cost=6, reported_conversion=7, reported_conversion_value=8
+        total_cost = sum(float(row[6] or 0) for row in results)
+        total_impressions = sum(int(row[4] or 0) for row in results)
+        total_clicks = sum(int(row[5] or 0) for row in results)
 
         assert len(results) == 28, "Expected 28 campaigns from union (BigQuery: 14 + S3: 14)"
         assert abs(total_cost - 127.17) < 0.01, f"Expected cost $127.17 (combined sources), got ${total_cost}"
@@ -1696,3 +1721,132 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
             assert result.is_valid, "All adapters should validate successfully"
 
         adapters.clear()
+
+    # ================================================================
+    # MATCH KEY PREFERENCE TESTS
+    # ================================================================
+
+    def test_match_key_uses_campaign_id_when_configured(self):
+        """Test that match_key uses campaign_id field when campaign_field_preferences is set to campaign_id."""
+        # Configure the team to use campaign_id for MetaAds
+        self.team.marketing_analytics_config.campaign_field_preferences = {"MetaAds": {"match_field": "campaign_id"}}
+        self.team.marketing_analytics_config.save()
+
+        # Create MetaAdsAdapter with mock tables
+        campaign_table = self._create_mock_table("metaads_campaigns", "MetaAds")
+        stats_table = self._create_mock_table("metaads_campaign_stats", "MetaAds")
+
+        config = MetaAdsConfig(
+            campaign_table=campaign_table,
+            stats_table=stats_table,
+            source_type="MetaAds",
+            source_id="meta_ads_id_preference",
+        )
+
+        adapter = MetaAdsAdapter(config=config, context=self.context)
+        query = adapter.build_query()
+
+        assert query is not None, "MetaAdsAdapter should generate a query"
+
+        # Find the match_key column
+        match_key_col = next(
+            (col for col in query.select if hasattr(col, "alias") and col.alias == "match_key"),
+            None,
+        )
+        assert match_key_col is not None, "Should have match_key column"
+
+        # Convert to HogQL to check the field used
+        hogql_query = query.to_hogql()
+
+        # Verify the match_key uses the id field, not the name field
+        # The id field in Meta Ads is referenced as "metaads_campaigns.id"
+        assert (
+            "metaads_campaigns.id" in hogql_query
+        ), f"match_key should use campaign id field (metaads_campaigns.id), but got: {hogql_query}"
+        # Verify it's in the match_key alias context (not just anywhere in the query)
+        # The pattern should be: toString(metaads_campaigns.id) AS match_key
+        assert "AS match_key" in hogql_query, "match_key alias should exist"
+
+        # Snapshot the query to confirm id is used
+        assert self._execute_and_snapshot(query) == self.snapshot
+
+    def test_match_key_uses_campaign_name_by_default(self):
+        """Test that match_key uses campaign_name field by default (no preferences set)."""
+        # Don't set any preferences - use default behavior
+        self.team.marketing_analytics_config.campaign_field_preferences = {}
+        self.team.marketing_analytics_config.save()
+
+        # Create MetaAdsAdapter with mock tables
+        campaign_table = self._create_mock_table("metaads_campaigns", "MetaAds")
+        stats_table = self._create_mock_table("metaads_campaign_stats", "MetaAds")
+
+        config = MetaAdsConfig(
+            campaign_table=campaign_table,
+            stats_table=stats_table,
+            source_type="MetaAds",
+            source_id="meta_ads_default",
+        )
+
+        adapter = MetaAdsAdapter(config=config, context=self.context)
+        query = adapter.build_query()
+
+        assert query is not None, "MetaAdsAdapter should generate a query"
+
+        # Convert to HogQL to check the field used
+        hogql_query = query.to_hogql()
+
+        # Verify the match_key uses the name field, not the id field
+        # The name field in Meta Ads is referenced as "metaads_campaigns.name"
+        assert (
+            "metaads_campaigns.name" in hogql_query
+        ), f"match_key should use campaign name field by default (metaads_campaigns.name), but got: {hogql_query}"
+
+        # Snapshot the query to confirm name is used
+        assert self._execute_and_snapshot(query) == self.snapshot
+
+    def test_match_key_preference_per_integration(self):
+        """Test that different integrations can have different match_key preferences."""
+        # Configure MetaAds to use campaign_id, but leave GoogleAds with default (campaign_name)
+        self.team.marketing_analytics_config.campaign_field_preferences = {
+            "MetaAds": {"match_field": "campaign_id"},
+            # GoogleAds not specified, should use campaign_name by default
+        }
+        self.team.marketing_analytics_config.save()
+
+        # Create MetaAdsAdapter
+        meta_campaign_table = self._create_mock_table("metaads_campaigns", "MetaAds")
+        meta_stats_table = self._create_mock_table("metaads_campaign_stats", "MetaAds")
+        meta_config = MetaAdsConfig(
+            campaign_table=meta_campaign_table,
+            stats_table=meta_stats_table,
+            source_type="MetaAds",
+            source_id="meta_ads_mixed",
+        )
+        meta_adapter = MetaAdsAdapter(config=meta_config, context=self.context)
+        meta_query = meta_adapter.build_query()
+
+        # Create GoogleAdsAdapter
+        google_campaign_table = self._create_mock_table("google_ads_campaign", "GoogleAds")
+        google_stats_table = self._create_mock_table("google_ads_stats", "GoogleAds")
+        google_config = GoogleAdsConfig(
+            campaign_table=google_campaign_table,
+            stats_table=google_stats_table,
+            source_type="GoogleAds",
+            source_id="google_ads_mixed",
+        )
+        google_adapter = GoogleAdsAdapter(config=google_config, context=self.context)
+        google_query = google_adapter.build_query()
+
+        assert meta_query is not None, "MetaAdsAdapter should generate a query"
+        assert google_query is not None, "GoogleAdsAdapter should generate a query"
+
+        meta_hogql = meta_query.to_hogql()
+        google_hogql = google_query.to_hogql()
+
+        # Meta should use id field
+        assert "metaads_campaigns.id" in meta_hogql, f"MetaAds match_key should use id field, but got: {meta_hogql}"
+
+        # Google should use name field (default)
+        assert (
+            "google_ads_campaign.campaign_name" in google_hogql
+        ), f"GoogleAds match_key should use campaign_name field by default, but got: {google_hogql}"

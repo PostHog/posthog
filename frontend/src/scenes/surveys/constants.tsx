@@ -17,6 +17,8 @@ import {
     SurveyWidgetType,
 } from '~/types'
 
+import { QuickSurveyContext, QuickSurveyType } from './quick-create/types'
+
 export const SURVEY_PAGE_SIZE = 100
 
 export const LINK_PAGE_SIZE = 100
@@ -119,6 +121,7 @@ export const defaultSurveyFieldValues = {
                 scale: SURVEY_RATING_SCALE.NPS_10_POINT,
                 lowerBoundLabel: 'Unlikely',
                 upperBoundLabel: 'Very likely',
+                isNpsQuestion: true,
                 buttonText: 'Submit',
             },
         ],
@@ -185,6 +188,8 @@ export interface NewSurvey
         | 'schedule'
         | 'enable_partial_responses'
         | 'user_access_level'
+        | 'headline_summary'
+        | 'headline_response_count'
     > {
     id: 'new'
     linked_flag_id: number | null
@@ -235,12 +240,22 @@ export enum SurveyTemplateType {
     FeatureRequest = 'Feature request',
     OnboardingFeedback = 'Onboarding feedback',
     BetaFeedback = 'Beta feedback',
+    Announcement = 'Announcement',
+}
+
+export interface QuickSurveyFromTemplate {
+    context: QuickSurveyContext
+    modalTitle?: string
+    info?: string
 }
 
 export type SurveyTemplate = Partial<Survey> & {
     templateType: SurveyTemplateType
     tagType?: 'success' | 'primary' | 'completion' | 'default'
     category?: 'Metrics' | 'Product' | 'Business' | 'General'
+    badge?: string
+    featured?: boolean
+    quickSurvey?: QuickSurveyFromTemplate
 }
 
 export const defaultSurveyTemplates: SurveyTemplate[] = [
@@ -259,6 +274,35 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
         tagType: 'default',
         category: 'General',
         appearance: defaultSurveyAppearance,
+        badge: 'Most popular',
+    },
+    {
+        type: SurveyType.Popover,
+        templateType: SurveyTemplateType.Announcement,
+        questions: [
+            {
+                type: SurveyQuestionType.Link,
+                question: 'Hog mode is now available!',
+                description: 'You can never have too many hedgehogs.',
+                descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
+                buttonText: 'Check it out 👉',
+                link: null,
+            },
+        ],
+        appearance: {
+            ...defaultSurveyAppearance,
+            displayThankYouMessage: false,
+        },
+        description: 'Tell users about a new product or feature',
+        tagType: 'completion',
+        category: 'Business',
+        badge: 'New!',
+        featured: true,
+        quickSurvey: {
+            context: { type: QuickSurveyType.ANNOUNCEMENT },
+            modalTitle: 'New announcement',
+            info: 'This announcement will display to all users (once per user). Optionally, specify a target URL below.',
+        },
     },
     {
         type: SurveyType.Popover,
@@ -273,6 +317,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
                 scale: SURVEY_RATING_SCALE.NPS_10_POINT,
                 lowerBoundLabel: 'Unlikely',
                 upperBoundLabel: 'Very likely',
+                isNpsQuestion: true,
                 skipSubmitButton: true,
             },
             {
@@ -563,7 +608,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
 ]
 
 export const WEB_SAFE_FONTS = [
-    { value: 'inherit', label: 'inherit (uses your website font)' },
+    { value: 'inherit', label: 'inherit (your website font)' },
     { value: 'system-ui', label: 'system-ui' },
     { value: 'Arial', label: 'Arial' },
     { value: 'Verdana', label: 'Verdana' },
@@ -633,11 +678,9 @@ export enum SURVEY_CREATED_SOURCE {
     SURVEY_EMPTY_STATE = 'survey_empty_state',
     EXPERIMENTS = 'experiments',
     INSIGHT_CROSS_SELL = 'insight_cross_sell',
-}
-
-export enum SURVEY_EMPTY_STATE_EXPERIMENT_VARIANT {
-    TEST = 'test', // new experience
-    CONTROL = 'control', // current state
+    CUSTOMER_ANALYTICS_INSIGHT = 'customer_analytics_insight',
+    ERROR_TRACKING = 'error_tracking',
+    WEB_ANALYTICS = 'web_analytics',
 }
 
 export enum SURVEY_FORM_INPUT_IDS {

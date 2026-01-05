@@ -6,7 +6,9 @@ Note: This module uses a real Snowflake connection.
 
 import os
 import uuid
+import typing as t
 import datetime as dt
+import collections.abc
 
 import pytest
 
@@ -60,7 +62,9 @@ async def _run_activity(
     expect_duplicates: bool = False,
     primary_key=None,
     assert_clickhouse_records: bool = True,
+    timestamp_columns: collections.abc.Sequence[str] = (),
     uppercase_columns: list[str] | None = None,
+    extra_fields: dict[str, t.Any] | None = None,
 ):
     """Helper function to run insert_into_snowflake_activity_from_stage and assert records in Snowflake"""
     insert_inputs = SnowflakeInsertInputs(
@@ -77,7 +81,7 @@ async def _run_activity(
 
     assert insert_inputs.batch_export_id is not None
     # we first need to run the insert_into_internal_stage_activity so that we have data to export
-    await activity_environment.run(
+    stage_folder = await activity_environment.run(
         insert_into_internal_stage_activity,
         BatchExportInsertIntoInternalStageInputs(
             team_id=insert_inputs.team_id,
@@ -93,6 +97,7 @@ async def _run_activity(
             destination_default_fields=snowflake_default_fields(),
         ),
     )
+    insert_inputs.stage_folder = stage_folder
     result = await activity_environment.run(insert_into_snowflake_activity_from_stage, insert_inputs)
 
     if assert_clickhouse_records:
@@ -109,7 +114,9 @@ async def _run_activity(
             expected_fields=expected_fields,
             expect_duplicates=expect_duplicates,
             primary_key=primary_key,
+            timestamp_columns=timestamp_columns,
             uppercase_columns=uppercase_columns,
+            extra_fields=extra_fields,
         )
     return result
 
@@ -297,7 +304,7 @@ async def test_insert_into_snowflake_activity_merges_sessions_data_in_follow_up_
         count_outside_range=0,
         count_other_team=0,
         duplicate=False,
-        properties=event["properties"],
+        properties={**event["properties"], "$current_url": "http://localhost.org"},
         person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
         event_name=event["event"],
         table="sharded_events",
@@ -317,13 +324,17 @@ async def test_insert_into_snowflake_activity_merges_sessions_data_in_follow_up_
         sort_key="session_id",
     )
 
-    snowflake_cursor.execute(f'SELECT "session_id", "end_timestamp" FROM "{table_name}"')
+    snowflake_cursor.execute(f'SELECT "session_id", "end_timestamp", "urls" FROM "{table_name}"')
     rows = list(snowflake_cursor.fetchall())
     new_event = new_events[0]
     new_event_properties = new_event["properties"] or {}
     assert len(rows) == 1
     assert rows[0][0] == new_event_properties["$session_id"]
     assert rows[0][1] == dt.datetime.fromisoformat(new_event["timestamp"])
+    # Snowflake client doesn't evaluate arrays to python lists.
+    # The presence of new lines is an indicator that 'urls' is of the correct type as
+    # that's how snowflake displays arrays.
+    assert rows[0][2] == '[\n  "http://localhost.org"\n]'
 
 
 async def test_insert_into_snowflake_activity_removes_internal_stage_files(
@@ -458,7 +469,7 @@ async def test_insert_into_snowflake_activity_heartbeats(
 
     with override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=0):
         assert insert_inputs.batch_export_id is not None
-        await activity_environment.run(
+        stage_folder = await activity_environment.run(
             insert_into_internal_stage_activity,
             BatchExportInsertIntoInternalStageInputs(
                 team_id=insert_inputs.team_id,
@@ -474,6 +485,7 @@ async def test_insert_into_snowflake_activity_heartbeats(
                 destination_default_fields=snowflake_default_fields(),
             ),
         )
+        insert_inputs.stage_folder = stage_folder
         await activity_environment.run(insert_into_snowflake_activity_from_stage, insert_inputs)
 
     # It's not guaranteed we will heartbeat right after every file.
@@ -570,7 +582,7 @@ async def test_insert_into_snowflake_activity_handles_person_schema_changes(
     )
 
 
-async def test_insert_into_snowflake_activity_raises_error_when_schema_is_incompatible(
+async def test_insert_into_snowflake_activity_from_stage_handles_datetime_to_int(
     clickhouse_client,
     activity_environment,
     snowflake_cursor,
@@ -580,15 +592,24 @@ async def test_insert_into_snowflake_activity_raises_error_when_schema_is_incomp
     data_interval_end,
     ateam,
 ):
-    """Test that the `insert_into_snowflake_activity_from_stage` raises an error when the schema of the destination table is
-    incompatible with the schema of the data we are trying to load. This typically applies to the events table, which
-    has a fixed schema (for now).
+    """Test that the `insert_into_snowflake_activity_from_stage` handles columns in the
+    destination having INT64 type for DateTime64 columns.
 
-    To replicate this situation we first export the data with the original
-    schema, then delete a column in the destination and then rerun the export.
+    ClickHouse exports DateTime columns as uint32. Not to be confused with DateTime64
+    columns which are exported as Arrow's native timestamp type.
+
+    This can lead to fields in destination tables corresponding to DateTime types being
+    created as Snowflake's INTEGER, as that's how we resolve Arrow's uint32.
+
+    If the ClickHouse type ever changes from DateTime to DateTime64, for example, if the
+    query is updated, we want to ensure we can continue exporting to an INTEGER field,
+    even if the field is now DateTime64.
+
+    To replicate this situation we first export the data to create the table, then alter
+    'created_at' to be of type INTEGER, and then rerun the export.
     """
-    model = BatchExportModel(name="events", schema=None)
-    table_name = f"test_insert_activity_events_table_{ateam.pk}"
+    model = BatchExportModel(name="persons", schema=None)
+    table_name = f"test_insert_activity_persons_table_{ateam.pk}"
 
     await _run_activity(
         activity_environment=activity_environment,
@@ -600,11 +621,12 @@ async def test_insert_into_snowflake_activity_raises_error_when_schema_is_incomp
         data_interval_end=data_interval_end,
         table_name=table_name,
         batch_export_model=model,
-        sort_key="uuid",
+        sort_key="person_id",
     )
 
-    # Drop the timestamp column from the Snowflake table
-    snowflake_cursor.execute(f'ALTER TABLE "{table_name}" DROP COLUMN "timestamp"')
+    snowflake_cursor.execute(f'TRUNCATE TABLE "{table_name}"')
+    snowflake_cursor.execute(f'ALTER TABLE "{table_name}" DROP COLUMN "created_at"')
+    snowflake_cursor.execute(f'ALTER TABLE "{table_name}" ADD COLUMN "created_at" INTEGER')
 
     result = await _run_activity(
         activity_environment=activity_environment,
@@ -616,13 +638,12 @@ async def test_insert_into_snowflake_activity_raises_error_when_schema_is_incomp
         data_interval_end=data_interval_end,
         table_name=table_name,
         batch_export_model=model,
-        sort_key="uuid",
-        assert_clickhouse_records=False,
+        sort_key="person_id",
+        timestamp_columns=("created_at",),
     )
 
     assert isinstance(result, BatchExportResult)
-    assert result.error is not None
-    assert result.error.type == "SnowflakeIncompatibleSchemaError"
+    assert result.error is None
 
 
 @pytest.mark.parametrize(
@@ -688,4 +709,56 @@ async def test_insert_into_snowflake_activity_handles_uppercased_columns(
         batch_export_model=model,
         sort_key=sort_key,
         uppercase_columns=uppercase_columns,
+    )
+
+
+@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+async def test_insert_into_snowflake_activity_handles_extra_columns_in_destination(
+    clickhouse_client,
+    activity_environment,
+    snowflake_cursor,
+    snowflake_config,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
+    ateam,
+    model,
+):
+    """Test that the `insert_into_snowflake_activity_from_stage` can handle target
+    table having extra columns. In addition, it should respect extra columns that have default values (i.e. we shouldn't
+    be inserting NULL values explicitly).
+
+    This test first runs the batch export normally to create a target table, then
+    adds an extra column to the target table, and finally re-runs the batch export.
+    """
+    table_name = f"test_insert_activity_{model.name}_handles_extra_columns_{ateam.pk}"
+
+    await _run_activity(
+        activity_environment=activity_environment,
+        snowflake_cursor=snowflake_cursor,
+        clickhouse_client=clickhouse_client,
+        snowflake_config=snowflake_config,
+        team=ateam,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        table_name=table_name,
+        batch_export_model=model,
+        sort_key="uuid",
+    )
+
+    snowflake_cursor.execute(f'TRUNCATE TABLE "{table_name}"')
+    snowflake_cursor.execute(f'ALTER TABLE "{table_name}" ADD COLUMN "extra_column" TEXT DEFAULT \'test\'')
+
+    await _run_activity(
+        activity_environment=activity_environment,
+        snowflake_cursor=snowflake_cursor,
+        clickhouse_client=clickhouse_client,
+        snowflake_config=snowflake_config,
+        team=ateam,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        table_name=table_name,
+        batch_export_model=model,
+        sort_key="uuid",
+        extra_fields={"extra_column": "test"},
     )

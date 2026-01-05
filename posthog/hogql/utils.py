@@ -1,6 +1,7 @@
 from dataclasses import fields
 from typing import Any, Union, get_args, get_origin
 
+from posthog.hogql import ast
 from posthog.hogql.ast import AST, AST_CLASSES, Constant, Expr, HogQLXAttribute, HogQLXTag
 
 
@@ -105,3 +106,16 @@ def deserialize_hx_ast(hog_ast: dict) -> AST:
         init_args[key] = _deserialize(value, cls_fields[key])
 
     return cls(**init_args)  # type: ignore
+
+
+def map_virtual_properties(e: ast.Expr):
+    if (
+        isinstance(e, ast.Field)
+        and len(e.chain) >= 2
+        and e.chain[-2] == "properties"
+        and isinstance(e.chain[-1], str)
+        and e.chain[-1].startswith("$virt")
+    ):
+        # we pretend virtual properties are regular properties, but they should map to the same field directly on the parent table
+        return ast.Field(chain=e.chain[:-2] + [e.chain[-1]])
+    return e

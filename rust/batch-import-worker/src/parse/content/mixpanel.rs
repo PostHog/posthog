@@ -9,6 +9,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use super::TransformContext;
+use crate::parse::format::{extract_between, extract_field_name, UserFacingParseError};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -35,6 +36,52 @@ pub struct MixpanelProperties {
     distinct_id: Option<String>,
     #[serde(flatten)]
     other: HashMap<String, Value>,
+}
+
+/// Implement schema-specific error messages for MixpanelEvent
+/// That we can surface to the user to let them know what's wrong with the
+/// data set they are trying to import
+impl UserFacingParseError for MixpanelEvent {
+    fn user_facing_schema_error(err: &serde_json::Error) -> String {
+        let err_str = err.to_string();
+
+        if err_str.contains("missing field") {
+            if let Some(field_name) = extract_field_name(&err_str, "missing field `", "`") {
+                return match field_name.as_str() {
+                    "event" => "Missing required field 'event'. Each Mixpanel event must have an 'event' field with the event name (e.g., \"event\": \"page_view\").".to_string(),
+                    "properties" => "Missing required field 'properties'. Each Mixpanel event must have a 'properties' object containing at least the 'time' field.".to_string(),
+                    "time" => "Missing required field 'time' in 'properties'. Each Mixpanel event must have a timestamp (e.g., \"properties\": {\"time\": 1697379000}).".to_string(),
+                    _ => format!("Missing required field '{field_name}'. Please check that your Mixpanel export includes this field."),
+                };
+            }
+        }
+
+        if err_str.contains("invalid type:") {
+            let got = extract_between(&err_str, "invalid type: ", ", expected");
+            let expected = extract_between(&err_str, "expected ", " at line");
+
+            if let (Some(got), Some(expected)) = (got, expected) {
+                if err_str.contains("`event`") || (expected == "a string" && err.column() < 15) {
+                    return format!(
+                        "The 'event' field must be a string (e.g., \"event\": \"page_view\"), but got {got}."
+                    );
+                }
+                if err_str.contains("`time`") || expected.contains("i64") {
+                    return format!(
+                        "The 'time' field must be a Unix timestamp (integer), but got {got}. Use seconds since epoch (e.g., 1697379000)."
+                    );
+                }
+                if expected.contains("map") || expected.contains("struct") {
+                    return format!(
+                        "Expected an object/map but got {got}. The 'properties' field must be a JSON object like {{\"time\": 1697379000}}."
+                    );
+                }
+            }
+        }
+
+        // Fallback to generic message
+        "The JSON structure doesn't match the expected Mixpanel event format. Required fields: 'event' (string), 'properties' (object with 'time' as integer timestamp).".to_string()
+    }
 }
 
 // Based off sample data provided by customer.
@@ -99,6 +146,7 @@ impl MixpanelEvent {
                 let inner = CapturedEvent {
                     uuid: event_uuid,
                     distinct_id,
+                    session_id: None,
                     ip: "127.0.0.1".to_string(),
                     data: serde_json::to_string(&raw_event)?,
                     now: Utc::now().to_rfc3339(),

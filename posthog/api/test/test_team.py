@@ -380,6 +380,38 @@ def team_api_test_factory():
             self.team.refresh_from_db()
             self.assertNotEqual(self.team.timezone, "America/I_Dont_Exist")
 
+        @parameterized.expand(
+            [
+                ("null_value", None, True),
+                ("empty_string", "", True),
+                ("valid_slack_url", "https://hooks.slack.com/services/T00/B00/XXX", True),
+                ("valid_external_url", "https://example.com/webhook", True),
+                ("localhost", "http://localhost/webhook", False),
+                ("localhost_with_port", "http://localhost:8080/webhook", False),
+                ("loopback_ip", "http://127.0.0.1/webhook", False),
+                ("internal_ip_192", "http://192.168.1.1/webhook", False),
+                ("internal_ip_10", "http://10.0.0.1/webhook", False),
+                ("internal_ip_172", "http://172.16.0.1/webhook", False),
+            ]
+        )
+        @override_settings(DEBUG=False)
+        def test_slack_incoming_webhook_ssrf_validation(
+            self, _name: str, webhook_url: str | None, should_succeed: bool
+        ):
+            """Test that slack_incoming_webhook rejects internal/private IPs (CVE-2025-1521)."""
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"slack_incoming_webhook": webhook_url},
+            )
+            if should_succeed:
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                self.team.refresh_from_db()
+                self.assertEqual(self.team.slack_incoming_webhook, webhook_url if webhook_url else None)
+            else:
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+                response_data = response.json()
+                self.assertIn("Invalid webhook URL", response_data.get("detail", "") or str(response_data))
+
         def test_cant_update_team_from_another_org(self):
             org = Organization.objects.create(name="New Org")
             team = Team.objects.create(organization=org, name="Default project")
@@ -1447,6 +1479,43 @@ def team_api_test_factory():
             # and the existing second level nesting is not preserved
             self._assert_replay_config_is({"ai_config": {"opt_in": None, "included_event_properties": ["and another"]}})
 
+        def test_modifiers_are_merged_on_patch(self) -> None:
+            # Set initial modifiers with personsOnEventsMode
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {"modifiers": {"personsOnEventsMode": "person_id_override_properties_on_events"}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["modifiers"] == {"personsOnEventsMode": "person_id_override_properties_on_events"}
+
+            # Patch with customChannelTypeRules - should preserve personsOnEventsMode
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {
+                    "modifiers": {
+                        "customChannelTypeRules": [
+                            {"id": "test", "channel_type": "Direct", "combiner": "AND", "items": []}
+                        ]
+                    }
+                },
+            )
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["modifiers"]["personsOnEventsMode"] == "person_id_override_properties_on_events"
+            assert response.json()["modifiers"]["customChannelTypeRules"] == [
+                {"id": "test", "channel_type": "Direct", "combiner": "AND", "items": []}
+            ]
+
+            # Patch with a different personsOnEventsMode - should update it while keeping customChannelTypeRules
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {"modifiers": {"personsOnEventsMode": "person_id_override_properties_joined"}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["modifiers"]["personsOnEventsMode"] == "person_id_override_properties_joined"
+            assert response.json()["modifiers"]["customChannelTypeRules"] == [
+                {"id": "test", "channel_type": "Direct", "combiner": "AND", "items": []}
+            ]
+
         @patch("posthog.event_usage.report_user_action")
         @freeze_time("2024-01-01T00:00:00Z")
         def test_can_add_product_intent(self, mock_report_user_action: MagicMock) -> None:
@@ -2112,6 +2181,25 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         new_team = Team.objects.get(name="Test No IP Anonymization")
         self.assertFalse(new_team.anonymize_ips)
 
+    def test_new_team_explicit_anonymize_ips_overrides_org_default(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ENVIRONMENTS, "name": "Environments", "limit": None}
+        ]
+        self.organization.default_anonymize_ips = False
+        self.organization.save()
+
+        response = self.client.post(
+            "/api/projects/@current/environments/",
+            {"name": "Explicit Anonymize IPs", "anonymize_ips": True},
+        )
+        assert response.status_code == 201
+        assert response.json()["anonymize_ips"] is True
+
+        new_team = Team.objects.get(name="Explicit Anonymize IPs")
+        self.assertTrue(new_team.anonymize_ips)
+
     def test_new_team_defaults_to_false_when_org_default_is_none(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
@@ -2330,3 +2418,80 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         self.team.refresh_from_db()
         self.assertEqual(self.team.timezone, "Europe/Lisbon")
         self.assertEqual(self.team.session_recording_opt_in, True)
+
+    @freeze_time("2025-01-01T00:00:00Z")
+    def test_settings_as_of_requires_at_param(self):
+        response = self.client.get("/api/environments/@current/settings_as_of/")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        # Response may contain either a DRF detail or field-specific error
+        payload = response.json()
+        assert (payload.get("detail")) or (payload.get("at"))
+
+    def test_settings_as_of_returns_snapshot_with_scope(self):
+        # Initial state at T0 is UTC (default)
+        with freeze_time("2025-01-01T00:00:00Z"):
+            # no change, timezone remains "UTC"
+            pass
+
+        # Change timezone at T1
+        with freeze_time("2025-01-02T00:00:00Z"):
+            patch_response = self.client.patch("/api/environments/@current/", {"timezone": "Europe/Lisbon"})
+            assert patch_response.status_code == status.HTTP_200_OK, patch_response.json()
+
+        # Query snapshot as of T0 + 12h - expect UTC
+        response = self.client.get(
+            "/api/environments/@current/settings_as_of/?at=2025-01-01T12:00:00Z"
+            "&scope=timezone&scope=session_recording_sample_rate"
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        assert set(data.keys()) == {"timezone", "session_recording_sample_rate"}
+        assert data["timezone"] == "UTC"
+        # May be null if not set at that time
+        assert "session_recording_sample_rate" in data
+
+    def test_settings_as_of_full_snapshot_and_filtering(self):
+        # Set some configs over time to create activity
+        with freeze_time("2025-02-01T00:00:00Z"):
+            # Set opt_in true
+            r1 = self.client.patch("/api/environments/@current/", {"session_recording_opt_in": True})
+            assert r1.status_code == status.HTTP_200_OK
+
+        with freeze_time("2025-02-02T00:00:00Z"):
+            # Set sample rate and masking config
+            r2 = self.client.patch(
+                "/api/environments/@current/",
+                {
+                    "session_recording_sample_rate": 0.5,
+                    "session_recording_masking_config": {"maskAllInputs": True},
+                },
+            )
+            assert r2.status_code == status.HTTP_200_OK
+
+        # Snapshot as of between the two changes - should include first change, not the second
+        response = self.client.get(
+            "/api/environments/@current/settings_as_of/?at=2025-02-01T12:00:00Z"
+            "&scope=session_recording_opt_in&scope=session_recording_sample_rate&scope=session_recording_masking_config"
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        # opt_in should be True (set on 2025-02-01)
+        assert data["session_recording_opt_in"] is True
+        # sample_rate and masking_config should reflect pre-change values at that time
+        assert "session_recording_sample_rate" in data
+        assert data["session_recording_masking_config"] is None
+
+    def test_settings_as_of_scope_only_includes_requested_keys(self):
+        with freeze_time("2025-03-01T00:00:00Z"):
+            r = self.client.patch(
+                "/api/environments/@current/",
+                {"timezone": "Europe/London", "session_recording_opt_in": False},
+            )
+            assert r.status_code == status.HTTP_200_OK
+
+        # Ask only for timezone key
+        response = self.client.get("/api/environments/@current/settings_as_of/?at=2025-03-01T00:00:01Z&scope=timezone")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert sorted(data.keys()) == ["timezone"]
+        assert data["timezone"] in ("UTC", "Europe/London")

@@ -1,9 +1,15 @@
 from datetime import datetime
 from typing import cast
 
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_action, _create_event, _create_person
 
-from posthog.schema import FunnelsQuery
+from hogql_parser import parse_expr
+
+from posthog.schema import BreakdownAttributionType, BreakdownFilter, EventsNode, FunnelsFilter, FunnelsQuery
+
+from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, HogQLGlobalSettings
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
@@ -13,34 +19,18 @@ from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
     funnel_breakdown_test_factory,
 )
 from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
-from posthog.hogql_queries.insights.funnels.test.test_funnel import PseudoFunnelActors
+from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors_legacy_filters
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.models.action import Action
-from posthog.models.filters import Filter
 from posthog.models.instance_setting import override_instance_config
 from posthog.test.test_journeys import journeys_for
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
 
 
-def _create_action(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
-    properties = kwargs.pop("properties", {})
-    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name, "properties": properties}])
-    return action
-
-
-class BaseTestFunnelStrictStepsBreakdown(
+class TestFunnelStrictStepsBreakdown(
     ClickhouseTestMixin,
-    funnel_breakdown_test_factory(  # type: ignore
-        FunnelOrderType.STRICT,
-        PseudoFunnelActors,
-        _create_action,
-        _create_person,
-    ),
+    funnel_breakdown_test_factory(FunnelOrderType.STRICT),  # type: ignore
 ):
-    __test__ = False
     maxDiff = None
 
     def test_basic_funnel_default_funnel_days_breakdown_event(self):
@@ -172,34 +162,31 @@ class BaseTestFunnelStrictStepsBreakdown(
         self.assertCountEqual(self._get_actor_ids_at_step(filters, 2, ["Chrome"]), [])
 
 
-class BaseTestStrictFunnelGroupBreakdown(
+class TestStrictFunnelGroupBreakdown(
     ClickhouseTestMixin,
-    funnel_breakdown_group_test_factory(  # type: ignore
-        FunnelOrderType.STRICT,
-        PseudoFunnelActors,
-    ),
-):
-    __test__ = False
-
-
-class BaseTestFunnelStrictStepsConversionTime(
-    ClickhouseTestMixin,
-    funnel_conversion_time_test_factory(FunnelOrderType.ORDERED, PseudoFunnelActors),  # type: ignore
+    funnel_breakdown_group_test_factory(FunnelOrderType.STRICT),  # type: ignore
 ):
     maxDiff = None
-    __test__ = False
 
 
-class BaseTestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
+class TestFunnelStrictStepsConversionTime(
+    ClickhouseTestMixin,
+    funnel_conversion_time_test_factory(FunnelOrderType.ORDERED),  # type: ignore
+):
     maxDiff = None
-    __test__ = False
+
+
+class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
+    maxDiff = None
 
     def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
-        filter = Filter(data=filter, team=self.team)
-        person_filter = filter.shallow_clone({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
-        _, serialized_result, _ = PseudoFunnelActors(person_filter, self.team).get_actors()
-
-        return [val["id"] for val in serialized_result]
+        actors = get_actors_legacy_filters(
+            filter,
+            self.team,
+            funnel_step=funnel_step,
+            funnel_step_breakdown=breakdown_value,
+        )
+        return [actor[0] for actor in actors]
 
     def test_basic_strict_funnel(self):
         filters = {
@@ -619,3 +606,101 @@ class BaseTestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
             self._get_actor_ids_at_step(filters, 3),
             [person3_stopped_after_insight_view.uuid],
         )
+
+    def test_redundant_event_filtering_strict_funnel(self):
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_order_type": "strict",
+            "events": [
+                {"id": "$pageview", "order": 1},
+                {"id": "insight viewed", "order": 2},
+            ],
+        }
+
+        _create_person(
+            distinct_ids=["many_other_events"],
+            team_id=self.team.pk,
+            properties={"test": "okay"},
+        )
+        for _ in range(10):
+            _create_event(team=self.team, event="user signed up", distinct_id="many_other_events")
+
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        runner = FunnelsQueryRunner(query=query, team=self.team)
+        inner_aggregation_query = runner.funnel_class._inner_aggregation_query()
+        inner_aggregation_query.select.append(
+            parse_expr(f"{runner.funnel_class.udf_event_array_filter()} AS filtered_array")
+        )
+        inner_aggregation_query.having = None
+        response = execute_hogql_query(
+            query_type="FunnelsQuery",
+            query=inner_aggregation_query,
+            team=self.team,
+            settings=HogQLGlobalSettings(
+                # Make sure funnel queries never OOM
+                max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
+                allow_experimental_analyzer=True,
+            ),
+        )
+        # Make sure the events have been condensed down to two
+        self.assertEqual(2, len(response.results[0][-1]))
+
+    def test_different_prop_val_in_strict_filter(self):
+        funnels_query = FunnelsQuery(
+            series=[EventsNode(event="first"), EventsNode(event="second")],
+            breakdownFilter=BreakdownFilter(breakdown="bd"),
+            funnelsFilter=FunnelsFilter(funnelOrderType=FunnelOrderType.STRICT),
+        )
+
+        _create_person(
+            distinct_ids=["many_other_events"],
+            team_id=self.team.pk,
+            properties={"test": "okay"},
+        )
+        _create_event(team=self.team, event="first", distinct_id="many_other_events", properties={"bd": "one"})
+        _create_event(team=self.team, event="first", distinct_id="many_other_events", properties={"bd": "two"})
+        _create_event(team=self.team, event="unmatched", distinct_id="many_other_events", properties={"bd": "one"})
+        _create_event(team=self.team, event="unmatched", distinct_id="many_other_events", properties={"bd": "two"})
+        _create_event(team=self.team, event="second", distinct_id="many_other_events", properties={"bd": "one"})
+        _create_event(team=self.team, event="second", distinct_id="many_other_events", properties={"bd": "two"})
+
+        # First Touchpoint (just "one")
+        results = FunnelsQueryRunner(query=funnels_query, team=self.team).calculate().results
+
+        assert 2 == len(results[0])
+        assert results[0][-1]["count"] == 0
+        assert all(result["breakdown"] == ["one"] for result in results[0])
+
+        # All events attribution
+        assert funnels_query.funnelsFilter is not None
+        funnels_query.funnelsFilter.breakdownAttributionType = BreakdownAttributionType.ALL_EVENTS
+        results = FunnelsQueryRunner(query=funnels_query, team=self.team).calculate().results
+
+        assert 2 == len(results)
+        one = next(x for x in results if x[0]["breakdown"] == ["one"])
+        assert one[-1]["count"] == 0
+        two = next(x for x in results if x[0]["breakdown"] == ["two"])
+        assert two[-1]["count"] == 0
+
+    def test_multiple_events_same_timestamp_doesnt_blow_up(self):
+        _create_person(distinct_ids=["test"], team_id=self.team.pk)
+        with freeze_time("2024-01-10T12:01:00"):
+            for _ in range(30):
+                _create_event(team=self.team, event="step one", distinct_id="test")
+            _create_event(team=self.team, event="step two", distinct_id="test")
+            _create_event(team=self.team, event="step three", distinct_id="test")
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_viz_type": "steps",
+            "date_from": "2024-01-10 00:00:00",
+            "date_to": "2024-01-12 00:00:00",
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+                {"id": "step three", "order": 2},
+            ],
+        }
+
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        self.assertEqual(1, results[-1]["count"])

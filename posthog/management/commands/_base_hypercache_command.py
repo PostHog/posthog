@@ -12,7 +12,12 @@ from django.db import connection
 
 from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.models.team.team import Team
-from posthog.storage.hypercache_manager import HyperCacheManagementConfig, warm_caches
+from posthog.storage.hypercache_manager import (
+    HyperCacheManagementConfig,
+    batch_check_expiry_tracking,
+    get_cache_stats,
+    warm_caches,
+)
 
 
 class BaseHyperCacheCommand(BaseCommand):
@@ -53,8 +58,8 @@ class BaseHyperCacheCommand(BaseCommand):
         parser.add_argument(
             "--batch-size",
             type=int,
-            default=100,
-            help="Number of teams to process at a time (default: 100)",
+            default=1000,
+            help="Number of teams to process at a time (default: 1000)",
         )
         parser.add_argument(
             "--invalidate-first",
@@ -283,8 +288,11 @@ class BaseHyperCacheCommand(BaseCommand):
                 "cache_miss": 0,
                 "cache_match": 0,
                 "cache_mismatch": 0,
+                "expiry_missing": 0,
+                "error": 0,
                 "fixed": 0,
                 "fix_failed": 0,
+                "skipped_for_grace_period": 0,
             }
 
             mismatches: list[dict] = []
@@ -317,6 +325,9 @@ class BaseHyperCacheCommand(BaseCommand):
 
             self._print_verification_results(stats, mismatches, verbose, fix)
         finally:
+            # Update cache metrics after verification completes (even on failure)
+            self._update_cache_stats_safe()
+
             if not settings.TEST:
                 connection.close()
 
@@ -332,7 +343,7 @@ class BaseHyperCacheCommand(BaseCommand):
         Verify a batch of teams against their cached data.
 
         This method handles batch loading (if available) and delegates verification
-        to the subclass's verify_team() method.
+        to the subclass's verify_team() method. Also checks expiry tracking.
         """
         # Batch-load data if the HyperCache supports it
         config = self.get_hypercache_config()
@@ -343,21 +354,48 @@ class BaseHyperCacheCommand(BaseCommand):
             except Exception as e:
                 self.stdout.write(self.style.WARNING(f"Batch load failed, falling back to individual loads: {e}"))
 
+        # Batch-check expiry tracking (pipelined for efficiency)
+        expiry_status: dict[str | int, bool] = {}
+        try:
+            expiry_status = batch_check_expiry_tracking(teams, config)
+        except Exception as e:
+            self.stdout.write(self.style.WARNING(f"Expiry tracking check failed, skipping: {e}"))
+
+        # Batch-check which teams should skip fixes (e.g., grace period for recently updated data)
+        team_ids_to_skip_fix: set[int] = set()
+        if fix and config.get_team_ids_to_skip_fix_fn:
+            try:
+                team_ids_to_skip_fix = config.get_team_ids_to_skip_fix_fn([t.id for t in teams])
+            except Exception as e:
+                self.stdout.write(self.style.WARNING(f"Skip-fix check failed, proceeding without skips: {e}"))
+
         for team in teams:
             stats["total"] += 1
 
             # Delegate to subclass for actual verification
-            result = self.verify_team(team, verbose, batch_data)
+            try:
+                result = self.verify_team(team, verbose, batch_data)
+            except Exception as e:
+                stats["error"] += 1
+                self.stdout.write(self.style.ERROR(f"Error verifying team {team.id}: {e}"))
+                continue
 
             # Handle result
             if result["status"] == "match":
                 stats["cache_match"] += 1
+
+                # Check expiry tracking for teams with valid cache data
+                identifier = config.hypercache.get_cache_identifier(team)
+                if expiry_status and not expiry_status.get(identifier, True):
+                    stats["expiry_missing"] += 1
+                    self._handle_expiry_issue(team, stats, mismatches, fix, config, team_ids_to_skip_fix)
+
             elif result["status"] == "miss":
                 stats["cache_miss"] += 1
-                self._handle_cache_issue(team, result, stats, mismatches, fix)
+                self._handle_cache_issue(team, result, stats, mismatches, fix, team_ids_to_skip_fix)
             elif result["status"] == "mismatch":
                 stats["cache_mismatch"] += 1
-                self._handle_cache_issue(team, result, stats, mismatches, fix)
+                self._handle_cache_issue(team, result, stats, mismatches, fix, team_ids_to_skip_fix)
 
     def _handle_cache_issue(
         self,
@@ -366,6 +404,7 @@ class BaseHyperCacheCommand(BaseCommand):
         stats: dict[str, int],
         mismatches: list[dict],
         fix: bool,
+        team_ids_to_skip_fix: set[int],
     ):
         """Handle a cache issue (miss or mismatch)."""
         issue_detail = {
@@ -379,29 +418,78 @@ class BaseHyperCacheCommand(BaseCommand):
             issue_detail["diffs"] = result["diffs"]
 
         if fix:
-            if self._fix_cache(team, stats):
-                issue_detail["fixed"] = True
+            # Check if we should skip fixing (e.g., grace period for recently updated data)
+            if team.id in team_ids_to_skip_fix:
+                stats["skipped_for_grace_period"] += 1
+                issue_detail["skipped"] = True
+                self.stdout.write(
+                    self.style.WARNING(f"  ⏳ Skipped fix for team {team.id} ({team.name}) - within grace period")
+                )
             else:
-                issue_detail["fixed"] = False
+                issue_detail["fixed"] = self._fix_team_cache(team, stats)
 
         mismatches.append(issue_detail)
 
-    def _fix_cache(self, team, stats: dict[str, int]) -> bool:
-        """Fix cache for a team by updating from database."""
+    def _fix_team_cache(
+        self,
+        team: Team,
+        stats: dict[str, int],
+        operation: str = "cache",
+        config: HyperCacheManagementConfig | None = None,
+    ) -> bool:
+        """
+        Fix a team by running update_fn (updates cache and re-tracks expiry).
+
+        Args:
+            team: Team to fix
+            stats: Stats dict to update (increments 'fixed' or 'fix_failed')
+            operation: Description for log messages (e.g., "cache", "expiry tracking")
+            config: HyperCache config. If None, uses get_hypercache_config().
+        """
         try:
-            config = self.get_hypercache_config()
+            config = config or self.get_hypercache_config()
             success = config.update_fn(team)
             if success:
                 stats["fixed"] += 1
-                self.stdout.write(self.style.SUCCESS(f"  ✓ Fixed cache for team {team.id} ({team.name})"))
+                self.stdout.write(self.style.SUCCESS(f"  ✓ Fixed {operation} for team {team.id} ({team.name})"))
             else:
                 stats["fix_failed"] += 1
-                self.stdout.write(self.style.ERROR(f"  ✗ Failed to fix cache for team {team.id} ({team.name})"))
+                self.stdout.write(self.style.ERROR(f"  ✗ Failed to fix {operation} for team {team.id} ({team.name})"))
             return success
         except Exception as e:
             stats["fix_failed"] += 1
-            self.stdout.write(self.style.ERROR(f"  ✗ Error fixing cache for team {team.id} ({team.name}): {e}"))
+            self.stdout.write(self.style.ERROR(f"  ✗ Error fixing {operation} for team {team.id} ({team.name}): {e}"))
             return False
+
+    def _handle_expiry_issue(
+        self,
+        team: Team,
+        stats: dict[str, int],
+        mismatches: list[dict],
+        fix: bool,
+        config: HyperCacheManagementConfig,
+        team_ids_to_skip_fix: set[int],
+    ):
+        """Handle a team missing from expiry tracking."""
+        issue_detail: dict = {
+            "team_id": team.id,
+            "team_name": team.name,
+            "issue": "EXPIRY_MISSING",
+            "details": "Cache exists but not tracked in expiry sorted set",
+        }
+
+        if fix:
+            # Check if we should skip fixing (e.g., grace period for recently updated data)
+            if team.id in team_ids_to_skip_fix:
+                stats["skipped_for_grace_period"] += 1
+                issue_detail["skipped"] = True
+                self.stdout.write(
+                    self.style.WARNING(f"  ⏳ Skipped fix for team {team.id} ({team.name}) - within grace period")
+                )
+            else:
+                issue_detail["fixed"] = self._fix_team_cache(team, stats, "expiry tracking", config)
+
+        mismatches.append(issue_detail)
 
     def _print_verification_results(self, stats: dict, mismatches: list[dict], verbose: bool, fix: bool):
         """Print verification results."""
@@ -422,6 +510,18 @@ class BaseHyperCacheCommand(BaseCommand):
         self.stdout.write(
             f"Cache misses:         {stats['cache_miss']} ({self.format_percentage(stats['cache_miss'], stats['total'])})"
         )
+        if stats.get("expiry_missing", 0) > 0:
+            self.stdout.write(
+                self.style.WARNING(
+                    f"Expiry missing:       {stats['expiry_missing']} ({self.format_percentage(stats['expiry_missing'], stats['total'])})"
+                )
+            )
+        if stats["error"] > 0:
+            self.stdout.write(
+                self.style.ERROR(
+                    f"Errors:               {stats['error']} ({self.format_percentage(stats['error'], stats['total'])})"
+                )
+            )
 
         if fix:
             self.stdout.write(
@@ -433,6 +533,12 @@ class BaseHyperCacheCommand(BaseCommand):
                         f"Cache fixes failed:   {stats['fix_failed']} ({self.format_percentage(stats['fix_failed'], stats['total'])})"
                     )
                 )
+            if stats.get("skipped_for_grace_period", 0) > 0:
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"Skipped (grace period): {stats['skipped_for_grace_period']} ({self.format_percentage(stats['skipped_for_grace_period'], stats['total'])})"
+                    )
+                )
 
         if mismatches:
             self.stdout.write("\n" + "=" * 70)
@@ -442,11 +548,16 @@ class BaseHyperCacheCommand(BaseCommand):
             for mismatch in mismatches:
                 issue_prefix = f"[{mismatch['issue']}] Team {mismatch['team_id']} ({mismatch['team_name']})"
 
-                if fix and "fixed" in mismatch:
-                    if mismatch["fixed"]:
-                        self.stdout.write(self.style.SUCCESS(f"\n{issue_prefix} - FIXED"))
+                if fix:
+                    if mismatch.get("skipped"):
+                        self.stdout.write(self.style.WARNING(f"\n{issue_prefix} - SKIPPED (grace period)"))
+                    elif "fixed" in mismatch:
+                        if mismatch["fixed"]:
+                            self.stdout.write(self.style.SUCCESS(f"\n{issue_prefix} - FIXED"))
+                        else:
+                            self.stdout.write(self.style.ERROR(f"\n{issue_prefix} - FIX FAILED"))
                     else:
-                        self.stdout.write(self.style.ERROR(f"\n{issue_prefix} - FIX FAILED"))
+                        self.stdout.write(self.style.ERROR(f"\n{issue_prefix}"))
                 else:
                     self.stdout.write(self.style.ERROR(f"\n{issue_prefix}"))
 
@@ -459,24 +570,40 @@ class BaseHyperCacheCommand(BaseCommand):
 
         self.stdout.write("\n" + "=" * 70)
 
-        if stats["cache_match"] == stats["total"]:
+        all_verified = stats["cache_match"] == stats["total"] and stats.get("expiry_missing", 0) == 0
+        if all_verified:
             self.stdout.write(self.style.SUCCESS(f"\n✓ All {cache_name} caches verified successfully!\n"))
         else:
             if fix:
+                skipped = stats.get("skipped_for_grace_period", 0)
+                skipped_suffix = f", {skipped} skipped (grace period)" if skipped > 0 else ""
+
                 if stats["fixed"] > 0 and stats["fix_failed"] == 0:
                     self.stdout.write(
                         self.style.SUCCESS(
-                            f"\n✓ Found and fixed {stats['fixed']} issue(s) with {len(mismatches)} team(s)\n"
+                            f"\n✓ Found and fixed {stats['fixed']} issue(s) with {len(mismatches)} team(s){skipped_suffix}\n"
                         )
                     )
                 elif stats["fix_failed"] > 0:
                     self.stdout.write(
                         self.style.WARNING(
-                            f"\n⚠ Fixed {stats['fixed']} issue(s), but {stats['fix_failed']} fixes failed\n"
+                            f"\n⚠ Fixed {stats['fixed']} issue(s), but {stats['fix_failed']} fixes failed{skipped_suffix}\n"
                         )
                     )
+                elif skipped > 0:
+                    self.stdout.write(
+                        self.style.WARNING(f"\n⚠ Found {len(mismatches)} issue(s), all skipped due to grace period\n")
+                    )
             else:
-                self.stdout.write(self.style.WARNING(f"\n⚠ Found issues with {len(mismatches)} team(s)\n"))
+                if stats["error"] > 0:
+                    self.stdout.write(
+                        self.style.ERROR(
+                            f"\n✗ Verification incomplete: {stats['error']} error(s) occurred, "
+                            f"{len(mismatches)} issue(s) found\n"
+                        )
+                    )
+                else:
+                    self.stdout.write(self.style.WARNING(f"\n⚠ Found issues with {len(mismatches)} team(s)\n"))
 
     # Methods that subclasses must implement
 
@@ -608,15 +735,19 @@ class BaseHyperCacheCommand(BaseCommand):
             actual_batch_size = len(teams)
             actual_invalidate_first = False  # Never invalidate for specific teams
         else:
-            # Handle all teams - show configuration and get confirmation if needed
+            # Get current cache stats for upfront reporting
+            total_teams = Team.objects.count()
+            cache_stats = get_cache_stats(config)
+
+            # Handle all teams - show configuration and current state
             self.stdout.write(
-                self.style.WARNING(
-                    f"\nStarting {cache_name} cache warm:\n"
-                    f"  Batch size: {batch_size}\n"
-                    f"  Invalidate first: {invalidate_first}\n"
-                    f"  Stagger TTL: {stagger_ttl}\n"
-                    f"  TTL range: {min_ttl_days}-{max_ttl_days} days\n"
-                )
+                f"\nStarting {cache_name} cache warm:\n"
+                f"  Total teams: {total_teams:,}\n"
+                f"  Current cache coverage: {cache_stats.get('cache_coverage', 'unknown')}\n"
+                f"  Batch size: {batch_size}\n"
+                f"  Invalidate first: {invalidate_first}\n"
+                f"  Stagger TTL: {stagger_ttl}\n"
+                f"  TTL range: {min_ttl_days}-{max_ttl_days} days\n"
             )
 
             if invalidate_first and not self._confirm_invalidate(cache_name):
@@ -624,6 +755,24 @@ class BaseHyperCacheCommand(BaseCommand):
 
             actual_batch_size = batch_size
             actual_invalidate_first = invalidate_first
+
+        # Callbacks to write progress to stdout
+        last_percent_reported = [0]  # Use list to allow mutation in closure
+
+        def batch_start_callback(batch_num: int, batch_len: int):
+            self.stdout.write(f"  Processing batch {batch_num} ({batch_len:,} teams)…")
+
+        def progress_callback(processed: int, total: int, successful: int, failed: int):
+            if total == 0:
+                return
+            percent = int(100 * processed / total)
+            # Report every 5% to avoid too much output
+            if percent >= last_percent_reported[0] + 5 or processed == total:
+                self.stdout.write(
+                    f"  Progress: {processed:,}/{total:,} teams ({percent}%) "
+                    f"- {successful:,} successful, {failed:,} failed"
+                )
+                last_percent_reported[0] = percent
 
         # Warm the caches
         successful, failed = warm_caches(
@@ -634,6 +783,8 @@ class BaseHyperCacheCommand(BaseCommand):
             min_ttl_days=min_ttl_days,
             max_ttl_days=max_ttl_days,
             team_ids=team_ids,
+            progress_callback=progress_callback,
+            batch_start_callback=batch_start_callback,
         )
 
         # Display results
@@ -642,6 +793,9 @@ class BaseHyperCacheCommand(BaseCommand):
         # Warn about failures (only for all teams workflow)
         if not team_ids and failed > 0:
             self.stdout.write(self.style.WARNING(f"Warning: {failed} teams failed to cache. Check logs for details."))
+
+        # Update cache metrics after warming completes
+        self._update_cache_stats_safe(config)
 
     # Optional methods that subclasses can override for enhanced functionality
 
@@ -662,6 +816,23 @@ class BaseHyperCacheCommand(BaseCommand):
             self.stdout.write(f"    Cache: {diff.get('cached_value')}")
 
     # Configuration and validation helpers
+
+    def _update_cache_stats_safe(self, config: HyperCacheManagementConfig | None = None) -> None:
+        """
+        Update cache metrics, logging a warning on failure.
+
+        This wraps get_cache_stats() in a try/except to handle Redis timeouts
+        gracefully without crashing the command. Metric updates are non-critical
+        operations that shouldn't abort the main workflow.
+
+        Args:
+            config: HyperCache config. If None, uses get_hypercache_config().
+        """
+        try:
+            config = config or self.get_hypercache_config()
+            get_cache_stats(config)
+        except Exception as e:
+            self.stdout.write(self.style.WARNING(f"Failed to update cache metrics: {e}"))
 
     def check_dedicated_cache_configured(self) -> bool:
         """

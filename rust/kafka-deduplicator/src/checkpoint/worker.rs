@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use super::{plan_checkpoint, CheckpointExporter, CheckpointInfo, CheckpointMetadata};
+use crate::kafka::offset_tracker::OffsetTracker;
 use crate::kafka::types::Partition;
 use crate::metrics_const::{
     CHECKPOINT_DURATION_HISTOGRAM, CHECKPOINT_FILE_COUNT_HISTOGRAM, CHECKPOINT_SIZE_HISTOGRAM,
@@ -35,6 +36,9 @@ pub struct CheckpointWorker {
     /// Checkpoint export module
     exporter: Option<Arc<CheckpointExporter>>,
 
+    /// Offset tracker for querying committed consumer and producer offsets
+    offset_tracker: Option<Arc<OffsetTracker>>,
+
     /// Whether this is a test worker
     test_mode: bool,
 }
@@ -47,6 +51,7 @@ impl CheckpointWorker {
         partition: Partition,
         attempt_timestamp: DateTime<Utc>,
         exporter: Option<Arc<CheckpointExporter>>,
+        offset_tracker: Option<Arc<OffsetTracker>>,
     ) -> Self {
         Self {
             worker_id,
@@ -55,6 +60,7 @@ impl CheckpointWorker {
             partition,
             attempt_timestamp,
             exporter,
+            offset_tracker,
             test_mode: false,
         }
     }
@@ -74,6 +80,7 @@ impl CheckpointWorker {
             partition,
             attempt_timestamp,
             exporter,
+            offset_tracker: None,
             test_mode: true,
         }
     }
@@ -244,16 +251,27 @@ impl CheckpointWorker {
             "full"
         };
 
+        // Get committed consumer and producer offsets from the offset tracker
+        // These represent the true recovery points for checkpointing:
+        // - consumer_offset: where Kafka would resume consumption after restart
+        // - producer_offset: highest offset written to output topic
+        let (consumer_offset, producer_offset) = match &self.offset_tracker {
+            Some(tracker) => {
+                let consumer = tracker.get_committed_offset(&self.partition).unwrap_or(0);
+                let producer = tracker.get_producer_offset(&self.partition).unwrap_or(0);
+                (consumer, producer)
+            }
+            None => (0_i64, 0_i64),
+        };
+
         info!(
             self.worker_id,
             local_attempt_path = local_attempt_path_tag,
             attempt_type,
+            consumer_offset,
+            producer_offset,
             "Checkpoint worker: exporting remote checkpoint",
         );
-
-        // TODO: Wire up offset tracking; use placeholders for now
-        let consumer_offset = 0_i64;
-        let producer_offset = 0_i64;
 
         match self.exporter.as_ref() {
             Some(exporter) => {
@@ -443,6 +461,7 @@ mod tests {
             partition.clone(),
             attempt_timestamp,
             None,
+            None,
         );
 
         let result = worker.create_checkpoint(&store).await;
@@ -504,6 +523,7 @@ mod tests {
             config.s3_key_prefix.clone(),
             partition.clone(),
             attempt_timestamp,
+            None,
             None,
         );
 

@@ -9,11 +9,10 @@ import { useEffect, useState } from 'react'
 import api from 'lib/api'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
-import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
+import { TeamMembershipLevel } from 'lib/constants'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getRelativeNextPath, identifierToHuman } from 'lib/utils'
 import { getAppContext, getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { NEW_INTERNAL_TAB } from 'lib/utils/newInternalTab'
@@ -45,6 +44,7 @@ import { AccessControlLevel, OnboardingStepKey } from '~/types'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { handleLoginRedirect } from './authentication/loginLogic'
 import { billingLogic } from './billing/billingLogic'
+import { parseCouponCampaign } from './coupons/utils'
 import { organizationLogic } from './organizationLogic'
 import type { sceneLogicType } from './sceneLogicType'
 import { inviteLogic } from './settings/organization/inviteLogic'
@@ -294,6 +294,20 @@ const DelayedLoadingSpinner = (): JSX.Element => {
     return <>{show ? <Spinner /> : null}</>
 }
 
+const getMainContentElement = (): HTMLElement | null => document.getElementById('main-content')
+const restoreMainContentScrollTop = (scrollTop: number, onlyIfTabId?: string): void => {
+    const element = getMainContentElement()
+    if (!element) {
+        return
+    }
+    if (onlyIfTabId && sceneLogic.findMounted()?.values.activeTabId !== onlyIfTabId) {
+        return
+    }
+    window.requestAnimationFrame(() => {
+        element.scrollTo({ top: scrollTop })
+    })
+}
+
 export const sceneLogic = kea<sceneLogicType>([
     props(
         {} as {
@@ -312,14 +326,7 @@ export const sceneLogic = kea<sceneLogicType>([
             inviteLogic,
             ['hideInviteModal'],
         ],
-        values: [
-            billingLogic,
-            ['billing'],
-            organizationLogic,
-            ['organizationBeingDeleted'],
-            featureFlagLogic,
-            ['featureFlags'],
-        ],
+        values: [billingLogic, ['billing'], organizationLogic, ['organizationBeingDeleted']],
     })),
     afterMount(({ cache }) => {
         cache.mountedTabLogic = {} as Record<string, () => void>
@@ -407,6 +414,7 @@ export const sceneLogic = kea<sceneLogicType>([
         saveTabEdit: (tab: SceneTab, name: string) => ({ tab, name }),
         pinTab: (tabId: string) => ({ tabId }),
         unpinTab: (tabId: string) => ({ tabId }),
+        setTabScrollDepth: (tabId: string, scrollTop: number) => ({ tabId, scrollTop }),
     }),
     reducers({
         // We store all state in "tabs". This allows us to have multiple tabs open, each with its own scene and parameters.
@@ -628,6 +636,31 @@ export const sceneLogic = kea<sceneLogicType>([
                 setScene: (_, { sceneId, sceneKey, tabId, params }) => ({ sceneId, sceneKey, tabId, params }),
             },
         ],
+        tabScrollDepths: [
+            {} as Record<string, number>,
+            {
+                setTabScrollDepth: (state, { tabId, scrollTop }) => ({
+                    ...state,
+                    [tabId]: scrollTop,
+                }),
+                removeTab: (state, { tab }) => {
+                    const { [tab.id]: removed, ...rest } = state
+                    return rest
+                },
+                setTabs: (state, { tabs }) => {
+                    // remove those no longer present
+                    return tabs.reduce(
+                        (acc, tab) => {
+                            if (state[tab.id] !== undefined) {
+                                acc[tab.id] = state[tab.id]
+                            }
+                            return acc
+                        },
+                        {} as Record<string, number>
+                    )
+                },
+            },
+        ],
     }),
     reducers({
         homepage: [
@@ -655,9 +688,6 @@ export const sceneLogic = kea<sceneLogicType>([
             (s) => [s.sceneId],
             (sceneId: Scene): SceneConfig | null => {
                 const config = sceneConfigurations[sceneId] || null
-                if (sceneId === Scene.SQLEditor) {
-                    return { ...config, layout: 'app-raw' }
-                }
                 return config
             },
             { resultEqualityCheck: equal },
@@ -1012,10 +1042,18 @@ export const sceneLogic = kea<sceneLogicType>([
                 posthog.capture('$pageview')
             }
 
-            // if we clicked on a link, scroll to top
-            const previousScene = selectors.sceneId(previousState)
-            if (scrollToTop && sceneId !== previousScene) {
-                window.scrollTo(0, 0)
+            if (tabId !== lastTabId) {
+                const scrollTop = values.tabScrollDepths[tabId] ?? 0
+                window.setTimeout(() => restoreMainContentScrollTop(scrollTop, tabId), 1)
+                window.setTimeout(() => restoreMainContentScrollTop(scrollTop, tabId), 10)
+                window.setTimeout(() => restoreMainContentScrollTop(scrollTop, tabId), 100)
+                window.setTimeout(() => restoreMainContentScrollTop(scrollTop, tabId), 300)
+            } else {
+                // if we clicked on a link, scroll to top
+                const previousScene = selectors.sceneId(previousState)
+                if (scrollToTop && sceneId !== previousScene) {
+                    restoreMainContentScrollTop(0)
+                }
             }
 
             const unmount = cache.mountedTabLogic[tabId]
@@ -1126,18 +1164,14 @@ export const sceneLogic = kea<sceneLogicType>([
                                     getRelativeNextPath(params.searchParams.next, location) ??
                                     removeProjectIdIfPresent(location.pathname)
 
-                                // Default to false (products page) if feature flags haven't loaded yet
-                                const useUseCaseSelection =
-                                    values.featureFlags[FEATURE_FLAGS.ONBOARDING_USE_CASE_SELECTION] === 'test'
-
-                                if (useUseCaseSelection) {
-                                    router.actions.replace(
-                                        urls.useCaseSelection(),
-                                        nextUrl ? { next: nextUrl } : undefined
-                                    )
-                                } else {
-                                    router.actions.replace(urls.products(), nextUrl ? { next: nextUrl } : undefined)
+                                // Check if user is coming from a coupon campaign link
+                                const campaign = nextUrl ? parseCouponCampaign(nextUrl) : null
+                                if (campaign) {
+                                    router.actions.replace(urls.onboardingCoupon(campaign), { next: nextUrl })
+                                    return
                                 }
+
+                                router.actions.replace(urls.useCaseSelection(), nextUrl ? { next: nextUrl } : undefined)
                                 return
                             }
 

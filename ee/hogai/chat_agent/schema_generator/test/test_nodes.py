@@ -1,6 +1,7 @@
 import json
 from collections.abc import Iterable
 from typing import Any, cast
+from uuid import uuid4
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
@@ -11,7 +12,15 @@ from langchain_core.agents import AgentAction
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig, RunnableLambda
 
-from posthog.schema import AssistantMessage, AssistantTrendsQuery, FailureMessage, HumanMessage, VisualizationMessage
+from posthog.schema import (
+    ArtifactContentType,
+    ArtifactSource,
+    AssistantMessage,
+    AssistantTrendsQuery,
+    FailureMessage,
+    HumanMessage,
+    VisualizationArtifactContent,
+)
 
 from ee.hogai.chat_agent.schema_generator.nodes import (
     RETRIES_ALLOWED,
@@ -22,7 +31,8 @@ from ee.hogai.chat_agent.schema_generator.nodes import (
 from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.chat_agent.schema_generator.utils import SchemaGeneratorOutput
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from ee.hogai.utils.types.base import IntermediateStep
+from ee.hogai.utils.types.base import ArtifactRefMessage, IntermediateStep
+from ee.models import AgentArtifact, Conversation
 
 DummySchema = SchemaGeneratorOutput[AssistantTrendsQuery]
 
@@ -46,26 +56,94 @@ class TestSchemaGeneratorNode(BaseTest):
     def setUp(self):
         super().setUp()
         self.basic_trends = AssistantTrendsQuery(series=[])
+        self.conversation = Conversation.objects.create(user=self.user, team=self.team)
 
     async def test_node_runs(self):
         node = DummyGeneratorNode(self.team, self.user)
+        config = RunnableConfig(configurable={"thread_id": self.conversation.id})
         with patch.object(DummyGeneratorNode, "_model") as generator_model_mock:
             generator_model_mock.return_value = RunnableLambda(
-                lambda _: DummySchema(query=self.basic_trends).model_dump()
+                lambda _: DummySchema(
+                    query=self.basic_trends, name="Test Query Name", description="Test Query Description"
+                ).model_dump()
             )
-            new_state = await node.arun(
+            new_state = await node(
                 AssistantState(
                     messages=[HumanMessage(content="Text", id="0")],
                     plan="Plan",
                     start_id="0",
                 ),
-                {},
+                config,
             )
+            assert new_state is not None
             self.assertEqual(new_state.intermediate_steps, None)
             self.assertEqual(new_state.plan, None)
             self.assertEqual(len(new_state.messages), 1)
-            self.assertEqual(new_state.messages[0].type, "ai/viz")
-            self.assertEqual(cast(VisualizationMessage, new_state.messages[0]).answer, self.basic_trends)
+            self.assertIsInstance(new_state.messages[0], ArtifactRefMessage)
+            self.assertEqual(
+                cast(ArtifactRefMessage, new_state.messages[0]).content_type, ArtifactContentType.VISUALIZATION
+            )
+            self.assertEqual(cast(ArtifactRefMessage, new_state.messages[0]).source, ArtifactSource.ARTIFACT)
+            self.assertIsNotNone(cast(ArtifactRefMessage, new_state.messages[0]).artifact_id)
+
+    async def test_node_sets_name_description_and_plan_in_artifact(self):
+        node = DummyGeneratorNode(self.team, self.user)
+        config = RunnableConfig(configurable={"thread_id": self.conversation.id})
+        with patch.object(DummyGeneratorNode, "_model") as generator_model_mock:
+            generator_model_mock.return_value = RunnableLambda(
+                lambda _: DummySchema(
+                    query=self.basic_trends,
+                ).model_dump()
+            )
+            new_state = await node(
+                AssistantState(
+                    messages=[HumanMessage(content="Text", id="0")],
+                    plan="Test Plan Content",
+                    visualization_title="Test Query Name",
+                    visualization_description="Test Query Description",
+                    start_id="0",
+                ),
+                config,
+            )
+            assert new_state is not None
+            self.assertEqual(len(new_state.messages), 1)
+            artifact_message = cast(ArtifactRefMessage, new_state.messages[0])
+
+            artifact = await AgentArtifact.objects.aget(short_id=artifact_message.artifact_id)
+            content = VisualizationArtifactContent.model_validate(artifact.data)
+
+            self.assertEqual(content.name, "Test Query Name")
+            self.assertEqual(content.description, "Test Query Description")
+            self.assertEqual(content.plan, "Test Plan Content")
+
+    async def test_node_sets_empty_plan_when_no_plan_in_state(self):
+        node = DummyGeneratorNode(self.team, self.user)
+        config = RunnableConfig(configurable={"thread_id": self.conversation.id})
+        with patch.object(DummyGeneratorNode, "_model") as generator_model_mock:
+            generator_model_mock.return_value = RunnableLambda(
+                lambda _: DummySchema(
+                    query=self.basic_trends,
+                ).model_dump()
+            )
+            new_state = await node(
+                AssistantState(
+                    messages=[HumanMessage(content="Text", id="0")],
+                    plan=None,
+                    visualization_title="Query Name",
+                    visualization_description="Description",
+                    start_id="0",
+                ),
+                config,
+            )
+            assert new_state is not None
+            artifact_message = cast(ArtifactRefMessage, new_state.messages[0])
+
+            artifact = await AgentArtifact.objects.aget(short_id=artifact_message.artifact_id)
+            content = VisualizationArtifactContent.model_validate(artifact.data)
+
+            self.assertEqual(content.name, "Query Name")
+            self.assertEqual(content.description, "Description")
+            self.assertEqual(content.plan, "")
 
     async def test_agent_reconstructs_conversation_and_does_not_add_an_empty_plan(self):
         node = DummyGeneratorNode(self.team, self.user)
@@ -103,12 +181,24 @@ class TestSchemaGeneratorNode(BaseTest):
 
     async def test_agent_reconstructs_conversation_can_handle_follow_ups(self):
         node = DummyGeneratorNode(self.team, self.user)
+        artifact = await AgentArtifact.objects.acreate(
+            team=self.team,
+            conversation=self.conversation,
+            name="Test Artifact",
+            type=AgentArtifact.Type.VISUALIZATION,
+            data=VisualizationArtifactContent(
+                query=self.basic_trends, name="Query", description="Description 1", plan="randomplan"
+            ).model_dump(),
+        )
         history = await node._construct_messages(
             AssistantState(
                 messages=[
                     HumanMessage(content="Multiple questions", id="0"),
-                    VisualizationMessage(
-                        answer=self.basic_trends, plan="randomplan", id="1", initiator="0", query="Query"
+                    ArtifactRefMessage(
+                        content_type=ArtifactContentType.VISUALIZATION,
+                        source=ArtifactSource.ARTIFACT,
+                        artifact_id=str(artifact.short_id),
+                        id="1",
                     ),
                     HumanMessage(content="Follow Up", id="2"),
                 ],
@@ -141,17 +231,41 @@ class TestSchemaGeneratorNode(BaseTest):
 
     async def test_agent_reconstructs_typical_conversation(self):
         node = DummyGeneratorNode(self.team, self.user)
+        artifact1 = await AgentArtifact.objects.acreate(
+            team=self.team,
+            conversation=self.conversation,
+            name="Test Artifact 1",
+            type=AgentArtifact.Type.VISUALIZATION,
+            data=VisualizationArtifactContent(
+                query=self.basic_trends, name="Query 1", description="Description 1", plan="Plan 1"
+            ).model_dump(),
+        )
+        artifact2 = await AgentArtifact.objects.acreate(
+            team=self.team,
+            conversation=self.conversation,
+            name="Test Artifact 2",
+            type=AgentArtifact.Type.VISUALIZATION,
+            data=VisualizationArtifactContent(
+                query=self.basic_trends, name="Query 2", description="Description 2", plan="Plan 2"
+            ).model_dump(),
+        )
         history = await node._construct_messages(
             AssistantState(
                 messages=[
                     HumanMessage(content="Question 1", id="0"),
-                    VisualizationMessage(
-                        answer=AssistantTrendsQuery(series=[]), plan="Plan 1", initiator="0", id="2", query="Query 1"
+                    ArtifactRefMessage(
+                        content_type=ArtifactContentType.VISUALIZATION,
+                        source=ArtifactSource.ARTIFACT,
+                        artifact_id=str(artifact1.short_id),
+                        id="1",
                     ),
                     AssistantMessage(content="Summary 1", id="3"),
                     HumanMessage(content="Question 2", id="4"),
-                    VisualizationMessage(
-                        answer=AssistantTrendsQuery(series=[]), plan="Plan 2", initiator="4", id="6", query="Query 2"
+                    ArtifactRefMessage(
+                        content_type=ArtifactContentType.VISUALIZATION,
+                        source=ArtifactSource.ARTIFACT,
+                        artifact_id=str(artifact2.short_id),
+                        id="5",
                     ),
                     AssistantMessage(content="Summary 2", id="7"),
                     HumanMessage(content="Question 3", id="8"),
@@ -184,13 +298,41 @@ class TestSchemaGeneratorNode(BaseTest):
 
     async def test_prompt_messages_merged(self):
         node = DummyGeneratorNode(self.team, self.user)
+        artifact1 = await AgentArtifact.objects.acreate(
+            team=self.team,
+            conversation=self.conversation,
+            name="Test Artifact 1",
+            type=AgentArtifact.Type.VISUALIZATION,
+            data=VisualizationArtifactContent(
+                query=self.basic_trends, name="Test Artifact 1", description="Test Description 1", plan="Plan 1"
+            ).model_dump(),
+        )
+        artifact2 = await AgentArtifact.objects.acreate(
+            team=self.team,
+            conversation=self.conversation,
+            name="Test Artifact 2",
+            type=AgentArtifact.Type.VISUALIZATION,
+            data=VisualizationArtifactContent(
+                query=self.basic_trends, name="Test Artifact 2", description="Test Description 2", plan="Plan 2"
+            ).model_dump(),
+        )
         state = AssistantState(
             messages=[
                 HumanMessage(content="Question 1", id="0"),
-                VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 1", initiator="0", id="2"),
+                ArtifactRefMessage(
+                    content_type=ArtifactContentType.VISUALIZATION,
+                    source=ArtifactSource.ARTIFACT,
+                    artifact_id=str(artifact1.short_id),
+                    id="1",
+                ),
                 AssistantMessage(content="Summary 1", id="3"),
                 HumanMessage(content="Question 2", id="4"),
-                VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 2", initiator="4", id="6"),
+                ArtifactRefMessage(
+                    content_type=ArtifactContentType.VISUALIZATION,
+                    source=ArtifactSource.ARTIFACT,
+                    artifact_id=str(artifact2.short_id),
+                    id="5",
+                ),
                 AssistantMessage(content="Summary 2", id="7"),
                 HumanMessage(content="Question 3", id="8"),
             ],
@@ -209,7 +351,7 @@ class TestSchemaGeneratorNode(BaseTest):
                 self.assertEqual(prompt[5].type, "human")
 
             generator_model_mock.return_value = RunnableLambda(assert_prompt)
-            await node.arun(state, {})
+            await node(state, {})
 
     async def test_failover_with_malformed_query(self):
         node = DummyGeneratorNode(self.team, self.user)
@@ -218,17 +360,18 @@ class TestSchemaGeneratorNode(BaseTest):
             output = DummySchema.model_construct(query=[]).model_dump()  # type: ignore
             generator_model_mock.return_value = RunnableLambda(lambda _: json.dumps(output))
 
-            new_state = await node.arun(AssistantState(messages=[HumanMessage(content="Text")]), {})
+            new_state = await node(AssistantState(messages=[HumanMessage(content="Text")]), {})
             new_state = cast(PartialAssistantState, new_state)
             self.assertEqual(len(new_state.intermediate_steps or []), 1)
 
-            new_state = await node.arun(
+            new_state = await node(
                 AssistantState(
                     messages=[HumanMessage(content="Text")],
                     intermediate_steps=[(AgentAction(tool="", tool_input="", log="exception"), "exception")],
                 ),
                 {},
             )
+            assert new_state is not None
             self.assertEqual(len(new_state.intermediate_steps or []), 2)
 
     async def test_quality_check_failure_with_retries_available(self):
@@ -238,16 +381,16 @@ class TestSchemaGeneratorNode(BaseTest):
             patch.object(DummyGeneratorNode, "_model") as generator_model_mock,
             patch.object(DummyGeneratorNode, "_quality_check_output") as quality_check_mock,
         ):
-            valid_output = DummySchema(query=self.basic_trends).model_dump()
+            valid_output = DummySchema(
+                query=self.basic_trends, name="Test Query Name", description="Test Query Description"
+            ).model_dump()
             generator_model_mock.return_value = RunnableLambda(lambda _: valid_output)
 
             quality_check_mock.side_effect = PydanticOutputParserException(
                 llm_output="SELECT x FROM events", validation_message="Field validation failed"
             )
 
-            new_state = await node.arun(
-                AssistantState(messages=[HumanMessage(content="Text", id="0")], start_id="0"), {}
-            )
+            new_state = await node(AssistantState(messages=[HumanMessage(content="Text", id="0")], start_id="0"), {})
             new_state = cast(PartialAssistantState, new_state)
 
             # Should trigger retry
@@ -264,7 +407,9 @@ class TestSchemaGeneratorNode(BaseTest):
             patch.object(DummyGeneratorNode, "_model") as generator_model_mock,
             patch.object(DummyGeneratorNode, "_quality_check_output") as quality_check_mock,
         ):
-            valid_output = DummySchema(query=self.basic_trends).model_dump()
+            valid_output = DummySchema(
+                query=self.basic_trends, name="Test Query Name", description="Test Query Description"
+            ).model_dump()
             generator_model_mock.return_value = RunnableLambda(lambda _: valid_output)
 
             # Quality check always fails
@@ -274,7 +419,7 @@ class TestSchemaGeneratorNode(BaseTest):
 
             # Start with RETRIES_ALLOWED intermediate steps (so no more allowed)
             with self.assertRaises(SchemaGenerationException) as cm:
-                await node.arun(
+                await node(
                     AssistantState(
                         messages=[HumanMessage(content="Text", id="0")],
                         start_id="0",
@@ -295,21 +440,27 @@ class TestSchemaGeneratorNode(BaseTest):
 
     async def test_node_leaves_failover(self):
         node = DummyGeneratorNode(self.team, self.user)
+        config = RunnableConfig(configurable={"thread_id": self.conversation.id})
         with patch.object(
             DummyGeneratorNode,
             "_model",
-            return_value=RunnableLambda(lambda _: DummySchema(query=self.basic_trends).model_dump()),
+            return_value=RunnableLambda(
+                lambda _: DummySchema(
+                    query=self.basic_trends, name="Test Query Name", description="Test Query Description"
+                ).model_dump()
+            ),
         ):
-            new_state = await node.arun(
+            new_state = await node(
                 AssistantState(
                     messages=[HumanMessage(content="Text")],
                     intermediate_steps=[(AgentAction(tool="", tool_input="", log="exception"), "exception")],
                 ),
-                {},
+                config,
             )
+            assert new_state is not None
             self.assertEqual(new_state.intermediate_steps, None)
 
-            new_state = await node.arun(
+            new_state = await node(
                 AssistantState(
                     messages=[HumanMessage(content="Text")],
                     intermediate_steps=[
@@ -317,8 +468,9 @@ class TestSchemaGeneratorNode(BaseTest):
                         (AgentAction(tool="", tool_input="", log="exception"), "exception"),
                     ],
                 ),
-                {},
+                config,
             )
+            assert new_state is not None
             self.assertEqual(new_state.intermediate_steps, None)
 
     async def test_node_leaves_failover_after_second_unsuccessful_attempt(self):
@@ -329,7 +481,7 @@ class TestSchemaGeneratorNode(BaseTest):
             generator_model_mock.return_value = RunnableLambda(lambda _: json.dumps(schema))
 
             with self.assertRaises(SchemaGenerationException):
-                await node.arun(
+                await node(
                     AssistantState(
                         messages=[HumanMessage(content="Text")],
                         intermediate_steps=[
@@ -419,12 +571,24 @@ class TestSchemaGeneratorNode(BaseTest):
 
     async def test_injects_insight_description_and_keeps_original_question(self):
         node = DummyGeneratorNode(self.team, self.user)
+        artifact = await AgentArtifact.objects.acreate(
+            team=self.team,
+            conversation=self.conversation,
+            name="Test Artifact",
+            type=AgentArtifact.Type.VISUALIZATION,
+            data=VisualizationArtifactContent(
+                query=self.basic_trends, name="Query 1", description="Description 1", plan="Plan 1"
+            ).model_dump(),
+        )
         history = await node._construct_messages(
             AssistantState(
                 messages=[
                     HumanMessage(content="Original question", id="1"),
-                    VisualizationMessage(
-                        answer=AssistantTrendsQuery(series=[]), plan="Plan 1", initiator="1", id="2", query="Query 1"
+                    ArtifactRefMessage(
+                        content_type=ArtifactContentType.VISUALIZATION,
+                        source=ArtifactSource.ARTIFACT,
+                        artifact_id=str(artifact.short_id),
+                        id="2",
                     ),
                     HumanMessage(content="Second question", id="3"),
                 ],
@@ -450,17 +614,28 @@ class TestSchemaGeneratorNode(BaseTest):
     async def test_keeps_maximum_number_of_viz_messages(self):
         node = DummyGeneratorNode(self.team, self.user)
         query = AssistantTrendsQuery(series=[])
+        messages = []
+        for i in range(7):
+            artifact = await AgentArtifact.objects.acreate(
+                team=self.team,
+                conversation=self.conversation,
+                name=f"Test Artifact {i + 1}",
+                type=AgentArtifact.Type.VISUALIZATION,
+                data=VisualizationArtifactContent(
+                    query=query, name=f"Query {i + 1}", description=f"Description {i + 1}", plan=f"Plan {i + 1}"
+                ).model_dump(),
+            )
+            messages.append(
+                ArtifactRefMessage(
+                    content_type=ArtifactContentType.VISUALIZATION,
+                    source=ArtifactSource.ARTIFACT,
+                    artifact_id=str(artifact.short_id),
+                    id=str(uuid4()),
+                )
+            )
         history = await node._construct_messages(
             AssistantState(
-                messages=[
-                    VisualizationMessage(query="Query 1", answer=query, plan="Plan 1", id="1"),
-                    VisualizationMessage(query="Query 2", answer=query, plan="Plan 2", id="2"),
-                    VisualizationMessage(query="Query 3", answer=query, plan="Plan 3", id="3"),
-                    VisualizationMessage(query="Query 4", answer=query, plan="Plan 4", id="4"),
-                    VisualizationMessage(query="Query 5", answer=query, plan="Plan 5", id="5"),
-                    VisualizationMessage(query="Query 6", answer=query, plan="Plan 6", id="6"),
-                    VisualizationMessage(query="Query 7", answer=query, plan="Plan 7", id="7"),
-                ],
+                messages=messages,
                 root_tool_insight_plan="Query 8",
                 root_tool_insight_type="trends",
             )
@@ -517,7 +692,8 @@ class TestSchemaGeneratorNode(BaseTest):
                 lambda _: """\n\n{\"query\":{\"kind\":\"RetentionQuery\",\"dateRange\":{\"date_from\":\"2024-01-01\",\"date_to\":\"2024-12-31\"},\"retentionFilter\":{\"period\":\"Week\",\"totalIntervals\":11,\"targetEntity\":{\"name\":\"Application Opened\",\"type\":\"events\"},\"returningEntity\":{\"name\":\"Application Opened\",\"type\":\"events\"}},\"filterTestAccounts\":false}\t \t\t \t\t \t \t"""
             ),
         ):
-            new_state = await node.arun(AssistantState(messages=[HumanMessage(content="Text")]), {})
+            new_state = await node(AssistantState(messages=[HumanMessage(content="Text")]), {})
+            assert new_state is not None
             self.assertEqual(len(new_state.intermediate_steps or []), 1)
 
 
@@ -525,7 +701,7 @@ class TestSchemaGeneratorToolsNode(BaseTest):
     async def test_tools_node(self):
         node = SchemaGeneratorToolsNode(self.team, self.user)
         action = AgentAction(tool="fix", tool_input="validationerror", log="pydanticexception")
-        state = await node.arun(AssistantState(messages=[], intermediate_steps=[(action, None)]), {})
+        state = await node(AssistantState(messages=[], intermediate_steps=[(action, None)]), {})
         state = cast(PartialAssistantState, state)
         self.assertIsNotNone("validationerror", cast(list[IntermediateStep], state.intermediate_steps)[0][1])
         self.assertIn(

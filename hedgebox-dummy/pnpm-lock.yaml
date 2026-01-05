@@ -12,8 +12,8 @@ importers:
         specifier: 14.0.0
         version: 14.0.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       posthog-js:
-        specifier: ~1.250.0
-        version: 1.250.2
+        specifier: ~1.313.0
+        version: 1.313.0
       react:
         specifier: ^18
         version: 18.3.1
@@ -209,6 +209,9 @@ packages:
   '@pkgjs/parseargs@0.11.0':
     resolution: {integrity: sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg==}
     engines: {node: '>=14'}
+
+  '@posthog/core@1.9.0':
+    resolution: {integrity: sha512-j7KSWxJTUtNyKynLt/p0hfip/3I46dWU2dk+pt7dKRoz2l5CYueHuHK4EO7Wlgno5yo1HO4sc4s30MXMTICHJw==}
 
   '@rtsao/scc@1.1.0':
     resolution: {integrity: sha512-zt6OdqaDoOnJ1ZYsCYGt9YmWzDXl4vQdKTyJev62gFhRGKdx7mcT54V9KIjg+d2wi9EXsPvAPKe7i7WjfVWB8g==}
@@ -557,8 +560,8 @@ packages:
   concat-map@0.0.1:
     resolution: {integrity: sha512-/Srv4dswyQNBfohGpz9o6Yb3Gz3SrUDqBH5rTuhGR7ahtlbYKnVxw2bCFMRljaA7EXHaXZ8wsHdodFvbkhKmqg==}
 
-  core-js@3.46.0:
-    resolution: {integrity: sha512-vDMm9B0xnqqZ8uSBpZ8sNtRtOdmfShrvT6h2TuQGLs0Is+cR0DYbj/KWP6ALVNbWPpqA/qPLoOuppJN07humpA==}
+  core-js@3.47.0:
+    resolution: {integrity: sha512-c3Q2VVkGAUyupsjRnaNX6u8Dq2vAdzm9iuPj5FW0fRxzlxgq9Q39MDq10IvmQSpLgHQNyQzQmOo6bgGHmH3NNg==}
 
   cross-spawn@7.0.6:
     resolution: {integrity: sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA==}
@@ -1491,19 +1494,11 @@ packages:
     resolution: {integrity: sha512-9ZhXKM/rw350N1ovuWHbGxnGh/SNJ4cnxHiM0rxE4VN41wsg8P8zWn9hv/buK00RP4WvlOyr/RBDiptyxVbkZQ==}
     engines: {node: '>=0.10.0'}
 
-  posthog-js@1.250.2:
-    resolution: {integrity: sha512-g/H9lJhjhsYPnpxntqp36osK7oJ6CFqul2+mVUkaacAJUG4DqCG8iawsSnZvvUmapjapbf2HUA7PCRrpRsl06A==}
-    peerDependencies:
-      '@rrweb/types': 2.0.0-alpha.17
-      rrweb-snapshot: 2.0.0-alpha.17
-    peerDependenciesMeta:
-      '@rrweb/types':
-        optional: true
-      rrweb-snapshot:
-        optional: true
+  posthog-js@1.313.0:
+    resolution: {integrity: sha512-CL8RkC7m9BTZrix86w0fdnSCVqC/gxrfs6c4Wfkz/CldFD7f2912S2KqnWFmwRVDGIwm9IR82YhublQ88gdDKw==}
 
-  preact@10.27.2:
-    resolution: {integrity: sha512-5SYSgFKSyhCbk6SrXyMpqjb5+MQBgfvEKE/OC+PujcY34sOpqtr+0AZQtPYx5IA6VxynQ7rUPCtKzyovpj9Bpg==}
+  preact@10.28.1:
+    resolution: {integrity: sha512-u1/ixq/lVQI0CakKNvLDEcW5zfCjUQfZdK9qqWuIJtsezuyG6pk9TWj75GMuI/EzRSZB/VAE43sNWWZfiy8psw==}
 
   prelude-ls@1.2.1:
     resolution: {integrity: sha512-vkcDPrRZo1QZLbn5RLGPpg/WmIQ65qoWWhcGKf/b5eplkkarX0m9z8ppCat4mlOqUsWpyNuYgO3VRyrYHSzX5g==}
@@ -2013,6 +2008,10 @@ snapshots:
   '@pkgjs/parseargs@0.11.0':
     optional: true
 
+  '@posthog/core@1.9.0':
+    dependencies:
+      cross-spawn: 7.0.6
+
   '@rtsao/scc@1.1.0': {}
 
   '@rushstack/eslint-patch@1.13.0': {}
@@ -2356,7 +2355,7 @@ snapshots:
 
   concat-map@0.0.1: {}
 
-  core-js@3.46.0: {}
+  core-js@3.47.0: {}
 
   cross-spawn@7.0.6:
     dependencies:
@@ -2569,7 +2568,7 @@ snapshots:
       eslint: 8.57.1
       eslint-import-resolver-node: 0.3.9
       eslint-import-resolver-typescript: 3.10.1(eslint-plugin-import@2.32.0(eslint@8.57.1))(eslint@8.57.1)
-      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@6.21.0(eslint@8.57.1)(typescript@5.9.3))(eslint-import-resolver-typescript@3.10.1)(eslint@8.57.1)
+      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@6.21.0(eslint@8.57.1)(typescript@5.9.3))(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(eslint@8.57.1))(eslint@8.57.1))(eslint@8.57.1)
       eslint-plugin-jsx-a11y: 6.10.2(eslint@8.57.1)
       eslint-plugin-react: 7.37.5(eslint@8.57.1)
       eslint-plugin-react-hooks: 5.0.0-canary-7118f5dd7-20230705(eslint@8.57.1)
@@ -2599,7 +2598,7 @@ snapshots:
       tinyglobby: 0.2.15
       unrs-resolver: 1.11.1
     optionalDependencies:
-      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@6.21.0(eslint@8.57.1)(typescript@5.9.3))(eslint-import-resolver-typescript@3.10.1)(eslint@8.57.1)
+      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@6.21.0(eslint@8.57.1)(typescript@5.9.3))(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(eslint@8.57.1))(eslint@8.57.1))(eslint@8.57.1)
     transitivePeerDependencies:
       - supports-color
 
@@ -2614,7 +2613,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  eslint-plugin-import@2.32.0(@typescript-eslint/parser@6.21.0(eslint@8.57.1)(typescript@5.9.3))(eslint-import-resolver-typescript@3.10.1)(eslint@8.57.1):
+  eslint-plugin-import@2.32.0(@typescript-eslint/parser@6.21.0(eslint@8.57.1)(typescript@5.9.3))(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(eslint@8.57.1))(eslint@8.57.1))(eslint@8.57.1):
     dependencies:
       '@rtsao/scc': 1.1.0
       array-includes: 3.1.9
@@ -3435,14 +3434,15 @@ snapshots:
     dependencies:
       xtend: 4.0.2
 
-  posthog-js@1.250.2:
+  posthog-js@1.313.0:
     dependencies:
-      core-js: 3.46.0
+      '@posthog/core': 1.9.0
+      core-js: 3.47.0
       fflate: 0.4.8
-      preact: 10.27.2
+      preact: 10.28.1
       web-vitals: 4.2.4
 
-  preact@10.27.2: {}
+  preact@10.28.1: {}
 
   prelude-ls@1.2.1: {}
 

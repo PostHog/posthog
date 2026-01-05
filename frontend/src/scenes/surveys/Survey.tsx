@@ -197,6 +197,27 @@ export function SurveyDisplaySummary({
                     </div>
                 </div>
             )}
+            {survey.appearance?.surveyPopupDelaySeconds && (
+                <div className="flex flex-col font-medium gap-1">
+                    <div className="flex-row">
+                        <span>Delay before showing:</span>{' '}
+                        <LemonTag>
+                            {survey.appearance.surveyPopupDelaySeconds}{' '}
+                            {survey.appearance.surveyPopupDelaySeconds === 1 ? 'second' : 'seconds'}
+                        </LemonTag>
+                    </div>
+                </div>
+            )}
+            {(survey.conditions?.cancelEvents?.values?.length ?? 0) > 0 && (
+                <div className="flex flex-col font-medium gap-1">
+                    <div className="flex-row">
+                        <span>Cancel survey if user sends:</span>
+                        {survey.conditions?.cancelEvents?.values?.map((event) => (
+                            <LemonTag key={event.name}>{event.name}</LemonTag>
+                        ))}
+                    </div>
+                </div>
+            )}
         </div>
     )
 }

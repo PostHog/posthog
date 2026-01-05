@@ -27,6 +27,7 @@ export interface PersonDisplayProps {
     children?: React.ReactChild
     withCopyButton?: boolean
     placement?: 'top' | 'bottom' | 'left' | 'right'
+    inline?: boolean
 }
 
 export function PersonIcon({
@@ -68,6 +69,7 @@ export function PersonDisplay({
     children,
     withCopyButton,
     placement,
+    inline,
 }: PersonDisplayProps): JSX.Element {
     const display = displayName || asDisplay(person)
     const [visible, setVisible] = useState(false)
@@ -86,7 +88,7 @@ export function PersonDisplay({
     }
 
     let content = children || (
-        <span className={clsx('flex items-center', isCentered && 'justify-center')}>
+        <span className={clsx(!inline && 'flex items-center', isCentered && 'justify-center')}>
             {withIcon && (
                 <PersonIcon
                     displayName={displayName}

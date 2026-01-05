@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { IconGear, IconPencil, IconRefresh, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonModal, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonTag, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -80,6 +80,7 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
         statsMethod,
         usesNewQueryRunner,
         isExperimentDraft,
+        isSingleVariantShipped,
         featureFlags,
     } = useValues(experimentLogic)
     const { updateExperiment, refreshExperimentResults } = useActions(experimentLogic)
@@ -117,17 +118,28 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
 
     return (
         <>
-            <div className="grid gap-2 overflow-hidden grid-cols-1 min-[1200px]:grid-cols-[1fr_26rem]">
+            <div className="grid gap-2 overflow-hidden grid-cols-1 min-[1400px]:grid-cols-[2fr_3fr]">
                 {/* Column 1 */}
-                <div className="flex flex-col gap-0 overflow-hidden">
+                <div className="flex flex-col gap-0 overflow-hidden min-w-0">
                     {/* Row 1: Status, Feature flag, Stats engine */}
-                    <div className="inline-flex deprecated-space-x-8">
+                    <div className="flex flex-wrap gap-x-8 gap-y-2">
                         <div className="flex flex-col" data-attr="experiment-status">
                             <Label intent="menu">Status</Label>
-                            <StatusTag status={status} />
+                            <div className="flex gap-1">
+                                <StatusTag status={status} />
+                                {isSingleVariantShipped && (
+                                    <Tooltip
+                                        title={`Variant "${experiment.feature_flag?.filters.multivariate?.variants?.find((v) => v.rollout_percentage === 100)?.key}" has been rolled out to 100% of users`}
+                                    >
+                                        <LemonTag type="completion" className="cursor-default">
+                                            <b className="uppercase">100% rollout</b>
+                                        </LemonTag>
+                                    </Tooltip>
+                                )}
+                            </div>
                         </div>
                         {experiment.feature_flag && (
-                            <div className="flex flex-col">
+                            <div className="flex flex-col max-w-[500px]">
                                 <Label intent="menu">Feature flag</Label>
                                 <div className="flex gap-1 items-center">
                                     {status === ProgressStatus.Running && !experiment.feature_flag.active && (
@@ -164,10 +176,14 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
                             </div>
                         )}
                         <div className="flex flex-col">
-                            <Label intent="menu">Stats Engine</Label>
+                            <Label intent="menu">Statistics</Label>
                             <div className="inline-flex deprecated-space-x-2">
                                 <span>
                                     {statsMethod === ExperimentStatsMethod.Bayesian ? 'Bayesian' : 'Frequentist'}
+                                    {' / '}
+                                    {statsMethod === ExperimentStatsMethod.Bayesian
+                                        ? `${((experiment.stats_config?.bayesian?.ci_level ?? 0.95) * 100).toFixed(0)}%`
+                                        : `${((1 - (experiment.stats_config?.frequentist?.alpha ?? 0.05)) * 100).toFixed(0)}%`}
                                 </span>
                                 {usesNewQueryRunner && (
                                     <>
@@ -178,7 +194,7 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
                                                 openStatsEngineModal()
                                             }}
                                             icon={<IconGear />}
-                                            tooltip="Change stats engine"
+                                            tooltip="Configure statistics"
                                         />
                                         <StatsMethodModal />
                                     </>
@@ -237,13 +253,13 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
                 </div>
 
                 {/* Column 2 */}
-                <div className="flex flex-col gap-4 overflow-hidden items-start min-[1200px]:items-end">
+                <div className="flex flex-col gap-4 overflow-hidden items-start min-[1400px]:items-end min-w-0">
                     {/* Row 1: Duration */}
                     {!isExperimentDraft && <ExperimentDuration />}
 
                     {/* Row 2: Last refreshed, Created by */}
-                    <div className="flex flex-col overflow-hidden items-start min-[1200px]:items-end">
-                        <div className="inline-flex deprecated-space-x-8">
+                    <div className="flex flex-col overflow-hidden items-start min-[1400px]:items-end">
+                        <div className="flex flex-wrap gap-x-8 gap-y-2 justify-end">
                             {experiment.start_date && (
                                 <>
                                     {useNewCalculator && tabId && (

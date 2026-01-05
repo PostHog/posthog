@@ -3,12 +3,39 @@
 import math
 from typing import Optional, Union
 
+from pydantic import BaseModel
+
 from posthog.schema import (
+    BingAdsDefaultSources,
+    BingAdsTableExclusions,
+    BingAdsTableKeywords,
+    GoogleAdsDefaultSources,
+    GoogleAdsTableExclusions,
+    GoogleAdsTableKeywords,
     InfinityValue,
+    LinkedinAdsDefaultSources,
+    LinkedinAdsTableExclusions,
+    LinkedinAdsTableKeywords,
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsColumnsSchemaNames,
     MarketingAnalyticsHelperForColumnNames,
     MarketingAnalyticsItem,
+    MarketingIntegrationConfig1,
+    MarketingIntegrationConfig2,
+    MarketingIntegrationConfig3,
+    MarketingIntegrationConfig4,
+    MarketingIntegrationConfig5,
+    MarketingIntegrationConfig6,
+    MetaAdsDefaultSources,
+    MetaAdsTableExclusions,
+    MetaAdsTableKeywords,
+    NativeMarketingSource,
+    RedditAdsDefaultSources,
+    RedditAdsTableExclusions,
+    RedditAdsTableKeywords,
+    TikTokAdsDefaultSources,
+    TikTokAdsTableExclusions,
+    TikTokAdsTableKeywords,
     WebAnalyticsItemKind,
 )
 
@@ -39,12 +66,32 @@ TOTAL_COST_FIELD = "total_cost"
 TOTAL_CLICKS_FIELD = "total_clicks"
 TOTAL_IMPRESSIONS_FIELD = "total_impressions"
 TOTAL_REPORTED_CONVERSION_FIELD = "total_reported_conversions"
+TOTAL_REPORTED_CONVERSION_VALUE_FIELD = "total_reported_conversion_value"
 
-# Fallback query when no valid adapters are found
-FALLBACK_EMPTY_QUERY = f"SELECT 'No Campaign' as {MarketingAnalyticsColumnsSchemaNames.CAMPAIGN}, 'No Source' as {MarketingAnalyticsColumnsSchemaNames.SOURCE}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.IMPRESSIONS}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.CLICKS}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.COST}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION} WHERE 1=0"
+# Field used for joining with conversion goals
+MATCH_KEY_FIELD = "match_key"
+
+# Fallback query when no valid adapters are found (includes all 9 columns in correct order)
+# Order: match_key, campaign, id, source, impressions, clicks, cost, reported_conversion, reported_conversion_value
+FALLBACK_EMPTY_QUERY = (
+    f"SELECT '' as {MATCH_KEY_FIELD}, "
+    f"'No Campaign' as {MarketingAnalyticsColumnsSchemaNames.CAMPAIGN}, "
+    f"'No ID' as {MarketingAnalyticsColumnsSchemaNames.ID}, "
+    f"'No Source' as {MarketingAnalyticsColumnsSchemaNames.SOURCE}, "
+    f"0.0 as {MarketingAnalyticsColumnsSchemaNames.IMPRESSIONS}, "
+    f"0.0 as {MarketingAnalyticsColumnsSchemaNames.CLICKS}, "
+    f"0.0 as {MarketingAnalyticsColumnsSchemaNames.COST}, "
+    f"0.0 as {MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION}, "
+    f"0.0 as {MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION_VALUE} "
+    "WHERE 1=0"
+)
 
 # AST Expression mappings for MarketingAnalyticsBaseColumns
 BASE_COLUMN_MAPPING = {
+    MarketingAnalyticsBaseColumns.ID: ast.Alias(
+        alias=MarketingAnalyticsBaseColumns.ID,
+        expr=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, MarketingAnalyticsColumnsSchemaNames.ID]),
+    ),
     MarketingAnalyticsBaseColumns.CAMPAIGN: ast.Alias(
         alias=MarketingAnalyticsBaseColumns.CAMPAIGN,
         expr=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, MarketingAnalyticsColumnsSchemaNames.CAMPAIGN]),
@@ -131,6 +178,36 @@ BASE_COLUMN_MAPPING = {
             ],
         ),
     ),
+    MarketingAnalyticsBaseColumns.REPORTED_CONVERSION_VALUE: ast.Alias(
+        alias=MarketingAnalyticsBaseColumns.REPORTED_CONVERSION_VALUE,
+        expr=ast.Call(
+            name="round",
+            args=[
+                ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_REPORTED_CONVERSION_VALUE_FIELD]),
+                ast.Constant(value=DECIMAL_PRECISION),
+            ],
+        ),
+    ),
+    MarketingAnalyticsBaseColumns.REPORTED_ROAS: ast.Alias(
+        alias=MarketingAnalyticsBaseColumns.REPORTED_ROAS,
+        expr=ast.Call(
+            name="round",
+            args=[
+                ast.ArithmeticOperation(
+                    left=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_REPORTED_CONVERSION_VALUE_FIELD]),
+                    op=ast.ArithmeticOperationOp.Div,
+                    right=ast.Call(
+                        name="nullif",
+                        args=[
+                            ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_COST_FIELD]),
+                            ast.Constant(value=0),
+                        ],
+                    ),
+                ),
+                ast.Constant(value=DECIMAL_PRECISION),
+            ],
+        ),
+    ),
 }
 
 BASE_COLUMNS = [BASE_COLUMN_MAPPING[column] for column in MarketingAnalyticsBaseColumns]
@@ -138,6 +215,7 @@ BASE_COLUMNS = [BASE_COLUMN_MAPPING[column] for column in MarketingAnalyticsBase
 # Marketing Analytics schema definition. This is the schema that is used to validate the source map.
 MARKETING_ANALYTICS_SCHEMA = {
     MarketingAnalyticsColumnsSchemaNames.CAMPAIGN: {"required": True},
+    MarketingAnalyticsColumnsSchemaNames.ID: {"required": False},
     MarketingAnalyticsColumnsSchemaNames.SOURCE: {"required": True},
     MarketingAnalyticsColumnsSchemaNames.CLICKS: {"required": False},
     MarketingAnalyticsColumnsSchemaNames.COST: {"required": True},
@@ -146,8 +224,8 @@ MARKETING_ANALYTICS_SCHEMA = {
     MarketingAnalyticsColumnsSchemaNames.CURRENCY: {"required": False},
 }
 
-# Valid native marketing sources
-VALID_NATIVE_MARKETING_SOURCES = ["GoogleAds", "LinkedinAds", "RedditAds", "MetaAds", "TikTokAds", "BingAds"]
+# Valid native marketing sources - derived from generated enum
+VALID_NATIVE_MARKETING_SOURCES = [source.value for source in NativeMarketingSource]
 
 # Valid non-native marketing sources (managed external sources like BigQuery)
 VALID_NON_NATIVE_MARKETING_SOURCES = ["BigQuery"]
@@ -155,52 +233,106 @@ VALID_NON_NATIVE_MARKETING_SOURCES = ["BigQuery"]
 # Valid self-managed marketing sources (mirrors frontend types)
 VALID_SELF_MANAGED_MARKETING_SOURCES = ["aws", "google-cloud", "cloudflare-r2", "azure"]
 
-# Required tables for each native source
-NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS = {
-    "GoogleAds": ["campaign", "campaign_stats"],
-    "LinkedinAds": ["campaigns", "campaign_stats"],
-    "RedditAds": ["campaigns", "campaign_report"],
-    "MetaAds": ["campaigns", "campaign_stats"],
-    "TikTokAds": ["campaigns", "campaign_report"],
-    "BingAds": ["campaigns", "campaign_performance_report"],
+# Map generated config models to NativeMarketingSource using sourceType field
+_ALL_CONFIG_MODELS = [
+    MarketingIntegrationConfig1,
+    MarketingIntegrationConfig2,
+    MarketingIntegrationConfig3,
+    MarketingIntegrationConfig4,
+    MarketingIntegrationConfig5,
+    MarketingIntegrationConfig6,
+]
+
+
+def _get_field_default(model: type[BaseModel], field_name: str):
+    """Extract default value from a Pydantic model field."""
+    return model.model_fields[field_name].default
+
+
+# Build mapping from NativeMarketingSource to config model using sourceType
+_CONFIG_MODELS: dict[NativeMarketingSource, type] = {}
+for _config in _ALL_CONFIG_MODELS:
+    _source_type_value = _get_field_default(_config, "sourceType")
+    _source = NativeMarketingSource(_source_type_value)
+    _CONFIG_MODELS[_source] = _config
+
+
+def _get_enum_values(enum_class) -> list[str]:
+    """Extract values from a StrEnum or RootModel literal type."""
+    # Check if it's a StrEnum (has __members__)
+    if hasattr(enum_class, "__members__"):
+        return [member.value for member in enum_class]
+    # It's a RootModel with a single literal value - get the default
+    if hasattr(enum_class, "model_fields") and "root" in enum_class.model_fields:
+        return [enum_class.model_fields["root"].default]
+    return []
+
+
+# Mapping from NativeMarketingSource to generated enum types
+_DEFAULT_SOURCES_ENUMS = {
+    NativeMarketingSource.GOOGLE_ADS: GoogleAdsDefaultSources,
+    NativeMarketingSource.LINKEDIN_ADS: LinkedinAdsDefaultSources,
+    NativeMarketingSource.META_ADS: MetaAdsDefaultSources,
+    NativeMarketingSource.TIK_TOK_ADS: TikTokAdsDefaultSources,
+    NativeMarketingSource.REDDIT_ADS: RedditAdsDefaultSources,
+    NativeMarketingSource.BING_ADS: BingAdsDefaultSources,
 }
 
-# Table pattern matching for native sources. TODO: find a better way to get the table names from the source.
+_TABLE_KEYWORDS_ENUMS = {
+    NativeMarketingSource.GOOGLE_ADS: GoogleAdsTableKeywords,
+    NativeMarketingSource.LINKEDIN_ADS: LinkedinAdsTableKeywords,
+    NativeMarketingSource.META_ADS: MetaAdsTableKeywords,
+    NativeMarketingSource.TIK_TOK_ADS: TikTokAdsTableKeywords,
+    NativeMarketingSource.REDDIT_ADS: RedditAdsTableKeywords,
+    NativeMarketingSource.BING_ADS: BingAdsTableKeywords,
+}
+
+_TABLE_EXCLUSIONS_ENUMS = {
+    NativeMarketingSource.GOOGLE_ADS: GoogleAdsTableExclusions,
+    NativeMarketingSource.LINKEDIN_ADS: LinkedinAdsTableExclusions,
+    NativeMarketingSource.META_ADS: MetaAdsTableExclusions,
+    NativeMarketingSource.TIK_TOK_ADS: TikTokAdsTableExclusions,
+    NativeMarketingSource.REDDIT_ADS: RedditAdsTableExclusions,
+    NativeMarketingSource.BING_ADS: BingAdsTableExclusions,
+}
+
+# Derived constants from generated types
+NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS = {
+    source: [
+        _get_field_default(config, "campaignTableName"),
+        _get_field_default(config, "statsTableName"),
+    ]
+    for source, config in _CONFIG_MODELS.items()
+}
+
 TABLE_PATTERNS = {
-    "GoogleAds": {
-        "campaign_table_keywords": ["campaign"],
-        "campaign_table_exclusions": ["stats"],
-        "stats_table_keywords": ["campaign_stats"],
-    },
-    "LinkedinAds": {
-        "campaign_table_keywords": ["campaigns"],
-        "campaign_table_exclusions": ["stats"],
-        "stats_table_keywords": ["campaign_stats"],
-    },
-    "RedditAds": {
-        "campaign_table_keywords": ["campaigns"],
-        "campaign_table_exclusions": ["report"],
-        "stats_table_keywords": ["campaign_report"],
-    },
-    "MetaAds": {
-        "campaign_table_keywords": ["campaigns"],
-        "campaign_table_exclusions": ["stats"],
-        "stats_table_keywords": ["campaign_stats"],
-    },
-    "TikTokAds": {
-        "campaign_table_keywords": ["campaigns"],
-        "campaign_table_exclusions": ["report"],
-        "stats_table_keywords": ["campaign_report"],
-    },
-    "BingAds": {
-        "campaign_table_keywords": ["campaigns"],
-        "campaign_table_exclusions": ["performance"],
-        "stats_table_keywords": ["campaign_performance_report"],
-    },
+    source: {
+        "campaign_table_keywords": _get_enum_values(_TABLE_KEYWORDS_ENUMS[source]),
+        "campaign_table_exclusions": _get_enum_values(_TABLE_EXCLUSIONS_ENUMS[source]),
+        "stats_table_keywords": [_get_field_default(config, "statsTableName")],
+    }
+    for source, config in _CONFIG_MODELS.items()
+}
+
+INTEGRATION_FIELD_NAMES = {
+    source: {
+        "name_field": _get_field_default(config, "nameField"),
+        "id_field": _get_field_default(config, "idField"),
+    }
+    for source, config in _CONFIG_MODELS.items()
+}
+
+INTEGRATION_PRIMARY_SOURCE = {
+    source: _get_field_default(config, "primarySource") for source, config in _CONFIG_MODELS.items()
+}
+
+INTEGRATION_DEFAULT_SOURCES = {
+    source: _get_enum_values(_DEFAULT_SOURCES_ENUMS[source]) for source in NativeMarketingSource
 }
 
 # Column kind mapping for WebAnalyticsItemBase
 COLUMN_KIND_MAPPING = {
+    MarketingAnalyticsBaseColumns.ID: "unit",
     MarketingAnalyticsBaseColumns.CAMPAIGN: "unit",
     MarketingAnalyticsBaseColumns.SOURCE: "unit",
     MarketingAnalyticsBaseColumns.COST: "currency",
@@ -209,10 +341,13 @@ COLUMN_KIND_MAPPING = {
     MarketingAnalyticsBaseColumns.CPC: "currency",
     MarketingAnalyticsBaseColumns.CTR: "percentage",
     MarketingAnalyticsBaseColumns.REPORTED_CONVERSION: "unit",
+    MarketingAnalyticsBaseColumns.REPORTED_CONVERSION_VALUE: "currency",
+    MarketingAnalyticsBaseColumns.REPORTED_ROAS: "unit",
 }
 
 # isIncreaseBad mapping for MarketingAnalyticsBaseColumns
 IS_INCREASE_BAD_MAPPING = {
+    MarketingAnalyticsBaseColumns.ID: False,
     MarketingAnalyticsBaseColumns.CAMPAIGN: False,
     MarketingAnalyticsBaseColumns.SOURCE: False,
     MarketingAnalyticsBaseColumns.COST: True,  # Higher cost is bad
@@ -221,6 +356,8 @@ IS_INCREASE_BAD_MAPPING = {
     MarketingAnalyticsBaseColumns.CPC: True,  # Higher CPC is bad
     MarketingAnalyticsBaseColumns.CTR: False,  # Higher CTR is good
     MarketingAnalyticsBaseColumns.REPORTED_CONVERSION: False,  # More reported conversions is good
+    MarketingAnalyticsBaseColumns.REPORTED_CONVERSION_VALUE: False,  # Higher conversion value is good
+    MarketingAnalyticsBaseColumns.REPORTED_ROAS: False,  # Higher ROAS is good
 }
 
 
@@ -266,8 +403,9 @@ def to_marketing_analytics_data(
             kind = "unit"
             is_increase_bad = False  # More conversions is good
 
-    # For string columns (Campaign, Source), preserve the string values
+    # For string columns (ID, Campaign, Source), preserve the string values
     if kind == "unit" and key in [
+        MarketingAnalyticsBaseColumns.ID.value,
         MarketingAnalyticsBaseColumns.CAMPAIGN.value,
         MarketingAnalyticsBaseColumns.SOURCE.value,
     ]:

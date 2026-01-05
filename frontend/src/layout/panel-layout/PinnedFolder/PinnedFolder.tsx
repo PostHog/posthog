@@ -36,10 +36,11 @@ export function PinnedFolder(): JSX.Element {
     const { openModal: openEditCustomProductsModal } = useActions(editCustomProductsModalLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
-    const isCustomProductsSidebarEnabled =
-        featureFlags[FEATURE_FLAGS.CUSTOM_PRODUCTS_SIDEBAR] || pinnedFolder === 'custom-products://'
 
     const showDefaultHeader = !['products://', 'data://', 'custom-products://'].includes(pinnedFolder)
+
+    const isCustomProductsSidebarEnabled = featureFlags[FEATURE_FLAGS.CUSTOM_PRODUCTS_SIDEBAR] === 'test'
+    const CustomProductsIcon = isCustomProductsSidebarEnabled ? IconGear : IconPencil
 
     const configMenu = (
         <>
@@ -62,69 +63,57 @@ export function PinnedFolder(): JSX.Element {
                     onClick={openEditCustomProductsModal}
                     size="xs"
                 >
-                    <IconPencil className="size-3 text-secondary" />
+                    <CustomProductsIcon className="size-3 text-secondary" />
                 </ButtonPrimitive>
             ) : null}
-            <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                    <ButtonPrimitive
-                        iconOnly
-                        data-attr="tree-navbar-pinned-folder-change-button"
-                        tooltip="Change sidebar mode"
-                        tooltipPlacement="top"
-                        size="xs"
-                    >
-                        <IconGear className="size-3 text-secondary" />
-                    </ButtonPrimitive>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent loop align="end" side="bottom" className="max-w-[250px]">
-                    <DropdownMenuGroup>
-                        <DropdownMenuLabel>Choose sidebar mode</DropdownMenuLabel>
-                        <DropdownMenuSeparator />
-                        {isCustomProductsSidebarEnabled && (
+
+            {!isCustomProductsSidebarEnabled && (
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <ButtonPrimitive
+                            iconOnly
+                            data-attr="tree-navbar-pinned-folder-change-button"
+                            tooltip="Change sidebar mode"
+                            tooltipPlacement="top"
+                            size="xs"
+                        >
+                            <IconGear className="size-3 text-secondary" />
+                        </ButtonPrimitive>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent loop align="end" side="bottom" className="max-w-[250px]">
+                        <DropdownMenuGroup>
+                            <DropdownMenuLabel>Choose sidebar mode</DropdownMenuLabel>
+                            <DropdownMenuSeparator />
                             <DropdownMenuItem
                                 asChild
                                 onClick={(e) => {
                                     e.stopPropagation()
-                                    setPinnedFolder('custom-products://')
+                                    setPinnedFolder('products://')
                                 }}
                                 data-attr="tree-item-menu-open-link-button"
                             >
                                 <ButtonPrimitive menuItem>
-                                    My apps&nbsp;
-                                    <SelectedIcon checked={pinnedFolder === 'custom-products://'} />
+                                    All apps&nbsp;
+                                    <SelectedIcon checked={!pinnedFolder || pinnedFolder === 'products://'} />
                                 </ButtonPrimitive>
                             </DropdownMenuItem>
-                        )}
-                        <DropdownMenuItem
-                            asChild
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                setPinnedFolder('products://')
-                            }}
-                            data-attr="tree-item-menu-open-link-button"
-                        >
-                            <ButtonPrimitive menuItem>
-                                All apps&nbsp;
-                                <SelectedIcon checked={!pinnedFolder || pinnedFolder === 'products://'} />
-                            </ButtonPrimitive>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                            asChild
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                setPinnedFolder('shortcuts://')
-                            }}
-                            data-attr="tree-item-menu-open-link-button"
-                        >
-                            <ButtonPrimitive menuItem>
-                                Shortcuts only&nbsp;
-                                <SelectedIcon checked={pinnedFolder === 'shortcuts://'} />
-                            </ButtonPrimitive>
-                        </DropdownMenuItem>
-                    </DropdownMenuGroup>
-                </DropdownMenuContent>
-            </DropdownMenu>
+                            <DropdownMenuItem
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    setPinnedFolder('shortcuts://')
+                                }}
+                                data-attr="tree-item-menu-open-link-button"
+                            >
+                                <ButtonPrimitive menuItem>
+                                    Shortcuts only&nbsp;
+                                    <SelectedIcon checked={pinnedFolder === 'shortcuts://'} />
+                                </ButtonPrimitive>
+                            </DropdownMenuItem>
+                        </DropdownMenuGroup>
+                    </DropdownMenuContent>
+                </DropdownMenu>
+            )}
         </>
     )
 

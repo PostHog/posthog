@@ -12,7 +12,7 @@ use anyhow::Error;
 use axum::async_trait;
 use common_database::{get_pool, Client, CustomDatabaseError};
 use common_redis::{Client as RedisClientTrait, RedisClient};
-use common_types::{Person, PersonId, ProjectId, TeamId};
+use common_types::{Person, PersonId, TeamId};
 use rand::{distributions::Alphanumeric, Rng};
 use serde_json::{json, Value};
 use sqlx::{pool::PoolConnection, Error as SqlxError, Postgres, Row};
@@ -36,7 +36,6 @@ pub async fn insert_new_team_in_redis(
     let token = random_string("phc_", 12);
     let team = Team {
         id,
-        project_id: Some(i64::from(id)),
         name: "team".to_string(),
         api_token: token,
         cookieless_server_hash_mode: Some(0),
@@ -58,7 +57,6 @@ pub async fn insert_new_team_in_redis(
 pub async fn insert_flags_for_team_in_redis(
     client: Arc<dyn RedisClientTrait + Send + Sync>,
     team_id: i32,
-    project_id: ProjectId,
     json_value: Option<String>,
 ) -> Result<(), Error> {
     let payload = match json_value {
@@ -88,7 +86,7 @@ pub async fn insert_flags_for_team_in_redis(
     };
 
     client
-        .set(format!("{TEAM_FLAGS_CACHE_PREFIX}{project_id}"), payload)
+        .set(format!("{TEAM_FLAGS_CACHE_PREFIX}{team_id}"), payload)
         .await?;
 
     Ok(())
@@ -295,19 +293,19 @@ async fn insert_team_group_mappings(
     ];
 
     for (group_type, group_type_index) in group_types {
-        let res = sqlx::query(
+        sqlx::query(
             r#"INSERT INTO posthog_grouptypemapping
             (group_type, group_type_index, name_singular, name_plural, team_id, project_id)
             VALUES
-            ($1, $2, NULL, NULL, $3, $4)"#,
+            ($1, $2, NULL, NULL, $3, $4)
+            ON CONFLICT (project_id, group_type_index) DO NOTHING"#,
         )
         .bind(group_type)
         .bind(group_type_index)
         .bind(team.id)
-        .bind(team.project_id())
+        .bind(team.id)
         .execute(&mut *persons_conn)
         .await?;
-        assert_eq!(res.rows_affected(), 1);
     }
 
     Ok(())
@@ -329,7 +327,6 @@ pub async fn insert_new_team_in_pg(
     let token = random_string("phc_", 12);
     let team = Team {
         id,
-        project_id: Some(id as i64),
         name: "Test Team".to_string(),
         api_token: token.clone(),
         cookieless_server_hash_mode: Some(0),
@@ -347,7 +344,7 @@ pub async fn insert_new_team_in_pg(
         (id, organization_id, name, created_at) VALUES
         ($1, $2::uuid, $3, '2024-06-17 14:40:51.332036+00:00')"#,
     )
-    .bind(team.project_id())
+    .bind(team.id)
     .bind(org_id)
     .bind(&team.name)
     .execute(&mut *non_persons_conn)
@@ -359,7 +356,7 @@ pub async fn insert_new_team_in_pg(
         r#"INSERT INTO posthog_team
         (id, uuid, organization_id, project_id, api_token, name, created_at, updated_at, app_urls, anonymize_ips, completed_snippet_onboarding, ingested_event, session_recording_opt_in, is_demo, access_control, test_account_filters, timezone, data_attributes, plugins_opt_in, opt_out_capture, event_names, event_names_with_usage, event_properties, event_properties_with_usage, event_properties_numerical, cookieless_server_hash_mode, base_currency, session_recording_retention_period, web_analytics_pre_aggregated_tables_enabled) VALUES
         ($1, $2, $3::uuid, $4, $5, $6, '2024-06-17 14:40:51.332036+00:00', '2024-06-17', '{}', false, false, false, false, false, false, '{}', 'UTC', '["data-attr"]', false, false, '[]', '[]', '[]', '[]', '[]', $7, 'USD', '30d', false)"#
-    ).bind(team.id).bind(uuid).bind(org_id).bind(team.project_id()).bind(&team.api_token).bind(&team.name).bind(team.cookieless_server_hash_mode.unwrap_or(0)).execute(&mut *non_persons_conn).await?;
+    ).bind(team.id).bind(uuid).bind(org_id).bind(team.id).bind(&team.api_token).bind(&team.name).bind(team.cookieless_server_hash_mode.unwrap_or(0)).execute(&mut *non_persons_conn).await?;
     assert_eq!(res.rows_affected(), 1);
 
     // Insert group type mappings
@@ -405,6 +402,7 @@ pub async fn insert_flag_for_team_in_pg(
             version: None,
             evaluation_runtime: Some("all".to_string()),
             evaluation_tags: None,
+            bucketing_identifier: None,
         },
     };
 
@@ -681,6 +679,7 @@ pub fn create_test_flag(
         version: Some(1),
         evaluation_runtime: Some("all".to_string()),
         evaluation_tags: None,
+        bucketing_identifier: None,
     }
 }
 
@@ -1119,7 +1118,6 @@ impl TestContext {
         let id = rand::thread_rng().gen_range(1_000_000..100_000_000);
         let team = Team {
             id,
-            project_id: Some(id as i64),
             name: "Test Team".to_string(),
             api_token: public_token.clone(),
             cookieless_server_hash_mode: Some(0),
@@ -1137,7 +1135,7 @@ impl TestContext {
             (id, organization_id, name, created_at) VALUES
             ($1, $2::uuid, $3, '2024-06-17 14:40:51.332036+00:00')"#,
         )
-        .bind(team.project_id())
+        .bind(team.id)
         .bind(ORG_ID)
         .bind(&team.name)
         .execute(&mut *conn)
@@ -1168,7 +1166,7 @@ impl TestContext {
             .bind(team.id)
             .bind(uuid)
             .bind(ORG_ID)
-            .bind(team.project_id())
+            .bind(team.id)
             .bind(&team.api_token)
             .bind(&secret_token);
 
@@ -1212,7 +1210,7 @@ impl TestContext {
         redis
             .set(cache_key, payload)
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to set cache: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to set cache: {e}"))?;
 
         Ok(())
     }
@@ -1222,7 +1220,7 @@ impl TestContext {
         let mut conn = self.non_persons_reader.get_connection().await?;
         let org_id: uuid::Uuid =
             sqlx::query_scalar("SELECT organization_id FROM posthog_project WHERE id = $1")
-                .bind(team.project_id())
+                .bind(team.id)
                 .fetch_one(&mut *conn)
                 .await?;
         Ok(org_id)

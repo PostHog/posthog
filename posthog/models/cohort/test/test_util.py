@@ -1,10 +1,30 @@
 from posthog.test.base import BaseTest, _create_person, flush_persons_and_events
+from unittest.mock import MagicMock, patch
+
+from clickhouse_driver.errors import SocketTimeoutError
+from parameterized import parameterized
+from pydantic import (
+    BaseModel,
+    ValidationError as PydanticValidationError,
+)
+from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.hogql.hogql import HogQLContext
 
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+    EstimatedQueryExecutionTimeTooLong,
+    QuerySizeExceeded,
+)
 from posthog.models.cohort import Cohort, CohortOrEmpty
 from posthog.models.cohort.util import (
+    CohortErrorCode,
     get_all_cohort_dependencies,
+    get_friendly_error_message,
+    get_static_cohort_size,
+    parse_error_code,
     print_cohort_hogql_query,
     simplified_cohort_filter_properties,
     sort_cohorts_topologically,
@@ -378,6 +398,33 @@ class TestCohortUtils(BaseTest):
         self.assertIn("allow_experimental_object_type=1", sql)
         self.assertIn("optimize_min_equality_disjunction_chain_length=4294967295", sql)
 
+    def test_get_static_cohort_size_uses_specified_database(self):
+        cohort = _create_cohort(team=self.team, name="test_cohort", groups=[], is_static=True)
+
+        mock_qs = MagicMock()
+        mock_qs.filter.return_value = mock_qs
+        mock_qs.using.return_value = mock_qs
+        mock_qs.count.return_value = 42
+
+        with patch("posthog.models.cohort.util.CohortPeople.objects", mock_qs):
+            result = get_static_cohort_size(cohort_id=cohort.id, team_id=self.team.id, using_database="test_db")
+
+        mock_qs.using.assert_called_once_with("test_db")
+        self.assertEqual(result, 42)
+
+    def test_get_static_cohort_size_without_database_does_not_call_using(self):
+        cohort = _create_cohort(team=self.team, name="test_cohort", groups=[], is_static=True)
+
+        mock_qs = MagicMock()
+        mock_qs.filter.return_value = mock_qs
+        mock_qs.count.return_value = 10
+
+        with patch("posthog.models.cohort.util.CohortPeople.objects", mock_qs):
+            result = get_static_cohort_size(cohort_id=cohort.id, team_id=self.team.id)
+
+        mock_qs.using.assert_not_called()
+        self.assertEqual(result, 10)
+
 
 class TestDependentCohorts(BaseTest):
     def test_dependent_cohorts_for_simple_cohort(self):
@@ -629,3 +676,100 @@ class TestSortCohortsTopologically(BaseTest):
         result = sort_cohorts_topologically(all_cohort_ids, seen_cohorts_cache)
 
         self.assertEqual(result, [cohort.pk])
+
+
+class TestParseErrorCode(BaseTest):
+    @parameterized.expand(
+        [
+            ("capacity", "ClickHouseAtCapacity", CohortErrorCode.CAPACITY),
+            ("socket_timeout", "SocketTimeoutError", CohortErrorCode.INTERRUPTED),
+            ("query_timeout", "ClickHouseQueryTimeOut", CohortErrorCode.TIMEOUT),
+            ("estimated_timeout", "EstimatedQueryExecutionTimeTooLong", CohortErrorCode.TIMEOUT),
+            ("memory_limit", "ClickHouseQueryMemoryLimitExceeded", CohortErrorCode.MEMORY_LIMIT),
+            ("query_size", "QuerySizeExceeded", CohortErrorCode.QUERY_SIZE),
+            ("pydantic_validation", "PydanticValidationError", CohortErrorCode.VALIDATION_ERROR),
+            ("drf_validation", "DRFValidationError", CohortErrorCode.VALIDATION_ERROR),
+            ("value_error", "ValueError", CohortErrorCode.UNKNOWN),
+            ("clickhouse_regex", "ClickHouseRegexError", CohortErrorCode.INVALID_REGEX),
+            ("clickhouse_memory", "ClickHouseMemoryError", CohortErrorCode.MEMORY_LIMIT),
+            ("clickhouse_timeout", "ClickHouseTimeoutError", CohortErrorCode.TIMEOUT),
+            ("clickhouse_type", "ClickHouseTypeError", CohortErrorCode.INCOMPATIBLE_TYPES),
+            ("generic_exception", "Exception", CohortErrorCode.UNKNOWN),
+        ]
+    )
+    def test_parse_error_code(self, _name: str, exception_type: str, expected_code: str):
+        exception = self._create_exception(exception_type)
+        result = parse_error_code(exception)
+        self.assertEqual(result, expected_code)
+
+    def _create_exception(self, exception_type: str) -> Exception:
+        simple_exceptions: dict[str, type[Exception]] = {
+            "ClickHouseAtCapacity": ClickHouseAtCapacity,
+            "SocketTimeoutError": SocketTimeoutError,
+            "ClickHouseQueryTimeOut": ClickHouseQueryTimeOut,
+            "ClickHouseQueryMemoryLimitExceeded": ClickHouseQueryMemoryLimitExceeded,
+            "QuerySizeExceeded": QuerySizeExceeded,
+            "DRFValidationError": DRFValidationError,
+            "ValueError": ValueError,
+            "Exception": Exception,
+        }
+
+        if exception_type in simple_exceptions:
+            return simple_exceptions[exception_type]("test")
+
+        if exception_type == "EstimatedQueryExecutionTimeTooLong":
+            return EstimatedQueryExecutionTimeTooLong()
+
+        if exception_type == "PydanticValidationError":
+            try:
+
+                class TestModel(BaseModel):
+                    value: int
+
+                TestModel(value="not_an_int")
+            except PydanticValidationError as e:
+                return e
+            raise AssertionError("Expected PydanticValidationError")
+
+        clickhouse_code_names = {
+            "ClickHouseRegexError": "CANNOT_COMPILE_REGEXP",
+            "ClickHouseMemoryError": "MEMORY_LIMIT_EXCEEDED",
+            "ClickHouseTimeoutError": "TIMEOUT_EXCEEDED",
+            "ClickHouseTypeError": "NO_COMMON_TYPE",
+        }
+
+        if exception_type in clickhouse_code_names:
+            exc = Exception("test")
+            exc.code_name = clickhouse_code_names[exception_type]  # type: ignore
+            return exc
+
+        raise ValueError(f"Unknown exception type: {exception_type}")
+
+
+class TestGetFriendlyErrorMessage(BaseTest):
+    @parameterized.expand(
+        [
+            (CohortErrorCode.CAPACITY, "system was busy"),
+            (CohortErrorCode.INTERRUPTED, "interrupted"),
+            (CohortErrorCode.TIMEOUT, "terminated for taking too long"),
+            (CohortErrorCode.MEMORY_LIMIT, "terminated for using too much memory"),
+            (CohortErrorCode.QUERY_SIZE, "query that was too large"),
+            (CohortErrorCode.VALIDATION_ERROR, "an error occurred"),
+            (CohortErrorCode.INVALID_REGEX, "invalid regular expression"),
+            (CohortErrorCode.INCOMPATIBLE_TYPES, "an error occurred"),
+            (CohortErrorCode.NO_PROPERTIES, "no matching criteria"),
+            (CohortErrorCode.UNKNOWN, "an error occurred"),
+        ]
+    )
+    def test_get_friendly_error_message(self, error_code: str, expected_substring: str):
+        message = get_friendly_error_message(error_code)
+        assert message is not None
+        self.assertIn(expected_substring, message.lower())
+
+    def test_get_friendly_error_message_none(self):
+        self.assertIsNone(get_friendly_error_message(None))
+
+    def test_get_friendly_error_message_unknown_code(self):
+        message = get_friendly_error_message("some_unknown_code")
+        assert message is not None
+        self.assertIn("an error occurred", message.lower())

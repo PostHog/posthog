@@ -11,6 +11,7 @@ from django.utils import timezone
 from rest_framework import status
 
 from posthog.schema import (
+    AgentMode,
     AssistantEventType,
     AssistantMessage,
     MaxBillingContext,
@@ -155,6 +156,29 @@ class TestConversation(APIBaseTest):
                 self.assertEqual(workflow_inputs.conversation_id, conversation.id)
                 self.assertEqual(str(workflow_inputs.trace_id), trace_id)
                 self.assertEqual(workflow_inputs.message["content"], "test query")
+
+    def test_create_conversation_with_agent_mode(self):
+        conversation_id = str(uuid.uuid4())
+
+        with patch(
+            "ee.hogai.core.executor.AgentExecutor.astream",
+            return_value=_async_generator(),
+        ) as mock_start_workflow_and_stream:
+            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+                trace_id = str(uuid.uuid4())
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/conversations/",
+                    {
+                        "content": "test query",
+                        "trace_id": trace_id,
+                        "conversation": conversation_id,
+                        "agent_mode": AgentMode.SQL.value,
+                    },
+                )
+
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                workflow_inputs = mock_start_workflow_and_stream.call_args[0][1]
+                self.assertEqual(workflow_inputs.agent_mode, AgentMode.SQL)
 
     def test_cant_start_other_users_conversation(self):
         conversation = Conversation.objects.create(user=self.other_user, team=self.team)
@@ -648,3 +672,46 @@ class TestConversation(APIBaseTest):
                 call_args = mock_start_workflow_and_stream.call_args
                 workflow_inputs = call_args[0][1]
                 self.assertEqual(workflow_inputs.billing_context, None)
+
+    @patch("ee.api.conversation.is_team_limited")
+    def test_quota_limit_exceeded(self, mock_is_team_limited):
+        """Test that requests are blocked when team exceeds quota limits."""
+        mock_is_team_limited.return_value = True
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/conversations/",
+            {
+                "content": "test query",
+                "trace_id": str(uuid.uuid4()),
+                "conversation": str(uuid.uuid4()),
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
+        self.assertEqual(
+            response.json()["detail"],
+            "Your organization reached its AI credit usage limit. Increase the limits in Billing settings, or ask an org admin to do so.",
+        )
+        mock_is_team_limited.assert_called_once()
+
+    @patch("ee.api.conversation.is_team_limited")
+    def test_quota_limit_not_exceeded(self, mock_is_team_limited):
+        """Test that requests proceed normally when team has not exceeded quota limits."""
+        mock_is_team_limited.return_value = False
+
+        with patch(
+            "ee.hogai.core.executor.AgentExecutor.astream",
+            return_value=_async_generator(),
+        ):
+            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/conversations/",
+                    {
+                        "content": "test query",
+                        "trace_id": str(uuid.uuid4()),
+                        "conversation": str(uuid.uuid4()),
+                    },
+                )
+
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                mock_is_team_limited.assert_called_once()

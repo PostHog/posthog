@@ -38,6 +38,7 @@ from posthog.hogql.base import AST
 from posthog.hogql.errors import NotImplementedError, QueryError
 from posthog.hogql.functions import find_hogql_aggregation
 from posthog.hogql.parser import parse_expr
+from posthog.hogql.utils import map_virtual_properties
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
@@ -85,6 +86,11 @@ class AggregationFinder(TraversingVisitor):
 
 
 def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team: Team) -> ValueT | bool:
+    if value is True:
+        value = "true"
+    elif value is False:
+        value = "false"
+
     if value != "true" and value != "false":
         return value
     if property.type == "person":
@@ -217,7 +223,7 @@ def _expr_to_compare_op(
         return ast.Call(
             name="ifNull",
             args=[
-                ast.Call(name="match", args=[expr, ast.Constant(value=value)]),
+                ast.Call(name="match", args=[ast.Call(name="toString", args=[expr]), ast.Constant(value=value)]),
                 ast.Constant(value=0),
             ],
         )
@@ -333,7 +339,9 @@ def property_to_expr(
         | LogPropertyFilter
     ),
     team: Team,
-    scope: Literal["event", "person", "group", "session", "replay", "replay_entity", "revenue_analytics"] = "event",
+    scope: Literal[
+        "event", "person", "group", "session", "replay", "replay_entity", "revenue_analytics", "log_resource"
+    ] = "event",
     strict: bool = False,
 ) -> ast.Expr:
     if isinstance(property, dict):
@@ -450,7 +458,10 @@ def property_to_expr(
         or property.type == "log_entry"
         or property.type == "error_tracking_issue"
         or property.type == "log"
+        or property.type == "log_attribute"
+        or property.type == "log_resource_attribute"
         or property.type == "revenue_analytics"
+        or property.type == "workflow_variable"
     ):
         if (
             (scope == "person" and property.type != "person")
@@ -513,15 +524,29 @@ def property_to_expr(
         elif property.type in ["recording", "data_warehouse", "log_entry", "event_metadata"]:
             chain = []
         elif property.type == "log":
+            chain = [property.key]
+            property.key = ""
+        elif scope == "log_resource":
+            # log resource attributes are stored in a separate table as `attribute_key` and `attribute_value`
+            # columns. The `attribute_key` filter needs to be added separately outside of property_to_expr
+            chain = ["attribute_value"]
+            property.key = ""
+        elif property.type == "log_attribute":
             chain = ["attributes"]
+        elif property.type == "log_resource_attribute":
+            chain = ["resource_attributes"]
         elif property.type == "revenue_analytics":
             *chain, property.key = property.key.split(".")
+        elif property.type == "workflow_variable":
+            chain = ["variables"]
         else:
             chain = ["properties"]
 
         # We pretend elements chain is a property, but it is actually a column on the events table
         if chain == ["properties"] and property.key == "$elements_chain":
             field = ast.Field(chain=["elements_chain"])
+        elif property.key == "":
+            field = ast.Field(chain=[*chain])
         else:
             field = ast.Field(chain=[*chain, property.key])
 
@@ -708,19 +733,6 @@ def property_to_expr(
     raise NotImplementedError(
         f"property_to_expr not implemented for filter type {type(property).__name__} and {property.type}"
     )
-
-
-def map_virtual_properties(e: ast.Expr):
-    if (
-        isinstance(e, ast.Field)
-        and len(e.chain) >= 2
-        and e.chain[-2] == "properties"
-        and isinstance(e.chain[-1], str)
-        and e.chain[-1].startswith("$virt")
-    ):
-        # we pretend virtual properties are regular properties, but they should map to the same field directly on the parent table
-        return ast.Field(chain=e.chain[:-2] + [e.chain[-1]])
-    return e
 
 
 def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Expr:
@@ -918,3 +930,14 @@ def get_property_value(property):
 
 def get_property_operator(property):
     return get_from_dict_or_attr(property, "operator")
+
+
+def operator_is_negative(operator: PropertyOperator) -> bool:
+    return operator in [
+        PropertyOperator.IS_NOT,
+        PropertyOperator.NOT_ICONTAINS,
+        PropertyOperator.NOT_REGEX,
+        PropertyOperator.IS_NOT_SET,
+        PropertyOperator.NOT_BETWEEN,
+        PropertyOperator.NOT_IN,
+    ]

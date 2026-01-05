@@ -28,6 +28,7 @@ use tracing::{info, warn, Level};
 
 use capture::config::{CaptureMode, Config, KafkaConfig};
 use capture::server::serve;
+use common_continuous_profiling::ContinuousProfilingConfig;
 use health::HealthStrategy;
 use limiters::redis::{QuotaResource, OVERFLOW_LIMITER_CACHE_KEY, QUOTA_LIMITER_CACHE_KEY};
 
@@ -37,6 +38,10 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     redis_url: "redis://localhost:6379/".to_string(),
     redis_response_timeout_ms: 100,
     redis_connection_timeout_ms: 5000,
+    global_rate_limit_enabled: false,
+    global_rate_limit_threshold: 10_000,
+    global_rate_limit_window_interval_secs: 60,
+    global_rate_limit_overrides_csv: None,
     overflow_enabled: false,
     overflow_preserve_partition_locality: false,
     overflow_burst_limit: NonZeroU32::new(5).unwrap(),
@@ -68,6 +73,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
         kafka_metadata_max_age_ms: 60000,
         kafka_producer_max_retries: 2,
         kafka_producer_acks: "all".to_string(),
+        kafka_socket_timeout_ms: 60000,
     },
     otel_url: None,
     otel_sampling_rate: 0.0,
@@ -82,7 +88,22 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     s3_fallback_prefix: String::new(),
     healthcheck_strategy: HealthStrategy::All,
     ai_max_sum_of_parts_bytes: 26_214_400, // 25MB default
+    ai_s3_bucket: None,
+    ai_s3_prefix: "llma/".to_string(),
+    ai_s3_endpoint: None,
+    ai_s3_region: "us-east-1".to_string(),
+    ai_s3_access_key_id: None,
+    ai_s3_secret_access_key: None,
     request_timeout_seconds: Some(10),
+    http1_header_read_timeout_ms: Some(5000), // 5 seconds default
+    body_chunk_read_timeout_ms: None,         // disabled by default in tests
+    body_read_chunk_size_kb: 256,             // 256KB default
+    continuous_profiling: ContinuousProfilingConfig {
+        continuous_profiling_enabled: false,
+        pyroscope_server_address: String::new(),
+        pyroscope_application_name: String::new(),
+        pyroscope_sample_rate: 100,
+    },
 });
 
 static TRACING_INIT: Once = Once::new();
@@ -286,7 +307,7 @@ impl EphemeralTopic {
                         std::thread::sleep(Duration::from_millis(100));
                         continue;
                     }
-                    bail!("kafka read error: {}", err);
+                    bail!("kafka read error: {err}");
                 }
                 None => bail!("kafka read timeout"),
             }
@@ -321,7 +342,7 @@ impl EphemeralTopic {
                         std::thread::sleep(Duration::from_millis(100));
                         continue;
                     }
-                    bail!("kafka read error: {}", err);
+                    bail!("kafka read error: {err}");
                 }
                 None => bail!("kafka read timeout"),
             }
@@ -368,7 +389,7 @@ impl EphemeralTopic {
                         std::thread::sleep(Duration::from_millis(100));
                         continue;
                     }
-                    bail!("kafka read error: {}", err);
+                    bail!("kafka read error: {err}");
                 }
                 None => bail!("kafka read timeout"),
             }

@@ -10,7 +10,7 @@ use crate::{
     },
 };
 use axum::extract::State;
-use common_types::ProjectId;
+use common_types::TeamId;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -170,13 +170,13 @@ fn filter_flags_by_runtime(
 
 pub async fn fetch_and_filter(
     flag_service: &FlagService,
-    project_id: ProjectId,
+    team_id: TeamId,
     query_params: &FlagsQueryParams,
     headers: &axum::http::HeaderMap,
     explicit_runtime: Option<EvaluationRuntime>,
     environment_tags: Option<&Vec<String>>,
 ) -> Result<FeatureFlagList, FlagError> {
-    let flag_result = flag_service.get_flags_from_cache_or_pg(project_id).await?;
+    let flag_result = flag_service.get_flags_from_cache_or_pg(team_id).await?;
 
     // First filter by survey flags if requested
     let flags_after_survey_filter = filter_survey_flags(
@@ -245,8 +245,8 @@ fn filter_flags_by_evaluation_tags(
 pub async fn evaluate_for_request(
     state: &State<router::State>,
     team_id: i32,
-    project_id: ProjectId,
     distinct_id: String,
+    device_id: Option<String>,
     filtered_flags: FeatureFlagList,
     person_property_overrides: Option<HashMap<String, Value>>,
     group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
@@ -267,8 +267,8 @@ pub async fn evaluate_for_request(
 
     let ctx = FeatureFlagEvaluationContext {
         team_id,
-        project_id,
         distinct_id,
+        device_id,
         feature_flags: filtered_flags,
         persons_reader: state.database_pools.persons_reader.clone(),
         persons_writer: state.database_pools.persons_writer.clone(),
@@ -303,6 +303,7 @@ mod tests {
             version: None,
             evaluation_runtime,
             evaluation_tags: None,
+            bucketing_identifier: None,
         }
     }
 
@@ -324,6 +325,7 @@ mod tests {
             version: None,
             evaluation_runtime,
             evaluation_tags,
+            bucketing_identifier: None,
         }
     }
 

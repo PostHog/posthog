@@ -1,10 +1,14 @@
 use std::{num::ParseIntError, str::FromStr};
 
+use common_continuous_profiling::ContinuousProfilingConfig;
 use common_kafka::config::{ConsumerConfig, KafkaConfig};
 use envconfig::Envconfig;
 
 #[derive(Envconfig, Clone)]
 pub struct Config {
+    #[envconfig(nested = true)]
+    pub continuous_profiling: ContinuousProfilingConfig,
+
     // this maps to the original, shared CLOUD PG DB instance in production. When
     // we migrate to the new persons DB, this won't change.
     #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog")]
@@ -92,9 +96,7 @@ pub struct Config {
     pub filtered_teams: TeamList,
 
     // Whether the team list above is used to filter teams OUT of processing (opt-out) or IN to processing (opt-in).
-    // Defaults to opt-in for now, skipping all updates for teams not in the list. TODO - change this to opt-out
-    // once rollout is complete.
-    #[envconfig(default = "opt_in")]
+    #[envconfig(default = "opt_out")]
     pub filter_mode: TeamFilterMode,
 
     // this enables codepaths used by the new mirror deployment
@@ -164,5 +166,88 @@ impl Config {
     pub fn init_with_defaults() -> Result<Self, envconfig::Error> {
         ConsumerConfig::set_defaults("property-defs-rs", "clickhouse_events_json", true);
         Config::init_from_env()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_opt_out_with_empty_list_processes_all_teams() {
+        let mode = TeamFilterMode::OptOut;
+        let list: Vec<i32> = vec![];
+
+        assert!(mode.should_process(&list, 1));
+        assert!(mode.should_process(&list, 999));
+        assert!(mode.should_process(&list, 12345));
+    }
+
+    #[test]
+    fn test_opt_in_with_empty_list_processes_no_teams() {
+        let mode = TeamFilterMode::OptIn;
+        let list: Vec<i32> = vec![];
+
+        assert!(!mode.should_process(&list, 1));
+        assert!(!mode.should_process(&list, 999));
+    }
+
+    #[test]
+    fn test_opt_out_excludes_listed_teams() {
+        let mode = TeamFilterMode::OptOut;
+        let list = vec![1, 2, 3];
+
+        assert!(!mode.should_process(&list, 1));
+        assert!(!mode.should_process(&list, 2));
+        assert!(mode.should_process(&list, 4));
+        assert!(mode.should_process(&list, 999));
+    }
+
+    #[test]
+    fn test_opt_in_includes_only_listed_teams() {
+        let mode = TeamFilterMode::OptIn;
+        let list = vec![1, 2, 3];
+
+        assert!(mode.should_process(&list, 1));
+        assert!(mode.should_process(&list, 2));
+        assert!(!mode.should_process(&list, 4));
+        assert!(!mode.should_process(&list, 999));
+    }
+
+    #[test]
+    fn test_filter_mode_parsing() {
+        assert!(matches!(
+            TeamFilterMode::from_str("opt_out"),
+            Ok(TeamFilterMode::OptOut)
+        ));
+        assert!(matches!(
+            TeamFilterMode::from_str("opt-out"),
+            Ok(TeamFilterMode::OptOut)
+        ));
+        assert!(matches!(
+            TeamFilterMode::from_str("optout"),
+            Ok(TeamFilterMode::OptOut)
+        ));
+        assert!(matches!(
+            TeamFilterMode::from_str("OPT_OUT"),
+            Ok(TeamFilterMode::OptOut)
+        ));
+        assert!(matches!(
+            TeamFilterMode::from_str("opt_in"),
+            Ok(TeamFilterMode::OptIn)
+        ));
+        assert!(TeamFilterMode::from_str("invalid").is_err());
+    }
+
+    #[test]
+    fn test_team_list_parsing() {
+        let list: TeamList = "1,2,3".parse().unwrap();
+        assert_eq!(list.teams, vec![1, 2, 3]);
+
+        let empty: TeamList = "".parse().unwrap();
+        assert!(empty.teams.is_empty());
+
+        let single: TeamList = "42".parse().unwrap();
+        assert_eq!(single.teams, vec![42]);
     }
 }

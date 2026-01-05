@@ -1,8 +1,11 @@
 import FuseClass from 'fuse.js'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
+import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -63,6 +66,7 @@ export const settingsLogic = kea<settingsLogicType>([
         closeCompactNavigation: true,
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         toggleLevelCollapse: (level: SettingLevelId) => ({ level }),
+        loadSettingsAsOf: (at: string, scope?: string | string[]) => ({ at, scope }),
     }),
 
     reducers(({ props }) => ({
@@ -124,6 +128,26 @@ export const settingsLogic = kea<settingsLogicType>([
                     ...state,
                     [level]: false,
                 }),
+            },
+        ],
+    })),
+
+    loaders(() => ({
+        settingsSnapshot: [
+            null as Record<string, any> | null,
+            {
+                loadSettingsAsOf: async ({ at, scope }: { at: string; scope?: string | string[] }) => {
+                    const scopeArray = Array.isArray(scope)
+                        ? scope.filter((s): s is string => !!s)
+                        : scope
+                          ? [scope]
+                          : undefined
+                    if (!at) {
+                        lemonToast.warning('A timestamp is required to load settings at a point in time')
+                        return {}
+                    }
+                    return await api.teamSettings.asOf(at, scopeArray)
+                },
             },
         ],
     })),

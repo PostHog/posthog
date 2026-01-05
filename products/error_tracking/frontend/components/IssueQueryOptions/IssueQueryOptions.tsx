@@ -20,17 +20,9 @@ import { issuesDataNodeLogic } from '../../logics/issuesDataNodeLogic'
 import {
     ErrorTrackingQueryOrderBy,
     ErrorTrackingQueryRevenueEntity,
+    ORDER_BY_OPTIONS,
     issueQueryOptionsLogic,
 } from './issueQueryOptionsLogic'
-
-const labels = {
-    last_seen: 'Last seen',
-    first_seen: 'First seen',
-    occurrences: 'Occurrences',
-    users: 'Users',
-    sessions: 'Sessions',
-    revenue: 'Revenue',
-}
 
 type GroupOptions = Record<`group_${GroupTypeIndex}`, string>
 
@@ -66,23 +58,23 @@ export const IssueQueryOptions = (): JSX.Element => {
                     <LemonMenu
                         items={[
                             {
-                                label: labels['last_seen'],
+                                label: ORDER_BY_OPTIONS['last_seen'],
                                 onClick: () => setOrderBy('last_seen'),
                             },
                             {
-                                label: labels['first_seen'],
+                                label: ORDER_BY_OPTIONS['first_seen'],
                                 onClick: () => setOrderBy('first_seen'),
                             },
                             {
-                                label: labels['occurrences'],
+                                label: ORDER_BY_OPTIONS['occurrences'],
                                 onClick: () => setOrderBy('occurrences'),
                             },
                             {
-                                label: labels['users'],
+                                label: ORDER_BY_OPTIONS['users'],
                                 onClick: () => setOrderBy('users'),
                             },
                             {
-                                label: labels['sessions'],
+                                label: ORDER_BY_OPTIONS['sessions'],
                                 onClick: () => setOrderBy('sessions'),
                             },
                             hasRevenueSorting && {
@@ -127,8 +119,8 @@ export const IssueQueryOptions = (): JSX.Element => {
                             value={revenuePeriod}
                             options={[
                                 {
-                                    value: 'last_30_days',
-                                    label: 'Last 30 days',
+                                    value: 'mrr',
+                                    label: 'MRR',
                                 },
                                 {
                                     value: 'all_time',
@@ -193,5 +185,5 @@ const sortByLabel = (
         return `Revenue (by ${entity})`
     }
 
-    return labels[orderBy]
+    return ORDER_BY_OPTIONS[orderBy]
 }

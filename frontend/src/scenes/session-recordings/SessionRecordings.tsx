@@ -5,6 +5,9 @@ import { IconEllipsis, IconGear, IconOpenSidebar } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { LiveRecordingsCount } from 'lib/components/LiveUserCount'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { FilmCameraHog, WarningHog } from 'lib/components/hedgehogs'
@@ -15,10 +18,7 @@ import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
-import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
-import { NotebookNodeType } from 'scenes/notebooks/types'
-import { SceneExport } from 'scenes/sceneTypes'
-import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -38,8 +38,6 @@ function Header(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
     const { reportRecordingPlaylistCreated } = useActions(sessionRecordingEventUsageLogic)
-    // NB this relies on `updateSearchParams` being the only prop needed to pick the correct "Recent" tab list logic
-    const { filters } = useValues(sessionRecordingsPlaylistLogic({ updateSearchParams: true }))
 
     const newPlaylistHandler = useAsyncHandler(async () => {
         await createPlaylist({ _create_in_folder: 'Unfiled/Replay playlists', type: 'collection' }, true)
@@ -47,9 +45,10 @@ function Header(): JSX.Element {
     })
 
     return (
-        <>
+        <div className="flex items-center gap-2">
             {tab === ReplayTabs.Home && !recordingsDisabled && (
                 <>
+                    <LiveRecordingsCount />
                     <LemonMenu
                         items={[
                             {
@@ -60,14 +59,6 @@ function Header(): JSX.Element {
                     >
                         <LemonButton icon={<IconEllipsis />} size="small" />
                     </LemonMenu>
-                    <NotebookSelectButton
-                        resource={{
-                            type: NotebookNodeType.RecordingPlaylist,
-                            attrs: { filters: filters },
-                        }}
-                        size="small"
-                        type="secondary"
-                    />
                 </>
             )}
 
@@ -76,18 +67,27 @@ function Header(): JSX.Element {
                     resourceType={AccessControlResourceType.SessionRecording}
                     minAccessLevel={AccessControlLevel.Editor}
                 >
-                    <LemonButton
-                        type="primary"
-                        onClick={(e) => newPlaylistHandler.onEvent?.(e)}
-                        data-attr="save-recordings-playlist-button"
-                        loading={newPlaylistHandler.loading}
-                        size="small"
+                    <AppShortcut
+                        name="NewRecordingCollection"
+                        keybind={[keyBinds.new]}
+                        intent="New collection"
+                        interaction="click"
+                        scope={Scene.Replay}
                     >
-                        New collection
-                    </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            onClick={(e) => newPlaylistHandler.onEvent?.(e)}
+                            data-attr="save-recordings-playlist-button"
+                            loading={newPlaylistHandler.loading}
+                            size="small"
+                            tooltip="New collection"
+                        >
+                            New collection
+                        </LemonButton>
+                    </AppShortcut>
                 </AccessControlAction>
             )}
-        </>
+        </div>
     )
 }
 

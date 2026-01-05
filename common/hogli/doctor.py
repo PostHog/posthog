@@ -31,7 +31,7 @@ NODE_ARTIFACT_PATTERNS = (
     "common/plugin_transpiler/dist",
     "common/hogvm/typescript/.parcel-cache",
     "common/hogvm/typescript/dist",
-    "plugin-server/dist",
+    "nodejs/dist",
     "storybook-static",
     "playwright-report",
     "playwright/playwright-report",
@@ -238,7 +238,7 @@ def doctor_disk(
             confirmation_prompt="Run Git cleanup (prune + gc)?",
             include_in_total=False,
             skip_if_empty=False,
-            dry_run_message="Would run: git remote prune + reflog expire + gc --aggressive",
+            dry_run_message="Would run: git remote prune + reflog expire (30 days) + gc --aggressive",
         ),
     ]
 
@@ -602,16 +602,17 @@ def _cleanup_git(_: CleanupEstimate, repo_root: Path) -> CleanupStats:
     if result.returncode != 0:
         success = False
 
-    # Step 2: Expire reflogs
-    click.echo("   Expiring reflogs...")
-    result = subprocess.run(["git", "reflog", "expire", "--expire=now", "--all"], cwd=repo_root, check=False)
+    # Step 2: Expire old reflogs (keep 30 days for safety)
+    click.echo("   Expiring old reflogs...")
+    result = subprocess.run(["git", "reflog", "expire", "--expire=30.days.ago", "--all"], cwd=repo_root, check=False)
     if result.returncode != 0:
         success = False
 
     # Step 3: Run gc --aggressive (this can take 1-2 minutes)
     # Git will show its own progress output
+    # Note: omit --prune=now to use git's safe 2-week default
     click.echo("   Running git gc --aggressive (may take 1-2 minutes)...")
-    result = subprocess.run(["git", "gc", "--prune=now", "--aggressive"], cwd=repo_root, check=False)
+    result = subprocess.run(["git", "gc", "--aggressive"], cwd=repo_root, check=False)
     if result.returncode != 0:
         success = False
 

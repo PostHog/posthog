@@ -17,12 +17,13 @@ from posthog.schema import (
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
     AssistantUpdateEvent,
+    SubagentUpdateEvent,
 )
 
 from posthog.redis import get_async_client
 
 from ee.hogai.utils.types import AssistantOutput
-from ee.hogai.utils.types.base import AssistantMessageUnion
+from ee.hogai.utils.types.base import AssistantStreamedMessageUnion
 from ee.models.assistant import Conversation
 
 logger = structlog.get_logger(__name__)
@@ -65,12 +66,12 @@ class ConversationEvent(BaseModel):
 
 class MessageEvent(BaseModel):
     type: Literal[AssistantEventType.MESSAGE]
-    payload: AssistantMessageUnion
+    payload: AssistantStreamedMessageUnion
 
 
 class UpdateEvent(BaseModel):
     type: Literal[AssistantEventType.UPDATE]
-    payload: AssistantUpdateEvent
+    payload: AssistantUpdateEvent | SubagentUpdateEvent
 
 
 class GenerationStatusEvent(BaseModel):
@@ -101,6 +102,11 @@ def get_conversation_stream_key(conversation_id: UUID) -> str:
     return f"{CONVERSATION_STREAM_PREFIX}{conversation_id}"
 
 
+def get_subagent_stream_key(conversation_id: UUID, tool_call_id: str) -> str:
+    """Get the Redis stream key for a subagent tool execution."""
+    return f"{CONVERSATION_STREAM_PREFIX}{conversation_id}:{tool_call_id}"
+
+
 class ConversationStreamSerializer:
     serialization_key = "data"
 
@@ -122,13 +128,15 @@ class ConversationStreamSerializer:
         else:
             event_type, event_data = event
             if event_type == AssistantEventType.MESSAGE:
-                return self._serialize(self._to_message_event(cast(AssistantMessageUnion, event_data)))
+                return self._serialize(self._to_message_event(cast(AssistantStreamedMessageUnion, event_data)))
             elif event_type == AssistantEventType.CONVERSATION:
                 return self._serialize(self._to_conversation_event(cast(Conversation, event_data)))
             elif event_type == AssistantEventType.STATUS:
                 return self._serialize(self._to_status_event(cast(AssistantGenerationStatusEvent, event_data)))
             elif event_type == AssistantEventType.UPDATE:
-                return self._serialize(self._to_update_event(cast(AssistantUpdateEvent, event_data)))
+                return self._serialize(
+                    self._to_update_event(cast(AssistantUpdateEvent | SubagentUpdateEvent, event_data))
+                )
             else:
                 raise ValueError(f"Unknown event type: {event_type}")
 
@@ -144,7 +152,7 @@ class ConversationStreamSerializer:
             ),
         }
 
-    def _to_message_event(self, message: AssistantMessageUnion) -> MessageEvent:
+    def _to_message_event(self, message: AssistantStreamedMessageUnion) -> MessageEvent:
         return MessageEvent(
             type=AssistantEventType.MESSAGE,
             payload=message,
@@ -167,7 +175,7 @@ class ConversationStreamSerializer:
             payload=event,
         )
 
-    def _to_update_event(self, update: AssistantUpdateEvent) -> UpdateEvent:
+    def _to_update_event(self, update: AssistantUpdateEvent | SubagentUpdateEvent) -> UpdateEvent:
         return UpdateEvent(
             type=AssistantEventType.UPDATE,
             payload=update,

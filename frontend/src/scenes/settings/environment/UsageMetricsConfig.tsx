@@ -16,10 +16,15 @@ import {
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { teamLogic } from 'scenes/teamLogic'
 
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, EntityTypes, FilterType } from '~/types'
 
 import { UsageMetric, usageMetricsConfigLogic } from './usageMetricsConfigLogic'
@@ -46,6 +51,8 @@ function sanitizeFilters(filters?: FilterType): FilterType {
 function UsageMetricsTable(): JSX.Element {
     const { usageMetrics, usageMetricsLoading } = useValues(usageMetricsConfigLogic)
     const { removeUsageMetric } = useActions(usageMetricsConfigLogic)
+    const { reportUsageMetricDeleted, reportUsageMetricsUpdateButtonClicked, reportUsageMetricUpdated } =
+        useActions(eventUsageLogic)
 
     const columns: LemonTableColumns<UsageMetric> = [
         {
@@ -91,6 +98,7 @@ function UsageMetricsTable(): JSX.Element {
                                             children: 'Save',
                                             'data-attr': 'update-usage-metric',
                                             form: 'usageMetric',
+                                            onClick: () => reportUsageMetricUpdated(),
                                         },
                                         secondaryButton: {
                                             htmlType: 'button',
@@ -98,6 +106,7 @@ function UsageMetricsTable(): JSX.Element {
                                             'data-attr': 'cancel-update-usage-metric',
                                         },
                                     })
+                                    reportUsageMetricsUpdateButtonClicked()
                                 },
                             },
                             {
@@ -110,7 +119,10 @@ function UsageMetricsTable(): JSX.Element {
                                         primaryButton: {
                                             children: 'Delete',
                                             status: 'danger',
-                                            onClick: () => removeUsageMetric(metric.id),
+                                            onClick: () => {
+                                                removeUsageMetric(metric.id)
+                                                reportUsageMetricDeleted()
+                                            },
                                         },
                                         secondaryButton: {
                                             children: 'Cancel',
@@ -136,6 +148,8 @@ interface UsageMetricsFormProps {
 
 function UsageMetricsForm({ metric }: UsageMetricsFormProps): JSX.Element {
     const { resetUsageMetric, setIsEditing, setUsageMetricValues } = useActions(usageMetricsConfigLogic)
+    const { reportUsageMetricCreated } = useActions(eventUsageLogic)
+    const { addProductIntent } = useActions(teamLogic)
 
     if (metric) {
         setUsageMetricValues(metric)
@@ -179,14 +193,15 @@ function UsageMetricsForm({ metric }: UsageMetricsFormProps): JSX.Element {
                         />
                     </LemonField>
 
-                    <LemonField name="display" label="Display">
+                    {/*Commenting this out as sparkline display is not supported yet*/}
+                    {/*<LemonField name="display" label="Display">
                         <LemonSelect
                             options={[
                                 { value: 'number', label: 'Number' },
                                 { value: 'sparkline', label: 'Sparkline' },
                             ]}
                         />
-                    </LemonField>
+                    </LemonField>*/}
                 </div>
 
                 <div className="grid grid-cols-1 gap-2">
@@ -259,6 +274,13 @@ function UsageMetricsForm({ metric }: UsageMetricsFormProps): JSX.Element {
                                 data-attr="save-usage-metric"
                                 htmlType="submit"
                                 form="usageMetric"
+                                onClick={() => {
+                                    reportUsageMetricCreated()
+                                    addProductIntent({
+                                        product_type: ProductKey.CUSTOMER_ANALYTICS,
+                                        intent_context: ProductIntentContext.CUSTOMER_ANALYTICS_USAGE_METRIC_CREATED,
+                                    })
+                                }}
                             >
                                 Save
                             </LemonButton>
@@ -276,21 +298,29 @@ function UsageMetricsForm({ metric }: UsageMetricsFormProps): JSX.Element {
 export function UsageMetricsConfig(): JSX.Element {
     const { isEditing } = useValues(usageMetricsConfigLogic)
     const { setIsEditing, resetUsageMetric } = useActions(usageMetricsConfigLogic)
+    const { groupsEnabled } = useValues(groupsAccessLogic)
+    const { reportUsageMetricsCreateButtonClicked, reportUsageMetricsSettingsViewed } = useActions(eventUsageLogic)
 
     const handleAddMetric = (): void => {
         resetUsageMetric()
         setIsEditing(true)
+        reportUsageMetricsCreateButtonClicked()
     }
+
+    useOnMountEffect(() => {
+        reportUsageMetricsSettingsViewed()
+    })
 
     return (
         <>
             <p>
-                Choose which events matter for each metric: API calls, feature adoption, session frequency, error rates
-                to identify expansion opportunities and churn risk based on real customer behavior.
+                Define what usage means for your product based on one or more events.
+                <br />
+                Usage metrics are displayed in the person {groupsEnabled ? 'and group profiles' : 'profile'}.
             </p>
             <div className="flex flex-col gap-2 items-start">
                 {!isEditing && (
-                    <LemonButton type="primary" onClick={handleAddMetric} icon={<IconPlusSmall />}>
+                    <LemonButton type="primary" size="small" onClick={handleAddMetric} icon={<IconPlusSmall />}>
                         Add metric
                     </LemonButton>
                 )}

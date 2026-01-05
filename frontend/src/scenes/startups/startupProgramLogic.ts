@@ -116,6 +116,12 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                 return !!billing?.startup_program_label
             },
         ],
+        currentStartupProgramLabel: [
+            (s) => [s.billing],
+            (billing: BillingType | null) => {
+                return billing?.startup_program_label || null
+            },
+        ],
         wasPreviouslyOnStartupPlan: [
             (s) => [s.billing],
             (billing: BillingType | null) => {

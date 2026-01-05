@@ -13,16 +13,17 @@ jobs:
         timeout-minutes: 5
         name: Determine need to run MCP checks
         outputs:
-            mcp: ${{ steps.filter.outputs.mcp }}
+            mcp: ${{ steps.filter.outputs.mcp || 'true' }}
         steps:
             - uses: actions/checkout@v4
 
             - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
               id: filter
+              if: github.event_name != 'push' # Run all tests on master push
               with:
                   filters: |
                       mcp:
-                        - 'products/mcp/**'
+                        - 'services/mcp/**'
                         - '.github/workflows/mcp-ci.yml'
                         - '.github/workflows/mcp-publish.yml'
 
@@ -35,7 +36,7 @@ jobs:
         if: needs.changes.outputs.mcp == 'true'
         concurrency:
             group: ${{ github.workflow }}-unit-${{ github.head_ref || github.ref }}
-            cancel-in-progress: true
+            cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
         steps:
             - name: Checkout code
@@ -45,16 +46,16 @@ jobs:
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Setup Node.js
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
                   node-version: 22
                   cache: 'pnpm'
 
             - name: Install dependencies
-              run: pnpm install
+              run: pnpm install --frozen-lockfile
 
             - name: Run unit tests
-              run: cd products/mcp && pnpm run test
+              run: cd services/mcp && pnpm run test
 
     integration-tests:
         name: Integration Tests
@@ -65,7 +66,7 @@ jobs:
             contents: read
         concurrency:
             group: ${{ github.workflow }}-integration-${{ github.head_ref || github.ref }}
-            cancel-in-progress: true
+            cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
         steps:
             - name: Checkout code
@@ -75,7 +76,7 @@ jobs:
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Setup Node.js
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
                   node-version: 22
                   cache: 'pnpm'
@@ -84,7 +85,7 @@ jobs:
               run: pnpm install
 
             - name: Run integration tests
-              run: cd products/mcp && pnpm run test:integration
+              run: cd services/mcp && pnpm run test:integration
               env:
                   TEST_POSTHOG_API_BASE_URL: ${{ secrets.MCP_TEST_API_BASE_URL }}
                   TEST_POSTHOG_PERSONAL_API_KEY: ${{ secrets.MCP_TEST_PERSONAL_API_KEY }}

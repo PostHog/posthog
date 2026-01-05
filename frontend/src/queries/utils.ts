@@ -3,6 +3,7 @@ import { PERCENT_STACK_VIEW_DISPLAY_TYPE } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { getAppContext } from 'lib/utils/getAppContext'
 
+import { ProductAnalyticsInsightNodeKind } from '~/queries/nodes/InsightQuery/defaults'
 import {
     ActionsNode,
     ActorsQuery,
@@ -13,6 +14,9 @@ import {
     DataWarehouseNode,
     DatabaseSchemaQuery,
     DateRange,
+    EndpointsUsageOverviewQuery,
+    EndpointsUsageTableQuery,
+    EndpointsUsageTrendsQuery,
     ErrorTrackingIssueCorrelationQuery,
     ErrorTrackingQuery,
     EventsNode,
@@ -30,7 +34,6 @@ import {
     InsightActorsQuery,
     InsightFilter,
     InsightFilterProperty,
-    InsightNodeKind,
     InsightQueryNode,
     InsightVizNode,
     LifecycleQuery,
@@ -39,8 +42,10 @@ import {
     MathType,
     Node,
     NodeKind,
+    NonIntegratedConversionsTableQuery,
     PathsQuery,
     PersonsNode,
+    ProductAnalyticsInsightQueryNode,
     QuerySchema,
     QueryStatusResponse,
     ResultCustomizationBy,
@@ -193,12 +198,36 @@ export function isRevenueAnalyticsTopCustomersQuery(
     return node?.kind === NodeKind.RevenueAnalyticsTopCustomersQuery
 }
 
+export function isEndpointsUsageOverviewQuery(node?: Record<string, any> | null): node is EndpointsUsageOverviewQuery {
+    return node?.kind === NodeKind.EndpointsUsageOverviewQuery
+}
+
+export function isEndpointsUsageTableQuery(node?: Record<string, any> | null): node is EndpointsUsageTableQuery {
+    return node?.kind === NodeKind.EndpointsUsageTableQuery
+}
+
+export function isEndpointsUsageTrendsQuery(node?: Record<string, any> | null): node is EndpointsUsageTrendsQuery {
+    return node?.kind === NodeKind.EndpointsUsageTrendsQuery
+}
+
+export function isEndpointsUsageQuery(
+    node?: Record<string, any> | null
+): node is EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery {
+    return isEndpointsUsageOverviewQuery(node) || isEndpointsUsageTableQuery(node) || isEndpointsUsageTrendsQuery(node)
+}
+
 export function isWebOverviewQuery(node?: Record<string, any> | null): node is WebOverviewQuery {
     return node?.kind === NodeKind.WebOverviewQuery
 }
 
 export function isWebStatsTableQuery(node?: Record<string, any> | null): node is WebStatsTableQuery {
     return node?.kind === NodeKind.WebStatsTableQuery
+}
+
+export function isWebAnalyticsInsightQuery(
+    node?: Record<string, any> | null
+): node is WebStatsTableQuery | WebOverviewQuery {
+    return isWebStatsTableQuery(node) || isWebOverviewQuery(node)
 }
 
 export function isWebExternalClicksQuery(node?: Record<string, any> | null): boolean {
@@ -223,6 +252,12 @@ export function isMarketingAnalyticsAggregatedQuery(
     node?: Record<string, any> | null
 ): node is MarketingAnalyticsAggregatedQuery {
     return node?.kind === NodeKind.MarketingAnalyticsAggregatedQuery
+}
+
+export function isNonIntegratedConversionsTableQuery(
+    node?: Record<string, any> | null
+): node is NonIntegratedConversionsTableQuery {
+    return node?.kind === NodeKind.NonIntegratedConversionsTableQuery
 }
 
 export function isTracesQuery(node?: Record<string, any> | null): node is TracesQuery {
@@ -312,8 +347,10 @@ export function isInsightQueryWithBreakdown(node?: Record<string, any> | null): 
     return isTrendsQuery(node) || isFunnelsQuery(node) || isRetentionQuery(node)
 }
 
-export function isInsightQueryWithCompare(node?: Record<string, any> | null): node is TrendsQuery | StickinessQuery {
-    return isTrendsQuery(node) || isStickinessQuery(node)
+export function isInsightQueryWithCompare(
+    node?: Record<string, any> | null
+): node is TrendsQuery | StickinessQuery | WebStatsTableQuery | WebOverviewQuery {
+    return isTrendsQuery(node) || isStickinessQuery(node) || isWebStatsTableQuery(node) || isWebOverviewQuery(node)
 }
 
 export function isDatabaseSchemaQuery(node?: Node): node is DatabaseSchemaQuery {
@@ -355,7 +392,9 @@ export function isInsightQueryNode(node?: Record<string, any> | null): node is I
         isRetentionQuery(node) ||
         isPathsQuery(node) ||
         isStickinessQuery(node) ||
-        isLifecycleQuery(node)
+        isLifecycleQuery(node) ||
+        isWebStatsTableQuery(node) ||
+        isWebOverviewQuery(node)
     )
 }
 
@@ -380,6 +419,9 @@ export function dateRangeFor(node?: Node): DateRange | undefined {
 export const getInterval = (query: InsightQueryNode): IntervalType | undefined => {
     if (isInsightQueryWithSeries(query)) {
         return query.interval
+    }
+    if (isWebStatsTableQuery(query) || isWebOverviewQuery(query)) {
+        return query.interval ?? 'day'
     }
     return undefined
 }
@@ -535,6 +577,8 @@ export const getGoalLines = (query: InsightQueryNode): GoalLine[] | undefined =>
         return query.trendsFilter?.goalLines
     } else if (isFunnelsQuery(query)) {
         return query.funnelsFilter?.goalLines
+    } else if (isRetentionQuery(query)) {
+        return query.retentionFilter?.goalLines
     }
 
     return undefined
@@ -546,7 +590,7 @@ export const supportsPercentStackView = (q: InsightQueryNode | null | undefined)
 export const getShowPercentStackView = (query: InsightQueryNode): boolean | undefined =>
     supportsPercentStackView(query) && (query as TrendsQuery)?.trendsFilter?.showPercentStackView
 
-export const nodeKindToFilterProperty: Record<InsightNodeKind, InsightFilterProperty> = {
+export const nodeKindToFilterProperty: Record<ProductAnalyticsInsightNodeKind, InsightFilterProperty> = {
     [NodeKind.TrendsQuery]: 'trendsFilter',
     [NodeKind.FunnelsQuery]: 'funnelsFilter',
     [NodeKind.RetentionQuery]: 'retentionFilter',
@@ -555,11 +599,11 @@ export const nodeKindToFilterProperty: Record<InsightNodeKind, InsightFilterProp
     [NodeKind.LifecycleQuery]: 'lifecycleFilter',
 }
 
-export function filterKeyForQuery(node: InsightQueryNode): InsightFilterProperty {
+export function filterKeyForQuery(node: ProductAnalyticsInsightQueryNode): InsightFilterProperty {
     return nodeKindToFilterProperty[node.kind]
 }
 
-export function filterForQuery(node: InsightQueryNode): InsightFilter | undefined {
+export function filterForQuery(node: ProductAnalyticsInsightQueryNode): InsightFilter | undefined {
     const filterProperty = nodeKindToFilterProperty[node.kind]
     return node[filterProperty as keyof InsightQueryNode] as InsightFilter | undefined
 }

@@ -1,10 +1,12 @@
 import { Node } from '~/queries/schema/schema-general'
 import {
     isActorsQuery,
+    isEndpointsUsageTableQuery,
     isEventsQuery,
     isGroupsQuery,
     isHogQLQuery,
     isMarketingAnalyticsTableQuery,
+    isNonIntegratedConversionsTableQuery,
     isPersonsNode,
     isRevenueAnalyticsTopCustomersQuery,
     isRevenueExampleDataWarehouseTablesQuery,
@@ -37,7 +39,10 @@ export enum QueryFeature {
     displayResponseError,
     hideLoadNextButton,
     testAccountFilters,
+    supportTracesFilters,
     highlightExceptionEventRows,
+    /** Enables cell and row actions for non-integrated conversions mapping */
+    nonIntegratedConversionsActions,
 }
 
 export function getQueryFeatures(query: Node): Set<QueryFeature> {
@@ -87,6 +92,7 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
     if (isPersonsNode(query) || isActorsQuery(query)) {
         features.add(QueryFeature.personPropertyFilters)
         features.add(QueryFeature.personsSearch)
+        features.add(QueryFeature.columnConfigurator)
 
         if (isActorsQuery(query)) {
             features.add(QueryFeature.selectAndOrderByColumns)
@@ -125,11 +131,27 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         features.add(QueryFeature.selectAndOrderByColumns)
     }
 
+    if (isNonIntegratedConversionsTableQuery(query)) {
+        features.add(QueryFeature.columnsInResponse)
+        features.add(QueryFeature.resultIsArrayOfArrays)
+        features.add(QueryFeature.displayResponseError)
+        features.add(QueryFeature.selectAndOrderByColumns)
+        features.add(QueryFeature.nonIntegratedConversionsActions)
+    }
+
     if (isTracesQuery(query)) {
         features.add(QueryFeature.dateRangePicker)
         features.add(QueryFeature.eventPropertyFilters)
         features.add(QueryFeature.testAccountFilters)
+        features.add(QueryFeature.supportTracesFilters)
         features.add(QueryFeature.columnConfigurator)
+    }
+
+    if (isEndpointsUsageTableQuery(query)) {
+        features.add(QueryFeature.columnsInResponse)
+        features.add(QueryFeature.resultIsArrayOfArrays)
+        features.add(QueryFeature.displayResponseError)
+        features.add(QueryFeature.hideLoadNextButton)
     }
 
     return features

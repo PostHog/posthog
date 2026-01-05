@@ -1,4 +1,4 @@
-name: 'MCP Publish'
+name: 'MCP Publish Agent Package'
 
 on:
     push:
@@ -7,6 +7,7 @@ on:
     workflow_dispatch:
 permissions:
     contents: read
+    id-token: write
 
 jobs:
     changes:
@@ -23,7 +24,7 @@ jobs:
               with:
                   filters: |
                       mcp:
-                        - 'products/mcp/**'
+                        - 'services/mcp/**'
                         - '.github/workflows/mcp-ci.yml'
                         - '.github/workflows/mcp-publish.yml'
 
@@ -46,7 +47,7 @@ jobs:
               id: check-package-version
               uses: PostHog/check-package-version@v2
               with:
-                  path: products/mcp/typescript/
+                  path: services/mcp/typescript/
 
     release:
         name: Publish release if new version
@@ -55,6 +56,7 @@ jobs:
         if: needs.check-package-version.outputs.is-new-version == 'true'
         permissions:
             contents: read
+            id-token: write
         env:
             COMMITTED_VERSION: ${{ needs.check-package-version.outputs.committed-version }}
             PUBLISHED_VERSION: ${{ needs.check-package-version.outputs.published-version }}
@@ -63,9 +65,10 @@ jobs:
               uses: actions/checkout@v4
               with:
                   fetch-depth: 0
+                  filter: blob:none
 
             - name: Set up Node 22
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
                   node-version: 22
                   registry-url: https://registry.npmjs.org
@@ -74,12 +77,10 @@ jobs:
               run: npm install -g pnpm
 
             - name: Install package.json dependencies with pnpm
-              run: pnpm install
+              run: pnpm install --frozen-lockfile
 
             - name: Build the package
-              run: cd products/mcp/typescript && pnpm build
+              run: cd services/mcp/typescript && pnpm build
 
             - name: Publish the package in the npm registry
-              run: cd products/mcp/typescript && pnpm publish --access public
-              env:
-                  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+              run: cd services/mcp/typescript && pnpm publish --access public

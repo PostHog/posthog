@@ -112,7 +112,7 @@ export const seekbarLogic = kea<seekbarLogicType>([
             (scrubbingTime) => Math.floor(scrubbingTime / 1000),
         ],
     }),
-    listeners(({ values, actions }) => ({
+    listeners(({ values, actions, cache }) => ({
         setCurrentTimestamp: () => {
             if (!values.slider) {
                 return
@@ -137,24 +137,27 @@ export const seekbarLogic = kea<seekbarLogicType>([
                 actions.seekToTime(playerTime)
             }
         },
-        handleSeek: ({ newX, shouldSeek }) => {
+        handleSeek: async ({ newX, shouldSeek }, breakpoint) => {
+            await breakpoint(5)
+
             const end = values.slider?.offsetWidth ?? 0
             actions.setThumbLeftPos(clamp(newX, 0, end) - THUMB_OFFSET, shouldSeek)
             actions.endSeeking()
         },
-        handleMove: ({ event }) => {
+        handleMove: async ({ event }, breakpoint) => {
             if (!values.slider) {
                 return
             }
+            await breakpoint(10)
+
             actions.startScrub()
             const newX = getXPos(event) - values.cursorDiff - values.slider.getBoundingClientRect().left
             actions.handleSeek(newX, false)
         },
-        handleUp: ({ event }) => {
-            document.removeEventListener('touchmove', actions.handleMove)
-            document.removeEventListener('touchend', actions.handleUp)
-            document.removeEventListener('mousemove', actions.handleMove)
-            document.removeEventListener('mouseup', actions.handleUp)
+        handleUp: async ({ event }, breakpoint) => {
+            await breakpoint(25)
+
+            cache.disposables.dispose('seekbarListeners')
 
             if (!values.slider) {
                 return
@@ -171,16 +174,24 @@ export const seekbarLogic = kea<seekbarLogicType>([
             actions.startScrub()
             const xPos = getXPos(event)
             let diffFromThumb = xPos - values.thumb.getBoundingClientRect().left - THUMB_OFFSET
-            // If click is too far from thumb, move thumb to click position
             if (Math.abs(diffFromThumb) > THUMB_SIZE) {
                 diffFromThumb = 0
             }
             actions.setCursorDiff(diffFromThumb)
 
-            document.addEventListener('touchmove', actions.handleMove)
-            document.addEventListener('touchend', actions.handleUp)
-            document.addEventListener('mousemove', actions.handleMove)
-            document.addEventListener('mouseup', actions.handleUp)
+            cache.disposables.add(() => {
+                document.addEventListener('touchmove', actions.handleMove)
+                document.addEventListener('touchend', actions.handleUp)
+                document.addEventListener('mousemove', actions.handleMove)
+                document.addEventListener('mouseup', actions.handleUp)
+
+                return () => {
+                    document.removeEventListener('touchmove', actions.handleMove)
+                    document.removeEventListener('touchend', actions.handleUp)
+                    document.removeEventListener('mousemove', actions.handleMove)
+                    document.removeEventListener('mouseup', actions.handleUp)
+                }
+            }, 'seekbarListeners')
         },
     })),
 ])

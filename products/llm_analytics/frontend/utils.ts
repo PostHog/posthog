@@ -7,6 +7,8 @@ import { hogql } from '~/queries/utils'
 import type { EvaluationRun } from './evaluations/types'
 import type { SpanAggregation } from './llmAnalyticsTraceDataLogic'
 import {
+    AnthropicDocumentMessage,
+    AnthropicImageMessage,
     AnthropicInputMessage,
     AnthropicTextMessage,
     AnthropicThinkingMessage,
@@ -14,9 +16,15 @@ import {
     AnthropicToolResultMessage,
     CompatMessage,
     CompatToolCall,
+    GeminiAudioMessage,
+    GeminiDocumentMessage,
+    GeminiImageMessage,
     LiteLLMChoice,
     LiteLLMResponse,
+    OpenAIAudioMessage,
     OpenAICompletionMessage,
+    OpenAIFileMessage,
+    OpenAIImageURLMessage,
     OpenAIToolCall,
     VercelSDKImageMessage,
     VercelSDKInputImageMessage,
@@ -270,6 +278,155 @@ export function isVercelSDKInputTextMessage(input: unknown): input is VercelSDKI
     )
 }
 
+export function isOpenAIImageURLMessage(input: unknown): input is OpenAIImageURLMessage {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        input.type === 'image_url' &&
+        'image_url' in input &&
+        typeof input.image_url === 'object' &&
+        input.image_url !== null &&
+        'url' in input.image_url &&
+        typeof input.image_url.url === 'string'
+    )
+}
+
+export function isOpenAIFileMessage(input: unknown): input is OpenAIFileMessage {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        input.type === 'file' &&
+        'file' in input &&
+        typeof input.file === 'object' &&
+        input.file !== null &&
+        'file_data' in input.file &&
+        'filename' in input.file &&
+        typeof input.file.file_data === 'string' &&
+        typeof input.file.filename === 'string'
+    )
+}
+
+export function isOpenAIAudioMessage(input: unknown): input is OpenAIAudioMessage {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        input.type === 'audio' &&
+        'data' in input &&
+        typeof input.data === 'string'
+    )
+}
+
+export function isAnthropicImageMessage(input: unknown): input is AnthropicImageMessage {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        input.type === 'image' &&
+        'source' in input &&
+        typeof input.source === 'object' &&
+        input.source !== null &&
+        'type' in input.source &&
+        input.source.type === 'base64' &&
+        'data' in input.source &&
+        'media_type' in input.source &&
+        typeof input.source.data === 'string' &&
+        typeof input.source.media_type === 'string'
+    )
+}
+
+export function isAnthropicDocumentMessage(input: unknown): input is AnthropicDocumentMessage {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        input.type === 'document' &&
+        'source' in input &&
+        typeof input.source === 'object' &&
+        input.source !== null &&
+        'type' in input.source &&
+        input.source.type === 'base64' &&
+        'data' in input.source &&
+        'media_type' in input.source &&
+        typeof input.source.data === 'string' &&
+        typeof input.source.media_type === 'string'
+    )
+}
+
+/**
+ * Extracts inline data from Gemini messages, supporting both snake_case (Python SDK)
+ * and camelCase (Node SDK) property naming conventions.
+ */
+export function getGeminiInlineData(input: unknown): { data: string; mime_type: string } | null {
+    if (!input || typeof input !== 'object') {
+        return null
+    }
+
+    // Check snake_case first (Python SDK)
+    if ('inline_data' in input && typeof input.inline_data === 'object' && input.inline_data !== null) {
+        const d = input.inline_data as Record<string, unknown>
+        const data = d.data
+        const mimeType = d.mime_type ?? d.mimeType
+        if (typeof data === 'string' && typeof mimeType === 'string') {
+            return { data, mime_type: mimeType }
+        }
+    }
+
+    // Check camelCase (Node SDK)
+    if ('inlineData' in input && typeof input.inlineData === 'object' && input.inlineData !== null) {
+        const d = input.inlineData as Record<string, unknown>
+        const data = d.data
+        const mimeType = d.mimeType ?? d.mime_type
+        if (typeof data === 'string' && typeof mimeType === 'string') {
+            return { data, mime_type: mimeType }
+        }
+    }
+
+    return null
+}
+
+export function isGeminiImageMessage(input: unknown): input is GeminiImageMessage {
+    if (!input || typeof input !== 'object' || !('type' in input) || input.type !== 'image') {
+        return false
+    }
+    const inlineData = getGeminiInlineData(input)
+    return inlineData !== null && inlineData.mime_type.startsWith('image/')
+}
+
+export function isGeminiDocumentMessage(input: unknown): input is GeminiDocumentMessage {
+    if (!input || typeof input !== 'object' || !('type' in input)) {
+        return false
+    }
+    const inlineData = getGeminiInlineData(input)
+    if (!inlineData) {
+        return false
+    }
+    // Accept explicit 'document' type
+    if (input.type === 'document') {
+        return true
+    }
+    // Also accept 'image' type if MIME is not an image (SDK misdetection of PDFs)
+    if (input.type === 'image' && !inlineData.mime_type.startsWith('image/')) {
+        return true
+    }
+    return false
+}
+
+export function isGeminiAudioMessage(input: unknown): input is GeminiAudioMessage {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        input.type === 'audio' &&
+        'data' in input &&
+        'mime_type' in input &&
+        typeof input.data === 'string' &&
+        typeof input.mime_type === 'string'
+    )
+}
+
 export function isLiteLLMChoice(input: unknown): input is LiteLLMChoice {
     return (
         !!input &&
@@ -330,7 +487,7 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
 
     // Handle new array-based content format (unified format with structured objects)
     // Only apply this if the array contains objects with 'type' field (not Anthropic-specific formats)
-    // Supported types include: text, output_text, input_text, function, image, input_image
+    // Supported types include: text, output_text, input_text, function, image, input_image, document
     if (
         rawMessage &&
         typeof rawMessage === 'object' &&
@@ -349,7 +506,11 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
                     item.type === 'input_text' ||
                     item.type === 'function' ||
                     item.type === 'image' ||
-                    item.type === 'input_image')
+                    item.type === 'input_image' ||
+                    item.type === 'image_url' ||
+                    item.type === 'file' ||
+                    item.type === 'audio' ||
+                    item.type === 'document')
         )
     ) {
         return [
@@ -474,9 +635,29 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
 
     // Input message
     if (isAnthropicRoleBasedMessage(rawMessage)) {
-        // Content is a nested array (tool responses, etc.)
+        // Check for top-level tool_calls (already normalized by SDK)
+        const topLevelToolCalls =
+            'tool_calls' in rawMessage && isOpenAICompatToolCallsArray(rawMessage.tool_calls)
+                ? parseOpenAIToolCalls(rawMessage.tool_calls)
+                : undefined
+
         if (Array.isArray(rawMessage.content)) {
-            return rawMessage.content.map((content) => normalizeMessage(content, roleToUse)).flat()
+            // If we have top-level tool_calls, skip tool_use blocks in content (they're duplicates with incomplete data)
+            const contentToProcess = topLevelToolCalls
+                ? rawMessage.content.filter((item) => !isAnthropicToolCallMessage(item))
+                : rawMessage.content
+
+            const contentMessages = contentToProcess.map((content) => normalizeMessage(content, roleToUse)).flat()
+
+            if (topLevelToolCalls && topLevelToolCalls.length > 0) {
+                contentMessages.push({
+                    role: roleToUse,
+                    content: '',
+                    tool_calls: topLevelToolCalls,
+                })
+            }
+
+            return contentMessages
         }
 
         return [
@@ -541,6 +722,10 @@ export function removeMilliseconds(timestamp: string): string {
 
 export function getTraceTimestamp(timestamp: string): string {
     return dayjs(timestamp).utc().subtract(5, 'minutes').format('YYYY-MM-DDTHH:mm:ss[Z]')
+}
+
+export function getSessionStartTimestamp(timestamp: string): string {
+    return dayjs(timestamp).utc().subtract(24, 'hours').format('YYYY-MM-DDTHH:mm:ss[Z]')
 }
 
 export function formatLLMEventTitle(event: LLMTrace | LLMTraceEvent): string {
@@ -681,9 +866,11 @@ export async function queryEvaluationRuns(params: {
         LIMIT 100
     `
 
-    const response = await api.queryHogQL(query, {
-        ...(forceRefresh && { refresh: 'force_blocking' }),
-    })
+    const response = await api.queryHogQL(
+        query,
+        { scene: 'LLMAnalytics', productKey: 'llm_analytics' },
+        { ...(forceRefresh && { refresh: 'force_blocking' }) }
+    )
 
     return (response.results || []).map(mapEvaluationRunRow)
 }

@@ -15,8 +15,8 @@
             'numeric' AS format,
             'number' AS display,
             7 AS interval,
-            countIf(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-10-02 12:11:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))) AS value,
-            countIf(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-09-25 12:11:00.000000', 6, 'UTC')), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-10-02 12:11:00.000000', 6, 'UTC')))) AS previous
+            countIf(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))) AS value,
+            countIf(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS previous
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -25,7 +25,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), ifNull(equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), '00000000-0000-0000-0000-000000000000'), 0), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-09-25 12:11:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0), equals(events.event, 'metric_event'))))
+     WHERE and(equals(events.team_id, 99999), ifNull(equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), '00000000-0000-0000-0000-000000000000'), 0), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0), equals(events.event, 'metric_event'))))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -35,7 +35,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestUsageMetricsQueryRunner.test_group_metric
@@ -87,7 +88,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestUsageMetricsQueryRunner.test_handles_failed_metric_gracefully
@@ -110,7 +112,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestUsageMetricsQueryRunner.test_metric_interval
@@ -129,8 +132,8 @@
             'numeric' AS format,
             'number' AS display,
             7 AS interval,
-            countIf(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-10-02 12:11:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))) AS value,
-            countIf(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-09-25 12:11:00.000000', 6, 'UTC')), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-10-02 12:11:00.000000', 6, 'UTC')))) AS previous
+            countIf(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))) AS value,
+            countIf(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS previous
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -139,7 +142,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), ifNull(equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), '00000000-0000-0000-0000-000000000000'), 0), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-09-25 12:11:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), equals(events.event, 'metric_event')))
+     WHERE and(equals(events.team_id, 99999), ifNull(equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), '00000000-0000-0000-0000-000000000000'), 0), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), equals(events.event, 'metric_event')))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -149,7 +152,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestUsageMetricsQueryRunner.test_no_metrics
@@ -172,7 +176,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestUsageMetricsQueryRunner.test_person_metric
@@ -191,8 +196,8 @@
             'numeric' AS format,
             'number' AS display,
             7 AS interval,
-            countIf(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-10-02 12:11:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))) AS value,
-            countIf(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-09-25 12:11:00.000000', 6, 'UTC')), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-10-02 12:11:00.000000', 6, 'UTC')))) AS previous
+            countIf(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))) AS value,
+            countIf(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS previous
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -201,7 +206,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), ifNull(equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), '00000000-0000-0000-0000-000000000000'), 0), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-09-25 12:11:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), equals(events.event, 'metric_event')))
+     WHERE and(equals(events.team_id, 99999), ifNull(equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), '00000000-0000-0000-0000-000000000000'), 0), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), equals(events.event, 'metric_event')))
   LIMIT 100
   UNION ALL
   SELECT id AS id,
@@ -218,8 +223,8 @@
             'currency' AS format,
             'sparkline' AS display,
             30 AS interval,
-            countIf(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-09-09 12:11:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))) AS value,
-            countIf(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-08-10 12:11:00.000000', 6, 'UTC')), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-09-09 12:11:00.000000', 6, 'UTC')))) AS previous
+            countIf(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))) AS value,
+            countIf(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS previous
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -228,7 +233,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), ifNull(equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), '00000000-0000-0000-0000-000000000000'), 0), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-08-10 12:11:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), equals(events.event, 'another_metric_event')))
+     WHERE and(equals(events.team_id, 99999), ifNull(equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), '00000000-0000-0000-0000-000000000000'), 0), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), equals(events.event, 'another_metric_event')))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -238,6 +243,7 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---

@@ -2,6 +2,7 @@ import { kea, listeners, path } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 import { ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
@@ -27,13 +28,17 @@ export const reverseProxyCheckerLogic = kea<reverseProxyCheckerLogicType>([
                     const query = hogql`
                         SELECT DISTINCT properties.$lib_custom_api_host AS lib_custom_api_host
                         FROM events
-                        WHERE timestamp >= now() - INTERVAL 1 DAY 
+                        WHERE timestamp >= now() - INTERVAL 1 DAY
                         AND timestamp <= now()
                         AND properties.$lib_custom_api_host IS NOT NULL
                         AND event IN ('$pageview', '$screen')
                         LIMIT 10`
 
-                    const res = await api.queryHogQL(query)
+                    const currentScene = sceneLogic.findMounted()?.values.activeSceneId ?? 'Onboarding'
+                    const res = await api.queryHogQL(query, {
+                        scene: currentScene,
+                        productKey: 'platform_and_support',
+                    })
                     return !!res.results?.find((x) => !!x[0])
                 },
             },

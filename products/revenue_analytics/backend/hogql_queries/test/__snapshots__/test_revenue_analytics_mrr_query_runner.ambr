@@ -26,7 +26,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -175,7 +175,7 @@
                              WHERE equals(person.team_id, 99999)
                              GROUP BY person.id
                              HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                          WHERE equals(events.team_id, 99999)
+                          WHERE and(equals(events.team_id, 99999), and(1, isNotNull(subscription_id)))
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
@@ -222,7 +222,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -367,7 +367,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_no_crash_when_no_source_is_selected
@@ -397,7 +398,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -546,7 +547,7 @@
                              WHERE equals(person.team_id, 99999)
                              GROUP BY person.id
                              HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                          WHERE equals(events.team_id, 99999)
+                          WHERE and(equals(events.team_id, 99999), and(1, isNotNull(subscription_id)))
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
@@ -593,7 +594,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -787,7 +788,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_country_filter
@@ -817,7 +819,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -966,7 +968,7 @@
                              WHERE equals(person.team_id, 99999)
                              GROUP BY person.id
                              HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                          WHERE equals(events.team_id, 99999)
+                          WHERE and(equals(events.team_id, 99999), and(1, isNotNull(subscription_id)))
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
@@ -1061,7 +1063,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -1278,7 +1280,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_data
@@ -1308,7 +1311,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-01 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-01 00:00:00.000000', 6, 'UTC')), toDateTime64('2026-05-01 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -1457,7 +1460,7 @@
                              WHERE equals(person.team_id, 99999)
                              GROUP BY person.id
                              HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                          WHERE equals(events.team_id, 99999)
+                          WHERE and(equals(events.team_id, 99999), and(1, isNotNull(subscription_id)))
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
@@ -1504,7 +1507,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-01 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-01 00:00:00.000000', 6, 'UTC')), toDateTime64('2026-05-01 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -1698,7 +1701,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_data_and_date_range_for_daily_interval
@@ -1728,7 +1732,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2025-02-01 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2025-02-01 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-01 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -1877,7 +1881,7 @@
                              WHERE equals(person.team_id, 99999)
                              GROUP BY person.id
                              HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                          WHERE equals(events.team_id, 99999)
+                          WHERE and(equals(events.team_id, 99999), and(1, isNotNull(subscription_id)))
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
@@ -1922,7 +1926,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2025-02-01 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2025-02-01 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-01 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -2114,7 +2118,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_data_and_double_grouping
@@ -2144,7 +2149,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -2293,7 +2298,7 @@
                              WHERE equals(person.team_id, 99999)
                              GROUP BY person.id
                              HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                          WHERE equals(events.team_id, 99999)
+                          WHERE and(equals(events.team_id, 99999), and(1, isNotNull(subscription_id)))
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
@@ -2397,7 +2402,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -2619,7 +2624,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_data_and_product_grouping
@@ -2649,7 +2655,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -2798,7 +2804,7 @@
                              WHERE equals(person.team_id, 99999)
                              GROUP BY person.id
                              HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                          WHERE equals(events.team_id, 99999)
+                          WHERE and(equals(events.team_id, 99999), and(1, isNotNull(subscription_id)))
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
@@ -2854,7 +2860,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -3053,7 +3059,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_data_with_managed_viewsets_ff
@@ -3083,7 +3090,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-01 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-01 00:00:00.000000', 6, 'UTC')), toDateTime64('2026-05-01 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -3232,7 +3239,7 @@
                              WHERE equals(person.team_id, 99999)
                              GROUP BY person.id
                              HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                          WHERE equals(events.team_id, 99999)
+                          WHERE and(equals(events.team_id, 99999), and(1, isNotNull(subscription_id)))
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
@@ -3279,7 +3286,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-01 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-01 00:00:00.000000', 6, 'UTC')), toDateTime64('2026-05-01 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -3473,7 +3480,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_empty_date_range
@@ -3503,7 +3511,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-12-01 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-12-01 00:00:00.000000', 6, 'UTC')), toDateTime64('2024-12-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -3652,7 +3660,7 @@
                              WHERE equals(person.team_id, 99999)
                              GROUP BY person.id
                              HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                          WHERE equals(events.team_id, 99999)
+                          WHERE and(equals(events.team_id, 99999), and(1, isNotNull(subscription_id)))
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
@@ -3699,7 +3707,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-12-01 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-12-01 00:00:00.000000', 6, 'UTC')), toDateTime64('2024-12-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -3893,7 +3901,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_events_data
@@ -3923,7 +3932,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -4072,7 +4081,7 @@
                              WHERE equals(person.team_id, 99999)
                              GROUP BY person.id
                              HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                          WHERE equals(events.team_id, 99999)
+                          WHERE and(equals(events.team_id, 99999), and(1, isNotNull(subscription_id)))
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
@@ -4119,7 +4128,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -4313,7 +4322,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_events_data_and_currency_aware_divider
@@ -4343,7 +4353,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -4493,7 +4503,7 @@
                              WHERE equals(person.team_id, 99999)
                              GROUP BY person.id
                              HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                          WHERE equals(events.team_id, 99999)
+                          WHERE and(equals(events.team_id, 99999), and(1, isNotNull(subscription_id)))
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
@@ -4540,7 +4550,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -4734,7 +4744,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_events_data_and_grouping
@@ -4764,7 +4775,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -4913,7 +4924,7 @@
                              WHERE equals(person.team_id, 99999)
                              GROUP BY person.id
                              HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                          WHERE equals(events.team_id, 99999)
+                          WHERE and(equals(events.team_id, 99999), and(1, isNotNull(subscription_id)))
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
@@ -4969,7 +4980,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -5168,7 +5179,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_events_data_with_managed_viewsets_ff
@@ -5198,7 +5210,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -5347,7 +5359,7 @@
                              WHERE equals(person.team_id, 99999)
                              GROUP BY person.id
                              HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                          WHERE equals(events.team_id, 99999)
+                          WHERE and(equals(events.team_id, 99999), and(1, isNotNull(subscription_id)))
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
@@ -5394,7 +5406,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -5588,7 +5600,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_product_filter
@@ -5618,7 +5631,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -5767,7 +5780,7 @@
                              WHERE equals(person.team_id, 99999)
                              GROUP BY person.id
                              HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                          WHERE equals(events.team_id, 99999)
+                          WHERE and(equals(events.team_id, 99999), and(1, isNotNull(subscription_id)))
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
@@ -5823,7 +5836,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -6022,7 +6035,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_product_filter.1
@@ -6052,7 +6066,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -6201,7 +6215,7 @@
                              WHERE equals(person.team_id, 99999)
                              GROUP BY person.id
                              HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                          WHERE equals(events.team_id, 99999)
+                          WHERE and(equals(events.team_id, 99999), and(1, isNotNull(subscription_id)))
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
@@ -6257,7 +6271,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -6456,6 +6470,7 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---

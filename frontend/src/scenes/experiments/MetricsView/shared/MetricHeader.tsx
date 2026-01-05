@@ -1,7 +1,7 @@
 import { useActions } from 'kea'
 import { useState } from 'react'
 
-import { IconCopy, IconPencil, IconPlusSmall } from '@posthog/icons'
+import { IconCopy, IconPencil, IconStack } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDropdown, LemonTag } from '@posthog/lemon-ui'
 
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
@@ -67,23 +67,15 @@ const AddBreakdownButton = ({
                         onChange({ type: 'event', property: value?.toString() || '' })
                         setDropdownOpen(false)
                     }}
-                    taxonomicGroupTypes={[
-                        TaxonomicFilterGroupType.EventProperties,
-                        TaxonomicFilterGroupType.PersonProperties,
-                    ]}
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
                     metadataSource={metadataSource}
                 />
             }
             visible={dropdownOpen}
             onClickOutside={() => setDropdownOpen(false)}
         >
-            <LemonButton
-                type="secondary"
-                size="xsmall"
-                icon={<IconPlusSmall />}
-                onClick={() => setDropdownOpen(!dropdownOpen)}
-            >
-                Add breakdown
+            <LemonButton type="secondary" size="xsmall" onClick={() => setDropdownOpen(!dropdownOpen)}>
+                <IconStack />
             </LemonButton>
         </LemonDropdown>
     )
@@ -221,6 +213,11 @@ export const MetricHeader = ({
                     <LemonTag type="muted" size="small">
                         {getMetricTag(metric)}
                     </LemonTag>
+                    {metric.goal === 'decrease' && (
+                        <LemonTag type="highlight" size="small">
+                            Goal: Decrease
+                        </LemonTag>
+                    )}
                     {metric.isSharedMetric && (
                         <LemonTag type="option" size="small">
                             Shared

@@ -1,43 +1,63 @@
+import posthog from 'posthog-js'
+
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils'
 
+import { VisualizationBlock } from '~/queries/schema/schema-assistant-artifacts'
 import {
+    AgentMode,
     AnyAssistantGeneratedQuery,
-    AnyAssistantSupportedQuery,
+    ArtifactContent,
+    ArtifactContentType,
+    ArtifactMessage,
     AssistantMessage,
     AssistantMessageType,
     AssistantToolCallMessage,
+    AssistantUpdateEvent,
     FailureMessage,
     HumanMessage,
     MultiVisualizationMessage,
+    NotebookArtifactContent,
     NotebookUpdateMessage,
     RootAssistantMessage,
-    VisualizationMessage,
+    SubagentUpdateEvent,
+    VisualizationArtifactContent,
+    VisualizationItem,
 } from '~/queries/schema/schema-assistant-messages'
 import {
     DashboardFilter,
-    FunnelsQuery,
-    HogQLQuery,
+    DataVisualizationNode,
     HogQLVariable,
-    RetentionQuery,
-    TrendsQuery,
+    InsightVizNode,
+    NodeKind,
+    QuerySchema,
+    QuerySchemaRoot,
 } from '~/queries/schema/schema-general'
-import { isFunnelsQuery, isHogQLQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
+import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
 import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel } from '~/types'
 
+import { Scene } from '../sceneTypes'
+import { EnhancedToolCall } from './Thread'
+import { MODE_DEFINITIONS } from './max-constants'
 import { SuggestionGroup } from './maxLogic'
 import { MaxActionContext, MaxContextType, MaxDashboardContext, MaxEventContext, MaxInsightContext } from './maxTypes'
-
-export function isVisualizationMessage(
-    message: RootAssistantMessage | undefined | null
-): message is VisualizationMessage {
-    return message?.type === AssistantMessageType.Visualization
-}
 
 export function isMultiVisualizationMessage(
     message: RootAssistantMessage | undefined | null
 ): message is MultiVisualizationMessage {
     return message?.type === AssistantMessageType.MultiVisualization
+}
+
+export function isArtifactMessage(message: RootAssistantMessage | undefined | null): message is ArtifactMessage {
+    return message?.type === AssistantMessageType.Artifact
+}
+
+export function isVisualizationArtifactContent(content: ArtifactContent): content is VisualizationArtifactContent {
+    return content.content_type === ArtifactContentType.Visualization
+}
+
+export function isNotebookArtifactContent(content: ArtifactContent): content is NotebookArtifactContent {
+    return content.content_type === ArtifactContentType.Notebook
 }
 
 export function isHumanMessage(message: RootAssistantMessage | undefined | null): message is HumanMessage {
@@ -54,6 +74,12 @@ export function isAssistantToolCallMessage(
     return message?.type === AssistantMessageType.ToolCall && message.ui_payload !== undefined
 }
 
+export function isSubagentUpdateEvent(
+    message: AssistantUpdateEvent | SubagentUpdateEvent | undefined | null
+): message is SubagentUpdateEvent {
+    return message?.content instanceof Object && 'type' in message.content && message.content.type === 'tool_call'
+}
+
 export function isFailureMessage(message: RootAssistantMessage | undefined | null): message is FailureMessage {
     return message?.type === AssistantMessageType.Failure
 }
@@ -64,19 +90,37 @@ export function isNotebookUpdateMessage(
     return message?.type === AssistantMessageType.Notebook
 }
 
-export function castAssistantQuery(
-    query: AnyAssistantGeneratedQuery | AnyAssistantSupportedQuery | null
-): TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery {
-    if (isTrendsQuery(query)) {
-        return query
-    } else if (isFunnelsQuery(query)) {
-        return query
-    } else if (isRetentionQuery(query)) {
-        return query
-    } else if (isHogQLQuery(query)) {
-        return query
+export function isMultiQuestionFormMessage(
+    message: RootAssistantMessage | undefined | null
+): message is AssistantMessage & { tool_calls: EnhancedToolCall[] } {
+    return (
+        isAssistantMessage(message) &&
+        !!message.tool_calls &&
+        message.tool_calls.some((toolCall) => toolCall.name === 'create_form')
+    )
+}
+
+export function threadEndsWithMultiQuestionForm(messages: RootAssistantMessage[]): boolean {
+    if (messages.length < 1) {
+        return false
     }
-    throw new Error(`Unsupported query type: ${query?.kind}`)
+    const lastMessage = messages[messages.length - 1]
+
+    // The form is waiting for user input when the last message is an AssistantMessage with a create_form tool call.
+    // The create_form tool raises NodeInterrupt(None) which doesn't produce any message, so the thread
+    // ends with the AssistantMessage containing the tool call.
+    if (isMultiQuestionFormMessage(lastMessage)) {
+        return true
+    }
+
+    return false
+}
+
+export function castAssistantQuery(query: AnyAssistantGeneratedQuery | QuerySchemaRoot | null): QuerySchemaRoot | null {
+    if (query) {
+        return query as QuerySchemaRoot
+    }
+    return null
 }
 
 export function formatConversationDate(updatedAt: string | null): string {
@@ -89,6 +133,14 @@ export function formatConversationDate(updatedAt: string | null): string {
         return 'Just now'
     }
     return humanFriendlyDuration(diff, { maxUnits: 1 })
+}
+
+export function getSlackThreadUrl(slackThreadKey: string, slackWorkspaceDomain?: string | null): string {
+    const [_, channel, threadTs] = slackThreadKey.split(':')
+    // threadTs is like "1765374935.148729", URL needs "p1765374935148729"
+    const urlTs = `p${threadTs.replace('.', '')}`
+    const domain = slackWorkspaceDomain || 'slack'
+    return `https://${domain}.slack.com/archives/${channel}/${urlTs}`
 }
 
 /**
@@ -191,4 +243,57 @@ export const createSuggestionGroup = (label: string, icon: JSX.Element, suggesti
         icon,
         suggestions: suggestions.map((content) => ({ content })),
     }
+}
+
+export type FeedbackRating = 'bad' | 'okay' | 'good' | 'dismissed' | 'implicit_dismiss'
+export type FeedbackTriggerType = 'message_interval' | 'random_sample' | 'manual' | 'retry' | 'cancel'
+
+export function captureFeedback(
+    conversationId: string,
+    traceId: string | null,
+    rating: FeedbackRating,
+    triggerType: FeedbackTriggerType,
+    feedbackText?: string
+): void {
+    posthog.capture('$ai_metric', {
+        $ai_metric_name: 'feedback',
+        $ai_metric_value: rating,
+        $ai_session_id: conversationId,
+        $ai_trace_id: traceId,
+        feedback_trigger_type: triggerType,
+    })
+
+    if (feedbackText) {
+        posthog.capture('$ai_feedback', {
+            $ai_feedback_text: feedbackText,
+            $ai_session_id: conversationId,
+            $ai_trace_id: traceId,
+        })
+    }
+}
+
+/** Maps a scene ID to the agent mode that should be activated for that scene */
+export function getAgentModeForScene(sceneId: Scene | null): AgentMode | null {
+    if (!sceneId) {
+        return null
+    }
+    for (const [mode, def] of Object.entries(MODE_DEFINITIONS)) {
+        if (def.scenes.has(sceneId)) {
+            return mode as AgentMode
+        }
+    }
+    return null
+}
+
+export const visualizationTypeToQuery = (
+    visualization: VisualizationItem | VisualizationArtifactContent | VisualizationBlock
+): QuerySchema | null => {
+    const source = castAssistantQuery('answer' in visualization ? visualization.answer : visualization.query)
+    if (isHogQLQuery(source)) {
+        return { kind: NodeKind.DataVisualizationNode, source: source } satisfies DataVisualizationNode
+    }
+    if (isInsightQueryNode(source)) {
+        return { kind: NodeKind.InsightVizNode, source, showHeader: true } satisfies InsightVizNode
+    }
+    return source
 }

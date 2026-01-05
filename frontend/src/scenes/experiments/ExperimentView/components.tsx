@@ -1,6 +1,5 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
 
 import { IconCopy, IconEye, IconFlask, IconPause, IconPlusSmall, IconRefresh } from '@posthog/icons'
@@ -24,19 +23,17 @@ import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
-import { addProductIntent } from 'lib/utils/product-intents'
-import { useMaxTool } from 'scenes/max/useMaxTool'
+import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
-import { captureMaxAISurveyCreationException } from 'scenes/surveys/utils'
+import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
+import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
-import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { groupsModel } from '~/models/groupsModel'
@@ -57,11 +54,9 @@ import {
     AccessControlResourceType,
     ActionFilter,
     AnyPropertyFilter,
-    Experiment,
     ExperimentConclusion,
     InsightShortId,
     ProgressStatus,
-    UserType,
 } from '~/types'
 
 import { DuplicateExperimentModal } from '../DuplicateExperimentModal'
@@ -70,91 +65,6 @@ import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatusColor } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
 import { getVariantColor } from '../utils'
-
-// Utility function to create MaxTool configuration for experiment survey creation
-export function createMaxToolExperimentSurveyConfig(
-    experiment: Experiment,
-    user: UserType | null
-): {
-    identifier: 'create_survey'
-    active: boolean
-    initialMaxPrompt: string
-    suggestions: string[]
-    context: Record<string, any>
-    contextDescription: {
-        text: string
-        icon: JSX.Element
-    }
-    callback: (toolOutput: { survey_id?: string; survey_name?: string; error?: string }) => void
-} {
-    const variants = experiment.parameters?.feature_flag_variants || []
-    const hasMultipleVariants = variants.length > 1
-    const featureFlagKey = experiment.feature_flag?.key
-
-    return {
-        identifier: 'create_survey' as const,
-        active: Boolean(user?.uuid && experiment.id),
-        initialMaxPrompt: `Create a survey to collect feedback about the "${experiment.name}" experiment${experiment.description ? ` (${experiment.description})` : ''}${featureFlagKey ? ` using feature flag "${featureFlagKey}"` : ''}${hasMultipleVariants ? ` which tests variants: ${variants.map((v) => `"${v.key}"`).join(', ')}` : ''}`,
-        suggestions: !featureFlagKey
-            ? [] // No suggestions if no feature flag key
-            : hasMultipleVariants
-              ? [
-                    `Create a feedback survey comparing variants in the "${experiment.name}" experiment targeting users with feature flag "${featureFlagKey}"`,
-                    // Include specific variant suggestion only if variant exists
-                    ...(variants[0]?.key
-                        ? [
-                              `Create a survey for users who saw the "${variants[0].key}" variant of feature flag "${featureFlagKey}" in the "${experiment.name}" experiment`,
-                          ]
-                        : []),
-                    `Create an A/B test survey asking users to compare variants from feature flag "${featureFlagKey}" in the "${experiment.name}" experiment`,
-                    `Create a survey to understand which variant of feature flag "${featureFlagKey}" performed better in the "${experiment.name}" experiment`,
-                    `Create a survey targeting users exposed to any variant of feature flag "${featureFlagKey}" to gather feedback on the "${experiment.name}" test`,
-                ]
-              : [
-                    `Create a feedback survey for users who were exposed to feature flag "${featureFlagKey}" in the "${experiment.name}" experiment`,
-                    `Create an NPS survey for users who saw feature flag "${featureFlagKey}" during the "${experiment.name}" experiment`,
-                    `Create a satisfaction survey asking about the experience with feature flag "${featureFlagKey}" in the "${experiment.name}" experiment`,
-                    `Create a survey to understand user reactions to changes introduced by feature flag "${featureFlagKey}" in the "${experiment.name}" experiment`,
-                ],
-        context: {
-            experiment_name: experiment.name,
-            experiment_description: experiment.description,
-            feature_flag_key: experiment.feature_flag?.key,
-            feature_flag_id: experiment.feature_flag?.id,
-            feature_flag_name: experiment.feature_flag?.name,
-            target_feature_flag: experiment.feature_flag?.key,
-            survey_purpose: 'collect_feedback_for_experiment',
-            has_multiple_variants: hasMultipleVariants,
-            variants: variants.map((v) => ({
-                key: v.key,
-                name: v.name || '',
-                rollout_percentage: v.rollout_percentage,
-            })),
-            variant_count: variants?.length || 0,
-        },
-        contextDescription: {
-            text: experiment.name,
-            icon: iconForType('experiment'),
-        },
-        callback: (toolOutput: { survey_id?: string; survey_name?: string; error?: string }) => {
-            addProductIntent({
-                product_type: ProductKey.SURVEYS,
-                intent_context: ProductIntentContext.SURVEY_CREATED,
-                metadata: {
-                    survey_id: toolOutput.survey_id,
-                    source: SURVEY_CREATED_SOURCE.EXPERIMENTS,
-                    created_successfully: !toolOutput?.error,
-                },
-            })
-
-            if (toolOutput?.error || !toolOutput?.survey_id) {
-                return captureMaxAISurveyCreationException(toolOutput.error, SURVEY_CREATED_SOURCE.EXPERIMENTS)
-            }
-            // Redirect to the new survey
-            router.actions.push(urls.survey(toolOutput.survey_id))
-        },
-    }
-}
 
 export function VariantTag({
     variantKey,
@@ -366,8 +276,13 @@ export function ResultsHeader(): JSX.Element {
 
 export function EllipsisAnimation(): JSX.Element {
     const [ellipsis, setEllipsis] = useState('.')
+    const { isVisible: isPageVisible } = usePageVisibility()
 
-    useOnMountEffect(() => {
+    useEffect(() => {
+        if (!isPageVisible) {
+            return
+        }
+
         let count = 1
         let direction = 1
 
@@ -381,7 +296,7 @@ export function EllipsisAnimation(): JSX.Element {
         }, 300)
 
         return () => clearInterval(interval)
-    })
+    }, [isPageVisible])
 
     return <span>{ellipsis}</span>
 }
@@ -421,11 +336,9 @@ export function PageHeaderCustom(): JSX.Element {
         setHogfettiTrigger,
     } = useActions(experimentLogic)
     const { openShipVariantModal, openStopExperimentModal } = useActions(modalsLogic)
-    const { user } = useValues(userLogic)
     const [duplicateModalOpen, setDuplicateModalOpen] = useState(false)
+    const [surveyModalOpen, setSurveyModalOpen] = useState(false)
     const { newTab } = useActions(sceneLogic)
-    // Initialize MaxTool hook for experiment survey creation
-    const { openMax } = useMaxTool(createMaxToolExperimentSurveyConfig(experiment, user))
     const { trigger, HogfettiComponent } = useHogfetti()
 
     useOnMountEffect(() => {
@@ -581,9 +494,13 @@ export function PageHeaderCustom(): JSX.Element {
                         {experiment.feature_flag && (
                             <ButtonPrimitive
                                 menuItem
-                                onClick={openMax || undefined}
-                                disabledReasons={{
-                                    'PostHog AI not available': !openMax,
+                                onClick={() => {
+                                    setSurveyModalOpen(true)
+                                    void addProductIntentForCrossSell({
+                                        from: ProductKey.EXPERIMENTS,
+                                        to: ProductKey.SURVEYS,
+                                        intent_context: ProductIntentContext.QUICK_SURVEY_STARTED,
+                                    })
                                 }}
                             >
                                 <IconPlusSmall /> Create survey
@@ -607,6 +524,11 @@ export function PageHeaderCustom(): JSX.Element {
                     </ScenePanelActionsSection>
                 </ScenePanel>
             )}
+            <QuickSurveyModal
+                context={{ type: QuickSurveyType.EXPERIMENT, experiment }}
+                isOpen={surveyModalOpen}
+                onCancel={() => setSurveyModalOpen(false)}
+            />
         </>
     )
 }
@@ -774,12 +696,17 @@ export function ShipVariantModal(): JSX.Element {
     const { aggregationLabel } = useValues(groupsModel)
 
     const [selectedVariantKey, setSelectedVariantKey] = useState<string | null>()
+
     useEffect(() => {
         if (experiment.parameters?.feature_flag_variants?.length > 1) {
             // First test variant selected by default
             setSelectedVariantKey(experiment.parameters.feature_flag_variants[1].key)
         }
-    }, [experiment])
+    }, [
+        experiment.id,
+        experiment.parameters?.feature_flag_variants?.length,
+        experiment.parameters?.feature_flag_variants,
+    ])
 
     const aggregationTargetName =
         experiment.filters.aggregation_group_type_index != null
@@ -912,7 +839,7 @@ export const ResetButton = (): JSX.Element => {
 
 export function StatusTag({ status }: { status: ProgressStatus }): JSX.Element {
     return (
-        <LemonTag type={getExperimentStatusColor(status)}>
+        <LemonTag type={getExperimentStatusColor(status)} className="cursor-default">
             <b className="uppercase">{status}</b>
         </LemonTag>
     )

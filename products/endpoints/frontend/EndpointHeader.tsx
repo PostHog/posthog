@@ -14,15 +14,14 @@ export interface EndpointSceneHeaderProps {
 }
 
 export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.Element => {
-    const { endpoint, endpointLoading, localQuery } = useValues(endpointSceneLogic({ tabId }))
-    const { endpointName, endpointDescription, cacheAge, syncFrequency, isMaterialized } = useValues(
-        endpointLogic({ tabId })
+    const { endpoint, endpointLoading, localQuery, cacheAge, syncFrequency, isMaterialized } = useValues(
+        endpointSceneLogic({ tabId })
     )
-    const { setEndpointDescription, updateEndpoint, createEndpoint, setCacheAge, setSyncFrequency, setIsMaterialized } =
-        useActions(endpointLogic({ tabId }))
-    const { setLocalQuery } = useActions(endpointSceneLogic({ tabId }))
-
-    const isNewEndpoint = !endpoint?.name || endpoint.name === 'new-endpoint'
+    const { endpointName, endpointDescription } = useValues(endpointLogic({ tabId }))
+    const { setEndpointDescription, updateEndpoint } = useActions(endpointLogic({ tabId }))
+    const { setLocalQuery, setCacheAge, setSyncFrequency, setIsMaterialized } = useActions(
+        endpointSceneLogic({ tabId })
+    )
 
     const hasNameChange = endpointName && endpointName !== endpoint?.name
     const hasDescriptionChange = endpointDescription !== null && endpointDescription !== endpoint?.description
@@ -45,32 +44,29 @@ export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.El
             queryToSave = queryToSave.source
         }
 
-        if (isNewEndpoint) {
-            createEndpoint({
-                name: endpointName || '',
-                description: endpointDescription || undefined,
-                query: queryToSave,
-            })
-        } else {
-            const updatePayload: Partial<EndpointRequest> = {
-                description: hasDescriptionChange ? endpointDescription : undefined,
-                cache_age_seconds: hasCacheAgeChange ? (cacheAge ?? undefined) : undefined,
-                query: hasQueryChange ? queryToSave : undefined,
-                is_materialized: hasIsMaterializedChange ? isMaterialized : undefined,
-                sync_frequency: hasSyncFrequencyChange ? (syncFrequency ?? undefined) : undefined,
-            }
-
-            updateEndpoint(endpoint.name, updatePayload)
+        if (!endpoint) {
+            return
         }
+
+        const updatePayload: Partial<EndpointRequest> = {
+            description: hasDescriptionChange ? endpointDescription : undefined,
+            cache_age_seconds: hasCacheAgeChange ? (cacheAge ?? undefined) : undefined,
+            query: hasQueryChange ? queryToSave : undefined,
+            is_materialized: hasIsMaterializedChange ? isMaterialized : undefined,
+            sync_frequency: hasSyncFrequencyChange ? (syncFrequency ?? undefined) : undefined,
+        }
+
+        updateEndpoint(endpoint.name, updatePayload)
     }
 
     const handleDiscardChanges = (): void => {
-        if (endpoint) {
-            setEndpointDescription(endpoint.description || '')
-            setCacheAge(endpoint.cache_age_seconds ?? null)
-            setSyncFrequency(endpoint.materialization?.sync_frequency ?? null)
-            setIsMaterialized(null)
+        if (!endpoint) {
+            return
         }
+        setEndpointDescription(endpoint.description || '')
+        setCacheAge(endpoint.cache_age_seconds ?? null)
+        setSyncFrequency(endpoint.materialization?.sync_frequency ?? null)
+        setIsMaterialized(null)
         setLocalQuery(null)
     }
 
@@ -87,7 +83,7 @@ export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.El
                 renameDebounceMs={200}
                 actions={
                     <>
-                        {!isNewEndpoint && (
+                        {endpoint && (
                             <LemonButton
                                 type="secondary"
                                 onClick={handleDiscardChanges}
@@ -99,9 +95,11 @@ export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.El
                         <LemonButton
                             type="primary"
                             onClick={handleSave}
-                            disabledReason={!hasChanges && !isNewEndpoint && 'No changes to save'}
+                            disabledReason={
+                                !endpoint ? 'Endpoint not loaded' : !hasChanges ? 'No changes to save' : undefined
+                            }
                         >
-                            {isNewEndpoint ? 'Create' : 'Update'}
+                            Update
                         </LemonButton>
                     </>
                 }

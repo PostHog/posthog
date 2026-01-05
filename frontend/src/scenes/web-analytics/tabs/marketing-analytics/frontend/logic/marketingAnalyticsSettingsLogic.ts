@@ -1,13 +1,38 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import api from 'lib/api'
+import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { AttributionMode, MarketingAnalyticsColumnsSchemaNames } from '~/queries/schema/schema-general'
-import { ConversionGoalFilter, MarketingAnalyticsConfig, SourceMap } from '~/queries/schema/schema-general'
+import {
+    AttributionMode,
+    CampaignFieldPreference,
+    ConversionGoalFilter,
+    DatabaseSchemaDataWarehouseTable,
+    HogQLQueryResponse,
+    MARKETING_CAMPAIGN_TABLE_PATTERNS,
+    MARKETING_INTEGRATION_FIELD_MAP,
+    MarketingAnalyticsColumnsSchemaNames,
+    MarketingAnalyticsConfig,
+    NativeMarketingSource,
+    NodeKind,
+    ProductIntentContext,
+    ProductKey,
+    SourceMap,
+} from '~/queries/schema/schema-general'
+import { ExternalDataSource } from '~/types'
 
+import { IntegrationSettingsTab } from '../components/settings/IntegrationSettingsModal'
 import type { marketingAnalyticsSettingsLogicType } from './marketingAnalyticsSettingsLogicType'
 import { DEFAULT_ATTRIBUTION_WINDOW_DAYS, generateUniqueName } from './utils'
+
+export interface IntegrationSettingsModalState {
+    isOpen: boolean
+    integration: NativeMarketingSource | null
+    initialTab: IntegrationSettingsTab
+    initialUtmValue: string
+}
 
 const createEmptyConfig = (): MarketingAnalyticsConfig => ({
     sources_map: {},
@@ -16,13 +41,19 @@ const createEmptyConfig = (): MarketingAnalyticsConfig => ({
     attribution_mode: AttributionMode.LastTouch,
     campaign_name_mappings: {},
     custom_source_mappings: {},
+    campaign_field_preferences: {},
 })
 
 export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLogicType>([
     path(['scenes', 'web-analytics', 'marketingAnalyticsSettingsLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeam', 'currentTeamId']],
-        actions: [teamLogic, ['updateCurrentTeam']],
+        values: [
+            teamLogic,
+            ['currentTeam', 'currentTeamId'],
+            dataWarehouseSettingsLogic,
+            ['dataWarehouseTables', 'dataWarehouseSources'],
+        ],
+        actions: [teamLogic, ['updateCurrentTeam', 'addProductIntent']],
     })),
     actions({
         updateSourceMapping: (
@@ -43,8 +74,8 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
         removeConversionGoal: (goalId: string) => ({
             goalId,
         }),
-        updateAttributionWindowWeeks: (weeks: number) => ({
-            weeks,
+        updateAttributionWindowDays: (days: number) => ({
+            days,
         }),
         updateAttributionMode: (mode: AttributionMode) => ({
             mode,
@@ -55,6 +86,20 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
         updateCustomSourceMappings: (customSourceMappings: Record<string, string[]>) => ({
             customSourceMappings,
         }),
+        updateCampaignFieldPreferences: (campaignFieldPreferences: Record<string, CampaignFieldPreference>) => ({
+            campaignFieldPreferences,
+        }),
+        loadIntegrationCampaigns: (integration: string) => ({ integration }),
+        setIntegrationCampaigns: (integration: string, campaigns: Array<{ name: string; id: string }>) => ({
+            integration,
+            campaigns,
+        }),
+        openIntegrationSettingsModal: (
+            integration: NativeMarketingSource,
+            initialTab: IntegrationSettingsTab,
+            initialUtmValue: string
+        ) => ({ integration, initialTab, initialUtmValue }),
+        closeIntegrationSettingsModal: true,
     }),
     reducers(({ values }) => ({
         marketingAnalyticsConfig: [
@@ -158,6 +203,15 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                     }
                     return { ...state, custom_source_mappings: customSourceMappings }
                 },
+                updateCampaignFieldPreferences: (
+                    state: MarketingAnalyticsConfig | null,
+                    { campaignFieldPreferences }
+                ) => {
+                    if (!state) {
+                        return { ...createEmptyConfig(), campaign_field_preferences: campaignFieldPreferences }
+                    }
+                    return { ...state, campaign_field_preferences: campaignFieldPreferences }
+                },
             },
         ],
         savedMarketingAnalyticsConfig: [
@@ -166,6 +220,50 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                 updateCurrentTeam: (_, { marketing_analytics_config }) => {
                     return marketing_analytics_config || createEmptyConfig()
                 },
+            },
+        ],
+        integrationCampaigns: [
+            {} as Record<string, Array<{ name: string; id: string }>>,
+            {
+                setIntegrationCampaigns: (state, { integration, campaigns }) => ({
+                    ...state,
+                    [integration]: campaigns,
+                }),
+            },
+        ],
+        integrationCampaignsLoading: [
+            {} as Record<string, boolean>,
+            {
+                loadIntegrationCampaigns: (state, { integration }) => ({
+                    ...state,
+                    [integration]: true,
+                }),
+                setIntegrationCampaigns: (state, { integration }) => ({
+                    ...state,
+                    [integration]: false,
+                }),
+            },
+        ],
+        integrationSettingsModal: [
+            {
+                isOpen: false,
+                integration: null,
+                initialTab: 'mappings',
+                initialUtmValue: '',
+            } as IntegrationSettingsModalState,
+            {
+                openIntegrationSettingsModal: (_, { integration, initialTab, initialUtmValue }) => ({
+                    isOpen: true,
+                    integration,
+                    initialTab,
+                    initialUtmValue,
+                }),
+                closeIntegrationSettingsModal: () => ({
+                    isOpen: false,
+                    integration: null,
+                    initialTab: 'mappings',
+                    initialUtmValue: '',
+                }),
             },
         ],
     })),
@@ -192,6 +290,45 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                 return marketingAnalyticsConfig?.attribution_mode ?? AttributionMode.LastTouch
             },
         ],
+        integrationCampaignTables: [
+            (s) => [s.dataWarehouseTables, s.dataWarehouseSources],
+            (
+                dataWarehouseTables: DatabaseSchemaDataWarehouseTable[],
+                dataWarehouseSources: { results?: ExternalDataSource[] } | null
+            ): Record<string, string> => {
+                const result: Record<string, string> = {}
+                const sources = dataWarehouseSources?.results || []
+
+                // For each native source, find its campaign table
+                for (const source of sources) {
+                    const sourceType = source.source_type
+                    const patterns = MARKETING_CAMPAIGN_TABLE_PATTERNS[sourceType]
+                    if (!patterns) {
+                        continue
+                    }
+
+                    // Find tables that belong to this source
+                    const sourceTables = (dataWarehouseTables || []).filter(
+                        (table) => table.source?.source_type === sourceType
+                    )
+
+                    // Find the campaign table using the same pattern matching as the backend
+                    for (const table of sourceTables) {
+                        const tableSuffix = table.name.split('.').pop()?.toLowerCase() || ''
+
+                        const matchesKeyword = patterns.keywords.some((kw: string) => tableSuffix.includes(kw))
+                        const matchesExclusion = patterns.exclusions.some((ex: string) => tableSuffix.includes(ex))
+
+                        if (matchesKeyword && !matchesExclusion) {
+                            result[sourceType] = table.name
+                            break
+                        }
+                    }
+                }
+
+                return result
+            },
+        ],
     }),
     listeners(({ actions, values }) => {
         const updateCurrentTeam = (): void => {
@@ -201,15 +338,65 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
             }
         }
 
+        const trackSourceConfigured = (): void => {
+            updateCurrentTeam()
+            actions.addProductIntent({
+                product_type: ProductKey.MARKETING_ANALYTICS,
+                intent_context: ProductIntentContext.MARKETING_ANALYTICS_SOURCE_CONFIGURED,
+            })
+        }
+
+        const trackSettingsUpdated = (): void => {
+            updateCurrentTeam()
+            actions.addProductIntent({
+                product_type: ProductKey.MARKETING_ANALYTICS,
+                intent_context: ProductIntentContext.MARKETING_ANALYTICS_SETTINGS_UPDATED,
+            })
+        }
+
         return {
-            updateSourceMapping: updateCurrentTeam,
-            updateConversionGoals: updateCurrentTeam,
-            addOrUpdateConversionGoal: updateCurrentTeam,
-            removeConversionGoal: updateCurrentTeam,
-            updateAttributionWindowWeeks: updateCurrentTeam,
-            updateAttributionMode: updateCurrentTeam,
-            updateCampaignNameMappings: updateCurrentTeam,
-            updateCustomSourceMappings: updateCurrentTeam,
+            updateSourceMapping: trackSourceConfigured,
+            updateConversionGoals: trackSettingsUpdated,
+            addOrUpdateConversionGoal: trackSettingsUpdated,
+            removeConversionGoal: trackSettingsUpdated,
+            updateAttributionWindowDays: trackSettingsUpdated,
+            updateAttributionMode: trackSettingsUpdated,
+            updateCampaignNameMappings: trackSettingsUpdated,
+            updateCustomSourceMappings: trackSettingsUpdated,
+            updateCampaignFieldPreferences: trackSettingsUpdated,
+            loadIntegrationCampaigns: async ({ integration }) => {
+                const fieldInfo = MARKETING_INTEGRATION_FIELD_MAP[integration]
+                if (!fieldInfo) {
+                    actions.setIntegrationCampaigns(integration, [])
+                    return
+                }
+
+                // Get the actual table name from the selector
+                const tableName = values.integrationCampaignTables[integration]
+                if (!tableName) {
+                    // Table not found - integration might not be set up yet
+                    actions.setIntegrationCampaigns(integration, [])
+                    return
+                }
+
+                const query = `SELECT DISTINCT ${fieldInfo.nameField} as name, toString(${fieldInfo.idField}) as id FROM ${tableName} ORDER BY name LIMIT 1000`
+
+                try {
+                    const response = await api.query({
+                        kind: NodeKind.HogQLQuery,
+                        query,
+                    })
+                    const hogqlResponse = response as HogQLQueryResponse
+                    const campaigns = (hogqlResponse.results || []).map((row: any[]) => ({
+                        name: String(row[0] || ''),
+                        id: String(row[1] || ''),
+                    }))
+                    actions.setIntegrationCampaigns(integration, campaigns)
+                } catch {
+                    // Table might not exist or have issues, that's okay
+                    actions.setIntegrationCampaigns(integration, [])
+                }
+            },
         }
     }),
     loaders(({ values }) => ({

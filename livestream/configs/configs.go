@@ -2,7 +2,6 @@ package configs
 
 import (
 	"errors"
-	"fmt"
 	"log"
 	"strings"
 
@@ -22,6 +21,10 @@ type JWTConfig struct {
 	Secret string
 }
 
+type SessionRecordingConfig struct {
+	MaxLRUEntries int `mapstructure:"max_lru_entries"`
+}
+
 type Config struct {
 	Debug            bool `mapstructure:"debug"`
 	MMDB             MMDBConfig
@@ -30,12 +33,18 @@ type Config struct {
 	CORSAllowOrigins []string `mapstructure:"cors_allow_origins"`
 	Postgres         PostgresConfig
 	JWT              JWTConfig
+	SessionRecording SessionRecordingConfig `mapstructure:"session_recording"`
 }
 
 type KafkaConfig struct {
-	Brokers string `mapstructure:"brokers"`
-	Topic   string `mapstructure:"topic"`
-	GroupID string `mapstructure:"group_id"`
+	Brokers                          string `mapstructure:"brokers"`
+	Topic                            string `mapstructure:"topic"`
+	SecurityProtocol                 string `mapstructure:"security_protocol"`
+	SessionRecordingEnabled          bool   `mapstructure:"session_recording_enabled"`
+	SessionRecordingTopic            string `mapstructure:"session_recording_topic"`
+	SessionRecordingBrokers          string `mapstructure:"session_recording_brokers"`
+	SessionRecordingSecurityProtocol string `mapstructure:"session_recording_security_protocol"`
+	GroupID                          string `mapstructure:"group_id"`
 }
 
 func InitConfigs(filename, configPath string) {
@@ -43,6 +52,8 @@ func InitConfigs(filename, configPath string) {
 	viper.AddConfigPath(configPath)
 
 	viper.SetDefault("kafka.group_id", "livestream")
+	viper.SetDefault("kafka.session_recording_enabled", true)
+	viper.SetDefault("session_recording.max_lru_entries", 2_000_000_000)
 
 	err := viper.ReadInConfig()
 	if err != nil {
@@ -51,15 +62,16 @@ func InitConfigs(filename, configPath string) {
 	}
 
 	viper.OnConfigChange(func(e fsnotify.Event) {
-		fmt.Println("Config file changed:", e.Name)
+		log.Printf("Config file changed: %s", e.Name)
 	})
 	viper.WatchConfig()
 
 	viper.SetEnvPrefix("livestream") // will be uppercased automatically
 	replacer := strings.NewReplacer(".", "_")
 	viper.SetEnvKeyReplacer(replacer)
-	viper.BindEnv("jwt.secret")   // read from LIVESTREAM_JWT_SECRET
-	viper.BindEnv("postgres.url") // read from LIVESTREAM_POSTGRES_URL
+	viper.BindEnv("jwt.secret")                        // read from LIVESTREAM_JWT_SECRET
+	viper.BindEnv("postgres.url")                      // read from LIVESTREAM_POSTGRES_URL
+	viper.BindEnv("session_recording.max_lru_entries") // read from LIVESTREAM_SESSION_RECORDING_MAX_LRU_ENTRIES
 }
 
 func LoadConfig() (*Config, error) {
@@ -75,6 +87,24 @@ func LoadConfig() (*Config, error) {
 	}
 	if len(config.CORSAllowOrigins) == 0 {
 		config.CORSAllowOrigins = []string{"*"}
+	}
+	if config.Kafka.SecurityProtocol == "" {
+		if config.Debug {
+			config.Kafka.SecurityProtocol = "PLAINTEXT"
+		} else {
+			config.Kafka.SecurityProtocol = "SSL"
+		}
+	}
+	if config.Kafka.SessionRecordingEnabled {
+		if config.Kafka.SessionRecordingTopic == "" {
+			config.Kafka.SessionRecordingTopic = "session_recording_snapshot_item_events"
+		}
+		if config.Kafka.SessionRecordingBrokers == "" {
+			config.Kafka.SessionRecordingBrokers = config.Kafka.Brokers
+		}
+		if config.Kafka.SessionRecordingSecurityProtocol == "" {
+			config.Kafka.SessionRecordingSecurityProtocol = "SSL"
+		}
 	}
 
 	if config.MMDB.Path == "" {

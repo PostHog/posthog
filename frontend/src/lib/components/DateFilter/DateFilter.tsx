@@ -24,6 +24,7 @@ import { ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
 import { DateMappingOption, PropertyOperator } from '~/types'
 
 import { PropertyFilterDatePicker } from '../PropertyFilters/components/PropertyFilterDatePicker'
+import { FixedRangeWithTimePicker } from './FixedRangeWithTimePicker'
 import { RollingDateRangeFilter } from './RollingDateRangeFilter'
 import { dateFilterLogic } from './dateFilterLogic'
 import { DateOption } from './rollingDateRangeFilterLogic'
@@ -54,6 +55,7 @@ interface RawDateFilterProps extends DateFilterProps {
     max?: number | null
     allowedRollingDateOptions?: DateOption[]
     allowTimePrecision?: boolean
+    allowFixedRangeWithTime?: boolean
     /**
      * Granularity is picked based on the dateFrom value
      * but can be overridden to force a specific granularity.
@@ -82,6 +84,7 @@ export function DateFilter({
     isFixedDateMode = false,
     allowedRollingDateOptions,
     allowTimePrecision = false,
+    allowFixedRangeWithTime = false,
     placeholder,
     fullWidth = false,
     forceGranularity,
@@ -105,6 +108,7 @@ export function DateFilter({
     const {
         open,
         openFixedRange,
+        openFixedRangeWithTime,
         openDateToNow,
         openFixedDate,
         close,
@@ -121,6 +125,7 @@ export function DateFilter({
         rangeDateTo,
         label,
         isFixedRange,
+        isFixedRangeWithTime,
         isDateToNow,
         isFixedDate,
         isRollingDateRange,
@@ -145,6 +150,13 @@ export function DateFilter({
                 }}
                 onClose={open}
                 months={2}
+            />
+        ) : view === DateFilterView.FixedRangeWithTime ? (
+            <FixedRangeWithTimePicker
+                rangeDateFrom={rangeDateFrom}
+                rangeDateTo={rangeDateTo}
+                setDate={setDate}
+                onClose={open}
             />
         ) : view === DateFilterView.DateToNow ? (
             <LemonCalendarSelect
@@ -246,9 +258,14 @@ export function DateFilter({
                         <LemonButton onClick={openDateToNow} active={isDateToNow} fullWidth>
                             From custom date until now…
                         </LemonButton>
-                        <LemonButton onClick={openFixedRange} active={isFixedRange} fullWidth>
+                        <LemonButton onClick={openFixedRange} active={isFixedRange && !isFixedRangeWithTime} fullWidth>
                             Custom fixed date range…
                         </LemonButton>
+                        {allowFixedRangeWithTime && (
+                            <LemonButton onClick={openFixedRangeWithTime} active={isFixedRangeWithTime} fullWidth>
+                                Custom fixed date range with time…
+                            </LemonButton>
+                        )}
                     </>
                 )}
                 {showExplicitDateToggle && (

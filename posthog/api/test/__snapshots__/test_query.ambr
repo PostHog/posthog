@@ -20,7 +20,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestQuery.test_event_property_filter.1
@@ -44,7 +45,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestQuery.test_event_property_filter.2
@@ -68,7 +70,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestQuery.test_event_property_filter_materialized
@@ -92,7 +95,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestQuery.test_event_property_filter_materialized.1
@@ -116,7 +120,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestQuery.test_event_property_filter_materialized.2
@@ -140,7 +145,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestQuery.test_events_query_all_time_date
@@ -160,7 +166,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestQuery.test_events_query_all_time_date.1
@@ -180,7 +187,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestQuery.test_events_query_all_time_date.2
@@ -200,7 +208,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestQuery.test_full_hogql_query
@@ -220,9 +229,11 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=1,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestQuery.test_full_hogql_query_materialized
@@ -242,9 +253,11 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=1,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestQuery.test_full_hogql_query_view
@@ -264,9 +277,11 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=1,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestQuery.test_full_hogql_query_view.1
@@ -290,9 +305,11 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=1,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestQuery.test_hogql_property_filter
@@ -316,7 +333,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestQuery.test_hogql_property_filter.1
@@ -340,7 +358,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestQuery.test_hogql_property_filter.2
@@ -364,7 +383,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestQuery.test_hogql_property_filter.3
@@ -388,7 +408,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestQuery.test_hogql_property_filter_materialized
@@ -412,7 +433,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestQuery.test_hogql_property_filter_materialized.1
@@ -436,7 +458,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestQuery.test_hogql_property_filter_materialized.2
@@ -460,7 +483,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestQuery.test_hogql_property_filter_materialized.3
@@ -484,7 +508,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestQuery.test_person_property_filter
@@ -513,7 +538,7 @@
                                                     WHERE equals(person.team_id, 99999)
                                                     GROUP BY person.id
                                                     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-  WHERE and(equals(events.team_id, 99999), ifNull(equals(events__person.properties___email, 'tom@posthog.com'), 0), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(events__person.properties___email, 'tom@posthog.com'), 0), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -525,7 +550,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestQuery.test_person_property_filter_materialized
@@ -554,7 +580,7 @@
                                                     WHERE equals(person.team_id, 99999)
                                                     GROUP BY person.id
                                                     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-  WHERE and(equals(events.team_id, 99999), ifNull(equals(events__person.properties___email, 'tom@posthog.com'), 0), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(events__person.properties___email, 'tom@posthog.com'), 0), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -566,7 +592,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestQuery.test_property_filter_aggregations
@@ -588,7 +615,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestQuery.test_property_filter_aggregations.1
@@ -611,7 +639,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestQuery.test_property_filter_aggregations_materialized
@@ -633,7 +662,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestQuery.test_property_filter_aggregations_materialized.1
@@ -656,7 +686,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestQuery.test_select_event_person
@@ -678,7 +709,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestQuery.test_select_hogql_expressions
@@ -701,7 +733,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestQuery.test_select_hogql_expressions.1
@@ -722,7 +755,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestQuery.test_select_hogql_expressions.2
@@ -744,7 +778,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestQuery.test_select_hogql_expressions.3
@@ -766,6 +801,7 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---

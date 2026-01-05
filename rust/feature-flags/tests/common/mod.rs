@@ -57,7 +57,6 @@ impl ServerHandle {
             // Create a minimal valid Team object
             let team = Team {
                 id: team_id,
-                project_id: Some(team_id as i64),
                 name: "Test Team".to_string(),
                 api_token: token.clone(),
                 cookieless_server_hash_mode: Some(0),
@@ -170,7 +169,7 @@ impl ServerHandle {
             let cohort_cache = Arc::new(
                 feature_flags::cohorts::cohort_cache_manager::CohortCacheManager::new(
                     non_persons_reader.clone(),
-                    Some(config.cache_max_cohort_entries),
+                    Some(config.cohort_cache_capacity_bytes),
                     Some(config.cache_ttl_seconds),
                 ),
             );

@@ -27,6 +27,7 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     insightProps?: InsightLogicProps<Q>
     emptyStateHeading?: string
     emptyStateDetail?: string | JSX.Element
+    emptyStateIcon?: JSX.Element
     renderEmptyStateAsSkeleton?: boolean
     rowProps?: (record: unknown) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>
     /**
@@ -56,6 +57,8 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     ignoreActionsInSeriesLabels?: boolean
     /** Transform dataTableRows after they are created (e.g., to add date labels) */
     dataTableRowsTransformer?: (rows: DataTableRow[]) => DataTableRow[]
+    /** Compare filter for Web Analytics queries */
+    compareFilter?: any
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{
@@ -70,6 +73,7 @@ export type QueryContextColumnComponent = ComponentType<{
     recordIndex: number
     rowCount: number
     value: unknown
+    context?: QueryContext<any>
 }>
 
 export interface QueryContextColumn {

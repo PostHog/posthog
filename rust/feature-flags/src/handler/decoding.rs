@@ -6,12 +6,90 @@ use crate::{
     flags::flag_request::FlagRequest,
     metrics::consts::FLAG_REQUEST_KLUDGE_COUNTER,
 };
-use axum::http::{header::CONTENT_TYPE, HeaderMap};
+use axum::http::{header::CONTENT_TYPE, header::USER_AGENT, HeaderMap};
 use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
 use common_compression;
 use common_metrics::inc;
 use percent_encoding::percent_decode;
+
+/// Classifies the client type from a User-Agent header for metric labels.
+/// Returns a low-cardinality string suitable for use as a Prometheus label.
+fn classify_client_type(user_agent: Option<&str>) -> &'static str {
+    let Some(ua) = user_agent else {
+        return "unknown";
+    };
+
+    // Empty string means header was present but empty - semantically same as missing
+    if ua.is_empty() {
+        return "unknown";
+    }
+
+    // PostHog JS SDK (browser)
+    if ua.starts_with("posthog-js/") {
+        return "posthog-js";
+    }
+
+    // PostHog mobile SDKs
+    if ua.starts_with("posthog-android/") {
+        return "posthog-android";
+    }
+    if ua.starts_with("posthog-ios/") {
+        return "posthog-ios";
+    }
+    if ua.starts_with("posthog-react-native/") {
+        return "posthog-react-native";
+    }
+    if ua.starts_with("posthog-flutter/") {
+        return "posthog-flutter";
+    }
+
+    // PostHog server SDKs
+    if ua.starts_with("posthog-python/") {
+        return "posthog-python";
+    }
+    if ua.starts_with("posthog-ruby/") {
+        return "posthog-ruby";
+    }
+    if ua.starts_with("posthog-php/") {
+        return "posthog-php";
+    }
+    if ua.starts_with("posthog-java/") {
+        return "posthog-java";
+    }
+    if ua.starts_with("posthog-go/") {
+        return "posthog-go";
+    }
+    if ua.starts_with("posthog-node/") {
+        return "posthog-node";
+    }
+    if ua.starts_with("posthog-dotnet/") {
+        return "posthog-dotnet";
+    }
+    if ua.starts_with("posthog-elixir/") {
+        return "posthog-elixir";
+    }
+
+    // Generic browser detection (for non-SDK browser requests)
+    if ua.contains("Mozilla/")
+        || ua.contains("Chrome/")
+        || ua.contains("Safari/")
+        || ua.contains("Firefox/")
+        || ua.contains("Edge/")
+    {
+        return "browser";
+    }
+
+    // Common HTTP clients
+    if ua.contains("curl/") {
+        return "curl";
+    }
+    if ua.contains("python-requests/") {
+        return "python-requests";
+    }
+
+    "other"
+}
 
 /// Lightweight token extraction for rate limiting.
 /// Tries to extract the token without full request deserialization.
@@ -43,13 +121,17 @@ pub fn decode_request(
 
     let base_content_type = content_type.split(';').next().unwrap_or("").trim();
 
+    let user_agent = headers.get(USER_AGENT).and_then(|v| v.to_str().ok());
+
     match base_content_type {
         "application/json" | "text/plain" => {
             let decoded_body = decode_body(body, query.compression, headers)?;
 
-            try_parse_with_fallbacks(decoded_body)
+            try_parse_with_fallbacks(decoded_body, user_agent)
         }
-        "application/x-www-form-urlencoded" => decode_form_data(body, query.compression),
+        "application/x-www-form-urlencoded" => {
+            decode_form_data(body, query.compression, user_agent)
+        }
         _ => {
             tracing::warn!("unsupported content type: {}", content_type);
             Err(FlagError::RequestDecodingError(format!(
@@ -141,7 +223,10 @@ fn decode_base64(body: Bytes) -> Result<Bytes, FlagError> {
     Ok(Bytes::from(decoded))
 }
 
-pub fn try_parse_with_fallbacks(body: Bytes) -> Result<FlagRequest, FlagError> {
+pub fn try_parse_with_fallbacks(
+    body: Bytes,
+    user_agent: Option<&str>,
+) -> Result<FlagRequest, FlagError> {
     // Strategy 1: Try parsing as JSON directly
     if let Ok(request) = FlagRequest::from_bytes(body.clone()) {
         return Ok(request);
@@ -149,14 +234,25 @@ pub fn try_parse_with_fallbacks(body: Bytes) -> Result<FlagRequest, FlagError> {
 
     // Strategy 2: Try base64 decode then JSON
     // Even if compression is not specified, we still try to decode it as base64
-    tracing::warn!("Direct JSON parsing failed, trying base64 decode fallback");
+    let client_type = classify_client_type(user_agent);
+    tracing::warn!(
+        client_type = client_type,
+        "Direct JSON parsing failed, trying base64 decode fallback"
+    );
     match decode_base64(body.clone()) {
         Ok(decoded) => match FlagRequest::from_bytes(decoded) {
             Ok(request) => {
                 inc(
                     FLAG_REQUEST_KLUDGE_COUNTER,
-                    &[("type".to_string(), "base64_fallback_success".to_string())],
+                    &[
+                        ("type".to_string(), "base64_fallback_success".to_string()),
+                        ("client_type".to_string(), client_type.to_string()),
+                    ],
                     1,
+                );
+                tracing::info!(
+                    client_type = client_type,
+                    "Successfully parsed request after base64 fallback decoding"
                 );
                 return Ok(request);
             }
@@ -175,6 +271,7 @@ pub fn try_parse_with_fallbacks(body: Bytes) -> Result<FlagRequest, FlagError> {
 pub fn decode_form_data(
     body: Bytes,
     compression: Option<Compression>,
+    user_agent: Option<&str>,
 ) -> Result<FlagRequest, FlagError> {
     // Convert bytes to string first so we can manipulate it
     let form_data = String::from_utf8(body.to_vec()).map_err(|e| {
@@ -196,9 +293,14 @@ pub fn decode_form_data(
         decoded_form.split('=').nth(1).unwrap_or("")
     } else {
         // Count how often we receive base64 data without the 'data=' prefix
+        // Include client_type to help identify which SDKs are sending malformed data
+        let client_type = classify_client_type(user_agent);
         inc(
             FLAG_REQUEST_KLUDGE_COUNTER,
-            &[("type".to_string(), "missing_data_prefix".to_string())],
+            &[
+                ("type".to_string(), "missing_data_prefix".to_string()),
+                ("client_type".to_string(), client_type.to_string()),
+            ],
             1,
         );
         &decoded_form
@@ -431,5 +533,42 @@ mod tests {
 
         let token = extract_token(&body);
         assert_eq!(token, None);
+    }
+
+    mod classify_client_type_tests {
+        use super::*;
+        use rstest::rstest;
+
+        #[rstest]
+        #[case(Some("posthog-js/1.88.0"), "posthog-js")]
+        #[case(Some("posthog-android/3.1.0"), "posthog-android")]
+        #[case(Some("posthog-ios/3.0.0"), "posthog-ios")]
+        #[case(Some("posthog-react-native/2.5.0"), "posthog-react-native")]
+        #[case(Some("posthog-flutter/4.0.0"), "posthog-flutter")]
+        #[case(Some("posthog-python/1.4.0"), "posthog-python")]
+        #[case(Some("posthog-ruby/2.0.0"), "posthog-ruby")]
+        #[case(Some("posthog-php/3.0.0"), "posthog-php")]
+        #[case(Some("posthog-java/1.0.0"), "posthog-java")]
+        #[case(Some("posthog-go/0.1.0"), "posthog-go")]
+        #[case(Some("posthog-node/2.2.0"), "posthog-node")]
+        #[case(Some("posthog-dotnet/1.0.0"), "posthog-dotnet")]
+        #[case(Some("posthog-elixir/0.2.0"), "posthog-elixir")]
+        #[case(
+            Some("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"),
+            "browser"
+        )]
+        #[case(
+            Some("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/91.0.4472.124"),
+            "browser"
+        )]
+        #[case(Some("Mozilla/5.0 (X11; Linux x86_64) Firefox/89.0"), "browser")]
+        #[case(Some("curl/7.68.0"), "curl")]
+        #[case(Some("python-requests/2.28.0"), "python-requests")]
+        #[case(Some("custom-client/1.0"), "other")]
+        #[case(Some(""), "unknown")]
+        #[case(None, "unknown")]
+        fn test_classify_client_type(#[case] user_agent: Option<&str>, #[case] expected: &str) {
+            assert_eq!(classify_client_type(user_agent), expected);
+        }
     }
 }

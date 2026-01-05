@@ -7,24 +7,25 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.utils import timezone
 
 from posthog.schema import (
+    AssistantFunnelsQuery,
+    AssistantHogQLQuery,
+    AssistantRetentionQuery,
     AssistantToolCallMessage,
-    DataTableNode,
-    EntityType,
+    AssistantTrendsQuery,
     FunnelsQuery,
     HogQLQuery,
     HumanMessage,
-    InsightVizNode,
-    RetentionEntity,
-    RetentionFilter,
     RetentionQuery,
     TrendsQuery,
-    VisualizationMessage,
+    VisualizationArtifactContent,
 )
 
 from posthog.models import Insight, InsightViewed
 
+from ee.hogai.artifacts.manager import ArtifactManager
 from ee.hogai.chat_agent.insights.nodes import InsightDict, InsightSearchNode, NoInsightsException
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.types.base import ArtifactRefMessage
 from ee.models.assistant import Conversation
 
 
@@ -34,13 +35,13 @@ def create_mock_query_executor():
 
     async def mock_arun_and_format_query(query_obj):
         """Return mocked query results based on query type."""
-        if isinstance(query_obj, TrendsQuery):
+        if isinstance(query_obj, TrendsQuery | AssistantTrendsQuery):
             return "Mocked trends query results: Daily pageviews = 1000", {}
-        elif isinstance(query_obj, FunnelsQuery):
+        elif isinstance(query_obj, FunnelsQuery | AssistantFunnelsQuery):
             return "Mocked funnel query results: Conversion rate = 25%", {}
-        elif isinstance(query_obj, RetentionQuery):
+        elif isinstance(query_obj, RetentionQuery | AssistantRetentionQuery):
             return "Mocked retention query results: Day 1 retention = 40%", {}
-        elif isinstance(query_obj, HogQLQuery):
+        elif isinstance(query_obj, HogQLQuery | AssistantHogQLQuery):
             return "Mocked HogQL query results: Result count = 42", {}
         else:
             return "Mocked query results", {}
@@ -54,6 +55,7 @@ class TestInsightSearchNode(BaseTest):
     def setUp(self):
         super().setUp()
         self.node = InsightSearchNode(self.team, self.user)
+        self.artifact_manager = ArtifactManager(self.team, self.user)
 
         # Create test insights
         self.insight1 = Insight.objects.create(
@@ -69,6 +71,7 @@ class TestInsightSearchNode(BaseTest):
             },
             filters={"insight": "TRENDS"},
             created_by=self.user,
+            saved=True,
         )
 
         self.insight2 = Insight.objects.create(
@@ -87,6 +90,7 @@ class TestInsightSearchNode(BaseTest):
             },
             filters={"insight": "FUNNELS"},
             created_by=self.user,
+            saved=True,
         )
 
         # Create InsightViewed records
@@ -776,8 +780,8 @@ class TestInsightSearchNode(BaseTest):
         self.assertIn(self.insight2.id, result["selected_insights"])
         self.assertIn("Found 2 relevant insights", result["explanation"])
 
-    async def test_returns_visualization_message_with_trends_query(self):
-        """Test that VisualizationMessage answer field contains TrendsQuery."""
+    async def test_returns_artifact_with_trends_query(self):
+        """Test that ArtifactMessage content contains AssistantTrendsQuery."""
 
         # Load insights first
         await self.node._load_insights_page(0)
@@ -785,53 +789,66 @@ class TestInsightSearchNode(BaseTest):
         # Test the full query processing
         query_obj1, _ = await self.node._process_insight_query(self._insight_to_dict(self.insight1))
         self.assertIsNotNone(query_obj1, f"Query object should not be None for insight1. Query: {self.insight1.query}")
-        self.assertIsInstance(query_obj1, TrendsQuery)
+        self.assertIsInstance(query_obj1, AssistantTrendsQuery)
 
         # Test insight1 visualization message creation
-        viz_message1 = await self.node._create_visualization_message_for_insight(self._insight_to_dict(self.insight1))
-        assert isinstance(viz_message1, VisualizationMessage), "Should create visualization message for insight1"
-        assert hasattr(viz_message1, "answer"), "VisualizationMessage should have answer attribute"
+        viz_message = await self.node._create_artifact_ref_message_for_insight(self._insight_to_dict(self.insight1))
+        assert isinstance(viz_message, ArtifactRefMessage), "Should create artifact ref message for insight1"
+        viz_message = await self.artifact_manager.aget_enriched_message(viz_message)
+        assert viz_message is not None
 
         # Verify the answer contains the correct query type
-        answer1 = viz_message1.answer
-        self.assertIsInstance(answer1, TrendsQuery)
+        assert isinstance(
+            viz_message.content, VisualizationArtifactContent
+        ), "Should create visualization artifact content"
+        query = viz_message.content.query
+        self.assertIsInstance(query, AssistantTrendsQuery)
 
-    async def test_returns_visualization_message_with_funnels_query(self):
-        """Test that VisualizationMessage answer field contains FunnelsQuery."""
+    async def test_returns_artifact_with_funnels_query(self):
+        """Test that ArtifactMessage content contains AssistantFunnelsQuery."""
 
         # Load insights first
         await self.node._load_insights_page(0)
 
         query_obj2, _ = await self.node._process_insight_query(self._insight_to_dict(self.insight2))
         self.assertIsNotNone(query_obj2, f"Query object should not be None for insight2. Query: {self.insight2.query}")
-        self.assertIsInstance(query_obj2, FunnelsQuery)
+        self.assertIsInstance(query_obj2, AssistantFunnelsQuery)
 
         # Test insight2 visualization message creation
-        viz_message2 = await self.node._create_visualization_message_for_insight(self._insight_to_dict(self.insight2))
-        assert isinstance(viz_message2, VisualizationMessage), "Should create visualization message for insight2"
-        assert hasattr(viz_message2, "answer"), "VisualizationMessage should have answer attribute"
+        viz_message2 = await self.node._create_artifact_ref_message_for_insight(self._insight_to_dict(self.insight2))
+        assert isinstance(viz_message2, ArtifactRefMessage), "Should create artifact ref message for insight2"
+        viz_message2 = await self.artifact_manager.aget_enriched_message(viz_message2)
+        assert viz_message2 is not None
 
         # Verify the answer contains the correct query type
-        answer2 = viz_message2.answer
-        self.assertIsInstance(answer2, FunnelsQuery)
+        assert isinstance(
+            viz_message2.content, VisualizationArtifactContent
+        ), "Should create visualization artifact content"
+        query2 = viz_message2.content.query
+        self.assertIsInstance(query2, AssistantFunnelsQuery)
 
-    async def test_returns_visualization_message_with_retention_query(self):
-        """Test that VisualizationMessage answer field contains RetentionQuery."""
-        query = InsightVizNode(
-            source=RetentionQuery(
-                retentionFilter=RetentionFilter(
-                    targetEntity=RetentionEntity(id="$pageview", type=EntityType.EVENTS),
-                    returningEntity=RetentionEntity(id="$pageview", type=EntityType.EVENTS),
-                )
-            )
-        )
+    async def test_returns_artifact_with_retention_query(self):
+        """Test that ArtifactMessage content contains AssistantRetentionQuery."""
+        query = {
+            "source": {
+                "kind": "RetentionQuery",
+                "retentionFilter": {
+                    "targetEntity": {"name": "$pageview"},
+                    "returningEntity": {"name": "$pageview"},
+                },
+                "dateRange": {"date_from": "-7d"},
+                "filterTestAccounts": False,
+                "properties": [],
+            }
+        }
         insight = await Insight.objects.acreate(
             team=self.team,
             name="Retention Query",
             description="Retention Query",
-            query=query.model_dump(),
+            query=query,
             filters={},
             created_by=self.user,
+            saved=True,
         )
         await InsightViewed.objects.acreate(
             team=self.team,
@@ -845,27 +862,31 @@ class TestInsightSearchNode(BaseTest):
         insight_dict = self._insight_to_dict(insight)
         query_obj, _ = await self.node._process_insight_query(insight_dict)
         self.assertIsNotNone(query_obj, f"Query object should not be None for insight. Query: {insight_dict['query']}")
-        self.assertIsInstance(query_obj, RetentionQuery)
+        self.assertIsInstance(query_obj, AssistantRetentionQuery)
 
         # Test insight visualization message creation
-        viz_message = await self.node._create_visualization_message_for_insight(insight_dict)
-        assert isinstance(viz_message, VisualizationMessage), "Should create visualization message for insight"
-        assert hasattr(viz_message, "answer"), "VisualizationMessage should have answer attribute"
+        viz_message = await self.node._create_artifact_ref_message_for_insight(insight_dict)
+        assert isinstance(viz_message, ArtifactRefMessage), "Should create artifact ref message for insight"
+        viz_message = await self.artifact_manager.aget_enriched_message(viz_message)
+        assert viz_message is not None
 
         # Verify the answer contains the correct query type
-        answer = viz_message.answer
-        self.assertIsInstance(answer, RetentionQuery)
+        assert isinstance(
+            viz_message.content, VisualizationArtifactContent
+        ), "Should create visualization artifact content"
+        self.assertIsInstance(viz_message.content.query, AssistantRetentionQuery)
 
-    async def test_returns_visualization_message_with_hogql_query(self):
-        """Test that VisualizationMessage answer field contains HogQLQuery."""
-        query = DataTableNode(source=HogQLQuery(query="SELECT 1"))
+    async def test_returns_artifact_with_hogql_query(self):
+        """Test that ArtifactMessage content contains AssistantHogQLQuery."""
+        query = {"source": {"kind": "HogQLQuery", "query": "SELECT 1"}}
         insight = await Insight.objects.acreate(
             team=self.team,
             name="HogQL Query",
             description="HogQL Query",
-            query=query.model_dump(),
+            query=query,
             filters={},
             created_by=self.user,
+            saved=True,
         )
         await InsightViewed.objects.acreate(
             team=self.team,
@@ -879,13 +900,16 @@ class TestInsightSearchNode(BaseTest):
         insight_dict = self._insight_to_dict(insight)
         query_obj, _ = await self.node._process_insight_query(insight_dict)
         self.assertIsNotNone(query_obj, f"Query object should not be None for insight. Query: {insight_dict['query']}")
-        self.assertIsInstance(query_obj, HogQLQuery)
+        self.assertIsInstance(query_obj, AssistantHogQLQuery)
 
         # Test insight visualization message creation
-        viz_message = await self.node._create_visualization_message_for_insight(insight_dict)
-        assert isinstance(viz_message, VisualizationMessage), "Should create visualization message for insight"
-        assert hasattr(viz_message, "answer"), "VisualizationMessage should have answer attribute"
+        viz_message = await self.node._create_artifact_ref_message_for_insight(insight_dict)
+        assert isinstance(viz_message, ArtifactRefMessage), "Should create artifact ref message for insight"
+        viz_message = await self.artifact_manager.aget_enriched_message(viz_message)
+        assert viz_message is not None
 
         # Verify the answer contains the correct query type
-        answer = viz_message.answer
-        self.assertIsInstance(answer, HogQLQuery)
+        assert isinstance(
+            viz_message.content, VisualizationArtifactContent
+        ), "Should create visualization artifact content"
+        self.assertIsInstance(viz_message.content.query, AssistantHogQLQuery)

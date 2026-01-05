@@ -50,11 +50,11 @@ function AISummaryIdle(): JSX.Element {
         <div className="flex items-center justify-between">
             {numSessionsWithRecording > 0 ? (
                 <AISummaryMessage
-                    heading="AI Session Summary"
+                    heading="AI session summary"
                     subheading={`Analyze ${pluralize(numSessionsWithRecording, 'session')} and identify patterns`}
                 />
             ) : (
-                <AISummaryMessage heading="AI Session Summary" subheading="No sessions with recordings found" />
+                <AISummaryMessage heading="AI session summary" subheading="No sessions with recordings found" />
             )}
             <LemonButton
                 type="primary"
@@ -63,7 +63,7 @@ function AISummaryIdle(): JSX.Element {
                 disabledReason={numSessionsWithRecording === 0 ? 'No sessions with recordings found' : undefined}
                 data-attr="person-feed-summarize-sessions"
             >
-                Summarize Sessions
+                Summarize sessions
             </LemonButton>
         </div>
     )
@@ -73,7 +73,7 @@ function AISummaryLoading(): JSX.Element {
     const { numSummaries, numSessionsWithRecording, progressText } = useValues(notebookNodePersonFeedLogic)
     return (
         <div className="mb-4">
-            <AISummaryMessage heading="Generating AI Summary" subheading={progressText} />
+            <AISummaryMessage heading="Generating AI summary" subheading={progressText} />
             <LemonProgress percent={(numSummaries / numSessionsWithRecording) * 100} />
         </div>
     )

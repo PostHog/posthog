@@ -20,22 +20,24 @@ jobs:
     django:
         name: Run Django tests and save test durations
         runs-on: ubuntu-24.04
+        permissions:
+            contents: read
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
 
             - uses: ./.github/actions/run-backend-tests
               with:
                   concurrency: 1
                   group: 1
-                  token: ${{ secrets.POSTHOG_BOT_PAT }}
-                  python-version: '3.12.11'
-                  clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
+                  token: ${{ github.token }}
+                  python-version: '3.12.12'
+                  clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
                   segment: 'FOSS'
                   person-on-events: false
 
             - name: Upload updated timing data as artifacts
               uses: actions/upload-artifact@v4
-              if: ${{ inputs.person-on-events != 'true' && inputs.clickhouse-server-image == 'clickhouse/clickhouse-server:25.8.11.66' }}
+              if: ${{ inputs.person-on-events != 'true' && inputs.clickhouse-server-image == 'clickhouse/clickhouse-server:25.8.12.129' }}
               with:
                   name: timing_data-${{ inputs.segment }}-${{ inputs.group }}
                   path: .test_durations

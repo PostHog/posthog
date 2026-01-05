@@ -529,34 +529,48 @@ AS
     )
 
 
-def RAW_SESSION_TABLE_BACKFILL_SQL_V3(where="TRUE", use_sharded_source=True):
+def RAW_SESSION_TABLE_BACKFILL_SQL_V3(where: str, shard_index: int, num_shards: int):
+    """
+    Generates SQL to backfill sessions from events.
+
+    Each shard should call this with its own shard_index to only SELECT events
+    that will end up on that shard, then INSERT directly to the local sharded table.
+    """
+    shard_filter = f"modulo(cityHash64(`$session_id_uuid`), {num_shards}) = {shard_index}"
+    combined_where = f"({where}) AND {shard_filter}"
+
     return """
-INSERT INTO {database}.{writable_table}
+INSERT INTO {database}.{target_table}
 {select_sql}
 """.format(
         database=settings.CLICKHOUSE_DATABASE,
-        writable_table=WRITABLE_RAW_SESSIONS_TABLE_V3(),
+        target_table=SHARDED_RAW_SESSIONS_TABLE_V3(),
         select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(
-            where=where,
-            source_table=f"{settings.CLICKHOUSE_DATABASE}.sharded_events"
-            if use_sharded_source
-            else f"{settings.CLICKHOUSE_DATABASE}.events",
+            where=combined_where,
+            source_table=f"{settings.CLICKHOUSE_DATABASE}.events",
         ),
     )
 
 
-def RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3(where="TRUE", use_sharded_source=True):
+def RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3(where: str, shard_index: int, num_shards: int):
+    """
+    Generates SQL to backfill sessions from session replay events.
+
+    Each shard should call this with its own shard_index to only SELECT recordings
+    that will end up on that shard, then INSERT directly to the local sharded table.
+    """
+    shard_filter = f"modulo(cityHash64(toUInt128(accurateCast(session_id, 'UUID'))), {num_shards}) = {shard_index}"
+    combined_where = f"({where}) AND {shard_filter}"
+
     return """
-INSERT INTO {database}.{writable_table}
+INSERT INTO {database}.{target_table}
 {select_sql}
 """.format(
         database=settings.CLICKHOUSE_DATABASE,
-        writable_table=WRITABLE_RAW_SESSIONS_TABLE_V3(),
+        target_table=SHARDED_RAW_SESSIONS_TABLE_V3(),
         select_sql=RAW_SESSION_TABLE_MV_RECORDINGS_SELECT_SQL_V3(
-            where=where,
-            source_table=f"{settings.CLICKHOUSE_DATABASE}.sharded_session_replay_events"
-            if use_sharded_source
-            else f"{settings.CLICKHOUSE_DATABASE}.session_replay_events",
+            where=combined_where,
+            source_table=f"{settings.CLICKHOUSE_DATABASE}.session_replay_events",
         ),
     )
 
@@ -713,10 +727,27 @@ ORDER BY count(value) DESC
 LIMIT 20
 """
 
-GET_NUM_SHARDED_RAW_SESSIONS_ACTIVE_PARTS = f"""
-    SELECT count()
-    FROM clusterAllReplicas('{settings.CLICKHOUSE_CLUSTER}', system.parts)
-    WHERE database = '{settings.CLICKHOUSE_DATABASE}'
-      AND table = '{SHARDED_RAW_SESSIONS_TABLE_V3()}'
-      AND active = 1
-"""
+
+def GET_NUM_SHARDED_RAW_SESSIONS_ACTIVE_PARTS(partitions: list[str]) -> str:
+    """Get the maximum number of active parts across specified partitions and all nodes.
+
+    Args:
+        partitions: List of partition names in YYYYMM format (e.g., ['202501', '202412'])
+    """
+    if not partitions:
+        raise ValueError("partitions list cannot be empty")
+    # Format partitions for SQL IN clause: ('202501', '202412')
+    partitions_sql = ", ".join(f"'{p}'" for p in partitions)
+
+    return f"""
+        SELECT coalesce(max(parts_count), 0), argMax(partition, parts_count), argMax(host, parts_count)
+        FROM (
+            SELECT hostName() as host, count() as parts_count, partition
+            FROM clusterAllReplicas('{settings.CLICKHOUSE_CLUSTER}', system.parts)
+            WHERE database = '{settings.CLICKHOUSE_DATABASE}'
+              AND table = '{SHARDED_RAW_SESSIONS_TABLE_V3()}'
+              AND partition IN ({partitions_sql})
+              AND active = 1
+            GROUP BY host, partition
+        )
+    """

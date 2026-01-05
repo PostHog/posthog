@@ -75,6 +75,14 @@ impl ReleaseBuilder {
     }
 
     pub fn with_git(&mut self, info: GitInfo) -> &mut Self {
+        if !self.has_project() {
+            if let Some(name) = &info.repo_name {
+                self.with_project(name);
+            }
+        }
+        if !self.has_version() {
+            self.with_version(&info.commit_id);
+        }
         self.with_metadata("git", info)
             .expect("We can serialise git info")
     }
@@ -88,9 +96,17 @@ impl ReleaseBuilder {
         Ok(self)
     }
 
+    pub fn has_project(&self) -> bool {
+        self.project.is_some()
+    }
+
     pub fn with_project(&mut self, project: &str) -> &mut Self {
         self.project = Some(project.to_string());
         self
+    }
+
+    pub fn has_version(&self) -> bool {
+        self.version.is_some()
     }
 
     pub fn with_version(&mut self, version: &str) -> &mut Self {

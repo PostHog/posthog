@@ -50,9 +50,9 @@
     },
     "dependencies": {
         "concurrently": "^5.3.0",
+        "fuse.js": "^6.6.2",
         "husky": "^7.0.4",
         "lint-staged": "~15.4.3",
-        "turbo": "^2.4.2",
         "uuid": "^10.0.0"
     },
     "devDependencies": {
@@ -67,7 +67,8 @@
         "stylelint-config-recess-order": "^4.6.0",
         "stylelint-config-standard-scss": "^11.1.0",
         "stylelint-order": "^6.0.4",
-        "syncpack": "^13.0.4"
+        "syncpack": "^13.0.4",
+        "turbo": "^2.4.2"
     },
     "optionalDependencies": {
         "fsevents": "^2.3.3"
@@ -76,7 +77,8 @@
         "overrides": {
             "playwright": "1.45.0",
             "typescript": "5.2.2",
-            "@posthog/icons": "0.35.2"
+            "@posthog/icons": "0.35.2",
+            "node-forge": "1.3.2"
         },
         "patchedDependencies": {
             "heatmap.js@2.0.5": "patches/heatmap.js@2.0.5.patch",
@@ -109,7 +111,7 @@
         "*.{json,yaml,yml}": "bin/hogli format:yaml",
         "*.{css,scss}": "bin/hogli format:css",
         "{playwright,frontend,products,common,ee}/**/*.{js,jsx,mjs,ts,tsx}": "bin/hogli format:js",
-        "plugin-server/**/*.{js,jsx,mjs,ts,tsx}": "bin/hogli format:plugin-server",
+        "nodejs/**/*.{js,jsx,mjs,ts,tsx}": "bin/hogli format:nodejs",
         "funnel-udf/**/*.rs": "bin/hogli format:rust",
         "!(posthog/hogql/grammar/*)*.{py,pyi}": [
             "bin/hogli lint:python:fix",

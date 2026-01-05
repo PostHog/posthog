@@ -1,7 +1,14 @@
-{% extends "loginas/change_form.html" %}
+{% extends "admin/change_form.html" %}
 
 {% block extrahead %}
   {{ block.super }}
+
+  <style nonce="{{ request.csp_nonce }}">
+    .loginas-disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+  </style>
 
   <script nonce="{{ request.csp_nonce }}">
     window.addEventListener("DOMContentLoaded", () => {
@@ -20,8 +27,31 @@
             if (window.confirm("Revoke all sessions? This will log out the user from all devices."))
                 document.getElementById("revoke_sessions").submit();
         });
+
+        document.getElementById("loginas-link")?.addEventListener("click", (event) => {
+            event.preventDefault();
+            if (event.target.classList.contains("loginas-disabled")) return;
+            document.getElementById("loginas-form")?.submit();
+        });
+
+        document.getElementById("loginas-readonly-link")?.addEventListener("click", (event) => {
+            event.preventDefault();
+            if (event.target.classList.contains("loginas-disabled")) return;
+            document.getElementById("loginas-readonly-form")?.submit();
+        });
     });
   </script>
+{% endblock %}
+
+{% block object-tools-items %}
+    {{ block.super }}
+    {% if original.allow_impersonation == False %}
+        <li><a id="loginas-link" href="#" class="loginas-disabled" title="Disallowed by user">Log in as user (read/write)</a></li>
+        <li><a id="loginas-readonly-link" href="#" class="loginas-disabled" title="Disallowed by user">Log in as user</a></li>
+    {% else %}
+        <li><a id="loginas-link" href="#">Log in as user (read/write)</a></li>
+        <li><a id="loginas-readonly-link" href="#">Log in as user</a></li>
+    {% endif %}
 {% endblock %}
 
 {% block content %}
@@ -36,4 +66,14 @@
         {% csrf_token %}
         <input type="hidden" name="revoke_sessions" value="1" />
     </form>
+
+    {% if original.allow_impersonation != False %}
+        <form method="POST" id="loginas-form" action="{% url 'loginas-user-login' object_id %}" style="display: none">
+            {% csrf_token %}
+        </form>
+
+        <form method="POST" id="loginas-readonly-form" action="{% url 'loginas-user-login-read-only' object_id %}" style="display: none">
+            {% csrf_token %}
+        </form>
+    {% endif %}
 {% endblock %}

@@ -83,42 +83,156 @@ class UUIDPrimaryKeyPolicy(MigrationPolicy):
         return violations
 
 
-class SingleMigrationPolicy(MigrationPolicy):
+class AtomicFalsePolicy(MigrationPolicy):
     """
-    PostHog policy: One migration per app per PR.
+    Policy: atomic=False should only be used with CONCURRENTLY operations.
 
     Rationale:
-    - Easier to debug issues
-    - Simpler rollback strategy
-    - Clearer code review
-
-    Note: Multiple migrations from different apps is OK (e.g., posthog + third-party dependency).
+    - atomic=False loses transaction rollback safety
+    - Only CONCURRENTLY operations require it (can't run in transaction)
+    - Using it for regular DDL creates partial-commit risk on failure
+    - Our retry mechanism (bin/migrate) re-runs entire migration, breaking
+      on non-idempotent operations that already committed
     """
 
-    def __init__(self, app_counts: dict[str, int]):
-        self.app_counts = app_counts
+    CONCURRENT_OP_TYPES = {
+        "AddIndexConcurrently",
+        "RemoveIndexConcurrently",
+    }
 
     def check_operation(self, op) -> list[str]:
-        """No operation-level checks for this policy."""
-        return []
+        return []  # Checked at migration level
 
     def check_migration(self, migration) -> list[str]:
-        """No single-migration checks for this policy."""
-        return []
+        if not is_posthog_app(migration.app_label):
+            return []
 
-    def check_batch(self) -> list[str]:
-        """Check for multiple migrations per app (PostHog apps only)."""
+        is_atomic = getattr(migration, "atomic", True)
+        has_concurrent = self._has_concurrent_operations(migration)
+        has_non_concurrent = self._has_non_concurrent_operations(migration)
+
         violations = []
-        for app_label, count in self.app_counts.items():
-            if count > 1 and is_posthog_app(app_label):
-                violations.append(
-                    f"Found {count} migrations for app '{app_label}'. "
-                    "PostHog requires one migration per app per PR to promote easy debugging and revertability."
-                )
+
+        # atomic=False without concurrent ops = warn (not block)
+        # Some legitimate uses: long-running data migrations that need partial commits
+        # But we want to discourage lazy use that breaks retry mechanism
+        if not is_atomic and not has_concurrent:
+            violations.append(
+                "⚠️ WARNING: atomic=False without CONCURRENTLY operations. "
+                "This loses transaction rollback safety. If migration fails midway, "
+                "partial changes are committed and retry will fail on non-idempotent ops. "
+                "Only use atomic=False if: (1) using CONCURRENTLY, or (2) intentional for "
+                "long-running ops with idempotent SQL (IF NOT EXISTS, WHERE NOT EXISTS). "
+                "Consider async migrations for large data backfills instead."
+            )
+
+        # concurrent ops without atomic=False = block (will fail at runtime anyway)
+        if has_concurrent and is_atomic:
+            violations.append(
+                "❌ BLOCKED: CONCURRENTLY operations require atomic=False. "
+                "PostgreSQL cannot run CREATE/DROP INDEX CONCURRENTLY inside a transaction. "
+                "Add 'atomic = False' to the Migration class."
+            )
+
+        # Mixed: has both concurrent and non-concurrent ops = recommend splitting
+        if not is_atomic and has_concurrent and has_non_concurrent:
+            violations.append(
+                "⚠️ RECOMMEND SPLIT: Migration mixes CONCURRENTLY operations with regular DDL. "
+                "Split into separate migrations: (1) regular operations with atomic=True (default), "
+                "(2) CONCURRENTLY operations with atomic=False. "
+                "This ensures regular DDL has rollback safety while CONCURRENTLY can run outside a transaction."
+            )
+
         return violations
+
+    def _has_non_concurrent_operations(self, migration) -> bool:
+        """Check if migration has operations that are NOT concurrent index operations."""
+        non_concurrent_types = {
+            "AddField",
+            "RemoveField",
+            "AlterField",
+            "RenameField",
+            "CreateModel",
+            "DeleteModel",
+            "RenameModel",
+            "AddConstraint",
+            "RemoveConstraint",
+            "AlterModelTable",
+            "AlterUniqueTogether",
+            "AlterIndexTogether",
+            "RunPython",
+        }
+
+        for op in migration.operations:
+            op_type = op.__class__.__name__
+
+            # Check if it's a non-concurrent operation type
+            if op_type in non_concurrent_types:
+                return True
+
+            # RunSQL that doesn't contain CONCURRENTLY
+            if op_type == "RunSQL":
+                sql = str(getattr(op, "sql", ""))
+                if "CONCURRENTLY" not in sql.upper():
+                    return True
+
+            # AddIndex without concurrent=True
+            if op_type == "AddIndex":
+                if not (hasattr(op, "index") and getattr(op.index, "concurrent", False)):
+                    return True
+
+            # Check inside SeparateDatabaseAndState
+            if op_type == "SeparateDatabaseAndState":
+                for db_op in getattr(op, "database_operations", []) or []:
+                    db_op_type = db_op.__class__.__name__
+                    if db_op_type in non_concurrent_types:
+                        return True
+                    if db_op_type == "RunSQL":
+                        sql = str(getattr(db_op, "sql", ""))
+                        if "CONCURRENTLY" not in sql.upper():
+                            return True
+                    # AddIndex without concurrent=True inside SeparateDatabaseAndState
+                    if db_op_type == "AddIndex":
+                        if not (hasattr(db_op, "index") and getattr(db_op.index, "concurrent", False)):
+                            return True
+
+        return False
+
+    def _has_concurrent_operations(self, migration) -> bool:
+        for op in migration.operations:
+            if self._is_concurrent_operation(op):
+                return True
+
+            # Also check inside SeparateDatabaseAndState
+            if op.__class__.__name__ == "SeparateDatabaseAndState":
+                for db_op in getattr(op, "database_operations", []) or []:
+                    if self._is_concurrent_operation(db_op):
+                        return True
+
+        return False
+
+    def _is_concurrent_operation(self, op) -> bool:
+        """Check if a single operation is a CONCURRENTLY operation."""
+        # Check Django concurrent operations
+        if op.__class__.__name__ in self.CONCURRENT_OP_TYPES:
+            return True
+
+        # Check RunSQL for CONCURRENTLY keyword
+        if op.__class__.__name__ == "RunSQL":
+            sql = str(getattr(op, "sql", ""))
+            if "CONCURRENTLY" in sql.upper():
+                return True
+
+        # Check AddIndex with concurrent=True
+        if op.__class__.__name__ == "AddIndex":
+            if hasattr(op, "index") and getattr(op.index, "concurrent", False):
+                return True
+
+        return False
 
 
 # Registry of all PostHog policies
 POSTHOG_POLICIES = [
     UUIDPrimaryKeyPolicy(),
+    AtomicFalsePolicy(),
 ]

@@ -4,23 +4,28 @@ import structlog
 from langchain_core.messages import AIMessageChunk
 
 from posthog.schema import (
+    ArtifactMessage,
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
+    AssistantToolCall,
     AssistantUpdateEvent,
     FailureMessage,
-    MultiVisualizationMessage,
     NotebookUpdateMessage,
-    VisualizationMessage,
+    SubagentUpdateEvent,
 )
 
+from posthog.models import Team, User
+
+from ee.hogai.artifacts.manager import ArtifactManager
 from ee.hogai.core.stream_processor import AssistantStreamProcessorProtocol
 from ee.hogai.utils.helpers import normalize_ai_message, should_output_assistant_message
 from ee.hogai.utils.state import is_message_update, is_state_update, merge_message_chunk
 from ee.hogai.utils.types.base import (
+    ArtifactRefMessage,
     AssistantDispatcherEvent,
     AssistantGraphName,
-    AssistantMessageUnion,
     AssistantResultUnion,
+    AssistantStreamedMessageUnion,
     BaseStateWithMessages,
     LangGraphUpdateEvent,
     MessageAction,
@@ -36,11 +41,11 @@ from ee.hogai.utils.types.composed import MaxNodeName
 logger = structlog.get_logger(__name__)
 
 
-MESSAGE_TYPE_TUPLE = get_args(AssistantMessageUnion)
-
-
 def find_subgraph(node_path: tuple[NodePath, ...]) -> bool:
     return bool(next((path for path in node_path if path.name in AssistantGraphName), None))
+
+
+MESSAGE_TYPE_TUPLE = get_args(AssistantStreamedMessageUnion)
 
 
 class ChatAgentStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateType]):
@@ -62,23 +67,36 @@ class ChatAgentStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateTy
     _state_type: type[StateType]
     """The type of the state."""
 
-    def __init__(self, verbose_nodes: set[MaxNodeName], streaming_nodes: set[MaxNodeName], state_type: type[StateType]):
+    def __init__(
+        self,
+        team: Team,
+        user: User,
+        verbose_nodes: set[MaxNodeName],
+        streaming_nodes: set[MaxNodeName],
+        state_type: type[StateType],
+    ):
         """
         Initialize the stream processor with node configuration.
 
         Args:
+            team: The team
+            user: The user
             verbose_nodes: Nodes that produce messages
             streaming_nodes: Nodes that produce streaming messages
+            state_type: The type of the state
         """
+        self._team = team
+        self._user = user
         # If a node is streaming node, it should also be verbose.
         self._verbose_nodes = verbose_nodes | streaming_nodes
         self._streaming_nodes = streaming_nodes
-        self._streamed_update_ids = set()
+        self._streamed_update_ids: set[str] = set()
         self._chunks = {}
         self._state_type = state_type
         self._state = None
+        self._artifact_manager = ArtifactManager(self._team, self._user)
 
-    def process(self, event: AssistantDispatcherEvent) -> list[AssistantResultUnion] | None:
+    async def process(self, event: AssistantDispatcherEvent) -> list[AssistantResultUnion] | None:
         """
         Reduce streamed actions to client messages.
 
@@ -94,14 +112,14 @@ class ChatAgentStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateTy
         if isinstance(action, NodeEndAction):
             if event.node_run_id in self._chunks:
                 del self._chunks[event.node_run_id]
-            return self._handle_node_end(event, action)
+            return await self._handle_node_end(event, action)
 
         if isinstance(action, MessageChunkAction) and (result := self._handle_message_stream(event, action.message)):
             return [result]
 
         if isinstance(action, MessageAction):
             message = action.message
-            if result := self._handle_message(event, message):
+            if result := await self._handle_message(event, message):
                 return [result]
 
         if isinstance(action, UpdateAction) and (update_event := self._handle_update_message(event, action)):
@@ -109,7 +127,7 @@ class ChatAgentStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateTy
 
         return None
 
-    def process_langgraph_update(self, event: LangGraphUpdateEvent) -> list[AssistantResultUnion] | None:
+    async def process_langgraph_update(self, event: LangGraphUpdateEvent) -> list[AssistantResultUnion] | None:
         """
         Process a LangGraph update event.
         """
@@ -123,7 +141,7 @@ class ChatAgentStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateTy
                 node_name=state["langgraph_node"],
                 node_run_id=state["langgraph_checkpoint_ns"],
             )
-            return self.process(action)
+            return await self.process(action)
 
         if is_state_update(event.update):
             new_state = self._state_type.model_validate(event.update[1])
@@ -131,19 +149,31 @@ class ChatAgentStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateTy
 
         return None
 
-    def _handle_message(
-        self, action: AssistantDispatcherEvent, message: AssistantMessageUnion
-    ) -> AssistantResultUnion | None:
+    async def _handle_message(
+        self, action: AssistantDispatcherEvent, message: AssistantStreamedMessageUnion
+    ) -> AssistantStreamedMessageUnion | None:
         """Handle a message from a node."""
         node_name = cast(MaxNodeName, action.node_name)
-        produced_message: AssistantResultUnion | None = None
+        produced_message: AssistantStreamedMessageUnion | None = None
+
+        # ArtifactRefMessage must always be enriched with content, regardless of nesting level
+        if isinstance(message, ArtifactRefMessage):
+            try:
+                enriched_message = await self._artifact_manager.aget_enriched_message(message)
+            except (ValueError, KeyError) as e:
+                logger.warning("Failed to enrich ArtifactMessage", error=str(e), artifact_id=message.artifact_id)
+                enriched_message = None
+            # If the message is not enriched, return None.
+            if not enriched_message:
+                return None
+            message = enriched_message
 
         # Output all messages from the top-level graph.
         if not self._is_message_from_nested_node_or_graph(action.node_path or ()):
             produced_message = self._handle_root_message(message, node_name)
         # Other message types with parents (viz, notebook, failure, tool call)
         else:
-            produced_message = self._handle_special_child_message(message, node_name)
+            produced_message = self._handle_special_child_message(message)
 
         # Messages with existing IDs must be deduplicated.
         # Messages WITHOUT IDs must be streamed because they're progressive.
@@ -167,8 +197,8 @@ class ChatAgentStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateTy
         return False
 
     def _handle_root_message(
-        self, message: AssistantMessageUnion, node_name: MaxNodeName
-    ) -> AssistantMessageUnion | None:
+        self, message: AssistantStreamedMessageUnion, node_name: MaxNodeName
+    ) -> AssistantStreamedMessageUnion | None:
         """Handle messages with no parent (root messages)."""
         if node_name not in self._verbose_nodes or not should_output_assistant_message(message):
             return None
@@ -176,7 +206,7 @@ class ChatAgentStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateTy
 
     def _handle_update_message(
         self, event: AssistantDispatcherEvent, action: UpdateAction
-    ) -> AssistantUpdateEvent | None:
+    ) -> AssistantUpdateEvent | SubagentUpdateEvent | None:
         """Handle AssistantMessage that has a parent, creating an AssistantUpdateEvent."""
         if not event.node_path or not action.content:
             return None
@@ -193,27 +223,28 @@ class ChatAgentStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateTy
         if not message_id or not tool_call_id:
             return None
 
+        if isinstance(action.content, AssistantToolCall):
+            return SubagentUpdateEvent(id=message_id, tool_call_id=tool_call_id, content=action.content)
+
         return AssistantUpdateEvent(id=message_id, tool_call_id=tool_call_id, content=action.content)
 
     def _handle_special_child_message(
-        self, message: AssistantMessageUnion, node_name: MaxNodeName
-    ) -> AssistantMessageUnion | None:
+        self, message: AssistantStreamedMessageUnion
+    ) -> AssistantStreamedMessageUnion | None:
         """
         Handle special message types that have parents.
 
         These messages are returned as-is regardless of where in the nesting hierarchy they are.
         """
         # These message types are always returned as-is
-        if isinstance(message, VisualizationMessage | MultiVisualizationMessage) or isinstance(
-            message, NotebookUpdateMessage | FailureMessage
-        ):
+        if isinstance(message, NotebookUpdateMessage | FailureMessage | ArtifactMessage):
             return message
 
         return None
 
     def _handle_message_stream(
         self, event: AssistantDispatcherEvent, message: AIMessageChunk
-    ) -> AssistantResultUnion | None:
+    ) -> AssistantStreamedMessageUnion | None:
         """
         Process LLM chunks from "messages" stream mode.
 
@@ -231,10 +262,13 @@ class ChatAgentStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateTy
         # Merge message chunks
         self._chunks[run_id] = merge_message_chunk(self._chunks[run_id], message)
 
-        # Stream ephemeral message (no ID = not persisted)
-        return normalize_ai_message(self._chunks[run_id])
+        # Stream ephemeral messages (no ID = not persisted).
+        # normalize_ai_message() returns a list when server_tool_use blocks are present,
+        # but we only stream the latest message for incremental updates
+        messages = normalize_ai_message(self._chunks[run_id])
+        return messages[-1] if messages else None
 
-    def _handle_node_end(
+    async def _handle_node_end(
         self, event: AssistantDispatcherEvent, action: NodeEndAction
     ) -> list[AssistantResultUnion] | None:
         """Handle the end of a node. Reset the streaming chunks."""
@@ -242,7 +276,7 @@ class ChatAgentStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateTy
             return None
         results: list[AssistantResultUnion] = []
         for message in action.state.messages:
-            if new_event := self.process(
+            if new_event := await self.process(
                 AssistantDispatcherEvent(
                     action=MessageAction(message=message),
                     node_name=event.node_name,
