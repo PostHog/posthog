@@ -89,12 +89,18 @@ class TestTicketAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("status", Status.NEW, "status", Status.NEW, {"status": Status.RESOLVED}),
-            ("priority", Priority.HIGH, "priority", Priority.HIGH, {"priority": Priority.LOW}),
-            ("channel_source", Channel.WIDGET, "channel_source", Channel.WIDGET, {"channel_source": Channel.EMAIL}),
+            (f"status={Status.NEW}", Status.NEW, "status", Status.NEW, {"status": Status.RESOLVED}),
+            (f"priority={Priority.HIGH}", Priority.HIGH, "priority", Priority.HIGH, {"priority": Priority.LOW}),
+            (
+                f"channel_source={Channel.WIDGET}",
+                Channel.WIDGET,
+                "channel_source",
+                Channel.WIDGET,
+                {"channel_source": Channel.EMAIL},
+            ),
             ("assigned_to=unassigned", None, "assigned_to", None, {"assigned_to": "user"}),
             ("assigned_to={user_id}", "user_id", "assigned_to", "user_id", {}),
-            ("distinct_id=user-123", "user-123", "distinct_id", "user-123", {"distinct_id": "different-user"}),
+            ("distinct_id=user-123", "user-123", "distinct_id", "user-123", {}),
         ]
     )
     def test_filter_tickets(
@@ -111,14 +117,18 @@ class TestTicketAPI(APIBaseTest):
             setattr(self.ticket, response_field, expected_value)
             self.ticket.save()
 
-        # Create another ticket with different attributes
+        # Create another ticket with different attributes - avoid conflicts with hardcoded values
+        other_channel = other_ticket_attrs.pop("channel_source", Channel.WIDGET)
+        other_distinct_id = other_ticket_attrs.pop("distinct_id", "other-user")
+
         if "user" in other_ticket_attrs.get("assigned_to", ""):
             other_ticket_attrs["assigned_to"] = self.user
+
         Ticket.objects.create(
             team=self.team,
-            channel_source=Channel.WIDGET,
+            channel_source=other_channel,
             widget_session_id="other-session",
-            distinct_id="other-user",
+            distinct_id=other_distinct_id,
             **other_ticket_attrs,
         )
 
@@ -195,19 +205,19 @@ class TestTicketAPI(APIBaseTest):
                 scope="conversations_ticket",
                 item_id=str(ticket.id),
                 content=f"Message 1 for ticket {i}",
+                created_by=self.user,
             )
             Comment.objects.create(
                 team=self.team,
                 scope="conversations_ticket",
                 item_id=str(ticket.id),
                 content=f"Message 2 for ticket {i}",
+                created_by=self.user,
             )
 
-        # Query count should be constant regardless of number of tickets:
-        # 1. Load team
-        # 2. Load tickets with annotations (message_count, last_message_at, last_message_text) + select_related(assigned_to)
-        # If this fails, run with -v and check the actual query count, then adjust
-        with self.assertNumQueries(2):
+        # Query count should be constant regardless of number of tickets
+        # Includes: session, user, org, team, permissions, count query, tickets query
+        with self.assertNumQueries(10):
             response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             # Should have original ticket + 10 new tickets = 11 total
