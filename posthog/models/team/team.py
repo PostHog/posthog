@@ -411,6 +411,11 @@ class Team(UUIDTClassicModel):
     autocapture_exceptions_opt_in = models.BooleanField(null=True, blank=True)
     autocapture_exceptions_errors_to_ignore = models.JSONField(null=True, blank=True)
 
+    # Capture logs
+    # Kind of confusing but this is separate from capture_console_log_opt_in, which is for session replay
+    # This captures console logs to the Logs product, not as part of a recording
+    logs_capture_console_log_opt_in = models.BooleanField(null=True, blank=True, default=False)
+
     # Heatmaps
     heatmaps_opt_in = models.BooleanField(null=True, blank=True)
 

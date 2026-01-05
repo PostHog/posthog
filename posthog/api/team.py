@@ -152,6 +152,7 @@ TEAM_CONFIG_FIELDS = (
     "autocapture_web_vitals_allowed_metrics",
     "autocapture_exceptions_errors_to_ignore",
     "capture_console_log_opt_in",
+    "logs_capture_console_log_opt_in",
     "capture_performance_opt_in",
     "session_recording_opt_in",
     "session_recording_sample_rate",

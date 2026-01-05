@@ -284,6 +284,7 @@ export enum AccessControlResourceType {
     SessionRecording = 'session_recording',
     RevenueAnalytics = 'revenue_analytics',
     Survey = 'survey',
+    Logs = 'logs',
     ProductTour = 'product_tour',
     Experiment = 'experiment',
     ExperimentSavedMetric = 'experiment_saved_metric',
@@ -610,6 +611,7 @@ export interface TeamType extends TeamBasicType {
     session_recording_opt_in: boolean
     // These fields in the database accept null values and were previously set to NULL by default
     capture_console_log_opt_in: boolean | null
+    logs_capture_console_log_opt_in: boolean | null
     capture_performance_opt_in: boolean | null
     capture_dead_clicks: boolean | null
     // a string representation of the decimal value between 0 and 1
