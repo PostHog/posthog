@@ -17,6 +17,28 @@ import { SharedMetric } from '../SharedMetrics/sharedMetricLogic'
 import { MetricContext } from './experimentMetricModalLogic'
 import { sharedMetricModalLogic } from './sharedMetricModalLogic'
 
+function MetricSummary({ metric }: { metric: SharedMetric }): JSX.Element {
+    return (
+        <div className="deprecated-space-y-2">
+            <div className="flex items-center gap-2">
+                <h3 className="font-semibold m-0 flex items-center">{metric.name}</h3>
+                <Link
+                    target="_blank"
+                    className="font-semibold flex items-center"
+                    to={urls.experimentsSharedMetric(metric.id)}
+                >
+                    <IconOpenInNew fontSize="18" />
+                </Link>
+            </div>
+            {metric.description && <p className="mt-2">{metric.description}</p>}
+            {metric.query.kind === 'ExperimentTrendsQuery' && <MetricDisplayTrends query={metric.query.count_query} />}
+            {metric.query.kind === 'ExperimentFunnelsQuery' && (
+                <MetricDisplayFunnels query={metric.query.funnels_query} />
+            )}
+        </div>
+    )
+}
+
 export function SharedMetricModal({
     experiment,
     onSave,
@@ -227,38 +249,18 @@ export function SharedMetricModal({
                 </div>
             )}
 
-            {isEditMode && (
-                <div>
-                    {(() => {
-                        const metric = compatibleSharedMetrics.find((m: SharedMetric) => m.id === sharedMetricId)
-                        if (!metric) {
-                            return null
-                        }
-
-                        return (
-                            <div className="deprecated-space-y-2">
-                                <div className="flex items-center gap-2">
-                                    <h3 className="font-semibold m-0 flex items-center">{metric.name}</h3>
-                                    <Link
-                                        target="_blank"
-                                        className="font-semibold flex items-center"
-                                        to={urls.experimentsSharedMetric(metric.id)}
-                                    >
-                                        <IconOpenInNew fontSize="18" />
-                                    </Link>
-                                </div>
-                                {metric.description && <p className="mt-2">{metric.description}</p>}
-                                {metric.query.kind === 'ExperimentTrendsQuery' && (
-                                    <MetricDisplayTrends query={metric.query.count_query} />
-                                )}
-                                {metric.query.kind === 'ExperimentFunnelsQuery' && (
-                                    <MetricDisplayFunnels query={metric.query.funnels_query} />
-                                )}
-                            </div>
-                        )
-                    })()}
-                </div>
-            )}
+            {isEditMode &&
+                (() => {
+                    const metric = compatibleSharedMetrics.find((m) => m.id === sharedMetricId)
+                    if (!metric) {
+                        return null
+                    }
+                    return (
+                        <div>
+                            <MetricSummary metric={metric} />
+                        </div>
+                    )
+                })()}
         </LemonModal>
     )
 }
