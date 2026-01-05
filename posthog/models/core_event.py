@@ -5,22 +5,21 @@ from posthog.models.team import Team
 from posthog.models.utils import UUIDModel
 
 
-class CoreEventCategory(models.TextChoices):
-    ACQUISITION = "acquisition", "Acquisition"
-    ACTIVATION = "activation", "Activation"
-    MONETIZATION = "monetization", "Monetization"
-    EXPANSION = "expansion", "Expansion"
-    REFERRAL = "referral", "Referral"
-    RETENTION = "retention", "Retention"
-    CHURN = "churn", "Churn"
-    REACTIVATION = "reactivation", "Reactivation"
-
-
 class CoreEvent(UUIDModel):
     """
     A reusable event definition that can be shared across
     Marketing analytics, Customer analytics, and Revenue analytics.
     """
+
+    class Category(models.TextChoices):
+        ACQUISITION = "acquisition", "Acquisition"
+        ACTIVATION = "activation", "Activation"
+        MONETIZATION = "monetization", "Monetization"
+        EXPANSION = "expansion", "Expansion"
+        REFERRAL = "referral", "Referral"
+        RETENTION = "retention", "Retention"
+        CHURN = "churn", "Churn"
+        REACTIVATION = "reactivation", "Reactivation"
 
     team = models.ForeignKey(
         Team,
@@ -41,7 +40,7 @@ class CoreEvent(UUIDModel):
 
     category = models.CharField(
         max_length=20,
-        choices=CoreEventCategory.choices,
+        choices=Category.choices,
         help_text="Lifecycle category for this core event",
     )
 
