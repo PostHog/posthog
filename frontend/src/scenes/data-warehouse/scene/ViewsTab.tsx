@@ -229,8 +229,15 @@ export function ViewsTab(): JSX.Element {
                                     <More
                                         overlay={
                                             <>
-                                                <LemonButton onClick={() => runMaterialization(view.id)}>
-                                                    Run now
+                                                <LemonButton
+                                                    onClick={() => runMaterialization(view.id)}
+                                                    disabledReason={
+                                                        view.status === 'Running'
+                                                            ? 'Materialization is already running'
+                                                            : undefined
+                                                    }
+                                                >
+                                                    Sync now
                                                 </LemonButton>
                                                 <LemonButton
                                                     status="danger"

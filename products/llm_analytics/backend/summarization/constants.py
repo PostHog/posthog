@@ -1,9 +1,12 @@
-"""Constants for LLM analytics summarization."""
+"""Configuration constants for LLM analytics summarization."""
 
-# LLM model configuration
-SUMMARIZATION_MODEL = "gpt-4.1-mini"
-SUMMARIZATION_TIMEOUT = 120  # 2 minutes
+from .models import GeminiModel, OpenAIModel, SummarizationMode, SummarizationProvider
 
-# Feature flags
-SUMMARIZATION_FEATURE_FLAG = "llm-analytics-summarization"
-EARLY_ADOPTERS_FEATURE_FLAG = "llm-analytics-early-adopters"
+# Default configuration
+DEFAULT_PROVIDER = SummarizationProvider.OPENAI
+DEFAULT_MODEL_OPENAI = OpenAIModel.GPT_4_1_MINI
+DEFAULT_MODEL_GEMINI = GeminiModel.GEMINI_3_FLASH_PREVIEW
+DEFAULT_MODE = SummarizationMode.MINIMAL
+
+# Timeout configuration (seconds)
+SUMMARIZATION_TIMEOUT = 120

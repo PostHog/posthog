@@ -969,8 +969,8 @@ export const experimentLogic = kea<experimentLogicType>([
                     }
                 } else {
                     // Make experiment eligible for timeseries
-                    const statsConfig = {
-                        ...values.experiment?.stats_config,
+                    const schedulingConfig = {
+                        ...values.experiment?.scheduling_config,
                         timeseries: true,
                     }
 
@@ -992,7 +992,7 @@ export const experimentLogic = kea<experimentLogicType>([
                                 : values.experiment?.parameters,
                         ...(!draft && { start_date: dayjs() }),
                         ...(typeof folder === 'string' ? { _create_in_folder: folder } : {}),
-                        stats_config: statsConfig,
+                        scheduling_config: schedulingConfig,
                     })
 
                     if (response) {
@@ -1093,8 +1093,6 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.updateExperiment({
                 metrics: values.experiment.metrics,
                 metrics_secondary: values.experiment.metrics_secondary,
-                primary_metrics_ordered_uuids: values.experiment.primary_metrics_ordered_uuids,
-                secondary_metrics_ordered_uuids: values.experiment.secondary_metrics_ordered_uuids,
             })
         },
         updateExperimentCollectionGoal: async () => {
@@ -1137,7 +1135,8 @@ export const experimentLogic = kea<experimentLogicType>([
                     payload?.start_date !== undefined ||
                     payload?.end_date !== undefined ||
                     payload?.metrics !== undefined ||
-                    payload?.metrics_secondary !== undefined
+                    payload?.metrics_secondary !== undefined ||
+                    payload?.stats_config !== undefined
                 actions.refreshExperimentResults(forceRefresh)
             }
         },
@@ -1222,8 +1221,6 @@ export const experimentLogic = kea<experimentLogicType>([
 
             await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
                 saved_metrics_ids: combinedMetricsIds,
-                primary_metrics_ordered_uuids: values.experiment.primary_metrics_ordered_uuids,
-                secondary_metrics_ordered_uuids: values.experiment.secondary_metrics_ordered_uuids,
             })
 
             actions.loadExperiment()
@@ -1237,8 +1234,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 }))
             await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
                 saved_metrics_ids: sharedMetricsIds,
-                primary_metrics_ordered_uuids: values.experiment.primary_metrics_ordered_uuids,
-                secondary_metrics_ordered_uuids: values.experiment.secondary_metrics_ordered_uuids,
             })
 
             actions.loadExperiment()

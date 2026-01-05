@@ -4,9 +4,19 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
-import { IconEllipsis, IconGear, IconInfo, IconLock, IconLogomark, IconNotebook, IconSupport } from '@posthog/icons'
+import {
+    IconBook,
+    IconEllipsis,
+    IconGear,
+    IconInfo,
+    IconLock,
+    IconLogomark,
+    IconNotebook,
+    IconSupport,
+} from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItems, LemonModal } from '@posthog/lemon-ui'
 
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
@@ -20,7 +30,9 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { SidePanelTab } from '~/types'
 
+import { SidePanelChangelog } from './panels/SidePanelChangelog'
 import { SidePanelDocs } from './panels/SidePanelDocs'
+import { SidePanelHealth, SidePanelHealthIcon } from './panels/SidePanelHealth'
 import { SidePanelMax } from './panels/SidePanelMax'
 import { SidePanelSdkDoctor, SidePanelSdkDoctorIcon } from './panels/SidePanelSdkDoctor'
 import { SidePanelSettings } from './panels/SidePanelSettings'
@@ -32,6 +44,11 @@ import { SidePanelActivity, SidePanelActivityIcon } from './panels/activity/Side
 import { SidePanelDiscussion, SidePanelDiscussionIcon } from './panels/discussion/SidePanelDiscussion'
 import { sidePanelLogic } from './sidePanelLogic'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
+
+const SIDE_PANEL_TAB_KEYBINDS: Partial<Record<SidePanelTab, string[][]>> = {
+    [SidePanelTab.Max]: [['command', 'option', 'a']],
+    [SidePanelTab.Support]: [['command', 'option', 'h']],
+}
 
 export const SIDE_PANEL_TABS: Record<
     SidePanelTab,
@@ -57,6 +74,12 @@ export const SIDE_PANEL_TABS: Record<
         label: 'Docs',
         Icon: IconInfo,
         Content: SidePanelDocs,
+        noModalSupport: true,
+    },
+    [SidePanelTab.Changelog]: {
+        label: 'Changelog',
+        Icon: IconBook,
+        Content: SidePanelChangelog,
         noModalSupport: true,
     },
 
@@ -101,6 +124,11 @@ export const SIDE_PANEL_TABS: Record<
         label: 'SDK Doctor',
         Icon: SidePanelSdkDoctorIcon,
         Content: SidePanelSdkDoctor,
+    },
+    [SidePanelTab.Health]: {
+        label: 'Pipeline status',
+        Icon: SidePanelHealthIcon,
+        Content: SidePanelHealth,
     },
 }
 
@@ -206,7 +234,9 @@ export function SidePanel(): JSX.Element | null {
                     <div className="SidePanel3000__tabs-content">
                         {visibleTabs.map((tab: SidePanelTab) => {
                             const { Icon, label } = SIDE_PANEL_TABS[tab]
-                            return (
+                            const keybind = SIDE_PANEL_TAB_KEYBINDS[tab]
+
+                            const button = (
                                 <LemonButton
                                     key={tab}
                                     icon={<Icon />}
@@ -218,10 +248,28 @@ export function SidePanel(): JSX.Element | null {
                                     active={activeTab === tab}
                                     type="secondary"
                                     status="alt"
+                                    tooltip={label}
                                 >
                                     {label}
                                 </LemonButton>
                             )
+
+                            if (keybind) {
+                                return (
+                                    <AppShortcut
+                                        key={tab}
+                                        name={`SidePanel-${tab}`}
+                                        keybind={keybind}
+                                        intent={`Open ${label}`}
+                                        priority={label === 'PostHog AI' ? 10 : 0}
+                                        interaction="click"
+                                    >
+                                        {button}
+                                    </AppShortcut>
+                                )
+                            }
+
+                            return button
                         })}
                     </div>
                 </div>

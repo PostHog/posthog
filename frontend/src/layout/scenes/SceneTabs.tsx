@@ -143,13 +143,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                                 )
                             })}
                         </div>
-                        <AppShortcut
-                            name="NewTab"
-                            keybind={[keyBinds.newTab]}
-                            intent="New tab"
-                            interaction="click"
-                            asChild
-                        >
+                        <AppShortcut name="NewTab" keybind={[keyBinds.newTab]} intent="New tab" interaction="click">
                             <Link
                                 to={urls.newTab()}
                                 data-attr="scene-tab-new-button"
@@ -273,7 +267,6 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                         keybind={[keyBinds.closeActiveTab]}
                         intent="Close active tab"
                         interaction="click"
-                        asChild
                         disabled={!tab.active}
                     >
                         <ButtonPrimitive
@@ -348,7 +341,7 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                     ) : isEditing ? (
                         <input
                             ref={inputRef}
-                            className="scene-tab-title grow text-left bg-primary border-none outline-1 text-primary z-30 max-w-full"
+                            className="scene-tab-title grow text-left bg-primary outline-1 text-primary z-30 max-w-full input-like"
                             value={editValue}
                             onChange={(e) => setEditValue(e.target.value)}
                             onBlur={() => {

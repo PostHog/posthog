@@ -13,7 +13,7 @@ from posthog.test.base import (
 from django.utils import timezone
 
 from posthog.constants import INSIGHT_FUNNELS
-from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors
+from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors_legacy_filters
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.test.test_journeys import journeys_for
 
@@ -58,7 +58,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
 
-        results = get_actors(filters, self.team, funnel_step=1)
+        results = get_actors_legacy_filters(filters, self.team, funnel_step=1)
 
         self.assertEqual(35, len(results))
 
@@ -78,7 +78,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
 
-        results = get_actors(filters, self.team, funnel_step=2)
+        results = get_actors_legacy_filters(filters, self.team, funnel_step=2)
 
         self.assertEqual(10, len(results))
 
@@ -98,7 +98,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
 
-        results = get_actors(filters, self.team, funnel_step=-2)
+        results = get_actors_legacy_filters(filters, self.team, funnel_step=-2)
 
         self.assertEqual(25, len(results))
 
@@ -119,7 +119,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
 
-        results = get_actors(filters, self.team, funnel_step=3)
+        results = get_actors_legacy_filters(filters, self.team, funnel_step=3)
 
         self.assertEqual(0, len(results))
 
@@ -184,7 +184,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
 
-        results = get_actors(filters, self.team, funnel_step=1, include_recordings=True)
+        results = get_actors_legacy_filters(filters, self.team, funnel_step=1, include_recordings=True)
 
         # self.assertEqual(results[0]["id"], p1.uuid)
         self.assertEqual(results[0][0], p1.uuid)
@@ -209,7 +209,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
 
-        results = get_actors(filters, self.team, funnel_step=2, include_recordings=True)
+        results = get_actors_legacy_filters(filters, self.team, funnel_step=2, include_recordings=True)
 
         # self.assertEqual(results[0]["id"], p1.uuid)
         self.assertEqual(results[0][0], p1.uuid)
@@ -245,7 +245,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
 
-        results = get_actors(filters, self.team, funnel_step=-3, include_recordings=True)
+        results = get_actors_legacy_filters(filters, self.team, funnel_step=-3, include_recordings=True)
 
         # self.assertEqual(results[0]["id"], p1.uuid)
         self.assertEqual(results[0][0], p1.uuid)

@@ -2,15 +2,26 @@ import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconBolt, IconButton, IconClock, IconLeave, IconPlusSmall, IconTarget, IconWebhooks } from '@posthog/icons'
+import {
+    IconBolt,
+    IconButton,
+    IconClock,
+    IconLeave,
+    IconPeople,
+    IconPlusSmall,
+    IconTarget,
+    IconWebhooks,
+} from '@posthog/icons'
 import {
     LemonButton,
     LemonCalendarSelectInput,
+    LemonCheckbox,
     LemonCollapse,
     LemonDivider,
     LemonLabel,
     LemonSelect,
     LemonTag,
+    Spinner,
     Tooltip,
     lemonToast,
 } from '@posthog/lemon-ui'
@@ -24,11 +35,15 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { IconAdsClick } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { humanFriendlyNumber } from 'lib/utils'
 import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
+
+import { PropertyFilterType } from '~/types'
 
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowEventFilters } from '../filters/HogFlowFilters'
 import { HogFlowAction } from '../types'
+import { batchTriggerLogic } from './batchTriggerLogic'
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
 
 export function StepTriggerConfiguration({
@@ -106,6 +121,22 @@ export function StepTriggerConfiguration({
         })
     }
 
+    if (featureFlags[FEATURE_FLAGS.WORKFLOWS_BATCH_TRIGGERS]) {
+        triggerOptions.splice(4, 0, {
+            label: 'Batch',
+            value: 'batch',
+            icon: <IconPeople />,
+            labelInMenu: (
+                <div className="flex flex-col my-1">
+                    <div className="font-semibold">Batch</div>
+                    <p className="text-xs text-muted">
+                        Trigger or schedule your workflow to run for each person in a group you define.
+                    </p>
+                </div>
+            ),
+        })
+    }
+
     return (
         <div className="flex flex-col items-start w-full gap-2">
             <span className="flex gap-1">
@@ -166,13 +197,21 @@ export function StepTriggerConfiguration({
                                         },
                                         scheduled_at: undefined,
                                     })
-                                  : value === 'tracking_pixel'
+                                  : value === 'batch'
                                     ? setWorkflowActionConfig(node.id, {
-                                          type: 'tracking_pixel',
-                                          template_id: 'template-source-webhook-pixel',
-                                          inputs: {},
+                                          type: 'batch',
+                                          filters: {
+                                              properties: [],
+                                          },
+                                          scheduled_at: undefined,
                                       })
-                                    : null
+                                    : value === 'tracking_pixel'
+                                      ? setWorkflowActionConfig(node.id, {
+                                            type: 'tracking_pixel',
+                                            template_id: 'template-source-webhook-pixel',
+                                            inputs: {},
+                                        })
+                                      : null
                     }}
                 />
             </LemonField.Pure>
@@ -184,6 +223,8 @@ export function StepTriggerConfiguration({
                 <StepTriggerConfigurationManual />
             ) : node.data.config.type === 'schedule' ? (
                 <StepTriggerConfigurationSchedule action={node.data} config={node.data.config} />
+            ) : node.data.config.type === 'batch' ? (
+                <StepTriggerConfigurationBatch action={node.data} config={node.data.config} />
             ) : node.data.config.type === 'tracking_pixel' ? (
                 <StepTriggerConfigurationTrackingPixel action={node.data} config={node.data.config} />
             ) : null}
@@ -352,6 +393,121 @@ function StepTriggerConfigurationSchedule({
     )
 }
 
+function StepTriggerAffectedUsers({ actionId, filters }: { actionId: string; filters: any }): JSX.Element | null {
+    const logic = batchTriggerLogic({ id: actionId, filters })
+    const { blastRadiusLoading, blastRadius } = useValues(logic)
+
+    if (blastRadiusLoading) {
+        return <Spinner />
+    }
+
+    if (!blastRadius) {
+        return null
+    }
+
+    const { users_affected, total_users } = blastRadius
+
+    if (users_affected != null && total_users != null) {
+        return (
+            <div className="text-muted">
+                approximately {humanFriendlyNumber(users_affected)} of {humanFriendlyNumber(total_users)} persons.
+            </div>
+        )
+    }
+
+    return null
+}
+
+function StepTriggerConfigurationBatch({
+    action,
+    config,
+}: {
+    action: Extract<HogFlowAction, { type: 'trigger' }>
+    config: Extract<HogFlowAction['config'], { type: 'batch' }>
+}): JSX.Element {
+    const { partialSetWorkflowActionConfig } = useActions(workflowLogic)
+    const { actionValidationErrorsById } = useValues(workflowLogic)
+    const validationResult = actionValidationErrorsById[action.id]
+
+    const scheduledDateTime = config.scheduled_at ? dayjs(config.scheduled_at) : null
+
+    return (
+        <div className="flex flex-col gap-2 my-2">
+            <div className="flex gap-1">
+                <span className="font-semibold">This batch will include</span>{' '}
+                <StepTriggerAffectedUsers actionId={action.id} filters={config.filters} />
+            </div>
+            <div>
+                <PropertyFilters
+                    pageKey={`workflows-batch-trigger-property-filters-${action.id}`}
+                    propertyFilters={config.filters.properties}
+                    addText="Add condition"
+                    orFiltering
+                    sendAllKeyUpdates
+                    allowRelativeDateOptions
+                    exactMatchFeatureFlagCohortOperators
+                    hideBehavioralCohorts
+                    logicalRowDivider
+                    onChange={(properties) =>
+                        partialSetWorkflowActionConfig(action.id, {
+                            filters: {
+                                properties,
+                            },
+                        })
+                    }
+                    taxonomicGroupTypes={[
+                        TaxonomicFilterGroupType.PersonProperties,
+                        TaxonomicFilterGroupType.Cohorts,
+                        TaxonomicFilterGroupType.FeatureFlags,
+                        TaxonomicFilterGroupType.Metadata,
+                    ]}
+                    taxonomicFilterOptionsFromProp={{
+                        [TaxonomicFilterGroupType.Metadata]: [
+                            { name: 'distinct_id', propertyFilterType: PropertyFilterType.Person },
+                        ],
+                    }}
+                    hasRowOperator={false}
+                />
+            </div>
+            <LemonDivider />
+            <div className="flex gap-2">
+                <span className="font-semibold">Schedule for later?</span>
+                <LemonCheckbox
+                    checked={Boolean(config.scheduled_at)}
+                    onChange={(checked) =>
+                        partialSetWorkflowActionConfig(action.id, {
+                            scheduled_at: checked ? dayjs().add(5, 'minutes').toISOString() : undefined,
+                        })
+                    }
+                />
+            </div>
+            {config.scheduled_at && (
+                <LemonField.Pure label="Scheduled time" error={validationResult?.errors?.scheduled_at}>
+                    <div className="flex flex-col gap-2">
+                        <LemonCalendarSelectInput
+                            value={scheduledDateTime}
+                            onChange={(date) => {
+                                partialSetWorkflowActionConfig(action.id, {
+                                    scheduled_at: date ? date.toISOString() : undefined,
+                                })
+                            }}
+                            granularity="minute"
+                            selectionPeriod="upcoming"
+                            showTimeToggle={false}
+                        />
+                        {scheduledDateTime && (
+                            <div className="text-xs text-muted">
+                                Timezone: {dayjs.tz.guess()} • Scheduled for:{' '}
+                                {scheduledDateTime.format('MMMM D, YYYY [at] h:mm A')}
+                            </div>
+                        )}
+                    </div>
+                </LemonField.Pure>
+            )}
+        </div>
+    )
+}
+
 function StepTriggerConfigurationTrackingPixel({
     action,
     config,
@@ -367,7 +523,7 @@ function StepTriggerConfigurationTrackingPixel({
         workflow.id !== 'new' ? `${publicWebhooksHostOrigin()}/public/webhooks/${workflow.id}` : null
 
     const trackingPixelHtml = trackingPixelUrl
-        ? `<img 
+        ? `<img
     src="${trackingPixelUrl}.gif"
     width="1" height="1" style="display:none;" alt=""
 />`

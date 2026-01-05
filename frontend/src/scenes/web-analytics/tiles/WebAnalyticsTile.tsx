@@ -50,6 +50,7 @@ import { ChartDisplayType, InsightLogicProps, PropertyFilterType } from '~/types
 
 import { NewActionButton } from 'products/actions/frontend/components/NewActionButton'
 
+import { CreateSurveyButton } from '../CrossSellButtons/CreateSurveyButton'
 import { ErrorTrackingButton } from '../CrossSellButtons/ErrorTrackingButton'
 import { HeatmapButton } from '../CrossSellButtons/HeatmapButton'
 import { ReplayButton } from '../CrossSellButtons/ReplayButton'
@@ -469,6 +470,7 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
                         />
                         <HeatmapButton breakdownBy={breakdownBy} value={value} />
                         <ErrorTrackingButton breakdownBy={breakdownBy} value={value} />
+                        <CreateSurveyButton value={value} />
                     </div>
                 )
             },
@@ -552,6 +554,34 @@ export const WebStatsTrendTile = ({
                 </div>
             )}
             <Query attachTo={attachTo} query={query} readOnly={true} context={context} />
+        </div>
+    )
+}
+
+export const AveragePageViewVisualizationTile = ({
+    query,
+    insightProps,
+    attachTo,
+}: QueryWithInsightProps<DataVisualizationNode>): JSX.Element => {
+    const { setInterval } = useActions(webAnalyticsLogic)
+    const {
+        dateFilter: { interval },
+    } = useValues(webAnalyticsLogic)
+
+    return (
+        <div className="border rounded bg-surface-primary flex-1 flex flex-col">
+            <div className="flex flex-row items-center justify-end m-2 mr-4">
+                <div className="flex flex-row items-center">
+                    <span className="mr-2">Group by</span>
+                    <IntervalFilterStandalone interval={interval} onIntervalChange={setInterval} />
+                </div>
+            </div>
+            <Query
+                attachTo={attachTo}
+                query={query}
+                readOnly={true}
+                context={{ ...webAnalyticsDataTableQueryContext, insightProps }}
+            />
         </div>
     )
 }
@@ -964,6 +994,10 @@ export const WebQuery = ({
 
     if (query.kind === NodeKind.WebVitalsPathBreakdownQuery) {
         return <WebVitalsPathBreakdownTile attachTo={attachTo} query={query} insightProps={insightProps} />
+    }
+
+    if (query.kind === NodeKind.DataVisualizationNode) {
+        return <AveragePageViewVisualizationTile attachTo={attachTo} query={query} insightProps={insightProps} />
     }
 
     return (

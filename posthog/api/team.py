@@ -1,7 +1,8 @@
 import json
+import secrets
 from datetime import timedelta
 from functools import cached_property
-from typing import Any, Literal, Optional, cast
+from typing import Any, Literal, cast
 
 from django.conf import settings
 from django.db import transaction
@@ -17,7 +18,7 @@ from posthog.schema import AttributionMode
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
-from posthog.api.utils import action
+from posthog.api.utils import action, raise_if_user_provided_url_unsafe
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
@@ -33,6 +34,7 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.core_event import TeamCoreEventsConfig
 from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
 from posthog.models.feature_flag import TeamDefaultEvaluationTag
@@ -126,6 +128,8 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "heatmaps_opt_in",
             "capture_dead_clicks",
             "flags_persistence_default",
+            "conversations_enabled",
+            "conversations_settings",
         ]
         read_only_fields = fields
 
@@ -185,12 +189,15 @@ TEAM_CONFIG_FIELDS = (
     "revenue_analytics_config",
     "marketing_analytics_config",
     "customer_analytics_config",
+    "core_events_config",
     "onboarding_tasks",
     "base_currency",
     "web_analytics_pre_aggregated_tables_enabled",
     "experiment_recalculation_time",
     "receive_org_level_activity_logs",
     "business_model",
+    "conversations_enabled",
+    "conversations_settings",
 )
 
 TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
@@ -300,8 +307,25 @@ class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer):
         ]
 
 
+class TeamCoreEventsConfigSerializer(serializers.ModelSerializer):
+    core_events = serializers.JSONField(required=False)
+
+    class Meta:
+        model = TeamCoreEventsConfig
+        fields = ["core_events"]
+
+    def to_representation(self, instance):
+        return {"core_events": instance.core_events}
+
+    def update(self, instance, validated_data):
+        if "core_events" in validated_data:
+            instance.core_events = validated_data["core_events"]
+        instance.save()
+        return instance
+
+
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
-    instance: Optional[Team]
+    instance: Team | None
 
     effective_membership_level = serializers.SerializerMethodField()
     has_group_types = serializers.SerializerMethodField()
@@ -312,6 +336,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     revenue_analytics_config = TeamRevenueAnalyticsConfigSerializer(required=False)
     marketing_analytics_config = TeamMarketingAnalyticsConfigSerializer(required=False)
     customer_analytics_config = TeamCustomerAnalyticsConfigSerializer(required=False)
+    core_events_config = TeamCoreEventsConfigSerializer(required=False)
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
 
     class Meta:
@@ -375,7 +400,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         return representation
 
-    def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
+    def get_effective_membership_level(self, team: Team) -> OrganizationMembership.Level | None:
         # TODO: Map from user_access_controls
         return self.user_permissions.team(team).effective_membership_level
 
@@ -389,7 +414,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             .values(*GROUP_TYPE_MAPPING_SERIALIZER_FIELDS)
         )
 
-    def get_live_events_token(self, team: Team) -> Optional[str]:
+    def get_live_events_token(self, team: Team) -> str | None:
         return encode_jwt(
             {"team_id": team.id, "api_token": team.api_token},
             timedelta(days=7),
@@ -600,6 +625,29 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             return value
         return [domain for domain in value if domain]
 
+    def validate_conversations_settings(self, value: dict | None) -> dict | None:
+        if value is None:
+            return value
+        # Filter out None values from widget_domains if present
+        if "widget_domains" in value and value["widget_domains"] is not None:
+            value["widget_domains"] = [domain for domain in value["widget_domains"] if domain]
+        # Strip widget_public_token from user input - it's auto-generated only
+        if "widget_public_token" in value:
+            value.pop("widget_public_token")
+        return value
+
+    def validate_slack_incoming_webhook(self, value: str | None) -> str | None:
+        if value is None or value == "":
+            return None
+        if not settings.DEBUG:
+            try:
+                raise_if_user_provided_url_unsafe(value)
+            except ValueError:
+                raise exceptions.ValidationError(
+                    "Invalid webhook URL. Ensure the URL is valid and points to an external server."
+                )
+        return value
+
     def validate_receive_org_level_activity_logs(self, value: bool | None) -> bool | None:
         if value is None:
             return value
@@ -677,6 +725,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if config_data := validated_data.pop("customer_analytics_config", None):
             self._update_customer_analytics_config(instance, config_data)
 
+        if config_data := validated_data.pop("core_events_config", None):
+            self._update_core_events_config(instance, config_data)
+
         if "session_recording_retention_period" in validated_data:
             self._verify_update_session_recording_retention_period(
                 instance, validated_data["session_recording_retention_period"]
@@ -740,6 +791,16 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 **instance.session_replay_config,
                 **validated_data["session_replay_config"],
             }
+
+        # Merge conversations_settings with existing values, unless explicitly clearing with null
+        if "conversations_settings" in validated_data and validated_data["conversations_settings"] is not None:
+            existing_settings = instance.conversations_settings or {}
+            new_settings = validated_data["conversations_settings"]
+            validated_data["conversations_settings"] = {**existing_settings, **new_settings}
+
+        validated_data = handle_conversations_token_on_update(
+            validated_data, instance.conversations_enabled, instance.conversations_settings
+        )
 
         # Merge modifiers with existing values so that updating one modifier doesn't wipe out others
         if "modifiers" in validated_data and validated_data["modifiers"] is not None:
@@ -860,6 +921,19 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             for field in TeamCustomerAnalyticsConfigSerializer.Meta.fields
         }
         self._capture_diff(instance, "customer_analytics_config", old_config, new_config)
+        return instance
+
+    def _update_core_events_config(self, instance: Team, validated_data: dict[str, Any]) -> Team:
+        old_config = {"core_events": instance.core_events_config.core_events.copy()}
+
+        serializer = TeamCoreEventsConfigSerializer(instance.core_events_config, data=validated_data, partial=True)
+        if not serializer.is_valid():
+            raise serializers.ValidationError(_format_serializer_errors(serializer.errors))
+
+        serializer.save()
+
+        new_config = {"core_events": instance.core_events_config.core_events}
+        self._capture_diff(instance, "core_events_config", old_config, new_config)
         return instance
 
     def _verify_update_session_recording_retention_period(self, instance: Team, new_retention_period: str):
@@ -1074,6 +1148,19 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     def delete_secret_token_backup(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()
         team.delete_secret_token_backup_and_save(
+            user=request.user, is_impersonated_session=is_impersonated_session(request)
+        )
+        return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
+
+    @action(
+        methods=["POST"],
+        detail=True,
+        # Only ADMIN or higher users are allowed to access this project
+        permission_classes=[TeamMemberStrictManagementPermission],
+    )
+    def generate_conversations_public_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        team = self.get_object()
+        team.generate_conversations_public_token_and_save(
             user=request.user, is_impersonated_session=is_impersonated_session(request)
         )
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
@@ -1336,8 +1423,35 @@ class RootTeamViewSet(TeamViewSet):
     hide_api_docs = True
 
 
+def handle_conversations_token_on_update(
+    validated_data: dict[str, Any],
+    current_conversations_enabled: bool | None,
+    current_conversations_settings: dict | None,
+) -> dict[str, Any]:
+    """Auto-generate/clear conversations widget token based on conversations_enabled changes."""
+    if "conversations_enabled" not in validated_data:
+        return validated_data
+
+    is_enabling = validated_data["conversations_enabled"] and not current_conversations_enabled
+    is_disabling = not validated_data["conversations_enabled"] and current_conversations_enabled
+
+    if is_enabling:
+        # Check if token already exists in current DB state (not user input, which is stripped)
+        has_token = current_conversations_settings and current_conversations_settings.get("widget_public_token")
+        if not has_token:
+            conv_settings = dict(validated_data.get("conversations_settings") or current_conversations_settings or {})
+            conv_settings["widget_public_token"] = secrets.token_urlsafe(32)
+            validated_data["conversations_settings"] = conv_settings
+    elif is_disabling:
+        conv_settings = dict(validated_data.get("conversations_settings") or current_conversations_settings or {})
+        conv_settings["widget_public_token"] = None
+        validated_data["conversations_settings"] = conv_settings
+
+    return validated_data
+
+
 def validate_team_attrs(
-    attrs: dict[str, Any], view: TeamAndOrgViewSetMixin, request: request.Request, instance: Optional[Team | Project]
+    attrs: dict[str, Any], view: TeamAndOrgViewSetMixin, request: request.Request, instance: Team | Project | None
 ) -> dict[str, Any]:
     if "primary_dashboard" in attrs:
         if not instance:

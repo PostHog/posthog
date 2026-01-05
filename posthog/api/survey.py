@@ -16,7 +16,6 @@ from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
 
 import nh3
-import orjson
 import structlog
 import posthoganalytics
 from axes.decorators import axes_dispatch
@@ -1889,9 +1888,12 @@ def surveys(request: Request):
             COUNTER_SURVEYS_API_USE_REMOTE_CONFIG.labels(result="found").inc()
             response = hypercache_response
 
+        except Team.DoesNotExist:
+            COUNTER_SURVEYS_API_USE_REMOTE_CONFIG.labels(result="not_found").inc()
+            pass
         except Exception as e:
             capture_exception(e)
-            COUNTER_SURVEYS_API_USE_REMOTE_CONFIG.labels(result="not_found").inc()
+            COUNTER_SURVEYS_API_USE_REMOTE_CONFIG.labels(result="error").inc()
             pass  # For now fallback
 
     # If we didn't get a hypercache response or we are comparing then load the normal response to compare
@@ -2014,8 +2016,8 @@ def public_survey_page(request, survey_id: str):
     survey_data = serializer.data
     context = {
         "name": survey.name,
-        "survey_data": orjson.dumps(survey_data).decode("utf-8"),
-        "project_config_json": orjson.dumps(project_config).decode("utf-8"),
+        "survey_data": survey_data,
+        "project_config": project_config,
         "debug": settings.DEBUG,
     }
 

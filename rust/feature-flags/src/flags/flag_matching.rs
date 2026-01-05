@@ -15,12 +15,13 @@ use crate::flags::flag_models::{
     BucketingIdentifier, FeatureFlag, FeatureFlagId, FeatureFlagList, FlagPropertyGroup,
 };
 use crate::flags::flag_operations::flags_require_db_preparation;
+use crate::handler::with_canonical_log;
 use crate::metrics::consts::{
     DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER, FLAG_DB_PROPERTIES_FETCH_TIME,
     FLAG_EVALUATE_ALL_CONDITIONS_TIME, FLAG_EVALUATION_ERROR_COUNTER, FLAG_EVALUATION_TIME,
-    FLAG_GET_MATCH_TIME, FLAG_GROUP_CACHE_FETCH_TIME, FLAG_GROUP_DB_FETCH_TIME,
-    FLAG_HASH_KEY_PROCESSING_TIME, FLAG_HASH_KEY_WRITES_COUNTER, PROPERTY_CACHE_HITS_COUNTER,
-    PROPERTY_CACHE_MISSES_COUNTER,
+    FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER, FLAG_GET_MATCH_TIME, FLAG_GROUP_CACHE_FETCH_TIME,
+    FLAG_GROUP_DB_FETCH_TIME, FLAG_HASH_KEY_PROCESSING_TIME, FLAG_HASH_KEY_WRITES_COUNTER,
+    PROPERTY_CACHE_HITS_COUNTER, PROPERTY_CACHE_MISSES_COUNTER,
 };
 use crate::metrics::utils::parse_exception_for_prometheus_label;
 use crate::properties::property_models::PropertyFilter;
@@ -391,6 +392,9 @@ impl FeatureFlagMatcher {
         target_properties: &HashMap<String, Value>,
         cohorts: Vec<Cohort>,
     ) -> Result<bool, FlagError> {
+        // Track cohort evaluations in canonical log
+        with_canonical_log(|log| log.cohorts_evaluated += cohort_property_filters.len());
+
         // Get cached static cohort results or evaluate them if not cached
         let static_cohort_matches = match self.flag_evaluation_state.get_static_cohort_matches() {
             Some(matches) => matches.clone(),
@@ -703,6 +707,9 @@ impl FeatureFlagMatcher {
                 Err(e) => {
                     errors_while_computing_flags = true;
                     let reason = parse_exception_for_prometheus_label(&e);
+
+                    // Track flag evaluation error in canonical log
+                    with_canonical_log(|log| log.flags_errored += 1);
 
                     // Handle DependencyNotFound errors differently since they indicate a deleted dependency
                     if let FlagError::DependencyNotFound(dependency_type, dependency_id) = &e {
@@ -1429,6 +1436,7 @@ impl FeatureFlagMatcher {
                 &[("type".to_string(), "person_properties".to_string())],
                 1,
             );
+            with_canonical_log(|log| log.property_cache_hits += 1);
             let mut result = HashMap::new();
             result.clone_from(properties);
             Ok(result)
@@ -1438,6 +1446,10 @@ impl FeatureFlagMatcher {
                 &[("type".to_string(), "person_properties".to_string())],
                 1,
             );
+            with_canonical_log(|log| {
+                log.property_cache_misses += 1;
+                log.person_properties_not_cached = true;
+            });
             // Return empty HashMap instead of error - no properties is a valid state
             // TODO probably worth error modeling empty cache vs error.
             // Maybe an error is fine?  Idk.  I feel like the idea is that there's no matching properties,
@@ -1462,6 +1474,7 @@ impl FeatureFlagMatcher {
                 &[("type".to_string(), "group_properties".to_string())],
                 1,
             );
+            with_canonical_log(|log| log.property_cache_hits += 1);
             let mut result = HashMap::new();
             result.clone_from(properties);
             Ok(result)
@@ -1471,6 +1484,10 @@ impl FeatureFlagMatcher {
                 &[("type".to_string(), "group_properties".to_string())],
                 1,
             );
+            with_canonical_log(|log| {
+                log.property_cache_misses += 1;
+                log.group_properties_not_cached = true;
+            });
             // Return empty HashMap instead of error - no properties is a valid state
             Ok(HashMap::new())
         }
@@ -1486,6 +1503,8 @@ impl FeatureFlagMatcher {
         let hash_key_timer = common_metrics::timing_guard(FLAG_HASH_KEY_PROCESSING_TIME, &[]);
         let (hash_key_overrides, flag_hash_key_override_error) =
             if flags_have_experience_continuity_enabled {
+                common_metrics::inc(FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER, &[], 1);
+                with_canonical_log(|log| log.hash_key_override_attempted = true);
                 match hash_key_override {
                     Some(hash_key) => {
                         let target_distinct_ids = vec![self.distinct_id.clone(), hash_key.clone()];
@@ -1541,6 +1560,11 @@ impl FeatureFlagMatcher {
                 },
             )
             .fin();
+
+        // Track success in canonical log
+        if hash_key_overrides.is_some() && !flag_hash_key_override_error {
+            with_canonical_log(|log| log.hash_key_override_succeeded = true);
+        }
 
         (hash_key_overrides, flag_hash_key_override_error)
     }

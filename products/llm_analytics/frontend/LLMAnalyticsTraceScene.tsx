@@ -23,7 +23,7 @@ import {
 import { HighlightedJSONViewer } from 'lib/components/HighlightedJSONViewer'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { NotFound } from 'lib/components/NotFound'
-import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { IconWithCount } from 'lib/lemon-ui/icons/icons'
@@ -64,6 +64,7 @@ import {
     formatLLMUsage,
     getEventType,
     getSessionID,
+    getSessionStartTimestamp,
     getTraceTimestamp,
     isLLMEvent,
     removeMilliseconds,
@@ -210,7 +211,7 @@ function TraceMetadata({
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSIONS_VIEW] ||
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
         ) {
-            return urls.llmAnalyticsSession(sessionId)
+            return urls.llmAnalyticsSession(sessionId, { timestamp: getSessionStartTimestamp(trace.createdAt) })
         }
         // Fallback to filtering traces by session when feature flag is off
         const filter = [
@@ -685,15 +686,15 @@ const EventContent = React.memo(
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SUMMARIZATION] ||
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
 
-        // Load AI data for the current event
-        const eventData =
-            event && isLLMEvent(event)
-                ? {
-                      uuid: event.id,
-                      input: event.properties.$ai_input,
-                      output: event.properties.$ai_output_choices,
-                  }
-                : undefined
+        // Only pre-load for generation events ($ai_input/$ai_output_choices).
+        // TODO: Figure out why spans can't load properties async
+        const eventData = isGenerationEvent
+            ? {
+                  uuid: event.id,
+                  input: event.properties.$ai_input,
+                  output: event.properties.$ai_output_choices,
+              }
+            : undefined
         const { input: loadedInput, output: loadedOutput } = useAIData(eventData)
 
         const handleTryInPlayground = (): void => {
@@ -796,7 +797,7 @@ const EventContent = React.memo(
                                     )}
                                     {hasSessionRecording && (
                                         <ViewRecordingButton
-                                            inModal
+                                            openPlayerIn={RecordingPlayerType.Modal}
                                             type="secondary"
                                             size="xsmall"
                                             data-attr="llm-analytics"
