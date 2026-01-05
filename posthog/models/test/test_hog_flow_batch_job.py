@@ -35,7 +35,9 @@ class TestHogFlowBatchJob(TestCase):
             ],
         )
 
-    @patch("products.workflows.backend.models.hog_flow_batch_job.create_batch_hog_flow_job_invocation")
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
     def test_hog_flow_batch_job_creation(self, mock_create_invocation):
         batch_job = HogFlowBatchJob.objects.create(
             team=self.team,
@@ -52,7 +54,9 @@ class TestHogFlowBatchJob(TestCase):
         assert str(batch_job) == f"HogFlow batch run {batch_job.id}"
         mock_create_invocation.assert_called_once()
 
-    @patch("products.workflows.backend.models.hog_flow_batch_job.create_batch_hog_flow_job_invocation")
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
     def test_hog_flow_batch_job_can_fail(self, mock_create_invocation):
         batch_job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=self.hog_flow, variables=[])
 
@@ -61,7 +65,9 @@ class TestHogFlowBatchJob(TestCase):
         batch_job.refresh_from_db()
         assert batch_job.status == HogFlowBatchJob.State.FAILED
 
-    @patch("products.workflows.backend.models.hog_flow_batch_job.create_batch_hog_flow_job_invocation")
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
     @patch("products.workflows.backend.models.hog_flow_batch_job.handle_hog_flow_batch_job_created")
     def test_hog_flow_batch_job_created_signal(self, mock_handler, mock_create_invocation):
         # Disconnect the signal temporarily to test it
@@ -89,14 +95,18 @@ class TestHogFlowBatchJob(TestCase):
             post_save.disconnect(mock_handler, sender=HogFlowBatchJob)
             post_save.connect(handle_hog_flow_batch_job_created, sender=HogFlowBatchJob)
 
-    @patch("products.workflows.backend.models.hog_flow_batch_job.create_batch_hog_flow_job_invocation")
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
     def test_hog_flow_batch_job_without_created_by(self, mock_create_invocation):
         batch_job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=self.hog_flow, variables=[])
 
         assert batch_job.created_by is None
         assert batch_job.team == self.team
 
-    @patch("products.workflows.backend.models.hog_flow_batch_job.create_batch_hog_flow_job_invocation")
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
     def test_hog_flow_batch_job_complex_variables(self, mock_create_invocation):
         variables = [
             {"key": "first_name", "value": "John"},
