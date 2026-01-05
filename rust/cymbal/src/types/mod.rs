@@ -148,6 +148,8 @@ pub struct RawErrProps {
     pub issue_name: Option<String>, // Clients can send us custom issue names, which we'll use if present
     #[serde(rename = "$issue_description", skip_serializing_if = "Option::is_none")]
     pub issue_description: Option<String>, // Clients can send us custom issue descriptions, which we'll use if present
+    #[serde(rename = "$exception_handled")]
+    pub handled: Option<bool>, // Clients can send us handled status, which we'll use if present
     #[serde(flatten)]
     // A catch-all for all the properties we don't "care" about, so when we send back to kafka we don't lose any info
     pub other: HashMap<String, Value>,
@@ -160,6 +162,7 @@ pub struct FingerprintedErrProps {
     pub proposed_issue_name: Option<String>,
     pub proposed_issue_description: Option<String>,
     pub proposed_fingerprint: String, // We suggest a fingerprint, based on hashes, but let users override client-side
+    pub handled: Option<bool>,
     pub other: HashMap<String, Value>,
 }
 
@@ -197,6 +200,20 @@ pub struct OutputErrProps {
     #[serde(rename = "$exception_functions")]
     pub functions: Vec<String>,
 }
+
+const RESERVED_PROPERTIES: [&str; 11] = [
+    "$exception_list",
+    "$exception_fingerprint",
+    "$exception_issue_id",
+    "$exception_fingerprint_record",
+    "$exception_proposed_fingerprint",
+    "$exception_handled",
+    "$exception_releases",
+    "$exception_types",
+    "$exception_values",
+    "$exception_sources",
+    "$exception_functions",
+];
 
 impl FingerprintComponent for Exception {
     fn update(&self, fp: &mut FingerprintBuilder) {
@@ -280,6 +297,7 @@ impl RawErrProps {
             proposed_issue_name: self.issue_name,
             proposed_issue_description: self.issue_description,
             proposed_fingerprint,
+            handled: self.handled,
             other: self.other,
         }
     }
@@ -292,7 +310,16 @@ impl FingerprintedErrProps {
         let releases = self.exception_list.get_release_map();
         let types = self.exception_list.get_unique_types();
         let values = self.exception_list.get_unique_messages();
-        let handled = self.exception_list.get_is_handled();
+        let handled: bool = self
+            .handled
+            .unwrap_or_else(|| self.exception_list.get_is_handled());
+
+        // If users send properties that are reserved, it will results in property keys being duplicated
+        let sanitized_others = self
+            .other
+            .into_iter()
+            .filter(|(k, _)| !RESERVED_PROPERTIES.contains(&k.as_str()))
+            .collect();
 
         OutputErrProps {
             exception_list: self.exception_list,
@@ -300,7 +327,7 @@ impl FingerprintedErrProps {
             issue_id,
             proposed_fingerprint: self.proposed_fingerprint,
             fingerprint_record: self.fingerprint.record,
-            other: self.other,
+            other: sanitized_others,
 
             types,
             values,
