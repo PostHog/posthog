@@ -13,6 +13,7 @@ from oauth2_provider.models import (
     AbstractGrant,
     AbstractIDToken,
     AbstractRefreshToken,
+    TokenChecksumField,
 )
 
 from posthog.models.utils import UUIDT
@@ -183,6 +184,9 @@ class OAuthRefreshToken(AbstractRefreshToken):
         on_delete=models.CASCADE,
         related_name="oauth_refresh_tokens",
     )
+
+    # TODO: Make unique once backfill migration is applied
+    token_checksum = TokenChecksumField(max_length=64, db_index=True, blank=True, null=True)
 
     scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True, blank=True)
     scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True, blank=True)

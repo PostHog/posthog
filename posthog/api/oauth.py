@@ -230,6 +230,62 @@ class OAuthValidator(OAuth2Validator):
 
         return scoped_teams, scoped_organizations
 
+    def validate_refresh_token(self, refresh_token, client, request, *args, **kwargs):
+        """
+        Check refresh_token exists and refers to the right client.
+        Override to use token_checksum for lookup instead of plaintext token.
+        """
+        token_checksum = hashlib.sha256(refresh_token.encode("utf-8")).hexdigest()
+        rt = OAuthRefreshToken.objects.filter(token_checksum=token_checksum).select_related("access_token").first()
+
+        if not rt:
+            return False
+
+        if rt.revoked is not None and rt.revoked <= timezone.now() - timedelta(
+            seconds=oauth2_settings.REFRESH_TOKEN_GRACE_PERIOD_SECONDS
+        ):
+            if oauth2_settings.REFRESH_TOKEN_REUSE_PROTECTION and rt.token_family:
+                rt_token_family = OAuthRefreshToken.objects.filter(token_family=rt.token_family)
+                for related_rt in rt_token_family.all():
+                    related_rt.revoke()
+            return False
+
+        request.user = rt.user
+        request.refresh_token = rt.token
+        request.refresh_token_instance = rt
+
+        return rt.application == client
+
+    def revoke_token(self, token, token_type_hint, request, *args, **kwargs):
+        """
+        Revoke an access or refresh token.
+        Override to use token_checksum for lookup instead of plaintext token.
+        """
+        token_checksum = hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+        if token_type_hint == "access_token":
+            try:
+                OAuthAccessToken.objects.get(token_checksum=token_checksum).revoke()
+                return
+            except OAuthAccessToken.DoesNotExist:
+                for rt in OAuthRefreshToken.objects.filter(token_checksum=token_checksum):
+                    rt.revoke()
+        elif token_type_hint == "refresh_token":
+            try:
+                OAuthRefreshToken.objects.get(token_checksum=token_checksum).revoke()
+                return
+            except OAuthRefreshToken.DoesNotExist:
+                for at in OAuthAccessToken.objects.filter(token_checksum=token_checksum):
+                    at.revoke()
+        else:
+            try:
+                OAuthAccessToken.objects.get(token_checksum=token_checksum).revoke()
+                return
+            except OAuthAccessToken.DoesNotExist:
+                pass
+            for rt in OAuthRefreshToken.objects.filter(token_checksum=token_checksum):
+                rt.revoke()
+
 
 class OAuthAuthorizationView(OAuthLibMixin, APIView):
     """
@@ -411,7 +467,8 @@ class OAuthTokenView(TokenView):
                 access_token_value = response_data.get("access_token")
 
                 if access_token_value:
-                    access_token = OAuthAccessToken.objects.get(token=access_token_value)
+                    token_checksum = hashlib.sha256(access_token_value.encode("utf-8")).hexdigest()
+                    access_token = OAuthAccessToken.objects.get(token_checksum=token_checksum)
                     response_data["scoped_teams"] = access_token.scoped_teams or []
                     response_data["scoped_organizations"] = access_token.scoped_organizations or []
                     return JsonResponse(response_data)
@@ -453,27 +510,41 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
         if not token_value:
             return JsonResponse({"active": False}, status=200)
 
-        try:
-            token_checksum = hashlib.sha256(token_value.encode("utf-8")).hexdigest()
-            token = OAuthAccessToken.objects.get(token_checksum=token_checksum) or OAuthRefreshToken.objects.get(
-                token_checksum=token_checksum
-            )
-        except ObjectDoesNotExist:
-            return JsonResponse({"active": False}, status=200)
+        token_checksum = hashlib.sha256(token_value.encode("utf-8")).hexdigest()
 
-        if token.is_valid():
-            data = {
-                "active": True,
-                "scope": token.scope,
-                "scoped_teams": token.scoped_teams or [],
-                "scoped_organizations": token.scoped_organizations or [],
-                "exp": int(calendar.timegm(token.expires.timetuple())),
-            }
-            if token.application:
-                data["client_id"] = token.application.client_id
-            return JsonResponse(data)
-        else:
+        try:
+            access_token = OAuthAccessToken.objects.get(token_checksum=token_checksum)
+            if access_token.is_valid():
+                data = {
+                    "active": True,
+                    "scope": access_token.scope,
+                    "scoped_teams": access_token.scoped_teams or [],
+                    "scoped_organizations": access_token.scoped_organizations or [],
+                    "exp": int(calendar.timegm(access_token.expires.timetuple())),
+                }
+                if access_token.application:
+                    data["client_id"] = access_token.application.client_id
+                return JsonResponse(data)
             return JsonResponse({"active": False}, status=200)
+        except OAuthAccessToken.DoesNotExist:
+            pass
+
+        try:
+            refresh_token = OAuthRefreshToken.objects.get(token_checksum=token_checksum)
+            if refresh_token.revoked is None:
+                refresh_data: dict = {
+                    "active": True,
+                    "scoped_teams": refresh_token.scoped_teams or [],
+                    "scoped_organizations": refresh_token.scoped_organizations or [],
+                }
+                if refresh_token.application:
+                    refresh_data["client_id"] = refresh_token.application.client_id
+                return JsonResponse(refresh_data)
+            return JsonResponse({"active": False}, status=200)
+        except OAuthRefreshToken.DoesNotExist:
+            pass
+
+        return JsonResponse({"active": False}, status=200)
 
     def get(self, request, *args, **kwargs):
         """
