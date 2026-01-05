@@ -111,6 +111,7 @@ export const urls = {
     signup: (): string => '/signup',
     verifyEmail: (userUuid: string = '', token: string = ''): string =>
         `/verify_email${userUuid ? `/${userUuid}` : ''}${token ? `/${token}` : ''}`,
+    vercelLinkError: (): string => '/integrations/vercel/link-error',
     inviteSignup: (id: string): string => `/signup/${id}`,
     products: (): string => '/products',
     useCaseSelection: (): string => '/onboarding/use-case',
