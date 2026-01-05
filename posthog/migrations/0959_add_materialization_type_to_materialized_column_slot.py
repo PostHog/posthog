@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0956_team_conversations_enabled_and_more"),
+        ("posthog", "0958_drop_teamcoreeventsconfig_table"),
     ]
 
     operations = [
