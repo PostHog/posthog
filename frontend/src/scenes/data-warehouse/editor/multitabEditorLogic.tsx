@@ -1171,7 +1171,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     actions.setIsUpdateMode(true)
                     actions.setSelectedEndpointName(searchParams.endpoint_name)
                 }
-                if (searchParams.open_draft || (hashParams.draft && values.queryInput === null)) {
+                if (searchParams.open_draft || (hashParams.draft && (values.queryInput === null || needsReset))) {
                     const draftId = searchParams.open_draft || hashParams.draft
                     const draft = values.drafts.find((draft) => {
                         return draft.id === draftId
@@ -1196,7 +1196,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         }
                     }
                     return
-                } else if (searchParams.open_view || (hashParams.view && values.queryInput === null)) {
+                } else if (searchParams.open_view || (hashParams.view && (values.queryInput === null || needsReset))) {
                     // Open view
                     const viewId = searchParams.open_view || hashParams.view
 
@@ -1225,7 +1225,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     actions.editView(queryToOpen, view)
                     tabAdded = true
                     router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
-                } else if (searchParams.open_insight || (hashParams.insight && values.queryInput === null)) {
+                } else if (
+                    searchParams.open_insight ||
+                    (hashParams.insight && (values.queryInput === null || needsReset))
+                ) {
                     const shortId = searchParams.open_insight || hashParams.insight
                     if (shortId === 'new') {
                         // Add new blank tab
