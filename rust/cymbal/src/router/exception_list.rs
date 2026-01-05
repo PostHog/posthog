@@ -28,7 +28,7 @@ pub enum ProcessExceptionListError {
     #[error("Failed to resolve exception: {0}")]
     ResolveExceptionError(#[from] ResolveExceptionError),
     #[error("Failed to resolve stack trace: {0}")]
-    ResolveStackError(#[from] ResolveStackError),
+    ResolveStackError(#[from] Arc<UnhandledError>),
 }
 
 impl IntoResponse for ExceptionList {
@@ -94,17 +94,11 @@ async fn process_exception(
     Ok(())
 }
 
-#[derive(Debug, Error)]
-pub enum ResolveStackError {
-    #[error("Failed to resolve frame: {0}")]
-    ResolveFrameError(#[from] UnhandledError),
-}
-
 async fn process_stack(
     team_id: i32,
     ctx: Arc<AppContext>,
     stack: &mut Option<Stacktrace>,
-) -> Result<(), ResolveStackError> {
+) -> Result<(), Arc<UnhandledError>> {
     match stack.take() {
         Some(Stacktrace::Raw { frames }) => {
             let handles = frames
@@ -128,7 +122,7 @@ async fn resolve_frame(
     team_id: i32,
     ctx: Arc<AppContext>,
     frame: RawFrame,
-) -> Result<Vec<Frame>, UnhandledError> {
+) -> Result<Vec<Frame>, Arc<UnhandledError>> {
     let frame = frame.clone();
     // Spawn a concurrent task for resolving every frame
     let handle = tokio::spawn(async move {

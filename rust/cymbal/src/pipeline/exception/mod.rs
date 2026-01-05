@@ -83,7 +83,8 @@ pub async fn do_exception_handling(
         };
 
         let output = fingerprinted.to_output(issue.id);
-        event.properties = Some(serde_json::to_string(&output).map_err(|e| (index, e.into()))?);
+        event.properties =
+            Some(serde_json::to_string(&output).map_err(|e| (index, Arc::new(e.into())))?);
         *issue_counts.entry(issue.id).or_insert(0) += 1;
     }
 

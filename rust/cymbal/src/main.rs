@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use cymbal::consumer::start_consumer;
 use cymbal::{app_context::AppContext, config::Config, server::start_server};
 use tracing::level_filters::LevelFilter;
 use tracing::{error, info, warn};
