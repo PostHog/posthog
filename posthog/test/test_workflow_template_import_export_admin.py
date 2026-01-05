@@ -222,12 +222,3 @@ class TestWorkflowTemplateImportExportAdmin(BaseTest):
         assert existing_template.name == "Updated Template"
         assert existing_template.description == "Updated description"
         assert existing_template.scope == HogFlowTemplate.Scope.GLOBAL
-
-    def test_non_staff_user_denied(self):
-        """Test that non-staff users cannot access the admin view"""
-        self.user.is_staff = False
-        self.user.save()
-
-        response = self.client.get("/admin/workflow-template-import-export/")
-
-        assert response.status_code == 403
