@@ -59,6 +59,7 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
         setSampleGlobalsError: (error: string | null) => ({ error }),
         setTestResult: (testResult: HogflowTestResult | null) => ({ testResult }),
         setNextActionId: (nextActionId: string | null) => ({ nextActionId }),
+        setSelectedPersonDistinctId: (distinctId: string | null) => ({ distinctId }),
     }),
     reducers({
         personSelectorOpen: [
@@ -95,6 +96,13 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
             null as string | null,
             {
                 setNextActionId: (_, { nextActionId }) => nextActionId,
+            },
+        ],
+        selectedPersonDistinctId: [
+            null as string | null,
+            { persist: true },
+            {
+                setSelectedPersonDistinctId: (_, { distinctId }) => distinctId,
             },
         ],
         sampleGlobals: [
@@ -228,6 +236,8 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
     })),
     listeners(({ actions, values }) => ({
         loadSamplePersonByDistinctId: async ({ distinctId }) => {
+            // Store the selected distinctId so we can reload it later
+            actions.setSelectedPersonDistinctId(distinctId)
             try {
                 // First, get the person by distinct_id
                 const personResponse = await api.persons.list({ distinct_id: distinctId, limit: 1 })
@@ -305,8 +315,8 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
         },
         loadSamplePersonsSuccess: ({ samplePersons }) => {
             if (samplePersons.length > 0 && !values.sampleGlobals) {
-                const firstPerson = samplePersons[0]
-                const distinctId = firstPerson.distinct_ids?.[0]
+                // Prefer persisted selectedPersonDistinctId if available, otherwise use first person
+                const distinctId = values.selectedPersonDistinctId ?? samplePersons[0].distinct_ids?.[0]
                 if (distinctId) {
                     actions.loadSamplePersonByDistinctId({ distinctId })
                 }
@@ -341,9 +351,17 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
             }
         },
     })),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, values }) => {
         // Load sample persons on mount
         actions.loadSamplePersons()
+
+        // If we have a previously selected person but no sampleGlobals, or if the loaded person doesn't match, reload them
+        if (values.selectedPersonDistinctId) {
+            const currentDistinctId = values.sampleGlobals?.event?.distinct_id
+            if (!values.sampleGlobals || currentDistinctId !== values.selectedPersonDistinctId) {
+                actions.loadSamplePersonByDistinctId({ distinctId: values.selectedPersonDistinctId })
+            }
+        }
     }),
 ])
 
