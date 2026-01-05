@@ -207,7 +207,12 @@ class HogFlowTemplateSerializer(serializers.ModelSerializer):
     def create(self, validated_data: dict, *args, **kwargs) -> HogFlowTemplate:
         request = self.context["request"]
         team_id = self.context["team_id"]
-        validated_data["created_by"] = request.user
+        # Allow setting created_by via context (e.g., None for imports)
+        # If not provided, use request.user (which requires authentication)
+        if "created_by" in self.context:
+            validated_data["created_by"] = self.context["created_by"]
+        else:
+            validated_data["created_by"] = request.user
         validated_data["team_id"] = team_id
         # Ensure scope is always set (defaults to 'team' if not provided)
         if not validated_data.get("scope"):

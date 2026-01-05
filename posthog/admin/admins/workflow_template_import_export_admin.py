@@ -124,16 +124,29 @@ def workflow_template_import_export_view(request: HttpRequest) -> HttpResponse:
                             "DRY RUN MODE: No templates were actually imported. The results below show what would happen.",
                         )
 
-                    # Create a mock DRF request for serializer context
-                    factory = RequestFactory()
-                    django_request = factory.post("/")
-                    django_request.user = request.user
-                    drf_request = Request(django_request)
-
-                    # Validate team_id exists
+                    # Validate team_id exists and get team object
                     team_exists = True
+                    team = None
+                    serializer_context = None
                     try:
-                        Team.objects.get(id=team_id)
+                        team = Team.objects.get(id=team_id)
+
+                        # Create a mock DRF request for serializer context
+                        factory = RequestFactory()
+                        django_request = factory.post("/")
+                        django_request.user = request.user
+                        drf_request = Request(django_request)
+
+                        # Create serializer context with get_team function
+                        def get_team_func():
+                            return team
+
+                        serializer_context = {
+                            "request": drf_request,
+                            "team_id": team_id,
+                            "get_team": get_team_func,
+                            "created_by": request.user,  # Set to the user doing the import
+                        }
                     except Team.DoesNotExist:
                         errors.append(f"Team with ID {team_id} does not exist")
                         team_exists = False
@@ -168,7 +181,7 @@ def workflow_template_import_export_view(request: HttpRequest) -> HttpResponse:
                                         serializer = HogFlowTemplateSerializer(
                                             instance=existing_template,
                                             data=template_data,
-                                            context={"request": drf_request, "team_id": team_id},
+                                            context=serializer_context,
                                             partial=True,
                                         )
                                         if serializer.is_valid():
@@ -189,7 +202,7 @@ def workflow_template_import_export_view(request: HttpRequest) -> HttpResponse:
                                         # Validate using serializer
                                         serializer = HogFlowTemplateSerializer(
                                             data=template_data,
-                                            context={"request": drf_request, "team_id": team_id},
+                                            context=serializer_context,
                                         )
                                         if serializer.is_valid():
                                             imported_count += 1
@@ -240,7 +253,7 @@ def workflow_template_import_export_view(request: HttpRequest) -> HttpResponse:
                                             serializer = HogFlowTemplateSerializer(
                                                 instance=existing_template,
                                                 data=template_data,
-                                                context={"request": drf_request, "team_id": team_id},
+                                                context=serializer_context,
                                                 partial=True,
                                             )
                                             if serializer.is_valid():
@@ -262,7 +275,7 @@ def workflow_template_import_export_view(request: HttpRequest) -> HttpResponse:
                                             # Create using serializer
                                             serializer = HogFlowTemplateSerializer(
                                                 data=template_data,
-                                                context={"request": drf_request, "team_id": team_id},
+                                                context=serializer_context,
                                             )
                                             if serializer.is_valid():
                                                 serializer.save()
@@ -329,8 +342,6 @@ def workflow_template_import_export_view(request: HttpRequest) -> HttpResponse:
                         "team_id": template.team_id,
                         "created_at": template.created_at.isoformat() if template.created_at else None,
                         "updated_at": template.updated_at.isoformat() if template.updated_at else None,
-                        # TODOdin: Does this cause trouble in cross-account imports?
-                        "created_by_id": template.created_by_id,
                     }
 
                     export_data.append(template_dict)
