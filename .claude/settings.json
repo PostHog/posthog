@@ -1,4 +1,7 @@
 {
+    "env": {
+        "BASH_MAX_TIMEOUT_MS": "300000"
+    },
     "hooks": {
         "SessionStart": [
             {
