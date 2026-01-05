@@ -1,4 +1,5 @@
 import re
+import hashlib
 import logging
 import functools
 from datetime import timedelta
@@ -492,7 +493,8 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
 
     def _validate_token(self, token: str):
         try:
-            access_token = OAuthAccessToken.objects.select_related("user").get(token=token)
+            token_checksum = hashlib.sha256(token.encode("utf-8")).hexdigest()
+            access_token = OAuthAccessToken.objects.select_related("user").get(token_checksum=token_checksum)
 
             if access_token.is_expired():
                 raise AuthenticationFailed(detail="Access token has expired.")

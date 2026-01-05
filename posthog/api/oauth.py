@@ -230,6 +230,57 @@ class OAuthValidator(OAuth2Validator):
 
         return scoped_teams, scoped_organizations
 
+    def validate_refresh_token(self, refresh_token, client, request, *args, **kwargs):
+        """
+        Check refresh_token exists and refers to the right client.
+        Override to use token_checksum for lookup instead of plaintext token.
+        """
+        from datetime import timedelta
+
+        token_checksum = hashlib.sha256(refresh_token.encode("utf-8")).hexdigest()
+        rt = OAuthRefreshToken.objects.filter(token_checksum=token_checksum).select_related("access_token").first()
+
+        if not rt:
+            return False
+
+        if rt.revoked is not None and rt.revoked <= timezone.now() - timedelta(
+            seconds=oauth2_settings.REFRESH_TOKEN_GRACE_PERIOD_SECONDS
+        ):
+            if oauth2_settings.REFRESH_TOKEN_REUSE_PROTECTION and rt.token_family:
+                rt_token_family = OAuthRefreshToken.objects.filter(token_family=rt.token_family)
+                for related_rt in rt_token_family.all():
+                    related_rt.revoke()
+            return False
+
+        request.user = rt.user
+        request.refresh_token = rt.token
+        request.refresh_token_instance = rt
+
+        return rt.application == client
+
+    def revoke_token(self, token, token_type_hint, request, *args, **kwargs):
+        """
+        Revoke an access or refresh token.
+        Override to use token_checksum for lookup instead of plaintext token.
+        """
+        if token_type_hint not in ["access_token", "refresh_token"]:
+            token_type_hint = None
+
+        token_checksum = hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+        token_types = {
+            "access_token": (OAuthAccessToken, "token_checksum"),
+            "refresh_token": (OAuthRefreshToken, "token_checksum"),
+        }
+
+        token_type, lookup_field = token_types.get(token_type_hint, (OAuthAccessToken, "token_checksum"))
+        try:
+            token_type.objects.get(**{lookup_field: token_checksum}).revoke()
+        except ObjectDoesNotExist:
+            for other_type, other_lookup_field in [t for t in token_types.values() if t[0] != token_type]:
+                for t in other_type.objects.filter(**{other_lookup_field: token_checksum}):
+                    t.revoke()
+
 
 class OAuthAuthorizationView(OAuthLibMixin, APIView):
     """
@@ -411,7 +462,8 @@ class OAuthTokenView(TokenView):
                 access_token_value = response_data.get("access_token")
 
                 if access_token_value:
-                    access_token = OAuthAccessToken.objects.get(token=access_token_value)
+                    token_checksum = hashlib.sha256(access_token_value.encode("utf-8")).hexdigest()
+                    access_token = OAuthAccessToken.objects.get(token_checksum=token_checksum)
                     response_data["scoped_teams"] = access_token.scoped_teams or []
                     response_data["scoped_organizations"] = access_token.scoped_organizations or []
                     return JsonResponse(response_data)
@@ -453,12 +505,18 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
         if not token_value:
             return JsonResponse({"active": False}, status=200)
 
+        token_checksum = hashlib.sha256(token_value.encode("utf-8")).hexdigest()
+
+        token: OAuthAccessToken | OAuthRefreshToken | None = None
         try:
-            token_checksum = hashlib.sha256(token_value.encode("utf-8")).hexdigest()
-            token = OAuthAccessToken.objects.get(token_checksum=token_checksum) or OAuthRefreshToken.objects.get(
-                token_checksum=token_checksum
-            )
-        except ObjectDoesNotExist:
+            token = OAuthAccessToken.objects.get(token_checksum=token_checksum)
+        except OAuthAccessToken.DoesNotExist:
+            try:
+                token = OAuthRefreshToken.objects.get(token_checksum=token_checksum)
+            except OAuthRefreshToken.DoesNotExist:
+                pass
+
+        if token is None:
             return JsonResponse({"active": False}, status=200)
 
         if token.is_valid():
