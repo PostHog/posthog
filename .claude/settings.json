@@ -7,7 +7,7 @@
                     {
                         "type": "command",
                         "command": "bin/setup-claude",
-                        "timeout": 120
+                        "timeout": 300
                     }
                 ]
             },
@@ -17,7 +17,7 @@
                     {
                         "type": "command",
                         "command": "bin/setup-claude",
-                        "timeout": 120
+                        "timeout": 300
                     }
                 ]
             }
