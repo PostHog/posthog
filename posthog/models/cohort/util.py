@@ -347,20 +347,31 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
 
     # Apply HogQL global settings to ensure consistency with regular queries
     settings = HogQLGlobalSettings()
-    base_query = prepare_and_print_ast(query, context=hogql_context, dialect="clickhouse", settings=settings)[0]
 
     # If we're using distinct_id, wrap the query to resolve to person_id
     if uses_distinct_id:
+        base_query = prepare_and_print_ast(query, context=hogql_context, dialect="clickhouse", settings=settings)[0]
+
+        # Extract SETTINGS clause from base query to apply to wrapper
+        settings_clause = ""
+        if " SETTINGS " in base_query:
+            base_query, settings_clause = base_query.rsplit(" SETTINGS ", 1)
+            settings_clause = " SETTINGS " + settings_clause
+
+        # Wrap with person_distinct_id2 lookup using raw SQL since it's not a HogQL table
         wrapped_query = f"""
-        SELECT DISTINCT person_id as actor_id
+        SELECT DISTINCT argMax(person_id, version) as actor_id
         FROM person_distinct_id2
         WHERE distinct_id IN (
             SELECT DISTINCT distinct_id FROM ({base_query})
         ) AND team_id = %(team_id)s
-        """
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0
+        {settings_clause}
+        """.strip()
         return wrapped_query
 
-    return base_query
+    return prepare_and_print_ast(query, context=hogql_context, dialect="clickhouse", settings=settings)[0]
 
 
 def format_static_cohort_query(cohort: Cohort, index: int, prepend: str) -> tuple[str, dict[str, Any]]:
