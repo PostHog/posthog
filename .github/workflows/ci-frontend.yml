@@ -172,8 +172,8 @@ jobs:
                   pattern: 'frontend/dist/*.js'
                   # Exclude source maps
                   exclude: 'frontend/dist/*.js.map'
-                  # Alert if total bundle increases by more than 100KB
-                  minimum-change-threshold: 100000
+                  # Only show files that changed by more than 5KB
+                  minimum-change-threshold: 5000
 
     frontend-typescript-checks:
         name: Frontend typechecking
