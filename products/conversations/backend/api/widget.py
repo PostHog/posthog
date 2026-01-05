@@ -54,7 +54,9 @@ class WidgetMessageView(APIView):
     def post(self, request: Request) -> Response:
         """Handle incoming message from widget."""
 
-        team: Team = request.auth  # type: ignore[assignment]
+        team: Team | None = request.auth  # type: ignore[assignment]
+        if not team:
+            return Response({"error": "Authentication required"}, status=status.HTTP_403_FORBIDDEN)
 
         # Check honeypot field (bots fill this)
         if request.data.get("_hp"):
@@ -176,7 +178,9 @@ class WidgetMessagesView(APIView):
     def get(self, request: Request, ticket_id: str) -> Response:
         """Get messages for a ticket."""
 
-        team: Team = request.auth  # type: ignore[assignment]
+        team: Team | None = request.auth  # type: ignore[assignment]
+        if not team:
+            return Response({"error": "Authentication required"}, status=status.HTTP_403_FORBIDDEN)
 
         # Validate ticket_id (URL parameter)
         try:
@@ -278,7 +282,9 @@ class WidgetTicketsView(APIView):
     def get(self, request: Request) -> Response:
         """List tickets for a widget_session_id."""
 
-        team: Team = request.auth  # type: ignore[assignment]
+        team: Team | None = request.auth  # type: ignore[assignment]
+        if not team:
+            return Response({"error": "Authentication required"}, status=status.HTTP_403_FORBIDDEN)
 
         # Validate query parameters
         query_serializer = WidgetTicketsQuerySerializer(data=request.query_params)
@@ -377,7 +383,9 @@ class WidgetMarkReadView(APIView):
     def post(self, request: Request, ticket_id: str) -> Response:
         """Mark ticket messages as read by customer."""
 
-        team: Team = request.auth  # type: ignore[assignment]
+        team: Team | None = request.auth  # type: ignore[assignment]
+        if not team:
+            return Response({"error": "Authentication required"}, status=status.HTTP_403_FORBIDDEN)
 
         # Validate ticket_id (URL parameter)
         try:

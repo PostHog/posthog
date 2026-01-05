@@ -246,8 +246,8 @@ class TestTicketAPI(BaseConversationsAPITest):
             )
 
         # Query count should be constant regardless of number of tickets
-        # Includes: session, user, org, team, permissions, count query, tickets query
-        with self.assertNumQueries(10):
+        # Includes: session, user, org, team, permissions, feature flag check, count query, tickets query
+        with self.assertNumQueries(11):
             response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             # Should have original ticket + 10 new tickets = 11 total
