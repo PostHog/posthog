@@ -20,12 +20,13 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { BuilderHog3 } from 'lib/components/hedgehogs'
 import { dayjs } from 'lib/dayjs'
+import { isChristmas } from 'lib/holidays'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconErrorOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconChristmasOrnament, IconErrorOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { humanFriendlyNumber, humanizeBytes, inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -54,12 +55,20 @@ import { insightVizDataLogic } from '../insightVizDataLogic'
 export function InsightEmptyState({
     heading = 'There are no matching events for this query',
     detail = 'Try changing the date range, or pick another action, event or breakdown.',
-    icon = <IconArchive className="text-5xl mb-2 text-tertiary" />,
+    icon: iconProp,
 }: {
     heading?: string
     detail?: string | JSX.Element
     icon?: JSX.Element
 }): JSX.Element {
+    const icon =
+        iconProp ??
+        (isChristmas() ? (
+            <IconChristmasOrnament className="text-5xl mb-2 text-red-500" />
+        ) : (
+            <IconArchive className="text-5xl mb-2 text-tertiary" />
+        ))
+
     return (
         <div
             data-attr="insight-empty-state"

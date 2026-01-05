@@ -17,6 +17,7 @@ export const manifest: ProductManifest = {
             iconType: 'logs',
             description: 'Monitor and analyze your logs to understand and fix issues.',
             defaultDocsPath: '/docs/logs',
+            changelogTeamSlug: 'Logs',
         },
     },
     routes: {

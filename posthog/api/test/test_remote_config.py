@@ -2,8 +2,8 @@ from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest
 from unittest.mock import patch
 
 from django.core.cache import cache
-
 from inline_snapshot import snapshot
+
 from rest_framework import status
 
 # The remote config stuff plus plugin and hog function queries

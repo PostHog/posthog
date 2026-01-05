@@ -5,7 +5,7 @@ describe('sourceWizardLogic', () => {
         it('returns the default for an empty source', async () => {
             const res = buildKeaFormDefaultFromSourceDetails({})
 
-            expect(res).toEqual({ prefix: '', payload: {} })
+            expect(res).toEqual({ prefix: '', description: '', payload: {} })
         })
 
         it('returns defaults for text fields', async () => {
@@ -27,7 +27,7 @@ describe('sourceWizardLogic', () => {
                 },
             })
 
-            expect(res).toEqual({ prefix: '', payload: { test_field: '' } })
+            expect(res).toEqual({ prefix: '', description: '', payload: { test_field: '' } })
         })
 
         it('returns defaults for pure select field', async () => {
@@ -50,7 +50,7 @@ describe('sourceWizardLogic', () => {
                 },
             })
 
-            expect(res).toEqual({ prefix: '', payload: { test_field: 'value1' } })
+            expect(res).toEqual({ prefix: '', description: '', payload: { test_field: 'value1' } })
         })
 
         it('returns defaults for select field with fields', async () => {
@@ -87,7 +87,11 @@ describe('sourceWizardLogic', () => {
                 },
             })
 
-            expect(res).toEqual({ prefix: '', payload: { test_field: { selection: 'value1', option_field: '' } } })
+            expect(res).toEqual({
+                prefix: '',
+                description: '',
+                payload: { test_field: { selection: 'value1', option_field: '' } },
+            })
         })
 
         it('returns defaults for switch group field - default disabled', async () => {
@@ -117,7 +121,11 @@ describe('sourceWizardLogic', () => {
                 },
             })
 
-            expect(res).toEqual({ prefix: '', payload: { test_field: { enabled: false, option_field: '' } } })
+            expect(res).toEqual({
+                prefix: '',
+                description: '',
+                payload: { test_field: { enabled: false, option_field: '' } },
+            })
         })
 
         it('returns defaults for switch group field - default enabled', async () => {
@@ -147,7 +155,11 @@ describe('sourceWizardLogic', () => {
                 },
             })
 
-            expect(res).toEqual({ prefix: '', payload: { test_field: { enabled: true, option_field: '' } } })
+            expect(res).toEqual({
+                prefix: '',
+                description: '',
+                payload: { test_field: { enabled: true, option_field: '' } },
+            })
         })
     })
 

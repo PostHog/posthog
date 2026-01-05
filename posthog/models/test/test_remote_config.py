@@ -1,4 +1,5 @@
 from decimal import Decimal
+from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest
@@ -7,8 +8,8 @@ from unittest.mock import patch
 from django.core.cache import cache
 from django.test import RequestFactory, override_settings
 from django.utils import timezone
-
 from inline_snapshot import snapshot
+
 from parameterized import parameterized
 
 from posthog.models.action.action import Action
@@ -22,7 +23,9 @@ from posthog.models.surveys.survey import Survey
 CONFIG_REFRESH_QUERY_COUNT = 5
 
 
+@pytest.mark.usefixtures("unittest_snapshot")
 class _RemoteConfigBase(BaseTest):
+    snapshot: Any
     remote_config: RemoteConfig
 
     def setUp(self):
@@ -275,14 +278,12 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
         self.team.save()
 
         self.sync_remote_config()
-        assert self.remote_config.config["survey_config"] == snapshot(
-            {
-                "appearance": {
-                    "thankYouMessageHeader": "Thanks for your feedback!",
-                    "thankYouMessageDescription": "We'll use it to make notebooks better",
-                }
+        assert self.remote_config.config["survey_config"] == {
+            "appearance": {
+                "thankYouMessageHeader": "Thanks for your feedback!",
+                "thankYouMessageDescription": "We'll use it to make notebooks better",
             }
-        )
+        }
 
     def test_includes_range_of_survey_types(self):
         survey_basic = Survey.objects.create(
@@ -483,8 +484,9 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
         )
 
     def _assert_matches_config_js(self, data):
-        assert data == snapshot(
-            """\
+        assert (
+            data
+            == """\
 (function() {
   window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};
   window._POSTHOG_REMOTE_CONFIG['phc_12345'] = {
@@ -496,8 +498,9 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
         )
 
     def _assert_matches_config_array_js(self, data):
-        assert data == snapshot(
-            """\
+        assert (
+            data
+            == """\
 [MOCKED_ARRAY_JS_CONTENT]
 
 (function() {
@@ -573,45 +576,44 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
 
     def test_sanitizes_config_for_public_cdn(self):
         config = self.remote_config.get_config_via_token(self.team.api_token)
+
         # Ensure the domain and siteAppsJS are removed
-        assert config == snapshot(
-            {
-                "token": "phc_12345",
-                "supportedCompression": ["gzip", "gzip-js"],
-                "hasFeatureFlags": False,
-                "captureDeadClicks": False,
-                "capturePerformance": {"network_timing": True, "web_vitals": False, "web_vitals_allowed_metrics": None},
-                "autocapture_opt_out": False,
+        assert config == {
+            "token": "phc_12345",
+            "supportedCompression": ["gzip", "gzip-js"],
+            "hasFeatureFlags": False,
+            "captureDeadClicks": False,
+            "capturePerformance": {"network_timing": True, "web_vitals": False, "web_vitals_allowed_metrics": None},
+            "autocapture_opt_out": False,
+            "autocaptureExceptions": False,
+            "analytics": {"endpoint": "/i/v0/e/"},
+            "elementsChainAsString": True,
+            "sessionRecording": {
+                "endpoint": "/s/",
+                "consoleLogRecordingEnabled": True,
+                "recorderVersion": "v2",
+                "sampleRate": None,
+                "minimumDurationMilliseconds": None,
+                "linkedFlag": None,
+                "networkPayloadCapture": None,
+                "masking": None,
+                "urlTriggers": [],
+                "urlBlocklist": [],
+                "eventTriggers": [],
+                "triggerMatchType": None,
+                "scriptConfig": {"script": "posthog-recorder"},
+            },
+            "errorTracking": {
                 "autocaptureExceptions": False,
-                "analytics": {"endpoint": "/i/v0/e/"},
-                "elementsChainAsString": True,
-                "sessionRecording": {
-                    "endpoint": "/s/",
-                    "consoleLogRecordingEnabled": True,
-                    "recorderVersion": "v2",
-                    "sampleRate": None,
-                    "minimumDurationMilliseconds": None,
-                    "linkedFlag": None,
-                    "networkPayloadCapture": None,
-                    "masking": None,
-                    "urlTriggers": [],
-                    "urlBlocklist": [],
-                    "eventTriggers": [],
-                    "triggerMatchType": None,
-                    "scriptConfig": None,
-                },
-                "errorTracking": {
-                    "autocaptureExceptions": False,
-                    "suppressionRules": [],
-                },
-                "heatmaps": False,
-                "conversations": False,
-                "surveys": False,
-                "productTours": False,
-                "defaultIdentifiedOnly": True,
-                "siteApps": [],
-            }
-        )
+                "suppressionRules": [],
+            },
+            "heatmaps": False,
+            "conversations": False,
+            "surveys": False,
+            "productTours": False,
+            "defaultIdentifiedOnly": True,
+            "siteApps": [],
+        }
 
     def test_only_includes_recording_for_approved_domains(self):
         with self.assertNumQueries(CONFIG_REFRESH_QUERY_COUNT):
@@ -657,6 +659,7 @@ class TestRemoteConfigJS(_RemoteConfigBase):
     def test_renders_js_including_config(self):
         # NOTE: This is a very basic test to check that the JS is rendered correctly
         # It doesn't check the actual contents of the JS, as that changes often but checks some general things
+        # We can easily see if it changed because the snapshot will be regenerated
         js = self.remote_config.get_config_js_via_token(self.team.api_token)
 
         # TODO: Come up with a good way of solidly testing this...
@@ -756,6 +759,7 @@ class TestRemoteConfigJS(_RemoteConfigBase):
         assert str(site_destination.id) in js
         assert str(site_app.id) in js
 
+        # Normalize text to be able to match against snapshot
         js = js.replace(str(non_site_app.id), "NON_SITE_APP_ID")
         js = js.replace(str(site_destination.id), "SITE_DESTINATION_ID")
         js = js.replace(str(site_app.id), "SITE_APP_ID")

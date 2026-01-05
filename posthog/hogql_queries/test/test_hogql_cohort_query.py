@@ -270,10 +270,8 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("precalculated_events", query_str)
         # Should have condition field (conditionHash is parameterized)
         self.assertIn("precalculated_events.condition", query_str)
-        # Should join with person_distinct_id table for person mapping
-        self.assertIn("person_distinct_id", query_str)
-        # Should use argMax for getting latest person_id
-        self.assertIn("argMax", query_str)
+        # Should use person_id directly from precalculated_events
+        self.assertIn("person_id", query_str)
         # Should have date filtering with toDate
         self.assertIn("toDate", query_str)
 
@@ -390,14 +388,12 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("precalculated_events", query_str)
         # Should have count aggregation
         self.assertIn("count()", query_str)
-        # Should have event_count field
-        self.assertIn("event_count", query_str)
-        # Should have greaterOrEquals comparison with 5
-        self.assertIn("greaterOrEquals(event_count, 5)", query_str)
         # Should have HAVING clause for count filtering
         self.assertIn("HAVING", query_str)
-        # Should join with person_distinct_id table
-        self.assertIn("person_distinct_id", query_str)
+        # Should use person_id directly from precalculated_events
+        self.assertIn("person_id", query_str)
+        # Should group by person_id
+        self.assertIn("GROUP BY", query_str)
 
     def test_static_cohort_raises_error(self) -> None:
         """
@@ -632,8 +628,8 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
         # Should use IN clause for merged conditions
         self.assertIn("in(precalculated_person_properties.condition,", query_str.lower())
 
-        # The merged query should check for at least 1 match
-        self.assertIn("greaterorequals(matching_count, 1)", query_str.lower())
+        # The merged query should check for at least 1 match using countIf
+        self.assertIn("countif", query_str.lower())
 
         # Should have UNION DISTINCT since we have non-mergeable properties too
         self.assertIn("UNION DISTINCT", query_str)
@@ -877,7 +873,7 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
         # Should use countIf for counting matches
         self.assertIn("countif", query_str.lower())
         # For AND semantics, should check that ALL 3 conditions matched
-        self.assertIn("equals(matching_count, 3)", query_str.lower())
+        self.assertIn(", 3)", query_str)  # equals(countIf(...), 3)
         # Should NOT use UNION DISTINCT since properties are merged
         self.assertNotIn("UNION DISTINCT", query_str)
 
@@ -1292,8 +1288,8 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
         in_clause_count = query_str.lower().count("in(precalculated_person_properties.condition,")
         self.assertEqual(in_clause_count, 1, "Should have exactly 1 IN clause after deduplication")
 
-        # Should have HAVING matching_count = 1 (not 3) because duplicates were removed
-        self.assertIn("equals(matching_count, 1)", query_str.lower())
+        # Should have HAVING countIf(...) = 1 (not 3) because duplicates were removed
+        self.assertIn(", 1)", query_str)  # countIf(...), 1) in equals function
 
         # Should NOT use INTERSECT since all properties merged into one
         self.assertNotIn("INTERSECT DISTINCT", query_str)

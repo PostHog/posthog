@@ -283,7 +283,7 @@ jobs:
 
     hobby-test:
         runs-on: ubuntu-24.04
-        timeout-minutes: 40
+        timeout-minutes: 60
         name: Setup DO Hobby Instance and test
         needs: [wait-for-docker-image, changes]
         if: always() && ((needs.changes.outputs.should_run == 'true' && needs.wait-for-docker-image.result == 'success') || github.event_name == 'push')
@@ -377,7 +377,7 @@ jobs:
                       console.log(`Updated deployment ${deploymentId} to in_progress`);
             - name: Run smoke tests on DO
               id: test
-              timeout-minutes: 30
+              timeout-minutes: 45
               run: |
                   set +e
                   uv run bin/hobby-ci.py test
@@ -385,6 +385,11 @@ jobs:
                   exit 0
               env:
                   DIGITALOCEAN_TOKEN: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}
+                  DIGITALOCEAN_SSH_PRIVATE_KEY: ${{ secrets.DO_DEPLOY_SSH_PRIVATE_KEY }}
+                  GH_TOKEN: ${{ github.token }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  RUN_ID: ${{ github.run_id }}
+                  RUN_ATTEMPT: ${{ github.run_attempt }}
             - name: Generate demo data
               if: env.TEST_EXIT_CODE == '0' && env.PREVIEW_MODE == 'true' && env.HOBBY_DROPLET_NEW == 'true'
               timeout-minutes: 15

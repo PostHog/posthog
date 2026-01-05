@@ -1,39 +1,27 @@
-import { actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
+import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
-import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { dateStringToDayJs } from 'lib/utils'
-import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
-import { NodeKind } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
-import { Breadcrumb, ChartDisplayType, InsightLogicProps } from '~/types'
+import {
+    EndpointsUsageBreakdown,
+    EndpointsUsageOverviewQuery,
+    EndpointsUsageTableQuery,
+    EndpointsUsageTrendsQuery,
+    NodeKind,
+} from '~/queries/schema/schema-general'
+import { EndpointType, IntervalType } from '~/types'
 
-import {
-    EndpointsUsageQueryTile,
-    EndpointsUsageTileId,
-    INITIAL_DATE_FROM,
-    INITIAL_DATE_TO,
-    INITIAL_REQUEST_NAME_BREAKDOWN_ENABLED,
-} from './common'
+import { endpointsLogic } from './endpointsLogic'
 import type { endpointsUsageLogicType } from './endpointsUsageLogicType'
-import {
-    createApiCpuSecondsQuery,
-    createApiQueriesCountQuery,
-    createApiQueriesPerKeyQuery,
-    createApiReadTbQuery,
-    createExpensiveQueriesColumns,
-    createExpensiveQueriesQuery,
-    createFailedQueriesColumns,
-    createFailedQueriesQuery,
-    createLast20QueriesColumns,
-    createLast20QueriesQuery,
-} from './queries'
+
+export const INITIAL_DATE_FROM = '-7d'
+export const INITIAL_DATE_TO = null as string | null
+export const INITIAL_INTERVAL: IntervalType = 'day'
 
 export interface EndpointsUsageLogicProps {
     tabId: string
@@ -43,15 +31,16 @@ export const endpointsUsageLogic = kea<endpointsUsageLogicType>([
     path(['products', 'endpoints', 'frontend', 'endpointsUsageLogic']),
     props({} as EndpointsUsageLogicProps),
     key((props) => props.tabId),
-    connect(() => ({
-        values: [sceneLogic, ['sceneKey']],
+    connect(({ tabId }: EndpointsUsageLogicProps) => ({
+        values: [endpointsLogic({ tabId }), ['allEndpoints', 'allEndpointsLoading']],
     })),
 
     actions({
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
-        setRequestNameFilter: (requestNameFilter: string[]) => ({ requestNameFilter }),
-        setRequestNameBreakdownEnabled: (requestNameBreakdownEnabled: boolean) => ({ requestNameBreakdownEnabled }),
-        setSearch: (search: string) => ({ search }),
+        setEndpointFilter: (endpointFilter: string[]) => ({ endpointFilter }),
+        setMaterializationType: (materializationType: 'materialized' | 'inline' | null) => ({ materializationType }),
+        setInterval: (interval: IntervalType) => ({ interval }),
+        setBreakdownBy: (breakdownBy: EndpointsUsageBreakdown | null) => ({ breakdownBy }),
     }),
 
     reducers({
@@ -64,362 +53,190 @@ export const endpointsUsageLogic = kea<endpointsUsageLogicType>([
                 setDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
             },
         ],
-        requestNameFilter: [
+        endpointFilter: [
             [] as string[],
             {
-                setRequestNameFilter: (_, { requestNameFilter }) => requestNameFilter,
+                setEndpointFilter: (_, { endpointFilter }) => endpointFilter,
             },
         ],
-        requestNameBreakdownEnabled: [
-            INITIAL_REQUEST_NAME_BREAKDOWN_ENABLED as boolean,
+        materializationType: [
+            null as 'materialized' | 'inline' | null,
             {
-                setRequestNameBreakdownEnabled: (_, { requestNameBreakdownEnabled }) => requestNameBreakdownEnabled,
+                setMaterializationType: (_, { materializationType }) => materializationType,
             },
         ],
-        search: ['', { setSearch: (_, { search }) => search }],
-    }),
-
-    loaders({
-        requestNames: [
-            [] as string[],
+        interval: [
+            INITIAL_INTERVAL as IntervalType,
             {
-                loadRequestNames: async () => {
-                    const query = hogql`
-                        SELECT DISTINCT name
-                        FROM query_log
-                        WHERE is_personal_api_key_request
-                            AND endpoint like '%endpoints/%/run'
-                            AND name IS NOT NULL
-                            AND name != ''
-                        ORDER BY name ASC
-                    `
-
-                    const response = await api.queryHogQL(
-                        query,
-                        { scene: 'EndpointsUsage', productKey: 'endpoints' },
-                        { refresh: 'force_blocking' }
-                    )
-
-                    return response.results?.map((row: string[]) => row[0]) || []
-                },
+                setInterval: (_, { interval }) => interval,
+            },
+        ],
+        breakdownBy: [
+            null as EndpointsUsageBreakdown | null,
+            {
+                setBreakdownBy: (_, { breakdownBy }) => breakdownBy,
             },
         ],
     }),
 
     selectors({
-        activeTab: [
-            (s) => [s.sceneKey],
-            (sceneKey: string) => {
-                if (sceneKey === 'endpointsUsage') {
-                    return 'usage'
-                }
-                return 'endpoints'
-            },
+        endpointNames: [
+            (s) => [s.allEndpoints],
+            (allEndpoints: EndpointType[]): string[] =>
+                allEndpoints
+                    .filter((e) => e.last_executed_at)
+                    .map((e) => e.name)
+                    .sort(),
         ],
-        tiles: [
-            (s) => [s.dateFilter, s.requestNameBreakdownEnabled, s.requestNameFilter, s.activeTab],
-            (dateFilter, requestNameBreakdownEnabled, requestNameFilter, activeTab): EndpointsUsageQueryTile[] => {
-                if (activeTab === 'endpoints') {
-                    return []
-                }
-
+        endpointNamesLoading: [(s) => [s.allEndpointsLoading], (loading: boolean): boolean => loading],
+        dateRange: [
+            (s) => [s.dateFilter],
+            (dateFilter): { date_from: string | null; date_to: string | null } => {
                 const dateFromDayjs = dateStringToDayJs(dateFilter.dateFrom)
                 const dateToDayjs = dateFilter.dateTo ? dateStringToDayJs(dateFilter.dateTo) : null
 
-                const dateFrom = dateFromDayjs
-                    ? dateFromDayjs.format('YYYY-MM-DD')
-                    : dayjs().subtract(7, 'day').format('YYYY-MM-DD')
-
-                const dateTo = dateToDayjs ? dateToDayjs.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD')
-
-                const queryConfig = {
-                    dateFrom,
-                    dateTo,
-                    requestNameBreakdownEnabled,
-                    requestNameFilter,
+                return {
+                    date_from: dateFromDayjs?.format('YYYY-MM-DD') ?? dayjs().subtract(7, 'day').format('YYYY-MM-DD'),
+                    date_to: dateToDayjs?.format('YYYY-MM-DD') ?? null,
                 }
-
-                const expensiveQueriesColumns = createExpensiveQueriesColumns(requestNameBreakdownEnabled)
-                const last20QueriesColumns = createLast20QueriesColumns(requestNameBreakdownEnabled)
-                const failedQueriesColumns = createFailedQueriesColumns()
-
-                const apiQueriesCountQuery = createApiQueriesCountQuery(queryConfig)
-                const apiReadTbQuery = createApiReadTbQuery(queryConfig)
-                const apiCpuSecondsQuery = createApiCpuSecondsQuery(queryConfig)
-                const apiQueriesPerKeyQuery = createApiQueriesPerKeyQuery(queryConfig)
-                const last20QueriesQuery = createLast20QueriesQuery(queryConfig)
-                const expensiveQueriesQuery = createExpensiveQueriesQuery(queryConfig)
-                const failedQueriesQuery = createFailedQueriesQuery(queryConfig)
-
-                return [
-                    {
-                        kind: 'query',
-                        tileId: EndpointsUsageTileId.API_QUERIES_COUNT,
-                        title: 'Number of API requests per day',
-                        layout: {
-                            colSpanClassName: 'md:col-span-2',
-                        },
-                        query: {
-                            kind: NodeKind.DataVisualizationNode,
-                            source: {
-                                kind: NodeKind.HogQLQuery,
-                                query: apiQueriesCountQuery,
-                            },
-                            display: ChartDisplayType.ActionsBar,
-                            chartSettings: {
-                                xAxis: { column: 'event_date' },
-                                yAxis: [
-                                    {
-                                        column: 'number_of_queries',
-                                        settings: { formatting: { prefix: '', suffix: '' } },
-                                    },
-                                ],
-                                showLegend: requestNameBreakdownEnabled ? true : false,
-                                seriesBreakdownColumn: requestNameBreakdownEnabled ? 'name' : null,
-                            },
-                        },
-                        insightProps: {
-                            dashboardItemId: 'embedded_analytics_api_queries',
-                            cachedInsight: null,
-                        } as InsightLogicProps,
-                        canOpenInsight: false,
-                        canOpenModal: false,
-                    },
-                    {
-                        kind: 'query',
-                        tileId: EndpointsUsageTileId.API_READ_TB,
-                        title: 'TB read by API requests per day',
-                        layout: {
-                            colSpanClassName: 'md:col-span-2',
-                        },
-                        query: {
-                            kind: NodeKind.DataVisualizationNode,
-                            source: {
-                                kind: NodeKind.HogQLQuery,
-                                query: apiReadTbQuery,
-                            },
-                            display: ChartDisplayType.ActionsBar,
-                            chartSettings: {
-                                xAxis: { column: 'event_date' },
-                                yAxis: [
-                                    {
-                                        column: 'read_tb',
-                                        settings: { formatting: { prefix: '', suffix: '' } },
-                                    },
-                                ],
-                                showLegend: requestNameBreakdownEnabled ? true : false,
-                                seriesBreakdownColumn: requestNameBreakdownEnabled ? 'name' : null,
-                            },
-                        },
-                        insightProps: {
-                            dashboardItemId: 'embedded_analytics_read_tb',
-                            cachedInsight: null,
-                        } as InsightLogicProps,
-                        canOpenInsight: false,
-                        canOpenModal: false,
-                    },
-                    {
-                        kind: 'query',
-                        tileId: EndpointsUsageTileId.API_CPU_SECONDS,
-                        title: 'CPU seconds used by API requests per day',
-                        layout: {
-                            colSpanClassName: 'md:col-span-2',
-                        },
-                        query: {
-                            kind: NodeKind.DataVisualizationNode,
-                            source: {
-                                kind: NodeKind.HogQLQuery,
-                                query: apiCpuSecondsQuery,
-                            },
-                            display: ChartDisplayType.ActionsLineGraph,
-                            chartSettings: {
-                                xAxis: { column: 'event_date' },
-                                yAxis: [
-                                    {
-                                        column: 'cpu_sec',
-                                        settings: { formatting: { prefix: '', suffix: '' } },
-                                    },
-                                ],
-                                showLegend: requestNameBreakdownEnabled ? true : false,
-                                seriesBreakdownColumn: requestNameBreakdownEnabled ? 'name' : null,
-                            },
-                        },
-                        insightProps: {
-                            dashboardItemId: 'embedded_analytics_cpu_sec',
-                            cachedInsight: null,
-                        } as InsightLogicProps,
-                        canOpenInsight: false,
-                        canOpenModal: false,
-                    },
-                    {
-                        kind: 'query',
-                        tileId: EndpointsUsageTileId.API_QUERIES_PER_KEY,
-                        title: 'Number of API requests by personal api key per day',
-                        layout: {
-                            colSpanClassName: 'md:col-span-2',
-                        },
-                        query: {
-                            kind: NodeKind.DataVisualizationNode,
-                            source: {
-                                kind: NodeKind.HogQLQuery,
-                                query: apiQueriesPerKeyQuery,
-                            },
-                            display: ChartDisplayType.ActionsLineGraph,
-                            chartSettings: {
-                                xAxis: { column: 'event_date' },
-                                yAxis: [
-                                    {
-                                        column: 'total_queries',
-                                        settings: { formatting: { prefix: '', suffix: '' } },
-                                    },
-                                ],
-                                showLegend: true,
-                                seriesBreakdownColumn: 'api_key_label',
-                            },
-                        },
-                        insightProps: {
-                            dashboardItemId: 'embedded_analytics_queries_per_key',
-                            cachedInsight: null,
-                        } as InsightLogicProps,
-                        canOpenInsight: false,
-                        canOpenModal: false,
-                    },
-                    {
-                        kind: 'query',
-                        tileId: EndpointsUsageTileId.API_LAST_20_QUERIES,
-                        title: 'Last 20 API requests',
-                        layout: {
-                            colSpanClassName: 'md:col-span-full',
-                        },
-                        query: {
-                            kind: NodeKind.DataVisualizationNode,
-                            source: {
-                                kind: NodeKind.HogQLQuery,
-                                query: last20QueriesQuery,
-                            },
-                            display: ChartDisplayType.ActionsTable,
-                            tableSettings: {
-                                columns: last20QueriesColumns,
-                                conditionalFormatting: [],
-                            },
-                        },
-                        insightProps: {
-                            dashboardItemId: 'embedded_analytics_last_20_queries',
-                            cachedInsight: null,
-                        } as InsightLogicProps,
-                        canOpenInsight: false,
-                        canOpenModal: false,
-                    },
-                    {
-                        kind: 'query',
-                        tileId: EndpointsUsageTileId.API_EXPENSIVE_QUERIES,
-                        title: '25 most expensive API request queries',
-                        layout: {
-                            colSpanClassName: 'md:col-span-full',
-                        },
-                        query: {
-                            kind: NodeKind.DataVisualizationNode,
-                            source: {
-                                kind: NodeKind.HogQLQuery,
-                                query: expensiveQueriesQuery,
-                            },
-                            display: ChartDisplayType.ActionsTable,
-                            tableSettings: {
-                                columns: expensiveQueriesColumns,
-                                conditionalFormatting: [],
-                            },
-                        },
-                        insightProps: {
-                            dashboardItemId: 'embedded_analytics_expensive_queries',
-                            cachedInsight: null,
-                        } as InsightLogicProps,
-                        canOpenInsight: false,
-                        canOpenModal: false,
-                    },
-                    {
-                        kind: 'query',
-                        tileId: EndpointsUsageTileId.API_FAILED_QUERIES,
-                        title: 'Recently failed API request queries',
-                        layout: {
-                            colSpanClassName: 'md:col-span-full',
-                        },
-                        query: {
-                            kind: NodeKind.DataVisualizationNode,
-                            source: {
-                                kind: NodeKind.HogQLQuery,
-                                query: failedQueriesQuery,
-                            },
-                            display: ChartDisplayType.ActionsTable,
-                            tableSettings: {
-                                columns: failedQueriesColumns,
-                                conditionalFormatting: [],
-                            },
-                        },
-                        insightProps: {
-                            dashboardItemId: 'embedded_analytics_failed_queries',
-                            cachedInsight: null,
-                        } as InsightLogicProps,
-                        canOpenInsight: false,
-                        canOpenModal: false,
-                    },
-                ]
             },
         ],
 
-        breadcrumbs: [
-            (s) => [s.activeTab],
-            (): Breadcrumb[] => [
-                {
-                    key: 'Endpoints',
-                    name: 'Endpoints',
-                    iconType: 'endpoints',
-                },
-            ],
+        overviewQuery: [
+            (s) => [s.dateRange, s.endpointFilter, s.materializationType],
+            (dateRange, endpointFilter, materializationType): EndpointsUsageOverviewQuery => ({
+                kind: NodeKind.EndpointsUsageOverviewQuery,
+                dateRange,
+                endpointNames: endpointFilter.length > 0 ? endpointFilter : undefined,
+                materializationType,
+                compareFilter: { compare: true },
+            }),
         ],
-    }),
 
-    afterMount(({ actions }) => {
-        actions.loadRequestNames()
+        requestsTrendsQuery: [
+            (s) => [s.dateRange, s.endpointFilter, s.materializationType, s.interval, s.breakdownBy],
+            (dateRange, endpointFilter, materializationType, interval, breakdownBy): EndpointsUsageTrendsQuery => ({
+                kind: NodeKind.EndpointsUsageTrendsQuery,
+                dateRange,
+                endpointNames: endpointFilter.length > 0 ? endpointFilter : undefined,
+                materializationType,
+                metric: 'requests',
+                interval,
+                breakdownBy: breakdownBy ?? undefined,
+            }),
+        ],
+
+        bytesReadTrendsQuery: [
+            (s) => [s.dateRange, s.endpointFilter, s.materializationType, s.interval, s.breakdownBy],
+            (dateRange, endpointFilter, materializationType, interval, breakdownBy): EndpointsUsageTrendsQuery => ({
+                kind: NodeKind.EndpointsUsageTrendsQuery,
+                dateRange,
+                endpointNames: endpointFilter.length > 0 ? endpointFilter : undefined,
+                materializationType,
+                metric: 'bytes_read',
+                interval,
+                breakdownBy: breakdownBy ?? undefined,
+            }),
+        ],
+
+        cpuSecondsTrendsQuery: [
+            (s) => [s.dateRange, s.endpointFilter, s.materializationType, s.interval, s.breakdownBy],
+            (dateRange, endpointFilter, materializationType, interval, breakdownBy): EndpointsUsageTrendsQuery => ({
+                kind: NodeKind.EndpointsUsageTrendsQuery,
+                dateRange,
+                endpointNames: endpointFilter.length > 0 ? endpointFilter : undefined,
+                materializationType,
+                metric: 'cpu_seconds',
+                interval,
+                breakdownBy: breakdownBy ?? undefined,
+            }),
+        ],
+
+        queryDurationTrendsQuery: [
+            (s) => [s.dateRange, s.endpointFilter, s.materializationType, s.interval, s.breakdownBy],
+            (dateRange, endpointFilter, materializationType, interval, breakdownBy): EndpointsUsageTrendsQuery => ({
+                kind: NodeKind.EndpointsUsageTrendsQuery,
+                dateRange,
+                endpointNames: endpointFilter.length > 0 ? endpointFilter : undefined,
+                materializationType,
+                metric: 'query_duration',
+                interval,
+                breakdownBy: breakdownBy ?? undefined,
+            }),
+        ],
+
+        errorRateTrendsQuery: [
+            (s) => [s.dateRange, s.endpointFilter, s.materializationType, s.interval, s.breakdownBy],
+            (dateRange, endpointFilter, materializationType, interval, breakdownBy): EndpointsUsageTrendsQuery => ({
+                kind: NodeKind.EndpointsUsageTrendsQuery,
+                dateRange,
+                endpointNames: endpointFilter.length > 0 ? endpointFilter : undefined,
+                materializationType,
+                metric: 'error_rate',
+                interval,
+                breakdownBy: breakdownBy ?? undefined,
+            }),
+        ],
+
+        endpointTableQuery: [
+            (s) => [s.dateRange, s.endpointFilter, s.materializationType],
+            (dateRange, endpointFilter, materializationType): EndpointsUsageTableQuery => ({
+                kind: NodeKind.EndpointsUsageTableQuery,
+                dateRange,
+                endpointNames: endpointFilter.length > 0 ? endpointFilter : undefined,
+                materializationType,
+                breakdownBy: EndpointsUsageBreakdown.Endpoint,
+                orderBy: ['requests', 'DESC'],
+                limit: 100,
+            }),
+        ],
     }),
 
     tabAwareActionToUrl(({ values }) => {
         const actionToUrl = ({
             dateFilter = values.dateFilter,
-            requestNameBreakdownEnabled = values.requestNameBreakdownEnabled,
-            requestNameFilter = values.requestNameFilter,
+            endpointFilter = values.endpointFilter,
+            materializationType = values.materializationType,
+            interval = values.interval,
+            breakdownBy = values.breakdownBy,
         }): [string, Record<string, any> | undefined, string | undefined] | undefined => {
             const { dateFrom, dateTo } = dateFilter
             const searchParams = { ...router.values.searchParams }
 
-            if (values.activeTab == 'usage') {
-                if (dateFrom !== INITIAL_DATE_FROM) {
-                    searchParams.dateFrom = dateFrom
-                } else {
-                    delete searchParams.dateFrom
-                }
-
-                if (dateTo !== INITIAL_DATE_TO) {
-                    searchParams.dateTo = dateTo
-                } else {
-                    delete searchParams.dateTo
-                }
-
-                if (requestNameBreakdownEnabled !== INITIAL_REQUEST_NAME_BREAKDOWN_ENABLED) {
-                    searchParams.requestNameBreakdownEnabled = requestNameBreakdownEnabled
-                } else {
-                    delete searchParams.requestNameBreakdownEnabled
-                }
-
-                if (requestNameFilter.length > 0) {
-                    searchParams.requestNameFilter = requestNameFilter.join(',')
-                } else {
-                    delete searchParams.requestNameFilter
-                }
+            if (dateFrom !== INITIAL_DATE_FROM) {
+                searchParams.dateFrom = dateFrom
             } else {
                 delete searchParams.dateFrom
+            }
+
+            if (dateTo !== INITIAL_DATE_TO) {
+                searchParams.dateTo = dateTo
+            } else {
                 delete searchParams.dateTo
-                delete searchParams.requestNameBreakdownEnabled
-                delete searchParams.requestNameFilter
+            }
+
+            if (endpointFilter.length > 0) {
+                searchParams.endpointFilter = endpointFilter.join(',')
+            } else {
+                delete searchParams.endpointFilter
+            }
+
+            if (materializationType !== null) {
+                searchParams.materializationType = materializationType
+            } else {
+                delete searchParams.materializationType
+            }
+
+            if (interval !== INITIAL_INTERVAL) {
+                searchParams.interval = interval
+            } else {
+                delete searchParams.interval
+            }
+
+            if (breakdownBy !== null) {
+                searchParams.breakdownBy = breakdownBy
+            } else {
+                delete searchParams.breakdownBy
             }
 
             return [router.values.location.pathname, searchParams, router.values.location.hash]
@@ -427,19 +244,21 @@ export const endpointsUsageLogic = kea<endpointsUsageLogicType>([
 
         return {
             setDates: actionToUrl,
-            setRequestNameBreakdownEnabled: actionToUrl,
-            setRequestNameFilter: actionToUrl,
+            setEndpointFilter: actionToUrl,
+            setMaterializationType: actionToUrl,
+            setInterval: actionToUrl,
+            setBreakdownBy: actionToUrl,
         }
     }),
 
     tabAwareUrlToAction(({ actions }) => ({
         [urls.endpointsUsage()]: (_, searchParams) => {
-            const { dateFrom, dateTo, requestNameBreakdownEnabled, requestNameFilter } = searchParams
+            const { dateFrom, dateTo, endpointFilter, materializationType, interval, breakdownBy } = searchParams
             actions.setDates(dateFrom ?? INITIAL_DATE_FROM, dateTo ?? INITIAL_DATE_TO)
-            actions.setRequestNameBreakdownEnabled(
-                requestNameBreakdownEnabled ?? INITIAL_REQUEST_NAME_BREAKDOWN_ENABLED
-            )
-            actions.setRequestNameFilter(requestNameFilter ? requestNameFilter.split(',') : [])
+            actions.setEndpointFilter(endpointFilter ? endpointFilter.split(',') : [])
+            actions.setMaterializationType(materializationType ?? null)
+            actions.setInterval(interval ?? INITIAL_INTERVAL)
+            actions.setBreakdownBy(breakdownBy ?? null)
         },
     })),
 ])

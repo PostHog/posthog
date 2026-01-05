@@ -121,6 +121,10 @@ pub struct Config {
     #[envconfig(default = "102400")] // 100MB max bytes to prefetch (value is in KB)
     pub kafka_consumer_queued_max_messages_kbytes: u32,
 
+    // Partition worker channel buffer size for pipeline parallelism
+    #[envconfig(default = "10")]
+    pub partition_worker_channel_buffer_size: usize,
+
     #[envconfig(default = "120")] // 120 seconds (2 minutes)
     pub flush_interval_secs: u64,
 
@@ -131,14 +135,32 @@ pub struct Config {
     #[envconfig(from = "BIND_PORT", default = "8000")]
     pub port: u16,
 
+    //// Checkpoint configuration ////
+
+    // Checkpoint S3 remote storage bucket. If set, this also
+    // enables local successful checkpoints to be exported to S3
+    pub s3_bucket: Option<String>,
+
+    // Checkpoint S3 remote storage key prefix
+    #[envconfig(default = "deduplication-checkpoints")]
+    pub s3_key_prefix: String,
+
+    #[envconfig(default = "us-east-1")]
+    pub aws_region: String,
+
+    #[envconfig(default = "120")] // 2 minutes
+    pub s3_operation_timeout_secs: u64,
+
+    #[envconfig(default = "20")] // 20 seconds
+    pub s3_attempt_timeout_secs: u64,
+
     // Checkpoint configuration - integrated from checkpoint::config
     #[envconfig(default = "1800")] // 30 minutes in seconds
     pub checkpoint_interval_secs: u64,
 
-    #[envconfig(default = "1")] // delete local checkpoints older than this
-    pub max_checkpoint_retention_hours: u32,
-
-    #[envconfig(default = "8")] // max concurrent checkpoints to perform on single node
+    // max checkpoint attempts to perform on a single pod at once. each
+    // concurrent attempt is against a different locally assigned partition
+    #[envconfig(default = "8")]
     pub max_concurrent_checkpoints: usize,
 
     #[envconfig(default = "200")]
@@ -150,33 +172,36 @@ pub struct Config {
     #[envconfig(default = "1")]
     pub checkpoints_per_partition: usize,
 
-    #[envconfig(default = "/tmp/checkpoints")]
+    // Base directory where local checkpoints are created.
+    // cleaned up on success or failure
+    #[envconfig(default = "/tmp/local_checkpoints")]
     pub local_checkpoint_dir: String,
-
-    pub s3_bucket: Option<String>,
-
-    #[envconfig(default = "deduplication-checkpoints")]
-    pub s3_key_prefix: String,
 
     // how often to perform a full checkpoint vs. incremental
     // if 0, then we will always do full uploads
     #[envconfig(default = "0")]
     pub checkpoint_full_upload_interval: u32,
 
+    // Whether to enable checkpoint import from remote storage
+    #[envconfig(default = "false")]
+    pub checkpoint_import_enabled: bool,
+
+    // Whether to enable export to remote storage
+    // on successful local checkpoint attempts
+    #[envconfig(default = "false")]
+    pub checkpoint_export_enabled: bool,
+
+    // Number of historical recent checkpoints to attempt to import
+    // as fallbacks when most recent download fails or files are corrupted
+    #[envconfig(default = "10")]
+    pub checkpoint_import_attempt_depth: usize,
+
     // number of hours prior to "now" that the checkpoint import mechanism
     // will search for valid checkpoint attempts in a DR recovery scenario
     #[envconfig(default = "24")]
     pub checkpoint_import_window_hours: u32,
 
-    #[envconfig(default = "us-east-1")]
-    pub aws_region: String,
-
-    #[envconfig(default = "120")] // 2 minutes
-    pub s3_operation_timeout_secs: u64,
-
-    #[envconfig(default = "20")] // 20 seconds
-    pub s3_attempt_timeout_secs: u64,
-
+    //// End checkpoint config ////
     #[envconfig(default = "true")]
     pub export_prometheus: bool,
 
@@ -316,6 +341,16 @@ impl Config {
         // Try as raw integer
         s.parse::<u64>()
             .with_context(|| format!("Failed to parse storage capacity: '{s}'. Expected format: raw bytes, scientific notation, or units (1Gi, 1GB)"))
+    }
+
+    // Check multiple conditions for safe checkpoint export enablement
+    pub fn checkpoint_export_enabled(&self) -> bool {
+        !self.aws_region.is_empty() && self.s3_bucket.is_some() && self.checkpoint_export_enabled
+    }
+
+    // Check mulitple conditions for safe checkpoint import enablement
+    pub fn checkpoint_import_enabled(&self) -> bool {
+        !self.aws_region.is_empty() && self.s3_bucket.is_some() && self.checkpoint_import_enabled
     }
 
     /// Get checkpoint interval as Duration

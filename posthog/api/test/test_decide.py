@@ -2,10 +2,11 @@ import json
 import time
 import base64
 import random
-from typing import Optional
+from typing import Any, Optional
 
 import pytest
 from freezegun import freeze_time
+from inline_snapshot import snapshot
 from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest.mock import patch
 
@@ -16,7 +17,6 @@ from django.test import TestCase, TransactionTestCase, override_settings
 from django.test.client import Client
 from django.test.utils import CaptureQueriesContext
 
-from inline_snapshot import snapshot
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -71,11 +71,14 @@ def make_session_recording_decide_response(overrides: Optional[dict] = None) -> 
     }
 
 
+@pytest.mark.usefixtures("unittest_snapshot")
 class TestDecide(BaseTest, QueryMatchingTest):
     """
     Tests the `/decide` endpoint.
     We use Django's base test class instead of DRF's because we need granular control over the Content-Type sent over.
     """
+
+    snapshot: Any
 
     use_remote_config = False
 
@@ -4101,11 +4104,12 @@ class TestDecideRemoteConfig(TestDecide):
         ) as wrapped_get_config_via_token:
             response = self._post_decide(api_version=3)
             wrapped_get_config_via_token.assert_called_once()
-            request_id = response.json()["requestId"]
 
         # NOTE: If this changes it indicates something is wrong as we should keep this exact format
         # for backwards compatibility
-        assert response.json() == snapshot(
+        response_data = response.json()
+        request_id = response_data["requestId"]  # UUID that will change from run to run
+        assert response_data == snapshot(
             {
                 "supportedCompression": ["gzip", "gzip-js"],
                 "captureDeadClicks": False,

@@ -1280,7 +1280,7 @@ class ClickhouseTestMixin(QueryMatchingTest):
 
     @staticmethod
     def generalize_sql(value: str):
-        """Makes sure we can use inline_snapshot() for query SQL snapshots - swaps concrete team_id for placeholder."""
+        """Makes sure we can snapshot our SQL - swaps concrete team_id for placeholder."""
         if "team_id," in value:
             return re.sub(r"team_id, \d+", "team_id, <TEAM_ID>", value)
         return value
