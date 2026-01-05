@@ -67,7 +67,9 @@ class TestHogFlowBatchJob(TestCase):
         # Disconnect the signal temporarily to test it
         from django.db.models.signals import post_save
 
-        from products.workflows.backend.models.hog_flow_batch_job import handle_hog_flow_batch_job_created
+        from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import (
+            handle_hog_flow_batch_job_created,
+        )
 
         post_save.disconnect(handle_hog_flow_batch_job_created, sender=HogFlowBatchJob)
 
