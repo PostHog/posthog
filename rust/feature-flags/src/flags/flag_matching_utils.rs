@@ -131,7 +131,7 @@ pub fn calculate_hash(prefix: &str, hashed_identifier: &str, salt: &str) -> Resu
 /// Property name transformations:
 /// - `$browser` -> `$initial_browser`
 /// - `utm_source` -> `$initial_utm_source`
-fn populate_missing_initial_properties(properties: &mut HashMap<String, Value>) {
+pub fn populate_missing_initial_properties(properties: &mut HashMap<String, Value>) {
     let properties_to_add: Vec<(&str, Value)> = properties
         .iter()
         .filter_map(|(key, value)| {
@@ -350,8 +350,6 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     // Always add distinct_id to person properties to match Python implementation
     // This allows flags to filter on distinct_id even when no other person properties exist
     all_person_properties.insert("distinct_id".to_string(), Value::String(distinct_id));
-
-    populate_missing_initial_properties(&mut all_person_properties);
 
     flag_evaluation_state.set_person_properties(all_person_properties);
     person_processing_timer.fin();
