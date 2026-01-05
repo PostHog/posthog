@@ -1,0 +1,304 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls static %}
+
+{% block extrastyle %}
+{{ super }}
+<style>
+    .form-row {
+        margin-bottom: 15px;
+    }
+    .help {
+        font-size: 11px;
+        color: #666;
+    }
+    .submit-row {
+        margin-top: 30px;
+    }
+    .alert {
+        padding: 10px;
+        margin: 20px 0;
+        border-radius: 5px;
+    }
+    .alert-info {
+        background: #e3f2fd;
+        border: 1px solid #90caf9;
+        color: #1565c0;
+    }
+    .alert-warning {
+        background: #fff3cd;
+        border: 1px solid #ffc107;
+        color: #856404;
+    }
+    .preview-section {
+        margin-top: 20px;
+        padding: 15px;
+        background: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-radius: 5px;
+        display: none;
+    }
+    .preview-section.visible {
+        display: block;
+    }
+    .preview-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 10px;
+    }
+    .preview-table th,
+    .preview-table td {
+        padding: 8px;
+        text-align: left;
+        border-bottom: 1px solid #dee2e6;
+    }
+    .preview-table th {
+        background: #e9ecef;
+        font-weight: bold;
+    }
+    .preview-table tr:hover {
+        background: #f1f3f5;
+    }
+    .preview-error {
+        color: #dc3545;
+        margin-top: 10px;
+    }
+    .overwrite-warning {
+        margin-top: 15px;
+        padding: 10px;
+        background: #fff3cd;
+        border: 1px solid #ffc107;
+        border-radius: 5px;
+        color: #856404;
+    }
+    .overwrite-warning strong {
+        display: block;
+        margin-bottom: 8px;
+    }
+    .overwrite-warning ul {
+        margin: 8px 0 0 0;
+        padding-left: 20px;
+    }
+    select[multiple] {
+        width: 100%;
+        min-height: 200px;
+    }
+    .section-divider {
+        margin: 40px 0;
+        border-top: 2px solid #ddd;
+        padding-top: 30px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+{% if messages %}
+    {% for message in messages %}
+        <div class="alert alert-{{ message.tags }}">
+            {{ message }}
+        </div>
+    {% endfor %}
+{% endif %}
+
+<!-- Import Section -->
+<div>
+    <h2>Import Official Workflow Templates</h2>
+    
+    <div class="alert alert-info">
+        <strong>Note:</strong> Upload a JSON file containing global workflow template(s) to import. Only global templates can be imported. The file should be in the same format as exported templates. Team ID is automatically detected from the domain (us.posthog.com → team 2, eu.posthog.com → team 1). Existing templates will be automatically overwritten.
+    </div>
+
+    <form method="post" enctype="multipart/form-data" id="workflow-template-import-form">
+        {% csrf_token %}
+        
+        <fieldset class="module aligned">
+            <div class="form-row">
+                <label for="{{ import_form.json_file.id_for_label }}" class="required">
+                    {{ import_form.json_file.label }}:
+                </label>
+                {{ import_form.json_file }}
+                {% if import_form.json_file.help_text %}
+                    <p class="help">{{ import_form.json_file.help_text }}</p>
+                {% endif %}
+                {{ import_form.json_file.errors }}
+            </div>
+            
+            <div class="form-row">
+                <label for="{{ import_form.dry_run.id_for_label }}">
+                    {{ import_form.dry_run.label }}:
+                </label>
+                {{ import_form.dry_run }}
+                {% if import_form.dry_run.help_text %}
+                    <p class="help">{{ import_form.dry_run.help_text }}</p>
+                {% endif %}
+                {{ import_form.dry_run.errors }}
+            </div>
+        </fieldset>
+        
+        <div class="preview-section" id="preview-section">
+            <h3>Preview: Templates to be imported</h3>
+            <div id="preview-content"></div>
+        </div>
+
+        <div class="submit-row">
+            <input type="submit" value="Import Templates" class="default" />
+        </div>
+    </form>
+</div>
+
+<!-- Export Section -->
+<div class="section-divider">
+    <h2>Export Official Workflow Templates</h2>
+    
+    <div class="alert alert-info">
+        <strong>Note:</strong> Select one or more global workflow templates to export. Only global templates can be exported and imported. The exported JSON file includes all metadata and can be imported into another PostHog instance or used for backup purposes.
+    </div>
+
+    <form method="post" id="workflow-template-export-form">
+        {% csrf_token %}
+        
+        <fieldset class="module aligned">
+            <div class="form-row">
+                <label for="{{ export_form.template_ids.id_for_label }}" class="required">
+                    {{ export_form.template_ids.label }}:
+                </label>
+                {{ export_form.template_ids }}
+                {% if export_form.template_ids.help_text %}
+                    <p class="help">{{ export_form.template_ids.help_text }}</p>
+                {% endif %}
+                {{ export_form.template_ids.errors }}
+            </div>
+        </fieldset>
+        
+        <div class="submit-row">
+            <input type="submit" value="Export Templates" class="default" />
+        </div>
+    </form>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const fileInput = document.querySelector('#workflow-template-import-form input[name="json_file"]');
+    const previewSection = document.getElementById('preview-section');
+    const previewContent = document.getElementById('preview-content');
+
+    if (fileInput) {
+        fileInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) {
+                previewSection.classList.remove('visible');
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const jsonData = JSON.parse(e.target.result);
+                    const templates = Array.isArray(jsonData) ? jsonData : [jsonData];
+                    
+                    if (templates.length === 0) {
+                        previewContent.innerHTML = '<p class="preview-error">No templates found in file.</p>';
+                        previewSection.classList.add('visible');
+                        return;
+                    }
+
+                    // Separate global and non-global templates
+                    const globalTemplates = [];
+                    const nonGlobalTemplates = [];
+                    templates.forEach(function(template) {
+                        if (template.scope === 'global') {
+                            globalTemplates.push(template);
+                        } else {
+                            nonGlobalTemplates.push(template);
+                        }
+                    });
+
+                    let html = '<table class="preview-table">';
+                    html += '<thead><tr><th>ID</th><th>Name</th><th>Scope</th></tr></thead>';
+                    html += '<tbody>';
+                    
+                    const templatesWithIds = [];
+                    globalTemplates.forEach(function(template) {
+                        const id = template.id || '<em>New (no ID)</em>';
+                        const name = template.name || '<em>Unnamed</em>';
+                        const scope = template.scope || 'global';
+
+                        if (template.id) {
+                            templatesWithIds.push(template.id);
+                        }
+                        
+                        html += '<tr>';
+                        html += '<td>' + id + '</td>';
+                        html += '<td>' + name + '</td>';
+                        html += '<td>' + scope + '</td>';
+                        html += '</tr>';
+                    });
+                    
+                    html += '</tbody></table>';
+                    html += '<p><strong>Total to import:</strong> ' + globalTemplates.length + ' template(s)</p>';
+                    
+                    // Show warning for filtered templates
+                    if (nonGlobalTemplates.length > 0) {
+                        html += '<div class="overwrite-warning">';
+                        html += '<strong>⚠️ Warning: ' + nonGlobalTemplates.length + ' template(s) will not be imported because they are not official/global:</strong>';
+                        html += '<ul>';
+                        nonGlobalTemplates.forEach(function(template) {
+                            const id = template.id || '<em>No ID</em>';
+                            const name = template.name || '<em>Unnamed</em>';
+                            html += '<li><strong>ID:</strong> ' + id + ', <strong>Name:</strong> ' + name + '</li>';
+                        });
+                        html += '</ul>';
+                        html += '</div>';
+                    }
+                    
+                    // Check for existing templates if there are IDs (only check global templates)
+                    if (templatesWithIds.length > 0) {
+                        fetch('{% url "workflow-template-check-existing" %}', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                            },
+                            body: JSON.stringify({ template_ids: templatesWithIds })
+                        })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.existing && Object.keys(data.existing).length > 0) {
+                                let warningHtml = '<div class="overwrite-warning">';
+                                warningHtml += '<strong>⚠️ Warning: The following templates already exist and may be overwritten:</strong>';
+                                warningHtml += '<ul>';
+                                for (const [id, info] of Object.entries(data.existing)) {
+                                    warningHtml += '<li><strong>ID:</strong> ' + id + ', <strong>Name:</strong> ' + info.name + '</li>';
+                                }
+                                warningHtml += '</ul>';
+                                warningHtml += '<p>These templates will be automatically overwritten during import.</p>';
+                                warningHtml += '</div>';
+                                previewContent.innerHTML = html + warningHtml;
+                            } else {
+                                previewContent.innerHTML = html;
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error checking existing templates:', error);
+                            previewContent.innerHTML = html + '<p class="preview-error">Error checking for existing templates.</p>';
+                        });
+                    } else {
+                        previewContent.innerHTML = html;
+                    }
+                    previewSection.classList.add('visible');
+                } catch (error) {
+                    previewContent.innerHTML = '<p class="preview-error">Error parsing JSON: ' + error.message + '</p>';
+                    previewSection.classList.add('visible');
+                }
+            };
+            
+            reader.onerror = function() {
+                previewContent.innerHTML = '<p class="preview-error">Error reading file.</p>';
+                previewSection.classList.add('visible');
+            };
+            
+            reader.readAsText(file);
+        });
+    }
+});
+</script>
+{% endblock %}
