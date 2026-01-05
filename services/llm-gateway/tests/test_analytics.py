@@ -2,6 +2,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
+from fastapi.responses import StreamingResponse
 
 from llm_gateway.api.handler import ANTHROPIC_CONFIG, OPENAI_CONFIG, handle_llm_request
 from llm_gateway.auth.models import AuthenticatedUser
@@ -173,6 +174,7 @@ class TestAnalyticsCapture:
         )
 
         # Must consume stream to trigger finally block
+        assert isinstance(response, StreamingResponse)
         async for _ in response.body_iterator:
             pass
 
