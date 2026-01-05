@@ -9,18 +9,18 @@ Use this tool to create or update a dashboard with provided insights.
 # When NOT to use this tool
 - The user wants to save a single insight.
 
-# CRITICAL: Understanding replace_insights behavior
-When updating a dashboard:
-- `replace_insights=False` (default): APPENDS the provided insights to the existing insights in the dashboard
-- `replace_insights=True`: REMOVES ALL existing insights and ONLY keeps the insights you provide
+# Understanding replace_insights behavior
+The `replace_insights` parameter controls how new insights relate to existing ones:
 
-**IMPORTANT**: To replace a single insight while keeping all others, you MUST:
-1. Set `replace_insights=True`
-2. Provide ALL insight IDs (both existing ones to keep AND the new/replacement ones)
+- `replace_insights=False` (default): Adds the provided insights to the end of the dashboard, preserving all existing insights
+- `replace_insights=True`: Replaces the entire insight list with exactly what you provide in `insight_ids`
 
-**Example**: If a dashboard has insights [A, B, C] and the user wants to replace B with D:
-- CORRECT: `replace_insights=True`, `insight_ids=[A, D, C]`
-- WRONG: `replace_insights=True`, `insight_ids=[D]` (this REMOVES A and C!)
+When `replace_insights=True`, the dashboard will contain only the insights you specify. This means if you want to swap one insight while keeping others, you need to include all the insights you want to remain.
+
+Example: A dashboard currently has insights [A, B, C]. The user wants to replace insight B with insight D.
+- With `replace_insights=True` and `insight_ids=[A, D, C]`, the dashboard will have [A, D, C]
+- With `replace_insights=True` and `insight_ids=[D]`, the dashboard will have only [D] (A and C are removed)
+- With `replace_insights=False` and `insight_ids=[D]`, the dashboard will have [A, B, C, D]
 """.strip()
 
 
