@@ -4,6 +4,7 @@ import { AnthropicInputMessage, OpenAICompletionMessage } from './types'
 import {
     formatLLMEventTitle,
     getSessionID,
+    getSessionStartTimestamp,
     looksLikeXml,
     normalizeMessage,
     normalizeMessages,
@@ -11,6 +12,16 @@ import {
 } from './utils'
 
 describe('LLM Analytics utils', () => {
+    describe('getSessionStartTimestamp', () => {
+        it.each([
+            ['2024-01-15T12:00:00Z', '2024-01-14T12:00:00Z'],
+            ['2024-01-01T00:00:00Z', '2023-12-31T00:00:00Z'],
+            ['2024-03-01T06:30:00Z', '2024-02-29T06:30:00Z'],
+        ])('subtracts 24 hours from %s to get %s', (input, expected) => {
+            expect(getSessionStartTimestamp(input)).toBe(expected)
+        })
+    })
+
     it('normalizeOutputMessage: parses OpenAI message', () => {
         const message: OpenAICompletionMessage = {
             role: 'assistant',
