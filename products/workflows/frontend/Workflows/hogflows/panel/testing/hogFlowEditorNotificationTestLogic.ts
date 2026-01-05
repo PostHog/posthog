@@ -59,6 +59,9 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
         setSampleGlobalsError: (error: string | null) => ({ error }),
         setTestResult: (testResult: HogflowTestResult | null) => ({ testResult }),
         setNextActionId: (nextActionId: string | null) => ({ nextActionId }),
+        savePerson: (distinctId: string) => ({ distinctId }),
+        loadSavedPerson: true,
+        clearSavedPerson: true,
     }),
     reducers({
         personSelectorOpen: [
@@ -229,6 +232,9 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
     listeners(({ actions, values }) => ({
         loadSamplePersonByDistinctId: async ({ distinctId }) => {
             try {
+                // Save to localStorage for persistence
+                actions.savePerson(distinctId)
+
                 // First, get the person by distinct_id
                 const personResponse = await api.persons.list({ distinct_id: distinctId, limit: 1 })
                 if (!personResponse?.results?.[0]) {
@@ -304,7 +310,11 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
             }
         },
         loadSamplePersonsSuccess: ({ samplePersons }) => {
-            if (samplePersons.length > 0 && !values.sampleGlobals) {
+            // Only auto-load first person if we don't have a saved person and no globals yet
+            const storageKey = `hogflow-test-person-${values.workflow.id}`
+            const savedDistinctId = localStorage.getItem(storageKey)
+
+            if (samplePersons.length > 0 && !values.sampleGlobals && !savedDistinctId) {
                 const firstPerson = samplePersons[0]
                 const distinctId = firstPerson.distinct_ids?.[0]
                 if (distinctId) {
@@ -340,9 +350,36 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
                 actions.setEmailAddressOverride(sampleGlobals.person.properties.email)
             }
         },
+        savePerson: ({ distinctId }) => {
+            // Save the distinct ID to localStorage
+            const storageKey = `hogflow-test-person-${values.workflow.id}`
+            localStorage.setItem(storageKey, distinctId)
+        },
+        loadSavedPerson: () => {
+            // Load saved person from localStorage
+            const storageKey = `hogflow-test-person-${values.workflow.id}`
+            const savedDistinctId = localStorage.getItem(storageKey)
+            if (savedDistinctId) {
+                actions.loadSamplePersonByDistinctId({ distinctId: savedDistinctId })
+            }
+        },
+        clearSavedPerson: () => {
+            // Clear saved person from localStorage
+            const storageKey = `hogflow-test-person-${values.workflow.id}`
+            localStorage.removeItem(storageKey)
+        },
     })),
-    afterMount(({ actions }) => {
-        // Load sample persons on mount
+    afterMount(({ actions, values }) => {
+        // Check if we have a saved person first
+        const storageKey = `hogflow-test-person-${values.workflow.id}`
+        const savedDistinctId = localStorage.getItem(storageKey)
+
+        if (savedDistinctId) {
+            // If we have a saved person, load it directly
+            actions.loadSamplePersonByDistinctId({ distinctId: savedDistinctId })
+        }
+
+        // Always load sample persons for the dropdown
         actions.loadSamplePersons()
     }),
 ])
