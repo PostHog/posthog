@@ -89,3 +89,90 @@ class TestIsFinalExportAttempt(TestCase):
         self, exception: Exception, current_retries: int, max_retries: int, expected: bool
     ) -> None:
         assert _is_final_export_attempt(exception, current_retries, max_retries) == expected
+
+
+class TestExportAssetFailureRecording(APIBaseTest):
+    """Tests for failure recording behavior in export_asset task."""
+
+    @patch("posthog.tasks.exporter.export_asset_direct")
+    def test_non_retriable_error_records_failure_and_does_not_raise(self, mock_export_direct: MagicMock) -> None:
+        """
+        Test that non-retriable errors (like QueryError) record failure info
+        and do NOT re-raise the exception (swallowed to align with previous behavior).
+        """
+        mock_export_direct.side_effect = QueryError("Invalid query syntax")
+
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+        )
+
+        # Should NOT raise - non-retriable errors are swallowed
+        exporter.export_asset(asset.id)
+
+        asset.refresh_from_db()
+        assert asset.exception == "Invalid query syntax"
+        assert asset.exception_type == "QueryError"
+        assert asset.failure_type == "user"
+
+    @patch("posthog.tasks.exporter.export_asset_direct")
+    def test_retriable_error_raises_and_does_not_record_on_non_final_attempt(
+        self, mock_export_direct: MagicMock
+    ) -> None:
+        """
+        Test that retriable errors re-raise for Celery retry and do NOT record
+        failure info on non-final attempts.
+        """
+        mock_export_direct.side_effect = CHQueryErrorTooManySimultaneousQueries("Too many queries")
+
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+        )
+
+        # Should raise - retriable errors are re-raised for Celery retry
+        with pytest.raises(CHQueryErrorTooManySimultaneousQueries):
+            exporter.export_asset(asset.id)
+
+        asset.refresh_from_db()
+        # On first attempt (retries=0), failure should NOT be recorded yet
+        assert asset.exception is None
+        assert asset.exception_type is None
+        assert asset.failure_type is None
+
+    @patch("posthog.tasks.exporter._is_final_export_attempt", return_value=True)
+    @patch("posthog.tasks.exporter.export_asset_direct")
+    def test_retriable_error_records_failure_on_final_attempt_regression(
+        self, mock_export_direct: MagicMock, mock_is_final: MagicMock
+    ) -> None:
+        """
+        Regression test for bug where retriable errors never recorded failure info.
+
+        Previous buggy code:
+            if is_retriable:
+                raise  # <-- Would raise without recording failure!
+
+            exported_asset.exception = str(e)
+            exported_asset.exception_type = type(e).__name__
+            exported_asset.save()
+
+        This meant retriable errors that exhausted all retries would leave
+        the ExportedAsset with no exception/exception_type/failure_type set.
+
+        The fix ensures failure info is recorded on the final attempt before re-raising.
+        """
+        mock_export_direct.side_effect = CHQueryErrorTooManySimultaneousQueries("ClickHouse overloaded")
+
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+        )
+
+        with pytest.raises(CHQueryErrorTooManySimultaneousQueries):
+            exporter.export_asset(asset.id)
+
+        asset.refresh_from_db()
+        # CRITICAL: These fields would have been None with the old buggy code
+        assert asset.exception is not None, "Bug regression: exception not recorded for retriable error"
+        assert asset.exception_type == "CHQueryErrorTooManySimultaneousQueries"
+        assert asset.failure_type == "system"

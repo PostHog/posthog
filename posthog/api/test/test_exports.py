@@ -831,6 +831,42 @@ class TestExports(APIBaseTest):
             )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
+    @patch("posthog.tasks.exporter.export_asset_direct")
+    def test_synchronous_export_records_failure_on_query_error(self, mock_export_direct) -> None:
+        """Test that synchronous exports record failure info when a QueryError occurs."""
+        from posthog.hogql.errors import QueryError
+
+        mock_export_direct.side_effect = QueryError("Unknown table 'nonexistent_table'")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {"export_format": "image/png", "insight": self.insight.id},
+        )
+
+        # Should return 201 even though the export failed internally
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+
+        # Reload the asset and verify failure info was recorded
+        asset = ExportedAsset.objects.get(pk=data["id"])
+        self.assertEqual(asset.exception, "Unknown table 'nonexistent_table'")
+        self.assertEqual(asset.exception_type, "QueryError")
+        self.assertEqual(asset.failure_type, "user")
+
+    @patch("posthog.tasks.exporter.export_asset_direct")
+    def test_synchronous_export_raises_retriable_errors(self, mock_export_direct) -> None:
+        """Test that retriable errors are re-raised during synchronous export, causing a 500."""
+        from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+
+        mock_export_direct.side_effect = CHQueryErrorTooManySimultaneousQueries("Too many queries")
+
+        # Retriable errors should propagate and cause a 500 (re-raised for retry)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {"export_format": "image/png", "insight": self.insight.id},
+        )
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 class TestExportMixin(APIBaseTest):
     def _get_export_output(self, path: str) -> list[str]:
