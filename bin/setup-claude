@@ -6,46 +6,6 @@ if [ "$CLAUDE_CODE_REMOTE" != "true" ]; then
 fi
 
 # Install flox
-echo "Installing flox in remote environment..."
+echo "Installing dependencies in remote environment..."
 
-# Detect OS and architecture
-if [ -f /etc/os-release ]; then
-  . /etc/os-release
-  OS=$ID
-else
-  OS=$(uname -s)
-fi
-
-ARCH=$(uname -m)
-
-# Install based on OS
-if [ "$OS" = "ubuntu" ] || [ "$OS" = "debian" ]; then
-  echo "Detected Debian/Ubuntu, installing via .deb package..."
-
-  # Get latest version
-  FLOX_VERSION=$(curl -s https://downloads.flox.dev/by-env/stable/LATEST_VERSION)
-  echo "Latest flox version: ${FLOX_VERSION}"
-
-  # Download and install .deb package
-  FLOX_DEB="flox-${FLOX_VERSION}.${ARCH}-linux.deb"
-  wget -O "/tmp/${FLOX_DEB}" "https://downloads.flox.dev/by-env/stable/deb/${FLOX_DEB}"
-  if [ ! -s "/tmp/${FLOX_DEB}" ]; then
-    echo "❌ Unsupported architecture: ${ARCH}"
-    exit 1
-  fi
-  sudo dpkg -i "/tmp/${FLOX_DEB}"
-  rm "/tmp/${FLOX_DEB}"
-else
-  # Fall back to generic installer for other systems
-  echo "Skipping flox installation for non-Debian/Ubuntu systems"
-  exit 0
-fi
-
-# Activate flox environment for Claude session
-if [ -n "$CLAUDE_ENV_FILE" ]; then
-  echo 'export PATH="$HOME/.flox/bin:$PATH"' >> "$CLAUDE_ENV_FILE"
-fi
-
-# Run a no-op command within flox to trigger dependency installation (on-first-use hook)
-echo "Installing flox dependencies..."
-FLOX_DISABLE_METRICS=true timeout --foreground 60 flox activate -- echo "Flox is ready" 2>&1 || echo "Warning: flox activation timed out or failed (exit code: $?)"
+uv sync & pnpm install & wait
