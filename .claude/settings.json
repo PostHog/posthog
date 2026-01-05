@@ -6,16 +6,8 @@
                 "hooks": [
                     {
                         "type": "command",
-                        "command": "bin/setup-claude"
-                    }
-                ]
-            },
-            {
-                "matcher": "resume",
-                "hooks": [
-                    {
-                        "type": "command",
-                        "command": "bin/setup-claude"
+                        "command": "bin/setup-claude",
+                        "timeout": 300
                     }
                 ]
             }
