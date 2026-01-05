@@ -103,6 +103,6 @@ def _fallback_title(description: str) -> str:
     first_line = clean_desc.split("\n")[0] if clean_desc else ""
 
     if len(first_line) <= 60:
-        return first_line or "Untitled task"
+        return first_line or "Untitled Task"
 
     return first_line[:57] + "..."
