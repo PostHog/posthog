@@ -34,7 +34,7 @@ def DISTINCT_ID_USAGE_DATA_TABLE_SQL():
         DISTINCT_ID_USAGE_TABLE_BASE_SQL
         + """
 PARTITION BY toYYYYMMDD(minute)
-ORDER BY (team_id, distinct_id, minute)
+ORDER BY (team_id, minute, distinct_id)
 {ttl}
 """
     ).format(
