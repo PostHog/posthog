@@ -603,7 +603,13 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                         product_suggestion: DigestProductSuggestion | None = None
                         raw_suggestion: str | None = await r.get(f"{input.digest.key}-product-suggestion-{user.id}")
                         if raw_suggestion:
-                            product_suggestion = DigestProductSuggestion.model_validate_json(raw_suggestion)
+                            try:
+                                product_suggestion = DigestProductSuggestion.model_validate_json(raw_suggestion)
+                            except ValidationError:
+                                logger.warning(
+                                    "Failed to parse product suggestion, skipping...",
+                                    user_id=user.id,
+                                )
 
                         payload = user_specific_digest.render_payload(
                             input.digest,
