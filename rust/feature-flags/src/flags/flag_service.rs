@@ -439,15 +439,15 @@ mod tests {
                 .map(|i| FeatureFlag {
                     id: i,
                     team_id: team.id,
-                    name: Some(format!("Test Flag {} with a longer name for size", i)),
-                    key: format!("test_flag_{}_with_extra_chars_for_larger_payload", i),
+                    name: Some(format!("Test Flag {i} with a longer name for size")),
+                    key: format!("test_flag_{i}_with_extra_chars_for_larger_payload"),
                     deleted: false,
                     active: i % 2 == 0,
                     filters: FlagFilters {
                         groups: vec![FlagPropertyGroup {
                             properties: Some(vec![PropertyFilter {
-                                key: format!("property_key_{}", i),
-                                value: Some(serde_json::json!(format!("value_{}", i))),
+                                key: format!("property_key_{i}"),
+                                value: Some(serde_json::json!(format!("value_{i}"))),
                                 operator: Some(OperatorType::Exact),
                                 prop_type: PropertyType::Person,
                                 group_type_index: None,
