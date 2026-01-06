@@ -16,6 +16,7 @@ from posthog.schema import (
     ExperimentTrendsQuery,
 )
 
+from ee.api.rbac.access_control import AccessControlViewSetMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
