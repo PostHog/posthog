@@ -257,3 +257,45 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         # Verify it lists valid ProductKey values in the error message
         valid_keys = list(ProductKey)
         self.assertIn(valid_keys[0].value, error_message)  # Check at least one valid key is mentioned
+
+    def test_conversations_settings_merges_with_existing(self):
+        self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"conversations_settings": {"widget_greeting_text": "Hello!"}},
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"conversations_settings": {"widget_color": "#ff0000"}},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        settings = response.json()["conversations_settings"]
+        self.assertEqual(settings["widget_greeting_text"], "Hello!")
+        self.assertEqual(settings["widget_color"], "#ff0000")
+
+    def test_enabling_conversations_auto_generates_token(self):
+        self.team.conversations_enabled = False
+        self.team.conversations_settings = None
+        self.team.save()
+
+        response = self.client.patch(f"/api/projects/{self.project.id}/", {"conversations_enabled": True})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        settings = response.json()["conversations_settings"]
+        self.assertIsNotNone(settings)
+        self.assertIsNotNone(settings.get("widget_public_token"))
+        self.assertGreater(len(settings["widget_public_token"]), 20)
+
+    def test_generate_conversations_public_token(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.post(f"/api/projects/{self.project.id}/generate_conversations_public_token/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        settings = response.json()["conversations_settings"]
+        self.assertIsNotNone(settings.get("widget_public_token"))
+
+    def test_generate_conversations_public_token_requires_admin(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.post(f"/api/projects/{self.project.id}/generate_conversations_public_token/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

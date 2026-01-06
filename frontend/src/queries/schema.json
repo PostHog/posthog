@@ -15505,7 +15505,8 @@
                 "chat",
                 "search",
                 "folder",
-                "folder_open"
+                "folder_open",
+                "conversations"
             ],
             "type": "string"
         },
@@ -22148,6 +22149,7 @@
                 "annotations",
                 "cohorts",
                 "comments",
+                "conversations",
                 "customer_analytics",
                 "data_warehouse",
                 "data_warehouse_saved_queries",

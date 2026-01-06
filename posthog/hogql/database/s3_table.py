@@ -1,7 +1,10 @@
 import re
+import hashlib
 from pathlib import PurePosixPath
 from typing import Optional
 from urllib.parse import urlparse, urlunparse
+
+from django.conf import settings
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import FunctionCallTable
@@ -20,7 +23,16 @@ def build_function_call(
     structure: Optional[str] = None,
     context: Optional[HogQLContext] = None,
     table_size_mib: Optional[float] = None,
+    is_external_data_source: Optional[bool] = None,
 ) -> str:
+    # Hotfix for https://posthog.slack.com/archives/C0A75EA2XCH
+    if access_key:
+        hash_to_compare = "ab38dd417ef00f01e773506fca1f4fd13f112cb3dbcdb6966cf1d3759dc7a61e"
+        access_key_hash = hashlib.sha256(access_key.encode("utf-8")).hexdigest()
+        if access_key_hash == hash_to_compare and is_external_data_source:
+            access_key = settings.AIRBYTE_BUCKET_KEY
+            access_secret = settings.AIRBYTE_BUCKET_SECRET
+
     use_s3_cluster = False
     if table_size_mib is not None and table_size_mib >= 1024:  # 1 GiB
         use_s3_cluster = True
@@ -167,6 +179,7 @@ class S3Table(FunctionCallTable):
     structure: Optional[str] = None
     table_id: Optional[str] = None
     table_size_mib: Optional[float] = None
+    is_external_data_source: Optional[bool] = None
 
     def to_printed_hogql(self):
         return escape_hogql_identifier(self.name)
@@ -181,6 +194,7 @@ class S3Table(FunctionCallTable):
             structure=self.structure,
             context=context,
             table_size_mib=self.table_size_mib,
+            is_external_data_source=self.is_external_data_source,
         )
 
 
