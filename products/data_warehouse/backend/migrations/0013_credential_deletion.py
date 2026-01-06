@@ -11,20 +11,38 @@ class Migration(migrations.Migration):
     operations = [
         migrations.RunSQL(
             """
-BEGIN;
-    CREATE TEMP TABLE dwh_tmp_creds AS
-        SELECT DISTINCT credential_id
-        FROM posthog_datawarehousetable
-        WHERE external_data_source_id IS NOT NULL
-        AND credential_id IS NOT NULL;
+DO $$
+DECLARE
+    batch_size   INTEGER := 10000;
+    rows_loaded  INTEGER;
+BEGIN
+    CREATE TEMP TABLE dwh_tmp_creds (
+        credential_id uuid
+    ) ON COMMIT DROP;
 
-    UPDATE posthog_datawarehousetable t
-    SET credential_id = NULL
-    WHERE t.credential_id IN (SELECT credential_id FROM dwh_tmp_creds);
+    LOOP
+        TRUNCATE dwh_tmp_creds;
 
-    DELETE FROM posthog_datawarehousecredential c
-    WHERE c.id IN (SELECT credential_id FROM dwh_tmp_creds);
-COMMIT;""",
+        INSERT INTO dwh_tmp_creds (credential_id)
+            SELECT DISTINCT credential_id
+            FROM posthog_datawarehousetable
+            WHERE external_data_source_id IS NOT NULL
+            AND credential_id IS NOT NULL
+            LIMIT batch_size;
+
+        GET DIAGNOSTICS rows_loaded = ROW_COUNT;
+        EXIT WHEN rows_loaded = 0;
+
+        UPDATE posthog_datawarehousetable t
+        SET credential_id = NULL
+        WHERE t.credential_id IN (SELECT credential_id FROM dwh_tmp_creds);
+
+        DELETE FROM posthog_datawarehousecredential c
+        WHERE c.id IN (SELECT credential_id FROM dwh_tmp_creds);
+
+        PERFORM pg_sleep(0.1);
+    END LOOP;
+END $$;""",
             reverse_sql=migrations.RunSQL.noop,
         )
     ]

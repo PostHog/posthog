@@ -85,7 +85,7 @@ class DeletingCredentialsMigrationTest(NonAtomicTestMigrations):
             team=team, access_key="key3", access_secret="secret3"
         )
 
-        # Credential 4: Used by table WITH external_data_source_id but credential_id is NULL (should be kept)
+        # Credential 4: Orphaned credential not used by any table
         self.credentials["to_keep_2"] = DataWarehouseCredential.objects.create(
             team=team, access_key="key4", access_secret="secret4"
         )
@@ -184,11 +184,13 @@ class DeletingCredentialsMigrationTest(NonAtomicTestMigrations):
     )
     def test_tables_without_credential_remain_unchanged(self, table_key, expected_credential):
         """Tables without credential_id should remain unchanged"""
+
         table = self.DataWarehouseTable.objects.get(id=self.tables[table_key].id)
         self.assertEqual(table.credential_id, expected_credential)
 
     def test_table_without_source_keeps_credential(self):
         """Tables without external_data_source_id should keep their credential_id"""
+
         table = self.DataWarehouseTable.objects.get(id=self.tables["no_source_with_cred"].id)
         self.assertEqual(table.credential_id, self.credentials["to_keep_1"].id)
 
@@ -206,6 +208,7 @@ class DeletingCredentialsMigrationTest(NonAtomicTestMigrations):
     @parameterized.expand(
         [
             ("to_keep_1",),
+            ("to_keep_2",),
             ("unused",),
         ]
     )
