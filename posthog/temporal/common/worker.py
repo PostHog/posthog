@@ -1,14 +1,15 @@
 import datetime as dt
+import itertools
 import collections.abc
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from http.server import HTTPServer
 
+from prometheus_client import REGISTRY
 from temporalio.runtime import MetricBuffer, Runtime, TelemetryConfig
 from temporalio.worker import ResourceBasedSlotConfig, UnsandboxedWorkflowRunner, Worker, WorkerTuner
 
 from posthog.temporal.common.client import connect
-from posthog.temporal.common.combined_metrics_server import start_combined_metrics_server
+from posthog.temporal.common.combined_metrics_server import CombinedMetricsServer
 from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
 
@@ -18,25 +19,45 @@ logger = get_write_only_logger()
 
 
 @dataclass
-class WorkerResources:
-    """Container for worker and associated resources that may need cleanup."""
+class ManagedWorker:
+    """A Temporal worker bundled with its associated resources for unified lifecycle management."""
 
     worker: Worker
-    metrics_server: HTTPServer
+    metrics_server: CombinedMetricsServer
 
-    def shutdown_metrics_server(self) -> None:
-        """Explicitly shutdown the metrics server."""
-        self.metrics_server.shutdown()
+    async def run(self) -> None:
+        self.metrics_server.start()
+        await self.worker.run()
+
+    def is_shutdown(self) -> bool:
+        return self.worker.is_shutdown
+
+    async def shutdown(self) -> None:
+        await self.worker.shutdown()
+        self.metrics_server.stop()
 
 
 # Buffer size for Temporal metrics - should be large enough to hold all metrics between scrapes
-METRIC_BUFFER_SIZE = 10000
+METRIC_BUFFER_SIZE = 25000
 
 # Custom histogram bucket overrides for specific metrics
-HISTOGRAM_BUCKET_OVERRIDES: dict[str, tuple[float, ...]] = {
-    # Activity attempts are typically small integers (1-10 retries)
-    "batch_exports_activity_attempt": (1.0, 5.0, 10.0, 100.0, float("inf")),
-}
+BATCH_EXPORTS_LATENCY_HISTOGRAM_METRICS = (
+    "batch_exports_activity_execution_latency",
+    "batch_exports_activity_interval_execution_latency",
+    "batch_exports_workflow_interval_execution_latency",
+)
+BATCH_EXPORTS_LATENCY_HISTOGRAM_BUCKETS = [
+    1_000.0,
+    30_000.0,  # 30 seconds
+    60_000.0,  # 1 minute
+    300_000.0,  # 5 minutes
+    900_000.0,  # 15 minutes
+    1_800_000.0,  # 30 minutes
+    3_600_000.0,  # 1 hour
+    21_600_000.0,  # 6 hours
+    43_200_000.0,  # 12 hours
+    86_400_000.0,  # 24 hours
+]
 
 
 async def create_worker(
@@ -57,8 +78,8 @@ async def create_worker(
     use_pydantic_converter: bool = False,
     target_memory_usage: float | None = None,
     target_cpu_usage: float | None = None,
-) -> WorkerResources:
-    """Connect to Temporal server and return a WorkerResources containing the Worker and metrics server.
+) -> ManagedWorker:
+    """Connect to Temporal server and return a ManagedWorker containing the Worker and metrics server.
 
     Arguments:
         host: The Temporal Server host.
@@ -99,11 +120,18 @@ async def create_worker(
         )
     )
 
-    metrics_server = start_combined_metrics_server(
+    metrics_server = CombinedMetricsServer(
         port=metrics_port,
         metric_buffer=metric_buffer,
+        registry=REGISTRY,
         metric_prefix=metric_prefix or "",
-        histogram_bucket_overrides=HISTOGRAM_BUCKET_OVERRIDES,
+        histogram_bucket_overrides=dict(
+            zip(
+                BATCH_EXPORTS_LATENCY_HISTOGRAM_METRICS,
+                itertools.repeat(BATCH_EXPORTS_LATENCY_HISTOGRAM_BUCKETS),
+            )
+        )
+        | {"batch_exports_activity_attempt": [1.0, 5.0, 10.0, 100.0]},
     )
     client = await connect(
         host,
@@ -153,4 +181,4 @@ async def create_worker(
             max_heartbeat_throttle_interval=dt.timedelta(seconds=5),
         )
 
-    return WorkerResources(worker=worker, metrics_server=metrics_server)
+    return ManagedWorker(worker=worker, metrics_server=metrics_server)

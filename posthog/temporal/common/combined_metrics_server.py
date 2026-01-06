@@ -2,7 +2,8 @@ import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Union
 
-from prometheus_client import REGISTRY, CollectorRegistry, Counter, Gauge, Histogram, generate_latest
+from posthoganalytics import capture_exception
+from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, generate_latest
 from temporalio.runtime import (
     BUFFERED_METRIC_KIND_COUNTER,
     BUFFERED_METRIC_KIND_GAUGE,
@@ -53,14 +54,15 @@ class TemporalMetricsCollector:
     def __init__(
         self,
         metric_buffer: MetricBuffer,
+        registry: CollectorRegistry,
         metric_prefix: str = "",
         histogram_bucket_overrides: dict[str, tuple[float, ...]] | None = None,
-        registry: CollectorRegistry | None = None,
     ):
         self._metric_buffer = metric_buffer
+        self._registry = registry
         self._metric_prefix = metric_prefix
         self._histogram_bucket_overrides = histogram_bucket_overrides or {}
-        self._registry = registry or REGISTRY
+
         self._metrics: dict[str, Union[Counter, Gauge, Histogram]] = {}
         self._lock = threading.Lock()
 
@@ -110,6 +112,7 @@ class TemporalMetricsCollector:
                 updates = self._metric_buffer.retrieve_updates()
             except Exception as e:
                 logger.warning("temporal_metrics_collector.retrieve_failed", error=str(e))
+                capture_exception(e)
                 return
 
             for update in updates:
@@ -138,89 +141,100 @@ class TemporalMetricsCollector:
                         metric_name=update.metric.name,
                         error=str(e),
                     )
+                    capture_exception(e)
 
 
-class CombinedMetricsHandler(BaseHTTPRequestHandler):
-    """HTTP handler that serves combined Temporal SDK and prometheus_client metrics."""
+def create_handler(collector: TemporalMetricsCollector, registry: CollectorRegistry) -> type[BaseHTTPRequestHandler]:
+    class CombinedMetricsHandler(BaseHTTPRequestHandler):
+        """HTTP handler that serves combined Temporal SDK and prometheus_client metrics."""
 
-    temporal_collector: TemporalMetricsCollector | None = None
-    registry: CollectorRegistry = REGISTRY
+        def do_GET(self) -> None:
+            if self.path in ("/metrics", "/"):
+                self._serve_combined_metrics()
+            else:
+                self.send_response(404)
+                self.end_headers()
 
-    def do_GET(self) -> None:
-        if self.path in ("/metrics", "/"):
-            self._serve_combined_metrics()
-        else:
-            self.send_response(404)
-            self.end_headers()
+        def _serve_combined_metrics(self) -> None:
+            try:
+                # Collect latest Temporal metrics from the buffer before serving
+                collector.collect_updates()
 
-    def _serve_combined_metrics(self) -> None:
-        try:
-            # Collect latest Temporal metrics from the buffer before serving
-            if self.temporal_collector:
-                self.temporal_collector.collect_updates()
+                # All metrics (Temporal + app) are now in prometheus_client registry
+                output = generate_latest(registry)
 
-            # All metrics (Temporal + app) are now in prometheus_client registry
-            output = generate_latest(self.registry)
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(output)
 
-            self.send_response(200)
-            self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-            self.end_headers()
-            self.wfile.write(output)
+            except Exception as e:
+                logger.exception("combined_metrics_server.error", error=str(e))
+                capture_exception(e)
+                self.send_response(500)
+                self.end_headers()
+                self.wfile.write(f"Error: {e}".encode())
 
-        except Exception as e:
-            logger.exception("combined_metrics_server.error", error=str(e))
-            self.send_response(500)
-            self.end_headers()
-            self.wfile.write(f"Error: {e}".encode())
+        def log_message(self, format: str, *args: object) -> None:
+            logger.debug(
+                "combined_metrics_server.request",
+                message=format % args,
+                client_address=self.client_address[0],
+            )
 
-    def log_message(self, format: str, *args: object) -> None:
-        pass
+    return CombinedMetricsHandler
 
 
-def start_combined_metrics_server(
-    port: int,
-    metric_buffer: MetricBuffer,
-    metric_prefix: str = "",
-    histogram_bucket_overrides: dict[str, tuple[float, ...]] | None = None,
-    registry: CollectorRegistry | None = None,
-) -> HTTPServer:
-    """Start a metrics server combining Temporal SDK and prometheus_client metrics.
+class CombinedMetricsServer:
+    """Metrics server combining Temporal SDK and prometheus_client metrics.
 
-    This uses Temporal's MetricBuffer to access metrics directly without any HTTP
+    Uses Temporal's MetricBuffer to access metrics directly without any HTTP
     calls. All metrics are served from a single prometheus_client registry.
-
-    Args:
-        port: Port to expose combined metrics on (e.g., 8001)
-        metric_buffer: The MetricBuffer instance configured in Temporal's Runtime
-        metric_prefix: Prefix to apply to Temporal metric names (e.g., "temporal_")
-        histogram_bucket_overrides: Optional dict mapping metric names (without prefix)
-            to custom bucket tuples for histogram metrics
-        registry: Optional CollectorRegistry to use. Defaults to the global REGISTRY.
-            Useful for test isolation.
-
-    Returns:
-        The HTTPServer instance
     """
-    effective_registry = registry or REGISTRY
-    collector = TemporalMetricsCollector(
-        metric_buffer,
-        metric_prefix=metric_prefix,
-        histogram_bucket_overrides=histogram_bucket_overrides,
-        registry=effective_registry,
-    )
 
-    handler = CombinedMetricsHandler
-    handler.temporal_collector = collector
-    handler.registry = effective_registry
+    def __init__(
+        self,
+        port: int,
+        metric_buffer: MetricBuffer,
+        registry: CollectorRegistry,
+        metric_prefix: str = "",
+        histogram_bucket_overrides: dict[str, tuple[float, ...]] | None = None,
+    ):
+        self._port = port
+        self._metric_prefix = metric_prefix
+        self._collector = TemporalMetricsCollector(
+            metric_buffer,
+            registry,
+            metric_prefix=metric_prefix,
+            histogram_bucket_overrides=histogram_bucket_overrides,
+        )
+        self._handler = create_handler(self._collector, registry)
+        self._server: HTTPServer | None = None
+        self._thread: threading.Thread | None = None
 
-    server = HTTPServer(("0.0.0.0", port), handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True, name="combined-metrics-server")
-    thread.start()
+    def start(self) -> None:
+        if self._server is not None:
+            raise RuntimeError("Server already started")
 
-    logger.info(
-        "combined_metrics_server.started",
-        port=port,
-        metric_prefix=metric_prefix,
-    )
+        self._server = HTTPServer(("0.0.0.0", self._port), self._handler)  # type: ignore[arg-type]
+        self._thread = threading.Thread(
+            target=self._server.serve_forever,
+            daemon=True,
+            name="combined-metrics-server",
+        )
+        self._thread.start()
 
-    return server
+        logger.info(
+            "combined_metrics_server.started",
+            port=self._port,
+            metric_prefix=self._metric_prefix,
+        )
+
+    def stop(self) -> None:
+        if self._server is None:
+            return
+
+        self._server.shutdown()
+        self._server = None
+        self._thread = None
+        logger.info("combined_metrics_server.stopped")

@@ -15,8 +15,8 @@ from temporalio.runtime import (
 
 from posthog.temporal.common.combined_metrics_server import (
     DEFAULT_HISTOGRAM_BUCKETS,
+    CombinedMetricsServer,
     TemporalMetricsCollector,
-    start_combined_metrics_server,
 )
 
 
@@ -145,12 +145,13 @@ class TestCombinedMetricsServer:
     def test_serves_combined_metrics(self, mock_metric_buffer, test_counter, isolated_registry):
         port = get_free_port()
 
-        server = start_combined_metrics_server(
+        server = CombinedMetricsServer(
             port=port,
             metric_buffer=mock_metric_buffer,
             metric_prefix="test_",
             registry=isolated_registry,
         )
+        server.start()
 
         try:
             url = f"http://127.0.0.1:{port}/metrics"
@@ -163,19 +164,20 @@ class TestCombinedMetricsServer:
             # Check prometheus_client metrics
             assert test_counter in content
         finally:
-            server.shutdown()
+            server.stop()
 
     def test_serves_metrics_when_buffer_empty(self, test_counter, isolated_registry):
         port = get_free_port()
         empty_buffer = MagicMock(spec=MetricBuffer)
         empty_buffer.retrieve_updates.return_value = []
 
-        server = start_combined_metrics_server(
+        server = CombinedMetricsServer(
             port=port,
             metric_buffer=empty_buffer,
             metric_prefix="empty_",
             registry=isolated_registry,
         )
+        server.start()
 
         try:
             url = f"http://127.0.0.1:{port}/metrics"
@@ -187,17 +189,18 @@ class TestCombinedMetricsServer:
             # But prometheus_client metrics should still be there
             assert test_counter in content
         finally:
-            server.shutdown()
+            server.stop()
 
     def test_returns_404_for_unknown_paths(self, mock_metric_buffer, isolated_registry):
         port = get_free_port()
 
-        server = start_combined_metrics_server(
+        server = CombinedMetricsServer(
             port=port,
             metric_buffer=mock_metric_buffer,
             metric_prefix="test_",
             registry=isolated_registry,
         )
+        server.start()
 
         try:
             url = f"http://127.0.0.1:{port}/unknown"
@@ -206,17 +209,18 @@ class TestCombinedMetricsServer:
 
             assert exc_info.value.code == 404
         finally:
-            server.shutdown()
+            server.stop()
 
     def test_root_path_serves_metrics(self, mock_metric_buffer, test_counter, isolated_registry):
         port = get_free_port()
 
-        server = start_combined_metrics_server(
+        server = CombinedMetricsServer(
             port=port,
             metric_buffer=mock_metric_buffer,
             metric_prefix="test_",
             registry=isolated_registry,
         )
+        server.start()
 
         try:
             url = f"http://127.0.0.1:{port}/"
@@ -226,7 +230,7 @@ class TestCombinedMetricsServer:
             assert "test_workflow_completed" in content
             assert test_counter in content
         finally:
-            server.shutdown()
+            server.stop()
 
 
 class TestDefaultHistogramBuckets:
