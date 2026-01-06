@@ -139,12 +139,13 @@ describe('processEvent', () => {
         if (isOkResult(res)) {
             // Create the event
             const createEventStep = createCreateEventStep()
-            const { person, preparedEvent, processPerson, historicalMigration } = res.value
+            const { person, preparedEvent, processPerson, historicalMigration, team: resultTeam } = res.value
             const createResult = await createEventStep({
                 person,
                 preparedEvent,
                 processPerson,
                 historicalMigration,
+                team: resultTeam,
                 inputHeaders: createTestEventHeaders(),
                 inputMessage: createTestMessage(),
             })
@@ -298,12 +299,13 @@ describe('processEvent', () => {
         if (isOkResult(res)) {
             // Create the event
             const createEventStep = createCreateEventStep()
-            const { person, preparedEvent, processPerson, historicalMigration } = res.value
+            const { person, preparedEvent, processPerson, historicalMigration, team: resultTeam } = res.value
             const createResult = await createEventStep({
                 person,
                 preparedEvent,
                 processPerson,
                 historicalMigration,
+                team: resultTeam,
                 inputHeaders: createTestEventHeaders(),
                 inputMessage: createTestMessage(),
             })

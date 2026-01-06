@@ -3,7 +3,16 @@ import { Counter } from 'prom-client'
 
 import { Properties } from '@posthog/plugin-scaffold'
 
-import { Element, Person, PersonMode, PreIngestionEvent, RawKafkaEvent, TimestampFormat } from '../../types'
+import {
+    EAVEventProperty,
+    Element,
+    Person,
+    PersonMode,
+    PreIngestionEvent,
+    RawKafkaEvent,
+    Team,
+    TimestampFormat,
+} from '../../types'
 import { safeClickhouseString } from '../../utils/db/utils'
 import { elementsToString, extractElements } from '../../utils/elements-chain'
 import { logger } from '../../utils/logger'
@@ -16,6 +25,11 @@ const elementsOrElementsChainCounter = new Counter({
     help: 'Number of times elements or elements_chain appears on event',
     labelNames: ['type'],
 })
+
+export interface CreateEventResult {
+    event: RawKafkaEvent
+    eavProperties: EAVEventProperty[]
+}
 
 export function getElementsChain(properties: Properties): string {
     /*
@@ -48,8 +62,9 @@ export function createEvent(
     person: Person,
     processPerson: boolean,
     historicalMigration: boolean,
-    capturedAt: Date | null
-): RawKafkaEvent {
+    capturedAt: Date | null,
+    team?: Team | null
+): CreateEventResult {
     const { eventUuid: uuid, event, teamId, projectId, distinctId, properties, timestamp } = preIngestionEvent
 
     let elementsChain = ''
@@ -111,5 +126,139 @@ export function createEvent(
         ...(historicalMigration ? { historical_migration: true } : {}),
     }
 
-    return rawEvent
+    let eavProperties: EAVEventProperty[] = []
+    if (team) {
+        extractDynamicMaterializedColumns(rawEvent, properties, team)
+        eavProperties = extractEAVProperties(preIngestionEvent, properties, team)
+    }
+
+    return { event: rawEvent, eavProperties }
+}
+
+function extractDynamicMaterializedColumns(rawEvent: RawKafkaEvent, properties: Properties, team: Team): void {
+    if (!team.materialized_column_slots || team.materialized_column_slots.length === 0) {
+        return
+    }
+
+    for (const slot of team.materialized_column_slots) {
+        // Only process DMAT slots in READY or BACKFILL state
+        if (slot.materialization_type !== 'dmat') {
+            continue
+        }
+        if (slot.state !== 'READY' && slot.state !== 'BACKFILL') {
+            continue
+        }
+
+        const propertyValue = properties[slot.property_name]
+        if (propertyValue === undefined || propertyValue === null) {
+            continue
+        }
+
+        const columnName = `dmat_${slot.slot_property_type}_${slot.slot_index}` as keyof RawKafkaEvent
+        const convertedValue = convertPropertyValue(propertyValue, slot.slot_property_type)
+
+        if (convertedValue !== null) {
+            ;(rawEvent as any)[columnName] = convertedValue
+        }
+    }
+}
+
+function extractEAVProperties(
+    preIngestionEvent: PreIngestionEvent,
+    properties: Properties,
+    team: Team
+): EAVEventProperty[] {
+    if (!team.materialized_column_slots || team.materialized_column_slots.length === 0) {
+        return []
+    }
+
+    const eavProperties: EAVEventProperty[] = []
+    const { eventUuid: uuid, event, teamId, distinctId, timestamp } = preIngestionEvent
+    const timestampStr = castTimestampOrNow(timestamp, TimestampFormat.ClickHouse)
+
+    for (const slot of team.materialized_column_slots) {
+        // Only process EAV slots in READY or BACKFILL state
+        if (slot.materialization_type !== 'eav') {
+            continue
+        }
+        if (slot.state !== 'READY' && slot.state !== 'BACKFILL') {
+            continue
+        }
+
+        const propertyValue = properties[slot.property_name]
+        if (propertyValue === undefined || propertyValue === null) {
+            continue
+        }
+
+        const eavProperty: EAVEventProperty = {
+            team_id: teamId,
+            timestamp: timestampStr,
+            event: safeClickhouseString(event),
+            distinct_id: safeClickhouseString(distinctId),
+            uuid: uuid,
+            key: slot.property_name,
+            value_string: null,
+            value_numeric: null,
+            value_bool: null,
+            value_datetime: null,
+        }
+
+        // Set the appropriate value column based on property type
+        switch (slot.slot_property_type) {
+            case 'string':
+                eavProperty.value_string = String(propertyValue)
+                break
+            case 'numeric':
+                const numValue = parseFloat(propertyValue)
+                if (!isNaN(numValue)) {
+                    eavProperty.value_numeric = numValue
+                }
+                break
+            case 'bool':
+                const strValue = String(propertyValue).toLowerCase()
+                if (strValue === 'true' || strValue === '1') {
+                    eavProperty.value_bool = 1
+                } else if (strValue === 'false' || strValue === '0') {
+                    eavProperty.value_bool = 0
+                }
+                break
+            case 'datetime':
+                eavProperty.value_datetime = String(propertyValue)
+                break
+        }
+
+        eavProperties.push(eavProperty)
+    }
+
+    return eavProperties
+}
+
+function convertPropertyValue(
+    value: any,
+    propertyType: 'string' | 'numeric' | 'bool' | 'datetime'
+): string | number | null {
+    try {
+        switch (propertyType) {
+            case 'string':
+                return String(value)
+            case 'numeric':
+                const numValue = parseFloat(value)
+                return isNaN(numValue) ? null : numValue
+            case 'bool':
+                const strValue = String(value).toLowerCase()
+                if (strValue === 'true' || strValue === '1') {
+                    return 1
+                }
+                if (strValue === 'false' || strValue === '0') {
+                    return 0
+                }
+                return null
+            case 'datetime':
+                return value
+            default:
+                return null
+        }
+    } catch {
+        return null
+    }
 }

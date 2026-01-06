@@ -1,8 +1,9 @@
 import { Message } from 'node-rdkafka'
 
 import { ingestionLagGauge, ingestionLagHistogram } from '../../common/metrics'
+import { KAFKA_CLICKHOUSE_EVENT_PROPERTIES } from '../../config/kafka-topics'
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { EventHeaders, RawKafkaEvent } from '../../types'
+import { EAVEventProperty, EventHeaders, RawKafkaEvent } from '../../types'
 import { MessageSizeTooLarge } from '../../utils/db/error'
 import { eventProcessedAndIngestedCounter } from '../../worker/ingestion/event-pipeline/metrics'
 import { captureIngestionWarning } from '../../worker/ingestion/utils'
@@ -17,6 +18,7 @@ export interface EmitEventStepConfig {
 
 export interface EmitEventStepInput {
     eventToEmit: RawKafkaEvent
+    eavPropertiesToEmit?: EAVEventProperty[]
     inputHeaders: EventHeaders
     inputMessage: Message
 }
@@ -25,7 +27,7 @@ export function createEmitEventStep<T extends EmitEventStepInput>(
     config: EmitEventStepConfig
 ): ProcessingStep<T, void> {
     return function emitEventStep(input: T): Promise<PipelineResult<void>> {
-        const { eventToEmit, inputHeaders, inputMessage } = input
+        const { eventToEmit, eavPropertiesToEmit, inputHeaders, inputMessage } = input
         const { kafkaProducer, clickhouseJsonEventsTopic, groupId } = config
 
         // Record ingestion lag metric if we have the required data
@@ -36,6 +38,8 @@ export function createEmitEventStep<T extends EmitEventStepInput>(
                 .set(lag)
             ingestionLagHistogram.labels({ groupId, partition: String(inputMessage.partition) }).observe(lag)
         }
+
+        const sideEffects: Promise<unknown>[] = []
 
         // TODO: It's not great that we put the produce outcome in side effects, we should probably await it here
         //       but it might slow the pipeline down. Historically, it has always been like that.
@@ -67,7 +71,21 @@ export function createEmitEventStep<T extends EmitEventStepInput>(
                 }
             })
 
-        return Promise.resolve(ok(undefined, [emitPromise]))
+        sideEffects.push(emitPromise)
+
+        // Produce EAV properties to the EAV Kafka topic
+        if (eavPropertiesToEmit && eavPropertiesToEmit.length > 0) {
+            for (const eavProperty of eavPropertiesToEmit) {
+                const eavEmitPromise = kafkaProducer.produce({
+                    topic: KAFKA_CLICKHOUSE_EVENT_PROPERTIES,
+                    key: `${eavProperty.uuid}-${eavProperty.key}`,
+                    value: Buffer.from(JSON.stringify(eavProperty)),
+                })
+                sideEffects.push(eavEmitPromise)
+            }
+        }
+
+        return Promise.resolve(ok(undefined, sideEffects))
     }
 }
 

@@ -599,6 +599,16 @@ export interface RawOrganization {
 // NOTE: We don't need to list all options here - only the ones we use
 export type OrganizationAvailableFeature = 'group_analytics' | 'data_pipelines' | 'zapier'
 
+/** Materialized column slot assignment for a team. */
+export interface MaterializedColumnSlot {
+    property_definition_id: string
+    property_name: string
+    slot_index: number
+    slot_property_type: 'string' | 'numeric' | 'bool' | 'datetime'
+    state: 'READY' | 'BACKFILL' | 'ERROR'
+    materialization_type: 'dmat' | 'eav'
+}
+
 /** Usable Team model. */
 export interface Team {
     id: number
@@ -622,6 +632,8 @@ export interface Team {
     // This is parsed as a join from the org table
     available_features: OrganizationAvailableFeature[]
     drop_events_older_than_seconds: number | null
+    // This is parsed as a join from the materialized column slots table
+    materialized_column_slots: MaterializedColumnSlot[]
 }
 
 /** Properties shared by RawEventMessage and EventMessage. */
@@ -692,6 +704,46 @@ export interface RawClickHouseEvent extends BaseEvent {
     group4_created_at?: ClickHouseTimestamp
     person_mode: PersonMode
     historical_migration?: boolean
+    dmat_string_0?: string
+    dmat_string_1?: string
+    dmat_string_2?: string
+    dmat_string_3?: string
+    dmat_string_4?: string
+    dmat_string_5?: string
+    dmat_string_6?: string
+    dmat_string_7?: string
+    dmat_string_8?: string
+    dmat_string_9?: string
+    dmat_numeric_0?: number
+    dmat_numeric_1?: number
+    dmat_numeric_2?: number
+    dmat_numeric_3?: number
+    dmat_numeric_4?: number
+    dmat_numeric_5?: number
+    dmat_numeric_6?: number
+    dmat_numeric_7?: number
+    dmat_numeric_8?: number
+    dmat_numeric_9?: number
+    dmat_bool_0?: number
+    dmat_bool_1?: number
+    dmat_bool_2?: number
+    dmat_bool_3?: number
+    dmat_bool_4?: number
+    dmat_bool_5?: number
+    dmat_bool_6?: number
+    dmat_bool_7?: number
+    dmat_bool_8?: number
+    dmat_bool_9?: number
+    dmat_datetime_0?: string | number | Date
+    dmat_datetime_1?: string | number | Date
+    dmat_datetime_2?: string | number | Date
+    dmat_datetime_3?: string | number | Date
+    dmat_datetime_4?: string | number | Date
+    dmat_datetime_5?: string | number | Date
+    dmat_datetime_6?: string | number | Date
+    dmat_datetime_7?: string | number | Date
+    dmat_datetime_8?: string | number | Date
+    dmat_datetime_9?: string | number | Date
 }
 
 export interface RawKafkaEvent extends RawClickHouseEvent {
@@ -700,6 +752,20 @@ export interface RawKafkaEvent extends RawClickHouseEvent {
      * That's because we need it in `property-defs-rs` and not elsewhere.
      */
     project_id: ProjectId
+}
+
+/** EAV (Entity-Attribute-Value) event property for the event_properties table. */
+export interface EAVEventProperty {
+    team_id: number
+    timestamp: string
+    event: string
+    distinct_id: string
+    uuid: string
+    key: string
+    value_string: string | null
+    value_numeric: number | null
+    value_bool: number | null
+    value_datetime: string | null
 }
 
 /** Parsed event row from ClickHouse. */

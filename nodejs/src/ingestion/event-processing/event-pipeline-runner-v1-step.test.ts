@@ -54,8 +54,11 @@ const createTestTeam = (overrides: Partial<Team> = {}): Team => ({
     timezone: 'UTC',
     available_features: [],
     drop_events_older_than_seconds: null,
+    materialized_column_slots: [],
     ...overrides,
 })
+
+const testTeam = createTestTeam()
 
 const createTestEventPipelineResult = (): EventPipelineResult => ({
     lastStep: 'test-step',
@@ -77,6 +80,7 @@ const createTestEventPipelineResult = (): EventPipelineResult => ({
     },
     processPerson: true,
     historicalMigration: false,
+    team: testTeam,
 })
 
 describe('event-pipeline-runner-v1-step', () => {
