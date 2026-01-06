@@ -173,7 +173,7 @@ jobs:
                   docker compose -f docker-compose.dev.yml up -d &
 
             - name: Set up Python
-              uses: actions/setup-python@v6
+              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
               with:
                   python-version: 3.12.12
 
@@ -668,7 +668,7 @@ jobs:
               run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
             - name: Set up Python
-              uses: actions/setup-python@v6
+              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
               with:
                   python-version: ${{ matrix.python-version }}
 
@@ -1062,7 +1062,7 @@ jobs:
                   docker compose -f docker-compose.dev.yml up -d &
 
             - name: Set up Python
-              uses: actions/setup-python@v6
+              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
               with:
                   python-version-file: 'pyproject.toml'
 
@@ -1169,7 +1169,7 @@ jobs:
             - uses: actions/checkout@v4
 
             - name: Set up Python
-              uses: actions/setup-python@v6
+              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
               with:
                   python-version: '3.12'
 
