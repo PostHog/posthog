@@ -158,7 +158,10 @@ jobs:
             - name: Run dependency detection script tests
               shell: bash
               run: |
-                  pytest bin/test/test_find_python_dependencies.py -v
+                  uv sync --project bin
+                  # Override addopts from pytest.ini since it contains Django-specific flags (--reuse-db)
+                  # that aren't available in the bin project's minimal test environment
+                  uv run --project bin pytest bin/test/test_find_python_dependencies.py -v -o "addopts="
 
             # - name: Check if "taxonomy.json/taxonomy.tsx" is up to date
             #   if: needs.changes.outputs.python == 'true'

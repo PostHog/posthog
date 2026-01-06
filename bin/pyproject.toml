@@ -6,3 +6,9 @@ requires-python = ">=3.11"
 dependencies = [
     "grimp==3.13",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "parameterized",
+]
