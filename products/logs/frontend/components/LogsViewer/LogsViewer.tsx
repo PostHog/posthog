@@ -5,7 +5,7 @@ import { TZLabelProps } from 'lib/components/TZLabel'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
-import { DateRange } from '~/queries/schema/schema-general'
+import { DateRange, LogsSparklineBreakdownBy } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { VirtualizedLogsList } from 'products/logs/frontend/components/VirtualizedLogsList/VirtualizedLogsList'
@@ -35,6 +35,8 @@ export interface LogsViewerProps {
     sparklineData: LogsSparklineData
     sparklineLoading: boolean
     onDateRangeChange: (dateRange: DateRange) => void
+    sparklineBreakdownBy: LogsSparklineBreakdownBy
+    onSparklineBreakdownByChange: (breakdownBy: LogsSparklineBreakdownBy) => void
 }
 
 export function LogsViewer({
@@ -51,6 +53,8 @@ export function LogsViewer({
     sparklineData,
     sparklineLoading,
     onDateRangeChange,
+    sparklineBreakdownBy,
+    onSparklineBreakdownByChange,
 }: LogsViewerProps): JSX.Element {
     return (
         <BindLogic logic={logsViewerLogic} props={{ tabId, logs, orderBy, onAddFilter }}>
@@ -65,6 +69,8 @@ export function LogsViewer({
                 sparklineData={sparklineData}
                 sparklineLoading={sparklineLoading}
                 onDateRangeChange={onDateRangeChange}
+                sparklineBreakdownBy={sparklineBreakdownBy}
+                onSparklineBreakdownByChange={onSparklineBreakdownByChange}
             />
         </BindLogic>
     )
@@ -81,6 +87,8 @@ interface LogsViewerContentProps {
     sparklineData: LogsSparklineData
     sparklineLoading: boolean
     onDateRangeChange: (dateRange: DateRange) => void
+    sparklineBreakdownBy: LogsSparklineBreakdownBy
+    onSparklineBreakdownByChange: (breakdownBy: LogsSparklineBreakdownBy) => void
 }
 
 function LogsViewerContent({
@@ -94,6 +102,8 @@ function LogsViewerContent({
     sparklineData,
     sparklineLoading,
     onDateRangeChange,
+    sparklineBreakdownBy,
+    onSparklineBreakdownByChange,
 }: LogsViewerContentProps): JSX.Element {
     const {
         tabId,
@@ -283,6 +293,8 @@ function LogsViewerContent({
                 sparklineLoading={sparklineLoading}
                 onDateRangeChange={onDateRangeChange}
                 displayTimezone={timezone}
+                breakdownBy={sparklineBreakdownBy}
+                onBreakdownByChange={onSparklineBreakdownByChange}
             />
             <SceneDivider />
             <LogsViewerToolbar totalLogsCount={totalLogsCount} orderBy={orderBy} onChangeOrderBy={onChangeOrderBy} />

@@ -24,7 +24,7 @@ import structlog
 from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
 from rest_framework import status
-from social_core.exceptions import AuthFailed
+from social_core.exceptions import AuthCanceled, AuthFailed
 from statshog.defaults.django import statsd
 
 from posthog.api.decide import get_decide
@@ -654,17 +654,11 @@ class AutoLogoutImpersonateMiddleware:
 
         session_is_expired = impersonated_session_expires_at < datetime.now()
 
-        # Handle logout for impersonated sessions (expired or not)
-        # Redirect back to the impersonated user's admin page
-        if request.path.startswith("/logout"):
-            impersonated_user_pk = request.user.pk
-            restore_original_login(request)
-            return redirect(f"/admin/posthog/user/{impersonated_user_pk}/change/")
-
         if session_is_expired:
             # TRICKY: We need to handle different cases here:
             # 1. For /api requests we want to respond with a code that will force the UI to redirect to the logout page (401)
-            # 2. For any other endpoint we want to redirect to the logout page
+            # 2. For /admin requests we want to restore the original login and continue to the intended page
+            # 3. For any other endpoint we want to restore the original login and redirect to /admin/
 
             if request.path.startswith("/static/"):
                 # Skip static files
@@ -675,7 +669,12 @@ class AutoLogoutImpersonateMiddleware:
                     status=401,
                 )
             else:
-                return redirect("/logout/")
+                restore_original_login(request)
+                if request.path.startswith("/admin/"):
+                    # Redirect to the intended admin page
+                    return redirect(request.get_full_path())
+                else:
+                    return redirect("/admin/")
 
         return self.get_response(request)
 
@@ -811,6 +810,11 @@ class SocialAuthExceptionMiddleware:
         if not request.path.startswith("/complete/"):
             return None
 
+        # Handle AuthCanceled (user cancelled OAuth flow)
+        if isinstance(exception, AuthCanceled):
+            return redirect("/login?error_code=oauth_cancelled")
+
+        # Handle AuthFailed with specific error codes
         if isinstance(exception, AuthFailed) and len(exception.args) >= 1:
             error = exception.args[0]
             if error in (
