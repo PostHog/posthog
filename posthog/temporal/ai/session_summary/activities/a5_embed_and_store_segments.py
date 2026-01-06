@@ -15,7 +15,6 @@ logger = structlog.get_logger(__name__)
 async def embed_and_store_segments_activity(
     inputs: VideoSummarySingleSessionInputs,
     segments: list[VideoSegmentOutput],
-    asset_id: int,
 ) -> None:
     """Generate embeddings for all segments and produce to Kafka for ClickHouse storage
 
