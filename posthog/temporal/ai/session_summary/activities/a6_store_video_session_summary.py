@@ -330,7 +330,14 @@ def _convert_video_segments_to_session_summary(
 
     # Use LLM-provided segment outcomes, or fall back to generating from segment data
     if analysis.segment_outcomes:
-        segment_outcomes = analysis.segment_outcomes
+        segment_outcomes = [
+            {
+                "segment_index": outcome.segment_index,
+                "summary": outcome.summary,
+                "success": outcome.success,
+            }
+            for outcome in analysis.segment_outcomes
+        ]
     else:
         segment_outcomes = [
             {

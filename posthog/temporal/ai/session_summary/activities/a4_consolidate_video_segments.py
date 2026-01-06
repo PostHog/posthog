@@ -18,6 +18,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.temporal.ai.session_summary.types.video import (
     ConsolidatedVideoAnalysis,
     ConsolidatedVideoSegment,
+    VideoSegmentOutcome,
     VideoSegmentOutput,
     VideoSessionOutcome,
     VideoSummarySingleSessionInputs,
@@ -110,7 +111,14 @@ async def consolidate_video_segments_activity(
         )
 
         # Parse segment outcomes
-        segment_outcomes = parsed.get("segment_outcomes", [])
+        segment_outcomes = [
+            VideoSegmentOutcome(
+                segment_index=item["segment_index"],
+                success=item["success"],
+                summary=item["summary"],
+            )
+            for item in (parsed.get("segment_outcomes") or [])
+        ]
 
         logger.info(
             f"Consolidated {len(raw_segments)} raw segments into {len(consolidated_segments)} semantic segments",

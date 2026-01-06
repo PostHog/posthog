@@ -74,9 +74,18 @@ class VideoSessionOutcome:
 
 
 @dataclasses.dataclass(frozen=True)
+class VideoSegmentOutcome:
+    """Outcome for a specific video segment."""
+
+    segment_index: int
+    success: bool
+    summary: str
+
+
+@dataclasses.dataclass(frozen=True)
 class ConsolidatedVideoAnalysis:
     """Complete output from video segment consolidation including segments, outcomes, and session-level analysis."""
 
     segments: list[ConsolidatedVideoSegment]
     session_outcome: VideoSessionOutcome
-    segment_outcomes: list[dict]  # [{segment_index: int, success: bool, summary: str}]
+    segment_outcomes: list[VideoSegmentOutcome]
