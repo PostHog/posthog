@@ -1,5 +1,4 @@
 import json
-import uuid
 from collections.abc import Mapping
 from typing import Any, Literal, Optional, cast
 
@@ -3279,12 +3278,11 @@ class TestMaterializedColumnOptimization(BaseTest):
             materialize("person", "email")
 
         # Generate unique IDs to avoid collision with previous test runs
-        test_id = str(uuid.uuid4())[:8]
-        distinct_id_with_email = f"test_{test_id}_with_email"
-        distinct_id_with_empty = f"test_{test_id}_with_empty"
-        distinct_id_with_null = f"test_{test_id}_with_null"
-        distinct_id_without = f"test_{test_id}_without"
-        event_name = f"is_not_set_test_{test_id}"
+        distinct_id_with_email = f"test_with_email"
+        distinct_id_with_empty = f"test_with_empty"
+        distinct_id_with_null = f"test_with_null"
+        distinct_id_without = f"test_without"
+        event_name = f"is_not_set_test"
 
         # Create four persons with different email property states:
         # 1. email set to a real value
