@@ -15,11 +15,14 @@ from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.hogql_queries.query_runner import ExecutionMode
 
+from products.logs.backend.explain import LogExplainViewSet
 from products.logs.backend.has_logs_query_runner import HasLogsQueryRunner
 from products.logs.backend.log_attributes_query_runner import LogAttributesQueryRunner
 from products.logs.backend.log_values_query_runner import LogValuesQueryRunner
 from products.logs.backend.logs_query_runner import CachedLogsQueryResponse, LogsQueryResponse, LogsQueryRunner
 from products.logs.backend.sparkline_query_runner import SparklineQueryRunner
+
+__all__ = ["LogsViewSet", "LogExplainViewSet"]
 
 
 class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
@@ -210,6 +213,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             serviceNames=query_data.get("serviceNames", []),
             searchTerm=query_data.get("searchTerm", None),
             filterGroup=query_data.get("filterGroup", None),
+            sparklineBreakdownBy=query_data.get("sparklineBreakdownBy"),
         )
 
         runner = SparklineQueryRunner(team=self.team, query=query)

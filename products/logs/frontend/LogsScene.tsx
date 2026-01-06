@@ -40,8 +40,10 @@ const LogsSceneContent = (): JSX.Element => {
         hasMoreLogsToLoad,
         orderBy,
         sparklineData,
+        sparklineBreakdownBy,
     } = useValues(logsLogic)
-    const { runQuery, fetchNextLogsPage, setOrderBy, addFilter, setDateRange } = useActions(logsLogic)
+    const { runQuery, fetchNextLogsPage, setOrderBy, addFilter, setDateRange, setSparklineBreakdownBy } =
+        useActions(logsLogic)
 
     return (
         <>
@@ -79,6 +81,8 @@ const LogsSceneContent = (): JSX.Element => {
                     sparklineData={sparklineData}
                     sparklineLoading={sparklineLoading}
                     onDateRangeChange={setDateRange}
+                    sparklineBreakdownBy={sparklineBreakdownBy}
+                    onSparklineBreakdownByChange={setSparklineBreakdownBy}
                 />
             </div>
         </>

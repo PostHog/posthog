@@ -19,6 +19,7 @@ class SurveyEventProperties(StrEnum):
     SURVEY_RESPONDED = "$survey_responded"
     SURVEY_DISMISSED = "$survey_dismissed"
     SURVEY_COMPLETED = "$survey_completed"
+    SURVEY_LAST_SEEN_DATE = "$last_seen_survey_date"
 
 
 def get_survey_response_clickhouse_query(

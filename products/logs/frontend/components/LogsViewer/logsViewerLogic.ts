@@ -10,6 +10,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { AttributeColumnConfig, LogsOrderBy, ParsedLogMessage } from '../../types'
+import { logDetailsModalLogic } from './LogDetailsModal/logDetailsModalLogic'
 import type { logsViewerLogicType } from './logsViewerLogicType'
 import { logsViewerSettingsLogic } from './logsViewerSettingsLogic'
 
@@ -42,7 +43,12 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
     key((props) => props.tabId),
     connect(() => ({
         values: [logsViewerSettingsLogic, ['timezone', 'wrapBody', 'prettifyJson']],
-        actions: [logsViewerSettingsLogic, ['setTimezone', 'setWrapBody', 'setPrettifyJson']],
+        actions: [
+            logsViewerSettingsLogic,
+            ['setTimezone', 'setWrapBody', 'setPrettifyJson'],
+            logDetailsModalLogic,
+            ['openLogDetails'],
+        ],
     })),
 
     actions({
@@ -287,6 +293,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
     propsChanged(({ actions, props }, oldProps) => {
         if (props.logs !== oldProps.logs) {
             actions.setLogs(props.logs)
+            actions.recomputeRowHeights()
         }
     }),
 
@@ -498,6 +505,10 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             const index = values.logs.findIndex((log) => log.uuid === logId)
             if (index !== -1) {
                 actions.setCursor({ logIndex: index, attributeIndex: null })
+                // If navigating via link, also open the details modal
+                if (values.linkToLogId === logId) {
+                    actions.openLogDetails(values.logs[index])
+                }
             }
         },
         copyLinkToLog: ({ logId }) => {

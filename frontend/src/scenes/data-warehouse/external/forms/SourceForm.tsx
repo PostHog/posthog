@@ -24,6 +24,7 @@ import { parseConnectionString } from './parseConnectionString'
 export interface SourceFormProps {
     sourceConfig: SourceConfig
     showPrefix?: boolean
+    showDescription?: boolean
     jobInputs?: Record<string, any>
     setSourceConfigValue?: (key: FieldName, value: any) => void
 }
@@ -233,10 +234,14 @@ export default function SourceFormContainer(props: SourceFormProps): JSX.Element
 export function SourceFormComponent({
     sourceConfig,
     showPrefix = true,
+    showDescription,
     jobInputs,
     setSourceConfigValue,
 }: SourceFormProps): JSX.Element {
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesDataLogic)
+
+    // Default showDescription to same as showPrefix for backward compatibility
+    const shouldShowDescription = showDescription ?? showPrefix
 
     useEffect(() => {
         if (jobInputs && setSourceConfigValue) {
@@ -254,6 +259,23 @@ export function SourceFormComponent({
 
     return (
         <div className="deprecated-space-y-4">
+            {shouldShowDescription && (
+                <LemonField
+                    name="description"
+                    label="Description (optional)"
+                    help="A description to help you identify this source, e.g. 'Production EU database' or 'Billing Stripe account'."
+                >
+                    {({ value, onChange }) => (
+                        <LemonInput
+                            className="ph-ignore-input"
+                            data-attr="description"
+                            placeholder="e.g. Production database"
+                            value={value || ''}
+                            onChange={onChange}
+                        />
+                    )}
+                </LemonField>
+            )}
             <Group name="payload">
                 {availableSources[sourceConfig.name].fields.map((field) =>
                     sourceFieldToElement(field, sourceConfig, jobInputs?.[field.name], isUpdateMode)
