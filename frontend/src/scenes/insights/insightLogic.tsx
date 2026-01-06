@@ -457,6 +457,10 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 values.insight.id || (values.insight.short_id ? await getInsightId(values.insight.short_id) : undefined)
             const { name, description, favorited, deleted, dashboards, tags } = values.insight
 
+            // Check if the query changed BEFORE saving, so we know whether to refresh after save
+            const insightDataLogicInstance = insightDataLogic.findMounted(props)
+            const queryChanged = insightDataLogicInstance?.values.queryChanged ?? true
+
             let savedInsight: QueryBasedInsightModel
 
             try {
@@ -502,7 +506,8 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             // the backend can't return the result for a query based insight,
             // and so we shouldn't copy the result from `values.insight` as it might be stale
             const result = savedInsight.result || (values.query ? values.insight.result : null)
-            actions.setInsight({ ...savedInsight, result: result }, { fromPersistentApi: true, overrideQuery: true })
+            // Only override the query if it actually changed - skip refresh for metadata-only changes (name, description, tags)
+            actions.setInsight({ ...savedInsight, result: result }, { fromPersistentApi: true, overrideQuery: queryChanged })
             eventUsageLogic.actions.reportInsightSaved(savedInsight, values.query, insightNumericId === undefined)
             lemonToast.success(`Insight saved${dashboards?.length === 1 ? ' & added to dashboard' : ''}`, {
                 button: {
