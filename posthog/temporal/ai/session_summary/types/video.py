@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
 
@@ -35,6 +35,12 @@ class VideoSegmentSpec(BaseModel):
     segment_index: int
     start_time: float = Field(description="Seconds from start of video")
     end_time: float = Field(description="Seconds from start of video")
+
+    @model_validator(mode="after")
+    def validate_time_range(self):
+        if self.end_time <= self.start_time:
+            raise ValueError("end_time must be greater than start_time")
+        return self
 
 
 class VideoSegmentOutput(BaseModel):
