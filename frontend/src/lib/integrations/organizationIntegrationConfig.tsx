@@ -1,32 +1,24 @@
-import { LemonButton } from '@posthog/lemon-ui'
-
 import { IntegrationKind, IntegrationType } from '~/types'
 
 import { VercelIntegrationSuffix } from './VercelIntegrationSuffix'
 
 export type OrganizationIntegrationConfig = {
-    getSuffix: (integration: IntegrationType, onDelete: () => void, disabledReason?: string) => JSX.Element
+    getSuffix: (integration: IntegrationType) => JSX.Element | null
     getDisplayName: (integration: IntegrationType) => string
 }
 
 const INTEGRATION_CONFIGS: Partial<Record<IntegrationKind, OrganizationIntegrationConfig>> = {
     vercel: {
-        getSuffix: (integration, onDelete, disabledReason) => (
-            <VercelIntegrationSuffix integration={integration} onDelete={onDelete} disabledReason={disabledReason} />
-        ),
+        getSuffix: (integration) => <VercelIntegrationSuffix integration={integration} />,
         getDisplayName: (integration) => integration.config?.account?.name || integration.display_name,
     },
 }
 
-export const getDefaultIntegrationConfig = (): OrganizationIntegrationConfig => ({
-    getSuffix: (_integration, onDelete, disabledReason) => (
-        <LemonButton type="secondary" status="danger" onClick={onDelete} disabledReason={disabledReason}>
-            Disconnect
-        </LemonButton>
-    ),
+const DEFAULT_INTEGRATION_CONFIG: OrganizationIntegrationConfig = {
+    getSuffix: () => null,
     getDisplayName: (integration) => integration.display_name,
-})
+}
 
 export const getIntegrationConfig = (kind: IntegrationKind): OrganizationIntegrationConfig => {
-    return INTEGRATION_CONFIGS[kind] || getDefaultIntegrationConfig()
+    return INTEGRATION_CONFIGS[kind] || DEFAULT_INTEGRATION_CONFIG
 }

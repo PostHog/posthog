@@ -4440,25 +4440,12 @@ const api = {
     },
 
     organizationIntegrations: {
-        async list(organizationId?: string): Promise<PaginatedResponse<IntegrationType>> {
-            const orgId = organizationId || '@current'
-            return await new ApiRequest().organizations().addPathComponent(orgId).addPathComponent('integrations').get()
-        },
-        async get(organizationId: string, integrationId: IntegrationType['id']): Promise<IntegrationType> {
+        async list(): Promise<PaginatedResponse<IntegrationType>> {
             return await new ApiRequest()
                 .organizations()
-                .addPathComponent(organizationId)
+                .addPathComponent('@current')
                 .addPathComponent('integrations')
-                .addPathComponent(integrationId)
                 .get()
-        },
-        async delete(organizationId: string, integrationId: IntegrationType['id']): Promise<void> {
-            return await new ApiRequest()
-                .organizations()
-                .addPathComponent(organizationId)
-                .addPathComponent('integrations')
-                .addPathComponent(integrationId)
-                .delete()
         },
     },
 

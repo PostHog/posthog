@@ -1,9 +1,7 @@
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, patch
 
 from rest_framework import status
 
-from posthog.models import OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
 
 
@@ -103,54 +101,14 @@ class TestOrganizationIntegrationViewSet(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    def test_delete_organization_integration_success_as_admin(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-
+    def test_delete_organization_integration_not_supported(self):
         url = f"/api/organizations/{self.organization.id}/integrations/{self.integration_vercel.id}/"
         response = self.client.delete(url)
 
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(OrganizationIntegration.objects.filter(id=self.integration_vercel.id).exists())
-
-    def test_delete_organization_integration_forbidden_as_member(self):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-
-        url = f"/api/organizations/{self.organization.id}/integrations/{self.integration_vercel.id}/"
-        response = self.client.delete(url)
-
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
         self.assertTrue(OrganizationIntegration.objects.filter(id=self.integration_vercel.id).exists())
-
-    def test_delete_organization_integration_unauthorized(self):
-        self.client.logout()
-
-        url = f"/api/organizations/{self.organization.id}/integrations/{self.integration_vercel.id}/"
-        response = self.client.delete(url)
-
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertTrue(OrganizationIntegration.objects.filter(id=self.integration_vercel.id).exists())
-
-    @patch("ee.vercel.integration.BillingManager")
-    def test_delete_vercel_integration_triggers_billing_cancellation(self, mock_billing_manager_class):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-
-        mock_billing_manager = MagicMock()
-        mock_billing_manager_class.return_value = mock_billing_manager
-
-        url = f"/api/organizations/{self.organization.id}/integrations/{self.integration_vercel.id}/"
-        response = self.client.delete(url)
-
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        mock_billing_manager_class.assert_called_once_with(self.organization.id)
-        mock_billing_manager.deactivate.assert_called_once()
 
     def test_create_organization_integration_not_supported(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-
         url = f"/api/organizations/{self.organization.id}/integrations/"
         data = {
             "kind": "vercel",
@@ -162,9 +120,6 @@ class TestOrganizationIntegrationViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
 
     def test_update_organization_integration_not_supported(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-
         url = f"/api/organizations/{self.organization.id}/integrations/{self.integration_vercel.id}/"
         data = {"config": {"updated": True}}
         response = self.client.patch(url, data)

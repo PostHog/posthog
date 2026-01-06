@@ -1220,26 +1220,3 @@ def delete_experiment_experimentation_item(sender, instance: Experiment, **kwarg
         instance.team,
         lambda: VercelIntegration.delete_experiment_from_vercel(instance),
     )
-
-
-@receiver(post_delete, sender=OrganizationIntegration)
-def handle_organization_integration_deletion(sender, instance: OrganizationIntegration, **kwargs):
-    if instance.kind == OrganizationIntegration.OrganizationIntegrationKind.VERCEL:
-        logger.info(
-            "Handling Vercel organization integration deletion",
-            organization_id=instance.organization_id,
-            integration_id=instance.integration_id,
-        )
-        try:
-            billing_manager = BillingManager(instance.organization.id)
-            billing_manager.deactivate()
-            logger.info(
-                "Successfully deactivated billing for deleted Vercel integration",
-                organization_id=instance.organization_id,
-            )
-        except Exception as e:
-            logger.exception(
-                "Failed to deactivate billing for deleted Vercel integration",
-                organization_id=instance.organization_id,
-            )
-            capture_exception(e)

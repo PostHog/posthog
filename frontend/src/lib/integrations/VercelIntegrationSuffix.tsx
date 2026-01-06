@@ -4,40 +4,23 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 
 import { IntegrationType } from '~/types'
 
-export function VercelIntegrationSuffix({
-    integration,
-    onDelete,
-    disabledReason,
-}: {
-    integration: IntegrationType
-    onDelete: () => void
-    disabledReason?: string
-}): JSX.Element {
+export function VercelIntegrationSuffix({ integration }: { integration: IntegrationType }): JSX.Element {
     const accountUrl = integration.config?.account?.url
     const accountName = integration.config?.account?.name
 
+    if (!accountUrl) {
+        return <></>
+    }
+
     return (
-        <div className="flex gap-2">
-            {accountUrl && (
-                <LemonButton
-                    type="secondary"
-                    to={accountUrl}
-                    targetBlank
-                    sideIcon={<IconOpenInNew />}
-                    tooltip={accountName ? `Open ${accountName} in Vercel` : 'Open in Vercel'}
-                >
-                    View in Vercel
-                </LemonButton>
-            )}
-            <LemonButton
-                type="secondary"
-                status="danger"
-                onClick={onDelete}
-                disabledReason={disabledReason}
-                tooltip={disabledReason}
-            >
-                Disconnect
-            </LemonButton>
-        </div>
+        <LemonButton
+            type="secondary"
+            to={accountUrl}
+            targetBlank
+            sideIcon={<IconOpenInNew />}
+            tooltip={accountName ? `Open ${accountName} in Vercel` : 'Open in Vercel'}
+        >
+            View in Vercel
+        </LemonButton>
     )
 }
