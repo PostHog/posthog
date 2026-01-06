@@ -566,6 +566,18 @@ class ClickHouseClient:
         async with self.aget_query(query, query_parameters=query_parameters, query_id=query_id) as response:
             return await response.content.read()
 
+    async def read_query_as_jsonl(self, query, query_parameters=None, query_id: str | None = None) -> list[typing.Any]:
+        """Execute the given readonly query in ClickHouse and read the response as JSONL.
+
+        This will return a list of JSON objects.
+
+        NOTE: This method makes sense when running with FORMAT JSONEachRow, although we currently do not enforce this.
+        If the query is expected to return a large amount of data, it is preferable to use stream_query_as_jsonl.
+        """
+        resp = await self.read_query(query, query_parameters=query_parameters, query_id=query_id)
+        lines = resp.split(b"\n")
+        return [json.loads(line) for line in lines if line]
+
     async def acheck_query(
         self,
         query_id: str,
@@ -618,7 +630,7 @@ class ClickHouseClient:
                 """
 
         try:
-            resp = await self.read_query(
+            results = await self.read_query_as_jsonl(
                 query,
                 query_parameters={"query_id": query_id, "cluster_name": settings.CLICKHOUSE_CLUSTER},
                 query_id=f"{query_id}-CHECK-QUERY-LOG",
@@ -627,21 +639,26 @@ class ClickHouseClient:
             error_message = f"Error checking for query '{query_id}' in query log: {str(e)}"
             raise ClickHouseCheckQueryStatusError(query, query_id, error_message) from e
 
-        if not resp:
+        num_rows = len(results)
+        if num_rows == 0:
             raise ClickHouseQueryNotFound(query, query_id)
-
-        lines = resp.split(b"\n")
 
         events = set()
         error = None
-        for line in lines:
-            if not line:
+        for row in results:
+            if not row:
                 continue
 
-            loaded = json.loads(line)
-            events.add(loaded["type"])
+            # In some circumstances, ClickHouse returns errors as a single JSON object with a single "exception" key,
+            # therefore, if this is the case, raise an error.
+            if "type" not in row and "exception" in row and num_rows == 1:
+                error = row["exception"]
+                error_message = f"Error checking for query '{query_id}' in query log: {error}"
+                raise ClickHouseCheckQueryStatusError(query, query_id, error_message)
 
-            error_value = loaded.get("exception", None)
+            events.add(row["type"])
+
+            error_value = row.get("exception", None)
             if error_value:
                 error = error_value
 
@@ -649,10 +666,7 @@ class ClickHouseClient:
             return ClickHouseQueryStatus.FINISHED
         elif "ExceptionWhileProcessing" in events or "ExceptionBeforeStart" in events:
             if raise_on_error:
-                if error is not None:
-                    error_message = error
-                else:
-                    error_message = f"Unknown query error in query with ID: {query_id}"
+                error_message = error or f"Unknown query error in query with ID: {query_id}"
                 # we don't have the original query here so just use the query id
                 raise ClickHouseError(f"Query with ID: {query_id}", error_message=error_message)
 
