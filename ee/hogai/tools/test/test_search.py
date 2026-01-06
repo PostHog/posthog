@@ -64,6 +64,7 @@ class TestSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIn("Invalid entity kind", error_message)
         self.assertIn("unknown", error_message)
 
+
 class TestInkeepDocsSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
