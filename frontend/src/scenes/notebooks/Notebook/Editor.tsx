@@ -1,3 +1,4 @@
+import { Details, DetailsContent, DetailsSummary } from '@tiptap/extension-details'
 import ExtensionDocument from '@tiptap/extension-document'
 import { FloatingMenu } from '@tiptap/extension-floating-menu'
 import { TaskItem, TaskList } from '@tiptap/extension-list'
@@ -144,6 +145,14 @@ export function Editor(): JSX.Element {
         NotebookNodeUsageMetrics,
         NotebookNodeZendeskTickets,
         NotebookNodeRelatedGroups,
+        Details.configure({
+            persist: true,
+            HTMLAttributes: {
+                class: 'details',
+            },
+        }),
+        DetailsSummary,
+        DetailsContent,
     ]
 
     if (hasCollapsibleSections) {

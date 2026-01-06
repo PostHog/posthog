@@ -115,6 +115,7 @@
         "@tailwindcss/cli": "4.0.11",
         "@testing-library/dom": ">=7.21.4",
         "@tiptap/core": "^3.11.1",
+        "@tiptap/extension-details": "^3.11.1",
         "@tiptap/extension-document": "^3.11.1",
         "@tiptap/extension-floating-menu": "^3.11.1",
         "@tiptap/extension-heading": "^3.11.1",
