@@ -207,6 +207,7 @@ dev = [
     "faker==17.5.0",
     "fakeredis[lua]==2.23.3",
     "pytest-rerunfailures~=16.1",
+    "pytest-snob>=0.1.14",
     "freezegun==1.2.2",
     "ipython>=9.3.0",
     "mypy~=1.18.2",

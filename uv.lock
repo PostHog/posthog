@@ -4601,6 +4601,7 @@ dev = [
     { name = "pytest-icdiff" },
     { name = "pytest-mock" },
     { name = "pytest-rerunfailures" },
+    { name = "pytest-snob" },
     { name = "pytest-split" },
     { name = "pytest-watch" },
     { name = "pytest-xdist" },
@@ -4853,6 +4854,7 @@ dev = [
     { name = "pytest-icdiff", specifier = "~=0.9" },
     { name = "pytest-mock", specifier = "~=3.15.1" },
     { name = "pytest-rerunfailures", specifier = "~=16.1" },
+    { name = "pytest-snob", specifier = ">=0.1.14" },
     { name = "pytest-split", specifier = "~=0.10.0" },
     { name = "pytest-watch", specifier = "==4.2.0" },
     { name = "pytest-xdist", specifier = "~=3.8.0" },
@@ -5538,6 +5540,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/de/04/71e9520551fc8fe2cf5c1a1842e4e600265b0815f2016b7c27ec85688682/pytest_rerunfailures-16.1.tar.gz", hash = "sha256:c38b266db8a808953ebd71ac25c381cb1981a78ff9340a14bcb9f1b9bff1899e", size = 30889, upload-time = "2025-10-10T07:06:01.238Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/77/54/60eabb34445e3db3d3d874dc1dfa72751bfec3265bd611cb13c8b290adea/pytest_rerunfailures-16.1-py3-none-any.whl", hash = "sha256:5d11b12c0ca9a1665b5054052fcc1084f8deadd9328962745ef6b04e26382e86", size = 14093, upload-time = "2025-10-10T07:06:00.019Z" },
+]
+
+[[package]]
+name = "pytest-snob"
+version = "0.1.14"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pytest" },
+    { name = "snob-lib" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/79/bd/5449f179500a87c7b2a7bfe86483e197b0a680e19edaa53c31fb57c5e26a/pytest_snob-0.1.14.tar.gz", hash = "sha256:728202184da2c563314f3ecc6c005a1f9b0927a6e7813d7a8ab860d251e4853c", size = 2847, upload-time = "2025-01-12T15:07:50.312Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/01/02/d92e5a366adc0f9ed2d8ccb8a978419e780267f1928489792930e433bb7e/pytest_snob-0.1.14-py3-none-any.whl", hash = "sha256:fdc59341b3e5ec36238099766abdf8c2747b3943c67b81f64dba8da75fcc57f4", size = 3215, upload-time = "2025-01-12T15:07:48.296Z" },
 ]
 
 [[package]]
@@ -6233,6 +6248,28 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/a2/87/a6771e1546d97e7e041b6ae58d80074f81b7d5121207425c964ddf5cfdbd/sniffio-1.3.1.tar.gz", hash = "sha256:f4324edc670a0f49750a81b895f35c3adb843cca46f0530f79fc1babb23789dc", size = 20372, upload-time = "2024-02-25T23:20:04.057Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e9/44/75a9c9421471a6c4805dbf2356f7c181a29c1879239abab1ea2cc8f38b40/sniffio-1.3.1-py3-none-any.whl", hash = "sha256:2f6da418d1f1e0fddd844478f41680e794e6051915791a034ff65e5f100525a2", size = 10235, upload-time = "2024-02-25T23:20:01.196Z" },
+]
+
+[[package]]
+name = "snob-lib"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/cf/fb/fb675ad69cba393d54f71048bd4d9a414c7964a42b00f1609e28c93e5613/snob_lib-0.1.0.tar.gz", hash = "sha256:37e098e05f24a8d69d80f64a46bcb5b477a216705b16c8c6ee396ce11f6c0b69", size = 23973, upload-time = "2025-01-11T18:36:09.181Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c9/ae/47165e155a7acfe869c52ef3331b7e4b4cbd72a448cbfd57ae71ca002e8e/snob_lib-0.1.0-cp312-cp312-macosx_10_12_x86_64.whl", hash = "sha256:634e4436a1fe611d033330794577a25dc89325819f8f06b220e796222252feab", size = 1703362, upload-time = "2025-01-11T18:34:54.222Z" },
+    { url = "https://files.pythonhosted.org/packages/5e/77/8ac177c5c36b15a4e03d2d989ce26704d692dc0dbf87465b502e7d71c8e3/snob_lib-0.1.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:40e6f0fd125675126f2e53d5f29ad93dc49eb5e6dac9f41b421c989ecb3517a0", size = 1623726, upload-time = "2025-01-11T18:34:49.402Z" },
+    { url = "https://files.pythonhosted.org/packages/15/6c/76f7e68f08bf2400ccac3c9344ac0e8702bcabbe3141a4beb843806a0aca/snob_lib-0.1.0-cp312-cp312-manylinux_2_12_i686.manylinux2010_i686.whl", hash = "sha256:6712dd596e23b3ba6e9cfee08445930a8ea6df4b80e585a38ef1047826968620", size = 1785584, upload-time = "2025-01-11T18:34:26.085Z" },
+    { url = "https://files.pythonhosted.org/packages/bc/a4/8ec8b815cdc8682aefdf0d2602b11f2ae2f9dd7c9311447c841b9806ea7e/snob_lib-0.1.0-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:8662883652656da4985f8b664649df2f46c7c0dfc4f8c1e683d66e61df58abae", size = 1752281, upload-time = "2025-01-11T18:33:18.728Z" },
+    { url = "https://files.pythonhosted.org/packages/d9/7f/3d4a0182a5d27967a7aeb9d12e197a61493e2772881c9c61692f8c460d32/snob_lib-0.1.0-cp312-cp312-manylinux_2_17_armv7l.manylinux2014_armv7l.whl", hash = "sha256:e3db962bed5d938a15d03c638ae42dbeeb41d7e823348f97f559b018ae7f307c", size = 1763999, upload-time = "2025-01-11T18:33:37.707Z" },
+    { url = "https://files.pythonhosted.org/packages/1d/65/c724b7b15f16ce7704330688de1f3914415b5878fc385143e37b9435f9ef/snob_lib-0.1.0-cp312-cp312-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:9906353662c647ea76a41c5351741ac7759da5e2a253331d831979bfd8d7bada", size = 1827106, upload-time = "2025-01-11T18:33:55.224Z" },
+    { url = "https://files.pythonhosted.org/packages/f4/b6/0fd5832632954ea50e7fb7561e9aed02ec84e394120b56ed9d5588d3d3cb/snob_lib-0.1.0-cp312-cp312-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:548b4f6a49b0c7972aae8db1c359490370dfbfa37e82c4565c84b4f4f6da7f84", size = 2215408, upload-time = "2025-01-11T18:34:11.098Z" },
+    { url = "https://files.pythonhosted.org/packages/08/8a/de8bd38d29b390c3abf341073328ec653cadd41d71ca80bf79b5e7340764/snob_lib-0.1.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:6737193e183104d841ba8863e66792a1d6cc9d4eec7e2fcdcefc312a2334bfe0", size = 1782330, upload-time = "2025-01-11T18:34:37.523Z" },
+    { url = "https://files.pythonhosted.org/packages/2c/14/85450f2faa8319fb11d2c483f4c8b3dce5efef377dcf5238b980b5d724ae/snob_lib-0.1.0-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:a32e8631728a81954d78a88817d539286913c75e07a9b5f4140fa537eba60261", size = 1923786, upload-time = "2025-01-11T18:35:02.74Z" },
+    { url = "https://files.pythonhosted.org/packages/c0/a4/c4b26be848078efb2f9386f8eb3fc354844164d69a72676751a0ca6711c3/snob_lib-0.1.0-cp312-cp312-musllinux_1_2_armv7l.whl", hash = "sha256:3570e478907f224c8fc014f2956eeca1afa12e889ce0efc1c00e87f18b373d0d", size = 2027631, upload-time = "2025-01-11T18:35:16.8Z" },
+    { url = "https://files.pythonhosted.org/packages/49/7e/5daaf978a14ab8be9b1bd011425de0fd19dd0ada35704f0266105695f454/snob_lib-0.1.0-cp312-cp312-musllinux_1_2_i686.whl", hash = "sha256:308862e98cbcfd0e91f2dd565980a85721ca1360663e8420b9ce0d4d29b114b4", size = 1940848, upload-time = "2025-01-11T18:35:36.906Z" },
+    { url = "https://files.pythonhosted.org/packages/bd/13/faff528bc77b5488bf2f86dd4891134ca2cd6e6d5bcb600baa85608158f2/snob_lib-0.1.0-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:54ce16ca4816be8ab1a0c4f45b7ec6c5d6582e9be5150596cc368cca7e270e22", size = 1951975, upload-time = "2025-01-11T18:35:54.093Z" },
+    { url = "https://files.pythonhosted.org/packages/fb/00/84450b4aac29747ff9a65b8760f91e2f80f89a9ba903f8606d4fa0bb6605/snob_lib-0.1.0-cp312-cp312-win32.whl", hash = "sha256:b4f70ae022b059a2b12f27a415aa0a73fbd1e5da43e782b2b01c0c60027e1bba", size = 1506578, upload-time = "2025-01-11T18:36:26.986Z" },
+    { url = "https://files.pythonhosted.org/packages/4e/31/a325dee23594b729a371c898d157032d498b9839056e324332a25a850a81/snob_lib-0.1.0-cp312-cp312-win_amd64.whl", hash = "sha256:3bbe16e5591a46363f51e27da3c17679200c2c8fa0d9d8742da91b226d11893f", size = 1617773, upload-time = "2025-01-11T18:36:14.334Z" },
 ]
 
 [[package]]
