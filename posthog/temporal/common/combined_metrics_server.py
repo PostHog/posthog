@@ -66,7 +66,7 @@ class TemporalMetricsCollector:
         self._metrics: dict[str, Union[Counter, Gauge, Histogram]] = {}
         # prometheus_client requires label names to be declared at metric creation and raises
         # ValueError('Incorrect label names') if different names are used later.
-        # See: https://prometheus.github.io/client_python/instrumenting/labels/
+        # See: https://prometheus.io/docs/instrumenting/writing_clientlibs/#labels
         # Source: https://github.com/prometheus/client_python/blob/e8f8bae6554de11ebffffcc878ab19abd67528f2/prometheus_client/metrics.py#L175
         # We track the first-seen label set for each metric and skip updates with different labels.
         self._label_names_by_metric: dict[str, tuple[str, ...]] = {}
