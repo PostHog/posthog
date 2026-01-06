@@ -2,7 +2,7 @@
 name = "posthog-bin-scripts"
 version = "0.1.0"
 description = "Dependencies for PostHog bin/ scripts"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "grimp==3.13",
 ]
