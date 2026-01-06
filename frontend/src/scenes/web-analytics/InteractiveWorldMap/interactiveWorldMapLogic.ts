@@ -1,14 +1,14 @@
 import { FeatureCollection } from 'geojson'
 import { connect, kea, key, path, props, selectors } from 'kea'
 
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { isPointsMapBreakdown } from 'scenes/web-analytics/common'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { InsightLogicProps } from '~/types'
 
-import { insightVizDataLogic } from '../../insightVizDataLogic'
-import { keyForInsightLogicProps } from '../../sharedUtils'
 import type { interactiveWorldMapLogicType } from './interactiveWorldMapLogicType'
 import { worldMapPointsLogic } from './worldMapPointsLogic'
 import { worldMapSubdivisionsLogic } from './worldMapSubdivisionsLogic'
@@ -21,7 +21,7 @@ export enum InteractiveWorldMapMode {
 export const interactiveWorldMapLogic = kea<interactiveWorldMapLogicType>([
     props({} as InsightLogicProps),
     key(keyForInsightLogicProps('new')),
-    path((key) => ['scenes', 'insights', 'WorldMap', 'interactiveWorldMapLogic', key]),
+    path((key) => ['scenes', 'web-analytics', 'InteractiveWorldMap', 'interactiveWorldMapLogic', key]),
     connect((props: InsightLogicProps) => ({
         values: [
             insightVizDataLogic(props),
@@ -71,8 +71,8 @@ export const interactiveWorldMapLogic = kea<interactiveWorldMapLogicType>([
             (
                 visualizationMode: InteractiveWorldMapMode,
                 pointsGeoJSON: FeatureCollection,
-                subdivisionsGeoJSON: FeatureCollection
-            ): FeatureCollection =>
+                subdivisionsGeoJSON: FeatureCollection | null
+            ): FeatureCollection | null =>
                 visualizationMode === InteractiveWorldMapMode.Points ? pointsGeoJSON : subdivisionsGeoJSON,
         ],
     }),

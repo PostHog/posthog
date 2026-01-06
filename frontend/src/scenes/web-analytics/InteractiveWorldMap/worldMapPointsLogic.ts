@@ -2,10 +2,10 @@ import { FeatureCollection } from 'geojson'
 import { connect, kea, key, path, props, selectors } from 'kea'
 
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { InsightLogicProps, TrendResult } from '~/types'
 
-import { keyForInsightLogicProps } from '../../sharedUtils'
 import type { worldMapPointsLogicType } from './worldMapPointsLogicType'
 
 export interface WorldMapPointData {
@@ -21,7 +21,7 @@ const isValidCoordinate = (lat: number, lng: number): boolean =>
 export const worldMapPointsLogic = kea<worldMapPointsLogicType>([
     props({} as InsightLogicProps),
     key(keyForInsightLogicProps('new')),
-    path((key) => ['scenes', 'insights', 'WorldMap', 'worldMapPointsLogic', key]),
+    path((key) => ['scenes', 'web-analytics', 'InteractiveWorldMap', 'worldMapPointsLogic', key]),
     connect((props: InsightLogicProps) => ({
         values: [insightVizDataLogic(props), ['insightData', 'theme']],
     })),
@@ -45,7 +45,7 @@ export const worldMapPointsLogic = kea<worldMapPointsLogicType>([
                         const lat = parseFloat(String(latStr))
                         const lng = parseFloat(String(lngStr))
 
-                        if (isNaN(lat) || isNaN(lng)) {
+                        if (!isValidCoordinate(lat, lng)) {
                             return null
                         }
 
@@ -79,13 +79,11 @@ export const worldMapPointsLogic = kea<worldMapPointsLogicType>([
             (s) => [s.points],
             (points: WorldMapPointData[]): FeatureCollection => ({
                 type: 'FeatureCollection',
-                features: points
-                    .filter((p) => isValidCoordinate(p.lat, p.lng))
-                    .map((p) => ({
-                        type: 'Feature' as const,
-                        geometry: { type: 'Point' as const, coordinates: [p.lng, p.lat] },
-                        properties: { value: p.value, label: `${p.lat},${p.lng}` },
-                    })),
+                features: points.map((p) => ({
+                    type: 'Feature',
+                    geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
+                    properties: { value: p.value, label: `${p.lat},${p.lng}` },
+                })),
             }),
         ],
     }),

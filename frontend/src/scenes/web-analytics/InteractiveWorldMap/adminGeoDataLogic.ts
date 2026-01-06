@@ -8,7 +8,7 @@ const BASE_URL = 'https://posthog-prod-maps.s3.us-east-1.amazonaws.com'
 const ADMIN_GEOJSON_URL = `${BASE_URL}/admin1_50m.json`
 
 export const adminGeoDataLogic = kea<adminGeoDataLogicType>([
-    path(['scenes', 'insights', 'WorldMap', 'adminGeoDataLogic']),
+    path(['scenes', 'web-analytics', 'InteractiveWorldMap', 'adminGeoDataLogic']),
     loaders({
         adminGeoData: [
             null as FeatureCollection | null,

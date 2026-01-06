@@ -8,18 +8,17 @@ import useResizeObserver from 'use-resize-observer'
 
 import { compactNumber } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { ChartParams, TrendResult } from '~/types'
 
-import { insightLogic } from '../../insightLogic'
 import { adminGeoDataLogic } from './adminGeoDataLogic'
 import { InteractiveWorldMapMode, interactiveWorldMapLogic } from './interactiveWorldMapLogic'
 
 const protocol = new Protocol()
 maplibregl.addProtocol('pmtiles', protocol.tile)
 
-const isDev = process.env.NODE_ENV === 'development'
-const BASE_URL = isDev ? 'http://localhost:8234/pmtiles' : 'https://posthog-prod-maps.s3.us-east-1.amazonaws.com'
+const BASE_URL = 'https://posthog-prod-maps.s3.us-east-1.amazonaws.com'
 const PMTILES_URL = `pmtiles://${BASE_URL}/20230913.pmtiles`
 const GLYPH_URL = `${BASE_URL}/fonts/pbf/{fontstack}/{range}.pbf`
 
@@ -232,7 +231,7 @@ export const InteractiveWorldMap = ({ context }: ChartParams): JSX.Element => {
         })
 
         map.current.on('load', () => {
-            if (!map.current) {
+            if (!map.current || !geoJSON) {
                 return
             }
 

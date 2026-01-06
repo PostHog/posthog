@@ -3,10 +3,10 @@ import { connect, kea, key, path, props, selectors } from 'kea'
 
 import { hexToRGB } from 'lib/utils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { InsightLogicProps, TrendResult } from '~/types'
 
-import { keyForInsightLogicProps } from '../../sharedUtils'
 import { adminGeoDataLogic } from './adminGeoDataLogic'
 import type { worldMapSubdivisionsLogicType } from './worldMapSubdivisionsLogicType'
 
@@ -45,7 +45,7 @@ const parseSubdivisionFromSeries = (series: TrendResult): ParsedSubdivision | nu
 export const worldMapSubdivisionsLogic = kea<worldMapSubdivisionsLogicType>([
     props({} as InsightLogicProps),
     key(keyForInsightLogicProps('new')),
-    path((key) => ['scenes', 'insights', 'WorldMap', 'worldMapSubdivisionsLogic', key]),
+    path((key) => ['scenes', 'web-analytics', 'InteractiveWorldMap', 'worldMapSubdivisionsLogic', key]),
     connect((props: InsightLogicProps) => ({
         values: [
             insightVizDataLogic(props),
