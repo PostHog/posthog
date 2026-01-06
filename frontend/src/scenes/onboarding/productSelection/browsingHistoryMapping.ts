@@ -2,7 +2,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { availableOnboardingProducts } from '../utils'
 
-// Known prod_interest values from posthog.com
+// Known prod_interest values from posthog.com (hyphen format)
 export type ProdInterest =
     | 'product-analytics'
     | 'web-analytics'
@@ -18,8 +18,9 @@ export type ProdInterest =
     | 'logs'
     | 'endpoints'
 
-// Mapping from browsing history slugs to ProductKey values
-const BROWSING_HISTORY_TO_PRODUCT: Record<ProdInterest, ProductKey | null> = {
+// Mapping from ProdInterest to ProductKey - single source of truth for product mapping
+// null = no onboarding product yet
+const PROD_INTEREST_TO_PRODUCT: Record<ProdInterest, ProductKey | null> = {
     'product-analytics': ProductKey.PRODUCT_ANALYTICS,
     'web-analytics': ProductKey.WEB_ANALYTICS,
     'session-replay': ProductKey.SESSION_REPLAY,
@@ -29,15 +30,17 @@ const BROWSING_HISTORY_TO_PRODUCT: Record<ProdInterest, ProductKey | null> = {
     surveys: ProductKey.SURVEYS,
     'data-warehouse': ProductKey.DATA_WAREHOUSE,
     'llm-analytics': ProductKey.LLM_ANALYTICS,
-    // These don't have onboarding products yet
     'revenue-analytics': null,
     workflows: null,
     logs: null,
     endpoints: null,
 }
 
-// Human-readable names for browsing history items
-const BROWSING_HISTORY_LABELS: Record<ProdInterest, string> = {
+// Derive the set of onboardable ProductKeys from the mapping
+const ONBOARDABLE_PRODUCTS = new Set(Object.values(PROD_INTEREST_TO_PRODUCT).filter((v): v is ProductKey => v !== null))
+
+// Human-readable labels for display
+const PROD_INTEREST_LABELS: Record<ProdInterest, string> = {
     'product-analytics': 'Product analytics',
     'web-analytics': 'Web analytics',
     'session-replay': 'Session replay',
@@ -59,29 +62,32 @@ const BROWSING_HISTORY_LABELS: Record<ProdInterest, string> = {
  */
 export function mapBrowsingHistoryToProducts(browsingHistory: string[]): ProductKey[] {
     const products = browsingHistory
-        .map((page) => BROWSING_HISTORY_TO_PRODUCT[page as ProdInterest])
-        .filter((key): key is ProductKey => key !== null && key !== undefined)
-        // Only include products available in onboarding
-        .filter((key) => key in availableOnboardingProducts)
+        .map((page) => PROD_INTEREST_TO_PRODUCT[page as ProdInterest])
+        .filter((key): key is ProductKey => key !== null && key in availableOnboardingProducts)
 
-    // Remove duplicates
     return [...new Set(products)]
 }
 
 /**
- * Gets human-readable labels for browsing history items.
+ * Maps AI product keys (underscore format, same as ProductKey values) to ProductKey values.
+ * Only returns products that are available in onboarding.
  */
-export function getBrowsingHistoryLabels(browsingHistory: string[]): string[] {
-    return browsingHistory
-        .filter((page): page is ProdInterest => page in BROWSING_HISTORY_LABELS)
-        .map((page) => BROWSING_HISTORY_LABELS[page])
+export function mapAIProductsToProductKeys(products: string[]): ProductKey[] {
+    return products.filter(
+        (p): p is ProductKey => ONBOARDABLE_PRODUCTS.has(p as ProductKey) && p in availableOnboardingProducts
+    )
 }
 
-/**
- * Checks if a browsing history item is a known prod_interest value.
- */
+/** Gets human-readable labels for browsing history items. */
+export function getBrowsingHistoryLabels(browsingHistory: string[]): string[] {
+    return browsingHistory
+        .filter((page): page is ProdInterest => page in PROD_INTEREST_LABELS)
+        .map((page) => PROD_INTEREST_LABELS[page])
+}
+
+/** Checks if a browsing history item is a known prod_interest value. */
 export function isValidProdInterest(value: string): value is ProdInterest {
-    return value in BROWSING_HISTORY_TO_PRODUCT
+    return value in PROD_INTEREST_TO_PRODUCT
 }
 
 /**

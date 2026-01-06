@@ -17,6 +17,7 @@ import { availableOnboardingProducts } from '../utils'
 import {
     getBrowsingHistoryFromPostHog,
     getBrowsingHistoryLabels,
+    mapAIProductsToProductKeys,
     mapBrowsingHistoryToProducts,
 } from './browsingHistoryMapping'
 import type { productSelectionLogicType } from './productSelectionLogicType'
@@ -189,21 +190,7 @@ export const productSelectionLogic = kea<productSelectionLogicType>([
                 if (!aiRecommendation) {
                     return []
                 }
-                // Convert string product keys to ProductKey enum values
-                const productKeyMap: Record<string, ProductKey> = {
-                    product_analytics: ProductKey.PRODUCT_ANALYTICS,
-                    web_analytics: ProductKey.WEB_ANALYTICS,
-                    session_replay: ProductKey.SESSION_REPLAY,
-                    feature_flags: ProductKey.FEATURE_FLAGS,
-                    experiments: ProductKey.EXPERIMENTS,
-                    error_tracking: ProductKey.ERROR_TRACKING,
-                    surveys: ProductKey.SURVEYS,
-                    data_warehouse: ProductKey.DATA_WAREHOUSE,
-                    llm_analytics: ProductKey.LLM_ANALYTICS,
-                }
-                return aiRecommendation.products
-                    .map((p) => productKeyMap[p])
-                    .filter((p): p is ProductKey => p !== undefined)
+                return mapAIProductsToProductKeys(aiRecommendation.products)
             },
         ],
 
@@ -296,22 +283,7 @@ export const productSelectionLogic = kea<productSelectionLogicType>([
             if (aiRecommendation) {
                 actions.setRecommendationSource('ai')
 
-                // Convert string products to ProductKey
-                const productKeyMap: Record<string, ProductKey> = {
-                    product_analytics: ProductKey.PRODUCT_ANALYTICS,
-                    web_analytics: ProductKey.WEB_ANALYTICS,
-                    session_replay: ProductKey.SESSION_REPLAY,
-                    feature_flags: ProductKey.FEATURE_FLAGS,
-                    experiments: ProductKey.EXPERIMENTS,
-                    error_tracking: ProductKey.ERROR_TRACKING,
-                    surveys: ProductKey.SURVEYS,
-                    data_warehouse: ProductKey.DATA_WAREHOUSE,
-                    llm_analytics: ProductKey.LLM_ANALYTICS,
-                }
-                const products = aiRecommendation.products
-                    .map((p) => productKeyMap[p])
-                    .filter((p): p is ProductKey => p !== undefined)
-
+                const products = mapAIProductsToProductKeys(aiRecommendation.products)
                 actions.setSelectedProducts(products)
                 actions.setStep('product_selection')
 
