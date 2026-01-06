@@ -108,6 +108,8 @@ class CombinedMetricsServer:
             return
 
         self._server.shutdown()
+        if self._thread is not None:
+            self._thread.join(timeout=5)
         self._server = None
         self._thread = None
         logger.info("combined_metrics_server.stopped")

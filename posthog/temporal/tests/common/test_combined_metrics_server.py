@@ -37,6 +37,7 @@ def create_mock_temporal_server_with_error(port: int, status_code: int) -> HTTPS
         def do_GET(self) -> None:
             self.send_response(status_code)
             self.end_headers()
+            self.wfile.write(b"# temporal metrics are not included")
 
         def log_message(self, format: str, *args: object) -> None:
             pass
@@ -462,7 +463,7 @@ test_gauge 100.0
             # prometheus_client metrics should still be served despite Temporal timeout
             assert test_counter in content
             # No Temporal metrics since it returned an error
-            assert "temporal" not in content.lower() or "temporal_metrics" not in content
+            assert "temporal" not in content.lower()
         finally:
             server.stop()
             mock_server.shutdown()
