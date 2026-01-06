@@ -130,7 +130,7 @@ def handle_app_mention(event: dict, integration: Integration) -> None:
                 channel=channel,
                 user=slack_user_id,
                 thread_ts=thread_ts,
-                text="Hold your horses! Looks like this PostHog AI is already in flight in this Slack thread – wait for the answer first.",
+                text="Hold your hedgehogs! Looks like this PostHog AI is already in flight in this Slack thread – wait for the answer first.",
             )
             return
 
