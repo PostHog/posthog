@@ -31,6 +31,9 @@ from ee.hogai.session_summaries.session.input_data import get_team
 
 logger = structlog.get_logger(__name__)
 
+# We can speed things up a bit right now - but not too much, as CSS animations are the same speed
+VIDEO_ANALYSIS_PLAYBACK_SPEED = 2
+
 
 @temporalio.activity.defn
 async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs) -> int | None:
@@ -103,7 +106,7 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
                 "timestamp": 0,  # Start from beginning
                 "filename": filename,
                 "duration": session_duration,
-                "playback_speed": 1.0,  # Normal speed
+                "playback_speed": VIDEO_ANALYSIS_PLAYBACK_SPEED,
                 "mode": "video",
             },
             created_by_id=inputs.user_id,
