@@ -16,7 +16,6 @@ from posthog.schema import (
     ExperimentTrendsQuery,
 )
 
-from ee.api.rbac.access_control import AccessControlViewSetMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
@@ -24,6 +23,8 @@ from posthog.models.activity_logging.activity_log import Detail, changes_between
 from posthog.models.experiment import ExperimentSavedMetric, ExperimentToSavedMetric
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+
+from ee.api.rbac.access_control import AccessControlViewSetMixin
 
 
 class ExperimentToSavedMetricSerializer(serializers.ModelSerializer):
