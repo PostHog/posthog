@@ -117,6 +117,9 @@ class SearchSessionRecordingsTool(MaxTool):
     )
     args_schema: type[BaseModel] = SearchSessionRecordingsArgs
 
+    def get_required_resource_access(self):
+        return [("session_recording", "viewer")]
+
     async def _invoke_graph(self, change: str) -> dict[str, Any] | Any:
         """
         Reusable method to call graph to avoid code/prompt duplication and enable

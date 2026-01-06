@@ -2,13 +2,19 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSegmentedButton, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { FilterBar } from 'lib/components/FilterBar'
 import { dayjs } from 'lib/dayjs'
 import { formatDateRange } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { DateMappingOption } from '~/types'
 
 import { customerAnalyticsSceneLogic } from './customerAnalyticsSceneLogic'
@@ -81,6 +87,9 @@ export function CustomerAnalyticsFilters(): JSX.Element {
     } = useValues(customerAnalyticsSceneLogic)
 
     const { setBusinessType, setDates, setSelectedGroupType } = useActions(customerAnalyticsSceneLogic)
+    const { reportCustomerAnalyticsDashboardBusinessModeChanged, reportCustomerAnalyticsDashboardDateFilterApplied } =
+        useActions(eventUsageLogic)
+    const { addProductIntent } = useActions(teamLogic)
     // TODO: Add CTA for cross sell
     const b2bDisabledReason = groupsEnabled ? '' : 'Group analytics add-on is not enabled'
 
@@ -91,7 +100,14 @@ export function CustomerAnalyticsFilters(): JSX.Element {
                     <DateFilter
                         dateFrom={dateFrom}
                         dateTo={dateTo}
-                        onChange={setDates}
+                        onChange={(dateFrom, dateTo) => {
+                            setDates(dateFrom, dateTo)
+                            reportCustomerAnalyticsDashboardDateFilterApplied({ filter: { dateFrom, dateTo } })
+                            addProductIntent({
+                                product_type: ProductKey.CUSTOMER_ANALYTICS,
+                                intent_context: ProductIntentContext.CUSTOMER_ANALYTICS_DASHBOARD_FILTERS_CHANGED,
+                            })
+                        }}
                         dateOptions={DATE_FILTER_DATE_OPTIONS}
                         size="small"
                     />
@@ -107,7 +123,14 @@ export function CustomerAnalyticsFilters(): JSX.Element {
                             },
                         ]}
                         value={businessType}
-                        onChange={(value) => setBusinessType(value)}
+                        onChange={(value) => {
+                            setBusinessType(value)
+                            reportCustomerAnalyticsDashboardBusinessModeChanged({ business_mode: value })
+                            addProductIntent({
+                                product_type: ProductKey.CUSTOMER_ANALYTICS,
+                                intent_context: ProductIntentContext.CUSTOMER_ANALYTICS_DASHBOARD_BUSINESS_MODE_CHANGED,
+                            })
+                        }}
                     />
                     {businessType === 'b2b' && (
                         <LemonSelect
@@ -121,9 +144,17 @@ export function CustomerAnalyticsFilters(): JSX.Element {
                 </div>
             }
             right={
-                <Tooltip title="Refresh data">
-                    <ReloadAll />
-                </Tooltip>
+                <AppShortcut
+                    name="CustomerAnalyticsRefresh"
+                    keybind={[keyBinds.refresh]}
+                    intent="Refresh data"
+                    interaction="click"
+                    scope={Scene.CustomerAnalytics}
+                >
+                    <Tooltip title="Refresh data">
+                        <ReloadAll />
+                    </Tooltip>
+                </AppShortcut>
             }
         />
     )

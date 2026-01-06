@@ -33,11 +33,7 @@ export function SessionRecordingsPlaylist({
 
     return (
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
-            <div
-                className={clsx('w-full h-full', {
-                    'flex flex-col xl:flex-row xl:gap-2': !isCinemaMode,
-                })}
-            >
+            <div className="w-full h-full flex flex-col xl:flex-row xl:gap-2">
                 {isVerticalLayout ? (
                     <VerticalLayout {...props} isCinemaMode={isCinemaMode} />
                 ) : (
@@ -64,6 +60,7 @@ function HorizontalLayout({
         logicKey: 'playlist-resizer-horizontal',
         containerRef: playlistRef,
         persistent: true,
+        persistPrefix: '2025-12-29',
         placement: 'right',
     }
 
@@ -74,7 +71,7 @@ function HorizontalLayout({
             <div
                 ref={playlistRef}
                 className={clsx('relative flex flex-col shrink-0', {
-                    'w-0': isCinemaMode,
+                    'w-0 overflow-hidden': isCinemaMode,
                 })}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={isCinemaMode ? {} : { width: desiredSize ?? 320, minWidth: 200, maxWidth: '50%' }}
@@ -105,6 +102,7 @@ function VerticalLayout({
         logicKey: 'playlist-resizer-vertical',
         containerRef: playerRef,
         persistent: true,
+        persistPrefix: '2025-12-29',
         placement: 'bottom',
     }
 
@@ -116,7 +114,7 @@ function VerticalLayout({
                 {...props}
                 containerRef={playerRef}
                 style={isCinemaMode ? {} : { height: desiredSize ?? undefined, minHeight: 300 }}
-                className="pb-2 shrink-0"
+                className={isCinemaMode ? 'flex-1' : 'pb-2 shrink-0'}
                 resizer={
                     !isCinemaMode ? (
                         <Resizer
@@ -128,7 +126,7 @@ function VerticalLayout({
                     ) : null
                 }
             />
-            <div className={clsx('relative flex flex-col flex-1 min-h-0', { 'w-0': isCinemaMode })}>
+            <div className={clsx('relative flex flex-col min-h-0', isCinemaMode ? 'h-0 overflow-hidden' : 'flex-1')}>
                 <Playlist {...props} />
             </div>
         </>

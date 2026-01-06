@@ -18,6 +18,7 @@ from posthog.models import FeatureFlag, Tag, Team
 from posthog.models.feature_flag.feature_flag import FeatureFlagEvaluationTag
 from posthog.models.feature_flag.flags_cache import (
     _get_feature_flags_for_service,
+    _get_team_ids_with_recently_updated_flags,
     clear_flags_cache,
     flags_hypercache,
     get_flags_from_cache,
@@ -1245,6 +1246,7 @@ class TestManagementCommands(BaseTest):
 
     # Comprehensive tests for verify_flags_cache
 
+    @override_settings(FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES=0)
     def test_verify_cache_miss_detection_and_fix(self):
         """Test that cache misses are detected and can be fixed."""
         from io import StringIO
@@ -1274,6 +1276,7 @@ class TestManagementCommands(BaseTest):
         self.assertIn("FIXED", output)
         self.assertIn("Cache fixes applied:  1", output)
 
+    @override_settings(FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES=0)
     def test_verify_cache_mismatch_detection_and_fix(self):
         """Test that cache mismatches are detected and fixed."""
         from io import StringIO
@@ -1338,6 +1341,7 @@ class TestManagementCommands(BaseTest):
         self.assertEqual(eval_tag_diff["cached_value"], ["original-tag-name"])
         self.assertEqual(eval_tag_diff["db_value"], ["renamed-tag-name"])
 
+    @override_settings(FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES=0)
     def test_verify_fix_failures_reported(self):
         """Test that fix failures are properly reported."""
         from io import StringIO
@@ -1560,6 +1564,202 @@ class TestManagementCommandsWithoutDedicatedCache(BaseTest):
         self.assertIn("NOT configured", output)
 
 
+@override_settings(
+    FLAGS_REDIS_URL="redis://test",
+    CACHES={
+        "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"},
+        "flags_dedicated": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"},
+    },
+)
+class TestVerifyFlagsCacheVerboseOutput(BaseTest):
+    """Test verbose output formatting for verify_flags_cache command."""
+
+    def setUp(self):
+        super().setUp()
+        clear_flags_cache(self.team, kinds=["redis", "s3"])
+
+    def test_verbose_missing_in_cache(self):
+        """Test verbose output for MISSING_IN_CACHE diff type."""
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        # Create flag but don't cache it - this creates a MISSING_IN_CACHE scenario
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="uncached-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # First warm the cache to establish it, then create a new flag
+        update_flags_cache(self.team)
+
+        # Create another flag that won't be in cache
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="new-uncached-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
+        )
+
+        out = StringIO()
+        call_command("verify_flags_cache", f"--team-ids={self.team.id}", "--verbose", stdout=out)
+
+        output = out.getvalue()
+        self.assertIn("new-uncached-flag", output)
+        self.assertIn("exists in DB but missing from cache", output)
+
+    def test_verbose_stale_in_cache(self):
+        """Test verbose output for STALE_IN_CACHE diff type."""
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        # Create flag and cache it
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="stale-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        update_flags_cache(self.team)
+
+        # Delete the flag (cache now stale)
+        flag.delete()
+
+        out = StringIO()
+        call_command("verify_flags_cache", f"--team-ids={self.team.id}", "--verbose", stdout=out)
+
+        output = out.getvalue()
+        self.assertIn("stale-flag", output)
+        self.assertIn("exists in cache but deleted from DB", output)
+
+    def test_verbose_field_mismatch(self):
+        """Test verbose output for FIELD_MISMATCH diff type with field details."""
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        # Create flag and cache it
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="mismatch-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
+        )
+        update_flags_cache(self.team)
+
+        # Modify the flag to create a mismatch
+        flag.filters = {"groups": [{"properties": [], "rollout_percentage": 100}]}
+        flag.save()
+
+        out = StringIO()
+        call_command("verify_flags_cache", f"--team-ids={self.team.id}", "--verbose", stdout=out)
+
+        output = out.getvalue()
+        self.assertIn("mismatch-flag", output)
+        self.assertIn("field values differ", output)
+        self.assertIn("Field:", output)
+        self.assertIn("DB:", output)
+        self.assertIn("Cache:", output)
+
+    def test_verbose_unknown_diff_type_fallback(self):
+        """Test verbose output falls back gracefully for unknown diff types."""
+        from io import StringIO
+
+        from posthog.management.commands.verify_flags_cache import Command
+
+        # Directly test the format_verbose_diff method with an unknown type
+        command = Command()
+        out = StringIO()
+        command.stdout = out  # type: ignore[assignment]
+
+        unknown_diff = {
+            "type": "UNKNOWN_TYPE",
+            "flag_key": "test-flag",
+        }
+        command.format_verbose_diff(unknown_diff)
+
+        output = out.getvalue()
+        self.assertIn("Flag 'test-flag'", output)
+        self.assertIn("UNKNOWN_TYPE", output)
+
+    def test_verbose_missing_flag_key_uses_flag_id(self):
+        """Test verbose output uses flag_id when flag_key is missing."""
+        from io import StringIO
+
+        from posthog.management.commands.verify_flags_cache import Command
+
+        # Directly test the format_verbose_diff method without flag_key
+        command = Command()
+        out = StringIO()
+        command.stdout = out  # type: ignore[assignment]
+
+        diff_without_key = {
+            "type": "MISSING_IN_CACHE",
+            "flag_id": 12345,
+            # Note: no flag_key
+        }
+        command.format_verbose_diff(diff_without_key)
+
+        output = out.getvalue()
+        self.assertIn("Flag '12345'", output)
+
+    def test_verbose_empty_field_diffs(self):
+        """Test verbose output handles empty field_diffs gracefully."""
+        from io import StringIO
+
+        from posthog.management.commands.verify_flags_cache import Command
+
+        # Directly test the format_verbose_diff method with empty field_diffs
+        command = Command()
+        out = StringIO()
+        command.stdout = out  # type: ignore[assignment]
+
+        diff_with_empty_field_diffs = {
+            "type": "FIELD_MISMATCH",
+            "flag_key": "test-flag",
+            "field_diffs": [],  # Empty list
+        }
+        command.format_verbose_diff(diff_with_empty_field_diffs)
+
+        output = out.getvalue()
+        self.assertIn("Flag 'test-flag'", output)
+        self.assertIn("field values differ", output)
+        # Should not crash despite empty field_diffs
+
+    def test_verbose_missing_field_in_field_diff(self):
+        """Test verbose output handles missing 'field' key in field_diff gracefully."""
+        from io import StringIO
+
+        from posthog.management.commands.verify_flags_cache import Command
+
+        # Directly test the format_verbose_diff method with malformed field_diff
+        command = Command()
+        out = StringIO()
+        command.stdout = out  # type: ignore[assignment]
+
+        diff_with_malformed_field_diffs = {
+            "type": "FIELD_MISMATCH",
+            "flag_key": "test-flag",
+            "field_diffs": [
+                {
+                    # Missing 'field' key
+                    "db_value": "db_val",
+                    "cached_value": "cached_val",
+                }
+            ],
+        }
+        command.format_verbose_diff(diff_with_malformed_field_diffs)
+
+        output = out.getvalue()
+        self.assertIn("Flag 'test-flag'", output)
+        self.assertIn("unknown_field", output)  # Falls back to default
+        self.assertIn("db_val", output)
+        self.assertIn("cached_val", output)
+
+
 @override_settings(FLAGS_REDIS_URL=None)
 class TestServiceFlagsGuards(BaseTest):
     """Test that cache functions guard against writes when FLAGS_REDIS_URL is not set."""
@@ -1597,3 +1797,156 @@ class TestServiceFlagsGuards(BaseTest):
         clear_flags_cache(self.team)
 
         # Should complete without error (nothing to verify as it's a no-op)
+
+
+@override_settings(FLAGS_REDIS_URL="redis://test", FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES=5)
+class TestGetTeamIdsWithRecentlyUpdatedFlags(BaseTest):
+    """Test _get_team_ids_with_recently_updated_flags batch helper for grace period logic."""
+
+    def test_returns_empty_set_for_team_with_no_flags(self):
+        """Test returns empty set for team with no flags."""
+        result = _get_team_ids_with_recently_updated_flags([self.team.id])
+        assert result == set()
+
+    def test_returns_team_id_for_recently_updated_flag(self):
+        """Test returns team ID for team with recently updated flag."""
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="recent-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        result = _get_team_ids_with_recently_updated_flags([self.team.id])
+        assert result == {self.team.id}
+
+    def test_returns_empty_set_for_old_flag(self):
+        """Test returns empty set for team with flag updated outside grace period."""
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="old-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        # Manually set updated_at to outside grace period
+        FeatureFlag.objects.filter(id=flag.id).update(updated_at=timezone.now() - timedelta(minutes=10))
+
+        result = _get_team_ids_with_recently_updated_flags([self.team.id])
+        assert result == set()
+
+    @override_settings(FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES=0)
+    def test_returns_empty_set_when_grace_period_is_zero(self):
+        """Test returns empty set when grace period is disabled (0 minutes)."""
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="recent-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        result = _get_team_ids_with_recently_updated_flags([self.team.id])
+        assert result == set()
+
+    def test_returns_empty_set_for_empty_team_ids_list(self):
+        """Test returns empty set when given empty list of team IDs."""
+        result = _get_team_ids_with_recently_updated_flags([])
+        assert result == set()
+
+    def test_returns_team_id_if_any_flag_is_recent(self):
+        """Test returns team ID if ANY flag is recent (OR logic across team flags)."""
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        # Old flag outside grace period
+        old_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="old-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        FeatureFlag.objects.filter(id=old_flag.id).update(updated_at=timezone.now() - timedelta(minutes=10))
+
+        # Recent flag within grace period
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="recent-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Should return team ID because at least one flag is recent
+        result = _get_team_ids_with_recently_updated_flags([self.team.id])
+        assert result == {self.team.id}
+
+    def test_batch_returns_only_teams_with_recent_flags(self):
+        """Test batch query returns only team IDs that have recently updated flags."""
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        # Create second team
+        team2 = Team.objects.create(organization=self.organization, name="Team 2")
+
+        # Team 1 has a recent flag
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="recent-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Team 2 has an old flag
+        old_flag = FeatureFlag.objects.create(
+            team=team2,
+            key="old-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        FeatureFlag.objects.filter(id=old_flag.id).update(updated_at=timezone.now() - timedelta(minutes=10))
+
+        # Query both teams - should only return team 1
+        result = _get_team_ids_with_recently_updated_flags([self.team.id, team2.id])
+        assert result == {self.team.id}
+
+    def test_ignores_recently_deleted_flags(self):
+        """Test returns empty set for team with recently deleted flag.
+
+        When a flag is deleted, the cache update removes it. We shouldn't skip
+        verification just because a deleted flag was recently updated.
+        """
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="deleted-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            deleted=True,  # Flag is deleted
+        )
+        # Ensure updated_at is recent (within grace period)
+        assert flag.updated_at is not None
+
+        result = _get_team_ids_with_recently_updated_flags([self.team.id])
+        assert result == set()
+
+    def test_ignores_recently_deactivated_flags(self):
+        """Test returns empty set for team with recently deactivated flag.
+
+        When a flag is deactivated, the cache update removes it. We shouldn't skip
+        verification just because an inactive flag was recently updated.
+        """
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="inactive-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            active=False,  # Flag is inactive
+        )
+        # Ensure updated_at is recent (within grace period)
+        assert flag.updated_at is not None
+
+        result = _get_team_ids_with_recently_updated_flags([self.team.id])
+        assert result == set()

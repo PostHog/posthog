@@ -1058,6 +1058,7 @@ class BatchExportInsertInputs:
     # TODO - pass these in to all inherited classes
     batch_export_id: str | None = None
     destination_default_fields: list[BatchExportField] | None = None
+    stage_folder: str | None = None
 
     def get_is_backfill(self) -> bool:
         """Needed for backwards compatibility with existing batch exports.
@@ -1092,4 +1093,6 @@ class BatchExportInsertInputs:
             "backfill_details": self.backfill_details,
             "batch_export_model": self.batch_export_model,
             "batch_export_schema": self.batch_export_schema,
+            "batch_export_id": self.batch_export_id,
+            "stage_folder": self.stage_folder,
         }

@@ -19,10 +19,12 @@ use serde_json::{json, Value};
 use tracing::{error, instrument, Span};
 use uuid::Uuid;
 
-use crate::api::CaptureError;
-use crate::sinks;
-use crate::utils::uuid_v7;
-use crate::v0_request::{DataType, ProcessedEvent, ProcessedEventMetadata, ProcessingContext};
+use crate::{
+    api::CaptureError,
+    debug_or_info, sinks,
+    utils::uuid_v7,
+    v0_request::{DataType, ProcessedEvent, ProcessedEventMetadata, ProcessingContext},
+};
 
 /// A recording event optimized for minimal deserialization overhead.
 /// Instead of fully parsing all properties into a HashMap, we only extract
@@ -163,6 +165,8 @@ pub async fn process_replay_events<'a>(
     events: Vec<RawRecording>,
     context: &'a ProcessingContext,
 ) -> Result<(), CaptureError> {
+    let chatty_debug_enabled = context.chatty_debug_enabled;
+
     Span::current().record("request_id", &context.request_id);
 
     // Compute the actual event timestamp using our timestamp parsing logic from the first event
@@ -287,6 +291,8 @@ pub async fn process_replay_events<'a>(
         &snapshot_library,
     );
 
+    debug_or_info!(chatty_debug_enabled, metadata=?metadata, context=?context, "serialized snapshot data");
+
     let event = CapturedEvent {
         uuid,
         distinct_id, // No clone - we own it from extract_distinct_id()
@@ -304,7 +310,11 @@ pub async fn process_replay_events<'a>(
         historical_migration: context.historical_migration,
     };
 
-    sink.send(ProcessedEvent { metadata, event }).await
+    sink.send(ProcessedEvent { metadata, event }).await?;
+
+    debug_or_info!(chatty_debug_enabled, context=?context, "sent recordings CapturedEvent");
+
+    Ok(())
 }
 
 /// Asynchronously serialize snapshot data by offloading to blocking thread pool

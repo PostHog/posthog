@@ -14,6 +14,7 @@ type ViewRecordingsPlaylistButtonProps = {
     tooltip?: string
     disabled?: boolean
     disabledReason?: string | JSX.Element | null
+    onClick?: () => void
 } & Pick<LemonButtonProps, 'size' | 'type' | 'data-attr' | 'fullWidth' | 'className' | 'loading'>
 
 /**
@@ -26,9 +27,11 @@ export default function ViewRecordingsPlaylistButton({
     tooltip,
     disabled,
     disabledReason,
+    onClick: onClickCallback,
     ...buttonProps
 }: ViewRecordingsPlaylistButtonProps): JSX.Element {
     const onClick = (): void => {
+        onClickCallback?.()
         newInternalTab(urls.replay(ReplayTabs.Home, filters))
     }
 

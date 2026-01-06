@@ -86,18 +86,28 @@ function handleSuccess(state, event, commitTs, core, fs) {
         return;
     }
 
+    // Check if this workflow was failing before this success
+    const wasFailing =
+        (state.fail_ts[event.name] ?? 0) > (state.ok_ts[event.name] ?? 0) && commitTs > (state.fail_ts[event.name] ?? 0);
+
     // Record this SHA's timestamp
     state.sha_ts[event.head_sha] = commitTs;
     // Update ok_ts: max of current and new timestamp
     state.ok_ts[event.name] = Math.max(state.ok_ts[event.name] ?? 0, commitTs);
 
     const failing = getFailingWorkflows(state);
-    const resolved = failing.length === 0;
+
+    // Check all required workflows have passed since incident start
+    const requiredWorkflows = (process.env.REQUIRED_WORKFLOWS || '').split(',').filter(Boolean);
+    const incidentStart = new Date(state.since).getTime();
+    const pendingWorkflows = requiredWorkflows.filter((wf) => (state.ok_ts[wf] ?? 0) < incidentStart);
+    const resolved = failing.length === 0 && pendingWorkflows.length === 0;
 
     pruneOldShas(state);
     fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
 
-    core.setOutput('action', resolved ? 'resolve' : 'none');
+    core.setOutput('action', wasFailing ? 'resolve' : 'none');
+    core.setOutput('recovered_workflow', wasFailing ? event.name : '');
     core.setOutput('still_failing', failing.join(', '));
     core.setOutput('commit_count', String(Object.keys(state.sha_ts).length));
     core.setOutput('resolved', resolved ? 'true' : 'false');
@@ -106,8 +116,10 @@ function handleSuccess(state, event, commitTs, core, fs) {
     core.setOutput('ts', state.ts || '');
     core.setOutput('save_cache', resolved ? 'false' : 'true');
 
-    console.log(`Action: ${resolved ? 'resolve' : 'none'}`);
+    console.log(`Action: ${wasFailing ? 'resolve' : 'none'}`);
+    console.log(`Recovered: ${wasFailing ? event.name : 'none'}`);
     console.log(`Still failing: ${failing.join(', ') || 'none'}`);
+    console.log(`Pending (not passed since incident): ${pendingWorkflows.join(', ') || 'none'}`);
     console.log(`State:`, JSON.stringify(state, null, 2));
 }
 

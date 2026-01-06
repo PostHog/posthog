@@ -393,6 +393,14 @@ impl Client for ReadWriteClient {
             .await
     }
 
+    async fn batch_incr_by_expire(
+        &self,
+        items: Vec<(String, i64)>,
+        ttl_seconds: usize,
+    ) -> Result<(), CustomRedisError> {
+        self.writer.batch_incr_by_expire(items, ttl_seconds).await
+    }
+
     async fn del(&self, k: String) -> Result<(), CustomRedisError> {
         self.writer.del(k).await
     }
@@ -404,6 +412,21 @@ impl Client for ReadWriteClient {
         count: Option<i32>,
     ) -> Result<(), CustomRedisError> {
         self.writer.hincrby(k, v, count).await
+    }
+
+    async fn mget(&self, keys: Vec<String>) -> Result<Vec<Option<Vec<u8>>>, CustomRedisError> {
+        match self.reader.mget(keys.clone()).await {
+            Ok(value) => Ok(value),
+            Err(err) if !err.is_unrecoverable_error() => {
+                warn!(
+                    "Replica mget failed for {} keys, falling back to primary: {}",
+                    keys.len(),
+                    err
+                );
+                self.writer.mget(keys).await
+            }
+            Err(err) => Err(err),
+        }
     }
 }
 
@@ -706,5 +729,60 @@ mod tests {
         assert!(debug_output.contains("reader"));
         assert!(debug_output.contains("writer"));
         assert!(debug_output.contains("<Redis Client>"));
+    }
+
+    #[tokio::test]
+    async fn test_mget_uses_reader() {
+        let client = create_test_client(
+            |reader| {
+                reader.mget_ret("key1", Some(b"value1".to_vec()));
+                reader.mget_ret("key2", Some(b"value2".to_vec()));
+            },
+            |_writer| {},
+        );
+
+        let result = client
+            .mget(vec!["key1".to_string(), "key2".to_string()])
+            .await;
+        assert_eq!(
+            result.unwrap(),
+            vec![Some(b"value1".to_vec()), Some(b"value2".to_vec())]
+        );
+    }
+
+    #[tokio::test]
+    async fn test_mget_fallback_on_transient_error() {
+        let client = create_test_client(
+            |reader| {
+                reader.mget_error(CustomRedisError::Timeout);
+            },
+            |writer| {
+                writer.mget_ret("key1", Some(b"fallback1".to_vec()));
+                writer.mget_ret("key2", Some(b"fallback2".to_vec()));
+            },
+        );
+
+        let result = client
+            .mget(vec!["key1".to_string(), "key2".to_string()])
+            .await;
+        assert_eq!(
+            result.unwrap(),
+            vec![Some(b"fallback1".to_vec()), Some(b"fallback2".to_vec())]
+        );
+    }
+
+    #[tokio::test]
+    async fn test_mget_no_fallback_on_unrecoverable_error() {
+        let client = create_test_client(
+            |reader| {
+                reader.mget_error(CustomRedisError::ParseError("bad data".to_string()));
+            },
+            |writer| {
+                writer.mget_ret("key1", Some(b"fallback".to_vec()));
+            },
+        );
+
+        let result = client.mget(vec!["key1".to_string()]).await;
+        assert!(matches!(result, Err(CustomRedisError::ParseError(_))));
     }
 }
