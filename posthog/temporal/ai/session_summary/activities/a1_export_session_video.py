@@ -1,3 +1,9 @@
+"""
+Activity 1 of the video-based summarization workflow:
+Exporting the session as a video.
+(Python modules have to start with a letter, hence the file is prefixed `a1_` instead of `1_`.)
+"""
+
 import uuid
 from datetime import timedelta
 

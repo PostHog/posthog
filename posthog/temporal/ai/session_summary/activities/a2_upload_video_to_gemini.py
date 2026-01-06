@@ -1,3 +1,9 @@
+"""
+Activity 2 of the video-based summarization workflow:
+Uploading the exported session video to Gemini.
+(Python modules have to start with a letter, hence the file is prefixed `a2_` instead of `2_`.)
+"""
+
 import time
 import asyncio
 import tempfile

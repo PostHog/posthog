@@ -1,3 +1,9 @@
+"""
+Activity 4 of the video-based summarization workflow:
+Consolidating raw video segments into meaningful semantic segments using LLM.
+(Python modules have to start with a letter, hence the file is prefixed `a4_` instead of `4_`.)
+"""
+
 import re
 import json
 

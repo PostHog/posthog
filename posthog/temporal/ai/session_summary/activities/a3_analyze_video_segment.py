@@ -1,3 +1,9 @@
+"""
+Activity 3 of the video-based summarization workflow:
+Analyzing a specific segment of the session video with Gemini.
+(Python modules have to start with a letter, hence the file is prefixed `a3_` instead of `3_`.)
+"""
+
 import re
 import json
 from typing import Any, cast

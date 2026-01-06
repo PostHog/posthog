@@ -1,3 +1,9 @@
+"""
+Activity 5 of the video-based summarization workflow:
+Embedding the meaningful video segments and storing them in ClickHouse.
+(Python modules have to start with a letter, hence the file is prefixed `a5_` instead of `5_`.)
+"""
+
 import structlog
 import temporalio
 
