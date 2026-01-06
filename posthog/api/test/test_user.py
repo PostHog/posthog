@@ -982,7 +982,7 @@ class TestUserAPI(APIBaseTest):
         self.user.refresh_from_db()
         self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))
 
-    @patch("posthog.tasks.email.send_password_changed_email")
+    @patch("posthog.api.user.send_password_changed_email.delay")
     def test_user_without_password_can_set_password(self, mock_send_email):
         # Create a user without a password (e.g., SSO user)
         self.user.set_unusable_password()
