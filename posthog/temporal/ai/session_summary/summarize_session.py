@@ -43,7 +43,11 @@ from posthog.temporal.ai.session_summary.state import (
     store_data_in_redis,
 )
 from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
-from posthog.temporal.ai.session_summary.types.video import VideoSegmentSpec, VideoSummarySingleSessionInputs
+from posthog.temporal.ai.session_summary.types.video import (
+    VideoSegmentOutput,
+    VideoSegmentSpec,
+    VideoSummarySingleSessionInputs,
+)
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
 
@@ -473,20 +477,20 @@ async def ensure_llm_single_session_summary(inputs: SingleSessionSummaryInputs):
     segment_results = await asyncio.gather(*segment_tasks, return_exceptions=True)
 
     # Flatten results from all segments
-    raw_segments = []
-    for segment_output_list in segment_results:
-        if isinstance(segment_output_list, Exception):
+    raw_segments: list[VideoSegmentOutput] = []
+    for result in segment_results:
+        if isinstance(result, Exception):
             posthoganalytics.capture_exception(
-                segment_output_list,
+                result,
                 distinct_id=inputs.user_distinct_id_to_log,
                 properties={"$session_id": inputs.session_id},
             )
             logger.exception(
-                f"Error analyzing video segment for session {inputs.session_id}: {segment_output_list}",
+                f"Error analyzing video segment for session {inputs.session_id}: {result}",
                 signals_type="session-summaries",
             )
             continue
-        raw_segments.extend(segment_output_list)
+        raw_segments.extend(cast(list[VideoSegmentOutput], result))
 
     # Activity 4: Consolidate raw segments into meaningful semantic segments
     consolidated_analysis = await temporalio.workflow.execute_activity(

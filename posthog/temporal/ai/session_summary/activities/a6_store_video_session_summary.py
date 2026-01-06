@@ -80,6 +80,11 @@ async def store_video_session_summary_activity(
         )
 
         # Convert video segments to session summary format, using real events if available
+        if llm_input is None:
+            msg = f"No LLM input found in Redis for session {inputs.session_id} when storing video-based summary"
+            logger.error(msg, session_id=inputs.session_id)
+            raise ValueError(msg)
+
         summary_dict = _convert_video_segments_to_session_summary(
             analysis=analysis,
             session_id=inputs.session_id,
