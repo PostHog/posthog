@@ -110,7 +110,6 @@ ReadDataQuery = (
     | ReadInsight
     | ReadDashboard
     | ReadBillingInfo
-    | ReadArtifacts
     | ReadErrorTrackingIssue
     | ReadEntitiesList
 )
