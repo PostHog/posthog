@@ -474,8 +474,8 @@ class TestFileSystemLogViewEndpoint(APIBaseTest):
         representation = obj.get_file_system_representation()
 
         with (
-            patch("posthog.api.file_system.file_system.is_impersonated_session", return_value=True),
-            patch("posthog.api.file_system.file_system.log_api_file_system_view") as mock_logger,
+            patch("posthog.decorators.is_impersonated_session", return_value=True),
+            patch("posthog.api.file_system.file_system_logging.log_api_file_system_view") as mock_logger,
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/file_system/log_view/",
