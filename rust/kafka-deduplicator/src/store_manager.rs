@@ -114,6 +114,11 @@ pub struct StoreManager {
 
     /// Flag to prevent concurrent cleanup operations
     cleanup_running: AtomicBool,
+
+    /// Flag indicating whether a Kafka rebalance is in progress
+    /// When true, orphan cleanup should be skipped to avoid deleting directories
+    /// that are about to be assigned
+    rebalancing: AtomicBool,
 }
 
 impl StoreManager {
@@ -126,7 +131,21 @@ impl StoreManager {
             store_config,
             metrics,
             cleanup_running: AtomicBool::new(false),
+            rebalancing: AtomicBool::new(false),
         }
+    }
+
+    /// Set the rebalancing flag to indicate a Kafka rebalance is in progress
+    ///
+    /// When true, operations like orphan directory cleanup will be skipped
+    /// to avoid deleting directories that are about to be assigned.
+    pub fn set_rebalancing(&self, rebalancing: bool) {
+        self.rebalancing.store(rebalancing, Ordering::SeqCst);
+    }
+
+    /// Check if a Kafka rebalance is currently in progress
+    pub fn is_rebalancing(&self) -> bool {
+        self.rebalancing.load(Ordering::SeqCst)
     }
 
     /// Get an existing store for a partition, if it exists
@@ -454,6 +473,13 @@ impl StoreManager {
             flag: &self.cleanup_running,
         };
 
+        // Skip cleanup during rebalance to avoid deleting entries from stores
+        // that are being populated with imported checkpoints
+        if self.is_rebalancing() {
+            debug!("Skipping capacity cleanup - rebalance in progress");
+            return Ok(0);
+        }
+
         let start_time = Instant::now();
 
         // If max_capacity is 0, no cleanup needed (unlimited)
@@ -521,6 +547,16 @@ impl StoreManager {
         // Cleanup stores with the calculated percentage (no longer holding DashMap guards)
         let mut total_bytes_freed = 0u64;
         for store in &stores {
+            // Check if rebalance started mid-cleanup - abort to avoid deleting
+            // entries from stores being populated with imported checkpoints
+            if self.is_rebalancing() {
+                info!(
+                    "Aborting capacity cleanup - rebalance started. Freed {} bytes so far",
+                    total_bytes_freed
+                );
+                return Ok(total_bytes_freed);
+            }
+
             match store.cleanup_old_entries_with_percentage(cleanup_percentage) {
                 Ok(bytes_freed) => {
                     total_bytes_freed += bytes_freed;
@@ -819,6 +855,13 @@ impl StoreManager {
             return Ok(0);
         }
 
+        // Guard: skip cleanup during rebalance to avoid deleting directories
+        // that are about to be assigned to us
+        if self.is_rebalancing() {
+            debug!("Skipping orphan cleanup - rebalance in progress");
+            return Ok(0);
+        }
+
         let mut total_freed = 0u64;
 
         // Build a set of currently assigned partition directories
@@ -844,6 +887,16 @@ impl StoreManager {
                         // Check if this directory matches the pattern topic_partition
                         // and is not in our assigned set
                         if dir_name.contains('_') && !assigned_dirs.contains(&dir_name) {
+                            // Check if rebalance started mid-cleanup - abort to avoid
+                            // deleting directories that may be about to be assigned
+                            if self.is_rebalancing() {
+                                info!(
+                                    "Aborting orphan cleanup - rebalance started. Freed {} bytes so far",
+                                    total_freed
+                                );
+                                return Ok(total_freed);
+                            }
+
                             // This is an orphaned directory
                             let dir_path = entry.path();
                             let dir_size = Self::get_directory_size(&dir_path).unwrap_or(0);
@@ -1403,5 +1456,64 @@ mod tests {
         for store in &stores {
             assert!(store.get_timestamp_record(&key).unwrap().is_some());
         }
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_orphaned_directories_skips_during_rebalance() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 1024 * 1024 * 1024,
+        };
+
+        let manager = Arc::new(StoreManager::new(config));
+
+        // Create a store for partition 0
+        manager.get_or_create("test-topic", 0).await.unwrap();
+        assert_eq!(manager.get_active_store_count(), 1);
+
+        // Create an "orphaned" directory manually (not in stores map)
+        let orphan_dir = temp_dir.path().join("other-topic_1");
+        std::fs::create_dir_all(&orphan_dir).unwrap();
+        std::fs::write(orphan_dir.join("dummy.txt"), b"test data").unwrap();
+        assert!(orphan_dir.exists());
+
+        // When NOT rebalancing, cleanup should remove the orphan
+        assert!(!manager.is_rebalancing());
+        let freed = manager.cleanup_orphaned_directories().unwrap();
+        assert!(freed > 0);
+        assert!(
+            !orphan_dir.exists(),
+            "Orphan should be removed when not rebalancing"
+        );
+
+        // Recreate the orphan directory
+        std::fs::create_dir_all(&orphan_dir).unwrap();
+        std::fs::write(orphan_dir.join("dummy.txt"), b"test data").unwrap();
+        assert!(orphan_dir.exists());
+
+        // Set rebalancing flag
+        manager.set_rebalancing(true);
+        assert!(manager.is_rebalancing());
+
+        // During rebalance, cleanup should skip and not remove the orphan
+        let freed = manager.cleanup_orphaned_directories().unwrap();
+        assert_eq!(freed, 0);
+        assert!(
+            orphan_dir.exists(),
+            "Orphan should NOT be removed during rebalance"
+        );
+
+        // Clear rebalancing flag
+        manager.set_rebalancing(false);
+        assert!(!manager.is_rebalancing());
+
+        // Now cleanup should remove the orphan again
+        let freed = manager.cleanup_orphaned_directories().unwrap();
+        assert!(freed > 0);
+        assert!(
+            !orphan_dir.exists(),
+            "Orphan should be removed after rebalance ends"
+        );
     }
 }
