@@ -141,15 +141,7 @@ def _convert_video_segments_to_session_summary(
     session_id: str,
     llm_input: SingleSessionSummaryLlmInputs,
 ) -> dict:
-    """Convert video segments to session summary format
-
-    When llm_input is provided (from Redis cache), maps video segments to real events:
-    - Uses timestamps to find events within each segment's time range
-    - Populates real event IDs, UUIDs, and metadata from the cached event data
-    - Calculates accurate segment metadata (duration, events count, etc.)
-
-    When llm_input is not available, falls back to placeholder data.
-    """
+    """Maps video segments to real events."""
     segments = analysis.segments
     # Extract data from cached LLM input
     simplified_events_mapping = llm_input.simplified_events_mapping

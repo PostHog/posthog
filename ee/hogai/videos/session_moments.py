@@ -221,7 +221,10 @@ class SessionMomentsLLMAnalyzer:
                 )
                 return None
             # Calculate how many seconds to skip from the start, as Puppeteer needs time to render the export UI
-            total_video_duration = get_video_duration_s(video_bytes=video_bytes)
+            try:
+                total_video_duration = get_video_duration_s(video_bytes=video_bytes)
+            except ValueError:
+                total_video_duration = None
             start_offset_s = (
                 total_video_duration - VALIDATION_VIDEO_DURATION + SESSION_VIDEO_RENDERING_DELAY
                 if total_video_duration

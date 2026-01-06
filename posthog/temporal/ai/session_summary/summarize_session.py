@@ -406,6 +406,7 @@ async def ensure_llm_single_session_summary(inputs: SingleSessionSummaryInputs):
                 start_to_close_timeout=timedelta(minutes=10),
                 retry_policy=retry_policy,
             )
+        return
 
     # Full video-based summarization:
     # Convert inputs to video workflow format
