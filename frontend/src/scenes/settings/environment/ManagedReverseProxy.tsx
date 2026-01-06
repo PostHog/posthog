@@ -24,6 +24,7 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { Link } from 'lib/lemon-ui/Link'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { AvailableFeature } from '~/types'
@@ -49,7 +50,6 @@ export function ManagedReverseProxy(): JSX.Element {
 
     const { featureAvailableOnOrg } = useValues(payGateMiniLogic({ feature: AvailableFeature.MANAGED_REVERSE_PROXY }))
 
-
     const maxRecordsReached = proxyRecords.length >= (featureAvailableOnOrg?.limit || 0)
 
     const recordsWithMessages = proxyRecords.filter((record) => !!record.message)
@@ -74,8 +74,8 @@ export function ManagedReverseProxy(): JSX.Element {
                             status === 'valid'
                                 ? 'text-success'
                                 : status == 'erroring'
-                                    ? 'text-danger'
-                                    : 'text-warning-dark'
+                                  ? 'text-danger'
+                                  : 'text-warning-dark'
                         )}
                     >
                         {status === 'issuing' && <Spinner />}
@@ -137,10 +137,7 @@ export function ManagedReverseProxy(): JSX.Element {
     // Show opt-in banner if Cloudflare proxy is enabled but not yet acknowledged
     if (cloudflareProxyEnabled && !cloudflareOptInAcknowledged) {
         return (
-            <CloudflareOptInBanner
-                onAcknowledge={acknowledgeCloudflareOptIn}
-                restrictionReason={restrictionReason}
-            />
+            <CloudflareOptInBanner onAcknowledge={acknowledgeCloudflareOptIn} restrictionReason={restrictionReason} />
         )
     }
 
@@ -198,9 +195,9 @@ function CloudflareOptInBanner({
             </p>
             <p>
                 By enabling this beta feature, you explicitly instruct us to route applicable traffic via{' '}
-                <a href="https://www.cloudflare.com" target="_blank" rel="noopener noreferrer">
+                <Link to="https://www.cloudflare.com" target="_blank">
                     Cloudflare
-                </a>
+                </Link>
                 , and understand that data processed as part of this feature will be transmitted to and processed by
                 Cloudflare.
             </p>
@@ -236,7 +233,9 @@ function CloudflareOptInBanner({
                     type="primary"
                     onClick={onAcknowledge}
                     disabled={!cloudflareOptInChecked}
-                    disabledReason={restrictionReason || (!cloudflareOptInChecked ? 'You must agree to the terms' : undefined)}
+                    disabledReason={
+                        restrictionReason || (!cloudflareOptInChecked ? 'You must agree to the terms' : undefined)
+                    }
                 >
                     Enable Managed Proxy
                 </LemonButton>
