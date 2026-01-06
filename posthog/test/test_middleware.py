@@ -843,6 +843,34 @@ class TestImpersonationBlockedPathsMiddleware(APIBaseTest):
         assert response.status_code == 403
         assert response.json()["code"] == "impersonation_path_blocked"
 
+    def test_impersonation_allows_get_to_personal_api_keys(self):
+        """Verify impersonation allows GET requests to /api/personal_api_keys/."""
+        self.login_as_other_user()
+
+        # Verify we're logged in as the other user
+        assert self.client.get("/api/users/@me/").json()["email"] == "other-user@posthog.com"
+
+        response = self.client.get("/api/personal_api_keys/")
+        assert response.status_code == 200
+
+    def test_impersonation_blocks_post_to_personal_api_keys(self):
+        """Verify any impersonation blocks POST requests to /api/personal_api_keys/."""
+        self.login_as_other_user()
+
+        # Verify we're logged in as the other user
+        assert self.client.get("/api/users/@me/").json()["email"] == "other-user@posthog.com"
+
+        response = self.client.post(
+            "/api/personal_api_keys/",
+            data={"label": "Test Key"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 403
+        response_data = response.json()
+        assert response_data["type"] == "authentication_error"
+        assert response_data["code"] == "impersonation_path_blocked"
+
 
 @override_settings(SESSION_COOKIE_AGE=100)
 class TestSessionAgeMiddleware(APIBaseTest):

@@ -933,6 +933,7 @@ class ImpersonationReadOnlyMiddleware:
 
 IMPERSONATION_BLOCKED_PATHS: list[str] = [
     "/api/users/",
+    "/api/personal_api_keys/",
 ]
 
 
