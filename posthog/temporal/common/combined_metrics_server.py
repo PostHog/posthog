@@ -24,11 +24,13 @@ def create_handler(temporal_metrics_url: str, registry: CollectorRegistry) -> ty
 
         def _serve_combined_metrics(self) -> None:
             try:
+                content_type = "text/plain; version=0.0.4; charset=utf-8"
                 # Fetch Temporal SDK metrics from its Prometheus endpoint
                 temporal_output = b""
                 try:
                     with urllib.request.urlopen(temporal_metrics_url, timeout=5) as response:
                         temporal_output = response.read()
+                        content_type = response.getheader("Content-Type")
                 except urllib.error.URLError as e:
                     logger.warning("combined_metrics_server.temporal_fetch_failed", error=str(e))
 
@@ -39,9 +41,7 @@ def create_handler(temporal_metrics_url: str, registry: CollectorRegistry) -> ty
                 output = temporal_output + client_output
 
                 self.send_response(200)
-                self.send_header(
-                    "Content-Type", response.getheader("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-                )
+                self.send_header("Content-Type", content_type)
                 self.end_headers()
                 self.wfile.write(output)
 

@@ -85,7 +85,7 @@ temporal_long_request_latency_bucket{namespace="default",operation="PollActivity
                 content = response.read().decode("utf-8")
 
             # Check Temporal metrics are included
-            assert temporal_metrics in content
+            assert str(temporal_metrics) in content
             # Check prometheus_client metrics are included
             assert test_counter in content
         finally:
@@ -159,7 +159,7 @@ temporal_active_workers{task_queue="main"} 5
             with urllib.request.urlopen(url, timeout=5) as response:
                 content = response.read().decode("utf-8")
 
-            assert temporal_metrics in content
+            assert str(temporal_metrics) in content
             assert test_counter in content
         finally:
             server.stop()
