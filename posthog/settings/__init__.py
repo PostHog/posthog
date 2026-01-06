@@ -51,16 +51,18 @@ from posthog.settings.ses import *
 from posthog.settings.utils import get_from_env, str_to_bool
 
 from posthog.settings.base_variables import DEBUG, TEST
-from posthog.settings.web import INSTALLED_APPS, CLOUDFLARE_PROXY_ENABLED
+from posthog.settings.base_variables import DEBUG, TEST
+from posthog.settings.web import INSTALLED_APPS
 
 # Instance configuration preferences
 # https://posthog.com/docs/self-host/configure/environment-variables
 debug_queries: bool = get_from_env("DEBUG_QUERIES", False, type_cast=str_to_bool)
 disable_paid_fs: bool = get_from_env("DISABLE_PAID_FEATURE_SHOWCASING", False, type_cast=str_to_bool)
+cloudflare_proxy_enabled: bool = get_from_env("CLOUDFLARE_PROXY_ENABLED", False, type_cast=str_to_bool)
 INSTANCE_PREFERENCES = {
     "debug_queries": debug_queries,
     "disable_paid_fs": disable_paid_fs,
-    "cloudflare_proxy_enabled": CLOUDFLARE_PROXY_ENABLED,
+    "cloudflare_proxy_enabled": cloudflare_proxy_enabled,
 }
 
 SITE_URL: str = os.getenv("SITE_URL", "http://localhost:8010").rstrip("/")
