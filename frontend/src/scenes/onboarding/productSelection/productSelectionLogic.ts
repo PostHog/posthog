@@ -296,10 +296,11 @@ export const productSelectionLogic = kea<productSelectionLogicType>([
         },
 
         toggleProduct: ({ productKey }) => {
-            // Update first product if needed
-            if (values.selectedProducts.includes(productKey) && values.firstProductOnboarding === null) {
+            const isNowSelected = values.selectedProducts.includes(productKey)
+
+            if (isNowSelected && values.firstProductOnboarding === null) {
                 actions.setFirstProductOnboarding(productKey)
-            } else if (!values.selectedProducts.includes(productKey) && values.firstProductOnboarding === productKey) {
+            } else if (!isNowSelected && values.firstProductOnboarding === productKey) {
                 const remaining = values.selectedProducts.filter((k) => k !== productKey)
                 actions.setFirstProductOnboarding(remaining[0] || null)
             }
