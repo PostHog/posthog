@@ -22,12 +22,16 @@ type AvailableOnboardingProductKey = keyof typeof availableOnboardingProducts
 const isAvailableOnboardingProductKey = (key: string | ProductKey): key is AvailableOnboardingProductKey =>
     key in availableOnboardingProducts
 
-export function getProductIcon(iconColor: string | undefined, iconKey: string, iconSize: string): JSX.Element {
-    if (isValidIconKey(iconKey)) {
+export function getProductIcon(
+    iconKey?: string | null,
+    { iconColor, className }: { iconColor?: string; className?: string } = {}
+): JSX.Element {
+    if (iconKey && isValidIconKey(iconKey)) {
         const IconComponent = Icons[iconKey]
-        return <IconComponent className={iconSize} color={iconColor} />
+        return <IconComponent className={className} color={iconColor} />
     }
-    return <Icons.IconLogomark className={iconSize} />
+
+    return <Icons.IconLogomark className={className} />
 }
 
 function BrowsingHistoryBanner(): JSX.Element | null {
@@ -137,7 +141,10 @@ function ChoosePathStep(): JSX.Element {
                     >
                         <div className="flex flex-col items-center text-center gap-3">
                             <div className="text-3xl">
-                                {getProductIcon(useCase.iconColor, useCase.iconKey, 'text-3xl')}
+                                {getProductIcon(useCase.iconKey, {
+                                    iconColor: useCase.iconColor,
+                                    className: 'text-3xl',
+                                })}
                             </div>
                             <div>
                                 <div className="font-semibold mb-1">{useCase.title}</div>
@@ -194,7 +201,12 @@ function ProductCard({
             hoverEffect
         >
             <div className="flex flex-col items-center text-center gap-2">
-                <div className="text-3xl">{getProductIcon(product.iconColor, product.icon, 'text-3xl')}</div>
+                <div className="text-3xl">
+                    {getProductIcon(product.icon, {
+                        iconColor: product.iconColor,
+                        className: 'text-3xl',
+                    })}
+                </div>
                 <div>
                     <h3 className="font-semibold mb-1 text-sm">
                         {product.name}
