@@ -194,18 +194,14 @@ EOF
 chmod +x compose/wait
 
 # setup docker
-# setup docker
-# Check if Docker is already installed
 if ! command -v docker &> /dev/null; then
     echo "Docker is not installed. Setting up Docker."
-
-    # Setup Docker
     sudo apt install -y apt-transport-https ca-certificates curl software-properties-common
     curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo -E apt-key add -
     sudo add-apt-repository -y "deb [arch=amd64] https://download.docker.com/linux/ubuntu jammy stable"
     sudo apt update
     sudo apt-cache policy docker-ce
-    sudo apt install -y docker-ce
+    sudo apt install -y docker-ce containerd.io=2.2.0-2~ubuntu.22.04~jammy
 else
     echo "Docker is already installed. Skipping installation."
 fi

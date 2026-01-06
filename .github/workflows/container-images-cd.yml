@@ -125,7 +125,7 @@ jobs:
             - name: Check for changes in plugins directory
               id: check_changes_plugins
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -q '^plugin-server/' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -q '^nodejs/' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Trigger Ingestion Cloud deployment
               if: steps.check_changes_plugins.outputs.changed == 'true'
@@ -283,11 +283,14 @@ jobs:
                   # Check for non-Python files that can't be detected via import analysis
                   echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
+            - name: Install uv for dependency analysis
+              uses: astral-sh/setup-uv@681c641aba71e4a1c380be3ab5e12ad51f415867 # v7.1.6
+
             - name: Check for Python dependency changes that affect analytics platform temporal worker
               id: check_python_changes_analytics_platform_temporal_worker
               run: |
                   CHANGED_FILES=$(git diff --name-only HEAD^ HEAD | tr '\n' ' ')
-                  RESULT=$(python3 bin/find_python_dependencies.py posthog.temporal.subscriptions --check-changes "$CHANGED_FILES" | jq -r '.affected') || RESULT="true"
+                  RESULT=$(uv run bin/find_python_dependencies.py posthog.temporal.subscriptions --check-changes "$CHANGED_FILES" | jq -r '.affected') || RESULT="true"
                   echo "changed=$RESULT" >> $GITHUB_OUTPUT
 
             - name: Trigger Billing Temporal Worker Cloud deployment

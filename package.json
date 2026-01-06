@@ -111,7 +111,7 @@
         "*.{json,yaml,yml}": "bin/hogli format:yaml",
         "*.{css,scss}": "bin/hogli format:css",
         "{playwright,frontend,products,common,ee}/**/*.{js,jsx,mjs,ts,tsx}": "bin/hogli format:js",
-        "plugin-server/**/*.{js,jsx,mjs,ts,tsx}": "bin/hogli format:plugin-server",
+        "nodejs/**/*.{js,jsx,mjs,ts,tsx}": "bin/hogli format:nodejs",
         "funnel-udf/**/*.rs": "bin/hogli format:rust",
         "!(posthog/hogql/grammar/*)*.{py,pyi}": [
             "bin/hogli lint:python:fix",

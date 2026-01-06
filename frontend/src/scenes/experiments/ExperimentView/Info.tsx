@@ -176,10 +176,14 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
                             </div>
                         )}
                         <div className="flex flex-col">
-                            <Label intent="menu">Stats Engine</Label>
+                            <Label intent="menu">Statistics</Label>
                             <div className="inline-flex deprecated-space-x-2">
                                 <span>
                                     {statsMethod === ExperimentStatsMethod.Bayesian ? 'Bayesian' : 'Frequentist'}
+                                    {' / '}
+                                    {statsMethod === ExperimentStatsMethod.Bayesian
+                                        ? `${((experiment.stats_config?.bayesian?.ci_level ?? 0.95) * 100).toFixed(0)}%`
+                                        : `${((1 - (experiment.stats_config?.frequentist?.alpha ?? 0.05)) * 100).toFixed(0)}%`}
                                 </span>
                                 {usesNewQueryRunner && (
                                     <>
@@ -190,7 +194,7 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
                                                 openStatsEngineModal()
                                             }}
                                             icon={<IconGear />}
-                                            tooltip="Change stats engine"
+                                            tooltip="Configure statistics"
                                         />
                                         <StatsMethodModal />
                                     </>

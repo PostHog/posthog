@@ -30,7 +30,6 @@ from ee.hogai.artifacts.manager import ArtifactManager
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.core.mixins import AssistantContextMixin
-from ee.hogai.utils.feature_flags import has_agent_modes_feature_flag
 from ee.hogai.utils.helpers import find_start_message, find_start_message_idx, insert_messages_before_start
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import AssistantMessageUnion, BaseStateWithMessages
@@ -80,9 +79,9 @@ class AssistantContextManager(AssistantContextMixin):
 
     def get_ui_context(self, state: BaseStateWithMessages) -> MaxUIContext | None:
         """
-        Extracts the UI context from the latest human message.
+        Extracts the UI context from the current human message
         """
-        message = find_start_message(state.messages)
+        message = find_start_message(state.messages, state.start_id)
         if isinstance(message, HumanMessage) and message.ui_context is not None:
             return message.ui_context
         return None
@@ -239,9 +238,19 @@ class AssistantContextManager(AssistantContextMixin):
         events_context = self._format_entity_context(ui_context.events, "events", "Event")
         actions_context = self._format_entity_context(ui_context.actions, "actions", "Action")
 
-        if dashboard_context or insights_context or events_context or actions_context:
+        # Format error tracking issues context
+        error_tracking_context = ""
+        if ui_context.error_tracking_issues:
+            issue_details = []
+            for issue in ui_context.error_tracking_issues:
+                name = issue.name or f"Issue {issue.id}"
+                issue_details.append(f'- Issue ID: "{issue.id}", Name: "{name}"')
+            if issue_details:
+                error_tracking_context = f"<error_tracking_context>Error tracking issues the user is referring to:\n{chr(10).join(issue_details)}\n</error_tracking_context>"
+
+        if dashboard_context or insights_context or events_context or actions_context or error_tracking_context:
             return self._render_user_context_template(
-                dashboard_context, insights_context, events_context, actions_context
+                dashboard_context, insights_context, events_context, actions_context, error_tracking_context
             )
         return None
 
@@ -335,7 +344,12 @@ class AssistantContextManager(AssistantContextMixin):
         return ""
 
     def _render_user_context_template(
-        self, dashboard_context: str, insights_context: str, events_context: str, actions_context: str
+        self,
+        dashboard_context: str,
+        insights_context: str,
+        events_context: str,
+        actions_context: str,
+        error_tracking_context: str = "",
     ) -> str:
         """Render the user context template with the provided context strings."""
         template = PromptTemplate.from_template(ROOT_UI_CONTEXT_PROMPT, template_format="mustache")
@@ -344,15 +358,13 @@ class AssistantContextManager(AssistantContextMixin):
             ui_context_insights=insights_context,
             ui_context_events=events_context,
             ui_context_actions=actions_context,
+            ui_context_error_tracking=error_tracking_context,
         ).to_string()
 
     async def _get_context_messages(self, state: BaseStateWithMessages) -> list[ContextMessage]:
-        are_modes_enabled = has_agent_modes_feature_flag(self._team, self._user)
-
         prompts: list[ContextMessage] = []
-        if are_modes_enabled:
-            if mode_prompt := self._get_mode_context_messages(state):
-                prompts.append(mode_prompt)
+        if mode_prompt := self._get_mode_context_messages(state):
+            prompts.append(mode_prompt)
         if contextual_tools := await self._get_contextual_tools_prompt():
             prompts.append(ContextMessage(content=contextual_tools, id=str(uuid4())))
         if ui_context := await self._format_ui_context(self.get_ui_context(state)):

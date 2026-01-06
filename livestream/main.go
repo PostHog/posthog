@@ -56,7 +56,7 @@ func main() {
 	}()
 
 	stats := events.NewStatsKeeper()
-	sessionStats := events.NewSessionStatsKeeper()
+	sessionStats := events.NewSessionStatsKeeper(config.SessionRecording.MaxLRUEntries, 0)
 
 	phEventChan := make(chan events.PostHogEvent, 10000)
 	statsChan := make(chan events.CountEvent, 10000)
@@ -67,11 +67,7 @@ func main() {
 	go stats.KeepStats(statsChan)
 	go sessionStats.KeepStats(ctx, sessionStatsChan)
 
-	kafkaSecurityProtocol := "SSL"
-	if config.Debug {
-		kafkaSecurityProtocol = "PLAINTEXT"
-	}
-	consumer, err := events.NewPostHogKafkaConsumer(config.Kafka.Brokers, kafkaSecurityProtocol, config.Kafka.GroupID, config.Kafka.Topic, geolocator, phEventChan,
+	consumer, err := events.NewPostHogKafkaConsumer(config.Kafka.Brokers, config.Kafka.SecurityProtocol, config.Kafka.GroupID, config.Kafka.Topic, geolocator, phEventChan,
 		statsChan, config.Parallelism)
 	if err != nil {
 		log.Fatalf("Failed to create Kafka consumer: %v", err)
