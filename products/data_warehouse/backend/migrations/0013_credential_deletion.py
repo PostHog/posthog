@@ -11,6 +11,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.RunSQL(
             """
+-- migration-analyzer: safe reason=batched updates (10k rows) with pg_sleep pauses
 DO $$
 DECLARE
     batch_size   INTEGER := 10000;
