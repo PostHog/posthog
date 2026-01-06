@@ -43,8 +43,8 @@ function BrowsingHistoryBanner(): JSX.Element | null {
 
     return (
         <LemonBanner type="info" className="mb-6">
-            Based on your browsing history ({browsingHistoryLabels.slice(0, 3).join(', ')}), we've tailored
-            recommendations to your interests.
+            Based on the documentation you browsed on our website ({browsingHistoryLabels.slice(0, 3).join(', ')}),
+            we've tailored recommendations to your interests.
         </LemonBanner>
     )
 }
