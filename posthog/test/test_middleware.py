@@ -6,9 +6,11 @@ from unittest.mock import patch
 
 from django.conf import settings
 from django.core.cache import cache
+from django.test import Client as DjangoClient
 from django.urls import reverse
 
 from rest_framework import status
+from social_core.exceptions import AuthCanceled
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
@@ -508,12 +510,19 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
         self.user.is_staff = True
         self.user.save()
 
+        # Use Django's standard Client instead of APIClient for these tests.
+        # The loginas admin view expects form-encoded POST data, which is
+        # Django Client's default (APIClient defaults to JSON).
+        self.client = DjangoClient()
+        self.client.force_login(self.user)
+
     def get_csrf_token_payload(self):
         return {}
 
     def login_as_other_user(self):
         return self.client.post(
             reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
+            data={"read_only": "false"},
             follow=True,
         )
 
@@ -628,15 +637,23 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         self.user.is_staff = True
         self.user.save()
 
+        # Use Django's standard Client instead of APIClient for these tests.
+        # The loginas admin view expects form-encoded POST data, which is
+        # Django Client's default (APIClient defaults to JSON).
+        self.client = DjangoClient()
+        self.client.force_login(self.user)
+
     def login_as_other_user(self):
         return self.client.post(
             reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
+            data={"read_only": "false"},
             follow=True,
         )
 
     def login_as_other_user_read_only(self):
         return self.client.post(
-            reverse("loginas-user-login-read-only", kwargs={"user_id": self.other_user.id}),
+            reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
+            data={"read_only": "true"},
             follow=True,
         )
 
@@ -732,10 +749,7 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         self.other_user.allow_impersonation = False
         self.other_user.save()
 
-        self.client.post(
-            reverse("loginas-user-login-read-only", kwargs={"user_id": self.other_user.id}),
-            follow=True,
-        )
+        self.login_as_other_user_read_only()
 
         # Should still be logged in as original user
         assert self.client.get("/api/users/@me").json()["email"] == self.user.email
@@ -927,3 +941,24 @@ class TestActiveOrganizationMiddleware(APIBaseTest):
         response = self.client.get("/dashboard")
         # Should redirect to login or show appropriate response
         self.assertIn(response.status_code, [status.HTTP_302_FOUND, status.HTTP_200_OK])
+
+
+class TestSocialAuthExceptionMiddleware(APIBaseTest):
+    CONFIG_AUTO_LOGIN = False
+
+    def test_oauth_cancelled_redirects_to_login(self):
+        """Test that AuthCanceled exception on OAuth callback redirects to login with error code"""
+        from django.test import RequestFactory
+
+        from posthog.middleware import SocialAuthExceptionMiddleware
+
+        middleware = SocialAuthExceptionMiddleware(lambda request: None)
+        factory = RequestFactory()
+        request = factory.get("/complete/google-oauth2/")
+        exception = AuthCanceled("google-oauth2", "User cancelled")
+
+        response = middleware.process_exception(request, exception)
+
+        self.assertIsNotNone(response)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(response.url, "/login?error_code=oauth_cancelled")
