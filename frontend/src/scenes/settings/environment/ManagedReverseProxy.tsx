@@ -6,6 +6,7 @@ import { IconEllipsis, IconInfo } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
+    LemonCheckbox,
     LemonDialog,
     LemonInput,
     LemonMenu,
@@ -23,6 +24,7 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { AvailableFeature } from '~/types'
 
@@ -34,8 +36,11 @@ const statusText = {
 }
 
 export function ManagedReverseProxy(): JSX.Element {
-    const { formState, proxyRecords, proxyRecordsLoading } = useValues(proxyLogic)
-    const { showForm, deleteRecord } = useActions(proxyLogic)
+    const { formState, proxyRecords, proxyRecordsLoading, cloudflareOptInAcknowledged } = useValues(proxyLogic)
+    const { showForm, deleteRecord, acknowledgeCloudflareOptIn } = useActions(proxyLogic)
+    const { preflight } = useValues(preflightLogic)
+
+    const cloudflareProxyEnabled = preflight?.instance_preferences?.cloudflare_proxy_enabled
 
     const restrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
@@ -43,6 +48,7 @@ export function ManagedReverseProxy(): JSX.Element {
     })
 
     const { featureAvailableOnOrg } = useValues(payGateMiniLogic({ feature: AvailableFeature.MANAGED_REVERSE_PROXY }))
+
 
     const maxRecordsReached = proxyRecords.length >= (featureAvailableOnOrg?.limit || 0)
 
@@ -68,8 +74,8 @@ export function ManagedReverseProxy(): JSX.Element {
                             status === 'valid'
                                 ? 'text-success'
                                 : status == 'erroring'
-                                  ? 'text-danger'
-                                  : 'text-warning-dark'
+                                    ? 'text-danger'
+                                    : 'text-warning-dark'
                         )}
                     >
                         {status === 'issuing' && <Spinner />}
@@ -128,6 +134,16 @@ export function ManagedReverseProxy(): JSX.Element {
         },
     ]
 
+    // Show opt-in banner if Cloudflare proxy is enabled but not yet acknowledged
+    if (cloudflareProxyEnabled && !cloudflareOptInAcknowledged) {
+        return (
+            <CloudflareOptInBanner
+                onAcknowledge={acknowledgeCloudflareOptIn}
+                restrictionReason={restrictionReason}
+            />
+        )
+    }
+
     return (
         <PayGateMini feature={AvailableFeature.MANAGED_REVERSE_PROXY}>
             <div className="deprecated-space-y-2">
@@ -161,6 +177,71 @@ export function ManagedReverseProxy(): JSX.Element {
                 )}
             </div>
         </PayGateMini>
+    )
+}
+
+function CloudflareOptInBanner({
+    onAcknowledge,
+    restrictionReason,
+}: {
+    onAcknowledge: () => void
+    restrictionReason: string | false | undefined
+}): JSX.Element {
+    const { cloudflareOptInChecked } = useValues(proxyLogic)
+    const { setCloudflareOptInChecked } = useActions(proxyLogic)
+
+    return (
+        <div className="bg-surface-primary rounded border px-5 py-4 space-y-4">
+            <div className="text-xl font-semibold leading-tight">Enable Managed Proxy (Beta)</div>
+            <p className="text-secondary">
+                This feature is disabled by default and has no effect unless you explicitly enable it.
+            </p>
+            <p>
+                By enabling this beta feature, you explicitly instruct us to route applicable traffic via{' '}
+                <a href="https://www.cloudflare.com" target="_blank" rel="noopener noreferrer">
+                    Cloudflare
+                </a>
+                , and understand that data processed as part of this feature will be transmitted to and processed by
+                Cloudflare.
+            </p>
+            <div className="border rounded p-4 space-y-3 bg-surface-secondary">
+                <div className="font-semibold">Third-party processing (Cloudflare)</div>
+                <p className="text-sm">
+                    This beta feature routes certain customer and customer end-user traffic through Cloudflare, a
+                    third-party infrastructure provider, for the purpose of delivering the managed proxy functionality.
+                </p>
+                <p className="text-sm">By enabling this feature, you:</p>
+                <ul className="text-sm list-disc pl-5 space-y-1">
+                    <li>Explicitly instruct us to route applicable data through Cloudflare for this service;</li>
+                    <li>
+                        Acknowledge and agree that data processed as part of this feature will be transmitted to and
+                        processed by Cloudflare; and
+                    </li>
+                    <li>Understand that this feature is experimental (beta) and may change or be discontinued.</li>
+                </ul>
+                <p className="text-sm">
+                    Cloudflare is not currently listed as a PostHog subprocessor for this feature, and you choose to
+                    enable this feature notwithstanding the foregoing. If we decide to make this functionality generally
+                    available, we will update our Data Processing Agreement and provide notice in accordance with its
+                    terms.
+                </p>
+            </div>
+            <div className="space-y-3">
+                <LemonCheckbox
+                    checked={cloudflareOptInChecked}
+                    onChange={setCloudflareOptInChecked}
+                    label="I have read and agree to the above terms"
+                />
+                <LemonButton
+                    type="primary"
+                    onClick={onAcknowledge}
+                    disabled={!cloudflareOptInChecked}
+                    disabledReason={restrictionReason || (!cloudflareOptInChecked ? 'You must agree to the terms' : undefined)}
+                >
+                    Enable Managed Proxy
+                </LemonButton>
+            </div>
+        </div>
     )
 }
 

@@ -60,6 +60,7 @@ disable_paid_fs: bool = get_from_env("DISABLE_PAID_FEATURE_SHOWCASING", False, t
 INSTANCE_PREFERENCES = {
     "debug_queries": debug_queries,
     "disable_paid_fs": disable_paid_fs,
+    "cloudflare_proxy_enabled": CLOUDFLARE_PROXY_ENABLED,
 }
 
 SITE_URL: str = os.getenv("SITE_URL", "http://localhost:8010").rstrip("/")
