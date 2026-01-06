@@ -40,7 +40,7 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
     )
     external_url = serializers.SerializerMethodField()
     title = serializers.SerializerMethodField()
-    identifier = serializers.SerializerMethodField()
+    issue_id = serializers.SerializerMethodField()
 
     class Meta:
         model = SessionRecordingExternalReference
@@ -52,9 +52,9 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
             "session_recording_id",
             "external_url",
             "title",
-            "identifier",
+            "issue_id",
         ]
-        read_only_fields = ["external_url", "title", "identifier"]
+        read_only_fields = ["external_url", "title", "issue_id"]
 
     def get_external_url(self, reference: SessionRecordingExternalReference) -> str:
         external_context = self._get_external_context(reference)
@@ -71,8 +71,8 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
     def get_title(self, reference: SessionRecordingExternalReference) -> str:
         return self._get_external_context(reference).get("title", "")
 
-    def get_identifier(self, reference: SessionRecordingExternalReference) -> str:
-        """Get the issue identifier (e.g., POST-123) from external_context"""
+    def get_issue_id(self, reference: SessionRecordingExternalReference) -> str:
+        """Get the external issue ID (e.g., POST-123) from the issue tracker"""
         return self._get_external_context(reference).get("id", "")
 
     def validate(self, data):

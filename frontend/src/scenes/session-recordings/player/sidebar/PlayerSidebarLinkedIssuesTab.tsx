@@ -26,11 +26,7 @@ import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 
 const SESSION_REPLAY_INTEGRATIONS: IntegrationKind[] = ['linear']
 
-type LinearIssueConfig = {
-    team_id: string
-    title: string
-    description: string
-}
+type IssueConfig = Record<string, string>
 
 const IntegrationIcon = ({ kind }: { kind: IntegrationKind }): JSX.Element => {
     return <img src={ICONS[kind]} className="w-5 h-5 rounded-sm" />
@@ -63,7 +59,7 @@ export function PlayerSidebarLinkedIssuesTab(): JSX.Element | null {
             createLinearIssueForm(
                 sessionRecordingId,
                 integration,
-                async (integrationId: number, config: LinearIssueConfig) => {
+                async (integrationId: number, config: IssueConfig) => {
                     setCreatingIssue(true)
                     try {
                         await createExternalReference(integrationId, config)
@@ -94,7 +90,7 @@ export function PlayerSidebarLinkedIssuesTab(): JSX.Element | null {
                         <ButtonPrimitive fullWidth>
                             <div className="flex items-center gap-2 min-w-0">
                                 <IntegrationIcon kind={reference.integration.kind} />
-                                <span className="font-medium flex-shrink-0">{reference.identifier}</span>
+                                <span className="font-medium flex-shrink-0">{reference.issue_id}</span>
                                 {reference.title && (
                                     <span className="text-sm text-muted truncate">{reference.title}</span>
                                 )}
@@ -134,7 +130,7 @@ function CreateIssueButton({
                 buttonProps={{ variant: 'panel', fullWidth: true, menuItem: true }}
                 tooltip="Configure Linear integration"
             >
-                Setup integrations
+                Set up integrations
             </Link>
         )
     }
@@ -175,7 +171,7 @@ function CreateIssueButton({
 const createLinearIssueForm = (
     sessionRecordingId: string,
     integration: IntegrationType,
-    onSubmit: (integrationId: number, config: LinearIssueConfig) => void
+    onSubmit: (integrationId: number, config: IssueConfig) => void
 ): void => {
     const recordingUrl = urls.absolute(urls.replay(undefined, undefined, sessionRecordingId))
     const description = `**Session Recording:** ${recordingUrl}`

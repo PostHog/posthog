@@ -11,7 +11,6 @@ from urllib.parse import urlparse
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
-from django.db import OperationalError, ProgrammingError
 from django.db.models import Q
 from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 
@@ -244,15 +243,12 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
         if view and getattr(view, "action", None) == "list":
             return []
 
-        try:
-            from posthog.session_recordings.session_recording_external_reference_api import (
-                SessionRecordingExternalReferenceSerializer,
-            )
+        from posthog.session_recordings.session_recording_external_reference_api import (
+            SessionRecordingExternalReferenceSerializer,
+        )
 
-            references = obj.external_references.select_related("integration").all()
-            return list(SessionRecordingExternalReferenceSerializer(references, many=True, context=self.context).data)
-        except (ProgrammingError, OperationalError):
-            return []
+        references = obj.external_references.select_related("integration").all()
+        return list(SessionRecordingExternalReferenceSerializer(references, many=True, context=self.context).data)
 
     class Meta:
         model = SessionRecording

@@ -8,12 +8,14 @@ import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, splitKebabCase } from 'lib/utils'
 
 import { SessionRecordingSidebarStacking, SessionRecordingSidebarTab } from '~/types'
 
 import { playerSettingsLogic } from './playerSettingsLogic'
+import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
 import { PlayerSidebarTab } from './sidebar/PlayerSidebarTab'
 import { playerSidebarLogic } from './sidebar/playerSidebarLogic'
 
@@ -25,6 +27,8 @@ export function PlayerSidebar(): JSX.Element {
     const { setTab } = useActions(playerSidebarLogic)
     const { sidebarOpen, preferredSidebarStacking, isVerticallyStacked } = useValues(playerSettingsLogic)
     const { setSidebarOpen, setPreferredSidebarStacking } = useActions(playerSettingsLogic)
+    const { getIntegrationsByKind } = useValues(integrationsLogic)
+    const { sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
 
     const logicKey = `player-sidebar-${isVerticallyStacked ? 'vertical' : 'horizontal'}`
 
@@ -51,9 +55,14 @@ export function PlayerSidebar(): JSX.Element {
         sidebarTabs.splice(1, 0, SessionRecordingSidebarTab.SESSION_SUMMARY)
     }
 
-    // Show linked issues tab if the flag is enabled
+    // Show linked issues tab if the flag is enabled AND there are integrations or existing references
     if (featureFlags[FEATURE_FLAGS.REPLAY_LINEAR_INTEGRATION]) {
-        sidebarTabs.push(SessionRecordingSidebarTab.LINKED_ISSUES)
+        const sessionReplayIntegrations = getIntegrationsByKind(['linear'])
+        const externalReferences = sessionPlayerMetaData?.external_references ?? []
+
+        if (sessionReplayIntegrations.length > 0 || externalReferences.length > 0) {
+            sidebarTabs.push(SessionRecordingSidebarTab.LINKED_ISSUES)
+        }
     }
 
     return (
