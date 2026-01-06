@@ -248,21 +248,37 @@ class TeamDigest(BaseModel):
         }
 
 
+class UserDigestContext(BaseModel):
+    """
+    Container for all user-specific data in the digest.
+
+    Add new user-specific fields here - they'll automatically be available
+    in UserSpecificDigest without changing the for_user() signature.
+    """
+
+    product_suggestion: DigestProductSuggestion | None = None
+
+
 class OrganizationDigest(BaseModel):
     id: UUID
     name: str
     created_at: datetime
     team_digests: list[TeamDigest]
 
-    def filter_for_user(self, user_teams: set[int]) -> "OrganizationDigest":
-        """Returns a new OrganizationDigest with only the teams the user has access to and notifications enabled for."""
+    def for_user(
+        self,
+        user_teams: set[int],
+        context: "UserDigestContext | None" = None,
+    ) -> "UserSpecificDigest":
+        """Returns a UserSpecificDigest filtered to the user's teams with user-specific context."""
         filtered_digests = [team_digest for team_digest in self.team_digests if team_digest.id in user_teams]
 
-        return OrganizationDigest(
+        return UserSpecificDigest(
             id=self.id,
             name=self.name,
             created_at=self.created_at,
             team_digests=filtered_digests,
+            context=context or UserDigestContext(),
         )
 
     def is_empty(self) -> bool:
@@ -271,12 +287,25 @@ class OrganizationDigest(BaseModel):
     def count_items(self) -> int:
         return sum(td.count_items() for td in self.team_digests)
 
-    def render_payload(
-        self,
-        digest: Digest,
-        product_suggestion: "DigestProductSuggestion | None" = None,
-    ) -> dict[str, str | list | dict[str, str] | int | None]:
+
+class UserSpecificDigest(BaseModel):
+    """A user-specific view of an organization digest with user-specific fields."""
+
+    id: UUID
+    name: str
+    created_at: datetime
+    team_digests: list[TeamDigest]
+    context: UserDigestContext = UserDigestContext()
+
+    def is_empty(self) -> bool:
+        return all(digest.is_empty() for digest in self.team_digests)
+
+    def count_items(self) -> int:
+        return sum(td.count_items() for td in self.team_digests)
+
+    def render_payload(self, digest: Digest) -> dict[str, str | list | dict[str, str] | int | None]:
         teams = []
+        product_suggestion = self.context.product_suggestion
         for td in self.team_digests:
             if td.is_empty():
                 continue
