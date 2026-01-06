@@ -9,6 +9,7 @@ import structlog
 import posthoganalytics
 from google.genai.types import GenerateContentConfig
 from posthoganalytics.ai.gemini import genai
+from posthoganalytics.ai.gemini.gemini import Client as GeminiClient
 from rest_framework import exceptions
 
 from ..constants import DEFAULT_MODEL
@@ -26,10 +27,10 @@ class SummarizationResult:
 
 logger = structlog.get_logger(__name__)
 
-_client: genai.Client | None = None
+_client: GeminiClient | None = None
 
 
-def _get_client() -> genai.Client:
+def _get_client() -> GeminiClient:
     """Get or create the Gemini client singleton with PostHog analytics."""
     global _client
     if _client is None:

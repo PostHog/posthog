@@ -3933,6 +3933,7 @@ const api = {
             response_count: number
             generated_at: string
             cached: boolean
+            trace_id: string
         }> {
             const apiRequest = new ApiRequest().survey(surveyId).withAction('summarize_responses')
             const queryParams: Record<string, string> = {}
