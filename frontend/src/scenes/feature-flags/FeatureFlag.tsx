@@ -595,17 +595,19 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                             {hasAvailableFeature(AvailableFeature.TAGGING) && (
                                 <>
                                     <SceneDivider />
-                                    <SceneSection title="Tags">
+                                    <SceneSection title="Tags & Evaluation Contexts">
                                         {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] && (
                                             <div className="text-secondary text-sm mb-2">
-                                                Tags provide fine-grained control over where and when your feature flags
-                                                evaluate.{' '}
+                                                Use tags to organize and filter your feature flags. Mark specific tags
+                                                as <strong>evaluation contexts</strong> to control when flags can be
+                                                evaluated – flags will only evaluate when the SDK provides matching
+                                                environment tags.{' '}
                                                 <Link
                                                     to="https://posthog.com/docs/feature-flags/evaluation-environments"
                                                     target="_blank"
                                                     targetBlankIcon
                                                 >
-                                                    Learn more about using evaluation environments
+                                                    Learn more about evaluation environments
                                                 </Link>
                                             </div>
                                         )}

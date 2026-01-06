@@ -98,15 +98,16 @@ export function FeatureFlagEvaluationTags({
                     onChange={handleTagsChange}
                     loading={featureFlagLoading}
                     data-attr="feature-flag-tags-input"
-                    placeholder='Add tags like "production", "app", "docs-page"'
+                    placeholder='Add evaluation contexts like "marketing-page", "app", "docs"'
                     autoFocus
                 />
 
                 {localTags.length > 0 && (
                     <div className="bg-border-light rounded p-2">
                         <div className="text-xs text-muted mb-2">
-                            Select which tags should also act as evaluation constraints. Flags with evaluation tags will
-                            only evaluate when the SDK provides matching environment tags.
+                            Select which tags should act as evaluation contexts. Flags with evaluation contexts will
+                            only evaluate when the SDK is initialized with matching environment tags, providing
+                            fine-grained runtime control over flag evaluation.
                         </div>
                         <div className="flex flex-col gap-1">
                             {localTags.map((tag: string) => (
@@ -114,7 +115,7 @@ export function FeatureFlagEvaluationTags({
                                     key={tag}
                                     checked={localEvaluationTags.includes(tag)}
                                     onChange={() => toggleEvaluationTag(tag)}
-                                    label={<span className="text-sm">Use "{tag}" as evaluation tag</span>}
+                                    label={<span className="text-sm">Use "{tag}" as evaluation context</span>}
                                 />
                             ))}
                         </div>
@@ -154,7 +155,10 @@ export function FeatureFlagEvaluationTags({
                 tags.map((tag) => {
                     const isEvaluationTag = evaluationTags.includes(tag)
                     return (
-                        <Tooltip key={tag} title={isEvaluationTag ? 'This tag acts as an evaluation tag' : undefined}>
+                        <Tooltip
+                            key={tag}
+                            title={isEvaluationTag ? 'This tag is used as an evaluation context' : undefined}
+                        >
                             <LemonTag
                                 type={isEvaluationTag ? 'success' : colorForString(tag)}
                                 icon={isEvaluationTag ? <IconBolt /> : undefined}
