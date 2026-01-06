@@ -98,47 +98,19 @@ class TestWebAnalyticsSessionExpansionSettings(ClickhouseTestMixin, APIBaseTest)
         runner = self._create_overview_runner()
         self.assertEqual(runner.session_expansion_enabled, expected)
 
-    def test_session_where_with_expansion_enabled(self):
-        self.team.web_analytics_session_expansion_enabled = True
+    @parameterized.expand(
+        [
+            (True, "min(session.$start_timestamp)"),
+            (None, "min(session.$start_timestamp)"),  # Default is enabled
+            (False, "min(events.timestamp)"),
+        ]
+    )
+    def test_start_timestamp_expr(self, expansion_enabled, expected_expr):
+        self.team.web_analytics_session_expansion_enabled = expansion_enabled
         self.team.save()
 
         runner = self._create_overview_runner()
-        session_where = runner.session_where()
-
-        # The expression should contain the 1-hour expansion
-        # We check that the expression was generated (detailed SQL testing is in integration tests)
-        self.assertIsNotNone(session_where)
-
-    def test_session_where_with_expansion_disabled(self):
-        self.team.web_analytics_session_expansion_enabled = False
-        self.team.save()
-
-        runner = self._create_overview_runner()
-        session_where = runner.session_where()
-
-        # The expression should be generated without expansion
-        self.assertIsNotNone(session_where)
-
-    def test_session_having_with_expansion_enabled(self):
-        self.team.web_analytics_session_expansion_enabled = True
-        self.team.save()
-
-        runner = self._create_overview_runner()
-        session_having = runner.session_having()
-
-        # Should return an expression (min_timestamp filter)
-        self.assertIsNotNone(session_having)
-
-    def test_session_having_with_expansion_disabled(self):
-        self.team.web_analytics_session_expansion_enabled = False
-        self.team.save()
-
-        runner = self._create_overview_runner()
-        session_having = runner.session_having()
-
-        # Should return a Constant(True) since no min_timestamp filter needed
-        self.assertIsInstance(session_having, ast.Constant)
-        self.assertEqual(session_having.value, True)
+        self.assertEqual(runner.start_timestamp_expr, expected_expr)
 
 
 class TestWebAnalyticsPathPropertySelection(ClickhouseTestMixin, APIBaseTest):

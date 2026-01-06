@@ -268,20 +268,22 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
         # Default to True (current behavior) if not explicitly set
         return expansion_enabled is None or expansion_enabled is True
 
-    def session_where(self, include_previous_period: Optional[bool] = None):
-        # When session expansion is enabled, expand the timestamp filter by 1 hour backward
-        # to capture sessions that started before the date range but have events within it.
-        # When disabled, use strict date boundaries like Product Analytics.
-        if self.session_expansion_enabled:
-            timestamp_expr = (
-                "events.timestamp <= {date_to} AND events.timestamp >= minus({date_from}, toIntervalHour(1))"
-            )
-        else:
-            timestamp_expr = "events.timestamp <= {date_to} AND events.timestamp >= {date_from}"
+    @cached_property
+    def start_timestamp_expr(self) -> str:
+        """Returns the SQL expression for start_timestamp based on session expansion setting.
 
+        When expansion is enabled (default): uses session.$start_timestamp (session-centric)
+        When expansion is disabled: uses events.timestamp (event-centric, matches Product Analytics)
+        """
+        if self.session_expansion_enabled:
+            return "min(session.$start_timestamp)"
+        else:
+            return "min(events.timestamp)"
+
+    def session_where(self, include_previous_period: Optional[bool] = None):
         properties = [
             parse_expr(
-                timestamp_expr,
+                "events.timestamp <= {date_to} AND events.timestamp >= minus({date_from}, toIntervalHour(1))",
                 placeholders={
                     "date_from": (
                         self.query_date_range.previous_period_date_from_as_hogql()
@@ -300,25 +302,18 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
         )
 
     def session_having(self, include_previous_period: Optional[bool] = None):
-        properties: list[Union[ast.Expr, EventPropertyFilter]] = []
-
-        # Only apply the min_timestamp filter when session expansion is enabled.
-        # This filters out sessions that started too early (before the expanded window).
-        # When expansion is disabled, we use strict date boundaries in session_where instead.
-        if self.session_expansion_enabled:
-            properties.append(
-                parse_expr(
-                    "min_timestamp >= {date_from}",
-                    placeholders={
-                        "date_from": (
-                            self.query_date_range.previous_period_date_from_as_hogql()
-                            if include_previous_period
-                            else self.query_date_range.date_from_as_hogql()
-                        ),
-                    },
-                )
+        properties: list[Union[ast.Expr, EventPropertyFilter]] = [
+            parse_expr(
+                "min_timestamp >= {date_from}",
+                placeholders={
+                    "date_from": (
+                        self.query_date_range.previous_period_date_from_as_hogql()
+                        if include_previous_period
+                        else self.query_date_range.date_from_as_hogql()
+                    ),
+                },
             )
-
+        ]
         pathname = self.pathname_property_filter
         if pathname:
             properties.append(
@@ -329,10 +324,6 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
                     value=pathname.value,
                 )
             )
-
-        if not properties:
-            return ast.Constant(value=True)
-
         return property_to_expr(
             properties,
             self.team,
