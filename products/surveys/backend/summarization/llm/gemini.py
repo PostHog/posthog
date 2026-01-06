@@ -9,7 +9,6 @@ import structlog
 import posthoganalytics
 from google.genai.types import GenerateContentConfig
 from posthoganalytics.ai.gemini import genai
-from posthoganalytics.ai.gemini.gemini import Client as GeminiClient
 from rest_framework import exceptions
 
 from ..constants import DEFAULT_MODEL
@@ -27,19 +26,16 @@ class SummarizationResult:
 
 logger = structlog.get_logger(__name__)
 
-_client: GeminiClient | None = None
 
-
-def _get_client() -> GeminiClient:
-    """Get or create the Gemini client singleton with PostHog analytics."""
-    global _client
-    if _client is None:
-        posthog_client = posthoganalytics.default_client
-        _client = genai.Client(
-            api_key=settings.GEMINI_API_KEY,
-            posthog_client=posthog_client,
-        )
-    return _client
+def _create_client() -> genai.Client:
+    """Create a Gemini client with PostHog analytics (called per-request like GeminiProvider)."""
+    posthog_client = posthoganalytics.default_client
+    if not posthog_client:
+        logger.warning("PostHog default_client not available, LLM analytics will not be tracked")
+    return genai.Client(
+        api_key=settings.GEMINI_API_KEY,
+        posthog_client=posthog_client,
+    )
 
 
 SYSTEM_PROMPT = """You are a product manager's assistant specializing in analyzing survey responses.
@@ -98,7 +94,7 @@ def summarize_with_gemini(
     if not responses:
         raise exceptions.ValidationError("responses cannot be empty")
 
-    client = _get_client()
+    client = _create_client()
 
     config = GenerateContentConfig(
         system_instruction=SYSTEM_PROMPT,
