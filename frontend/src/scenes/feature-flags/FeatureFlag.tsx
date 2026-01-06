@@ -627,6 +627,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                                     )}
                                                                     className="mt-2"
                                                                     flagId={featureFlag.id}
+                                                                    context="form"
                                                                 />
                                                             )}
                                                         </LemonField>
@@ -730,6 +731,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                     (tag: string) => !featureFlag.tags?.includes(tag)
                                                 )}
                                                 flagId={featureFlag.id}
+                                                context="sidebar"
                                             />
                                         ) : (
                                             <SceneTags

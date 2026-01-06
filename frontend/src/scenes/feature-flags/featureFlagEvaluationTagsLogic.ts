@@ -5,7 +5,8 @@ import { featureFlagLogic } from './featureFlagLogic'
 
 export interface FeatureFlagEvaluationTagsLogicProps {
     flagId?: number | string | null
-    instanceId: string
+    /** Differentiates multiple instances for the same flag (e.g., 'sidebar' vs 'page') */
+    context?: string
     tags: string[]
     evaluationTags: string[]
 }
@@ -13,7 +14,7 @@ export interface FeatureFlagEvaluationTagsLogicProps {
 export const featureFlagEvaluationTagsLogic = kea<featureFlagEvaluationTagsLogicType>([
     path(['scenes', 'feature-flags', 'featureFlagEvaluationTagsLogic']),
     props({} as FeatureFlagEvaluationTagsLogicProps),
-    key((props) => `${props.flagId || 'new'}-${props.instanceId}`),
+    key((props) => `${props.flagId ?? 'new'}-${props.context ?? 'default'}`),
 
     actions({
         setIsEditing: (isEditing) => ({ isEditing }),

@@ -1,6 +1,5 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
 
 import { IconBolt, IconCheck, IconPencil, IconPlus, IconX } from '@posthog/icons'
 
@@ -27,6 +26,8 @@ interface FeatureFlagEvaluationTagsProps {
     staticOnly?: boolean
     className?: string
     flagId?: number | string | null
+    /** Differentiates multiple instances for the same flag (e.g., 'sidebar' vs 'page') */
+    context?: string
 }
 
 export function FeatureFlagEvaluationTags({
@@ -38,10 +39,9 @@ export function FeatureFlagEvaluationTags({
     staticOnly = false,
     className,
     flagId,
+    context,
 }: FeatureFlagEvaluationTagsProps): JSX.Element {
-    const instanceId = useMemo(() => Math.random().toString(36).substring(7), [])
-
-    const logic = featureFlagEvaluationTagsLogic({ flagId, instanceId, tags, evaluationTags })
+    const logic = featureFlagEvaluationTagsLogic({ flagId, context, tags, evaluationTags })
     const { isEditing, localTags, localEvaluationTags } = useValues(logic)
     const { setIsEditing, setLocalTags, setLocalEvaluationTags, saveTagsAndEvaluationTags, cancelEditing } =
         useActions(logic)
