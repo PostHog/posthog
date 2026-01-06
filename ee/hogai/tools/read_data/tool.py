@@ -272,8 +272,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         entities_context = EntitySearchContext(team=self._team, user=self._user, context_manager=self._context_manager)
         all_entities, total_count = await entities_context.list_entities(entity_type, limit, offset)
 
-        # Format entities using YAML
-        formatted_entities = entities_context.format_entities_as_yaml(all_entities)
+        formatted_entities = entities_context.format_entities(all_entities)
 
         # Build pagination metadata
         has_more = total_count > offset + limit
@@ -281,7 +280,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
 
         return format_prompt_string(
             READ_DATA_ENTITY_LIST_PROMPT,
-            results="\n---\n".join(formatted_entities),
+            results=formatted_entities,
             offset=offset,
             limit=limit,
             next_offset=next_offset,

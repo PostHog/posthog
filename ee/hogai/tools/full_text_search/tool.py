@@ -65,12 +65,10 @@ class EntitySearchTool(MaxSubtool):
             return f"Error searching entities: {str(e)}"
 
     def _format_results_for_display(self, results: list[dict], counts: dict[str, int | None]) -> str:
-        result_summary = self._entities_context.format_entities_as_yaml(results)
+        result_summary = self._entities_context.format_entities(results)
 
         total_results = len(results)
-        content = FOUND_ENTITIES_MESSAGE_TEMPLATE.format(
-            total_results=total_results, entities_list="\n---\n".join(result_summary)
-        )
+        content = FOUND_ENTITIES_MESSAGE_TEMPLATE.format(total_results=total_results, entities_list=result_summary)
 
         if counts:
             content += ENTITY_TYPE_SUMMARY_TEMPLATE.format(

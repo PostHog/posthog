@@ -96,14 +96,12 @@ class TestReadDataTool(BaseTest):
                 "extra_fields": {"name": "Test Chart", "description": "A test visualization"},
             }
         ]
-        formatted_yaml = [
-            "name: Test Chart\ntype: Artifact\nartifact_id: 'artifact-123'\ndescription: A test visualization"
-        ]
+        formatted_str = "Entity type: Artifact\nID|Name|Description|URL\nartifact-123|Test Chart|A test visualization|-"
 
         with patch("ee.hogai.tools.read_data.tool.EntitySearchContext") as MockEntitySearchContext:
             mock_instance = MagicMock()
             mock_instance.list_entities = AsyncMock(return_value=(entities_data, 1))
-            mock_instance.format_entities_as_yaml = MagicMock(return_value=formatted_yaml)
+            mock_instance.format_entities = MagicMock(return_value=formatted_str)
             MockEntitySearchContext.return_value = mock_instance
 
             tool = ReadDataTool(
@@ -119,7 +117,7 @@ class TestReadDataTool(BaseTest):
 
             MockEntitySearchContext.assert_called_once_with(team=team, user=user, context_manager=context_manager)
             mock_instance.list_entities.assert_called_once_with("artifact", 100, 0)
-            mock_instance.format_entities_as_yaml.assert_called_once_with(entities_data)
+            mock_instance.format_entities.assert_called_once_with(entities_data)
 
             assert "Offset 0, limit 100" in result
             assert "Test Chart" in result
@@ -138,7 +136,7 @@ class TestReadDataTool(BaseTest):
         with patch("ee.hogai.tools.read_data.tool.EntitySearchContext") as MockEntitySearchContext:
             mock_instance = MagicMock()
             mock_instance.list_entities = AsyncMock(return_value=([], 0))
-            mock_instance.format_entities_as_yaml = MagicMock(return_value=[])
+            mock_instance.format_entities = MagicMock(return_value="")
             MockEntitySearchContext.return_value = mock_instance
 
             tool = ReadDataTool(
@@ -169,12 +167,12 @@ class TestReadDataTool(BaseTest):
             {"type": "artifact", "result_id": "artifact-1", "extra_fields": {"name": "Chart 1"}},
             {"type": "artifact", "result_id": "artifact-2", "extra_fields": {"name": "Chart 2"}},
         ]
-        first_page_yaml = ["name: Chart 1\ntype: Artifact", "name: Chart 2\ntype: Artifact"]
+        first_page_str = "Entity type: Artifact\nID|Name|URL\nartifact-1|Chart 1|-\nartifact-2|Chart 2|-"
 
         with patch("ee.hogai.tools.read_data.tool.EntitySearchContext") as MockEntitySearchContext:
             mock_instance = MagicMock()
             mock_instance.list_entities = AsyncMock(return_value=(first_page_data, 5))
-            mock_instance.format_entities_as_yaml = MagicMock(return_value=first_page_yaml)
+            mock_instance.format_entities = MagicMock(return_value=first_page_str)
             MockEntitySearchContext.return_value = mock_instance
 
             tool = ReadDataTool(team=team, user=user, state=state, context_manager=context_manager)
@@ -192,12 +190,12 @@ class TestReadDataTool(BaseTest):
             {"type": "artifact", "result_id": "artifact-3", "extra_fields": {"name": "Chart 3"}},
             {"type": "artifact", "result_id": "artifact-4", "extra_fields": {"name": "Chart 4"}},
         ]
-        second_page_yaml = ["name: Chart 3\ntype: Artifact", "name: Chart 4\ntype: Artifact"]
+        second_page_str = "Entity type: Artifact\nID|Name|URL\nartifact-3|Chart 3|-\nartifact-4|Chart 4|-"
 
         with patch("ee.hogai.tools.read_data.tool.EntitySearchContext") as MockEntitySearchContext:
             mock_instance = MagicMock()
             mock_instance.list_entities = AsyncMock(return_value=(second_page_data, 5))
-            mock_instance.format_entities_as_yaml = MagicMock(return_value=second_page_yaml)
+            mock_instance.format_entities = MagicMock(return_value=second_page_str)
             MockEntitySearchContext.return_value = mock_instance
 
             tool = ReadDataTool(team=team, user=user, state=state, context_manager=context_manager)
@@ -212,12 +210,12 @@ class TestReadDataTool(BaseTest):
         last_page_data = [
             {"type": "artifact", "result_id": "artifact-5", "extra_fields": {"name": "Chart 5"}},
         ]
-        last_page_yaml = ["name: Chart 5\ntype: Artifact"]
+        last_page_str = "Entity type: Artifact\nID|Name|URL\nartifact-5|Chart 5|-"
 
         with patch("ee.hogai.tools.read_data.tool.EntitySearchContext") as MockEntitySearchContext:
             mock_instance = MagicMock()
             mock_instance.list_entities = AsyncMock(return_value=(last_page_data, 5))
-            mock_instance.format_entities_as_yaml = MagicMock(return_value=last_page_yaml)
+            mock_instance.format_entities = MagicMock(return_value=last_page_str)
             MockEntitySearchContext.return_value = mock_instance
 
             tool = ReadDataTool(team=team, user=user, state=state, context_manager=context_manager)
@@ -240,12 +238,12 @@ class TestReadDataTool(BaseTest):
         entities_data = [
             {"type": "artifact", "result_id": "artifact-1", "extra_fields": {"name": "Chart 1"}},
         ]
-        formatted_yaml = ["name: Chart 1\ntype: Artifact"]
+        formatted_str = "Entity type: Artifact\nID|Name|URL\nartifact-1|Chart 1|-"
 
         with patch("ee.hogai.tools.read_data.tool.EntitySearchContext") as MockEntitySearchContext:
             mock_instance = MagicMock()
             mock_instance.list_entities = AsyncMock(return_value=(entities_data, 1))
-            mock_instance.format_entities_as_yaml = MagicMock(return_value=formatted_yaml)
+            mock_instance.format_entities = MagicMock(return_value=formatted_str)
             MockEntitySearchContext.return_value = mock_instance
 
             tool = ReadDataTool(team=team, user=user, state=state, context_manager=context_manager)
@@ -280,7 +278,7 @@ class TestReadDataTool(BaseTest):
         with patch("ee.hogai.tools.read_data.tool.EntitySearchContext") as MockEntitySearchContext:
             mock_instance = MagicMock()
             mock_instance.list_entities = AsyncMock(return_value=([], 0))
-            mock_instance.format_entities_as_yaml = MagicMock(return_value=[])
+            mock_instance.format_entities = MagicMock(return_value="")
             MockEntitySearchContext.return_value = mock_instance
 
             result, _ = await tool._arun_impl(
@@ -292,7 +290,7 @@ class TestReadDataTool(BaseTest):
         with patch("ee.hogai.tools.read_data.tool.EntitySearchContext") as MockEntitySearchContext:
             mock_instance = MagicMock()
             mock_instance.list_entities = AsyncMock(return_value=([], 0))
-            mock_instance.format_entities_as_yaml = MagicMock(return_value=[])
+            mock_instance.format_entities = MagicMock(return_value="")
             MockEntitySearchContext.return_value = mock_instance
 
             result, _ = await tool._arun_impl(

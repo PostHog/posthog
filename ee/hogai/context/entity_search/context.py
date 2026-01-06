@@ -2,7 +2,6 @@ from typing import Any, Literal
 
 from django.conf import settings
 
-import yaml
 from pydantic import ValidationError
 
 from posthog.schema import DocumentArtifactContent, VisualizationArtifactContent
@@ -170,58 +169,115 @@ class EntitySearchContext:
 
         return all_entities, total_count
 
-    def format_entities_as_yaml(self, entities: list[dict]) -> list[str]:
+    def format_entities(self, entities: list[dict]) -> str:
         """
-        Format a list of entities as YAML strings.
+        Format a list of entities as a CSV-like pipe-separated matrix.
 
         Args:
             entities: List of entity result dicts
 
         Returns:
-            List of YAML formatted strings
+            Pipe-separated matrix string with header row
         """
-        formatted_entities = []
-        for entity in entities:
-            formatted_entities.append(self._get_formatted_entity_result(entity))
-        return formatted_entities
+        if not entities:
+            return ""
 
-    def _get_formatted_entity_result(self, result: dict) -> str:
+        # Determine if we have multiple entity types
+        entity_types = {e["type"] for e in entities}
+        multiple_types = len(entity_types) > 1
+
+        # Collect all extra field keys across all entities (excluding standard columns)
+        standard_columns = {"name", "id", "url", "type"}
+        extra_columns: set[str] = set()
+        for entity in entities:
+            entity_type = entity["type"]
+            exclude_fields = EXCLUDE_FROM_DISPLAY.get(entity_type, set())
+            extra_fields = entity.get("extra_fields", {})
+            for key in extra_fields:
+                if key not in standard_columns and key not in exclude_fields:
+                    extra_columns.add(key)
+
+        # Build column order: ID, Name, extra fields alphabetically, URL last
+        extra_columns_sorted = sorted(extra_columns)
+
+        # Build rows
+        rows: list[str] = []
+
+        if multiple_types:
+            # Header with Entity type column
+            header_cols = (
+                ["Entity type", "ID", "Name"]
+                + [col.replace("_", " ").title() for col in extra_columns_sorted]
+                + ["URL"]
+            )
+            rows.append("|".join(header_cols))
+        else:
+            # Single type: add type header line
+            single_type = next(iter(entity_types))
+            rows.append(f"Entity type: {single_type.replace('_', ' ').title()}")
+            # Header without Entity type column
+            header_cols = ["ID", "Name"] + [col.replace("_", " ").title() for col in extra_columns_sorted] + ["URL"]
+            rows.append("|".join(header_cols))
+
+        # Data rows
+        for entity in entities:
+            row_values = self._get_entity_row_values(entity, extra_columns_sorted, multiple_types)
+            rows.append("|".join(row_values))
+
+        return "\n".join(rows)
+
+    def _get_entity_row_values(self, result: dict, extra_columns: list[str], include_type: bool) -> list[str]:
         """
-        Format an entity result as YAML.
+        Get the row values for an entity.
 
         Args:
             result: Entity result dict with 'type', 'result_id', and 'extra_fields'
+            extra_columns: List of extra column names to include
+            include_type: Whether to include the entity type as first column
 
         Returns:
-            YAML formatted string representing the entity
+            List of escaped string values for the row
         """
         entity_type = result["type"]
         result_id = result["result_id"]
         extra_fields = result.get("extra_fields", {})
 
-        # Filter out fields that shouldn't be displayed
-        exclude_fields = EXCLUDE_FROM_DISPLAY.get(entity_type, set())
-        display_extra_fields = {k: v for k, v in extra_fields.items() if k not in exclude_fields}
+        # Get name (from extra_fields or generate default)
+        name = extra_fields.get("name", f"{entity_type.upper()} {result_id}")
 
-        result_dict = {
-            "name": extra_fields.get("name", f"{entity_type.upper()} {result_id}"),
-            "type": entity_type.title().replace("_", " "),
-            f"{entity_type}_id": result_id,
-        }
-
-        # Add URL if not an artifact
+        # Get URL if available
         try:
-            result_dict["url"] = self._build_url(entity_type, result_id, self._team.id)
+            url = self._build_url(entity_type, result_id, self._team.id)
         except ValueError:
-            pass
+            url = ""
 
-        # Add extra_fields if there are any fields beyond name
-        fields_to_include = {k: v for k, v in display_extra_fields.items() if k != "name"}
-        if fields_to_include:
-            result_dict["extra_fields"] = fields_to_include
+        # Build row values: Entity type (if multiple), ID, Name, extra fields, URL last
+        values: list[str] = []
+        if include_type:
+            values.append(self._escape_value(entity_type.replace("_", " ").title()))
+        values.append(self._escape_value(result_id))
+        values.append(self._escape_value(name))
 
-        cleaned_dict = self._omit_none_values(result_dict)
-        return yaml.dump(cleaned_dict, default_flow_style=False, allow_unicode=True, sort_keys=False, indent=1).strip()
+        # Add extra field values
+        exclude_fields = EXCLUDE_FROM_DISPLAY.get(entity_type, set())
+        for col in extra_columns:
+            if col in exclude_fields:
+                values.append("-")
+            else:
+                val = extra_fields.get(col)
+                values.append(self._escape_value(val))
+
+        # URL goes last
+        values.append(self._escape_value(url))
+
+        return values
+
+    def _escape_value(self, value: Any) -> str:
+        """Escape a value for CSV output, quoting if it contains pipe characters."""
+        if value is None or value == "":
+            return "-"
+        str_val = str(value)
+        return f'"{str_val}"' if "|" in str_val else str_val
 
     def _build_url(self, entity_type: str, result_id: str, team_id: int) -> str:
         """Build a URL for an entity based on its type and ID."""
@@ -247,14 +303,3 @@ class EntitySearchContext:
                 return f"{base_url}/error_tracking/{result_id}"
             case _:
                 raise ValueError(f"Unknown entity type: {entity_type}")
-
-    def _omit_none_values(self, obj: Any):
-        """Recursively remove None values from dicts and sequences."""
-        if isinstance(obj, dict):
-            if not obj:
-                return None
-            return {k: self._omit_none_values(v) for k, v in obj.items() if v is not None}
-        elif isinstance(obj, list | tuple):
-            return type(obj)(self._omit_none_values(item) for item in obj if item is not None)
-        else:
-            return obj

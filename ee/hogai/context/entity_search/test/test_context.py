@@ -37,84 +37,78 @@ class TestEntitySearchContext(NonAtomicBaseTest):
         expected_url = f"{settings.SITE_URL}{expected_path.format(team_id=self.team.id)}"
         assert url == expected_url
 
-    @parameterized.expand(
-        [
-            (
-                {"type": "dashboard", "result_id": "456", "extra_fields": {"name": "Test Dashboard"}},
-                ["name: Test Dashboard"],
-            ),
-            (
-                {"type": "cohort", "result_id": "789", "extra_fields": {"filters": "test_filters"}},
-                ["name: COHORT 789", "filters: test_filters"],
-            ),
-            (
-                {
-                    "type": "action",
-                    "result_id": "101",
-                    "extra_fields": {"name": "Click Event", "description": "Tracks clicks"},
-                },
-                ["name: Click Event", "description: Tracks clicks"],
-            ),
+    def test_format_entities_single_type(self):
+        entities = [
+            {
+                "type": "dashboard",
+                "result_id": "456",
+                "extra_fields": {"name": "Test Dashboard", "description": "A dashboard"},
+            },
+            {"type": "dashboard", "result_id": "789", "extra_fields": {"name": "Another Dashboard"}},
         ]
-    )
-    def test_get_formatted_entity_result(self, result, expected_parts):
-        formatted = self.context._get_formatted_entity_result(result)
-        for expected_part in expected_parts:
-            assert expected_part in formatted
+        formatted = self.context.format_entities(entities)
+        lines = formatted.split("\n")
+        assert lines[0] == "Entity type: Dashboard"
+        assert "ID|Name|Description|URL" in lines[1]
+        assert "456|Test Dashboard|A dashboard|" in lines[2]
+        assert "789|Another Dashboard|-|" in lines[3]  # Empty description shows as dash
 
-    @parameterized.expand(
-        [
-            ("dashboard", "456", "dashboard_id: '456'"),
-            ("cohort", "789", "cohort_id: '789'"),
-            ("insight", "123", "insight_id: '123'"),
-            ("action", "101", "action_id: '101'"),
-            ("feature_flag", "202", "feature_flag_id: '202'"),
+    def test_format_entities_multiple_types(self):
+        entities = [
+            {"type": "dashboard", "result_id": "456", "extra_fields": {"name": "Test Dashboard"}},
+            {"type": "insight", "result_id": "123", "extra_fields": {"name": "Test Insight"}},
         ]
-    )
-    def test_get_formatted_entity_result_uses_entity_specific_id(self, entity_type, result_id, expected_id_format):
-        result = {"type": entity_type, "result_id": result_id, "extra_fields": {"name": f"Test {entity_type}"}}
-        formatted = self.context._get_formatted_entity_result(result)
-        assert expected_id_format in formatted
+        formatted = self.context.format_entities(entities)
+        lines = formatted.split("\n")
+        assert "Entity type|ID|Name|URL" in lines[0]
+        assert "Dashboard|456|Test Dashboard|" in lines[1]
+        assert "Insight|123|Test Insight|" in lines[2]
 
-    def test_get_formatted_entity_result_excludes_query_for_insights(self):
-        result = {
-            "type": "insight",
-            "result_id": "123",
-            "extra_fields": {"name": "Test Insight", "query": {"kind": "TrendsQuery"}},
-        }
-        formatted = self.context._get_formatted_entity_result(result)
-        assert "query" not in formatted
+    def test_format_entities_includes_id(self):
+        entities = [
+            {"type": "dashboard", "result_id": "456", "extra_fields": {"name": "Test Dashboard"}},
+        ]
+        formatted = self.context.format_entities(entities)
+        assert "456|Test Dashboard|" in formatted
+
+    def test_format_entities_excludes_query_for_insights(self):
+        entities = [
+            {
+                "type": "insight",
+                "result_id": "123",
+                "extra_fields": {"name": "Test Insight", "query": {"kind": "TrendsQuery"}},
+            },
+        ]
+        formatted = self.context.format_entities(entities)
         assert "TrendsQuery" not in formatted
         assert "Test Insight" in formatted
 
-    def test_get_formatted_entity_result_does_not_exclude_fields_for_other_entities(self):
-        result = {
-            "type": "cohort",
-            "result_id": "456",
-            "extra_fields": {"name": "Test Cohort", "filters": {"properties": []}},
-        }
-        formatted = self.context._get_formatted_entity_result(result)
-        assert "filters" in formatted
-
-    @parameterized.expand(
-        [
-            ({"a": 1, "b": None, "c": 3}, {"a": 1, "c": 3}),
-            ({"nested": {"x": 1, "y": None, "z": 2}}, {"nested": {"x": 1, "z": 2}}),
-            ({"list": [1, None, 3, None, 5]}, {"list": [1, 3, 5]}),
-            ({"tuple": (1, None, 3)}, {"tuple": (1, 3)}),
-            (
-                {"a": {"b": {"c": None, "d": 4}}, "e": [None, {"f": None, "g": 7}]},
-                {"a": {"b": {"d": 4}}, "e": [{"g": 7}]},
-            ),
-            ({"empty_dict": {}, "empty_list": []}, {"empty_dict": {}, "empty_list": []}),
-            ({"all_none": None}, {}),
-            ({}, {}),
-            ([], []),
+    def test_format_entities_does_not_exclude_fields_for_other_entities(self):
+        entities = [
+            {
+                "type": "cohort",
+                "result_id": "456",
+                "extra_fields": {"name": "Test Cohort", "filters": {"properties": []}},
+            },
         ]
-    )
-    def test_omit_none_values(self, input_obj, expected_output):
-        result = self.context._omit_none_values(input_obj)
-        assert result == expected_output
+        formatted = self.context.format_entities(entities)
+        assert "Filters" in formatted
+
+    def test_format_entities_escapes_pipe_characters(self):
+        entities = [
+            {
+                "type": "dashboard",
+                "result_id": "456",
+                "extra_fields": {"name": "Test|Dashboard", "description": "Has|pipes"},
+            },
+        ]
+        formatted = self.context.format_entities(entities)
+        assert '"Test|Dashboard"' in formatted
+        assert '"Has|pipes"' in formatted
+
+    def test_format_entities_empty_list(self):
+        formatted = self.context.format_entities([])
+        assert formatted == ""
 
     async def test_insight_filters_exclude_deleted(self):
         await Insight.objects.acreate(
