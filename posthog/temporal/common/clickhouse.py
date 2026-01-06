@@ -10,6 +10,7 @@ import asyncio
 import datetime as dt
 import contextlib
 import collections.abc
+from string import Formatter
 from urllib.parse import urljoin
 
 from django.conf import settings
@@ -215,6 +216,19 @@ def add_log_comment_param(params: dict[str, typing.Any], query_tags: typing.Opti
     params[param_name] = query_tags.to_json()
 
 
+class KeywordOnlyFormatter(Formatter):
+    """Formatter supporting only keyword arguments.
+
+    Positional arguments are unchanged.
+    """
+
+    def get_value(self, key, args, kwargs):
+        if isinstance(key, int):
+            # Returns '{n}' unchanged, where n is a numerical index.
+            return f"{{{key}}}"
+        return kwargs[key]
+
+
 class ClickHouseClient:
     """An asynchronous client to access ClickHouse via HTTP.
 
@@ -306,7 +320,7 @@ class ClickHouseClient:
         query = query % format_parameters
 
         if has_format_placeholders:
-            query = query.format(**format_parameters)
+            query = KeywordOnlyFormatter().format(query, **format_parameters)
 
         return query
 
