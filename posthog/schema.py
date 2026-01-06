@@ -2137,6 +2137,12 @@ class MarketingAnalyticsSchemaFieldTypes(StrEnum):
     BOOLEAN = "boolean"
 
 
+class Kind(StrEnum):
+    EVENTS_NODE = "EventsNode"
+    ACTIONS_NODE = "ActionsNode"
+    DATA_WAREHOUSE_NODE = "DataWarehouseNode"
+
+
 class MarketingIntegrationConfig1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5065,6 +5071,17 @@ class MarketingAnalyticsSchemaField(BaseModel):
     isCurrency: bool
     required: bool
     type: list[MarketingAnalyticsSchemaFieldTypes]
+
+
+class MarketingConversionGoalMapping(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Kind = Field(..., description="The kind of goal (EventsNode, ActionsNode, DataWarehouseNode)")
+    schema_map: dict[str, str | Any] | None = Field(
+        default=None, description="UTM field mappings - required for DataWarehouseNode, optional otherwise"
+    )
+    team_goal_id: str = Field(..., description="Reference to the team ConversionGoal.id")
 
 
 class MarketingIntegrationConfigType(BaseModel):
@@ -10609,6 +10626,9 @@ class MarketingAnalyticsConfig(BaseModel):
     attribution_window_days: float | None = None
     campaign_field_preferences: dict[str, CampaignFieldPreference] | None = None
     campaign_name_mappings: dict[str, dict[str, list[str]]] | None = None
+    conversion_goal_mappings: list[MarketingConversionGoalMapping] | None = Field(
+        default=None, description="Mappings to team-level conversion goals with optional schema_map for DW goals"
+    )
     conversion_goals: list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3] | None = None
     custom_source_mappings: dict[str, list[str]] | None = None
     sources_map: dict[str, SourceMap] | None = None

@@ -4538,9 +4538,22 @@ export interface CampaignFieldPreference {
     match_field: MatchField
 }
 
+/** Maps a team-level conversion goal to marketing analytics */
+export interface MarketingConversionGoalMapping {
+    /** Reference to the team ConversionGoal.id */
+    team_goal_id: string
+    /** The kind of goal (EventsNode, ActionsNode, DataWarehouseNode) */
+    kind: NodeKind.EventsNode | NodeKind.ActionsNode | NodeKind.DataWarehouseNode
+    /** UTM field mappings - required for DataWarehouseNode, optional otherwise */
+    schema_map?: SchemaMap
+}
+
 export interface MarketingAnalyticsConfig {
     sources_map?: Record<string, SourceMap>
+    /** @deprecated Use conversion_goal_mappings instead. Kept for backwards compatibility. */
     conversion_goals?: ConversionGoalFilter[]
+    /** Mappings to team-level conversion goals with optional schema_map for DW goals */
+    conversion_goal_mappings?: MarketingConversionGoalMapping[]
     attribution_window_days?: number
     attribution_mode?: AttributionMode
     campaign_name_mappings?: Record<string, Record<string, string[]>>

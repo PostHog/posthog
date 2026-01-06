@@ -1,38 +1,30 @@
 import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
-import { IconCheck, IconPencil, IconPlusSmall, IconTrash, IconWarning, IconX } from '@posthog/icons'
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { IconPencil, IconTrash } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { uuid } from 'lib/utils'
-import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
+import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { ConversionGoalFilter, NodeKind } from '~/queries/schema/schema-general'
+import { CoreEvent, NodeKind } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
-import {
-    MarketingAnalyticsValidationWarningBanner,
-    validateConversionGoals,
-} from '../MarketingAnalyticsValidationWarningBanner'
-import { ConversionGoalDropdown } from '../common/ConversionGoalDropdown'
-import {
-    conversionGoalDescription,
-    conversionGoalNamePlaceholder,
-    defaultConversionGoalFilter,
-    getConfiguredConversionGoalsLabel,
-} from './constants'
+import { getGoalFilterSummary, getGoalTypeLabel, getTableColumns } from '../../utils/coreEventUtils'
+import { conversionGoalDescription, getConfiguredConversionGoalsLabel } from './constants'
 
-interface ConversionGoalFormState {
-    filter: ConversionGoalFilter
-    name: string
+const DEFAULT_SCHEMA_MAP: Record<string, string | undefined> = {
+    utm_campaign_name: 'utm_campaign',
+    utm_source_name: 'utm_source',
 }
 
-const createEmptyFormState = (): ConversionGoalFormState => ({
-    filter: defaultConversionGoalFilter,
-    name: '',
-})
+interface SchemaMapFormState {
+    event: CoreEvent | null
+    schemaMap: Record<string, string | undefined>
+    isEditing: boolean // true if editing existing mapping, false if adding new
+    existingMappingId?: string
+}
 
 export function ConversionGoalsConfiguration({
     hideTitle = false,
@@ -41,237 +33,341 @@ export function ConversionGoalsConfiguration({
     hideTitle?: boolean
     hideDescription?: boolean
 }): JSX.Element {
-    const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
-    const { addOrUpdateConversionGoal, removeConversionGoal } = useActions(marketingAnalyticsSettingsLogic)
-    const [formState, setFormState] = useState<ConversionGoalFormState>(createEmptyFormState())
-    const [editingGoalId, setEditingGoalId] = useState<string | null>(null)
-    const [editingGoal, setEditingGoal] = useState<ConversionGoalFilter | null>(null)
+    const {
+        enabledCoreEvents,
+        availableCoreEvents,
+        teamCoreEvents,
+        goalMappings,
+        dataWarehouseTables,
+        conversion_goals: legacyConversionGoals,
+    } = useValues(marketingAnalyticsSettingsLogic)
+    const { addGoalMapping, updateGoalMapping, removeGoalMapping, removeConversionGoal } = useActions(
+        marketingAnalyticsSettingsLogic
+    )
 
-    const validationWarnings = useMemo(() => validateConversionGoals(conversion_goals), [conversion_goals])
+    const [schemaMapForm, setSchemaMapForm] = useState<SchemaMapFormState | null>(null)
 
-    const handleAddConversionGoal = (): void => {
-        let conversionGoalName = formState.name.trim()
-        if (conversionGoalName === '') {
-            conversionGoalName = formState.filter.custom_name || formState.filter.name || 'No name'
+    // Get available columns for the current event's table
+    const availableColumns = useMemo(() => {
+        if (!schemaMapForm?.event) {
+            return []
         }
-        const newGoal: ConversionGoalFilter = {
-            ...formState.filter,
-            conversion_goal_id: formState.filter.conversion_goal_id || uuid(),
-            conversion_goal_name: conversionGoalName,
+        return getTableColumns(schemaMapForm.event, dataWarehouseTables || [])
+    }, [schemaMapForm?.event, dataWarehouseTables])
+
+    const columnOptions = useMemo(() => {
+        return availableColumns.map((col) => ({ value: col, label: col }))
+    }, [availableColumns])
+
+    const handleSelectGoal = (eventId: string): void => {
+        const event = availableCoreEvents.find((e) => e.id === eventId)
+        if (!event) {
+            return
         }
 
-        addOrUpdateConversionGoal(newGoal)
-        setFormState(createEmptyFormState())
-    }
-
-    const handleStartEdit = (goal: ConversionGoalFilter): void => {
-        setEditingGoalId(goal.conversion_goal_id)
-        setEditingGoal({ ...goal })
-    }
-
-    const handleSaveEdit = (): void => {
-        if (editingGoal) {
-            addOrUpdateConversionGoal(editingGoal)
+        // For DW events, show schema_map configuration modal
+        if (event.filter.kind === NodeKind.DataWarehouseNode) {
+            setSchemaMapForm({
+                event,
+                schemaMap: { ...DEFAULT_SCHEMA_MAP },
+                isEditing: false,
+            })
+        } else {
+            // For events/actions, add directly without schema_map
+            addGoalMapping(event.id)
         }
-        setEditingGoalId(null)
-        setEditingGoal(null)
     }
 
-    const handleCancelEdit = (): void => {
-        setEditingGoalId(null)
-        setEditingGoal(null)
+    const handleEditSchemaMap = (event: CoreEvent): void => {
+        const existingMapping = goalMappings.find((m) => m.core_event.id === event.id)
+        setSchemaMapForm({
+            event,
+            schemaMap: existingMapping?.schema_map || { ...DEFAULT_SCHEMA_MAP },
+            isEditing: true,
+            existingMappingId: existingMapping?.id,
+        })
     }
 
-    const handleRemoveGoal = (goalId: string): void => {
-        removeConversionGoal(goalId)
+    const handleSaveSchemaMap = (): void => {
+        if (!schemaMapForm?.event) {
+            return
+        }
+
+        if (schemaMapForm.isEditing && schemaMapForm.existingMappingId) {
+            updateGoalMapping(schemaMapForm.existingMappingId, schemaMapForm.schemaMap)
+        } else {
+            addGoalMapping(schemaMapForm.event.id, schemaMapForm.schemaMap)
+        }
+        setSchemaMapForm(null)
     }
 
-    const isFormValid = defaultConversionGoalFilter.name !== formState.filter.name
+    const handleRemoveGoal = (coreEventId: string): void => {
+        const mapping = goalMappings.find((m) => m.core_event.id === coreEventId)
+        if (mapping) {
+            removeGoalMapping(mapping.id)
+        }
+    }
+
+    // Only UTM campaign and source are required for marketing attribution
+    const isSchemaMapValid = schemaMapForm?.schemaMap.utm_campaign_name && schemaMapForm?.schemaMap.utm_source_name
+
+    const hasTeamGoals = teamCoreEvents.length > 0
+    const hasAvailableGoals = availableCoreEvents.length > 0
+    const hasLegacyGoals = legacyConversionGoals.length > 0
 
     return (
         <SceneSection
             title={!hideTitle ? 'Conversion goals' : undefined}
             description={!hideDescription ? conversionGoalDescription : undefined}
         >
-            {validationWarnings.length > 0 && (
-                <MarketingAnalyticsValidationWarningBanner warnings={validationWarnings} />
+            {/* Deprecation banner for legacy conversion goals */}
+            {hasLegacyGoals && (
+                <LemonBanner type="warning" className="mb-4">
+                    Legacy conversion goals are being replaced by Core Events, which can be shared across Marketing,
+                    Customer, and Revenue analytics.
+                </LemonBanner>
             )}
 
-            {/* Add New Conversion Goal Form */}
-            <div className="border rounded p-4 space-y-4">
-                <h4 className="font-medium">Add new conversion goal</h4>
-
-                <div className="space-y-3">
-                    <div>
-                        <LemonInput
-                            value={formState.name}
-                            onChange={(value) => setFormState((prev) => ({ ...prev, name: value }))}
-                            placeholder={conversionGoalNamePlaceholder}
-                        />
-                    </div>
-
-                    <div>
-                        <ConversionGoalDropdown
-                            value={formState.filter}
-                            typeKey="conversion-goal"
-                            onChange={(newFilter) =>
-                                setFormState((prev) => ({
-                                    ...prev,
-                                    filter: {
-                                        ...newFilter,
-                                        conversion_goal_id: newFilter.conversion_goal_id || uuid(),
-                                    },
-                                }))
-                            }
-                        />
-                    </div>
-
-                    <div className="flex gap-2">
-                        <LemonButton
-                            type="primary"
-                            onClick={handleAddConversionGoal}
-                            disabled={!isFormValid}
+            <div className="space-y-4">
+                {/* Legacy Conversion Goals - shown first when present */}
+                {hasLegacyGoals && (
+                    <div className="border border-warning rounded p-4 space-y-3 bg-warning-highlight">
+                        <div className="flex justify-between items-center">
+                            <h4 className="font-medium text-warning-dark">Legacy conversion goals (deprecated)</h4>
+                            <LemonButton type="secondary" size="small" to={urls.coreEvents()}>
+                                Migrate to Core Events
+                            </LemonButton>
+                        </div>
+                        <p className="text-sm text-muted">
+                            These goals use the old format and should be migrated to Core Events. They will continue to
+                            work but are no longer recommended.
+                        </p>
+                        <LemonTable
+                            rowKey={(item) => item.conversion_goal_id}
+                            dataSource={legacyConversionGoals}
                             size="small"
-                            icon={<IconPlusSmall />}
-                        >
-                            Add conversion goal
-                        </LemonButton>
-
-                        <LemonButton onClick={() => setFormState(createEmptyFormState())}>Clear</LemonButton>
+                            columns={[
+                                {
+                                    key: 'name',
+                                    title: 'Goal name',
+                                    render: (_, goal) => (
+                                        <span className="font-medium">{goal.conversion_goal_name}</span>
+                                    ),
+                                },
+                                {
+                                    key: 'type',
+                                    title: 'Type',
+                                    render: (_, goal) => {
+                                        if (goal.kind === NodeKind.EventsNode) {
+                                            return 'Event'
+                                        }
+                                        if (goal.kind === NodeKind.ActionsNode) {
+                                            return 'Action'
+                                        }
+                                        if (goal.kind === NodeKind.DataWarehouseNode) {
+                                            return 'Data warehouse'
+                                        }
+                                        return 'Unknown'
+                                    },
+                                },
+                                {
+                                    key: 'actions',
+                                    title: 'Actions',
+                                    width: 100,
+                                    render: (_, goal) => (
+                                        <LemonButton
+                                            icon={<IconTrash />}
+                                            size="small"
+                                            status="danger"
+                                            onClick={() => removeConversionGoal(goal.conversion_goal_id)}
+                                            tooltip="Remove legacy goal"
+                                        />
+                                    ),
+                                },
+                            ]}
+                        />
                     </div>
-                </div>
-            </div>
+                )}
 
-            {/* Existing Conversion Goals Table */}
-            <div>
-                <h3 className="font-bold mb-4">{getConfiguredConversionGoalsLabel(conversion_goals.length)}</h3>
+                {/* Enabled Core Events */}
+                <div>
+                    <div className="flex justify-between items-center gap-4">
+                        <h4 className="font-medium">{getConfiguredConversionGoalsLabel(enabledCoreEvents.length)}</h4>
+                        <div className="flex gap-2 items-center">
+                            {hasTeamGoals && hasAvailableGoals && (
+                                <LemonSelect
+                                    placeholder="Add core event..."
+                                    options={availableCoreEvents.map((event) => ({
+                                        value: event.id,
+                                        label: event.name,
+                                        labelInMenu: (
+                                            <div className="flex flex-col">
+                                                <span className="font-medium">{event.name}</span>
+                                                <span className="text-xs text-muted">
+                                                    {getGoalTypeLabel(event)}: {getGoalFilterSummary(event)}
+                                                </span>
+                                            </div>
+                                        ),
+                                    }))}
+                                    onChange={(value) => value && handleSelectGoal(value)}
+                                    value={null}
+                                    size="small"
+                                />
+                            )}
+                            <LemonButton type="secondary" size="small" to={urls.coreEvents()}>
+                                Manage Core Events
+                            </LemonButton>
+                        </div>
+                    </div>
+                    <p className="text-sm text-muted mt-1">
+                        Core events enabled for marketing analytics. Manage your core events in the Core Events page.
+                    </p>
+                </div>
 
                 <LemonTable
-                    rowKey={(item) => item.conversion_goal_id}
-                    dataSource={conversion_goals}
+                    rowKey={(item) => item.id}
+                    dataSource={enabledCoreEvents}
                     columns={[
                         {
                             key: 'name',
                             title: 'Goal name',
-                            render: (_, goal: ConversionGoalFilter) => {
-                                // Check if this goal is invalid (All Events)
-                                const isInvalid =
-                                    goal.kind === NodeKind.EventsNode &&
-                                    ('event' in goal
-                                        ? (goal as any).event === null || (goal as any).event === ''
-                                        : false)
-
-                                if (editingGoalId === goal.conversion_goal_id && editingGoal) {
-                                    return (
-                                        <LemonInput
-                                            value={editingGoal.conversion_goal_name}
-                                            onChange={(value) =>
-                                                setEditingGoal((prev) =>
-                                                    prev ? { ...prev, conversion_goal_name: value } : null
-                                                )
-                                            }
-                                            size="small"
-                                        />
-                                    )
-                                }
-                                return (
-                                    <div className={isInvalid ? 'flex items-center gap-1.5' : ''}>
-                                        <span className={isInvalid ? 'text-warning' : ''}>
-                                            {goal.conversion_goal_name}
-                                        </span>
-                                        {isInvalid && <IconWarning className="text-warning w-4 h-4 shrink-0" />}
-                                    </div>
-                                )
-                            },
+                            render: (_, event: CoreEvent) => <span className="font-medium">{event.name}</span>,
                         },
                         {
                             key: 'type',
                             title: 'Type',
-                            render: (_, goal: ConversionGoalFilter) => QUERY_TYPES_METADATA[goal.kind]?.name,
+                            render: (_, event: CoreEvent) => getGoalTypeLabel(event),
                         },
                         {
-                            key: 'event',
-                            title: 'Event/Table',
-                            render: (_, goal: ConversionGoalFilter) => {
-                                if (editingGoalId === goal.conversion_goal_id && editingGoal) {
-                                    return (
-                                        <ConversionGoalDropdown
-                                            value={editingGoal}
-                                            typeKey="conversion-goal-edit"
-                                            onChange={setEditingGoal}
-                                        />
-                                    )
-                                }
-                                return goal.custom_name || goal.name || 'No name'
-                            },
+                            key: 'filter',
+                            title: 'Event/Action/Table',
+                            render: (_, event: CoreEvent) => (
+                                <span className="text-muted">{getGoalFilterSummary(event)}</span>
+                            ),
                         },
                         {
                             key: 'schema',
-                            title: 'Schema mapping',
-                            render: (_, goal: ConversionGoalFilter) =>
-                                goal.schema_map ? (
+                            title: 'Attribution mapping',
+                            render: (_, event: CoreEvent) => {
+                                if (event.filter.kind !== NodeKind.DataWarehouseNode) {
+                                    return <span className="text-muted">Pageview-based</span>
+                                }
+                                const mapping = goalMappings.find((m) => m.core_event.id === event.id)
+                                if (!mapping?.schema_map) {
+                                    return <span className="text-muted">Not configured</span>
+                                }
+                                return (
                                     <div className="text-xs text-muted">
-                                        <div>Campaign: {goal.schema_map.utm_campaign_name}</div>
-                                        <div>Source: {goal.schema_map.utm_source_name}</div>
-                                        {goal.kind === 'DataWarehouseNode' && goal.schema_map.timestamp_field && (
-                                            <div>Timestamp: {goal.schema_map.timestamp_field}</div>
-                                        )}
-                                        {goal.kind === 'DataWarehouseNode' && goal.schema_map.distinct_id_field && (
-                                            <div>Distinct ID: {goal.schema_map.distinct_id_field}</div>
-                                        )}
+                                        <div>Campaign: {mapping.schema_map.utm_campaign_name}</div>
+                                        <div>Source: {mapping.schema_map.utm_source_name}</div>
                                     </div>
-                                ) : (
-                                    <div>Not configured</div>
-                                ),
+                                )
+                            },
                         },
                         {
                             key: 'actions',
                             title: 'Actions',
                             width: 100,
-                            render: (_, goal: ConversionGoalFilter) => {
-                                if (editingGoalId === goal.conversion_goal_id) {
-                                    return (
-                                        <div className="flex gap-1">
-                                            <LemonButton
-                                                icon={<IconCheck />}
-                                                size="small"
-                                                type="primary"
-                                                onClick={handleSaveEdit}
-                                                tooltip="Save changes"
-                                            />
-                                            <LemonButton
-                                                icon={<IconX />}
-                                                size="small"
-                                                onClick={handleCancelEdit}
-                                                tooltip="Cancel"
-                                            />
-                                        </div>
-                                    )
-                                }
-
-                                return (
-                                    <div className="flex gap-1">
+                            render: (_, event: CoreEvent) => (
+                                <div className="flex gap-1">
+                                    {event.filter.kind === NodeKind.DataWarehouseNode && (
                                         <LemonButton
                                             icon={<IconPencil />}
                                             size="small"
-                                            onClick={() => handleStartEdit(goal)}
-                                            tooltip="Edit conversion goal"
+                                            onClick={() => handleEditSchemaMap(event)}
+                                            tooltip="Edit attribution mapping"
                                         />
-                                        <LemonButton
-                                            icon={<IconTrash />}
-                                            size="small"
-                                            status="danger"
-                                            onClick={() => handleRemoveGoal(goal.conversion_goal_id)}
-                                            tooltip="Remove conversion goal"
-                                        />
-                                    </div>
-                                )
-                            },
+                                    )}
+                                    <LemonButton
+                                        icon={<IconTrash />}
+                                        size="small"
+                                        status="danger"
+                                        onClick={() => handleRemoveGoal(event.id)}
+                                        tooltip="Remove from marketing analytics"
+                                    />
+                                </div>
+                            ),
                         },
                     ]}
-                    emptyState="No conversion goals configured yet. Add your first conversion goal above."
+                    emptyState={
+                        hasTeamGoals
+                            ? 'No core events enabled. Use the dropdown above to add one.'
+                            : "No core events defined yet. Click 'Manage Core Events' to create your first one."
+                    }
                 />
             </div>
+
+            {/* Schema Map Configuration Modal for DW Goals */}
+            <LemonModal
+                isOpen={!!schemaMapForm}
+                onClose={() => setSchemaMapForm(null)}
+                title={
+                    schemaMapForm?.isEditing
+                        ? `Edit attribution mapping for "${schemaMapForm.event?.name}"`
+                        : `Configure attribution mapping for "${schemaMapForm?.event?.name}"`
+                }
+                footer={
+                    <>
+                        <LemonButton onClick={() => setSchemaMapForm(null)}>Cancel</LemonButton>
+                        <LemonButton type="primary" onClick={handleSaveSchemaMap} disabled={!isSchemaMapValid}>
+                            {schemaMapForm?.isEditing ? 'Save' : 'Add goal'}
+                        </LemonButton>
+                    </>
+                }
+            >
+                <div className="space-y-4">
+                    <p className="text-muted">
+                        Select which columns in your data warehouse table contain the UTM attribution data. These
+                        mappings are required for marketing analytics to attribute conversions to campaigns and sources.
+                    </p>
+
+                    <div className="space-y-3">
+                        <div>
+                            <label className="text-sm font-medium mb-1 block">UTM Campaign column</label>
+                            <LemonSelect
+                                value={schemaMapForm?.schemaMap.utm_campaign_name || null}
+                                onChange={(value) =>
+                                    setSchemaMapForm((prev) =>
+                                        prev
+                                            ? {
+                                                  ...prev,
+                                                  schemaMap: { ...prev.schemaMap, utm_campaign_name: value || '' },
+                                              }
+                                            : null
+                                    )
+                                }
+                                options={columnOptions}
+                                placeholder="Select column..."
+                                className="w-full"
+                            />
+                            <p className="text-xs text-muted mt-1">
+                                Column containing the UTM campaign parameter value
+                            </p>
+                        </div>
+
+                        <div>
+                            <label className="text-sm font-medium mb-1 block">UTM Source column</label>
+                            <LemonSelect
+                                value={schemaMapForm?.schemaMap.utm_source_name || null}
+                                onChange={(value) =>
+                                    setSchemaMapForm((prev) =>
+                                        prev
+                                            ? {
+                                                  ...prev,
+                                                  schemaMap: { ...prev.schemaMap, utm_source_name: value || '' },
+                                              }
+                                            : null
+                                    )
+                                }
+                                options={columnOptions}
+                                placeholder="Select column..."
+                                className="w-full"
+                            />
+                            <p className="text-xs text-muted mt-1">Column containing the UTM source parameter value</p>
+                        </div>
+                    </div>
+                </div>
+            </LemonModal>
         </SceneSection>
     )
 }
