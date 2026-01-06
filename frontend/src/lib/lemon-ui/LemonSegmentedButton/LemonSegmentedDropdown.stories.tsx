@@ -65,7 +65,16 @@ Small.args = {
     size: 'small',
 }
 
-export const DropdownSelectedByDefault: Story = Template.bind({})
+const TemplateWithDropdownSelected: StoryFn<typeof LemonSegmentedDropdown> = (
+    props: Omit<LemonSegmentedDropdownProps<any>, 'value' | 'onChange'>
+) => {
+    const splitIndex = props.splitIndex ?? props.options.length
+    const [value, setValue] = useState(props.options[splitIndex]?.value)
+
+    return <LemonSegmentedDropdown {...props} value={value} onChange={(newValue) => setValue(newValue)} />
+}
+
+export const DropdownSelectedByDefault: Story = TemplateWithDropdownSelected.bind({})
 DropdownSelectedByDefault.args = {
     options: [
         { value: 'calendar', label: 'Calendar', icon: <IconCalendar /> },
