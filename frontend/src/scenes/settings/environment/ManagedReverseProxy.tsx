@@ -182,7 +182,7 @@ function CloudflareOptInBanner({
     restrictionReason,
 }: {
     onAcknowledge: () => void
-    restrictionReason: string | false | undefined
+    restrictionReason: string | false | undefined | null
 }): JSX.Element {
     const { cloudflareOptInChecked } = useValues(proxyLogic)
     const { setCloudflareOptInChecked } = useActions(proxyLogic)
