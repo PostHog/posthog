@@ -1312,6 +1312,7 @@ function FeatureFlagRollout({
                                                             evaluationTags={featureFlag.evaluation_tags || []}
                                                             staticOnly
                                                             flagId={featureFlag.id}
+                                                            context="static"
                                                         />
                                                     ) : (
                                                         <ObjectTags tags={featureFlag.tags} staticOnly />
@@ -1699,6 +1700,7 @@ function FeatureFlagRollout({
                                             evaluationTags={featureFlag.evaluation_tags || []}
                                             staticOnly
                                             flagId={featureFlag.id}
+                                            context="static"
                                         />
                                     ) : (
                                         <ObjectTags tags={featureFlag.tags} staticOnly />

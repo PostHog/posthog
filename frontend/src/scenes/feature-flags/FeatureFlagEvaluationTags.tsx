@@ -26,8 +26,8 @@ interface FeatureFlagEvaluationTagsProps {
     staticOnly?: boolean
     className?: string
     flagId?: number | string | null
-    /** Differentiates multiple instances for the same flag (e.g., 'sidebar' vs 'page') */
-    context?: string
+    /** Differentiates multiple instances for the same flag (e.g., 'sidebar' vs 'form') */
+    context: 'sidebar' | 'form' | 'static'
 }
 
 export function FeatureFlagEvaluationTags({
@@ -127,6 +127,7 @@ export function FeatureFlagEvaluationTags({
                             type="button"
                             variant="outline"
                             onClick={handleSave}
+                            disabled={featureFlagLoading}
                             tooltip="Save tags"
                             aria-label="Save tags"
                         >
