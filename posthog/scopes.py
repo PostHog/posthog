@@ -28,6 +28,7 @@ APIScopeObject = Literal[
     "evaluation",
     "event_definition",
     "experiment",
+    "experiment_saved_metric",
     "export",
     "feature_flag",
     "file_system",
