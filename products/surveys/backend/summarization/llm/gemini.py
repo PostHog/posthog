@@ -27,7 +27,7 @@ class SummarizationResult:
 logger = structlog.get_logger(__name__)
 
 
-def _create_client() -> genai.Client:
+def _create_client():
     """Create a Gemini client with PostHog analytics (called per-request like GeminiProvider)."""
     # In dev with --minimal, posthoganalytics may be disabled - enable it for LLM analytics
     if settings.DEBUG and posthoganalytics.disabled:
