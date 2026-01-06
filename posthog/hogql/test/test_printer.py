@@ -3265,11 +3265,12 @@ class TestMaterializedColumnOptimization(BaseTest):
         and different PersonsOnEventsMode settings.
 
         Expected behavior:
-        - with_email: is_not_set=0 (False) - property has a value
-        - with_null: is_not_set=1 (True) - null is treated as "not set"
-        - without: is_not_set=1 (True) - property doesn't exist
+        - with_email: is_not_set=0 - property has a value
+        - test_with_empty_string: is_not_set=0 - property has a value
+        - with_null: is_not_set=1 - null is treated as "not set"
+        - without: is_not_set=1 - property doesn't exist
 
-        When materialized, the SQL should NOT use JSON operations (currently fails).
+        the clickhouse SQL should NOT include JSON operations
         """
         self.addCleanup(cleanup_materialized_columns)
 
@@ -3279,7 +3280,7 @@ class TestMaterializedColumnOptimization(BaseTest):
 
         # Generate unique IDs to avoid collision with previous test runs
         distinct_id_with_email = f"test_with_email"
-        distinct_id_with_empty = f"test_with_empty"
+        distinct_id_with_empty = f"test_with_empty_string"
         distinct_id_with_null = f"test_with_null"
         distinct_id_without = f"test_without"
         event_name = f"is_not_set_test"
@@ -3382,11 +3383,10 @@ class TestMaterializedColumnOptimization(BaseTest):
 
         # The query should never touch the json properties object if we are using the materialized column, these asserts protects against regression for the performance the bug in
         # https://posthog.slack.com/archives/C09B0SSQEDA/p1767698123669229?thread_ts=1767672165.250289&cid=C09B0SSQEDA
-        if is_materialized:
-            sql_lower = result.clickhouse.lower()
-            # should only appear in is_not_set_result_historical
-            assert sql_lower.count("json") == 1
-            assert sql_lower.count("has") == 1
+        sql_lower = result.clickhouse.lower()
+        # should only appear in is_not_set_result_historical
+        assert sql_lower.count("json") == 1
+        assert sql_lower.count("has") == 1
 
 
 class TestPrinted(APIBaseTest):
