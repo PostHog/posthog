@@ -119,24 +119,11 @@ pub struct StoreManager {
     /// When true, orphan cleanup should be skipped to avoid deleting directories
     /// that are about to be assigned
     rebalancing: AtomicBool,
-
-    /// Minimum staleness duration before orphan directories can be deleted
-    /// (based on WAL file modification time)
-    orphan_min_staleness: Duration,
 }
 
 impl StoreManager {
-    /// Create a new store manager with the given configuration.
-    /// Uses a default 15-minute orphan staleness (matches config default).
+    /// Create a new store manager with the given configuration
     pub fn new(store_config: DeduplicationStoreConfig) -> Self {
-        Self::new_with_orphan_staleness(store_config, Duration::from_secs(900))
-    }
-
-    /// Create a new store manager with custom orphan staleness duration
-    pub fn new_with_orphan_staleness(
-        store_config: DeduplicationStoreConfig,
-        orphan_min_staleness: Duration,
-    ) -> Self {
         let metrics = MetricsHelper::new().with_label("service", "kafka-deduplicator");
 
         Self {
@@ -145,7 +132,6 @@ impl StoreManager {
             metrics,
             cleanup_running: AtomicBool::new(false),
             rebalancing: AtomicBool::new(false),
-            orphan_min_staleness,
         }
     }
 
@@ -665,6 +651,7 @@ impl StoreManager {
     pub fn start_periodic_cleanup(
         self: Arc<Self>,
         cleanup_interval: Duration,
+        orphan_min_staleness: Duration,
     ) -> CleanupTaskHandle {
         let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel();
         let manager = self;
@@ -674,8 +661,8 @@ impl StoreManager {
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
             info!(
-                "Started periodic cleanup task with interval of {:?}",
-                cleanup_interval
+                "Started periodic cleanup task with interval of {:?}, orphan staleness {:?}",
+                cleanup_interval, orphan_min_staleness
             );
 
             loop {
@@ -684,7 +671,7 @@ impl StoreManager {
                         info!("Cleanup task tick - running periodic cleanup check");
 
                         // First, clean up orphaned directories (unassigned partitions)
-                        match manager.cleanup_orphaned_directories() {
+                        match manager.cleanup_orphaned_directories(orphan_min_staleness) {
                             Ok(0) => {
                                 debug!("No orphaned directories found");
                             }
@@ -935,7 +922,12 @@ impl StoreManager {
     /// - WAL files have been modified within the staleness threshold
     /// - Timestamp subdirectory modified within staleness threshold (checkpoint import)
     /// - The directory is now in the stores map (re-assigned)
-    fn is_safe_to_delete_orphan(&self, partition_dir: &Path, dir_name: &str) -> bool {
+    fn is_safe_to_delete_orphan(
+        &self,
+        partition_dir: &Path,
+        dir_name: &str,
+        orphan_min_staleness: Duration,
+    ) -> bool {
         // Check 1: LOCK file exists - DB is open, never delete
         if Self::has_active_lock_file(partition_dir) {
             info!(
@@ -948,11 +940,11 @@ impl StoreManager {
         // Check 2: WAL files modified recently - store may still be active
         if let Some(newest_wal_mtime) = Self::get_newest_wal_mtime(partition_dir) {
             if let Ok(elapsed) = newest_wal_mtime.elapsed() {
-                if elapsed < self.orphan_min_staleness {
+                if elapsed < orphan_min_staleness {
                     info!(
                         dir_name,
                         wal_age_secs = elapsed.as_secs(),
-                        min_staleness_secs = self.orphan_min_staleness.as_secs(),
+                        min_staleness_secs = orphan_min_staleness.as_secs(),
                         "Orphan safety check: WAL file too recent, skipping deletion"
                     );
                     return false;
@@ -963,11 +955,11 @@ impl StoreManager {
         // Check 3: Timestamp subdirectory modified recently - checkpoint import in progress
         if let Some(newest_ts_mtime) = Self::get_newest_ts_dir_mtime(partition_dir) {
             if let Ok(elapsed) = newest_ts_mtime.elapsed() {
-                if elapsed < self.orphan_min_staleness {
+                if elapsed < orphan_min_staleness {
                     info!(
                         dir_name,
                         ts_dir_age_secs = elapsed.as_secs(),
-                        min_staleness_secs = self.orphan_min_staleness.as_secs(),
+                        min_staleness_secs = orphan_min_staleness.as_secs(),
                         "Orphan safety check: timestamp directory too recent, skipping deletion"
                     );
                     return false;
@@ -999,7 +991,7 @@ impl StoreManager {
     /// 1. Skip if stores map is empty (startup race)
     /// 2. Skip if rebalancing is in progress
     /// 3. For each candidate: check LOCK file, WAL mtime, and re-verify stores map
-    pub fn cleanup_orphaned_directories(&self) -> Result<u64> {
+    pub fn cleanup_orphaned_directories(&self, orphan_min_staleness: Duration) -> Result<u64> {
         // Guard: skip cleanup if no stores are registered yet (startup race) or
         // all stores were just unregistered (rebalance). This prevents deleting
         // valid directories before partition assignment completes.
@@ -1054,7 +1046,11 @@ impl StoreManager {
                             let dir_path = entry.path();
 
                             // Safety checks: LOCK file, WAL mtime, double-check stores map
-                            if !self.is_safe_to_delete_orphan(&dir_path, &dir_name) {
+                            if !self.is_safe_to_delete_orphan(
+                                &dir_path,
+                                &dir_name,
+                                orphan_min_staleness,
+                            ) {
                                 debug!(
                                     dir_name,
                                     "Skipping orphan candidate - failed safety checks"
@@ -1206,6 +1202,7 @@ mod tests {
         // Start periodic cleanup with short interval for testing
         let cleanup_handle = manager.clone().start_periodic_cleanup(
             Duration::from_millis(100), // Very short interval for testing
+            Duration::from_secs(0),     // No staleness for testing
         );
 
         // Create a store and add data
@@ -1253,6 +1250,7 @@ mod tests {
         // Start cleanup task
         let cleanup_handle = manager.clone().start_periodic_cleanup(
             Duration::from_secs(60), // Long interval
+            Duration::from_secs(0),  // No staleness for testing
         );
 
         // Give it time to start
@@ -1643,7 +1641,9 @@ mod tests {
 
         // When NOT rebalancing, cleanup should remove the orphan
         assert!(!manager.is_rebalancing());
-        let freed = manager.cleanup_orphaned_directories().unwrap();
+        let freed = manager
+            .cleanup_orphaned_directories(Duration::from_secs(0))
+            .unwrap();
         assert!(freed > 0);
         assert!(
             !orphan_dir.exists(),
@@ -1660,7 +1660,9 @@ mod tests {
         assert!(manager.is_rebalancing());
 
         // During rebalance, cleanup should skip and not remove the orphan
-        let freed = manager.cleanup_orphaned_directories().unwrap();
+        let freed = manager
+            .cleanup_orphaned_directories(Duration::from_secs(0))
+            .unwrap();
         assert_eq!(freed, 0);
         assert!(
             orphan_dir.exists(),
@@ -1672,7 +1674,9 @@ mod tests {
         assert!(!manager.is_rebalancing());
 
         // Now cleanup should remove the orphan again
-        let freed = manager.cleanup_orphaned_directories().unwrap();
+        let freed = manager
+            .cleanup_orphaned_directories(Duration::from_secs(0))
+            .unwrap();
         assert!(freed > 0);
         assert!(
             !orphan_dir.exists(),
@@ -1732,11 +1736,7 @@ mod tests {
             max_capacity: 1024 * 1024 * 1024,
         };
 
-        // Use a very short staleness to ensure WAL mtime check passes
-        let manager = Arc::new(StoreManager::new_with_orphan_staleness(
-            config,
-            Duration::from_secs(0),
-        ));
+        let manager = Arc::new(StoreManager::new(config));
 
         // Create a store for partition 0 (so stores map is not empty)
         manager.get_or_create("test-topic", 0).await.unwrap();
@@ -1750,7 +1750,9 @@ mod tests {
         assert!(orphan_dir.exists());
 
         // Cleanup should NOT remove the directory because LOCK file exists
-        let freed = manager.cleanup_orphaned_directories().unwrap();
+        let freed = manager
+            .cleanup_orphaned_directories(Duration::from_secs(0))
+            .unwrap();
         assert_eq!(freed, 0, "Should not delete directory with LOCK file");
         assert!(
             orphan_dir.exists(),
@@ -1761,7 +1763,9 @@ mod tests {
         std::fs::remove_file(timestamp_subdir.join("LOCK")).unwrap();
 
         // Now cleanup should remove it
-        let freed = manager.cleanup_orphaned_directories().unwrap();
+        let freed = manager
+            .cleanup_orphaned_directories(Duration::from_secs(0))
+            .unwrap();
         assert!(freed > 0, "Should delete directory without LOCK file");
         assert!(
             !orphan_dir.exists(),
@@ -1777,11 +1781,7 @@ mod tests {
             max_capacity: 1024 * 1024 * 1024,
         };
 
-        // Use a long staleness period (15 minutes)
-        let manager = Arc::new(StoreManager::new_with_orphan_staleness(
-            config,
-            Duration::from_secs(900),
-        ));
+        let manager = Arc::new(StoreManager::new(config));
 
         // Create a store for partition 0 (so stores map is not empty)
         manager.get_or_create("test-topic", 0).await.unwrap();
@@ -1794,8 +1794,10 @@ mod tests {
         std::fs::write(timestamp_subdir.join("dummy.sst"), b"test data").unwrap();
         assert!(orphan_dir.exists());
 
-        // Cleanup should NOT remove the directory because WAL file is too recent
-        let freed = manager.cleanup_orphaned_directories().unwrap();
+        // Cleanup should NOT remove the directory because WAL file is too recent (staleness=15min)
+        let freed = manager
+            .cleanup_orphaned_directories(Duration::from_secs(900))
+            .unwrap();
         assert_eq!(freed, 0, "Should not delete directory with recent WAL");
         assert!(
             orphan_dir.exists(),
@@ -1811,11 +1813,7 @@ mod tests {
             max_capacity: 1024 * 1024 * 1024,
         };
 
-        // Use a zero staleness period (any age is old enough)
-        let manager = Arc::new(StoreManager::new_with_orphan_staleness(
-            config,
-            Duration::from_secs(0),
-        ));
+        let manager = Arc::new(StoreManager::new(config));
 
         // Create a store for partition 0 (so stores map is not empty)
         manager.get_or_create("test-topic", 0).await.unwrap();
@@ -1829,7 +1827,9 @@ mod tests {
         assert!(orphan_dir.exists());
 
         // With zero staleness, cleanup should remove it
-        let freed = manager.cleanup_orphaned_directories().unwrap();
+        let freed = manager
+            .cleanup_orphaned_directories(Duration::from_secs(0))
+            .unwrap();
         assert!(freed > 0, "Should delete directory with stale WAL");
         assert!(
             !orphan_dir.exists(),
@@ -1846,10 +1846,7 @@ mod tests {
             max_capacity: 1024 * 1024 * 1024,
         };
 
-        let manager = Arc::new(StoreManager::new_with_orphan_staleness(
-            config,
-            Duration::from_secs(0), // Zero staleness for testing
-        ));
+        let manager = Arc::new(StoreManager::new(config));
 
         // Create a store for partition 0
         manager.get_or_create("test-topic", 0).await.unwrap();
@@ -1858,7 +1855,9 @@ mod tests {
         // (the existing test-topic_0 directory)
         let active_dir = temp_dir.path().join("test-topic_0");
         assert!(active_dir.exists(), "Active store directory should exist");
-        let freed = manager.cleanup_orphaned_directories().unwrap();
+        let freed = manager
+            .cleanup_orphaned_directories(Duration::from_secs(0))
+            .unwrap();
         assert_eq!(freed, 0, "No orphans should be found initially");
         assert!(
             active_dir.exists(),
@@ -1871,7 +1870,9 @@ mod tests {
         std::fs::create_dir_all(&timestamp_subdir).unwrap();
         std::fs::write(timestamp_subdir.join("dummy.sst"), b"test data").unwrap();
 
-        let freed = manager.cleanup_orphaned_directories().unwrap();
+        let freed = manager
+            .cleanup_orphaned_directories(Duration::from_secs(0))
+            .unwrap();
         assert!(freed > 0, "True orphan should be deleted");
         assert!(!orphan_dir.exists(), "Orphan directory should be removed");
     }

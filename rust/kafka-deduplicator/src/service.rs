@@ -80,18 +80,15 @@ impl KafkaDeduplicatorService {
         };
 
         // Create store manager for handling concurrent store creation
-        let orphan_min_staleness = config.orphan_cleanup_min_staleness();
-        let store_manager = Arc::new(StoreManager::new_with_orphan_staleness(
-            store_config.clone(),
-            orphan_min_staleness,
-        ));
+        let store_manager = Arc::new(StoreManager::new(store_config.clone()));
 
         // Start periodic cleanup task if max_capacity is configured
         let cleanup_task_handle = if store_config.max_capacity > 0 {
             let cleanup_interval = config.cleanup_interval();
+            let orphan_min_staleness = config.orphan_cleanup_min_staleness();
             let handle = store_manager
                 .clone()
-                .start_periodic_cleanup(cleanup_interval);
+                .start_periodic_cleanup(cleanup_interval, orphan_min_staleness);
             info!(
                 "Started periodic cleanup task with interval: {:?} for max capacity: {} bytes",
                 cleanup_interval, store_config.max_capacity
