@@ -19545,23 +19545,18 @@
         },
         "MarketingConversionGoalMapping": {
             "additionalProperties": false,
-            "description": "Maps a team-level conversion goal to marketing analytics",
+            "description": "Maps a CoreEvent to marketing analytics with optional UTM field mappings",
             "properties": {
-                "kind": {
-                    "description": "The kind of goal (EventsNode, ActionsNode, DataWarehouseNode)",
-                    "enum": ["EventsNode", "ActionsNode", "DataWarehouseNode"],
+                "core_event_id": {
+                    "description": "Reference to the CoreEvent.id",
                     "type": "string"
                 },
                 "schema_map": {
                     "$ref": "#/definitions/SchemaMap",
                     "description": "UTM field mappings - required for DataWarehouseNode, optional otherwise"
-                },
-                "team_goal_id": {
-                    "description": "Reference to the team ConversionGoal.id",
-                    "type": "string"
                 }
             },
-            "required": ["team_goal_id", "kind"],
+            "required": ["core_event_id"],
             "type": "object"
         },
         "MarketingIntegrationConfig": {

@@ -2,26 +2,27 @@ import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import { IconPencil, IconTrash } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { CoreEvent, NodeKind } from '~/queries/schema/schema-general'
+import { CoreEvent, NodeKind, SchemaMap } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import { getGoalFilterSummary, getGoalTypeLabel, getTableColumns } from '../../utils/coreEventUtils'
+import { SchemaMapModal } from '../SchemaMapModal'
 import { conversionGoalDescription, getConfiguredConversionGoalsLabel } from './constants'
 
-const DEFAULT_SCHEMA_MAP: Record<string, string | undefined> = {
+const DEFAULT_SCHEMA_MAP: SchemaMap = {
     utm_campaign_name: 'utm_campaign',
     utm_source_name: 'utm_source',
 }
 
 interface SchemaMapFormState {
     event: CoreEvent | null
-    schemaMap: Record<string, string | undefined>
+    schemaMap: SchemaMap
     isEditing: boolean // true if editing existing mapping, false if adding new
     existingMappingId?: string
 }
@@ -54,10 +55,6 @@ export function ConversionGoalsConfiguration({
         }
         return getTableColumns(schemaMapForm.event, dataWarehouseTables || [])
     }, [schemaMapForm?.event, dataWarehouseTables])
-
-    const columnOptions = useMemo(() => {
-        return availableColumns.map((col) => ({ value: col, label: col }))
-    }, [availableColumns])
 
     const handleSelectGoal = (eventId: string): void => {
         const event = availableCoreEvents.find((e) => e.id === eventId)
@@ -108,9 +105,6 @@ export function ConversionGoalsConfiguration({
         }
     }
 
-    // Only UTM campaign and source are required for marketing attribution
-    const isSchemaMapValid = schemaMapForm?.schemaMap.utm_campaign_name && schemaMapForm?.schemaMap.utm_source_name
-
     const hasTeamGoals = teamCoreEvents.length > 0
     const hasAvailableGoals = availableCoreEvents.length > 0
     const hasLegacyGoals = legacyConversionGoals.length > 0
@@ -123,8 +117,7 @@ export function ConversionGoalsConfiguration({
             {/* Deprecation banner for legacy conversion goals */}
             {hasLegacyGoals && (
                 <LemonBanner type="warning" className="mb-4">
-                    Legacy conversion goals are being replaced by Core Events, which can be shared across Marketing,
-                    Customer, and Revenue analytics.
+                    Legacy conversion goals are being replaced by Core Events. Migrate to manage your goals centrally.
                 </LemonBanner>
             )}
 
@@ -297,8 +290,7 @@ export function ConversionGoalsConfiguration({
                 />
             </div>
 
-            {/* Schema Map Configuration Modal for DW Goals */}
-            <LemonModal
+            <SchemaMapModal
                 isOpen={!!schemaMapForm}
                 onClose={() => setSchemaMapForm(null)}
                 title={
@@ -306,68 +298,15 @@ export function ConversionGoalsConfiguration({
                         ? `Edit attribution mapping for "${schemaMapForm.event?.name}"`
                         : `Configure attribution mapping for "${schemaMapForm?.event?.name}"`
                 }
-                footer={
-                    <>
-                        <LemonButton onClick={() => setSchemaMapForm(null)}>Cancel</LemonButton>
-                        <LemonButton type="primary" onClick={handleSaveSchemaMap} disabled={!isSchemaMapValid}>
-                            {schemaMapForm?.isEditing ? 'Save' : 'Add goal'}
-                        </LemonButton>
-                    </>
+                goalName={schemaMapForm?.event?.name || ''}
+                schemaMap={schemaMapForm?.schemaMap || { utm_campaign_name: '', utm_source_name: '' }}
+                onSchemaMapChange={(newSchemaMap) =>
+                    setSchemaMapForm((prev) => (prev ? { ...prev, schemaMap: newSchemaMap } : null))
                 }
-            >
-                <div className="space-y-4">
-                    <p className="text-muted">
-                        Select which columns in your data warehouse table contain the UTM attribution data. These
-                        mappings are required for marketing analytics to attribute conversions to campaigns and sources.
-                    </p>
-
-                    <div className="space-y-3">
-                        <div>
-                            <label className="text-sm font-medium mb-1 block">UTM Campaign column</label>
-                            <LemonSelect
-                                value={schemaMapForm?.schemaMap.utm_campaign_name || null}
-                                onChange={(value) =>
-                                    setSchemaMapForm((prev) =>
-                                        prev
-                                            ? {
-                                                  ...prev,
-                                                  schemaMap: { ...prev.schemaMap, utm_campaign_name: value || '' },
-                                              }
-                                            : null
-                                    )
-                                }
-                                options={columnOptions}
-                                placeholder="Select column..."
-                                className="w-full"
-                            />
-                            <p className="text-xs text-muted mt-1">
-                                Column containing the UTM campaign parameter value
-                            </p>
-                        </div>
-
-                        <div>
-                            <label className="text-sm font-medium mb-1 block">UTM Source column</label>
-                            <LemonSelect
-                                value={schemaMapForm?.schemaMap.utm_source_name || null}
-                                onChange={(value) =>
-                                    setSchemaMapForm((prev) =>
-                                        prev
-                                            ? {
-                                                  ...prev,
-                                                  schemaMap: { ...prev.schemaMap, utm_source_name: value || '' },
-                                              }
-                                            : null
-                                    )
-                                }
-                                options={columnOptions}
-                                placeholder="Select column..."
-                                className="w-full"
-                            />
-                            <p className="text-xs text-muted mt-1">Column containing the UTM source parameter value</p>
-                        </div>
-                    </div>
-                </div>
-            </LemonModal>
+                onConfirm={handleSaveSchemaMap}
+                confirmText={schemaMapForm?.isEditing ? 'Save' : 'Add goal'}
+                availableColumns={availableColumns}
+            />
         </SceneSection>
     )
 }

@@ -284,14 +284,11 @@ export function CoreEventsSettings(): JSX.Element {
 
     return (
         <div className="space-y-4">
-            {/* Description */}
             <p className="text-muted">
-                Core events are reusable event definitions that can be shared across Marketing analytics, Customer
-                analytics, and Revenue analytics. Define your key business events once — like signups, purchases, or
-                subscriptions — and use them consistently everywhere.
+                Core events are reusable event definitions. Define your key business events once — like signups,
+                purchases, or subscriptions — and use them consistently across your analytics.
             </p>
 
-            {/* Migration banner for legacy conversion goals */}
             {hasLegacyGoals && (
                 <LemonBanner type="warning" className="mb-2">
                     <div>
@@ -299,13 +296,12 @@ export function CoreEventsSettings(): JSX.Element {
                         <p className="text-sm mt-1">
                             You have {legacyConversionGoals.length} legacy conversion goal
                             {legacyConversionGoals.length === 1 ? '' : 's'} in Marketing analytics. Migrate them to Core
-                            Events to use them across all analytics products.
+                            Events to manage them centrally.
                         </p>
                     </div>
                 </LemonBanner>
             )}
 
-            {/* Legacy goals migration section */}
             {hasLegacyGoals && (
                 <div className="border border-warning rounded p-4 space-y-3 bg-warning-highlight">
                     <h4 className="font-medium text-warning-dark">Legacy Marketing conversion goals</h4>

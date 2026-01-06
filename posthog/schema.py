@@ -2137,12 +2137,6 @@ class MarketingAnalyticsSchemaFieldTypes(StrEnum):
     BOOLEAN = "boolean"
 
 
-class Kind(StrEnum):
-    EVENTS_NODE = "EventsNode"
-    ACTIONS_NODE = "ActionsNode"
-    DATA_WAREHOUSE_NODE = "DataWarehouseNode"
-
-
 class MarketingIntegrationConfig1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5077,11 +5071,10 @@ class MarketingConversionGoalMapping(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    kind: Kind = Field(..., description="The kind of goal (EventsNode, ActionsNode, DataWarehouseNode)")
+    core_event_id: str = Field(..., description="Reference to the CoreEvent.id")
     schema_map: dict[str, str | Any] | None = Field(
         default=None, description="UTM field mappings - required for DataWarehouseNode, optional otherwise"
     )
-    team_goal_id: str = Field(..., description="Reference to the team ConversionGoal.id")
 
 
 class MarketingIntegrationConfigType(BaseModel):

@@ -126,8 +126,8 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
             {feedbackBanner}
             {legacyConversionGoals.length > 0 && (
                 <LemonBanner type="warning" className="mb-2 mt-2">
-                    Legacy conversion goals are deprecated. Migrate to Core Events for shared goals across Marketing,
-                    Customer, and Revenue analytics. <Link to={urls.coreEvents()}>Migrate to Core Events</Link>
+                    Legacy conversion goals are deprecated. Migrate to Core Events to manage your goals centrally.{' '}
+                    <Link to={urls.coreEvents()}>Migrate to Core Events</Link>
                 </LemonBanner>
             )}
             <MarketingAnalyticsSourceStatusBanner />

@@ -4538,12 +4538,10 @@ export interface CampaignFieldPreference {
     match_field: MatchField
 }
 
-/** Maps a team-level conversion goal to marketing analytics */
+/** Maps a CoreEvent to marketing analytics with optional UTM field mappings */
 export interface MarketingConversionGoalMapping {
-    /** Reference to the team ConversionGoal.id */
-    team_goal_id: string
-    /** The kind of goal (EventsNode, ActionsNode, DataWarehouseNode) */
-    kind: NodeKind.EventsNode | NodeKind.ActionsNode | NodeKind.DataWarehouseNode
+    /** Reference to the CoreEvent.id */
+    core_event_id: string
     /** UTM field mappings - required for DataWarehouseNode, optional otherwise */
     schema_map?: SchemaMap
 }
