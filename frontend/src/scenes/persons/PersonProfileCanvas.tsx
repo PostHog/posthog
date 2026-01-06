@@ -38,7 +38,7 @@ const PersonProfileCanvas = ({ person }: PersonProfileCanvasProps): JSX.Element 
     return (
         <BindLogic logic={notebookLogic} props={{ shortId, mode, canvasFiltersOverride: personFilter }}>
             <BindLogic logic={personProfileLogic} props={{ personId: id, distinctId }}>
-                <div className="flex flex-start">
+                <div className="flex items-start">
                     <CustomerProfileMenu scope="person" content={content} />
                 </div>
                 <Notebook
