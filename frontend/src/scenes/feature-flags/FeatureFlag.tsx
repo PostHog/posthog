@@ -717,7 +717,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                             <FeatureFlagEvaluationTags
                                                 tags={featureFlag.tags}
                                                 evaluationTags={featureFlag.evaluation_tags || []}
-                                                onChange={(updatedTags, updatedEvaluationTags) => {
+                                                onSave={(updatedTags, updatedEvaluationTags) => {
                                                     const updatedFlag = {
                                                         ...featureFlag,
                                                         tags: updatedTags,

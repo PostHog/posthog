@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useEffect, useMemo } from 'react'
 
 import { IconBolt, IconCheck, IconPencil, IconPlus, IconX } from '@posthog/icons'
 
@@ -13,10 +14,15 @@ import { colorForString } from 'lib/utils'
 import { featureFlagEvaluationTagsLogic } from './featureFlagEvaluationTagsLogic'
 import { featureFlagLogic } from './featureFlagLogic'
 
+// Utility function to keep evaluation tags in sync with regular tags
+const syncEvaluationTags = (tags: string[], evaluationTags: string[]): string[] =>
+    evaluationTags.filter((tag) => tags.includes(tag))
+
 interface FeatureFlagEvaluationTagsProps {
     tags: string[]
     evaluationTags: string[]
     onChange?: (tags: string[], evaluationTags: string[]) => void
+    onSave?: (tags: string[], evaluationTags: string[]) => void
     tagsAvailable?: string[]
     staticOnly?: boolean
     className?: string
@@ -27,51 +33,76 @@ export function FeatureFlagEvaluationTags({
     tags,
     evaluationTags,
     onChange,
+    onSave,
     tagsAvailable,
     staticOnly = false,
     className,
     flagId,
 }: FeatureFlagEvaluationTagsProps): JSX.Element {
-    const logic = featureFlagEvaluationTagsLogic({ tags, evaluationTags, flagId })
-    const { editingTags, selectedTags, selectedEvaluationTags } = useValues(logic)
-    const { setEditingTags, setDraftTags, setDraftEvaluationTags } = useActions(logic)
+    // Generate unique instance ID to ensure each component instance has its own logic
+    const instanceId = useMemo(() => Math.random().toString(36).substring(7), [])
 
-    const { saveFeatureFlag } = useActions(featureFlagLogic)
+    const logic = featureFlagEvaluationTagsLogic({ flagId, instanceId })
+    const { isEditing, localTags, localEvaluationTags } = useValues(logic)
+    const { setIsEditing, setLocalTags, setLocalEvaluationTags, saveTagsAndEvaluationTags, cancelEditing } =
+        useActions(logic)
+
     const { featureFlagLoading } = useValues(featureFlagLogic)
 
+    // Sync kea state when props change (important for form updates)
+    useEffect(() => {
+        if (!isEditing) {
+            setLocalTags(tags)
+            setLocalEvaluationTags(evaluationTags)
+        }
+    }, [tags, evaluationTags, isEditing, setLocalTags, setLocalEvaluationTags])
+
     const handleSave = (): void => {
-        saveFeatureFlag({
-            tags: selectedTags,
-            evaluation_tags: selectedEvaluationTags,
-        })
-        setEditingTags(false)
+        if (onSave) {
+            onSave(localTags, localEvaluationTags)
+            setIsEditing(false)
+        } else {
+            saveTagsAndEvaluationTags()
+        }
+    }
+
+    const handleCancel = (): void => {
+        setLocalTags(tags)
+        setLocalEvaluationTags(evaluationTags)
+        cancelEditing()
     }
 
     const handleTagsChange = (newTags: string[]): void => {
-        setDraftTags(newTags)
+        // Sync evaluation tags when tags change
+        const syncedEvaluationTags = syncEvaluationTags(newTags, localEvaluationTags)
+
+        setLocalTags(newTags)
+        setLocalEvaluationTags(syncedEvaluationTags)
+
         if (onChange) {
-            onChange(newTags, selectedEvaluationTags)
+            onChange(newTags, syncedEvaluationTags)
         }
     }
 
     const toggleEvaluationTag = (tag: string): void => {
-        const newEvaluationTags = selectedEvaluationTags.includes(tag)
-            ? selectedEvaluationTags.filter((t: string) => t !== tag)
-            : [...selectedEvaluationTags, tag]
+        const newEvaluationTags = localEvaluationTags.includes(tag)
+            ? localEvaluationTags.filter((t: string) => t !== tag)
+            : [...localEvaluationTags, tag]
 
-        setDraftEvaluationTags(newEvaluationTags)
+        setLocalEvaluationTags(newEvaluationTags)
+
         if (onChange) {
-            onChange(selectedTags, newEvaluationTags)
+            onChange(localTags, newEvaluationTags)
         }
     }
 
-    if (editingTags) {
+    if (isEditing) {
         return (
             <div className={clsx(className, 'flex flex-col gap-2')}>
                 <LemonInputSelect
                     mode="multiple"
                     allowCustomValues
-                    value={selectedTags}
+                    value={localTags}
                     options={tagsAvailable?.map((t: string) => ({ key: t, label: t }))}
                     onChange={handleTagsChange}
                     loading={featureFlagLoading}
@@ -80,17 +111,17 @@ export function FeatureFlagEvaluationTags({
                     autoFocus
                 />
 
-                {selectedTags.length > 0 && (
+                {localTags.length > 0 && (
                     <div className="bg-border-light rounded p-2">
                         <div className="text-xs text-muted mb-2">
                             Select which tags should also act as evaluation constraints. Flags with evaluation tags will
                             only evaluate when the SDK provides matching environment tags.
                         </div>
                         <div className="flex flex-col gap-1">
-                            {selectedTags.map((tag: string) => (
+                            {localTags.map((tag: string) => (
                                 <LemonCheckbox
                                     key={tag}
-                                    checked={selectedEvaluationTags.includes(tag)}
+                                    checked={localEvaluationTags.includes(tag)}
                                     onChange={() => toggleEvaluationTag(tag)}
                                     label={<span className="text-sm">Use "{tag}" as evaluation tag</span>}
                                 />
@@ -99,13 +130,12 @@ export function FeatureFlagEvaluationTags({
                     </div>
                 )}
 
-                {!onChange && (
+                {!onChange && onSave && (
                     <div className="flex gap-1">
                         <ButtonPrimitive
                             type="button"
                             variant="outline"
                             onClick={handleSave}
-                            disabled={featureFlagLoading}
                             tooltip="Save tags"
                             aria-label="Save tags"
                         >
@@ -114,7 +144,7 @@ export function FeatureFlagEvaluationTags({
                         <ButtonPrimitive
                             type="button"
                             variant="outline"
-                            onClick={() => setEditingTags(false)}
+                            onClick={handleCancel}
                             tooltip="Cancel editing"
                             aria-label="Cancel editing"
                         >
@@ -146,7 +176,7 @@ export function FeatureFlagEvaluationTags({
             {!staticOnly && (
                 <LemonTag
                     type="none"
-                    onClick={() => setEditingTags(true)}
+                    onClick={() => setIsEditing(true)}
                     data-attr="button-edit-tags"
                     icon={tags.length > 0 ? <IconPencil /> : <IconPlus />}
                     className="border border-dashed cursor-pointer"
