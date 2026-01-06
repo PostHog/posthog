@@ -92,8 +92,8 @@ async def analyze_video_segment_activity(
                     )
 
         # Construct analysis prompt
-        start_timestamp = _format_timestamp(segment.start_time)
-        end_timestamp = _format_timestamp(segment.end_time)
+        start_timestamp = _format_timestamp_as_mm_ss(segment.start_time)
+        end_timestamp = _format_timestamp_as_mm_ss(segment.end_time)
         segment_duration = segment.end_time - segment.start_time
 
         logger.info(
@@ -248,8 +248,7 @@ Events data (in chronological order):
 """
 
 
-def _format_timestamp(seconds: float) -> str:
-    """Format seconds as MM:SS or HH:MM:SS"""
+def _format_timestamp_as_mm_ss(seconds: float) -> str:
     minutes = int(seconds // 60)
     secs = int(seconds % 60)
     return f"{minutes:02d}:{secs:02d}"
