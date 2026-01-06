@@ -944,10 +944,10 @@ mod tests {
         assert_eq!(spike_b.current_bucket_value, 30);
 
         // Issue C should NOT be in results (100 < 20*10=200)
-        assert!(result_map.get(&issue_c).is_none());
+        assert!(!result_map.contains_key(&issue_c));
 
         // Issue D should NOT be in results (50 < 10*10=100)
-        assert!(result_map.get(&issue_d).is_none());
+        assert!(!result_map.contains_key(&issue_d));
 
         // Issue E: team baseline 20, current 300
         let spike_e = result_map.get(&issue_e).expect("Issue E should spike");
