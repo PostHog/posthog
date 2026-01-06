@@ -54,7 +54,7 @@ pub const FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER: &str =
 // Experience continuity optimization metric
 // Tracks requests where optimization could apply, with status label:
 // - status="skipped": lookup was actually skipped (optimization enabled, no flags needed it)
-// - status="eligible": lookup could be skipped but wasn't (optimization off or another flag needed it)
+// - status="eligible": lookup could be skipped but wasn't (optimization feature is disabled)
 pub const FLAG_EXPERIENCE_CONTINUITY_OPTIMIZED: &str =
     "flags_experience_continuity_optimized_total";
 
