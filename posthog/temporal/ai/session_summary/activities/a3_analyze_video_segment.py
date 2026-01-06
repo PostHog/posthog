@@ -218,9 +218,11 @@ Be specific and detailed about:
 - What outcomes occurred
 
 Example output:
-* 0:16 - 0:21: User navigated to the dashboard page and viewed the recent activity widget showing 5 new events
-* 0:21 - 0:26: User clicked on "Create new project" button in the top toolbar
-* 0:26 - 0:30: User attempted to submit the form but received validation error "Name is required"
+* 0:16 - 0:18: User clicked on the dashboard navigation item in the sidebar
+* 0:18 - 0:24: User scrolled through the dashboard page viewing multiple analytics widgets
+* 0:24 - 0:25: User clicked "Create new project" button in the top toolbar
+* 0:25 - 0:32: User filled out the project creation form, entering name and description
+* 0:32 - 0:33: User attempted to submit the form but received validation error "Name is required"
 
 IMPORTANT: Use timestamps relative to the full recording (starting at {start_timestamp}), not relative to this segment.
 """
