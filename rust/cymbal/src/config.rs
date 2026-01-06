@@ -162,8 +162,7 @@ pub struct Config {
     pub auto_assignment_enabled: bool, // Comma seperated list of users to either filter in (process) or filter out (ignore)
 
     // Comma separated list of team IDs that can receive spike alerts.
-    // If empty, all teams can receive alerts (dev mode).
-    // In prod, set to specific team IDs like "2" to whitelist.
+    // If empty, all teams can receive alerts
     #[envconfig(default = "")]
     pub spike_alert_enabled_team_ids: String,
 }
