@@ -390,7 +390,6 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
 async def ensure_llm_single_session_summary(inputs: SingleSessionSummaryInputs):
     retry_policy = RetryPolicy(maximum_attempts=3)
     trace_id = temporalio.workflow.info().workflow_id
-    team_name = (await Team.objects.only("name").aget(id=inputs.team_id)).name
 
     if inputs.video_validation_enabled != "full":
         # Run "classic" event-based summarization
@@ -464,7 +463,7 @@ async def ensure_llm_single_session_summary(inputs: SingleSessionSummaryInputs):
     segment_tasks = [
         temporalio.workflow.execute_activity(
             analyze_video_segment_activity,
-            args=(video_inputs, uploaded_video, segment_spec, trace_id, team_name),
+            args=(video_inputs, uploaded_video, segment_spec, trace_id),
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=retry_policy,
         )

@@ -15,6 +15,7 @@ import temporalio
 from google.genai import types
 from posthoganalytics.ai.gemini import genai
 
+from posthog.models.team.team import Team
 from posthog.temporal.ai.session_summary.state import (
     StateActivitiesEnum,
     get_data_class_from_redis,
@@ -41,7 +42,6 @@ async def analyze_video_segment_activity(
     uploaded_video: UploadedVideo,
     segment: VideoSegmentSpec,
     trace_id: str,
-    team_name: str,
 ) -> list[VideoSegmentOutput]:
     """Analyze a segment of the uploaded video with Gemini using video_metadata for time range
 
@@ -101,6 +101,8 @@ async def analyze_video_segment_activity(
             session_id=inputs.session_id,
             segment_index=segment.segment_index,
         )
+
+        team_name = (await Team.objects.only("name").aget(id=inputs.team_id)).name
 
         # Analyze with Gemini using video_metadata to specify the time range
         client = genai.AsyncClient(api_key=settings.GEMINI_API_KEY)
