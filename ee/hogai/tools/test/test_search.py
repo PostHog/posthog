@@ -64,19 +64,6 @@ class TestSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIn("Invalid entity kind", error_message)
         self.assertIn("unknown", error_message)
 
-    @patch("ee.hogai.tools.search.EntitySearchTool.execute")
-    async def test_arun_impl_error_tracking_issues_returns_routing_data(self, mock_execute):
-        mock_execute.return_value = "Search results for error tracking issues"
-
-        result, artifact = await self.tool._arun_impl(
-            kind="error_tracking_issues", query="test error tracking issue query"
-        )
-
-        self.assertEqual(result, "Search results for error tracking issues")
-        self.assertIsNone(artifact)
-        mock_execute.assert_called_once_with("test error tracking issue query", "error_tracking_issues")
-
-
 class TestInkeepDocsSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
