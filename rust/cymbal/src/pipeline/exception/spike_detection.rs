@@ -803,10 +803,7 @@ mod tests {
     async fn test_team_baseline_average_of_rates() {
         let mut ctx = TestContext::new();
         ctx.setup_issue_buckets(&[Some(100)]);
-        ctx.setup_team_buckets(
-            &[Some(20), Some(15), Some(12), Some(8)],
-            &[2, 3, 4, 2],
-        );
+        ctx.setup_team_buckets(&[Some(20), Some(15), Some(12), Some(8)], &[2, 3, 4, 2]);
 
         let result = ctx.get_spiking().await;
 
@@ -868,7 +865,10 @@ mod tests {
         }
 
         // Issue C: current=100, no history
-        redis.mget_ret(&issue_bucket_key(&issue_c, &timestamps[0]), Some(bytes(100)));
+        redis.mget_ret(
+            &issue_bucket_key(&issue_c, &timestamps[0]),
+            Some(bytes(100)),
+        );
         for ts in &timestamps[1..] {
             redis.mget_ret(&issue_bucket_key(&issue_c, ts), None);
         }
@@ -881,7 +881,10 @@ mod tests {
         }
 
         // Issue E: current=300, no history
-        redis.mget_ret(&issue_bucket_key(&issue_e, &timestamps[0]), Some(bytes(300)));
+        redis.mget_ret(
+            &issue_bucket_key(&issue_e, &timestamps[0]),
+            Some(bytes(300)),
+        );
         for ts in &timestamps[1..] {
             redis.mget_ret(&issue_bucket_key(&issue_e, ts), None);
         }

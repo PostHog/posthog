@@ -449,7 +449,11 @@ impl Client for RedisClient {
         let mut pipe = redis::pipe();
         for (k, member) in items {
             pipe.sadd(&k, &member).ignore();
-            pipe.cmd("EXPIRE").arg(&k).arg(ttl_seconds).arg("NX").ignore();
+            pipe.cmd("EXPIRE")
+                .arg(&k)
+                .arg(ttl_seconds)
+                .arg("NX")
+                .ignore();
         }
         let mut conn = self.connection.clone();
         pipe.query_async::<()>(&mut conn).await?;
