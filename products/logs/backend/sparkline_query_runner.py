@@ -79,7 +79,6 @@ class SparklineQueryRunner(LogsQueryRunner):
                     GROUP BY {breakdown_field}, time
                 ) AS ac ON am.time_bucket = ac.time
                 ORDER BY time asc, {breakdown_field} asc
-                LIMIT 1000
         """,
             placeholders={
                 **self.query_date_range.to_placeholders(),
