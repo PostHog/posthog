@@ -31,7 +31,7 @@ export function MinimalNavigation(): JSX.Element {
             <LemonButton noPadding icon={<IconLogomark className="text-3xl mx-2" />} to={logoUrl} />
             {sceneConfig?.name && zenMode && (
                 <span className="font-semibold text-base flex items-center gap-2">
-                    {sceneConfig.iconType ? iconForType(sceneConfig.iconType) : ''}
+                    {sceneConfig.iconType ? iconForType(sceneConfig.iconType) : null}
                     {sceneConfig.name}
                 </span>
             )}
