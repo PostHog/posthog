@@ -40,7 +40,7 @@ natord = "1.0.9"
 thiserror.workspace = true
 bytes.workspace = true
 futures-util = "0.3.31"
-zip = "4.0.0"
+zip = "7.0.0"
 flate2.workspace = true
 httpdate = "1"
 metrics = { workspace = true }

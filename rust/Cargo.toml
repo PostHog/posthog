@@ -118,7 +118,7 @@ tower = { version = "0.4.13", features = ["default", "limit"] }
 tower-http = { version = "0.5.2", features = ["cors", "decompression-br", "decompression-deflate", "decompression-gzip", "decompression-zstd", "limit", "trace"] }
 tracing = "0.1.40"
 tracing-opentelemetry = "0.23.0"
-tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
+tracing-subscriber = { version = "0.3.20", features = ["env-filter", "json"] }
 url = "2.5.0"
 uuid = { version = "1.6.1", features = ["v4", "v7", "serde"] }
 neon = "1"
