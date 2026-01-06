@@ -280,8 +280,10 @@ jobs:
             - name: Check for config file changes that affect analytics platform temporal worker
               id: check_non_python_changes_analytics_platform_temporal_worker
               run: |
-                  # Check for non-Python files that can't be detected via import analysis
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  # Check for files not detected by import analysis (which only traces static imports):
+                  # - posthog/temporal/common: shared code configured at worker startup (e.g., logger)
+                  # - Config files: pyproject.toml, bin/temporal-django-worker, start command
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Check for Python dependency changes that affect analytics platform temporal worker
               id: check_python_changes_analytics_platform_temporal_worker
