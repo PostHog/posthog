@@ -4,12 +4,10 @@ on:
     workflow_run:
         workflows:
             - 'Backend CI'
-            - 'Container Images CI'
             - 'Node.js CI'
             - 'Frontend CI'
             - 'Storybook'
             - 'Security'
-            - 'shellcheck'
             - 'Dagster CI'
             - 'E2E CI Playwright'
             - 'Rust CI'
@@ -19,7 +17,7 @@ on:
 env:
     SLACK_CHANNEL: 'C09ADEV3AJD'
     # Keep in sync with workflow_run.workflows trigger above
-    REQUIRED_WORKFLOWS: 'Backend CI,Container Images CI,Node.js CI,Frontend CI,Storybook,Security,shellcheck,Dagster CI,E2E CI Playwright,Rust CI'
+    REQUIRED_WORKFLOWS: 'Backend CI,Node.js CI,Frontend CI,Storybook,Security,Dagster CI,E2E CI Playwright,Rust CI'
 
 permissions:
     contents: read
