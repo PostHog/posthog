@@ -1,3 +1,4 @@
+import time
 import asyncio
 import tempfile
 
@@ -19,6 +20,10 @@ from ee.hogai.session_summaries.constants import DEFAULT_VIDEO_EXPORT_MIME_TYPE
 from ee.hogai.videos.utils import get_video_duration_s
 
 logger = structlog.get_logger(__name__)
+
+
+# Timeout: 5 minutes (activity timeout is 10 minutes, leaving buffer for other operations)
+MAX_PROCESSING_WAIT_SECONDS = 300
 
 
 @temporalio.activity.defn
@@ -59,13 +64,21 @@ async def upload_video_to_gemini_activity(inputs: VideoSummarySingleSessionInput
                 file=tmp_file.name, config=types.UploadFileConfig(mime_type=asset.export_format)
             )
             # Wait for file to be ready
+            wait_start_time = time.time()
             while uploaded_file.state and uploaded_file.state.name == "PROCESSING":
+                elapsed = time.time() - wait_start_time
+                if elapsed >= MAX_PROCESSING_WAIT_SECONDS:
+                    raise RuntimeError(
+                        f"File processing timed out after {elapsed:.1f}s. "
+                        f"File may still be processing on Gemini's side. State: {uploaded_file.state.name}"
+                    )
                 await asyncio.sleep(0.5)
                 logger.info(
                     f"Waiting for file to be ready: {uploaded_file.state.name}",
                     session_id=inputs.session_id,
                     file_name=uploaded_file.name,
                     file_state=uploaded_file.state.name,
+                    elapsed_seconds=elapsed,
                 )
                 if not uploaded_file.name:
                     raise RuntimeError("Uploaded file has no name for status polling")
