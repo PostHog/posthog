@@ -435,3 +435,20 @@ class TestS3Table(BaseTest):
             res
             == "s3Cluster('posthog', 'http://url.com/path/to/table_name__query_12345/**.parquet', 'key', 'secret', 'Parquet', 'some structure')"
         )
+
+    def test_s3_build_function_call_with_debug_disabled(self):
+        with override_settings(DEBUG=False, TEST=False):
+            res = build_function_call(
+                "http://url.com/path/to/table_name",
+                DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+                "table_name__query_12345",
+                None,
+                None,
+                "some structure",
+                None,
+                4000,
+            )
+            assert (
+                res
+                == "s3Cluster('posthog', 'http://url.com/path/to/table_name__query_12345/**.parquet', 'Parquet', 'some structure')"
+            )

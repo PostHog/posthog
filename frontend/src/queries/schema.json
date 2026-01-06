@@ -19045,6 +19045,10 @@
                     },
                     "type": "array"
                 },
+                "sparklineBreakdownBy": {
+                    "$ref": "#/definitions/LogsSparklineBreakdownBy",
+                    "description": "Field to break down sparkline data by (used only by sparkline endpoint)"
+                },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
                 },
@@ -19109,6 +19113,11 @@
             },
             "required": ["results"],
             "type": "object"
+        },
+        "LogsSparklineBreakdownBy": {
+            "description": "Field to break down sparkline data by",
+            "enum": ["severity", "service"],
+            "type": "string"
         },
         "MarkdownBlock": {
             "additionalProperties": false,

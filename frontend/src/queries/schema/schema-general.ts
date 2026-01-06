@@ -2655,6 +2655,9 @@ export interface LogMessage {
     new?: boolean
 }
 
+/** Field to break down sparkline data by */
+export type LogsSparklineBreakdownBy = 'severity' | 'service'
+
 export interface LogsQuery extends DataNode<LogsQueryResponse> {
     kind: NodeKind.LogsQuery
     dateRange: DateRange
@@ -2668,6 +2671,8 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     liveLogsCheckpoint?: string
     /** Cursor for fetching the next page of results */
     after?: string
+    /** Field to break down sparkline data by (used only by sparkline endpoint) */
+    sparklineBreakdownBy?: LogsSparklineBreakdownBy
 }
 
 export interface LogsQueryResponse extends AnalyticsQueryResponseBase {

@@ -1119,6 +1119,73 @@ export class ApiClient {
                     }
                 )
             },
+
+            reorderTiles: async ({
+                dashboardId,
+                tileOrder,
+            }: {
+                dashboardId: number
+                tileOrder: number[]
+            }): Promise<Result<{ success: boolean; message: string; tiles: Array<{ id: number; order: number }> }>> => {
+                // Calculate new layout positions based on the specified order
+                // Use 2-column grid for larger layouts (sm and above), single column for xs
+                const tileWidth = 6 // Half of 12-column grid
+                const tileHeight = 5
+
+                const tiles = tileOrder.map((tileId, index) => {
+                    const row = Math.floor(index / 2)
+                    const col = index % 2
+
+                    return {
+                        id: tileId,
+                        layouts: {
+                            // 2-column layout for sm and larger screens
+                            sm: { x: col * tileWidth, y: row * tileHeight, w: tileWidth, h: tileHeight },
+                            // Single column for xs (mobile)
+                            xs: { x: 0, y: index * tileHeight, w: 6, h: tileHeight },
+                        },
+                    }
+                })
+
+                const result = await this.fetchWithSchema(
+                    `${this.baseUrl}/api/projects/${projectId}/dashboards/${dashboardId}/`,
+                    z.object({
+                        id: z.number(),
+                        tiles: z.array(
+                            z.object({
+                                id: z.number(),
+                                layouts: z.record(z.any()).nullish(),
+                            })
+                        ),
+                    }),
+                    {
+                        method: 'PATCH',
+                        body: JSON.stringify({ tiles }),
+                    }
+                )
+
+                if (!result.success) {
+                    return result
+                }
+
+                // Return a summary of the updated order
+                const updatedTiles = result.data.tiles
+                    .filter((tile) => tileOrder.includes(tile.id))
+                    .map((tile) => ({
+                        id: tile.id,
+                        order: tileOrder.indexOf(tile.id),
+                    }))
+                    .sort((a, b) => a.order - b.order)
+
+                return {
+                    success: true,
+                    data: {
+                        success: true,
+                        message: `Successfully reordered ${updatedTiles.length} tiles on dashboard ${dashboardId}`,
+                        tiles: updatedTiles,
+                    },
+                }
+            },
         }
     }
 
