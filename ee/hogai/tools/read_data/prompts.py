@@ -8,7 +8,11 @@ If an insight shows zero data, it could mean either the query is looking at the 
 """.strip()
 
 READ_DATA_PROMPT = """
-Use this tool to read user data created in PostHog. This tool returns data that the user manually creates in PostHog.
+Use this tool to read user data created in PostHog. This tool returns data that the user manually creates in PostHog. Reading can be done as:
+- A single entity (e.g. fetching an insight by ID or retrieving a table schema by name)
+- A paginated response (e.g. listing insights or dashboards).
+
+This tool should be used for direct retrieval (by ID, name, etc.) or enumeration (listing all of a type). For finding entities by name, description, or content, use the search tool instead. If the search tool doesn't return matching entities, try enumerating instead.
 
 # Data warehouse schema
 
