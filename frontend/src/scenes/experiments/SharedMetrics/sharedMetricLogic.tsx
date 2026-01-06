@@ -39,6 +39,7 @@ export const NEW_SHARED_METRIC: Partial<SharedMetric> = {
     description: '',
     query: undefined,
     tags: [],
+    user_access_level: AccessControlLevel.Editor,
 }
 
 export const sharedMetricLogic = kea<sharedMetricLogicType>([
