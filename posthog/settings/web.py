@@ -117,6 +117,7 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "posthog.middleware.AutoLogoutImpersonateMiddleware",
     "posthog.middleware.ImpersonationReadOnlyMiddleware",
+    "posthog.middleware.ImpersonationBlockedPathsMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "posthog.middleware.ActiveOrganizationMiddleware",
     "posthog.middleware.CsvNeverCacheMiddleware",
