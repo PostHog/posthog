@@ -211,9 +211,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
         /*
          * Dashboard filters & variables.
          */
-        setDates: (date_from: string | null, date_to: string | null) => ({
+        setDates: (date_from: string | null, date_to: string | null | undefined, explicitDate?: boolean) => ({
             date_from,
             date_to,
+            explicitDate,
         }),
         setProperties: (properties: AnyPropertyFilter[] | null) => ({ properties }),
         setBreakdownFilter: (breakdown_filter: BreakdownFilter | null) => ({ breakdown_filter }),
@@ -838,12 +839,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 date_to: undefined,
                 properties: undefined,
                 breakdown_filter: undefined,
+                explicitDate: undefined,
             } as DashboardFilter,
             {
-                setDates: (state, { date_from, date_to }) => ({
+                setDates: (state, { date_from, date_to, explicitDate }) => ({
                     ...state,
                     date_from,
                     date_to,
+                    explicitDate,
                 }),
                 setProperties: (state, { properties }) => ({
                     ...state,
@@ -858,6 +861,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     date_to: undefined,
                     properties: undefined,
                     breakdown_filter: undefined,
+                    explicitDate: undefined,
                 }),
             },
         ],
@@ -1349,6 +1353,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setRefreshError: sharedListeners.reportRefreshTiming,
         setRefreshStatuses: sharedListeners.reportRefreshTiming,
         setRefreshStatus: sharedListeners.reportRefreshTiming,
+        setPageVisibility: ({ visible }) => {
+            if (!visible) {
+                cache.disposables.dispose('autoRefreshInterval')
+            } else if (values.autoRefresh.enabled) {
+                actions.resetInterval()
+            }
+        },
         loadDashboardFailure: () => {
             const { action, dashboardQueryId, startTime } = values.dashboardLoadData
 
@@ -1953,7 +1964,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 currentLocation.hashParams,
             ]
         },
-        setDates: ({ date_from, date_to }) => {
+        setDates: ({ date_from, date_to, explicit_date }) => {
             if (!values.canAutoPreview) {
                 return
             }
@@ -1965,6 +1976,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 ...urlFilters,
                 date_from,
                 date_to,
+                explicitDate: explicit_date ?? values.intermittentFilters.explicitDate,
             }
 
             const newSearchParams = {

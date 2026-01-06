@@ -6,6 +6,9 @@ on:
             - master
     pull_request:
 
+permissions:
+    contents: read
+
 env:
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
@@ -23,7 +26,10 @@ env:
     # this appears to fix it
     # absolute wild tbh https://stackoverflow.com/a/75503402
     DISPLAY: ':99.0'
-    OIDC_RSA_PRIVATE_KEY: ${{ secrets.OIDC_RSA_PRIVATE_KEY }}
+    # this is a fake key so this workflow can run for external contributors as they do not have access to secrets (that we don't need here)
+    OIDC_RSA_PRIVATE_KEY: ${{ vars.OIDC_RSA_FAKE_PRIVATE_KEY }}
+    RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+
 jobs:
     # Job to decide if we should run dagster ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
@@ -33,7 +39,7 @@ jobs:
         name: Determine need to run dagster checks
         # Set job outputs to values from filter step
         outputs:
-            dagster: ${{ steps.filter.outputs.dagster }}
+            dagster: ${{ steps.filter.outputs.dagster || 'true' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -43,12 +49,15 @@ jobs:
 
             - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
               id: filter
+              if: github.event_name != 'push' # Run all tests on master push
               with:
                   filters: |
                       dagster:
-                        - 'dags/**'
-                        # Dagster depends on code from the posthog package, so ensure we run on changes to it
+                        - 'posthog/dags/**'
+                        # Dagster depends on Python, so ensure we run on any possible changes to it
                         - 'posthog/**/*'
+                        - 'ee/**/*'
+                        - 'products/**/*'
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-dagster.yml
                         # We use docker compose for tests, make sure we rerun on
@@ -65,7 +74,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                clickhouse-server-image: ['clickhouse/clickhouse-server:25.8.11.66']
+                clickhouse-server-image: ['clickhouse/clickhouse-server:25.8.12.129']
         if: needs.changes.outputs.dagster == 'true'
         runs-on: depot-ubuntu-latest
         steps:
@@ -87,16 +96,16 @@ jobs:
                   docker compose -f docker-compose.dev.yml up -d
 
             - name: Set up Python
-              uses: actions/setup-python@v5
+              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
               with:
                   python-version-file: 'pyproject.toml'
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
+              uses: astral-sh/setup-uv@681c641aba71e4a1c380be3ab5e12ad51f415867 # v7.1.6
               with:
                   enable-cache: true
-                  version: 0.8.19
+                  version: 0.9.9
 
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
@@ -110,7 +119,7 @@ jobs:
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
             - name: Install Rust
-              uses: dtolnay/rust-toolchain@6691ebadcb18182cc1391d07c9f295f657c593cd # 1.88
+              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
               with:
                   toolchain: stable
                   components: cargo
@@ -144,4 +153,26 @@ jobs:
 
             - name: Run Dagster tests
               run: |
-                  pytest dags
+                  pytest posthog/dags
+
+            - name: Run products Dagster tests
+              run: |
+                  pytest products/**/dags
+
+    # Job just to collate the status of the matrix jobs for requiring passing status
+    dagster_tests:
+        needs: [dagster]
+        name: Dagster Tests Pass
+        runs-on: ubuntu-latest
+        if: always()
+        steps:
+            - name: Check matrix outcome
+              run: |
+                  # The `needs.dagster.result` will be 'success' only if all jobs in the matrix succeeded.
+                  # Otherwise, it will be 'failure'.
+                  if [[ "${{ needs.dagster.result }}" != "success" && "${{ needs.dagster.result }}" != "skipped" ]]; then
+                    echo "One or more jobs in the Dagster test matrix failed."
+                    exit 1
+                  fi
+
+                  echo "All checks passed."

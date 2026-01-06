@@ -17,11 +17,11 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import FeatureFlag, Survey, Team, User
 from posthog.sync import database_sync_to_async
 
-from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
-from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
-from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
-from ee.hogai.graph.taxonomy.tools import TaxonomyTool, ask_user_for_help, base_final_answer
-from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
+from ee.hogai.chat_agent.taxonomy.agent import TaxonomyAgent
+from ee.hogai.chat_agent.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
+from ee.hogai.chat_agent.taxonomy.toolkit import TaxonomyAgentToolkit
+from ee.hogai.chat_agent.taxonomy.tools import TaxonomyTool, ask_user_for_help, base_final_answer
+from ee.hogai.chat_agent.taxonomy.types import TaxonomyAgentState
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.tool import MaxTool
 
@@ -46,6 +46,9 @@ class CreateSurveyTool(MaxTool):
     description: str = "Create and optionally launch a survey based on natural language instructions"
 
     args_schema: type[BaseModel] = SurveyCreatorArgs
+
+    def get_required_resource_access(self):
+        return [("survey", "editor")]
 
     async def _create_survey_from_instructions(self, instructions: str) -> SurveyCreationSchema:
         """
@@ -350,6 +353,9 @@ class SurveyAnalysisTool(MaxTool):
         "use the analyze_survey_responses tool. Survey data includes: {formatted_responses}"
     )
     args_schema: type[BaseModel] = SurveyAnalysisArgs
+
+    def get_required_resource_access(self):
+        return [("survey", "viewer")]
 
     def _extract_open_ended_responses(self) -> list[SurveyAnalysisQuestionGroup]:
         """

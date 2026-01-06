@@ -2,9 +2,9 @@ import { combineUrl } from 'kea-router'
 
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
-import { productUrls } from '~/products'
-import { SharingConfigurationSettings } from '~/queries/schema/schema-general'
-import { ActivityTab, AnnotationType, CommentType, OnboardingStepKey, ProductKey, SDKKey } from '~/types'
+import { fileSystemTypes, productUrls } from '~/products'
+import { ProductKey, SharingConfigurationSettings } from '~/queries/schema/schema-general'
+import { ActivityTab, AnnotationType, CommentType, OnboardingStepKey, SDKKey } from '~/types'
 
 import type { BillingSectionId } from './billing/types'
 import { DataPipelinesNewSceneKind } from './data-pipelines/DataPipelinesNewScene'
@@ -43,18 +43,22 @@ export const urls = {
     database: (): string => '/data-management/database',
     dataWarehouseManagedViewsets: (): string => '/data-management/managed-viewsets',
     activity: (tab: ActivityTab | ':tab' = ActivityTab.ExploreEvents): string => `/activity/${tab}`,
+    feed: (): string => '/feed',
     event: (id: string, timestamp: string): string =>
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
     revenueSettings: (): string => '/data-management/revenue',
+    coreEvents: (): string => '/data-management/core-events',
     marketingAnalytics: (): string => '/data-management/marketing-analytics',
+    marketingAnalyticsApp: (): string => '/marketing',
     customCss: (): string => '/themes/custom-css',
     sqlEditor: (
         query?: string,
         view_id?: string,
         insightShortId?: string,
         draftId?: string,
-        outputTab?: OutputTab
+        outputTab?: OutputTab,
+        endpointName?: string
     ): string => {
         const params = new URLSearchParams()
 
@@ -72,6 +76,10 @@ export const urls = {
             params.set('output_tab', outputTab)
         }
 
+        if (endpointName) {
+            params.set('endpoint_name', endpointName)
+        }
+
         const queryString = params.toString()
         return `/sql${queryString ? `?${queryString}` : ''}`
     },
@@ -83,8 +91,8 @@ export const urls = {
     projectCreateFirst: (): string => '/organization/create-project',
     projectRoot: (): string => '/',
     projectHomepage: (): string => '/home',
-    max: (chat?: string, ask?: string): string => combineUrl('/max', { ask, chat }).url,
-    maxHistory: (): string => '/max/history',
+    ai: (chat?: string, ask?: string): string => combineUrl('/ai', { ask, chat }).url,
+    aiHistory: (): string => '/ai/history',
     settings: (section: SettingSectionId | SettingLevelId = 'project', setting?: SettingId): string =>
         combineUrl(`/settings/${section}`, undefined, setting).url,
     organizationCreationConfirm: (): string => '/organization/confirm-creation',
@@ -103,9 +111,11 @@ export const urls = {
     signup: (): string => '/signup',
     verifyEmail: (userUuid: string = '', token: string = ''): string =>
         `/verify_email${userUuid ? `/${userUuid}` : ''}${token ? `/${token}` : ''}`,
+    vercelLinkError: (): string => '/integrations/vercel/link-error',
     inviteSignup: (id: string): string => `/signup/${id}`,
     products: (): string => '/products',
     useCaseSelection: (): string => '/onboarding/use-case',
+    onboardingCoupon: (campaign: string): string => `/onboarding/coupons/${campaign}`,
     onboarding: (productKey: string, stepKey?: OnboardingStepKey, sdk?: SDKKey): string =>
         `/onboarding/${productKey}${stepKey ? '?step=' + stepKey : ''}${
             sdk && stepKey ? '&sdk=' + sdk : sdk ? '?sdk=' + sdk : ''
@@ -127,6 +137,7 @@ export const urls = {
     asyncMigrationsFuture: (): string => '/instance/async_migrations/future',
     asyncMigrationsSettings: (): string => '/instance/async_migrations/settings',
     deadLetterQueue: (): string => '/instance/dead_letter_queue',
+    materializedColumns: (): string => '/data-management/materialized-columns',
     unsubscribe: (): string => '/unsubscribe',
     integrationsRedirect: (kind: string): string => `/integrations/${kind}/callback`,
     shared: (token: string, exportOptions: SharingConfigurationSettings = {}): string =>
@@ -164,6 +175,7 @@ export const urls = {
     sessionAttributionExplorer: (): string => '/web/session-attribution-explorer',
     sessionProfile: (id: string): string => `/sessions/${id}`,
     wizard: (): string => `/wizard`,
+    coupons: (campaign: string): string => `/coupons/${campaign}`,
     startups: (referrer?: string): string => `/startups${referrer ? `/${referrer}` : ''}`,
     oauthAuthorize: (): string => '/oauth/authorize',
     dataPipelines: (kind: DataPipelinesSceneTab = 'overview'): string => `/pipeline/${kind}`,
@@ -176,4 +188,79 @@ export const urls = {
     legacyPlugin: (id: string): string => `/pipeline/plugins/${id}`,
     hogFunction: (id: string, tab?: HogFunctionSceneTab): string => `/functions/${id}${tab ? `?tab=${tab}` : ''}`,
     hogFunctionNew: (templateId: string): string => `/functions/new/${templateId}`,
+    productTours: (): string => '/product_tours',
+    productTour: (id: string): string => `/product_tours/${id}`,
+    organizationDeactivated: (): string => '/organization-deactivated',
+    approvals: (): string => '/settings/organization-approvals#change-requests',
+    approval: (id: string): string => `/approvals/${id}`,
+}
+
+export interface UrlMatcher {
+    type?: string
+    matchers: Record<string, UrlMatcher>
+}
+
+const rootMatcher: UrlMatcher = { matchers: {} }
+
+for (const [type, { href }] of Object.entries(fileSystemTypes)) {
+    if (typeof href !== 'function') {
+        continue
+    }
+
+    const computed = href(':id') // e.g. "/insights/:id"
+    const pathname = computed.split('?')[0]
+
+    // Normalize and split: "/insights/:id" -> ["insights", ":id"]
+    const parts = pathname
+        .replace(/^\/+|\/+$/g, '') // trim leading/trailing slashes
+        .split('/')
+        .filter(Boolean)
+
+    if (!parts.includes(':id')) {
+        continue
+    }
+
+    let node = rootMatcher
+
+    for (const part of parts) {
+        if (!node.matchers[part]) {
+            node.matchers[part] = { matchers: {} }
+        }
+        node = node.matchers[part]
+
+        if (part === ':id') {
+            node.type = type
+        }
+    }
+}
+
+export function urlToResource(url: string): { type: string; ref: string } | null {
+    const pathname = url.split('?')[0]
+
+    const parts = pathname
+        .replace(/^\/+|\/+$/g, '')
+        .split('/')
+        .filter(Boolean)
+
+    let node: UrlMatcher = rootMatcher
+    let id: string | null = null
+
+    for (const part of parts) {
+        if (node.matchers[part]) {
+            node = node.matchers[part]
+            continue
+        }
+        if (node.matchers[':id']) {
+            node = node.matchers[':id']
+            id = part
+            continue
+        }
+        return null
+    }
+
+    if (node.type && id !== null) {
+        return { type: node.type, ref: id }
+    }
+
+    return null
 }

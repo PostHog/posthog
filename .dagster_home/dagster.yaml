@@ -1,10 +1,14 @@
-# Local dev only, see dags/README.md for more info
-
+# Local dev only, see posthog/dags/README.md for more info
 concurrency:
     runs:
         tag_concurrency_limits:
-            # See dags/sessions.py
             - key: 'sessions_backfill_concurrency'
               limit: 3
+            - key: 'sessions_db_partition_0'
+              limit: 1
+              value:
+                  applyLimitPerUniqueValue: true
+            - key: 'sessions_db_partition_1'
+              limit: 1
               value:
                   applyLimitPerUniqueValue: true

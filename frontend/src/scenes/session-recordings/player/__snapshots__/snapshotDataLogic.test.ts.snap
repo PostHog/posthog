@@ -10,7 +10,7 @@ exports[`snapshotDataLogic snapshot parsing handles data with unparseable lines 
     },
     "timestamp": 1725560859629,
     "type": 4,
-    "windowId": "0191c366-dd75-708c-bb41-c0d5bd2bb0dc",
+    "windowId": 1,
   },
   {
     "data": {
@@ -22,7 +22,7 @@ exports[`snapshotDataLogic snapshot parsing handles data with unparseable lines 
     },
     "timestamp": 1725560861395,
     "type": 3,
-    "windowId": "0191c366-dd75-708c-bb41-c0d5bd2bb0dc",
+    "windowId": 1,
   },
   {
     "data": {
@@ -35,7 +35,7 @@ exports[`snapshotDataLogic snapshot parsing handles data with unparseable lines 
     },
     "timestamp": 1725560861398,
     "type": 3,
-    "windowId": "0191c366-dd75-708c-bb41-c0d5bd2bb0dc",
+    "windowId": 1,
   },
   {
     "data": {
@@ -60,7 +60,7 @@ exports[`snapshotDataLogic snapshot parsing handles data with unparseable lines 
     },
     "timestamp": 1725560861402,
     "type": 3,
-    "windowId": "0191c366-dd75-708c-bb41-c0d5bd2bb0dc",
+    "windowId": 1,
   },
 ]
 `;
@@ -75,7 +75,7 @@ exports[`snapshotDataLogic snapshot parsing handles normal web data 1`] = `
     },
     "timestamp": 1725560859629,
     "type": 4,
-    "windowId": "0191c366-dd75-708c-bb41-c0d5bd2bb0dc",
+    "windowId": 1,
   },
   {
     "data": {
@@ -87,7 +87,7 @@ exports[`snapshotDataLogic snapshot parsing handles normal web data 1`] = `
     },
     "timestamp": 1725560861395,
     "type": 3,
-    "windowId": "0191c366-dd75-708c-bb41-c0d5bd2bb0dc",
+    "windowId": 1,
   },
   {
     "data": {
@@ -100,7 +100,7 @@ exports[`snapshotDataLogic snapshot parsing handles normal web data 1`] = `
     },
     "timestamp": 1725560861398,
     "type": 3,
-    "windowId": "0191c366-dd75-708c-bb41-c0d5bd2bb0dc",
+    "windowId": 1,
   },
   {
     "data": {
@@ -125,7 +125,7 @@ exports[`snapshotDataLogic snapshot parsing handles normal web data 1`] = `
     },
     "timestamp": 1725560861402,
     "type": 3,
-    "windowId": "0191c366-dd75-708c-bb41-c0d5bd2bb0dc",
+    "windowId": 1,
   },
   {
     "data": {
@@ -135,7 +135,7 @@ exports[`snapshotDataLogic snapshot parsing handles normal web data 1`] = `
     },
     "timestamp": 1725560859629,
     "type": 4,
-    "windowId": "0191c366-dd75-708c-bb41-c0d5bd2bb0dc",
+    "windowId": 1,
   },
   {
     "data": {
@@ -147,7 +147,7 @@ exports[`snapshotDataLogic snapshot parsing handles normal web data 1`] = `
     },
     "timestamp": 1725560861395,
     "type": 3,
-    "windowId": "0191c366-dd75-708c-bb41-c0d5bd2bb0dc",
+    "windowId": 1,
   },
   {
     "data": {
@@ -160,7 +160,7 @@ exports[`snapshotDataLogic snapshot parsing handles normal web data 1`] = `
     },
     "timestamp": 1725560861398,
     "type": 3,
-    "windowId": "0191c366-dd75-708c-bb41-c0d5bd2bb0dc",
+    "windowId": 1,
   },
   {
     "data": {
@@ -185,7 +185,7 @@ exports[`snapshotDataLogic snapshot parsing handles normal web data 1`] = `
     },
     "timestamp": 1725560861402,
     "type": 3,
-    "windowId": "0191c366-dd75-708c-bb41-c0d5bd2bb0dc",
+    "windowId": 1,
   },
 ]
 `;

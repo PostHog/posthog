@@ -849,8 +849,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
 
         with freeze_time("2021-08-25T22:10:14.252"):
             response = self.client.get(
-                f"/api/projects/{self.team.pk}/feature_flags/",
-                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                f"/api/projects/{self.team.pk}/feature_flags/", headers={"authorization": f"Bearer {personal_api_key}"}
             )
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -872,8 +871,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
 
         with freeze_time("2022-08-25T22:00:14.252"):
             response = self.client.get(
-                f"/api/projects/{self.team.pk}/feature_flags/",
-                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                f"/api/projects/{self.team.pk}/feature_flags/", headers={"authorization": f"Bearer {personal_api_key}"}
             )
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -895,8 +893,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
 
         with freeze_time("2021-08-26T22:00:14.252"):
             response = self.client.get(
-                f"/api/projects/{self.team.pk}/feature_flags/",
-                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                f"/api/projects/{self.team.pk}/feature_flags/", headers={"authorization": f"Bearer {personal_api_key}"}
             )
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -913,8 +910,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
 
         with freeze_time("2022-08-25T22:00:14.252"):
             response = self.client.get(
-                f"/api/projects/{self.team.pk}/feature_flags/",
-                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                f"/api/projects/{self.team.pk}/feature_flags/", headers={"authorization": f"Bearer {personal_api_key}"}
             )
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -936,8 +932,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
 
         with freeze_time("2021-08-25T21:14:14.252"):
             response = self.client.get(
-                f"/api/projects/{self.team.pk}/feature_flags/",
-                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                f"/api/projects/{self.team.pk}/feature_flags/", headers={"authorization": f"Bearer {personal_api_key}"}
             )
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -958,8 +953,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
 
         with freeze_time("2021-08-24T21:14:14.252"):
             response = self.client.get(
-                f"/api/projects/{self.team.pk}/feature_flags/",
-                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                f"/api/projects/{self.team.pk}/feature_flags/", headers={"authorization": f"Bearer {personal_api_key}"}
             )
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)

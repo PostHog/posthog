@@ -20,7 +20,7 @@ from posthog.api.utils import action
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Organization, Team
+from posthog.models import Organization, OrganizationIntegration, Team
 from posthog.models.organization import OrganizationMembership
 from posthog.utils import relative_date_parse
 
@@ -122,6 +122,16 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if "include_forecasting" in request.query_params:
             query["include_forecasting"] = request.query_params.get("include_forecasting")
         response = billing_manager.get_billing(org, query)
+
+        vercel_integration = OrganizationIntegration.objects.filter(
+            organization=org,
+            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+        ).first()
+
+        if vercel_integration and vercel_integration.integration_id:
+            account_url = vercel_integration.config.get("account", {}).get("url", "")
+            if account_url:
+                response["external_billing_provider_invoices_url"] = f"{account_url}/invoices"
 
         return Response(response)
 
@@ -482,6 +492,58 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 )
             else:
                 raise
+
+    @action(methods=["POST"], detail=False, url_path="coupons/claim")
+    def claim_coupon(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        user = self.request.user
+        if not isinstance(user, AbstractUser):
+            raise PermissionDenied("You must be logged in to claim a coupon")
+
+        organization = self._get_org_required()
+
+        try:
+            membership = OrganizationMembership.objects.get(user=user, organization=organization)
+        except OrganizationMembership.DoesNotExist:
+            raise PermissionDenied("You need to be a member of this organization to claim coupons")
+
+        if membership.level < OrganizationMembership.Level.ADMIN:
+            raise PermissionDenied("You need to be an organization admin or owner to claim coupons")
+
+        code = request.data.get("code")
+        if not code:
+            raise ValidationError({"code": "This field is required."})
+
+        billing_manager = self.get_billing_manager()
+
+        try:
+            res = billing_manager.claim_coupon(organization, {"code": code})
+            return Response(res, status=status.HTTP_200_OK)
+        except Exception as e:
+            if len(e.args) > 2:
+                detail_object = e.args[2]
+                if not isinstance(detail_object, dict):
+                    raise
+                return Response(
+                    {
+                        "statusText": e.args[0],
+                        "detail": detail_object.get("error_message") or detail_object.get("detail") or detail_object,
+                        "code": detail_object.get("code"),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            else:
+                raise
+
+    @action(methods=["GET"], detail=False, url_path="coupons/overview")
+    def coupons_overview(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        license = get_cached_instance_license()
+        if not license:
+            return Response({"claimed_coupons": []}, status=status.HTTP_200_OK)
+
+        organization = self._get_org_required()
+        billing_manager = self.get_billing_manager()
+        res = billing_manager.coupons_overview(organization)
+        return Response(res, status=status.HTTP_200_OK)
 
     @action(
         methods=["GET"],

@@ -1,52 +1,45 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
-import { IconGear } from '@posthog/icons'
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, Tooltip } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
-import { NodeKind } from '~/queries/schema/schema-general'
-import { isEventsNode } from '~/queries/utils'
-import { ChartDisplayType } from '~/types'
+import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { ChartDisplayType, InsightLogicProps } from '~/types'
 
-import { customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
-import { InsightDefinition } from '../../insightDefinitions'
+import { CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID } from '../../constants'
+import { InsightDefinition, customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
+import { buildDashboardItemId, isPageviewWithoutFilters } from '../../utils'
 import { CustomerAnalyticsQueryCard } from '../CustomerAnalyticsQueryCard'
-import { EventConfigModal } from './EventConfigModal'
 
 export function ActiveUsersInsights(): JSX.Element {
-    const { activityEvent, activeUsersInsights, tabId } = useValues(customerAnalyticsSceneLogic)
-    const { toggleEventConfigModal } = useActions(customerAnalyticsSceneLogic)
+    const { activityEvent, activeUsersInsights, customerLabel, tabId } = useValues(customerAnalyticsSceneLogic)
+    const activityEventBannerCopy = useFeatureFlag('ACTIVITY_EVENT_BANNER_WORDING', 'test')
+        ? 'What makes a user active in your product? Choose an event that signals real engagement, like completing a core action, rather than generic pageviews.'
+        : 'You are currently using the pageview event to define user activity. Consider using a more specific event or action to track activity accurately.'
 
-    // Check if using pageview as default
-    const isOnlyPageview = isEventsNode(activityEvent) && activityEvent.event === '$pageview'
+    // Check if using pageview as default, with no properties filter
+    const isOnlyPageview = isPageviewWithoutFilters(activityEvent)
 
     return (
-        <div className="space-y-2 mb-0">
+        <div className="space-y-2">
             {isOnlyPageview && (
                 <LemonBanner type="warning">
-                    You are currently using the pageview event to define user activity. Consider using a more specific
-                    event or action to track activity accurately.
+                    {activityEventBannerCopy}
                     <div className="flex flex-row items-center gap-4 mt-2 max-w-160">
-                        <LemonButton type="primary" onClick={() => toggleEventConfigModal()}>
+                        <LemonButton
+                            data-attr="customer-analytics-configure-activity-event"
+                            to={urls.customerAnalyticsConfiguration()}
+                            type="primary"
+                        >
                             Configure activity event
                         </LemonButton>
                     </div>
                 </LemonBanner>
             )}
-            <div className="flex items-center gap-2 ml-1">
-                <h2 className="m-0">Active Users</h2>
-                {!isOnlyPageview && (
-                    <LemonButton
-                        icon={<IconGear />}
-                        size="small"
-                        noPadding
-                        onClick={() => toggleEventConfigModal()}
-                        tooltip="Configure dashboard"
-                    />
-                )}
-            </div>
+            <h2 className="ml-1">Active {customerLabel.plural}</h2>
             <div className="grid grid-cols-[3fr_1fr] gap-2">
                 {activeUsersInsights.map((insight, index) => {
                     return (
@@ -55,13 +48,21 @@ export function ActiveUsersInsights(): JSX.Element {
                 })}
             </div>
             <PowerUsersTable />
-            <EventConfigModal />
         </div>
     )
 }
 
 function PowerUsersTable(): JSX.Element {
-    const { dauSeries, tabId } = useValues(customerAnalyticsSceneLogic)
+    const { businessType, customerLabel, dauSeries, selectedGroupType, tabId } = useValues(customerAnalyticsSceneLogic)
+    const uniqueKey = `power-users-${tabId}`
+    const insightProps: InsightLogicProps<InsightVizNode> = {
+        dataNodeCollectionId: CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID,
+        dashboardItemId: buildDashboardItemId(uniqueKey),
+    }
+
+    const isB2c = businessType === 'b2c'
+    const buttonTo = isB2c ? urls.persons() : urls.groups(selectedGroupType)
+    const tooltip = isB2c ? 'Open people list' : `Open ${customerLabel.plural} list`
 
     const query = {
         kind: NodeKind.DataTableNode,
@@ -69,7 +70,9 @@ function PowerUsersTable(): JSX.Element {
         showSourceQueryOptions: false,
         source: {
             kind: NodeKind.ActorsQuery,
-            select: ['person', 'event_count'],
+            select: isB2c
+                ? ['person_display_name -- Person', 'event_count', 'last_seen']
+                : ['group', 'event_count', 'last_seen'],
             source: {
                 kind: NodeKind.InsightActorsQuery,
                 source: {
@@ -82,6 +85,7 @@ function PowerUsersTable(): JSX.Element {
                     trendsFilter: {
                         display: ChartDisplayType.ActionsTable,
                     },
+                    ...(isB2c ? {} : { aggregation_group_type_index: selectedGroupType }),
                 },
                 series: 0,
             },
@@ -92,25 +96,25 @@ function PowerUsersTable(): JSX.Element {
 
     return (
         <>
-            <div className="flex items-center gap-2 ml-1">
-                <h2 className="-mb-2">Power Users</h2>
-                <LemonButton
-                    size="small"
-                    noPadding
-                    targetBlank
-                    to={urls.persons()}
-                    tooltip="Open people list"
-                    className="-mb-2"
-                />
+            <div className="flex items-center gap-2">
+                <Tooltip
+                    title={`Power ${customerLabel.plural} are the ${customerLabel.plural} that performed your activity event most frequently in the past 30 days.`}
+                    docLink="https://posthog.com/docs/customer-analytics/dashboard-metrics#power-users"
+                >
+                    <h2 className="mb-0 ml-1">Power {customerLabel.plural}</h2>
+                </Tooltip>
+                <LemonButton size="small" noPadding targetBlank to={buttonTo} tooltip={tooltip} />
             </div>
             <Query
-                uniqueKey={`power-users-${tabId}`}
+                uniqueKey={uniqueKey}
                 attachTo={customerAnalyticsSceneLogic}
                 query={{ ...query, showTimings: false, showOpenEditorButton: false }}
                 context={{
                     columns: {
                         event_count: { title: 'Event count' },
+                        group: { title: customerLabel.singular },
                     },
+                    insightProps,
                 }}
             />
         </>

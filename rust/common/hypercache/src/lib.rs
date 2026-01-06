@@ -353,9 +353,9 @@ impl HyperCacheReader {
         inc(
             TOMBSTONE_COUNTER_NAME,
             &[
-                ("failure_type".to_string(), "hypercache_miss".to_string()),
                 ("namespace".to_string(), self.config.namespace.clone()),
-                ("value".to_string(), self.config.value.clone()),
+                ("operation".to_string(), "hypercache_miss".to_string()),
+                ("component".to_string(), self.config.value.clone()),
             ],
             1,
         );
@@ -424,12 +424,12 @@ impl HyperCacheReader {
                         inc(
                             TOMBSTONE_COUNTER_NAME,
                             &[
+                                ("namespace".to_string(), self.config.namespace.clone()),
                                 (
-                                    "failure_type".to_string(),
+                                    "operation".to_string(),
                                     "hypercache_fallback_miss".to_string(),
                                 ),
-                                ("namespace".to_string(), self.config.namespace.clone()),
-                                ("value".to_string(), self.config.value.clone()),
+                                ("component".to_string(), self.config.value.clone()),
                             ],
                             1,
                         );

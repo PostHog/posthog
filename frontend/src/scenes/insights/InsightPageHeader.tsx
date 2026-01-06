@@ -31,6 +31,7 @@ import {
     TEMPLATE_LINK_TOOLTIP,
 } from 'lib/components/Sharing/templateLinkMessages'
 import { SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
+import { TerraformExportModal } from 'lib/components/TerraformExporter/TerraformExportModal'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -78,7 +79,7 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
-import { EndpointModal } from 'products/endpoints/frontend/EndpointModal'
+import { EndpointFromInsightModal } from 'products/endpoints/frontend/EndpointFromInsightModal'
 
 import { getInsightIconTypeFromQuery, getOverrideWarningPropsForButton } from './utils'
 
@@ -92,8 +93,16 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { setInsightMode } = useActions(insightSceneLogic)
 
     // insightLogic
-    const { insightProps, canEditInsight, insight, insightChanged, insightSaving, hasDashboardItemId, insightLoading } =
-        useValues(insightLogic(insightLogicProps))
+    const {
+        insightProps,
+        canEditInsight,
+        insight,
+        insightChanged,
+        insightSaving,
+        hasDashboardItemId,
+        insightLoading,
+        derivedName,
+    } = useValues(insightLogic(insightLogicProps))
     const { setInsightMetadata, saveAs, saveInsight, duplicateInsight, reloadSavedInsights } = useActions(
         insightLogic(insightLogicProps)
     )
@@ -139,6 +148,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
     const [addToDashboardModalOpen, setAddToDashboardModalOpenModal] = useState<boolean>(false)
     const [endpointModalOpen, setEndpointModalOpen] = useState<boolean>(false)
+    const [terraformModalOpen, setTerraformModalOpen] = useState<boolean>(false)
 
     const showCohortButton =
         isDataTableNode(query) || isDataVisualizationNode(query) || isHogQLQuery(query) || isEventsQuery(query)
@@ -214,14 +224,21 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         />
                     )}
                     <NewDashboardModal />
-                    <EndpointModal
+                    <EndpointFromInsightModal
                         isOpen={endpointModalOpen}
                         closeModal={() => setEndpointModalOpen(false)}
                         tabId={insightProps.tabId || ''}
                         insightQuery={insightQuery as HogQLQuery | InsightQueryNode}
+                        insightShortId={insight.short_id}
                     />
                 </>
             )}
+
+            <TerraformExportModal
+                isOpen={terraformModalOpen}
+                onClose={() => setTerraformModalOpen(false)}
+                resource={{ type: 'insight', data: { ...insight, query, derived_name: derivedName } }}
+            />
 
             <ScenePanel>
                 <>
@@ -339,6 +356,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                     {
                                         format: ExporterFormat.PNG,
                                         insight: insight.id,
+                                        context: exportContext,
                                         dataAttr: `${RESOURCE_TYPE}-export-png`,
                                     },
                                     {
@@ -355,7 +373,18 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             />
                         ) : null}
 
-                        {featureFlags[FEATURE_FLAGS.ENDPOINTS] ? (
+                        {featureFlags[FEATURE_FLAGS.MANAGE_INSIGHTS_THROUGH_TERRAFORM] ? (
+                            <ButtonPrimitive
+                                onClick={() => setTerraformModalOpen(true)}
+                                menuItem
+                                data-attr={`${RESOURCE_TYPE}-manage-terraform`}
+                            >
+                                <IconCode2 />
+                                Manage with Terraform
+                            </ButtonPrimitive>
+                        ) : null}
+
+                        {hasDashboardItemId && featureFlags[FEATURE_FLAGS.ENDPOINTS] ? (
                             <ButtonPrimitive onClick={() => setEndpointModalOpen(true)} menuItem>
                                 <IconCode2 />
                                 Create endpoint

@@ -1,7 +1,7 @@
 """
 Team metadata HyperCache - Full team object caching using existing HyperCache infrastructure.
 
-This module provides dedicated caching of complete Team objects (38 fields) using the
+This module provides dedicated caching of complete Team objects (39 fields) using the
 existing HyperCache system which handles Redis + S3 backup automatically.
 
 Memory Usage Estimation:
@@ -38,76 +38,34 @@ Manual invalidation:
     clear_team_metadata_cache(team_id)
 
 Note: Redis adds ~100 bytes overhead per key. S3 storage uses similar compression.
-
-Note: Redis adds ~100 bytes overhead per key. S3 storage uses similar compression.
 """
 
 import os
-import time
-import random
-import statistics
+from datetime import timedelta
 from typing import Any
 
 from django.conf import settings
-from django.core.cache import cache, caches
 from django.db import transaction
+from django.utils import timezone
 
 import structlog
-from posthoganalytics import capture_exception
-from prometheus_client import Counter, Gauge, Histogram
 
 from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
+from posthog.metrics import TOMBSTONE_COUNTER
 from posthog.models.team.team import Team
 from posthog.redis import get_client
+from posthog.storage.cache_expiry_manager import (
+    cleanup_stale_expiry_tracking as cleanup_generic,
+    get_teams_with_expiring_caches as get_teams_generic,
+    refresh_expiring_caches as refresh_generic,
+)
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing, KeyType
+from posthog.storage.hypercache_manager import (
+    HyperCacheManagementConfig,
+    get_cache_stats as get_cache_stats_generic,
+)
 
 logger = structlog.get_logger(__name__)
-
-
-TEAM_METADATA_BATCH_REFRESH_COUNTER = Counter(
-    "posthog_team_metadata_batch_refresh",
-    "Number of times the team metadata batch refresh job has been run",
-    labelnames=["result"],
-)
-
-TEAM_METADATA_BATCH_REFRESH_DURATION_HISTOGRAM = Histogram(
-    "posthog_team_metadata_batch_refresh_duration_seconds",
-    "Time taken to run the team metadata batch refresh job in seconds",
-    buckets=(1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0, float("inf")),
-)
-
-TEAM_METADATA_TEAMS_PROCESSED_COUNTER = Counter(
-    "posthog_team_metadata_teams_processed",
-    "Number of teams processed by the batch refresh job",
-    labelnames=["result"],
-)
-
-TEAM_METADATA_CACHE_COVERAGE_GAUGE = Gauge(
-    "posthog_team_metadata_cache_coverage_percent",
-    "Percentage of teams with cached metadata",
-)
-
-TEAM_METADATA_CACHE_SIZE_BYTES_GAUGE = Gauge(
-    "posthog_team_metadata_cache_size_bytes",
-    "Estimated total cache size in bytes",
-)
-
-TEAM_METADATA_CACHE_UPDATE_DURATION_HISTOGRAM = Histogram(
-    "posthog_team_metadata_cache_update_duration_seconds",
-    "Time to update a single team's cache entry",
-    buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, float("inf")),
-)
-
-TEAM_METADATA_SIGNAL_UPDATE_COUNTER = Counter(
-    "posthog_team_metadata_signal_updates",
-    "Cache updates triggered by Django signals",
-    labelnames=["result"],
-)
-
-TEAM_METADATA_CACHE_INVALIDATION_COUNTER = Counter(
-    "posthog_team_metadata_cache_invalidations",
-    "Full cache invalidations (schema changes)",
-)
 
 
 TEAM_METADATA_CACHE_TTL = int(os.environ.get("TEAM_METADATA_CACHE_TTL", str(60 * 60 * 24 * 7)))
@@ -128,16 +86,8 @@ TEAM_METADATA_FIELDS = [
     "api_token",
     "secret_api_token",
     "secret_api_token_backup",
-    "app_urls",
-    "slack_incoming_webhook",
-    "created_at",
-    "updated_at",
-    "anonymize_ips",
-    "completed_snippet_onboarding",
-    "has_completed_onboarding_for",
-    "onboarding_tasks",
-    "ingested_event",
-    "person_processing_opt_out",
+    "timezone",
+    "extra_settings",
     "session_recording_opt_in",
     "session_recording_sample_rate",
     "session_recording_minimum_duration_milliseconds",
@@ -149,15 +99,23 @@ TEAM_METADATA_FIELDS = [
     "session_recording_event_trigger_config",
     "session_recording_trigger_match_type_config",
     "session_replay_config",
-    "session_recording_retention_period",
+    "recording_domains",
+    "cookieless_server_hash_mode",
     "survey_config",
     "surveys_opt_in",
     "capture_console_log_opt_in",
     "capture_performance_opt_in",
     "capture_dead_clicks",
     "autocapture_opt_out",
+    "autocapture_exceptions_opt_in",
+    "autocapture_exceptions_errors_to_ignore",
     "autocapture_web_vitals_opt_in",
     "autocapture_web_vitals_allowed_metrics",
+    "conversations_enabled",
+    "conversations_settings",
+    "inject_web_apps",
+    "heatmaps_opt_in",
+    "flags_persistence_default",
 ]
 
 
@@ -177,9 +135,7 @@ def _serialize_team_field(field: str, value: Any) -> Any:
     Returns:
         Serialized value suitable for JSON encoding
     """
-    if field in ["created_at", "updated_at"]:
-        return value.isoformat() if value else None
-    elif field == "uuid":
+    if field == "uuid":
         return str(value) if value else None
     elif field == "organization_id":
         return str(value) if value else None
@@ -188,30 +144,42 @@ def _serialize_team_field(field: str, value: Any) -> Any:
     return value
 
 
-def _track_cache_expiry(team: Team | str | int, ttl_seconds: int) -> None:
+def _serialize_team_to_metadata(team: Team) -> dict[str, Any]:
     """
-    Track cache expiration in Redis sorted set for efficient expiry queries.
+    Serialize a Team object to metadata dictionary.
 
     Args:
-        team: Team object, API token string, or team ID
-        ttl_seconds: TTL in seconds from now
+        team: Team object with organization and project already loaded
+
+    Returns:
+        Dictionary containing full team metadata
     """
-    try:
-        redis_client = get_client()
+    metadata = {}
+    for field in TEAM_METADATA_FIELDS:
+        value = getattr(team, field, None)
+        metadata[field] = _serialize_team_field(field, value)
 
-        # Get team token for tracking
-        if isinstance(team, Team):
-            token = team.api_token
-        elif isinstance(team, str):
-            token = team
-        else:
-            # If team ID, need to fetch token - but this is rare, skip tracking
-            return
+    metadata["organization_name"] = team.organization.name if team.organization else None
+    metadata["project_name"] = team.project.name if team.project else None
 
-        expiration_timestamp = time.time() + ttl_seconds
-        redis_client.zadd(TEAM_CACHE_EXPIRY_SORTED_SET, {token: expiration_timestamp})
-    except Exception as e:
-        logger.warning("Failed to track cache expiry in sorted set", error=str(e), error_type=type(e).__name__)
+    return metadata
+
+
+def _batch_load_team_metadata(teams: list[Team]) -> dict[int, dict[str, Any]]:
+    """
+    Load metadata for multiple teams efficiently.
+
+    Used by warm_caches() to avoid N+1 queries when warming the cache.
+    Teams are already loaded with select_related("organization", "project")
+    by the warming framework, so this just serializes them.
+
+    Args:
+        teams: List of Team objects with organization/project pre-loaded
+
+    Returns:
+        Dict mapping team_id -> metadata dict
+    """
+    return {team.id: _serialize_team_to_metadata(team) for team in teams}
 
 
 def _load_team_metadata(team_key: KeyType) -> dict[str, Any] | HyperCacheStoreMissing:
@@ -231,17 +199,7 @@ def _load_team_metadata(team_key: KeyType) -> dict[str, Any] | HyperCacheStoreMi
             if isinstance(team, Team) and (not Team.organization.is_cached(team) or not Team.project.is_cached(team)):
                 team = Team.objects.select_related("organization", "project").get(id=team.id)
 
-            metadata = {}
-            for field in TEAM_METADATA_FIELDS:
-                value = getattr(team, field, None)
-                metadata[field] = _serialize_team_field(field, value)
-
-            metadata["organization_name"] = (
-                team.organization.name if hasattr(team, "organization") and team.organization else None
-            )
-            metadata["project_name"] = team.project.name if hasattr(team, "project") and team.project else None
-
-            return metadata
+            return _serialize_team_to_metadata(team)
 
     except Team.DoesNotExist:
         logger.debug("Team not found for cache lookup")
@@ -260,19 +218,16 @@ def _load_team_metadata(team_key: KeyType) -> dict[str, Any] | HyperCacheStoreMi
 # Module initialization
 # ===================================================================
 
-if FLAGS_DEDICATED_CACHE_ALIAS in settings.CACHES:
-    _team_metadata_cache_client = caches[FLAGS_DEDICATED_CACHE_ALIAS]
-else:
-    _team_metadata_cache_client = cache
-
 team_metadata_hypercache = HyperCache(
     namespace="team_metadata",
     value="full_metadata.json",
     token_based=True,
     load_fn=_load_team_metadata,
+    batch_load_fn=_batch_load_team_metadata,
     cache_ttl=TEAM_METADATA_CACHE_TTL,
     cache_miss_ttl=TEAM_METADATA_CACHE_MISS_TTL,
-    cache_client=_team_metadata_cache_client,
+    cache_alias=FLAGS_DEDICATED_CACHE_ALIAS if FLAGS_DEDICATED_CACHE_ALIAS in settings.CACHES else None,
+    expiry_sorted_set_key=TEAM_CACHE_EXPIRY_SORTED_SET,
 )
 
 
@@ -294,9 +249,81 @@ def get_team_metadata(team: Team | str | int) -> dict[str, Any] | None:
     return team_metadata_hypercache.get_from_cache(team)
 
 
+def verify_team_metadata(
+    team: Team,
+    db_batch_data: dict | None = None,
+    cache_batch_data: dict | None = None,
+    verbose: bool = False,
+) -> dict:
+    """
+    Verify a team's metadata cache against the database.
+
+    Args:
+        team: Team to verify (must be a Team object with organization/project loaded)
+        db_batch_data: Pre-loaded DB data from batch_load_fn (keyed by team.id)
+        cache_batch_data: Pre-loaded cache data from batch_get_from_cache (keyed by team.id)
+        verbose: If True, include detailed diffs with field-level differences
+
+    Returns:
+        Dict with 'status' ("match", "miss", "mismatch") and 'issue' type.
+        When verbose=True, includes 'diffs' list with detailed diff information.
+    """
+    # Get cached data - use pre-loaded batch data if available (single MGET for whole batch)
+    if cache_batch_data and team.id in cache_batch_data:
+        cached_data, source = cache_batch_data[team.id]
+    else:
+        # Fall back to individual lookup
+        cached_data = get_team_metadata(team)
+        source = "redis" if cached_data else "miss"
+
+    # Handle cache miss
+    if not cached_data or source == "miss":
+        return {
+            "status": "miss",
+            "issue": "CACHE_MISS",
+            "details": "No cached data found",
+        }
+
+    # Get database comparison data - use db_batch_data if available to avoid redundant serialization
+    if db_batch_data and team.id in db_batch_data:
+        db_data = db_batch_data[team.id]
+    else:
+        db_data = _serialize_team_to_metadata(team)
+
+    # Compare only fields we care about (defined in TEAM_METADATA_FIELDS + derived fields).
+    # This allows removing fields from the cache without triggering unnecessary fixes.
+    fields_to_check = set(TEAM_METADATA_FIELDS) | {"organization_name", "project_name"}
+    diffs = []
+    for key in fields_to_check:
+        db_val = db_data.get(key)
+        cached_val = cached_data.get(key)
+        if db_val != cached_val:
+            diffs.append({"field": key, "db_value": db_val, "cached_value": cached_val})
+
+    if not diffs:
+        return {"status": "match", "issue": "", "details": ""}
+
+    # Always include field names for logging; full values only when verbose
+    diff_fields = sorted([d["field"] for d in diffs])
+
+    result: dict = {
+        "status": "mismatch",
+        "issue": "DATA_MISMATCH",
+        "details": f"{len(diffs)} field(s) differ",
+        "diff_fields": diff_fields,
+    }
+
+    if verbose:
+        result["diffs"] = diffs
+
+    return result
+
+
 def update_team_metadata_cache(team: Team | str | int, ttl: int | None = None) -> bool:
     """
     Update the metadata cache for a specific team.
+
+    Expiry tracking is handled automatically by HyperCache.set_cache_value().
 
     Args:
         team: Team object, API token string, or team ID
@@ -305,22 +332,45 @@ def update_team_metadata_cache(team: Team | str | int, ttl: int | None = None) -
     Returns:
         True if cache update succeeded, False otherwise
     """
-    start = time.time()
     success = team_metadata_hypercache.update_cache(team, ttl=ttl)
-    duration = time.time() - start
-
-    TEAM_METADATA_CACHE_UPDATE_DURATION_HISTOGRAM.observe(duration)
-
-    team_id = team.id if isinstance(team, Team) else "unknown"
 
     if not success:
-        logger.warning("Failed to update metadata cache", team_id=team_id, duration=duration)
-    else:
-        # Track expiration in sorted set for efficient queries
-        ttl_seconds = ttl if ttl is not None else TEAM_METADATA_CACHE_TTL
-        _track_cache_expiry(team, ttl_seconds)
+        team_id = team.id if isinstance(team, Team) else "unknown"
+        logger.warning("Failed to update metadata cache", team_id=team_id)
 
     return success
+
+
+def _get_team_ids_with_recently_updated_teams(team_ids: list[int]) -> set[int]:
+    """
+    Batch check which teams have been updated within the grace period.
+
+    When a team is updated, an async task updates the cache. If verification
+    runs before the async task completes, it sees a stale cache and tries to
+    "fix" it, causing unnecessary work. This grace period lets recent async
+    updates complete before treating cache misses as genuine errors.
+
+    Args:
+        team_ids: List of team IDs to check
+
+    Returns:
+        Set of team IDs that were recently updated (should skip fix)
+    """
+    grace_period_minutes = settings.TEAM_METADATA_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES
+    if grace_period_minutes <= 0 or not team_ids:
+        return set()
+
+    cutoff = timezone.now() - timedelta(minutes=grace_period_minutes)
+    return set(Team.objects.filter(id__in=team_ids, updated_at__gte=cutoff).values_list("id", flat=True))
+
+
+# Initialize hypercache management config after update_team_metadata_cache is defined
+TEAM_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
+    hypercache=team_metadata_hypercache,
+    update_fn=update_team_metadata_cache,
+    cache_name="team_metadata",
+    get_team_ids_to_skip_fix_fn=_get_team_ids_with_recently_updated_teams,
+)
 
 
 def clear_team_metadata_cache(team: Team | str | int, kinds: list[str] | None = None) -> None:
@@ -335,50 +385,20 @@ def clear_team_metadata_cache(team: Team | str | int, kinds: list[str] | None = 
 
     # Remove from expiry tracking sorted set
     try:
-        redis_client = get_client()
+        redis_client = get_client(team_metadata_hypercache.redis_url)
 
+        # Derive identifier using HyperCache's centralized logic
         if isinstance(team, Team):
-            token = team.api_token
+            identifier = team_metadata_hypercache.get_cache_identifier(team)
         elif isinstance(team, str):
-            token = team
+            identifier = team  # Already have the token
         else:
             # If team ID, skip sorted set cleanup (rare case)
             return
 
-        redis_client.zrem(TEAM_CACHE_EXPIRY_SORTED_SET, token)
+        redis_client.zrem(TEAM_CACHE_EXPIRY_SORTED_SET, identifier)
     except Exception as e:
         logger.warning("Failed to remove from expiry tracking", error=str(e), error_type=type(e).__name__)
-
-
-def invalidate_all_team_metadata_caches() -> int:
-    """
-    Invalidate all team metadata caches.
-
-    Used internally by warm_all_team_caches when run with --invalidate-first.
-
-    Returns:
-        Number of cache keys deleted
-    """
-    try:
-        redis_client = get_client()
-        pattern = "cache/team_tokens/*/team_metadata/*"
-
-        deleted = 0
-        for key in redis_client.scan_iter(match=pattern, count=1000):
-            redis_client.delete(key)
-            deleted += 1
-
-        # Clear the expiry tracking sorted set
-        redis_client.delete(TEAM_CACHE_EXPIRY_SORTED_SET)
-
-        TEAM_METADATA_CACHE_INVALIDATION_COUNTER.inc()
-
-        logger.info("Invalidated all team metadata caches", deleted_keys=deleted)
-        return deleted
-    except Exception as e:
-        logger.exception("Failed to invalidate team metadata caches", error=str(e))
-        capture_exception(e)
-        return 0
 
 
 # ===================================================================
@@ -386,7 +406,7 @@ def invalidate_all_team_metadata_caches() -> int:
 # ===================================================================
 
 
-def get_teams_with_expiring_caches(ttl_threshold_hours: int = 24) -> list[Team]:
+def get_teams_with_expiring_caches(ttl_threshold_hours: int = 24, limit: int = 5000) -> list[Team]:
     """
     Get teams whose caches are expiring soon using sorted set for efficient lookup.
 
@@ -395,83 +415,35 @@ def get_teams_with_expiring_caches(ttl_threshold_hours: int = 24) -> list[Team]:
 
     Args:
         ttl_threshold_hours: Refresh caches expiring within this many hours
+        limit: Maximum number of teams to return (default 5000)
 
     Returns:
-        List of Team objects whose caches need refresh
+        List of Team objects whose caches need refresh (up to limit)
     """
-    try:
-        redis_client = get_client()
-
-        # Query sorted set for teams expiring within threshold
-        threshold_timestamp = time.time() + (ttl_threshold_hours * 3600)
-
-        # Get tokens of teams expiring before threshold (score is expiration timestamp)
-        expiring_tokens = redis_client.zrangebyscore(TEAM_CACHE_EXPIRY_SORTED_SET, "-inf", threshold_timestamp)
-
-        # Decode bytes to strings
-        expiring_tokens = [token.decode("utf-8") if isinstance(token, bytes) else token for token in expiring_tokens]
-
-        if not expiring_tokens:
-            logger.info("No caches expiring soon")
-            return []
-
-        teams = list(Team.objects.filter(api_token__in=expiring_tokens).select_related("organization", "project"))
-
-        logger.info(
-            "Found teams with expiring caches",
-            team_count=len(teams),
-            ttl_threshold_hours=ttl_threshold_hours,
-        )
-
-        return teams
-
-    except Exception as e:
-        logger.exception("Error finding expiring caches", error=str(e))
-        capture_exception(e)
-        return []
+    return get_teams_generic(TEAM_HYPERCACHE_MANAGEMENT_CONFIG, ttl_threshold_hours, limit)
 
 
-def refresh_expiring_caches(ttl_threshold_hours: int = 24) -> tuple[int, int]:
+def refresh_expiring_caches(ttl_threshold_hours: int = 24, limit: int = 5000) -> tuple[int, int]:
     """
     Refresh caches that are expiring soon to prevent cache misses.
 
     This is the main hourly job that keeps caches fresh. It:
-    1. Finds all cache entries with TTL < threshold (using sorted set)
+    1. Finds cache entries with TTL < threshold (up to limit)
     2. Refreshes them with new data and full TTL
+
+    Processes teams in batches (default 5000). If more teams are expiring than the limit,
+    subsequent runs will process the next batch.
+
+    Note: Metrics are pushed to Pushgateway by refresh_expiring_caches() via push_hypercache_teams_processed_metrics()
 
     Args:
         ttl_threshold_hours: Refresh caches expiring within this many hours
+        limit: Maximum number of teams to refresh per run (default 5000)
 
     Returns:
         Tuple of (successful_refreshes, failed_refreshes)
     """
-    teams = get_teams_with_expiring_caches(ttl_threshold_hours=ttl_threshold_hours)
-
-    if not teams:
-        return 0, 0
-
-    successful = 0
-    failed = 0
-
-    for team in teams:
-        try:
-            if update_team_metadata_cache(team):
-                successful += 1
-            else:
-                failed += 1
-        except Exception as e:
-            logger.exception("Error refreshing expiring cache", team_id=team.id, error=str(e))
-            capture_exception(e)
-            failed += 1
-
-    logger.info(
-        "Expiring cache refresh completed",
-        successful=successful,
-        failed=failed,
-        total_teams=len(teams),
-    )
-
-    return successful, failed
+    return refresh_generic(TEAM_HYPERCACHE_MANAGEMENT_CONFIG, ttl_threshold_hours, limit)
 
 
 def cleanup_stale_expiry_tracking() -> int:
@@ -484,129 +456,16 @@ def cleanup_stale_expiry_tracking() -> int:
     Returns:
         Number of stale entries removed
     """
-    try:
-        redis_client = get_client()
+    removed = cleanup_generic(TEAM_HYPERCACHE_MANAGEMENT_CONFIG)
 
-        # Get all tokens from sorted set
-        all_tokens = redis_client.zrange(TEAM_CACHE_EXPIRY_SORTED_SET, 0, -1)
-        all_tokens = [token.decode("utf-8") if isinstance(token, bytes) else token for token in all_tokens]
+    if removed > 0:
+        TOMBSTONE_COUNTER.labels(
+            namespace="team_metadata",
+            operation="stale_expiry_tracking",
+            component="team_metadata_cache",
+        ).inc(removed)
 
-        if not all_tokens:
-            logger.info("No entries in expiry tracking sorted set")
-            return 0
-
-        # Query DB for valid tokens
-        valid_tokens = set(Team.objects.filter(api_token__in=all_tokens).values_list("api_token", flat=True))
-
-        # Find stale tokens
-        stale_tokens = [token for token in all_tokens if token not in valid_tokens]
-
-        # Remove stale entries
-        if stale_tokens:
-            redis_client.zrem(TEAM_CACHE_EXPIRY_SORTED_SET, *stale_tokens)
-            logger.info("Cleaned up stale expiry tracking entries", removed_count=len(stale_tokens))
-            return len(stale_tokens)
-
-        logger.info("No stale entries found in expiry tracking")
-        return 0
-
-    except Exception as e:
-        logger.exception("Error cleaning up stale expiry tracking", error=str(e))
-        capture_exception(e)
-        return 0
-
-
-def warm_all_team_caches(
-    batch_size: int = 100,
-    invalidate_first: bool = False,
-    stagger_ttl: bool = True,
-    min_ttl_days: int = 5,
-    max_ttl_days: int = 7,
-) -> tuple[int, int]:
-    """
-    Warm cache for all teams.
-
-    Run as a management command for initial cache build or when schema changes require
-    cache invalidation. Processes all teams in batches with staggered TTLs to avoid
-    synchronized expiration. Continues on errors.
-
-    Args:
-        batch_size: Number of teams to process at a time
-        invalidate_first: If True, clear all caches before warming
-        stagger_ttl: If True, randomize TTLs between min/max to avoid synchronized expiration
-        min_ttl_days: Minimum TTL in days (when staggering)
-        max_ttl_days: Maximum TTL in days (when staggering)
-
-    Returns:
-        Tuple of (successful_updates, failed_updates)
-    """
-    if invalidate_first:
-        logger.info("Invalidating all existing caches before warming")
-        invalidated = invalidate_all_team_metadata_caches()
-        logger.info("Invalidated caches", count=invalidated)
-
-    teams_queryset = Team.objects.select_related("organization", "project")
-    total_teams = teams_queryset.count()
-
-    logger.info(
-        "Starting cache warm",
-        total_teams=total_teams,
-        batch_size=batch_size,
-        stagger_ttl=stagger_ttl,
-        invalidate_first=invalidate_first,
-    )
-
-    successful = 0
-    failed = 0
-    processed = 0
-
-    last_id = 0
-    while True:
-        batch = list(teams_queryset.filter(id__gt=last_id).order_by("id")[:batch_size])
-        if not batch:
-            break
-
-        for team in batch:
-            try:
-                if stagger_ttl:
-                    ttl_seconds = random.randint(min_ttl_days * 24 * 3600, max_ttl_days * 24 * 3600)
-                    update_team_metadata_cache(team, ttl=ttl_seconds)
-                else:
-                    update_team_metadata_cache(team)
-
-                successful += 1
-            except Exception as e:
-                logger.warning(
-                    "Failed to warm cache for team",
-                    team_id=team.id,
-                    error=str(e),
-                    error_type=type(e).__name__,
-                )
-                capture_exception(e)
-                failed += 1
-
-            processed += 1
-
-        last_id = batch[-1].id
-
-        if processed % (batch_size * 10) == 0:
-            logger.info(
-                "Cache warm progress",
-                processed=processed,
-                total=total_teams,
-                successful=successful,
-                failed=failed,
-                percent=round(100 * processed / total_teams, 1),
-            )
-
-    logger.info(
-        "Cache warm completed",
-        total_teams=total_teams,
-        successful=successful,
-        failed=failed,
-    )
-
-    return successful, failed
+    return removed
 
 
 # ===================================================================
@@ -621,79 +480,4 @@ def get_cache_stats() -> dict[str, Any]:
     Returns:
         Dictionary with cache statistics including size information
     """
-    try:
-        redis_client = get_client()
-        # HyperCache uses format: cache/team_tokens/{token}/team_metadata/full_metadata.json
-        pattern = f"cache/team_tokens/*/team_metadata/full_metadata.json"
-
-        total_keys = 0
-        ttl_buckets = {
-            "expired": 0,
-            "expires_1h": 0,
-            "expires_24h": 0,
-            "expires_7d": 0,
-            "expires_later": 0,
-        }
-
-        sample_sizes: list[int] = []
-        sample_limit = 100
-
-        for key in redis_client.scan_iter(match=pattern, count=1000):
-            total_keys += 1
-            ttl = redis_client.ttl(key)
-
-            if ttl <= 0:
-                ttl_buckets["expired"] += 1
-            elif ttl <= 3600:
-                ttl_buckets["expires_1h"] += 1
-            elif ttl <= 86400:
-                ttl_buckets["expires_24h"] += 1
-            elif ttl <= 604800:
-                ttl_buckets["expires_7d"] += 1
-            else:
-                ttl_buckets["expires_later"] += 1
-
-            if len(sample_sizes) < sample_limit:
-                try:
-                    memory_usage = redis_client.memory_usage(key)
-                    if memory_usage:
-                        sample_sizes.append(memory_usage)
-                except:
-                    pass
-
-        total_teams = Team.objects.count()
-        coverage_percent = (total_keys / total_teams * 100) if total_teams else 0
-
-        size_stats = {}
-        if sample_sizes:
-            avg_size = statistics.mean(sample_sizes)
-            estimated_total_bytes = avg_size * total_keys
-
-            size_stats = {
-                "sample_count": len(sample_sizes),
-                "avg_size_bytes": int(avg_size),
-                "median_size_bytes": int(statistics.median(sample_sizes)),
-                "min_size_bytes": min(sample_sizes),
-                "max_size_bytes": max(sample_sizes),
-                "estimated_total_mb": round(estimated_total_bytes / (1024 * 1024), 2),
-            }
-
-            TEAM_METADATA_CACHE_SIZE_BYTES_GAUGE.set(estimated_total_bytes)
-
-        return {
-            "total_cached": total_keys,
-            "total_teams": total_teams,
-            "cache_coverage": f"{coverage_percent:.1f}%",
-            "cache_coverage_percent": coverage_percent,
-            "ttl_distribution": ttl_buckets,
-            "size_statistics": size_stats,
-            "namespace": team_metadata_hypercache.namespace,
-            "note": "Run 'python manage.py analyze_team_cache_sizes' for detailed analysis",
-        }
-
-    except Exception as e:
-        logger.exception("Error getting cache stats", error=str(e))
-        return {
-            "error": str(e),
-            "namespace": team_metadata_hypercache.namespace,
-        }
+    return get_cache_stats_generic(TEAM_HYPERCACHE_MANAGEMENT_CONFIG)

@@ -195,6 +195,9 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     marketing_analytics_config: {
         sources_map: {},
     },
+    core_events_config: {
+        core_events: [],
+    },
     customer_analytics_config: {
         activity_event: { kind: NodeKind.EventsNode, name: '$pageview', event: '$pageview' },
         signup_pageview_event: {},
@@ -206,6 +209,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     default_evaluation_environments_enabled: false,
     managed_viewsets: { revenue_analytics: true },
     receive_org_level_activity_logs: false,
+    require_evaluation_environment_tags: false,
 }
 
 export const MOCK_DEFAULT_PROJECT: ProjectType = {
@@ -235,6 +239,8 @@ export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
     member_count: 2,
     logo_media_id: null,
     default_experiment_stats_method: ExperimentStatsMethod.Bayesian,
+    is_active: true,
+    is_not_active_reason: null,
 }
 
 export const MOCK_DEFAULT_BASIC_USER: UserBasicType = {
@@ -259,6 +265,7 @@ export const MOCK_DEFAULT_USER: UserType = {
         discussions_mentioned: false,
     },
     anonymize_data: false,
+    allow_impersonation: true,
     toolbar_mode: 'toolbar',
     has_password: true,
     id: 179,
@@ -268,12 +275,22 @@ export const MOCK_DEFAULT_USER: UserType = {
     is_2fa_enabled: false,
     has_social_auth: false,
     has_sso_enforcement: false,
+    shortcut_position: 'above',
     sensitive_session_expires_at: dayjs().add(1, 'hour').toISOString(),
     theme_mode: null,
     team: MOCK_DEFAULT_TEAM,
     organization: MOCK_DEFAULT_ORGANIZATION,
     organizations: [MOCK_DEFAULT_ORGANIZATION].map(
-        ({ id, name, slug, membership_level, members_can_use_personal_api_keys, allow_publicly_shared_resources }) => ({
+        ({
+            id,
+            name,
+            slug,
+            membership_level,
+            members_can_use_personal_api_keys,
+            allow_publicly_shared_resources,
+            is_active,
+            is_not_active_reason,
+        }) => ({
             id,
             name,
             slug,
@@ -281,6 +298,8 @@ export const MOCK_DEFAULT_USER: UserType = {
             members_can_use_personal_api_keys,
             allow_publicly_shared_resources,
             logo_media_id: null,
+            is_active,
+            is_not_active_reason,
         })
     ),
     events_column_config: {

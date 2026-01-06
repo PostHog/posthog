@@ -32,7 +32,12 @@ class TestEmailSubscriptionsTasks(APIBaseTest):
         set_instance_setting("EMAIL_HOST", "fake_host")
         set_instance_setting("EMAIL_ENABLED", True)
 
-        self.asset = ExportedAsset.objects.create(team=self.team, insight_id=self.insight.id, export_format="image/png")
+        self.asset = ExportedAsset.objects.create(
+            team=self.team,
+            insight_id=self.insight.id,
+            export_format="image/png",
+            content_location="s3://bucket/test.png",
+        )
         self.subscription = create_subscription(team=self.team, insight=self.insight, created_by=self.user)
 
     def test_subscription_delivery(self, MockEmailMessage: MagicMock) -> None:

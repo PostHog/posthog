@@ -8,7 +8,7 @@ use petgraph::{
 
 use crate::api::errors::FlagError;
 use crate::flags::flag_models::FeatureFlag;
-use crate::metrics::consts::FLAG_EVALUATION_ERROR_COUNTER;
+use crate::metrics::consts::{FLAG_EVALUATION_ERROR_COUNTER, TOMBSTONE_COUNTER};
 use common_metrics::inc;
 use tracing::warn;
 
@@ -485,14 +485,23 @@ pub fn log_dependency_graph_construction_errors(
     errors: &[GraphError<i32>],
     team_id: common_types::TeamId,
 ) {
-    inc(
-        FLAG_EVALUATION_ERROR_COUNTER,
-        &[
-            ("reason".to_string(), "dependency_graph_error".to_string()),
-            ("team_id".to_string(), team_id.to_string()),
-        ],
-        1,
-    );
+    for error in errors {
+        let failure_type = match error {
+            GraphError::MissingDependency(_) => "flag_dependency_missing",
+            GraphError::CycleDetected(_) => "flag_dependency_cycle",
+        };
+
+        inc(
+            TOMBSTONE_COUNTER,
+            &[
+                ("namespace".to_string(), "feature_flags".to_string()),
+                ("operation".to_string(), failure_type.to_string()),
+                ("component".to_string(), "graph_utils".to_string()),
+            ],
+            1,
+        );
+    }
+
     tracing::error!(
         "There were errors building the feature flag dependency graph for team {}. Will attempt to evaluate the rest of the flags: {:?}",
         team_id, errors

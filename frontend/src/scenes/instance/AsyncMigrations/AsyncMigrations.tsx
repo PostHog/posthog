@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 import { IconDatabase, IconRefresh } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
+import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
@@ -64,12 +65,14 @@ export function AsyncMigrations(): JSX.Element {
         setActiveTab,
     } = useActions(asyncMigrationsLogic)
 
+    const { isVisible: isPageVisible } = usePageVisibility()
+
     useEffect(() => {
-        if (isAnyMigrationRunning) {
+        if (isAnyMigrationRunning && isPageVisible) {
             const interval = setInterval(() => loadAsyncMigrations(), STATUS_RELOAD_INTERVAL_MS)
             return () => clearInterval(interval)
         }
-    }, [isAnyMigrationRunning]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [isAnyMigrationRunning, isPageVisible]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const nameColumn: AsyncMigrationColumnType = {
         title: 'Migration',

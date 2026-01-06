@@ -64,10 +64,6 @@ export const retentionLogic = kea<retentionLogicType>([
             // Reset selected interval when breakdown filter changes
             actions.updateInsightFilter({ selectedInterval: null })
         },
-        updateDateRange: () => {
-            // Reset selected interval when date range changes
-            actions.updateInsightFilter({ selectedInterval: null })
-        },
         updateLocalCustomBracket: async (_, breakpoint) => {
             await breakpoint(1000)
             const { localCustomBrackets, retentionFilter } = values
@@ -353,7 +349,7 @@ export const retentionLogic = kea<retentionLogicType>([
                 cohortsById: Partial<Record<string | number, CohortType>>
             ): Record<string, string> => {
                 return breakdownValues.reduce(
-                    (acc, breakdownValue) => {
+                    (acc, breakdownValue, breakdownIndex) => {
                         const key = String(breakdownValue ?? '')
 
                         if (breakdownValue === null || breakdownValue === '') {
@@ -370,7 +366,8 @@ export const retentionLogic = kea<retentionLogicType>([
                                 originalBreakdownValue as BreakdownKeyType,
                                 breakdownFilter,
                                 cohorts,
-                                undefined
+                                undefined,
+                                breakdownIndex
                             )
                             acc[key] = formattedLabel
                         }

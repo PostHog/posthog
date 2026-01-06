@@ -32,9 +32,6 @@ from posthog.session_recordings.queries.test.session_replay_sql import produce_r
 from posthog.test.test_journeys import journeys_for
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
-MAX_STEP_COLUMN = 0
-COUNT_COLUMN = 1
-PERSON_ID_COLUMN = 2
 
 
 def get_actors(
@@ -74,8 +71,7 @@ def get_actors(
     return response.results
 
 
-class BaseTestFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
-    __test__ = False
+class TestFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
     def _setup_basic_test(self):
@@ -644,7 +640,3 @@ class BaseTestFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
                 }
             ],
         )
-
-
-class TestFunnelCorrelationActors(BaseTestFunnelCorrelationActors):
-    __test__ = True

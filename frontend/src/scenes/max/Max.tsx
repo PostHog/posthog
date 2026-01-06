@@ -1,13 +1,21 @@
+import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import React from 'react'
 
-import { IconArrowLeft, IconChevronLeft, IconExternal, IconOpenSidebar, IconPlus, IconSidePanel } from '@posthog/icons'
-import { LemonBanner, LemonTag } from '@posthog/lemon-ui'
+import {
+    IconArrowLeft,
+    IconChevronLeft,
+    IconExpand45,
+    IconLock,
+    IconOpenSidebar,
+    IconPlus,
+    IconShare,
+    IconSidePanel,
+} from '@posthog/icons'
+import { LemonBanner, Tooltip } from '@posthog/lemon-ui'
 
-import { NotFound } from 'lib/components/NotFound'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { appLogic } from 'scenes/appLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -38,29 +46,19 @@ export const scene: SceneExport = {
 }
 
 export function Max({ tabId }: { tabId?: string }): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { closeSidePanel } = useActions(sidePanelLogic)
     const { conversationId: tabConversationId } = useValues(maxLogic({ tabId: tabId || '' }))
     const { conversationId: sidepanelConversationId } = useValues(maxLogic({ tabId: 'sidepanel' }))
 
-    if (!featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG]) {
-        return <NotFound object="page" caption="You don't have access to AI features yet." />
-    }
-
-    if (
-        sidePanelOpen &&
-        selectedTab === SidePanelTab.Max &&
-        sidepanelConversationId &&
-        sidepanelConversationId === tabConversationId
-    ) {
+    if (sidePanelOpen && selectedTab === SidePanelTab.Max && sidepanelConversationId === tabConversationId) {
         return (
-            <SceneContent className="px-4 py-4">
+            <SceneContent className="px-4 py-4 min-h-[calc(100vh-var(--scene-layout-header-height)-120px)]">
                 <SceneTitleSection name={null} resourceType={{ type: 'chat' }} />
                 <div className="flex flex-col items-center justify-center w-full grow">
                     <IconSidePanel className="text-3xl text-muted mb-2" />
-                    <h3 className="text-xl font-bold mb-1">This chat is currently in the sidebar</h3>
-                    <p className="text-sm text-muted mb-2">You can navigate freely around the app, or…</p>
+                    <h3 className="text-xl font-bold mb-1">The chat is currently in the sidebar</h3>
+                    <p className="text-sm text-muted mb-2">You can navigate freely around the app with it, or…</p>
                     <LemonButton
                         type="secondary"
                         size="xsmall"
@@ -120,11 +118,10 @@ export const MaxInstance = React.memo(function MaxInstance({
                     // is at the same viewport height as the QuestionInput text that appear after going into a thread.
                     // This makes the transition from one view into another just that bit smoother visually.
                     <div
-                        className={
-                            sidePanel
-                                ? '@container/max-welcome relative flex flex-col gap-4 px-4 pb-7 grow'
-                                : '@container/max-welcome relative flex flex-col gap-4 px-4 pb-7 grow min-h-[calc(100vh-var(--scene-layout-header-height)-120px)]'
-                        }
+                        className={clsx(
+                            '@container/max-welcome relative flex flex-col gap-4 px-4 pb-7 grow',
+                            !sidePanel && 'min-h-[calc(100vh-var(--scene-layout-header-height)-120px)]'
+                        )}
                     >
                         <div className="flex-1 items-center justify-center flex flex-col gap-3">
                             <Intro />
@@ -164,8 +161,8 @@ export const MaxInstance = React.memo(function MaxInstance({
                     startNewConversation()
                 }}
             >
-                <div className="flex flex-1">
-                    <div className="flex items-center flex-1">
+                <div className="flex flex-1 min-w-0 overflow-hidden">
+                    <div className="flex items-center flex-1 min-w-0">
                         <AnimatedBackButton in={!backButtonDisabled}>
                             <LemonButton
                                 size="small"
@@ -177,21 +174,13 @@ export const MaxInstance = React.memo(function MaxInstance({
                             />
                         </AnimatedBackButton>
 
-                        <h3
-                            className="flex items-center font-semibold mb-0 line-clamp-1 text-sm ml-1 leading-[1.1]"
-                            title={chatTitle || undefined}
-                        >
-                            {chatTitle || (
-                                <>
-                                    PostHog AI
-                                    <LemonTag size="small" type="warning" className="ml-2">
-                                        BETA
-                                    </LemonTag>
-                                </>
-                            )}
-                        </h3>
+                        <Tooltip title={chatTitle || undefined} placement="bottom">
+                            <h3 className="flex-1 font-semibold mb-0 truncate text-sm ml-1">
+                                {chatTitle || 'PostHog AI'}
+                            </h3>
+                        </Tooltip>
                     </div>
-                    {!conversationHistoryVisible && !threadVisible && !isAIOnlyMode && (
+                    {conversationId && !conversationHistoryVisible && !threadVisible && !isAIOnlyMode && (
                         <LemonButton
                             size="small"
                             icon={<IconPlus />}
@@ -200,11 +189,33 @@ export const MaxInstance = React.memo(function MaxInstance({
                             tooltipPlacement="bottom"
                         />
                     )}
+                    {conversationId && (
+                        <LemonButton
+                            size="small"
+                            icon={<IconShare />}
+                            onClick={() => {
+                                copyToClipboard(
+                                    urls.absolute(urls.currentProject(urls.ai(conversationId))),
+                                    'conversation sharing link'
+                                )
+                            }}
+                            tooltip={
+                                <>
+                                    Copy link to chat
+                                    <br />
+                                    <em>
+                                        <IconLock /> Requires organization access
+                                    </em>
+                                </>
+                            }
+                            tooltipPlacement="bottom-end"
+                        />
+                    )}
                     {!isAIOnlyMode && (
                         <LemonButton
                             size="small"
-                            sideIcon={<IconExternal />}
-                            to={urls.max(conversationId ?? undefined)}
+                            sideIcon={<IconExpand45 />}
+                            to={urls.ai(conversationId ?? undefined)}
                             onClick={() => {
                                 closeSidePanel()
                                 startNewConversation()
@@ -224,19 +235,36 @@ export const MaxInstance = React.memo(function MaxInstance({
                 name={null}
                 resourceType={{ type: 'chat' }}
                 actions={
-                    conversationId && tabId ? (
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            sideIcon={<IconOpenSidebar />}
-                            onClick={() => {
-                                openSidePanelMax(conversationId)
-                                closeTabId(tabId)
-                            }}
-                        >
-                            Open in side panel
-                        </LemonButton>
-                    ) : undefined
+                    <>
+                        {tabId && conversationId ? (
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                sideIcon={<IconShare />}
+                                onClick={() => {
+                                    copyToClipboard(
+                                        urls.absolute(urls.currentProject(urls.ai(conversationId ?? undefined))),
+                                        'conversation sharing link'
+                                    )
+                                }}
+                            >
+                                Copy link to chat
+                            </LemonButton>
+                        ) : undefined}
+                        {tabId ? (
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                sideIcon={<IconOpenSidebar />}
+                                onClick={() => {
+                                    openSidePanelMax(conversationId ?? undefined)
+                                    closeTabId(tabId)
+                                }}
+                            >
+                                Open in side panel
+                            </LemonButton>
+                        ) : undefined}
+                    </>
                 }
             />
             <div className="grow flex flex-col">{content}</div>

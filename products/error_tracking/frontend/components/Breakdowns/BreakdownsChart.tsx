@@ -32,7 +32,7 @@ export function BreakdownsChart(): JSX.Element {
     }
 
     return (
-        <div className="border rounded bg-surface-primary p-3">
+        <div className="ErrorTracking__breakdowns p-3 flex-1 min-h-0">
             <Query query={query} context={{ ignoreActionsInSeriesLabels: true }} />
         </div>
     )

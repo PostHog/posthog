@@ -11,6 +11,7 @@ actions_that_require_current_team = [
     "rotate_secret_token",
     "delete_secret_token_backup",
     "reset_token",
+    "generate_conversations_public_token",
 ]
 
 
@@ -19,14 +20,17 @@ def delete_bulky_postgres_data(team_ids: list[int]):
 
     from posthog.models.cohort import Cohort, CohortPeople
     from posthog.models.feature_flag.feature_flag import FeatureFlagHashKeyOverride
+    from posthog.models.group.group import Group
+    from posthog.models.group_type_mapping import GroupTypeMapping
     from posthog.models.insight_caching_state import InsightCachingState
-    from posthog.models.person import Person, PersonDistinctId
+    from posthog.models.person import Person, PersonDistinctId, PersonlessDistinctId
 
     from products.early_access_features.backend.models import EarlyAccessFeature
     from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2
 
     _raw_delete(EarlyAccessFeature.objects.filter(team_id__in=team_ids))
     _raw_delete_batch(PersonDistinctId.objects.filter(team_id__in=team_ids))
+    _raw_delete_batch(PersonlessDistinctId.objects.filter(team_id__in=team_ids))
     _raw_delete(ErrorTrackingIssueFingerprintV2.objects.filter(team_id__in=team_ids))
 
     # Get cohort_ids from the default database first to avoid cross-database join
@@ -35,13 +39,19 @@ def delete_bulky_postgres_data(team_ids: list[int]):
     _raw_delete(CohortPeople.objects.filter(cohort_id__in=cohort_ids))
 
     _raw_delete(FeatureFlagHashKeyOverride.objects.filter(team_id__in=team_ids))
+    _raw_delete(Group.objects.filter(team_id__in=team_ids))
+    _raw_delete(GroupTypeMapping.objects.filter(team_id__in=team_ids))
     _raw_delete_batch(Person.objects.filter(team_id__in=team_ids))
     _raw_delete(InsightCachingState.objects.filter(team_id__in=team_ids))
 
 
 def _raw_delete(queryset: Any):
     "Issues a single DELETE statement for the queryset"
-    queryset._raw_delete(queryset.db)
+    from django.db import router
+
+    # Use db_for_write to ensure we get a writable connection (not read-only replica)
+    db_alias = router.db_for_write(queryset.model)
+    queryset._raw_delete(db_alias)
 
 
 def _raw_delete_batch(queryset: Any, batch_size: int = 10000):
@@ -55,7 +65,7 @@ def _raw_delete_batch(queryset: Any, batch_size: int = 10000):
     Uses tuple IN clause (id, team_id) IN ((...), (...)) to ensure accurate
     deletion of specific record combinations rather than a Cartesian product.
     """
-    from django.db import connections
+    from django.db import connections, router
 
     while True:
         # Get tuples of (id, team_id) to ensure accurate deletion
@@ -66,7 +76,9 @@ def _raw_delete_batch(queryset: Any, batch_size: int = 10000):
 
         # Use raw SQL with tuple IN clause for accurate deletion
         # Format: DELETE FROM table WHERE (id, team_id) IN ((1, 1), (2, 1), ...)
-        db_connection = connections[queryset.db]
+        # Use db_for_write to ensure we get a writable connection (not read-only replica)
+        db_alias = router.db_for_write(queryset.model)
+        db_connection = connections[db_alias]
         with db_connection.cursor() as cursor:
             table_name = queryset.model._meta.db_table
             # Build tuple placeholders: (%s, %s), (%s, %s), ...

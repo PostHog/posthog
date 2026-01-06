@@ -13,6 +13,7 @@ from posthog.schema import (
     CompareFilter,
     DataWarehouseNode,
     EventsNode,
+    GroupNode,
     HogQLQueryModifiers,
     TrendsFilter,
     TrendsQuery,
@@ -44,7 +45,7 @@ class TrendsActorsQueryBuilder:
     modifiers: HogQLQueryModifiers
     limit_context: LimitContext
 
-    entity: EventsNode | ActionsNode
+    entity: EventsNode | ActionsNode | GroupNode
     time_frame: Optional[datetime]
     breakdown_value: Optional[str | int | list[str]] = None
     compare_value: Optional[Compare] = None
@@ -184,6 +185,7 @@ class TrendsActorsQueryBuilder:
                 ast.Alias(alias="event_count", expr=self._get_actor_value_expr()),
                 *self._get_event_distinct_ids_expr(),
                 *self._get_matching_recordings_expr(),
+                *self._get_last_seen_expr(),
             ],
             select_from=ast.JoinExpr(table=self._get_events_query()),
             group_by=[ast.Field(chain=["actor_id"])],
@@ -248,6 +250,13 @@ class TrendsActorsQueryBuilder:
 
     def _get_actor_value_expr(self) -> ast.Expr:
         return parse_expr("count()")
+
+    def _get_last_seen_expr(self) -> list[ast.Expr]:
+        if self.trends_aggregation_operations.is_first_time_ever_math():
+            # first time ever math doesn't select `timestamp`, so we should not calculate `last_seen`
+            return []
+
+        return [ast.Alias(alias="last_seen", expr=parse_expr("max(timestamp)"))]
 
     def _get_matching_recordings_expr(self) -> list[ast.Expr]:
         if not self.include_recordings:
@@ -345,9 +354,44 @@ class TrendsActorsQueryBuilder:
                     left=ast.Field(chain=["event"]),
                     right=ast.Constant(value=str(self.entity.event)),
                 )
-
+        elif isinstance(self.entity, GroupNode):
+            return self._get_group_expr(self.entity)
         else:
             raise ValueError(f"Invalid entity kind {self.entity.kind}")
+
+        return None
+
+    def _get_group_expr(self, group: GroupNode) -> ast.Expr | None:
+        group_filters: list[ast.Expr] = []
+        for node in group.nodes:
+            if isinstance(node, EventsNode):
+                if node.event is not None:
+                    group_filters.append(
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(chain=["event"]),
+                            right=ast.Constant(value=str(node.event)),
+                        )
+                    )
+            elif isinstance(node, ActionsNode):
+                try:
+                    action = Action.objects.get(pk=int(node.id), team__project_id=self.team.project_id)
+                    group_filters.append(action_to_expr(action))
+                except Action.DoesNotExist:
+                    # If an action doesn't exist, skip it
+                    pass
+
+        if len(group_filters) == 0:
+            return None
+
+        if len(group_filters) == 1:
+            return group_filters[0]
+
+        if group.operator == "OR":
+            return ast.Or(exprs=group_filters)
+
+        if group.operator == "AND":
+            return ast.And(exprs=group_filters)
 
         return None
 

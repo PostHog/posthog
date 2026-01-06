@@ -15,7 +15,13 @@ def _get_surveys_response_counts(
 ) -> dict[str, int]:
     data = sync_execute(
         """
-        SELECT JSONExtractString(properties, '$survey_id') as survey_id, count()
+        SELECT
+            JSONExtractString(properties, '$survey_id') as survey_id,
+            count(DISTINCT
+                if(JSONHas(properties, '$survey_submission_id'),
+                   JSONExtractString(properties, '$survey_submission_id'),
+                   toString(uuid))
+            ) as unique_responses
         FROM events
         WHERE event = 'survey sent'
               AND team_id = %(team_id)s

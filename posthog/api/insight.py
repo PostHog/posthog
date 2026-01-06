@@ -1,7 +1,7 @@
 import json
 import logging
 from functools import lru_cache
-from typing import Any, Optional, Union, cast
+from typing import Any, Union, cast
 
 from django.db import transaction
 from django.db.models import Count, F, Max, Prefetch, QuerySet
@@ -35,18 +35,21 @@ from posthog.hogql.timings import HogQLTimings
 from posthog import schema
 from posthog.api.documentation import extend_schema, extend_schema_field, extend_schema_serializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.insight_suggestions import get_insight_analysis, get_insight_suggestions
 from posthog.api.insight_variable import map_stale_to_latest
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.services.query import process_query_model
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action, format_paginated_url
 from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
-from posthog.caching.fetch_from_cache import InsightResult
+from posthog.caching.fetch_from_cache import InsightResult, fetch_cached_response_by_key
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import INSIGHT, INSIGHT_FUNNELS, INSIGHT_STICKINESS, TRENDS_STICKINESS, FunnelVizType
 from posthog.decorators import cached_by_filters
+from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import groups
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
 from posthog.hogql_queries.apply_dashboard_filters import (
@@ -111,6 +114,11 @@ INSIGHT_REFRESH_INITIATED_COUNTER = Counter(
     labelnames=["is_shared"],
 )
 
+EXPORT_QUERY_CACHE_MISS = Counter(
+    "export_query_cache_miss",
+    "Cache misses during PNG export rendering when expected cache key was not found",
+)
+
 
 def log_and_report_insight_activity(
     *,
@@ -122,15 +130,15 @@ def log_and_report_insight_activity(
     team_id: int,
     user: User,
     was_impersonated: bool,
-    changes: Optional[list[Change]] = None,
-    properties: Optional[dict[str, Any]] = None,
+    changes: list[Change] | None = None,
+    properties: dict[str, Any] | None = None,
 ) -> None:
     """
     Insight id and short_id are passed separately as some activities (like delete) alter the Insight instance
 
     The experiments feature creates insights without a name, this does not log those
     """
-    insight_name: Optional[str] = insight.name if insight.name else insight.derived_name
+    insight_name: str | None = insight.name if insight.name else insight.derived_name
     if insight_name:
         log_activity(
             organization_id=organization_id,
@@ -349,6 +357,7 @@ class InsightSerializer(InsightBasicSerializer):
     query_status = serializers.SerializerMethodField()
     hogql = serializers.SerializerMethodField()
     types = serializers.SerializerMethodField()
+    resolved_date_range = serializers.SerializerMethodField(read_only=True)
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
     alerts = serializers.SerializerMethodField(read_only=True)
 
@@ -389,6 +398,7 @@ class InsightSerializer(InsightBasicSerializer):
             "query_status",
             "hogql",
             "types",
+            "resolved_date_range",
             "_create_in_folder",
             "alerts",
             "last_viewed_at",
@@ -648,6 +658,9 @@ class InsightSerializer(InsightBasicSerializer):
     def get_types(self, insight: Insight):
         return self.insight_result(insight).types
 
+    def get_resolved_date_range(self, insight: Insight):
+        return self.insight_result(insight).resolved_date_range
+
     def get_alerts(self, insight: Insight):
         if not are_alerts_supported_for_insight(insight):
             return []
@@ -695,8 +708,8 @@ class InsightSerializer(InsightBasicSerializer):
         else:
             representation["dashboards"] = [tile["dashboard_id"] for tile in representation["dashboard_tiles"]]
 
-        dashboard: Optional[Dashboard] = self.context.get("dashboard")
-        request: Optional[Request] = self.context.get("request")
+        dashboard: Dashboard | None = self.context.get("dashboard")
+        request: Request | None = self.context.get("request")
         dashboard_filters_override = filters_override_requested_by_client(request, dashboard) if request else None
         dashboard_variables_override = variables_override_requested_by_client(
             request, dashboard, list(self.context["insight_variables"])
@@ -758,7 +771,37 @@ class InsightSerializer(InsightBasicSerializer):
     def insight_result(self, insight: Insight) -> InsightResult:
         from posthog.caching.calculate_results import calculate_for_query_based_insight
 
-        dashboard: Optional[Dashboard] = self.context.get("dashboard")
+        dashboard: Dashboard | None = self.context.get("dashboard")
+
+        # Check if we have an expected cache key from the image exporter
+        export_cache_keys: dict[int, str] | None = self.context.get("export_cache_keys")
+        if export_cache_keys and insight.id in export_cache_keys:
+            expected_cache_key = export_cache_keys[insight.id]
+            cached_response = fetch_cached_response_by_key(expected_cache_key)
+            if cached_response:
+                return InsightResult(
+                    result=cached_response.get("results"),
+                    has_more=cached_response.get("hasMore"),
+                    columns=cached_response.get("columns"),
+                    last_refresh=cached_response.get("last_refresh"),
+                    cache_key=expected_cache_key,
+                    is_cached=True,
+                    timezone=cached_response.get("timezone"),
+                    next_allowed_client_refresh=cached_response.get("next_allowed_client_refresh"),
+                    cache_target_age=cached_response.get("cache_target_age"),
+                    timings=cached_response.get("timings"),
+                    query_status=cached_response.get("query_status"),
+                    hogql=cached_response.get("hogql"),
+                    types=cached_response.get("types"),
+                )
+            else:
+                EXPORT_QUERY_CACHE_MISS.inc()
+                logger.error(
+                    "export_cache_key_miss",
+                    insight_id=insight.id,
+                    expected_cache_key=expected_cache_key,
+                    message="Expected cache key not found during export - falling back to normal calculation",
+                )
 
         with upgrade_query(insight):
             try:
@@ -787,8 +830,8 @@ class InsightSerializer(InsightBasicSerializer):
                     variables_override=variables_override,
                     tile_filters_override=tile_filters_override,
                 )
-            except ExposedHogQLError as e:
-                raise ValidationError(str(e))
+            except (ExposedHogQLError, ExposedCHQueryError) as e:
+                raise ValidationError(str(e), getattr(e, "code_name", None))
             except ConcurrencyLimitExceeded as e:
                 logger.warn(
                     "concurrency_limit_exceeded_api", exception=e, insight_id=insight.id, team_id=insight.team_id
@@ -816,8 +859,8 @@ class InsightSerializer(InsightBasicSerializer):
                 )
 
     @lru_cache(maxsize=1)  # each serializer instance should only deal with one insight/tile combo
-    def dashboard_tile_from_context(self, insight: Insight, dashboard: Optional[Dashboard]) -> Optional[DashboardTile]:
-        dashboard_tile: Optional[DashboardTile] = self.context.get("dashboard_tile", None)
+    def dashboard_tile_from_context(self, insight: Insight, dashboard: Dashboard | None) -> DashboardTile | None:
+        dashboard_tile: DashboardTile | None = self.context.get("dashboard_tile", None)
 
         if dashboard_tile and dashboard_tile.deleted:
             self.context.update({"dashboard_tile": None})
@@ -840,7 +883,7 @@ class InsightSerializer(InsightBasicSerializer):
                 default=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
                 # Sync the `refresh` description here with the other one in this file, and with frontend/src/queries/schema.ts
                 description="""
-Whether to refresh the retrieved insights, how aggresively, and if sync or async:
+Whether to refresh the retrieved insights, how aggressively, and if sync or async:
 - `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates
 - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
 - `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
@@ -1104,7 +1147,7 @@ When set, the specified dashboard's filters and date range override will be appl
         instance = self.get_object()
         serializer_context = self.get_serializer_context()
 
-        dashboard_tile: Optional[DashboardTile] = None
+        dashboard_tile: DashboardTile | None = None
         dashboard_id = request.query_params.get("from_dashboard", None)
         if dashboard_id is not None:
             dashboard_tile = (
@@ -1117,7 +1160,10 @@ When set, the specified dashboard's filters and date range override will be appl
             # context is used in the to_representation method to report filters used
             serializer_context.update({"dashboard": dashboard_tile.dashboard})
 
-        serialized_data = self.get_serializer(instance, context=serializer_context).data
+        try:
+            serialized_data = self.get_serializer(instance, context=serializer_context).data
+        except (ExposedHogQLError, ExposedCHQueryError) as e:
+            raise ValidationError(str(e), getattr(e, "code_name", None))
 
         if dashboard_tile is not None:
             serialized_data["color"] = dashboard_tile.color
@@ -1132,6 +1178,81 @@ When set, the specified dashboard's filters and date range override will be appl
 
         return response
 
+    @action(methods=["GET"], detail=True)
+    def analyze(self, request: Request, **kwargs) -> Response:
+        insight = self.get_object()
+
+        if not insight.query:
+            return Response({"result": ""})
+
+        try:
+            query = schema.InsightVizNode.model_validate(insight.query)
+        except Exception:
+            return Response({"result": ""})
+
+        result = None
+        try:
+            # We try to get cached result.
+            result_ctx = process_query_model(
+                self.team,
+                query,
+                execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
+                user=request.user if request.user.is_authenticated else None,
+            )
+            if isinstance(result_ctx, BaseModel):
+                result = result_ctx.model_dump()
+            else:
+                result = result_ctx
+
+            if result and result.get("results") is None and result.get("result") is None:
+                result = None
+        except Exception:
+            result = None
+
+        analysis = get_insight_analysis(query, self.team, result)
+
+        return Response({"result": analysis})
+
+    @action(methods=["GET", "POST"], detail=True)
+    def suggestions(self, request: Request, **kwargs) -> Response:
+        insight = self.get_object()
+
+        if not insight.query:
+            return Response([])
+
+        try:
+            query = schema.InsightVizNode.model_validate(insight.query)
+        except Exception:
+            return Response([])
+
+        result = None
+        try:
+            # We try to get cached result.
+            result_ctx = process_query_model(
+                self.team,
+                query,
+                execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
+                user=request.user if request.user.is_authenticated else None,
+            )
+            if isinstance(result_ctx, BaseModel):
+                result = result_ctx.model_dump()
+            else:
+                result = result_ctx
+
+            if result and result.get("results") is None and result.get("result") is None:
+                result = None
+        except Exception:
+            result = None
+
+        # Get context from POST body if provided
+        context = None
+        if request.method == "POST":
+            context = request.data.get("context")
+
+        suggestions = get_insight_suggestions(query, self.team, result, context)
+
+        return Response([s.model_dump() for s in suggestions])
+
     @extend_schema(exclude=True)
     @action(methods=["GET", "POST"], detail=False, required_scopes=["insight:read"])
     def trend(self, request: request.Request, *args: Any, **kwargs: Any):
@@ -1145,8 +1266,8 @@ When set, the specified dashboard's filters and date range override will be appl
                     result = self.calculate_trends_hogql(request)
                 else:
                     result = self.calculate_trends(request)
-        except ExposedHogQLError as e:
-            raise ValidationError(str(e))
+        except (ExposedHogQLError, ExposedCHQueryError) as e:
+            raise ValidationError(str(e), getattr(e, "code_name", None))
         except UserAccessControlError as e:
             raise ValidationError(str(e))
         except Cohort.DoesNotExist as e:
@@ -1241,8 +1362,8 @@ When set, the specified dashboard's filters and date range override will be appl
                 else:
                     funnel = self.calculate_funnel(request)
 
-        except ExposedHogQLError as e:
-            raise ValidationError(str(e))
+        except (ExposedHogQLError, ExposedCHQueryError) as e:
+            raise ValidationError(str(e), getattr(e, "code_name", None))
 
         if isinstance(funnel["result"], BaseModel):
             funnel["result"] = funnel["result"].model_dump()

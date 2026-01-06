@@ -37,7 +37,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     const { newTab, reorderTabs } = useActions(sceneLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
-    const { isLayoutNavbarVisibleForMobile, isLayoutPanelVisible } = useValues(panelLayoutLogic)
+    const { isLayoutNavbarVisibleForMobile, isLayoutPanelVisible, isLayoutPanelPinned } = useValues(panelLayoutLogic)
     // Get the focus action from the newTabSceneLogic for the active tab
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
     const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
@@ -55,7 +55,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     }
     const gridTemplateColumns = [pinnedColumns, unpinnedColumns].filter(Boolean).join(' ') || '250px'
 
-    const showRoundedCorner = !isLayoutPanelVisible && !firstTabIsActive
+    const showRoundedCorner = (!isLayoutPanelVisible || !isLayoutPanelPinned) && !firstTabIsActive
 
     const handleDragEnd = ({ active, over }: DragEndEvent): void => {
         if (!over || over.id === 'new' || active.id === over.id) {
@@ -111,10 +111,11 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
             {/* Rounded corner on the left edge of the tabs to curve the line above into the navbar right border */}
             {showRoundedCorner && (
                 <>
+                    {/* TRICKY: Clip path is to hide the rest of the div below the corner */}
                     {/* background to match the navbar  */}
-                    <div className="hidden lg:block absolute bottom-[-11px] left-0 w-[11px] h-[11px] z-11 rounded-tl-lg border-l border-t border-primary bg-[var(--scene-layout-background)]" />
+                    <div className="hidden lg:block absolute bottom-[-11px] left-0 w-[11px] h-[11px] z-11 rounded-tl-lg border-l border-t border-primary bg-[var(--scene-layout-background)] [clip-path:polygon(0%_0%,_100%_0%,_0%_100%,_0%_0%)]" />
                     {/* corner to match the main */}
-                    <div className="hidden lg:block absolute bottom-[-11px] left-0 w-[11px] h-[11px] z-10 bg-surface-tertiary" />
+                    <div className="hidden lg:block absolute bottom-[-11px] left-0 w-[11px] h-[11px] z-10 bg-surface-tertiary [clip-path:polygon(0%_0%,_100%_0%,_0%_100%,_0%_0%)]" />
                 </>
             )}
 
@@ -142,13 +143,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                                 )
                             })}
                         </div>
-                        <AppShortcut
-                            name="NewTab"
-                            keybind={keyBinds.newTab}
-                            intent="New tab"
-                            interaction="click"
-                            asChild
-                        >
+                        <AppShortcut name="NewTab" keybind={[keyBinds.newTab]} intent="New tab" interaction="click">
                             <Link
                                 to={urls.newTab()}
                                 data-attr="scene-tab-new-button"
@@ -269,10 +264,9 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                 {canRemoveTab && (
                     <AppShortcut
                         name="CloseActiveTab"
-                        keybind={keyBinds.closeActiveTab}
+                        keybind={[keyBinds.closeActiveTab]}
                         intent="Close active tab"
                         interaction="click"
-                        asChild
                         disabled={!tab.active}
                     >
                         <ButtonPrimitive
@@ -347,7 +341,7 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                     ) : isEditing ? (
                         <input
                             ref={inputRef}
-                            className="scene-tab-title grow text-left bg-primary border-none outline-1 text-primary z-30 max-w-full"
+                            className="scene-tab-title grow text-left bg-primary outline-1 text-primary z-30 max-w-full input-like"
                             value={editValue}
                             onChange={(e) => setEditValue(e.target.value)}
                             onBlur={() => {

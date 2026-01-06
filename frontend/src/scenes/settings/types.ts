@@ -47,6 +47,7 @@ export type SettingSectionId =
     | 'organization-authentication'
     | 'organization-proxy'
     | 'organization-security'
+    | 'organization-approvals'
     | 'organization-danger-zone'
     | 'organization-billing'
     | 'organization-startup-program'
@@ -57,6 +58,7 @@ export type SettingSectionId =
     | 'user-danger-zone'
     | 'user-feature-previews'
     | 'mcp-server'
+    | 'product-logs'
 
 export type SettingId =
     | 'replay-triggers'
@@ -70,9 +72,11 @@ export type SettingId =
     | 'autocapture-data-attributes'
     | 'date-and-time'
     | 'internal-user-filtering'
+    | 'business-model'
     | 'data-theme'
     | 'correlation-analysis'
-    | 'crm-usage-metrics'
+    | 'customer-analytics-usage-metrics'
+    | 'customer-analytics-dashboard-events'
     | 'person-display-name'
     | 'path-cleaning'
     | 'datacapture'
@@ -91,6 +95,7 @@ export type SettingId =
     | 'error-tracking-custom-grouping'
     | 'error-tracking-user-groups'
     | 'error-tracking-symbol-sets'
+    | 'error-tracking-releases'
     | 'error-tracking-alerting'
     | 'error-tracking-integrations'
     | 'error-tracking-auto-assignment'
@@ -145,6 +150,7 @@ export type SettingId =
     | 'user-delete'
     | 'web-revenue-events'
     | 'core-memory'
+    | 'changelog'
     | 'customization-irl'
     | 'web-analytics-pre-aggregated-tables'
     | 'web-analytics-opt-in-pre-aggregated-tables-and-api'
@@ -156,6 +162,9 @@ export type SettingId =
     | 'activity-log-org-level-settings'
     | 'activity-log-notifications'
     | 'organization-ip-anonymization-default'
+    | 'allow-impersonation'
+    | 'approval-policies'
+    | 'change-requests'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 

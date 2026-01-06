@@ -14,7 +14,7 @@ from posthog.schema import (
     NodeKind,
 )
 
-from ee.hogai.graph.trends.toolkit import TRENDS_SCHEMA
+from ee.hogai.chat_agent.trends.toolkit import TRENDS_SCHEMA
 
 from ..base import MaxPublicEval
 from ..scorers import PlanAndQueryOutput, PlanCorrectness, QueryAndPlanAlignment, QueryKindSelection, TimeRangeRelevancy

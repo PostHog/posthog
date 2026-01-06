@@ -1,22 +1,26 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { router } from 'kea-router'
 import { useMemo } from 'react'
 
-import { LemonDialog, LemonDivider, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonDialog, LemonDivider, LemonInput, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
+import { MemberSelect } from 'lib/components/MemberSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { MailHog } from 'lib/components/hedgehogs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
+import { NewWorkflowModal } from './NewWorkflowModal'
 import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
 import { HogFlow } from './hogflows/types'
+import { newWorkflowLogic } from './newWorkflowLogic'
 import { workflowsLogic } from './workflowsLogic'
 
 function WorkflowTypeTag({ workflow }: { workflow: HogFlow }): JSX.Element {
@@ -81,8 +85,11 @@ function WorkflowActionsSummary({ workflow }: { workflow: HogFlow }): JSX.Elemen
 
 export function WorkflowsTable(): JSX.Element {
     useMountedLogic(workflowsLogic)
-    const { workflows, workflowsLoading } = useValues(workflowsLogic)
-    const { toggleWorkflowStatus, duplicateWorkflow, deleteWorkflow } = useActions(workflowsLogic)
+    const { filteredWorkflows, workflowsLoading, filters } = useValues(workflowsLogic)
+    const { toggleWorkflowStatus, duplicateWorkflow, deleteWorkflow, setSearchTerm, setCreatedBy, setStatus } =
+        useActions(workflowsLogic)
+    const { showNewWorkflowModal, createEmptyWorkflow } = useActions(newWorkflowLogic)
+    const canCreateTemplates = useFeatureFlag('WORKFLOWS_TEMPLATE_CREATION')
 
     const columns: LemonTableColumns<HogFlow> = [
         {
@@ -124,6 +131,21 @@ export function WorkflowsTable(): JSX.Element {
             width: 0,
             render: (_, item) => {
                 return <WorkflowActionsSummary workflow={item} />
+            },
+        },
+        {
+            title: 'Created by',
+            width: 0,
+            render: (_, item) => {
+                if (!item.created_by) {
+                    return <span className="text-muted">Unknown</span>
+                }
+                return (
+                    <div className="flex items-center gap-2">
+                        <ProfilePicture user={item.created_by} size="sm" />
+                        <span>{item.created_by.first_name || item.created_by.email}</span>
+                    </div>
+                )
             },
         },
         {
@@ -228,7 +250,8 @@ export function WorkflowsTable(): JSX.Element {
         },
     ]
 
-    const showProductIntroduction = !workflowsLoading && workflows.length === 0
+    const showProductIntroduction =
+        !workflowsLoading && filteredWorkflows.length === 0 && !filters.search && !filters.createdBy && !filters.status
 
     return (
         <div className="workflows-section">
@@ -239,18 +262,56 @@ export function WorkflowsTable(): JSX.Element {
                     description="Create workflows that automate actions or send messages to your users."
                     docsURL="https://posthog.com/docs/workflows/start-here"
                     action={() => {
-                        router.actions.push(urls.workflowNew())
+                        if (canCreateTemplates) {
+                            showNewWorkflowModal()
+                        } else {
+                            createEmptyWorkflow()
+                        }
                     }}
                     customHog={MailHog}
                     isEmpty
                 />
             )}
+            {!showProductIntroduction && (
+                <div className="flex justify-between gap-2 flex-wrap mb-4">
+                    <LemonInput
+                        type="search"
+                        placeholder="Search for workflows"
+                        onChange={setSearchTerm}
+                        value={filters.search}
+                    />
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <div className="flex items-center gap-2">
+                            <span>Status:</span>
+                            <LemonSelect
+                                value={filters.status || 'all'}
+                                onChange={(value) => setStatus(value === 'all' ? null : value)}
+                                options={[
+                                    { value: 'all', label: 'All statuses' },
+                                    { value: 'active', label: 'Active' },
+                                    { value: 'draft', label: 'Draft' },
+                                    { value: 'archived', label: 'Archived' },
+                                ]}
+                                size="small"
+                            />
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <span>Created by:</span>
+                            <MemberSelect
+                                value={filters.createdBy}
+                                onChange={(user) => setCreatedBy(user?.uuid || null)}
+                            />
+                        </div>
+                    </div>
+                </div>
+            )}
             <LemonTable
-                dataSource={workflows}
+                dataSource={filteredWorkflows}
                 loading={workflowsLoading}
                 columns={columns}
                 defaultSorting={{ columnKey: 'status', order: 1 }}
             />
+            <NewWorkflowModal />
         </div>
     )
 }

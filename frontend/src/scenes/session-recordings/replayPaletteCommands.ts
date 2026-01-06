@@ -13,7 +13,7 @@ import {
     ReplayTabs,
 } from '~/types'
 
-function isUUIDLike(candidate: string): boolean {
+export function isUUIDLike(candidate: string): boolean {
     return candidate.length === 36 && !!candidate.toLowerCase().match(/^[0-9a-f-]+$/)?.length
 }
 

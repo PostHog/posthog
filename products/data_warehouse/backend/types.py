@@ -34,6 +34,8 @@ class PartitionSettings(typing.NamedTuple):
 
 
 class ExternalDataSourceType(models.TextChoices):
+    ASHBY = "Ashby", "Ashby"
+    SUPABASE = "Supabase", "Supabase"
     CUSTOMERIO = "CustomerIO", "CustomerIO"
     GITHUB = "Github", "Github"
     STRIPE = "Stripe", "Stripe"

@@ -110,14 +110,6 @@ else
     fi
 fi
 
-if ! grep -q "SESSION_RECORDING_V2_METADATA_SWITCHOVER" .env; then
-  SESSION_RECORDING_V2_METADATA_SWITCHOVER=$(date -Iseconds)
-  echo "SESSION_RECORDING_V2_METADATA_SWITCHOVER=$SESSION_RECORDING_V2_METADATA_SWITCHOVER" >> .env
-  echo "Added missing SESSION_RECORDING_V2_METADATA_SWITCHOVER to .env file"
-  echo "Session replay will switch to v2 ingestion"
-  source .env
-fi
-
 # Check if session recording storage migration marker exists
 if ! grep -q "SESSION_RECORDING_STORAGE_MIGRATED_TO_SEAWEEDFS" .env; then
   echo ""
@@ -181,6 +173,97 @@ if ! grep -q "SESSION_RECORDING_STORAGE_MIGRATED_TO_SEAWEEDFS" .env; then
 fi
 
 export POSTHOG_APP_TAG="${POSTHOG_APP_TAG:-latest-release}"
+
+# Check if current compose file uses postgres:12-alpine (needs migration before upgrade)
+if grep -qE 'postgres:12-alpine|postgres:12' posthog/docker-compose.hobby.yml 2>/dev/null; then
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "🐘 PostgreSQL 12 → 15 UPGRADE REQUIRED"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo "Your docker-compose stack is using postgres:12-alpine."
+    echo "The new PostHog version requires PostgreSQL 15."
+    echo ""
+    echo "⚠️  This migration deletes data, and isn't tested in your envronment. Reject auto-update to receive manual upgrade instructions."
+    echo ""
+    read -r -p "Do you want to automatically upgrade PostgreSQL 12 → 15? [y/N] " pg_response
+    if [[ "$pg_response" =~ ^([yY][eE][sS]|[yY])+$ ]]; then
+        echo ""
+        echo "Step 1: Creating backup..."
+        BACKUP_FILE="backup_pg12_$(date +%Y%m%d_%H%M%S).sql.gz"
+
+        if ! docker-compose exec -T db pg_dumpall --clean -U posthog | gzip > "$BACKUP_FILE"; then
+            echo "❌ Backup command failed!"
+            rm -f "$BACKUP_FILE"
+            exit 1
+        fi
+
+        if [ ! -f "$BACKUP_FILE" ]; then
+            echo "❌ Backup file was not created!"
+            exit 1
+        fi
+
+        BACKUP_SIZE_BYTES=$(stat -f%z "$BACKUP_FILE" 2>/dev/null || stat -c%s "$BACKUP_FILE" 2>/dev/null || echo "0")
+        if [ "$BACKUP_SIZE_BYTES" -lt 1000 ]; then
+            echo "❌ Backup file is too small (${BACKUP_SIZE_BYTES} bytes) - backup likely failed!"
+            echo "   Expected at least 1KB for a valid PostgreSQL dump."
+            rm -f "$BACKUP_FILE"
+            exit 1
+        fi
+
+        if ! gunzip -t "$BACKUP_FILE" 2>/dev/null; then
+            echo "❌ Backup file is corrupted (gzip integrity check failed)!"
+            rm -f "$BACKUP_FILE"
+            exit 1
+        fi
+
+        BACKUP_SIZE=$(du -h "$BACKUP_FILE" | cut -f1)
+        echo "✅ Backup complete and verified: $BACKUP_FILE ($BACKUP_SIZE)"
+
+        echo ""
+        echo "Step 2: Stopping docker-compose stack..."
+        docker-compose down
+
+        echo ""
+        echo "Step 3: Removing postgres-data volume..."
+        docker volume rm postgres-data || true
+
+        # Save backup filename to a flag file for restore after git pull
+        echo "$BACKUP_FILE" > .pg12_migration_pending
+        echo ""
+        echo "✅ Backup saved. Continuing with PostHog upgrade..."
+        echo "   Data will be restored after the new database starts."
+        echo ""
+    else
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "Manual upgrade steps:"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo "  1. Backup:"
+        echo "     docker-compose exec -T db pg_dumpall --clean -U posthog | gzip > backup.sql.gz"
+        echo ""
+        echo "  2. Stop:"
+        echo "     docker-compose down"
+        echo ""
+        echo "  3. Remove volume:"
+        echo "     docker volume rm postgres-data"
+        echo ""
+        echo "  4. Upgrade PostHog code (git pull - pulls postgres:15 compose files)"
+        echo ""
+        echo "  5. Start:"
+        echo "     docker-compose up -d db"
+        echo ""
+        echo "  6. Restore:"
+        echo "     gunzip -c backup.sql.gz | docker-compose exec -T db psql -U posthog"
+        echo ""
+        echo "  7. Upgrade password to SCRAM-SHA-256:"
+        echo "     docker compose exec -T db psql -U posthog -c \"ALTER USER posthog WITH PASSWORD 'posthog';\" > /dev/null 2>&1"
+        echo ""
+        echo "Please complete the manual upgrade before continuing."
+        exit 1
+    fi
+fi
 
 cd posthog
 git pull --prune
@@ -250,6 +333,47 @@ then
 else
     echo "OK, we are leaving the stack OFFLINE. Run 'sudo -E docker-compose up -d' when you are ready to start it."
     exit
+fi
+
+# Restore PostgreSQL data if we did a pg12 -> pg15 migration
+if [ -f ".pg12_migration_pending" ]; then
+    PG12_BACKUP_FILE=$(cat .pg12_migration_pending)
+    rm -f .pg12_migration_pending
+
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "🐘 Restoring PostgreSQL data from backup"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo "Waiting for PostgreSQL 15 to be ready..."
+    sleep 20
+
+    echo "Restoring data from $PG12_BACKUP_FILE..."
+    if gunzip -c "$PG12_BACKUP_FILE" | docker-compose exec -T db psql -U posthog; then
+        echo "✅ Data restored successfully!"
+
+        echo ""
+        echo "Upgrading password to SCRAM-SHA-256..."
+        docker-compose exec -T db psql -U posthog -c "ALTER USER posthog WITH PASSWORD 'posthog';" > /dev/null 2>&1
+
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "✅ PostgreSQL 12 → 15 migration complete!"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo "Backup saved at: $PG12_BACKUP_FILE"
+        echo "You can delete it once you've verified everything works."
+        echo ""
+    else
+        echo "❌ Data restore failed!"
+        echo ""
+        echo "Your backup is saved at: $PG12_BACKUP_FILE"
+        echo ""
+        echo "To manually restore, run:"
+        echo "  gunzip -c $PG12_BACKUP_FILE | docker-compose exec -T db psql -U posthog"
+        echo ""
+        exit 1
+    fi
 fi
 
 echo "Consider running 'docker system prune -a' to clean up old images and free disk space"

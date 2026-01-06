@@ -16,7 +16,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, humanFriendlyCurrency } from 'lib/utils'
 import { getProductIcon } from 'scenes/products/Products'
 
-import { BillingProductV2AddonType, BillingProductV2Type, BillingTierType, ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { BillingProductV2AddonType, BillingProductV2Type, BillingTierType } from '~/types'
 
 import { BillingGauge } from './BillingGauge'
 import { BillingLimit } from './BillingLimit'
@@ -79,6 +80,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
     const productDisplayNameOverrides: Record<string, string> = {
         realtime_destinations: 'Data pipelines',
+        workflows_emails: 'Workflows',
     }
     const displayProductName = productDisplayNameOverrides[product.type] || product.name
 

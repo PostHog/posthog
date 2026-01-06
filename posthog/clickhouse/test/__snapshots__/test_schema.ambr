@@ -25,7 +25,48 @@
       group2_created_at DateTime64,
       group3_created_at DateTime64,
       group4_created_at DateTime64,
-      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+      historical_migration Bool
+          , `dmat_string_0` Nullable(String)
+      , `dmat_string_1` Nullable(String)
+      , `dmat_string_2` Nullable(String)
+      , `dmat_string_3` Nullable(String)
+      , `dmat_string_4` Nullable(String)
+      , `dmat_string_5` Nullable(String)
+      , `dmat_string_6` Nullable(String)
+      , `dmat_string_7` Nullable(String)
+      , `dmat_string_8` Nullable(String)
+      , `dmat_string_9` Nullable(String)
+      , `dmat_numeric_0` Nullable(Float64)
+      , `dmat_numeric_1` Nullable(Float64)
+      , `dmat_numeric_2` Nullable(Float64)
+      , `dmat_numeric_3` Nullable(Float64)
+      , `dmat_numeric_4` Nullable(Float64)
+      , `dmat_numeric_5` Nullable(Float64)
+      , `dmat_numeric_6` Nullable(Float64)
+      , `dmat_numeric_7` Nullable(Float64)
+      , `dmat_numeric_8` Nullable(Float64)
+      , `dmat_numeric_9` Nullable(Float64)
+      , `dmat_bool_0` Nullable(UInt8)
+      , `dmat_bool_1` Nullable(UInt8)
+      , `dmat_bool_2` Nullable(UInt8)
+      , `dmat_bool_3` Nullable(UInt8)
+      , `dmat_bool_4` Nullable(UInt8)
+      , `dmat_bool_5` Nullable(UInt8)
+      , `dmat_bool_6` Nullable(UInt8)
+      , `dmat_bool_7` Nullable(UInt8)
+      , `dmat_bool_8` Nullable(UInt8)
+      , `dmat_bool_9` Nullable(UInt8)
+      , `dmat_datetime_0` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_1` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_2` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_3` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_4` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_5` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_6` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_7` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_8` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_9` Nullable(DateTime64(6, 'UTC'))
       
       
       
@@ -71,22 +112,6 @@
       error_details String CODEC(ZSTD(3))
   )
   ENGINE=Kafka(msk_cluster, kafka_topic_list = 'clickhouse_app_metrics_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
-  
-  '''
-# ---
-# name: test_create_kafka_table_with_different_kafka_host[kafka_behavioral_cohorts_matches]
-  '''
-  
-  CREATE TABLE IF NOT EXISTS kafka_behavioral_cohorts_matches
-  (
-      team_id Int64,
-      cohort_id Int64,
-      evaluation_timestamp DateTime64(6),
-      person_id UUID,
-      condition String,
-      latest_event_is_match UInt8
-  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_behavioral_cohorts_matches', kafka_group_name = 'clickhouse_behavioral_cohorts_matches', kafka_format = 'JSONEachRow')
-  SETTINGS kafka_max_block_size = 1000000, kafka_poll_max_batch_size = 100000, kafka_poll_timeout_ms = 1000, kafka_flush_interval_ms = 7500, kafka_skip_broken_messages = 100, kafka_num_consumers = 1
   
   '''
 # ---
@@ -187,7 +212,48 @@
       group2_created_at DateTime64,
       group3_created_at DateTime64,
       group4_created_at DateTime64,
-      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+      historical_migration Bool
+          , `dmat_string_0` Nullable(String)
+      , `dmat_string_1` Nullable(String)
+      , `dmat_string_2` Nullable(String)
+      , `dmat_string_3` Nullable(String)
+      , `dmat_string_4` Nullable(String)
+      , `dmat_string_5` Nullable(String)
+      , `dmat_string_6` Nullable(String)
+      , `dmat_string_7` Nullable(String)
+      , `dmat_string_8` Nullable(String)
+      , `dmat_string_9` Nullable(String)
+      , `dmat_numeric_0` Nullable(Float64)
+      , `dmat_numeric_1` Nullable(Float64)
+      , `dmat_numeric_2` Nullable(Float64)
+      , `dmat_numeric_3` Nullable(Float64)
+      , `dmat_numeric_4` Nullable(Float64)
+      , `dmat_numeric_5` Nullable(Float64)
+      , `dmat_numeric_6` Nullable(Float64)
+      , `dmat_numeric_7` Nullable(Float64)
+      , `dmat_numeric_8` Nullable(Float64)
+      , `dmat_numeric_9` Nullable(Float64)
+      , `dmat_bool_0` Nullable(UInt8)
+      , `dmat_bool_1` Nullable(UInt8)
+      , `dmat_bool_2` Nullable(UInt8)
+      , `dmat_bool_3` Nullable(UInt8)
+      , `dmat_bool_4` Nullable(UInt8)
+      , `dmat_bool_5` Nullable(UInt8)
+      , `dmat_bool_6` Nullable(UInt8)
+      , `dmat_bool_7` Nullable(UInt8)
+      , `dmat_bool_8` Nullable(UInt8)
+      , `dmat_bool_9` Nullable(UInt8)
+      , `dmat_datetime_0` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_1` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_2` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_3` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_4` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_5` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_6` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_7` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_8` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_9` Nullable(DateTime64(6, 'UTC'))
       
       
       
@@ -223,7 +289,9 @@
       group2_created_at DateTime64,
       group3_created_at DateTime64,
       group4_created_at DateTime64,
-      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+      historical_migration Bool
+      
       
       
       
@@ -500,6 +568,7 @@
       timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time (or similar), rather than the time the embedding was created
       inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted (if a duplicate-key row was inserted, for example, this is what we use to choose the winner)
       content String, -- The actual text content that was embedded
+      metadata String, -- JSON metadata for the document, stored as a string
       embedding Array(Float64) -- The embedding itself
       
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_document_embeddings_test', kafka_group_name = 'clickhouse_document_embeddings', kafka_format = 'JSONEachRow')
@@ -512,7 +581,6 @@
   CREATE TABLE IF NOT EXISTS kafka_precalculated_events
   (
       team_id Int64,
-      evaluation_timestamp DateTime64(6),
       distinct_id String,
       person_id UUID,
       condition String,
@@ -520,25 +588,6 @@
       source String
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_prefiltered_events', kafka_group_name = 'clickhouse_prefiltered_events', kafka_format = 'JSONEachRow')
   SETTINGS kafka_max_block_size = 1000000, kafka_poll_max_batch_size = 100000, kafka_poll_timeout_ms = 1000, kafka_flush_interval_ms = 7500, kafka_skip_broken_messages = 100, kafka_num_consumers = 1
-  
-  '''
-# ---
-# name: test_create_kafka_table_with_different_kafka_host[kafka_session_recording_events]
-  '''
-  
-  CREATE TABLE IF NOT EXISTS kafka_session_recording_events ON CLUSTER 'posthog'
-  (
-      uuid UUID,
-      timestamp DateTime64(6, 'UTC'),
-      team_id Int64,
-      distinct_id VARCHAR,
-      session_id VARCHAR,
-      window_id VARCHAR,
-      snapshot_data VARCHAR,
-      created_at DateTime64(6, 'UTC')
-      
-      
-  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_session_recording_events_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -569,35 +618,6 @@
       snapshot_library Nullable(String),
       retention_period_days Nullable(Int64),
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_session_replay_events_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
-  
-  '''
-# ---
-# name: test_create_kafka_table_with_different_kafka_host[kafka_session_replay_events_v2_test]
-  '''
-  
-      CREATE TABLE IF NOT EXISTS kafka_session_replay_events_v2_test ON CLUSTER 'posthog'
-      (
-          session_id VARCHAR,
-          team_id Int64,
-          distinct_id VARCHAR,
-          first_timestamp DateTime64(6, 'UTC'),
-          last_timestamp DateTime64(6, 'UTC'),
-          block_url String,
-          first_url Nullable(VARCHAR),
-          urls Array(String),
-          click_count Int64,
-          keypress_count Int64,
-          mouse_activity_count Int64,
-          active_milliseconds Int64,
-          console_log_count Int64,
-          console_warn_count Int64,
-          console_error_count Int64,
-          size Int64,
-          event_count Int64,
-          message_count Int64,
-          snapshot_source LowCardinality(Nullable(String)),
-          snapshot_library Nullable(String),
-      ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_session_replay_events_v2_test_test', 'group1', 'JSONEachRow')
   
   '''
 # ---
@@ -703,44 +723,6 @@
   
   '''
 # ---
-# name: test_create_table_query[behavioral_cohorts_matches]
-  '''
-  
-  CREATE TABLE IF NOT EXISTS behavioral_cohorts_matches
-  (
-      team_id Int64,
-      cohort_id Int64,
-      date Date,
-      person_id UUID,
-      condition String,
-      matches SimpleAggregateFunction(sum, UInt64),
-      latest_event_is_match AggregateFunction(argMax, UInt8, DateTime64(6))
-  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_behavioral_cohorts_matches', sipHash64(person_id))
-  
-  '''
-# ---
-# name: test_create_table_query[behavioral_cohorts_matches_mv]
-  '''
-  
-  CREATE MATERIALIZED VIEW IF NOT EXISTS behavioral_cohorts_matches_mv TO writable_behavioral_cohorts_matches
-  AS SELECT
-      team_id,
-      cohort_id,
-      toDate(evaluation_timestamp) AS date,
-      person_id,
-      condition,
-      sum(1) AS matches,
-      argMaxState(latest_event_is_match, evaluation_timestamp) AS latest_event_is_match
-  FROM kafka_behavioral_cohorts_matches
-  GROUP BY
-      team_id,
-      cohort_id,
-      date,
-      person_id,
-      condition
-      
-  '''
-# ---
 # name: test_create_table_query[channel_definition]
   '''
   
@@ -826,7 +808,9 @@
       group2_created_at DateTime64,
       group3_created_at DateTime64,
       group4_created_at DateTime64,
-      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+      historical_migration Bool
+      
       
       
   , _timestamp DateTime
@@ -835,6 +819,79 @@
   , inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NOW64(), _timestamp_ms DateTime64
       
   ) ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'events_recent', sipHash64(distinct_id))
+  
+  '''
+# ---
+# name: test_create_table_query[distributed_posthog_document_embeddings]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS distributed_posthog_document_embeddings
+  (
+      team_id Int64,
+      product LowCardinality(String), -- Like "error tracking" or "session replay" - basically a bucket, you'd use this to ask clickhouse "what kind of documents do I have embeddings for, related to session replay"
+      document_type LowCardinality(String), -- The type of document this is an embedding for, e.g. "issue_fingerprint", "session_summary", "task_update" etc.
+      model_name LowCardinality(String), -- The name of the model used to generate this embedding. Includes embedding dimensionality, appended as e.g. "text-embedding-3-small-1024"
+      rendering LowCardinality(String), -- How the document was rendered to text, e.g. "with_error_message", "as_html" etc. Use "plain" if it was already text.
+      document_id String, -- A uuid, a path like "issue/<chunk_id>", whatever you like really
+      timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time (or similar), rather than the time the embedding was created
+      inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted (if a duplicate-key row was inserted, for example, this is what we use to choose the winner)
+      content String DEFAULT '', -- The actual text content that was embedded
+      metadata String DEFAULT '{}', -- JSON metadata for the document, stored as a string
+      embedding Array(Float64) -- The embedding itself
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'partitioned_sharded_posthog_document_embeddings', cityHash64(document_id))
+  
+  '''
+# ---
+# name: test_create_table_query[distributed_posthog_document_embeddings_text_embedding_3_large_3072]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS distributed_posthog_document_embeddings_text_embedding_3_large_3072
+  (
+      team_id Int64,
+      product LowCardinality(String), -- Like "error tracking" or "session replay" - basically a bucket
+      document_type LowCardinality(String), -- The type of document this is an embedding for
+      rendering LowCardinality(String), -- How the document was rendered to text
+      document_id String, -- A uuid, a path like "issue/<chunk_id>", whatever you like really
+      timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time
+      inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted
+      content String DEFAULT '', -- The actual text content that was embedded
+      metadata String DEFAULT '{}', -- JSON metadata for the document, stored as a string
+      embedding Array(Float64) -- The embedding itself
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_posthog_document_embeddings_text_embedding_3_large_3072', cityHash64(document_id))
+  
+  '''
+# ---
+# name: test_create_table_query[distributed_posthog_document_embeddings_text_embedding_3_small_1536]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS distributed_posthog_document_embeddings_text_embedding_3_small_1536
+  (
+      team_id Int64,
+      product LowCardinality(String), -- Like "error tracking" or "session replay" - basically a bucket
+      document_type LowCardinality(String), -- The type of document this is an embedding for
+      rendering LowCardinality(String), -- How the document was rendered to text
+      document_id String, -- A uuid, a path like "issue/<chunk_id>", whatever you like really
+      timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time
+      inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted
+      content String DEFAULT '', -- The actual text content that was embedded
+      metadata String DEFAULT '{}', -- JSON metadata for the document, stored as a string
+      embedding Array(Float64) -- The embedding itself
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_posthog_document_embeddings_text_embedding_3_small_1536', cityHash64(document_id))
   
   '''
 # ---
@@ -962,7 +1019,48 @@
       group2_created_at DateTime64,
       group3_created_at DateTime64,
       group4_created_at DateTime64,
-      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+      historical_migration Bool
+          , `dmat_string_0` Nullable(String)
+      , `dmat_string_1` Nullable(String)
+      , `dmat_string_2` Nullable(String)
+      , `dmat_string_3` Nullable(String)
+      , `dmat_string_4` Nullable(String)
+      , `dmat_string_5` Nullable(String)
+      , `dmat_string_6` Nullable(String)
+      , `dmat_string_7` Nullable(String)
+      , `dmat_string_8` Nullable(String)
+      , `dmat_string_9` Nullable(String)
+      , `dmat_numeric_0` Nullable(Float64)
+      , `dmat_numeric_1` Nullable(Float64)
+      , `dmat_numeric_2` Nullable(Float64)
+      , `dmat_numeric_3` Nullable(Float64)
+      , `dmat_numeric_4` Nullable(Float64)
+      , `dmat_numeric_5` Nullable(Float64)
+      , `dmat_numeric_6` Nullable(Float64)
+      , `dmat_numeric_7` Nullable(Float64)
+      , `dmat_numeric_8` Nullable(Float64)
+      , `dmat_numeric_9` Nullable(Float64)
+      , `dmat_bool_0` Nullable(UInt8)
+      , `dmat_bool_1` Nullable(UInt8)
+      , `dmat_bool_2` Nullable(UInt8)
+      , `dmat_bool_3` Nullable(UInt8)
+      , `dmat_bool_4` Nullable(UInt8)
+      , `dmat_bool_5` Nullable(UInt8)
+      , `dmat_bool_6` Nullable(UInt8)
+      , `dmat_bool_7` Nullable(UInt8)
+      , `dmat_bool_8` Nullable(UInt8)
+      , `dmat_bool_9` Nullable(UInt8)
+      , `dmat_datetime_0` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_1` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_2` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_3` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_4` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_5` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_6` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_7` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_8` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_9` Nullable(DateTime64(6, 'UTC'))
       
       , $group_0 VARCHAR COMMENT 'column_materializer::$group_0'
       , $group_1 VARCHAR COMMENT 'column_materializer::$group_1'
@@ -1078,6 +1176,47 @@
   group3_created_at,
   group4_created_at,
   person_mode,
+  historical_migration,
+  dmat_string_0,
+  dmat_string_1,
+  dmat_string_2,
+  dmat_string_3,
+  dmat_string_4,
+  dmat_string_5,
+  dmat_string_6,
+  dmat_string_7,
+  dmat_string_8,
+  dmat_string_9,
+  dmat_numeric_0,
+  dmat_numeric_1,
+  dmat_numeric_2,
+  dmat_numeric_3,
+  dmat_numeric_4,
+  dmat_numeric_5,
+  dmat_numeric_6,
+  dmat_numeric_7,
+  dmat_numeric_8,
+  dmat_numeric_9,
+  dmat_bool_0,
+  dmat_bool_1,
+  dmat_bool_2,
+  dmat_bool_3,
+  dmat_bool_4,
+  dmat_bool_5,
+  dmat_bool_6,
+  dmat_bool_7,
+  dmat_bool_8,
+  dmat_bool_9,
+  dmat_datetime_0,
+  dmat_datetime_1,
+  dmat_datetime_2,
+  dmat_datetime_3,
+  dmat_datetime_4,
+  dmat_datetime_5,
+  dmat_datetime_6,
+  dmat_datetime_7,
+  dmat_datetime_8,
+  dmat_datetime_9,
   _timestamp,
   _offset,
   arrayMap(
@@ -1117,7 +1256,9 @@
       group2_created_at DateTime64,
       group3_created_at DateTime64,
       group4_created_at DateTime64,
-      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+      historical_migration Bool
+      
       
       
   , _timestamp DateTime
@@ -1352,22 +1493,6 @@
   
   '''
 # ---
-# name: test_create_table_query[kafka_behavioral_cohorts_matches]
-  '''
-  
-  CREATE TABLE IF NOT EXISTS kafka_behavioral_cohorts_matches
-  (
-      team_id Int64,
-      cohort_id Int64,
-      evaluation_timestamp DateTime64(6),
-      person_id UUID,
-      condition String,
-      latest_event_is_match UInt8
-  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_behavioral_cohorts_matches', kafka_group_name = 'clickhouse_behavioral_cohorts_matches', kafka_format = 'JSONEachRow')
-  SETTINGS kafka_max_block_size = 1000000, kafka_poll_max_batch_size = 100000, kafka_poll_timeout_ms = 1000, kafka_flush_interval_ms = 7500, kafka_skip_broken_messages = 100, kafka_num_consumers = 1
-  
-  '''
-# ---
 # name: test_create_table_query[kafka_cohort_membership]
   '''
   
@@ -1465,7 +1590,48 @@
       group2_created_at DateTime64,
       group3_created_at DateTime64,
       group4_created_at DateTime64,
-      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+      historical_migration Bool
+          , `dmat_string_0` Nullable(String)
+      , `dmat_string_1` Nullable(String)
+      , `dmat_string_2` Nullable(String)
+      , `dmat_string_3` Nullable(String)
+      , `dmat_string_4` Nullable(String)
+      , `dmat_string_5` Nullable(String)
+      , `dmat_string_6` Nullable(String)
+      , `dmat_string_7` Nullable(String)
+      , `dmat_string_8` Nullable(String)
+      , `dmat_string_9` Nullable(String)
+      , `dmat_numeric_0` Nullable(Float64)
+      , `dmat_numeric_1` Nullable(Float64)
+      , `dmat_numeric_2` Nullable(Float64)
+      , `dmat_numeric_3` Nullable(Float64)
+      , `dmat_numeric_4` Nullable(Float64)
+      , `dmat_numeric_5` Nullable(Float64)
+      , `dmat_numeric_6` Nullable(Float64)
+      , `dmat_numeric_7` Nullable(Float64)
+      , `dmat_numeric_8` Nullable(Float64)
+      , `dmat_numeric_9` Nullable(Float64)
+      , `dmat_bool_0` Nullable(UInt8)
+      , `dmat_bool_1` Nullable(UInt8)
+      , `dmat_bool_2` Nullable(UInt8)
+      , `dmat_bool_3` Nullable(UInt8)
+      , `dmat_bool_4` Nullable(UInt8)
+      , `dmat_bool_5` Nullable(UInt8)
+      , `dmat_bool_6` Nullable(UInt8)
+      , `dmat_bool_7` Nullable(UInt8)
+      , `dmat_bool_8` Nullable(UInt8)
+      , `dmat_bool_9` Nullable(UInt8)
+      , `dmat_datetime_0` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_1` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_2` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_3` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_4` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_5` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_6` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_7` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_8` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_9` Nullable(DateTime64(6, 'UTC'))
       
       
       
@@ -1501,7 +1667,9 @@
       group2_created_at DateTime64,
       group3_created_at DateTime64,
       group4_created_at DateTime64,
-      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+      historical_migration Bool
+      
       
       
       
@@ -1778,6 +1946,7 @@
       timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time (or similar), rather than the time the embedding was created
       inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted (if a duplicate-key row was inserted, for example, this is what we use to choose the winner)
       content String, -- The actual text content that was embedded
+      metadata String, -- JSON metadata for the document, stored as a string
       embedding Array(Float64) -- The embedding itself
       
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_document_embeddings_test', kafka_group_name = 'clickhouse_document_embeddings', kafka_format = 'JSONEachRow')
@@ -1790,7 +1959,6 @@
   CREATE TABLE IF NOT EXISTS kafka_precalculated_events
   (
       team_id Int64,
-      evaluation_timestamp DateTime64(6),
       distinct_id String,
       person_id UUID,
       condition String,
@@ -1798,25 +1966,6 @@
       source String
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_prefiltered_events', kafka_group_name = 'clickhouse_prefiltered_events', kafka_format = 'JSONEachRow')
   SETTINGS kafka_max_block_size = 1000000, kafka_poll_max_batch_size = 100000, kafka_poll_timeout_ms = 1000, kafka_flush_interval_ms = 7500, kafka_skip_broken_messages = 100, kafka_num_consumers = 1
-  
-  '''
-# ---
-# name: test_create_table_query[kafka_session_recording_events]
-  '''
-  
-  CREATE TABLE IF NOT EXISTS kafka_session_recording_events ON CLUSTER 'posthog'
-  (
-      uuid UUID,
-      timestamp DateTime64(6, 'UTC'),
-      team_id Int64,
-      distinct_id VARCHAR,
-      session_id VARCHAR,
-      window_id VARCHAR,
-      snapshot_data VARCHAR,
-      created_at DateTime64(6, 'UTC')
-      
-      
-  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_session_recording_events_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -1847,35 +1996,6 @@
       snapshot_library Nullable(String),
       retention_period_days Nullable(Int64),
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_session_replay_events_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
-  
-  '''
-# ---
-# name: test_create_table_query[kafka_session_replay_events_v2_test]
-  '''
-  
-      CREATE TABLE IF NOT EXISTS kafka_session_replay_events_v2_test ON CLUSTER 'posthog'
-      (
-          session_id VARCHAR,
-          team_id Int64,
-          distinct_id VARCHAR,
-          first_timestamp DateTime64(6, 'UTC'),
-          last_timestamp DateTime64(6, 'UTC'),
-          block_url String,
-          first_url Nullable(VARCHAR),
-          urls Array(String),
-          click_count Int64,
-          keypress_count Int64,
-          mouse_activity_count Int64,
-          active_milliseconds Int64,
-          console_log_count Int64,
-          console_warn_count Int64,
-          console_error_count Int64,
-          size Int64,
-          event_count Int64,
-          message_count Int64,
-          snapshot_source LowCardinality(Nullable(String)),
-          snapshot_library Nullable(String),
-      ) ENGINE = Kafka('kafka:9092', 'clickhouse_session_replay_events_v2_test_test', 'group1', 'JSONEachRow')
   
   '''
 # ---
@@ -1931,6 +2051,43 @@
   _offset
   FROM posthog_test.kafka_log_entries
   
+  '''
+# ---
+# name: test_create_table_query[partitioned_sharded_posthog_document_embeddings]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS partitioned_sharded_posthog_document_embeddings
+  (
+      team_id Int64,
+      product LowCardinality(String), -- Like "error tracking" or "session replay" - basically a bucket, you'd use this to ask clickhouse "what kind of documents do I have embeddings for, related to session replay"
+      document_type LowCardinality(String), -- The type of document this is an embedding for, e.g. "issue_fingerprint", "session_summary", "task_update" etc.
+      model_name LowCardinality(String), -- The name of the model used to generate this embedding. Includes embedding dimensionality, appended as e.g. "text-embedding-3-small-1024"
+      rendering LowCardinality(String), -- How the document was rendered to text, e.g. "with_error_message", "as_html" etc. Use "plain" if it was already text.
+      document_id String, -- A uuid, a path like "issue/<chunk_id>", whatever you like really
+      timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time (or similar), rather than the time the embedding was created
+      inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted (if a duplicate-key row was inserted, for example, this is what we use to choose the winner)
+      content String DEFAULT '', -- The actual text content that was embedded
+      metadata String DEFAULT '{}', -- JSON metadata for the document, stored as a string
+      embedding Array(Float64) -- The embedding itself
+      
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+      , INDEX kafka_timestamp_minmax_partitioned_sharded_posthog_document_embeddings _timestamp TYPE minmax GRANULARITY 3
+      
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.partitioned_sharded_posthog_document_embeddings', '{replica}', inserted_at)
+  
+      -- This index assumes:
+      --  - people will /always/ provide a date range
+      --  - "show me documents of type X by any model" will be more common than "show me all documents by model X"
+      --  - Documents with the same ID whose timestamp is in the same day are the same document, and the later inserted one should be retained
+      PARTITION BY toMonday(timestamp)
+      ORDER BY (team_id, toDate(timestamp), product, document_type, model_name, rendering, cityHash64(document_id))
+      TTL timestamp + INTERVAL 3 MONTH
+      SETTINGS index_granularity = 512, ttl_only_drop_parts = 1
+      
   '''
 # ---
 # name: test_create_table_query[performance_events]
@@ -2343,38 +2500,28 @@
   
   '''
 # ---
-# name: test_create_table_query[posthog_document_embeddings]
+# name: test_create_table_query[posthog_document_embeddings_kafka_to_buffer_mv]
   '''
   
-  CREATE TABLE IF NOT EXISTS posthog_document_embeddings
-  (
-      team_id Int64,
-      product LowCardinality(String), -- Like "error tracking" or "session replay" - basically a bucket, you'd use this to ask clickhouse "what kind of documents do I have embeddings for, related to session replay"
-      document_type LowCardinality(String), -- The type of document this is an embedding for, e.g. "issue_fingerprint", "session_summary", "task_update" etc.
-      model_name LowCardinality(String), -- The name of the model used to generate this embedding. Includes embedding dimensionality, appended as e.g. "text-embedding-3-small-1024"
-      rendering LowCardinality(String), -- How the document was rendered to text, e.g. "with_error_message", "as_html" etc. Use "plain" if it was already text.
-      document_id String, -- A uuid, a path like "issue/<chunk_id>", whatever you like really
-      timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time (or similar), rather than the time the embedding was created
-      inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted (if a duplicate-key row was inserted, for example, this is what we use to choose the winner)
-      content String DEFAULT '', -- The actual text content that was embedded
-      embedding Array(Float64) -- The embedding itself
-      
-      
-  , _timestamp DateTime
-  , _offset UInt64
-  , _partition UInt64
+  CREATE MATERIALIZED VIEW IF NOT EXISTS posthog_document_embeddings_kafka_to_buffer_mv
+  TO writable_posthog_document_embeddings_buffer
+  AS SELECT
+  team_id,
+  product,
+  document_type,
+  model_name,
+  rendering,
+  document_id,
+  timestamp,
+  _timestamp as inserted_at,
+  coalesce(content, '') as content,
+  coalesce(metadata, '{}') as metadata,
+  embedding,
+  _timestamp,
+  _offset,
+  _partition
+  FROM posthog_test.kafka_posthog_document_embeddings
   
-      , INDEX kafka_timestamp_minmax_posthog_document_embeddings _timestamp TYPE minmax GRANULARITY 3
-      
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.posthog_document_embeddings', '{replica}-{shard}', inserted_at)
-  
-      -- This index assumes:
-      --  - people will /always/ provide a date range
-      --  - "show me documents of type X by any model" will be more common than "show me all documents by model X"
-      --  - Documents with the same ID whose timestamp is in the same day are the same document, and the later inserted one should be retained
-      ORDER BY (team_id, toDate(timestamp), product, document_type, model_name, rendering, cityHash64(document_id))
-      SETTINGS index_granularity = 512
-      
   '''
 # ---
 # name: test_create_table_query[posthog_document_embeddings_mv]
@@ -2392,11 +2539,78 @@
   timestamp,
   _timestamp as inserted_at,
   coalesce(content, '') as content,
+  coalesce(metadata, '{}') as metadata,
   embedding,
   _timestamp,
   _offset,
   _partition
   FROM posthog_test.kafka_posthog_document_embeddings
+  
+  '''
+# ---
+# name: test_create_table_query[posthog_document_embeddings_text_embedding_3_large_3072_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS posthog_document_embeddings_text_embedding_3_large_3072_mv
+  TO writable_posthog_document_embeddings_text_embedding_3_large_3072
+  AS SELECT
+  team_id,
+  product,
+  document_type,
+  rendering,
+  document_id,
+  timestamp,
+  inserted_at,
+  content,
+  metadata,
+  embedding,
+  _timestamp,
+  _offset,
+  _partition
+  FROM posthog_test.sharded_posthog_document_embeddings_buffer
+  WHERE model_name = 'text-embedding-3-large-3072'
+  
+  '''
+# ---
+# name: test_create_table_query[posthog_document_embeddings_text_embedding_3_small_1536_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS posthog_document_embeddings_text_embedding_3_small_1536_mv
+  TO writable_posthog_document_embeddings_text_embedding_3_small_1536
+  AS SELECT
+  team_id,
+  product,
+  document_type,
+  rendering,
+  document_id,
+  timestamp,
+  inserted_at,
+  content,
+  metadata,
+  embedding,
+  _timestamp,
+  _offset,
+  _partition
+  FROM posthog_test.sharded_posthog_document_embeddings_buffer
+  WHERE model_name = 'text-embedding-3-small-1536'
+  
+  '''
+# ---
+# name: test_create_table_query[preaggregation_results]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS preaggregation_results
+  (
+      team_id Int64,
+      job_id UUID,
+      time_window_start DateTime64(6, 'UTC'),
+  
+      -- Breakdown dimension (empty array for no breakdown)
+      breakdown_value Array(String),
+  
+      -- Aggregate state column (uniqExact for precision)
+      uniq_exact_state AggregateFunction(uniqExact, UUID)
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_preaggregation_results', sipHash64(job_id))
   
   '''
 # ---
@@ -2406,7 +2620,7 @@
   CREATE MATERIALIZED VIEW IF NOT EXISTS precalculated_events_mv TO writable_precalculated_events
   AS SELECT
       team_id,
-      toDate(evaluation_timestamp) AS date,
+      toDate(_timestamp) AS date,
       distinct_id,
       person_id,
       condition,
@@ -2493,6 +2707,7 @@
       lc_org_id String,
       team_id Int64, -- renamed from lc_team_id, no longer an alias
       lc_user_id Int64,
+      lc_is_impersonated Bool,
       lc_session_id String,
   
       lc_dashboard_id Int64,
@@ -2606,6 +2821,7 @@
       JSONExtractString(log_comment, 'org_id') as lc_org_id,
       JSONExtractInt(log_comment, 'team_id') as team_id,
       JSONExtractInt(log_comment, 'user_id') as lc_user_id,
+      JSONExtractBool(log_comment, 'is_impersonated') as lc_is_impersonated,
       JSONExtractString(log_comment, 'session_id') as lc_session_id,
   
       JSONExtractInt(log_comment, 'dashboard_id') as lc_dashboard_id,
@@ -2860,7 +3076,7 @@
       max_inserted_at SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
   
       -- urls
-      urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      urls SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
       entry_url AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       end_url AggregateFunction(argMax, Nullable(String), DateTime64(6, 'UTC')),
       last_external_click_url AggregateFunction(argMax, Nullable(String), DateTime64(6, 'UTC')),
@@ -2920,6 +3136,10 @@
   
       -- Flags - store every seen value for each flag
       flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
+      flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+  
+      -- Event names - store unique event names seen in this session
+      event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
   
       -- Replay
       has_replay_events SimpleAggregateFunction(max, Boolean)
@@ -3118,6 +3338,10 @@
   
       -- flags
       initializeAggregation('groupUniqArrayMapState', properties_group_feature_flags) as flag_values,
+      mapKeys(properties_group_feature_flags) as flag_keys,
+  
+      -- event names
+      [event] as event_names,
   
       false as has_replay_events
   FROM posthog_test.sharded_events AS source_table
@@ -3207,6 +3431,10 @@
   
       -- flags
       initializeAggregation('groupUniqArrayMapState', CAST(map(), 'Map(String, String)')) as flag_values,
+      CAST([], 'Array(String)') as flag_keys,
+  
+      -- event names
+      CAST([], 'Array(String)') as event_names,
   
       -- replay
       true as has_replay_events
@@ -3214,48 +3442,6 @@
   WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(session_id, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
   AND TRUE
       
-  
-  '''
-# ---
-# name: test_create_table_query[session_recording_events]
-  '''
-  
-  CREATE TABLE IF NOT EXISTS session_recording_events ON CLUSTER 'posthog'
-  (
-      uuid UUID,
-      timestamp DateTime64(6, 'UTC'),
-      team_id Int64,
-      distinct_id VARCHAR,
-      session_id VARCHAR,
-      window_id VARCHAR,
-      snapshot_data VARCHAR,
-      created_at DateTime64(6, 'UTC')
-      , has_full_snapshot Int8 COMMENT 'column_materializer::has_full_snapshot', events_summary Array(String) COMMENT 'column_materializer::events_summary', click_count Int8 COMMENT 'column_materializer::click_count', keypress_count Int8 COMMENT 'column_materializer::keypress_count', timestamps_summary Array(DateTime64(6, 'UTC')) COMMENT 'column_materializer::timestamps_summary', first_event_timestamp Nullable(DateTime64(6, 'UTC')) COMMENT 'column_materializer::first_event_timestamp', last_event_timestamp Nullable(DateTime64(6, 'UTC')) COMMENT 'column_materializer::last_event_timestamp', urls Array(String) COMMENT 'column_materializer::urls'
-      
-  , _timestamp DateTime
-  , _offset UInt64
-  
-  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_recording_events', sipHash64(distinct_id))
-  
-  '''
-# ---
-# name: test_create_table_query[session_recording_events_mv]
-  '''
-  
-  CREATE MATERIALIZED VIEW IF NOT EXISTS session_recording_events_mv ON CLUSTER 'posthog'
-  TO posthog_test.writable_session_recording_events
-  AS SELECT
-  uuid,
-  timestamp,
-  team_id,
-  distinct_id,
-  session_id,
-  window_id,
-  snapshot_data,
-  created_at,
-  _timestamp,
-  _offset
-  FROM posthog_test.kafka_session_recording_events
   
   '''
 # ---
@@ -3370,96 +3556,6 @@
   ,max(retention_period_days) as retention_period_days
   FROM posthog_test.kafka_session_replay_events
   group by session_id, team_id
-  
-  '''
-# ---
-# name: test_create_table_query[session_replay_events_v2_test]
-  '''
-  
-      CREATE TABLE IF NOT EXISTS session_replay_events_v2_test 
-      (
-          session_id VARCHAR,
-          team_id Int64,
-          distinct_id VARCHAR,
-          min_first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
-          max_last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
-          block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
-          block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
-          block_urls SimpleAggregateFunction(groupArrayArray, Array(String)),
-          first_url AggregateFunction(argMin, Nullable(VARCHAR), DateTime64(6, 'UTC')),
-          all_urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
-          click_count SimpleAggregateFunction(sum, Int64),
-          keypress_count SimpleAggregateFunction(sum, Int64),
-          mouse_activity_count SimpleAggregateFunction(sum, Int64),
-          active_milliseconds SimpleAggregateFunction(sum, Int64),
-          console_log_count SimpleAggregateFunction(sum, Int64),
-          console_warn_count SimpleAggregateFunction(sum, Int64),
-          console_error_count SimpleAggregateFunction(sum, Int64),
-          size SimpleAggregateFunction(sum, Int64),
-          message_count SimpleAggregateFunction(sum, Int64),
-          event_count SimpleAggregateFunction(sum, Int64),
-          snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
-          snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-          _timestamp SimpleAggregateFunction(max, DateTime)
-      ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events_v2_test', sipHash64(distinct_id))
-  
-  '''
-# ---
-# name: test_create_table_query[session_replay_events_v2_test_mv]
-  '''
-  
-      CREATE MATERIALIZED VIEW IF NOT EXISTS session_replay_events_v2_test_mv ON CLUSTER 'posthog'
-      TO posthog_test.writable_session_replay_events_v2_test (
-          `session_id` String,
-          `team_id` Int64,
-          `distinct_id` String,
-          `min_first_timestamp` DateTime64(6, 'UTC'),
-          `max_last_timestamp` DateTime64(6, 'UTC'),
-          `block_first_timestamps` SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
-          `block_last_timestamps` SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
-          `block_urls` SimpleAggregateFunction(groupArrayArray, Array(String)),
-          `first_url` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-          `all_urls` SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
-          `click_count` SimpleAggregateFunction(sum, Int64),
-          `keypress_count` SimpleAggregateFunction(sum, Int64),
-          `mouse_activity_count` SimpleAggregateFunction(sum, Int64),
-          `active_milliseconds` SimpleAggregateFunction(sum, Int64),
-          `console_log_count` SimpleAggregateFunction(sum, Int64),
-          `console_warn_count` SimpleAggregateFunction(sum, Int64),
-          `console_error_count` SimpleAggregateFunction(sum, Int64),
-          `size` SimpleAggregateFunction(sum, Int64),
-          `message_count` SimpleAggregateFunction(sum, Int64),
-          `event_count` SimpleAggregateFunction(sum, Int64),
-          `snapshot_source` AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
-          `snapshot_library` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-          `_timestamp` SimpleAggregateFunction(max, DateTime)
-      )
-      AS SELECT
-          session_id,
-          team_id,
-          distinct_id,
-          min(first_timestamp) AS min_first_timestamp,
-          max(last_timestamp) AS max_last_timestamp,
-          groupArray(first_timestamp) AS block_first_timestamps,
-          groupArray(last_timestamp) AS block_last_timestamps,
-          groupArray(block_url) AS block_urls,
-          argMinState(first_url, first_timestamp) as first_url,
-          groupUniqArrayArray(urls) AS all_urls,
-          sum(click_count) AS click_count,
-          sum(keypress_count) AS keypress_count,
-          sum(mouse_activity_count) AS mouse_activity_count,
-          sum(active_milliseconds) AS active_milliseconds,
-          sum(console_log_count) AS console_log_count,
-          sum(console_warn_count) AS console_warn_count,
-          sum(console_error_count) AS console_error_count,
-          sum(size) AS size,
-          sum(message_count) AS message_count,
-          sum(event_count) AS event_count,
-          argMinState(snapshot_source, first_timestamp) as snapshot_source,
-          argMinState(snapshot_library, first_timestamp) as snapshot_library,
-          max(_timestamp) as _timestamp
-      FROM posthog_test.kafka_session_replay_events_v2_test
-      GROUP BY session_id, team_id, distinct_id
   
   '''
 # ---
@@ -3637,26 +3733,6 @@
   
   '''
 # ---
-# name: test_create_table_query[sharded_behavioral_cohorts_matches]
-  '''
-  
-  CREATE TABLE IF NOT EXISTS sharded_behavioral_cohorts_matches
-  (
-      team_id Int64,
-      cohort_id Int64,
-      date Date,
-      person_id UUID,
-      condition String,
-      matches SimpleAggregateFunction(sum, UInt64),
-      latest_event_is_match AggregateFunction(argMax, UInt8, DateTime64(6))
-  ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_behavioral_cohorts_matches', '{replica}')
-  PARTITION BY toYYYYMM(date)
-  ORDER BY (team_id, cohort_id, condition, date, person_id)
-  
-  SETTINGS ttl_only_drop_parts = 1
-  
-  '''
-# ---
 # name: test_create_table_query[sharded_events]
   '''
   
@@ -3683,7 +3759,48 @@
       group2_created_at DateTime64,
       group3_created_at DateTime64,
       group4_created_at DateTime64,
-      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+      historical_migration Bool
+          , `dmat_string_0` Nullable(String)
+      , `dmat_string_1` Nullable(String)
+      , `dmat_string_2` Nullable(String)
+      , `dmat_string_3` Nullable(String)
+      , `dmat_string_4` Nullable(String)
+      , `dmat_string_5` Nullable(String)
+      , `dmat_string_6` Nullable(String)
+      , `dmat_string_7` Nullable(String)
+      , `dmat_string_8` Nullable(String)
+      , `dmat_string_9` Nullable(String)
+      , `dmat_numeric_0` Nullable(Float64)
+      , `dmat_numeric_1` Nullable(Float64)
+      , `dmat_numeric_2` Nullable(Float64)
+      , `dmat_numeric_3` Nullable(Float64)
+      , `dmat_numeric_4` Nullable(Float64)
+      , `dmat_numeric_5` Nullable(Float64)
+      , `dmat_numeric_6` Nullable(Float64)
+      , `dmat_numeric_7` Nullable(Float64)
+      , `dmat_numeric_8` Nullable(Float64)
+      , `dmat_numeric_9` Nullable(Float64)
+      , `dmat_bool_0` Nullable(UInt8)
+      , `dmat_bool_1` Nullable(UInt8)
+      , `dmat_bool_2` Nullable(UInt8)
+      , `dmat_bool_3` Nullable(UInt8)
+      , `dmat_bool_4` Nullable(UInt8)
+      , `dmat_bool_5` Nullable(UInt8)
+      , `dmat_bool_6` Nullable(UInt8)
+      , `dmat_bool_7` Nullable(UInt8)
+      , `dmat_bool_8` Nullable(UInt8)
+      , `dmat_bool_9` Nullable(UInt8)
+      , `dmat_datetime_0` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_1` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_2` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_3` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_4` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_5` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_6` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_7` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_8` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_9` Nullable(DateTime64(6, 'UTC'))
       
       , $group_0 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^"|"$', '') COMMENT 'column_materializer::$group_0'
       , $group_1 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^"|"$', '') COMMENT 'column_materializer::$group_1'
@@ -3875,6 +3992,115 @@
   
   '''
 # ---
+# name: test_create_table_query[sharded_posthog_document_embeddings_buffer]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_posthog_document_embeddings_buffer
+  (
+      team_id Int64,
+      product LowCardinality(String),
+      document_type LowCardinality(String),
+      model_name LowCardinality(String),  -- Used for filtering in model-specific MVs
+      rendering LowCardinality(String),
+      document_id String,
+      timestamp DateTime64(3, 'UTC'),
+      inserted_at DateTime64(3, 'UTC'),
+      content String DEFAULT '',
+      metadata String DEFAULT '{}',
+      embedding Array(Float64)
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_posthog_document_embeddings_buffer', '{replica}', inserted_at)
+  PARTITION BY toDate(inserted_at)
+  ORDER BY (inserted_at, model_name, cityHash64(document_id))
+  TTL inserted_at + INTERVAL 1 DAY
+  SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query[sharded_posthog_document_embeddings_text_embedding_3_large_3072]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_posthog_document_embeddings_text_embedding_3_large_3072
+  (
+      team_id Int64,
+      product LowCardinality(String), -- Like "error tracking" or "session replay" - basically a bucket
+      document_type LowCardinality(String), -- The type of document this is an embedding for
+      rendering LowCardinality(String), -- How the document was rendered to text
+      document_id String, -- A uuid, a path like "issue/<chunk_id>", whatever you like really
+      timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time
+      inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted
+      content String DEFAULT '', -- The actual text content that was embedded
+      metadata String DEFAULT '{}', -- JSON metadata for the document, stored as a string
+      embedding Array(Float64) -- The embedding itself
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  , INDEX kafka_timestamp_minmax_sharded_posthog_document_embeddings_text_embedding_3_large_3072 _timestamp TYPE minmax GRANULARITY 3, CONSTRAINT embedding_dimension_check CHECK length(embedding) = 3072
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_posthog_document_embeddings_text_embedding_3_large_3072', '{replica}', inserted_at)
+  
+      PARTITION BY toMonday(timestamp)
+      ORDER BY (team_id, toDate(timestamp), product, document_type, rendering, cityHash64(document_id))
+      TTL timestamp + INTERVAL 3 MONTH
+      SETTINGS index_granularity = 512, ttl_only_drop_parts = 1
+      
+  '''
+# ---
+# name: test_create_table_query[sharded_posthog_document_embeddings_text_embedding_3_small_1536]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_posthog_document_embeddings_text_embedding_3_small_1536
+  (
+      team_id Int64,
+      product LowCardinality(String), -- Like "error tracking" or "session replay" - basically a bucket
+      document_type LowCardinality(String), -- The type of document this is an embedding for
+      rendering LowCardinality(String), -- How the document was rendered to text
+      document_id String, -- A uuid, a path like "issue/<chunk_id>", whatever you like really
+      timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time
+      inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted
+      content String DEFAULT '', -- The actual text content that was embedded
+      metadata String DEFAULT '{}', -- JSON metadata for the document, stored as a string
+      embedding Array(Float64) -- The embedding itself
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  , INDEX kafka_timestamp_minmax_sharded_posthog_document_embeddings_text_embedding_3_small_1536 _timestamp TYPE minmax GRANULARITY 3, CONSTRAINT embedding_dimension_check CHECK length(embedding) = 1536
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_posthog_document_embeddings_text_embedding_3_small_1536', '{replica}', inserted_at)
+  
+      PARTITION BY toMonday(timestamp)
+      ORDER BY (team_id, toDate(timestamp), product, document_type, rendering, cityHash64(document_id))
+      TTL timestamp + INTERVAL 3 MONTH
+      SETTINGS index_granularity = 512, ttl_only_drop_parts = 1
+      
+  '''
+# ---
+# name: test_create_table_query[sharded_preaggregation_results]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_preaggregation_results
+  (
+      team_id Int64,
+      job_id UUID,
+      time_window_start DateTime64(6, 'UTC'),
+  
+      -- Breakdown dimension (empty array for no breakdown)
+      breakdown_value Array(String),
+  
+      -- Aggregate state column (uniqExact for precision)
+      uniq_exact_state AggregateFunction(uniqExact, UUID)
+  ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.preaggregation_results', '{replica}')
+  
+  PARTITION BY toYYYYMM(time_window_start)
+  ORDER BY (team_id, job_id, time_window_start, breakdown_value)
+  SETTINGS index_granularity=8192
+  
+  '''
+# ---
 # name: test_create_table_query[sharded_precalculated_events]
   '''
   
@@ -4023,7 +4249,7 @@
       max_inserted_at SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
   
       -- urls
-      urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      urls SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
       entry_url AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       end_url AggregateFunction(argMax, Nullable(String), DateTime64(6, 'UTC')),
       last_external_click_url AggregateFunction(argMax, Nullable(String), DateTime64(6, 'UTC')),
@@ -4083,9 +4309,18 @@
   
       -- Flags - store every seen value for each flag
       flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
+      flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+  
+      -- Event names - store unique event names seen in this session
+      event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
   
       -- Replay
       has_replay_events SimpleAggregateFunction(max, Boolean)
+  ,
+  
+      -- Indexes
+      INDEX event_names_bloom_filter event_names TYPE bloom_filter() GRANULARITY 1,
+      INDEX flag_keys_bloom_filter flag_keys TYPE bloom_filter() GRANULARITY 1
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.raw_sessions_v3', '{replica}')
   
   PARTITION BY toYYYYMM(session_timestamp)
@@ -4095,35 +4330,6 @@
       session_id_v7
   )
   SETTINGS parts_to_delay_insert = 250, max_delay_to_insert = 10, parts_to_throw_insert = 1000
-  
-  '''
-# ---
-# name: test_create_table_query[sharded_session_recording_events]
-  '''
-  
-  CREATE TABLE IF NOT EXISTS sharded_session_recording_events ON CLUSTER 'posthog'
-  (
-      uuid UUID,
-      timestamp DateTime64(6, 'UTC'),
-      team_id Int64,
-      distinct_id VARCHAR,
-      session_id VARCHAR,
-      window_id VARCHAR,
-      snapshot_data VARCHAR,
-      created_at DateTime64(6, 'UTC')
-      , has_full_snapshot Int8 MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot'), events_summary Array(String) MATERIALIZED JSONExtract(JSON_QUERY(snapshot_data, '$.events_summary[*]'), 'Array(String)'), click_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 2, events_summary)), keypress_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 5, events_summary)), timestamps_summary Array(DateTime64(6, 'UTC')) MATERIALIZED arraySort(arrayMap((x) -> toDateTime(JSONExtractInt(x, 'timestamp') / 1000), events_summary)), first_event_timestamp Nullable(DateTime64(6, 'UTC')) MATERIALIZED if(empty(timestamps_summary), NULL, arrayReduce('min', timestamps_summary)), last_event_timestamp Nullable(DateTime64(6, 'UTC')) MATERIALIZED if(empty(timestamps_summary), NULL, arrayReduce('max', timestamps_summary)), urls Array(String) MATERIALIZED arrayFilter(x -> x != '', arrayMap((x) -> JSONExtractString(x, 'data', 'href'), events_summary))
-      
-      
-  , _timestamp DateTime
-  , _offset UInt64
-  
-      , INDEX kafka_timestamp_minmax_sharded_session_recording_events _timestamp TYPE minmax GRANULARITY 3
-      
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_recording_events', '{replica}', _timestamp)
-  PARTITION BY toYYYYMMDD(timestamp)
-  ORDER BY (team_id, toHour(timestamp), session_id, timestamp, uuid)
-  
-  SETTINGS index_granularity=512
   
   '''
 # ---
@@ -4190,42 +4396,6 @@
       ORDER BY (toDate(min_first_timestamp), team_id, session_id)
   SETTINGS index_granularity=512
   
-  '''
-# ---
-# name: test_create_table_query[sharded_session_replay_events_v2_test]
-  '''
-  
-      CREATE TABLE IF NOT EXISTS sharded_session_replay_events_v2_test ON CLUSTER 'posthog'
-      (
-          session_id VARCHAR,
-          team_id Int64,
-          distinct_id VARCHAR,
-          min_first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
-          max_last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
-          block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
-          block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
-          block_urls SimpleAggregateFunction(groupArrayArray, Array(String)),
-          first_url AggregateFunction(argMin, Nullable(VARCHAR), DateTime64(6, 'UTC')),
-          all_urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
-          click_count SimpleAggregateFunction(sum, Int64),
-          keypress_count SimpleAggregateFunction(sum, Int64),
-          mouse_activity_count SimpleAggregateFunction(sum, Int64),
-          active_milliseconds SimpleAggregateFunction(sum, Int64),
-          console_log_count SimpleAggregateFunction(sum, Int64),
-          console_warn_count SimpleAggregateFunction(sum, Int64),
-          console_error_count SimpleAggregateFunction(sum, Int64),
-          size SimpleAggregateFunction(sum, Int64),
-          message_count SimpleAggregateFunction(sum, Int64),
-          event_count SimpleAggregateFunction(sum, Int64),
-          snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
-          snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-          _timestamp SimpleAggregateFunction(max, DateTime)
-      ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events_v2_test', '{replica}')
-  
-              PARTITION BY toYYYYMM(min_first_timestamp)
-              ORDER BY (toDate(min_first_timestamp), team_id, session_id)
-              SETTINGS index_granularity=512
-          
   '''
 # ---
 # name: test_create_table_query[sharded_sessions]
@@ -4774,22 +4944,6 @@
   
   '''
 # ---
-# name: test_create_table_query[writable_behavioral_cohorts_matches]
-  '''
-  
-  CREATE TABLE IF NOT EXISTS writable_behavioral_cohorts_matches
-  (
-      team_id Int64,
-      cohort_id Int64,
-      date Date,
-      person_id UUID,
-      condition String,
-      matches SimpleAggregateFunction(sum, UInt64),
-      latest_event_is_match AggregateFunction(argMax, UInt8, DateTime64(6))
-  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_behavioral_cohorts_matches', sipHash64(person_id))
-  
-  '''
-# ---
 # name: test_create_table_query[writable_cohort_membership]
   '''
   
@@ -4849,7 +5003,48 @@
       group2_created_at DateTime64,
       group3_created_at DateTime64,
       group4_created_at DateTime64,
-      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+      historical_migration Bool
+          , `dmat_string_0` Nullable(String)
+      , `dmat_string_1` Nullable(String)
+      , `dmat_string_2` Nullable(String)
+      , `dmat_string_3` Nullable(String)
+      , `dmat_string_4` Nullable(String)
+      , `dmat_string_5` Nullable(String)
+      , `dmat_string_6` Nullable(String)
+      , `dmat_string_7` Nullable(String)
+      , `dmat_string_8` Nullable(String)
+      , `dmat_string_9` Nullable(String)
+      , `dmat_numeric_0` Nullable(Float64)
+      , `dmat_numeric_1` Nullable(Float64)
+      , `dmat_numeric_2` Nullable(Float64)
+      , `dmat_numeric_3` Nullable(Float64)
+      , `dmat_numeric_4` Nullable(Float64)
+      , `dmat_numeric_5` Nullable(Float64)
+      , `dmat_numeric_6` Nullable(Float64)
+      , `dmat_numeric_7` Nullable(Float64)
+      , `dmat_numeric_8` Nullable(Float64)
+      , `dmat_numeric_9` Nullable(Float64)
+      , `dmat_bool_0` Nullable(UInt8)
+      , `dmat_bool_1` Nullable(UInt8)
+      , `dmat_bool_2` Nullable(UInt8)
+      , `dmat_bool_3` Nullable(UInt8)
+      , `dmat_bool_4` Nullable(UInt8)
+      , `dmat_bool_5` Nullable(UInt8)
+      , `dmat_bool_6` Nullable(UInt8)
+      , `dmat_bool_7` Nullable(UInt8)
+      , `dmat_bool_8` Nullable(UInt8)
+      , `dmat_bool_9` Nullable(UInt8)
+      , `dmat_datetime_0` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_1` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_2` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_3` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_4` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_5` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_6` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_7` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_8` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_9` Nullable(DateTime64(6, 'UTC'))
       
       
   , _timestamp DateTime
@@ -4917,7 +5112,9 @@
       group2_created_at DateTime64,
       group3_created_at DateTime64,
       group4_created_at DateTime64,
-      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+      historical_migration Bool
+      
       
       
   , _timestamp DateTime
@@ -5078,6 +5275,104 @@
   
   '''
 # ---
+# name: test_create_table_query[writable_posthog_document_embeddings]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_posthog_document_embeddings
+  (
+      team_id Int64,
+      product LowCardinality(String), -- Like "error tracking" or "session replay" - basically a bucket, you'd use this to ask clickhouse "what kind of documents do I have embeddings for, related to session replay"
+      document_type LowCardinality(String), -- The type of document this is an embedding for, e.g. "issue_fingerprint", "session_summary", "task_update" etc.
+      model_name LowCardinality(String), -- The name of the model used to generate this embedding. Includes embedding dimensionality, appended as e.g. "text-embedding-3-small-1024"
+      rendering LowCardinality(String), -- How the document was rendered to text, e.g. "with_error_message", "as_html" etc. Use "plain" if it was already text.
+      document_id String, -- A uuid, a path like "issue/<chunk_id>", whatever you like really
+      timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time (or similar), rather than the time the embedding was created
+      inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted (if a duplicate-key row was inserted, for example, this is what we use to choose the winner)
+      content String DEFAULT '', -- The actual text content that was embedded
+      metadata String DEFAULT '{}', -- JSON metadata for the document, stored as a string
+      embedding Array(Float64) -- The embedding itself
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'partitioned_sharded_posthog_document_embeddings', cityHash64(document_id))
+  
+  '''
+# ---
+# name: test_create_table_query[writable_posthog_document_embeddings_buffer]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_posthog_document_embeddings_buffer
+  (
+      team_id Int64,
+      product LowCardinality(String),
+      document_type LowCardinality(String),
+      model_name LowCardinality(String),  -- Used for filtering in model-specific MVs
+      rendering LowCardinality(String),
+      document_id String,
+      timestamp DateTime64(3, 'UTC'),
+      inserted_at DateTime64(3, 'UTC'),
+      content String DEFAULT '',
+      metadata String DEFAULT '{}',
+      embedding Array(Float64)
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_posthog_document_embeddings_buffer', cityHash64(document_id))
+  
+  '''
+# ---
+# name: test_create_table_query[writable_posthog_document_embeddings_text_embedding_3_large_3072]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_posthog_document_embeddings_text_embedding_3_large_3072
+  (
+      team_id Int64,
+      product LowCardinality(String), -- Like "error tracking" or "session replay" - basically a bucket
+      document_type LowCardinality(String), -- The type of document this is an embedding for
+      rendering LowCardinality(String), -- How the document was rendered to text
+      document_id String, -- A uuid, a path like "issue/<chunk_id>", whatever you like really
+      timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time
+      inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted
+      content String DEFAULT '', -- The actual text content that was embedded
+      metadata String DEFAULT '{}', -- JSON metadata for the document, stored as a string
+      embedding Array(Float64) -- The embedding itself
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_posthog_document_embeddings_text_embedding_3_large_3072', cityHash64(document_id))
+  
+  '''
+# ---
+# name: test_create_table_query[writable_posthog_document_embeddings_text_embedding_3_small_1536]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_posthog_document_embeddings_text_embedding_3_small_1536
+  (
+      team_id Int64,
+      product LowCardinality(String), -- Like "error tracking" or "session replay" - basically a bucket
+      document_type LowCardinality(String), -- The type of document this is an embedding for
+      rendering LowCardinality(String), -- How the document was rendered to text
+      document_id String, -- A uuid, a path like "issue/<chunk_id>", whatever you like really
+      timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time
+      inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted
+      content String DEFAULT '', -- The actual text content that was embedded
+      metadata String DEFAULT '{}', -- JSON metadata for the document, stored as a string
+      embedding Array(Float64) -- The embedding itself
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_posthog_document_embeddings_text_embedding_3_small_1536', cityHash64(document_id))
+  
+  '''
+# ---
 # name: test_create_table_query[writable_precalculated_events]
   '''
   
@@ -5215,7 +5510,7 @@
       max_inserted_at SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
   
       -- urls
-      urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      urls SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
       entry_url AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       end_url AggregateFunction(argMax, Nullable(String), DateTime64(6, 'UTC')),
       last_external_click_url AggregateFunction(argMax, Nullable(String), DateTime64(6, 'UTC')),
@@ -5275,32 +5570,14 @@
   
       -- Flags - store every seen value for each flag
       flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
+      flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+  
+      -- Event names - store unique event names seen in this session
+      event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
   
       -- Replay
       has_replay_events SimpleAggregateFunction(max, Boolean)
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_raw_sessions_v3', cityHash64(session_id_v7))
-  
-  '''
-# ---
-# name: test_create_table_query[writable_session_recording_events]
-  '''
-  
-  CREATE TABLE IF NOT EXISTS writable_session_recording_events ON CLUSTER 'posthog'
-  (
-      uuid UUID,
-      timestamp DateTime64(6, 'UTC'),
-      team_id Int64,
-      distinct_id VARCHAR,
-      session_id VARCHAR,
-      window_id VARCHAR,
-      snapshot_data VARCHAR,
-      created_at DateTime64(6, 'UTC')
-      
-      
-  , _timestamp DateTime
-  , _offset UInt64
-  
-  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_recording_events', sipHash64(distinct_id))
   
   '''
 # ---
@@ -5352,38 +5629,6 @@
       -- retention period for this session, in days. Useful to show TTL for the recording
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
-  
-  '''
-# ---
-# name: test_create_table_query[writable_session_replay_events_v2_test]
-  '''
-  
-      CREATE TABLE IF NOT EXISTS writable_session_replay_events_v2_test 
-      (
-          session_id VARCHAR,
-          team_id Int64,
-          distinct_id VARCHAR,
-          min_first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
-          max_last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
-          block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
-          block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
-          block_urls SimpleAggregateFunction(groupArrayArray, Array(String)),
-          first_url AggregateFunction(argMin, Nullable(VARCHAR), DateTime64(6, 'UTC')),
-          all_urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
-          click_count SimpleAggregateFunction(sum, Int64),
-          keypress_count SimpleAggregateFunction(sum, Int64),
-          mouse_activity_count SimpleAggregateFunction(sum, Int64),
-          active_milliseconds SimpleAggregateFunction(sum, Int64),
-          console_log_count SimpleAggregateFunction(sum, Int64),
-          console_warn_count SimpleAggregateFunction(sum, Int64),
-          console_error_count SimpleAggregateFunction(sum, Int64),
-          size SimpleAggregateFunction(sum, Int64),
-          message_count SimpleAggregateFunction(sum, Int64),
-          event_count SimpleAggregateFunction(sum, Int64),
-          snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
-          snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-          _timestamp SimpleAggregateFunction(max, DateTime)
-      ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events_v2_test', sipHash64(distinct_id))
   
   '''
 # ---
@@ -5661,7 +5906,9 @@
       group2_created_at DateTime64,
       group3_created_at DateTime64,
       group4_created_at DateTime64,
-      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+      historical_migration Bool
+      
       
       
   , _timestamp DateTime
@@ -5743,6 +5990,43 @@
   
   SETTINGS index_granularity=512
   
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[partitioned_sharded_posthog_document_embeddings]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS partitioned_sharded_posthog_document_embeddings
+  (
+      team_id Int64,
+      product LowCardinality(String), -- Like "error tracking" or "session replay" - basically a bucket, you'd use this to ask clickhouse "what kind of documents do I have embeddings for, related to session replay"
+      document_type LowCardinality(String), -- The type of document this is an embedding for, e.g. "issue_fingerprint", "session_summary", "task_update" etc.
+      model_name LowCardinality(String), -- The name of the model used to generate this embedding. Includes embedding dimensionality, appended as e.g. "text-embedding-3-small-1024"
+      rendering LowCardinality(String), -- How the document was rendered to text, e.g. "with_error_message", "as_html" etc. Use "plain" if it was already text.
+      document_id String, -- A uuid, a path like "issue/<chunk_id>", whatever you like really
+      timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time (or similar), rather than the time the embedding was created
+      inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted (if a duplicate-key row was inserted, for example, this is what we use to choose the winner)
+      content String DEFAULT '', -- The actual text content that was embedded
+      metadata String DEFAULT '{}', -- JSON metadata for the document, stored as a string
+      embedding Array(Float64) -- The embedding itself
+      
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+      , INDEX kafka_timestamp_minmax_partitioned_sharded_posthog_document_embeddings _timestamp TYPE minmax GRANULARITY 3
+      
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.partitioned_sharded_posthog_document_embeddings', '{replica}', inserted_at)
+  
+      -- This index assumes:
+      --  - people will /always/ provide a date range
+      --  - "show me documents of type X by any model" will be more common than "show me all documents by model X"
+      --  - Documents with the same ID whose timestamp is in the same day are the same document, and the later inserted one should be retained
+      PARTITION BY toMonday(timestamp)
+      ORDER BY (team_id, toDate(timestamp), product, document_type, model_name, rendering, cityHash64(document_id))
+      TTL timestamp + INTERVAL 3 MONTH
+      SETTINGS index_granularity = 512, ttl_only_drop_parts = 1
+      
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[person]
@@ -5969,40 +6253,6 @@
   
   '''
 # ---
-# name: test_create_table_query_replicated_and_storage[posthog_document_embeddings]
-  '''
-  
-  CREATE TABLE IF NOT EXISTS posthog_document_embeddings
-  (
-      team_id Int64,
-      product LowCardinality(String), -- Like "error tracking" or "session replay" - basically a bucket, you'd use this to ask clickhouse "what kind of documents do I have embeddings for, related to session replay"
-      document_type LowCardinality(String), -- The type of document this is an embedding for, e.g. "issue_fingerprint", "session_summary", "task_update" etc.
-      model_name LowCardinality(String), -- The name of the model used to generate this embedding. Includes embedding dimensionality, appended as e.g. "text-embedding-3-small-1024"
-      rendering LowCardinality(String), -- How the document was rendered to text, e.g. "with_error_message", "as_html" etc. Use "plain" if it was already text.
-      document_id String, -- A uuid, a path like "issue/<chunk_id>", whatever you like really
-      timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time (or similar), rather than the time the embedding was created
-      inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted (if a duplicate-key row was inserted, for example, this is what we use to choose the winner)
-      content String DEFAULT '', -- The actual text content that was embedded
-      embedding Array(Float64) -- The embedding itself
-      
-      
-  , _timestamp DateTime
-  , _offset UInt64
-  , _partition UInt64
-  
-      , INDEX kafka_timestamp_minmax_posthog_document_embeddings _timestamp TYPE minmax GRANULARITY 3
-      
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.posthog_document_embeddings', '{replica}-{shard}', inserted_at)
-  
-      -- This index assumes:
-      --  - people will /always/ provide a date range
-      --  - "show me documents of type X by any model" will be more common than "show me all documents by model X"
-      --  - Documents with the same ID whose timestamp is in the same day are the same document, and the later inserted one should be retained
-      ORDER BY (team_id, toDate(timestamp), product, document_type, model_name, rendering, cityHash64(document_id))
-      SETTINGS index_granularity = 512
-      
-  '''
-# ---
 # name: test_create_table_query_replicated_and_storage[query_log_archive]
   '''
   
@@ -6077,6 +6327,7 @@
       lc_org_id String,
       team_id Int64, -- renamed from lc_team_id, no longer an alias
       lc_user_id Int64,
+      lc_is_impersonated Bool,
       lc_session_id String,
   
       lc_dashboard_id Int64,
@@ -6177,26 +6428,6 @@
   
   '''
 # ---
-# name: test_create_table_query_replicated_and_storage[sharded_behavioral_cohorts_matches]
-  '''
-  
-  CREATE TABLE IF NOT EXISTS sharded_behavioral_cohorts_matches
-  (
-      team_id Int64,
-      cohort_id Int64,
-      date Date,
-      person_id UUID,
-      condition String,
-      matches SimpleAggregateFunction(sum, UInt64),
-      latest_event_is_match AggregateFunction(argMax, UInt8, DateTime64(6))
-  ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_behavioral_cohorts_matches', '{replica}')
-  PARTITION BY toYYYYMM(date)
-  ORDER BY (team_id, cohort_id, condition, date, person_id)
-  
-  SETTINGS ttl_only_drop_parts = 1
-  
-  '''
-# ---
 # name: test_create_table_query_replicated_and_storage[sharded_events]
   '''
   
@@ -6223,7 +6454,48 @@
       group2_created_at DateTime64,
       group3_created_at DateTime64,
       group4_created_at DateTime64,
-      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+      historical_migration Bool
+          , `dmat_string_0` Nullable(String)
+      , `dmat_string_1` Nullable(String)
+      , `dmat_string_2` Nullable(String)
+      , `dmat_string_3` Nullable(String)
+      , `dmat_string_4` Nullable(String)
+      , `dmat_string_5` Nullable(String)
+      , `dmat_string_6` Nullable(String)
+      , `dmat_string_7` Nullable(String)
+      , `dmat_string_8` Nullable(String)
+      , `dmat_string_9` Nullable(String)
+      , `dmat_numeric_0` Nullable(Float64)
+      , `dmat_numeric_1` Nullable(Float64)
+      , `dmat_numeric_2` Nullable(Float64)
+      , `dmat_numeric_3` Nullable(Float64)
+      , `dmat_numeric_4` Nullable(Float64)
+      , `dmat_numeric_5` Nullable(Float64)
+      , `dmat_numeric_6` Nullable(Float64)
+      , `dmat_numeric_7` Nullable(Float64)
+      , `dmat_numeric_8` Nullable(Float64)
+      , `dmat_numeric_9` Nullable(Float64)
+      , `dmat_bool_0` Nullable(UInt8)
+      , `dmat_bool_1` Nullable(UInt8)
+      , `dmat_bool_2` Nullable(UInt8)
+      , `dmat_bool_3` Nullable(UInt8)
+      , `dmat_bool_4` Nullable(UInt8)
+      , `dmat_bool_5` Nullable(UInt8)
+      , `dmat_bool_6` Nullable(UInt8)
+      , `dmat_bool_7` Nullable(UInt8)
+      , `dmat_bool_8` Nullable(UInt8)
+      , `dmat_bool_9` Nullable(UInt8)
+      , `dmat_datetime_0` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_1` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_2` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_3` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_4` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_5` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_6` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_7` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_8` Nullable(DateTime64(6, 'UTC'))
+      , `dmat_datetime_9` Nullable(DateTime64(6, 'UTC'))
       
       , $group_0 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^"|"$', '') COMMENT 'column_materializer::$group_0'
       , $group_1 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^"|"$', '') COMMENT 'column_materializer::$group_1'
@@ -6415,6 +6687,115 @@
   
   '''
 # ---
+# name: test_create_table_query_replicated_and_storage[sharded_posthog_document_embeddings_buffer]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_posthog_document_embeddings_buffer
+  (
+      team_id Int64,
+      product LowCardinality(String),
+      document_type LowCardinality(String),
+      model_name LowCardinality(String),  -- Used for filtering in model-specific MVs
+      rendering LowCardinality(String),
+      document_id String,
+      timestamp DateTime64(3, 'UTC'),
+      inserted_at DateTime64(3, 'UTC'),
+      content String DEFAULT '',
+      metadata String DEFAULT '{}',
+      embedding Array(Float64)
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_posthog_document_embeddings_buffer', '{replica}', inserted_at)
+  PARTITION BY toDate(inserted_at)
+  ORDER BY (inserted_at, model_name, cityHash64(document_id))
+  TTL inserted_at + INTERVAL 1 DAY
+  SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_posthog_document_embeddings_text_embedding_3_large_3072]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_posthog_document_embeddings_text_embedding_3_large_3072
+  (
+      team_id Int64,
+      product LowCardinality(String), -- Like "error tracking" or "session replay" - basically a bucket
+      document_type LowCardinality(String), -- The type of document this is an embedding for
+      rendering LowCardinality(String), -- How the document was rendered to text
+      document_id String, -- A uuid, a path like "issue/<chunk_id>", whatever you like really
+      timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time
+      inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted
+      content String DEFAULT '', -- The actual text content that was embedded
+      metadata String DEFAULT '{}', -- JSON metadata for the document, stored as a string
+      embedding Array(Float64) -- The embedding itself
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  , INDEX kafka_timestamp_minmax_sharded_posthog_document_embeddings_text_embedding_3_large_3072 _timestamp TYPE minmax GRANULARITY 3, CONSTRAINT embedding_dimension_check CHECK length(embedding) = 3072
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_posthog_document_embeddings_text_embedding_3_large_3072', '{replica}', inserted_at)
+  
+      PARTITION BY toMonday(timestamp)
+      ORDER BY (team_id, toDate(timestamp), product, document_type, rendering, cityHash64(document_id))
+      TTL timestamp + INTERVAL 3 MONTH
+      SETTINGS index_granularity = 512, ttl_only_drop_parts = 1
+      
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_posthog_document_embeddings_text_embedding_3_small_1536]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_posthog_document_embeddings_text_embedding_3_small_1536
+  (
+      team_id Int64,
+      product LowCardinality(String), -- Like "error tracking" or "session replay" - basically a bucket
+      document_type LowCardinality(String), -- The type of document this is an embedding for
+      rendering LowCardinality(String), -- How the document was rendered to text
+      document_id String, -- A uuid, a path like "issue/<chunk_id>", whatever you like really
+      timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time
+      inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted
+      content String DEFAULT '', -- The actual text content that was embedded
+      metadata String DEFAULT '{}', -- JSON metadata for the document, stored as a string
+      embedding Array(Float64) -- The embedding itself
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  , INDEX kafka_timestamp_minmax_sharded_posthog_document_embeddings_text_embedding_3_small_1536 _timestamp TYPE minmax GRANULARITY 3, CONSTRAINT embedding_dimension_check CHECK length(embedding) = 1536
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_posthog_document_embeddings_text_embedding_3_small_1536', '{replica}', inserted_at)
+  
+      PARTITION BY toMonday(timestamp)
+      ORDER BY (team_id, toDate(timestamp), product, document_type, rendering, cityHash64(document_id))
+      TTL timestamp + INTERVAL 3 MONTH
+      SETTINGS index_granularity = 512, ttl_only_drop_parts = 1
+      
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_preaggregation_results]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_preaggregation_results
+  (
+      team_id Int64,
+      job_id UUID,
+      time_window_start DateTime64(6, 'UTC'),
+  
+      -- Breakdown dimension (empty array for no breakdown)
+      breakdown_value Array(String),
+  
+      -- Aggregate state column (uniqExact for precision)
+      uniq_exact_state AggregateFunction(uniqExact, UUID)
+  ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.preaggregation_results', '{replica}')
+  
+  PARTITION BY toYYYYMM(time_window_start)
+  ORDER BY (team_id, job_id, time_window_start, breakdown_value)
+  SETTINGS index_granularity=8192
+  
+  '''
+# ---
 # name: test_create_table_query_replicated_and_storage[sharded_precalculated_events]
   '''
   
@@ -6563,7 +6944,7 @@
       max_inserted_at SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
   
       -- urls
-      urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      urls SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
       entry_url AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       end_url AggregateFunction(argMax, Nullable(String), DateTime64(6, 'UTC')),
       last_external_click_url AggregateFunction(argMax, Nullable(String), DateTime64(6, 'UTC')),
@@ -6623,9 +7004,18 @@
   
       -- Flags - store every seen value for each flag
       flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
+      flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+  
+      -- Event names - store unique event names seen in this session
+      event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
   
       -- Replay
       has_replay_events SimpleAggregateFunction(max, Boolean)
+  ,
+  
+      -- Indexes
+      INDEX event_names_bloom_filter event_names TYPE bloom_filter() GRANULARITY 1,
+      INDEX flag_keys_bloom_filter flag_keys TYPE bloom_filter() GRANULARITY 1
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.raw_sessions_v3', '{replica}')
   
   PARTITION BY toYYYYMM(session_timestamp)
@@ -6635,35 +7025,6 @@
       session_id_v7
   )
   SETTINGS parts_to_delay_insert = 250, max_delay_to_insert = 10, parts_to_throw_insert = 1000
-  
-  '''
-# ---
-# name: test_create_table_query_replicated_and_storage[sharded_session_recording_events]
-  '''
-  
-  CREATE TABLE IF NOT EXISTS sharded_session_recording_events ON CLUSTER 'posthog'
-  (
-      uuid UUID,
-      timestamp DateTime64(6, 'UTC'),
-      team_id Int64,
-      distinct_id VARCHAR,
-      session_id VARCHAR,
-      window_id VARCHAR,
-      snapshot_data VARCHAR,
-      created_at DateTime64(6, 'UTC')
-      , has_full_snapshot Int8 MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot'), events_summary Array(String) MATERIALIZED JSONExtract(JSON_QUERY(snapshot_data, '$.events_summary[*]'), 'Array(String)'), click_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 2, events_summary)), keypress_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 5, events_summary)), timestamps_summary Array(DateTime64(6, 'UTC')) MATERIALIZED arraySort(arrayMap((x) -> toDateTime(JSONExtractInt(x, 'timestamp') / 1000), events_summary)), first_event_timestamp Nullable(DateTime64(6, 'UTC')) MATERIALIZED if(empty(timestamps_summary), NULL, arrayReduce('min', timestamps_summary)), last_event_timestamp Nullable(DateTime64(6, 'UTC')) MATERIALIZED if(empty(timestamps_summary), NULL, arrayReduce('max', timestamps_summary)), urls Array(String) MATERIALIZED arrayFilter(x -> x != '', arrayMap((x) -> JSONExtractString(x, 'data', 'href'), events_summary))
-      
-      
-  , _timestamp DateTime
-  , _offset UInt64
-  
-      , INDEX kafka_timestamp_minmax_sharded_session_recording_events _timestamp TYPE minmax GRANULARITY 3
-      
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_recording_events', '{replica}', _timestamp)
-  PARTITION BY toYYYYMMDD(timestamp)
-  ORDER BY (team_id, toHour(timestamp), session_id, timestamp, uuid)
-  
-  SETTINGS index_granularity=512
   
   '''
 # ---
@@ -6730,42 +7091,6 @@
       ORDER BY (toDate(min_first_timestamp), team_id, session_id)
   SETTINGS index_granularity=512
   
-  '''
-# ---
-# name: test_create_table_query_replicated_and_storage[sharded_session_replay_events_v2_test]
-  '''
-  
-      CREATE TABLE IF NOT EXISTS sharded_session_replay_events_v2_test ON CLUSTER 'posthog'
-      (
-          session_id VARCHAR,
-          team_id Int64,
-          distinct_id VARCHAR,
-          min_first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
-          max_last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
-          block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
-          block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
-          block_urls SimpleAggregateFunction(groupArrayArray, Array(String)),
-          first_url AggregateFunction(argMin, Nullable(VARCHAR), DateTime64(6, 'UTC')),
-          all_urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
-          click_count SimpleAggregateFunction(sum, Int64),
-          keypress_count SimpleAggregateFunction(sum, Int64),
-          mouse_activity_count SimpleAggregateFunction(sum, Int64),
-          active_milliseconds SimpleAggregateFunction(sum, Int64),
-          console_log_count SimpleAggregateFunction(sum, Int64),
-          console_warn_count SimpleAggregateFunction(sum, Int64),
-          console_error_count SimpleAggregateFunction(sum, Int64),
-          size SimpleAggregateFunction(sum, Int64),
-          message_count SimpleAggregateFunction(sum, Int64),
-          event_count SimpleAggregateFunction(sum, Int64),
-          snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
-          snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-          _timestamp SimpleAggregateFunction(max, DateTime)
-      ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events_v2_test', '{replica}')
-  
-              PARTITION BY toYYYYMM(min_first_timestamp)
-              ORDER BY (toDate(min_first_timestamp), team_id, session_id)
-              SETTINGS index_granularity=512
-          
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[sharded_sessions]

@@ -31,7 +31,7 @@ class TestAnthropicIntegration(APIBaseTest):
         response = self.client.post(
             f"{self.base_url}/v1/messages/",
             data={
-                "model": "claude-3-5-sonnet-20241022",
+                "model": "claude-sonnet-4-20250514",
                 "messages": [{"role": "user", "content": "Say 'test successful' and nothing else"}],
                 "max_tokens": 100,
             },
@@ -52,7 +52,7 @@ class TestAnthropicIntegration(APIBaseTest):
         response = self.client.post(
             f"{self.base_url}/v1/messages/",
             data={
-                "model": "claude-3-5-sonnet-20241022",
+                "model": "claude-sonnet-4-20250514",
                 "messages": [{"role": "user", "content": "What are you?"}],
                 "max_tokens": 100,
                 "system": "You are a test assistant. Always respond with 'I am a test'.",
@@ -69,7 +69,7 @@ class TestAnthropicIntegration(APIBaseTest):
         response = self.client.post(
             f"{self.base_url}/v1/messages/",
             data={
-                "model": "claude-3-5-sonnet-20241022",
+                "model": "claude-sonnet-4-20250514",
                 "messages": [{"role": "user", "content": "Say hello"}],
                 "max_tokens": 50,
                 "temperature": 0.5,
@@ -85,7 +85,7 @@ class TestAnthropicIntegration(APIBaseTest):
         response = self.client.post(
             f"{self.base_url}/v1/messages/",
             data={
-                "model": "claude-3-5-sonnet-20241022",
+                "model": "claude-sonnet-4-20250514",
                 "messages": [{"role": "user", "content": "Count to 3"}],
                 "max_tokens": 100,
                 "stream": True,
@@ -100,7 +100,7 @@ class TestAnthropicIntegration(APIBaseTest):
         response = self.client.post(
             f"{self.base_url}/v1/messages/",
             data={
-                "model": "claude-3-5-sonnet-20241022",
+                "model": "claude-sonnet-4-20250514",
                 "messages": [{"role": "user", "content": "Count: 1, 2, 3, 4, 5"}],
                 "max_tokens": 100,
                 "stop_sequences": ["3"],

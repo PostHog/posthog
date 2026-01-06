@@ -11,7 +11,8 @@ use crate::database::{
     get_connection_with_metrics, get_writer_connection_with_metrics, PostgresRouter,
 };
 use common_database::PostgresReader;
-use common_types::{Person, PersonId, ProjectId, TeamId};
+use common_types::{Person, PersonId, TeamId};
+use once_cell::sync::Lazy;
 use serde_json::Value;
 use sha1::{Digest, Sha1};
 use sqlx::{Acquire, Row};
@@ -25,11 +26,11 @@ use crate::{
     api::{errors::FlagError, types::FlagValue},
     cohorts::cohort_models::CohortId,
     flags::flag_models::FeatureFlagId,
+    handler::with_canonical_log,
     metrics::consts::{
-        FLAG_COHORT_PROCESSING_TIME, FLAG_COHORT_QUERY_TIME, FLAG_CONNECTION_HOLD_TIME,
-        FLAG_DATABASE_ERROR_COUNTER, FLAG_DEFINITION_QUERY_TIME, FLAG_GROUP_PROCESSING_TIME,
-        FLAG_GROUP_QUERY_TIME, FLAG_HASH_KEY_RETRIES_COUNTER, FLAG_PERSON_PROCESSING_TIME,
-        FLAG_PERSON_QUERY_TIME, FLAG_POOL_UTILIZATION_GAUGE,
+        FLAG_COHORT_PROCESSING_TIME, FLAG_COHORT_QUERY_TIME, FLAG_DATABASE_ERROR_COUNTER,
+        FLAG_DEFINITION_QUERY_TIME, FLAG_GROUP_PROCESSING_TIME, FLAG_GROUP_QUERY_TIME,
+        FLAG_HASH_KEY_RETRIES_COUNTER, FLAG_PERSON_PROCESSING_TIME, FLAG_PERSON_QUERY_TIME,
     },
     properties::{
         property_matching::match_property,
@@ -40,6 +41,57 @@ use crate::{
 use super::{flag_group_type_mapping::GroupTypeIndex, flag_matching::FlagEvaluationState};
 
 const LONG_SCALE: u64 = 0xfffffffffffffff;
+
+/// Precomputed mapping from property name to its $initial_ equivalent.
+/// Source: posthog/taxonomy/taxonomy.py - PERSON_PROPERTIES_ADAPTED_FROM_EVENT + CAMPAIGN_PROPERTIES
+static INITIAL_PROPERTY_MAP: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
+    HashMap::from([
+        // PERSON_PROPERTIES_ADAPTED_FROM_EVENT
+        ("$app_build", "$initial_app_build"),
+        ("$app_name", "$initial_app_name"),
+        ("$app_namespace", "$initial_app_namespace"),
+        ("$app_version", "$initial_app_version"),
+        ("$browser", "$initial_browser"),
+        ("$browser_version", "$initial_browser_version"),
+        ("$device_type", "$initial_device_type"),
+        ("$current_url", "$initial_current_url"),
+        ("$pathname", "$initial_pathname"),
+        ("$os", "$initial_os"),
+        ("$os_version", "$initial_os_version"),
+        ("$referring_domain", "$initial_referring_domain"),
+        ("$referrer", "$initial_referrer"),
+        ("$screen_height", "$initial_screen_height"),
+        ("$screen_width", "$initial_screen_width"),
+        ("$viewport_height", "$initial_viewport_height"),
+        ("$viewport_width", "$initial_viewport_width"),
+        ("$raw_user_agent", "$initial_raw_user_agent"),
+        // CAMPAIGN_PROPERTIES
+        ("utm_source", "$initial_utm_source"),
+        ("utm_medium", "$initial_utm_medium"),
+        ("utm_campaign", "$initial_utm_campaign"),
+        ("utm_content", "$initial_utm_content"),
+        ("utm_term", "$initial_utm_term"),
+        ("gclid", "$initial_gclid"),
+        ("gad_source", "$initial_gad_source"),
+        ("gclsrc", "$initial_gclsrc"),
+        ("dclid", "$initial_dclid"),
+        ("gbraid", "$initial_gbraid"),
+        ("wbraid", "$initial_wbraid"),
+        ("fbclid", "$initial_fbclid"),
+        ("msclkid", "$initial_msclkid"),
+        ("twclid", "$initial_twclid"),
+        ("li_fat_id", "$initial_li_fat_id"),
+        ("mc_cid", "$initial_mc_cid"),
+        ("igshid", "$initial_igshid"),
+        ("ttclid", "$initial_ttclid"),
+        ("rdt_cid", "$initial_rdt_cid"),
+        ("epik", "$initial_epik"),
+        ("qclid", "$initial_qclid"),
+        ("sccid", "$initial_sccid"),
+        ("irclid", "$initial_irclid"),
+        ("_kx", "$initial__kx"),
+    ])
+});
 
 // Replace the static counter with thread-local storage
 #[cfg(test)]
@@ -69,6 +121,34 @@ pub fn calculate_hash(prefix: &str, hashed_identifier: &str, salt: &str) -> Resu
     Ok(hash_val as f64 / LONG_SCALE as f64)
 }
 
+/// Populates missing `$initial_` properties from their non-initial counterparts.
+///
+/// This mitigates ingestion lag: `$initial_` properties are set by ingestion upon
+/// first seeing a property value, but there can be a delay when writing these properties.
+/// Without this, feature flag conditions filtering on `$initial_` properties would not
+/// match during this window, even though the current property value exists.
+///
+/// Property name transformations:
+/// - `$browser` -> `$initial_browser`
+/// - `utm_source` -> `$initial_utm_source`
+pub fn populate_missing_initial_properties(properties: &mut HashMap<String, Value>) {
+    let properties_to_add: Vec<(&str, Value)> = properties
+        .iter()
+        .filter_map(|(key, value)| {
+            let initial_key = INITIAL_PROPERTY_MAP.get(key.as_str())?;
+            if !properties.contains_key(*initial_key) {
+                Some((*initial_key, value.clone()))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    for (key, value) in properties_to_add {
+        properties.insert(key.to_string(), value);
+    }
+}
+
 /// Fetch and locally cache all properties for a given distinct ID and team ID.
 ///
 /// This function fetches both person and group properties for a specified distinct ID and team ID.
@@ -92,6 +172,10 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     // Add the test-specific counter increment
     #[cfg(test)]
     increment_fetch_calls_count();
+
+    // Track database property fetch in canonical log
+    with_canonical_log(|log| log.db_property_fetches += 1);
+
     // Log pool stats before attempting connection
     if let Some(stats) = reader.as_ref().get_pool_stats() {
         info!(
@@ -157,6 +241,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
         .map(|p| (Some(p.id), Some(p.properties)))
         .unwrap_or((None, None));
     person_query_timer.fin();
+    with_canonical_log(|log| log.person_queries += 1);
 
     let person_query_duration = person_query_start.elapsed();
 
@@ -204,6 +289,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
                 .fetch_all(&mut *conn)
                 .await?;
             cohort_timer.fin();
+            with_canonical_log(|log| log.static_cohort_queries += 1);
 
             let cohort_query_duration = cohort_query_start.elapsed();
 
@@ -294,6 +380,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             .fetch_all(&mut *conn)
             .await?;
         group_query_timer.fin();
+        with_canonical_log(|log| log.group_queries += 1);
 
         let group_query_duration = group_query_start.elapsed();
 
@@ -383,6 +470,16 @@ fn should_retry_on_error(error: &FlagError) -> bool {
         FlagError::DatabaseError(sqlx_error, _) => common_database::is_transient_error(sqlx_error),
 
         // Other error types generally should not be retried
+        _ => false,
+    }
+}
+
+/// Check if a FlagError contains a foreign key constraint violation
+fn flag_error_is_foreign_key_constraint(error: &FlagError) -> bool {
+    match error {
+        FlagError::DatabaseError(sqlx_error, _) => {
+            common_database::is_foreign_key_constraint_error(sqlx_error)
+        }
         _ => false,
     }
 }
@@ -643,7 +740,6 @@ pub async fn set_feature_flag_hash_key_overrides(
     router: &PostgresRouter,
     team_id: TeamId,
     distinct_ids: Vec<String>,
-    project_id: ProjectId,
     hash_key_override: String,
 ) -> Result<bool, FlagError> {
     let retry_strategy = ExponentialBackoff::from_millis(100)
@@ -657,13 +753,13 @@ pub async fn set_feature_flag_hash_key_overrides(
             router,
             team_id,
             &distinct_ids,
-            project_id,
             &hash_key_override,
         )
         .await;
 
+        // Only retry on foreign key constraint errors (person deletion race condition)
         match &result {
-            Err(e) => {
+            Err(e) if flag_error_is_foreign_key_constraint(e) => {
                 // Track error classification
                 classify_and_track_error(e, "set_hash_key_overrides", true);
 
@@ -684,10 +780,17 @@ pub async fn set_feature_flag_hash_key_overrides(
                     team_id = %team_id,
                     distinct_ids = ?distinct_ids,
                     error = ?e,
-                    "Hash key override setting failed, will retry"
+                    "Hash key override setting failed due to a person deletion race condition, will retry"
                 );
 
                 // Return error to trigger retry
+                result
+            }
+            // For other errors, don't retry - return immediately to stop retrying
+            Err(e) => {
+                // Track error classification for non-retried errors
+                classify_and_track_error(e, "set_hash_key_overrides", false);
+
                 result
             }
             // Success case - return the result
@@ -703,7 +806,6 @@ async fn try_set_feature_flag_hash_key_overrides(
     router: &PostgresRouter,
     team_id: TeamId,
     distinct_ids: &[String],
-    project_id: ProjectId,
     hash_key_override: &str,
 ) -> Result<bool, FlagError> {
     // Get connection from persons writer for the transaction
@@ -726,10 +828,7 @@ async fn try_set_feature_flag_hash_key_overrides(
                 ON existing.person_id = p.person_id AND existing.team_id = p.team_id
             WHERE p.team_id = $1
                 AND p.distinct_id = ANY($2)
-                AND (
-                    EXISTS (SELECT 1 FROM posthog_person_new WHERE id = p.person_id AND team_id = p.team_id)
-                    OR EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id)
-                )
+                AND EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id)
         "#;
 
     // Query 2: Get all active feature flags with experience continuity (non-person pool)
@@ -737,7 +836,7 @@ async fn try_set_feature_flag_hash_key_overrides(
             SELECT flag.key
             FROM posthog_featureflag flag
             JOIN posthog_team team ON flag.team_id = team.id
-            WHERE team.project_id = $1
+            WHERE team.id = $1
                 AND flag.ensure_experience_continuity = TRUE
                 AND flag.active = TRUE
                 AND flag.deleted = FALSE
@@ -842,7 +941,7 @@ async fn try_set_feature_flag_hash_key_overrides(
         let flags_query_timer =
             common_metrics::timing_guard(FLAG_DEFINITION_QUERY_TIME, &flags_labels);
         let flag_rows = sqlx::query(flags_query)
-            .bind(project_id)
+            .bind(team_id)
             .fetch_all(&mut *non_persons_conn)
             .await
             .map_err(FlagError::from)?;
@@ -852,7 +951,7 @@ async fn try_set_feature_flag_hash_key_overrides(
         if flags_query_duration.as_millis() > 200 {
             warn!(
                 duration_ms = flags_query_duration.as_millis(),
-                project_id = project_id,
+                team_id = team_id,
                 sql_summary =
                     "SELECT active feature flags with ensure_experience_continuity = true",
                 "Slow active flags query detected in set_hash_key_overrides"
@@ -860,7 +959,7 @@ async fn try_set_feature_flag_hash_key_overrides(
         } else {
             info!(
                 duration_ms = flags_query_duration.as_millis(),
-                project_id = project_id,
+                team_id = team_id,
                 "Active flags query completed in set_hash_key_overrides"
             );
         }
@@ -963,7 +1062,6 @@ pub async fn should_write_hash_key_override(
     router: &PostgresRouter,
     team_id: TeamId,
     distinct_id: String,
-    project_id: ProjectId,
     hash_key_override: String,
 ) -> Result<bool, FlagError> {
     let retry_strategy = ExponentialBackoff::from_millis(100)
@@ -975,11 +1073,11 @@ pub async fn should_write_hash_key_override(
 
     // Use tokio-retry to automatically retry on transient failures
     Retry::spawn(retry_strategy, || async {
-        let result =
-            try_should_write_hash_key_override(router, team_id, &distinct_ids, project_id).await;
+        let result = try_should_write_hash_key_override(router, team_id, &distinct_ids).await;
 
+        // Only retry on foreign key constraint errors (person deletion race condition)
         match &result {
-            Err(e) => {
+            Err(e) if flag_error_is_foreign_key_constraint(e) => {
                 // Increment retry counter for monitoring
                 common_metrics::inc(
                     FLAG_HASH_KEY_RETRIES_COUNTER,
@@ -1003,6 +1101,13 @@ pub async fn should_write_hash_key_override(
                 // Return error to trigger retry
                 result
             }
+            // For other errors, don't retry - return immediately to stop retrying
+            Err(e) => {
+                // Track error classification for non-retried errors
+                classify_and_track_error(e, "should_write_hash_key_override", false);
+
+                result
+            }
             // Success case - return the result
             Ok(_) => result,
         }
@@ -1016,7 +1121,6 @@ async fn try_should_write_hash_key_override(
     router: &PostgresRouter,
     team_id: TeamId,
     distinct_ids: &[String],
-    project_id: ProjectId,
 ) -> Result<bool, FlagError> {
     // Query 1: Get person_ids and existing overrides from person pool in one shot
     let person_data_query = r#"
@@ -1028,17 +1132,14 @@ async fn try_should_write_hash_key_override(
             ON existing.person_id = p.person_id AND existing.team_id = p.team_id
         WHERE p.team_id = $1
             AND p.distinct_id = ANY($2)
-            AND (
-                EXISTS (SELECT 1 FROM posthog_person_new WHERE id = p.person_id AND team_id = p.team_id)
-                OR EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id)
-            )
+            AND EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id)
     "#;
 
     // Query 2: Get feature flags from non-person pool
     let flags_query = r#"
         SELECT key FROM posthog_featureflag flag
         JOIN posthog_team team ON flag.team_id = team.id
-        WHERE team.project_id = $1
+        WHERE team.id = $1
             AND flag.ensure_experience_continuity = TRUE
             AND flag.active = TRUE
             AND flag.deleted = FALSE
@@ -1067,17 +1168,6 @@ async fn try_should_write_hash_key_override(
                 "High pool utilization before should_write_hash_key_override"
             );
         }
-
-        common_metrics::gauge(
-            FLAG_POOL_UTILIZATION_GAUGE,
-            &[("pool".to_string(), "persons_reader".to_string())],
-            pr_utilization,
-        );
-        common_metrics::gauge(
-            FLAG_POOL_UTILIZATION_GAUGE,
-            &[("pool".to_string(), "non_persons_reader".to_string())],
-            npr_utilization,
-        );
     }
 
     // Step 1: Get person data and existing overrides (scoped connection)
@@ -1148,18 +1238,7 @@ async fn try_should_write_hash_key_override(
             })?;
         person_query_timer.fin();
 
-        // Record connection hold time for persons_reader pool
-        common_metrics::histogram(
-            FLAG_CONNECTION_HOLD_TIME,
-            &[
-                ("pool".to_string(), "persons_reader".to_string()),
-                ("operation".to_string(), "should_write_check".to_string()),
-            ],
-            persons_conn_start.elapsed().as_millis() as f64,
-        );
-
         person_data_rows
-        // Connection automatically released here when persons_conn goes out of scope
     };
 
     // If no person_ids found, there's nothing to check
@@ -1205,7 +1284,7 @@ async fn try_should_write_hash_key_override(
         let flags_query_timer =
             common_metrics::timing_guard(FLAG_DEFINITION_QUERY_TIME, &flags_labels);
         let rows = sqlx::query(flags_query)
-            .bind(project_id)
+            .bind(team_id)
             .fetch_all(&mut *non_persons_conn)
             .await
             .map_err(|e| {
@@ -1239,16 +1318,6 @@ async fn try_should_write_hash_key_override(
                 FlagError::DatabaseError(e, Some("Failed to fetch flags".to_string()))
             })?;
         flags_query_timer.fin();
-
-        // Record connection hold time for non_persons_reader pool
-        common_metrics::histogram(
-            FLAG_CONNECTION_HOLD_TIME,
-            &[
-                ("pool".to_string(), "non_persons_reader".to_string()),
-                ("operation".to_string(), "should_write_check".to_string()),
-            ],
-            non_persons_conn_start.elapsed().as_millis() as f64,
-        );
 
         rows
         // Connection automatically released here when non_persons_conn goes out of scope
@@ -1337,6 +1406,7 @@ mod tests {
             version: flag.version,
             evaluation_runtime: flag.evaluation_runtime,
             evaluation_tags: flag.evaluation_tags,
+            bucketing_identifier: flag.bucketing_identifier,
         };
 
         // Insert the feature flag into the database
@@ -1348,7 +1418,6 @@ mod tests {
             &router,
             team.id,
             vec![distinct_id.clone()],
-            team.project_id(),
             "hash_key_2".to_string(),
         )
         .await
@@ -1440,6 +1509,7 @@ mod tests {
                 version: Some(1),
                 evaluation_runtime: None,
                 evaluation_tags: None,
+                bucketing_identifier: None,
             };
             context
                 .insert_flag(team.id, Some(flag_row))
@@ -1461,7 +1531,6 @@ mod tests {
             &router,
             team.id,
             distinct_ids.clone(),
-            team.project_id(),
             hash_key.clone(),
         )
         .await
@@ -1556,6 +1625,7 @@ mod tests {
                 version: Some(1),
                 evaluation_runtime: None,
                 evaluation_tags: None,
+                bucketing_identifier: None,
             };
             context
                 .insert_flag(team.id, Some(flag_row))
@@ -1597,7 +1667,6 @@ mod tests {
             &router,
             team.id,
             distinct_ids.clone(),
-            team.project_id(),
             new_hash.clone(),
         )
         .await
@@ -1677,6 +1746,7 @@ mod tests {
             version: Some(1),
             evaluation_runtime: None,
             evaluation_tags: None,
+            bucketing_identifier: None,
         };
 
         let inactive_flag = FeatureFlagRow {
@@ -1691,6 +1761,7 @@ mod tests {
             version: Some(1),
             evaluation_runtime: None,
             evaluation_tags: None,
+            bucketing_identifier: None,
         };
 
         let deleted_flag = FeatureFlagRow {
@@ -1705,6 +1776,7 @@ mod tests {
             version: Some(1),
             evaluation_runtime: None,
             evaluation_tags: None,
+            bucketing_identifier: None,
         };
 
         let no_continuity_flag = FeatureFlagRow {
@@ -1719,6 +1791,7 @@ mod tests {
             version: Some(1),
             evaluation_runtime: None,
             evaluation_tags: None,
+            bucketing_identifier: None,
         };
 
         context
@@ -1744,7 +1817,6 @@ mod tests {
             &router,
             team.id,
             vec!["filter_test_user".to_string()],
-            team.project_id(),
             "filter_hash".to_string(),
         )
         .await
@@ -1811,6 +1883,7 @@ mod tests {
             version: Some(1),
             evaluation_runtime: None,
             evaluation_tags: None,
+            bucketing_identifier: None,
         };
         context
             .insert_flag(team.id, Some(flag_row))
@@ -1823,7 +1896,6 @@ mod tests {
             &router,
             team.id,
             "should_write_user".to_string(),
-            team.project_id(),
             "hash_key_1".to_string(),
         )
         .await
@@ -1837,7 +1909,6 @@ mod tests {
             &router,
             team.id,
             vec!["should_write_user".to_string()],
-            team.project_id(),
             "hash_key_1".to_string(),
         )
         .await
@@ -1849,7 +1920,6 @@ mod tests {
             &router,
             team.id,
             "should_write_user".to_string(),
-            team.project_id(),
             "hash_key_1".to_string(),
         )
         .await
@@ -1866,7 +1936,6 @@ mod tests {
             &router,
             team.id,
             "non_existent_user".to_string(),
-            team.project_id(),
             "hash_key_2".to_string(),
         )
         .await
@@ -1896,6 +1965,7 @@ mod tests {
             version: Some(1),
             evaluation_runtime: None,
             evaluation_tags: None,
+            bucketing_identifier: None,
         };
         context
             .insert_flag(team.id, Some(flag_row))
@@ -1911,7 +1981,6 @@ mod tests {
                 "nonexistent_user1".to_string(),
                 "nonexistent_user2".to_string(),
             ],
-            team.project_id(),
             "some_hash".to_string(),
         )
         .await
@@ -2181,5 +2250,111 @@ mod tests {
 
         let row_not_found_error = FlagError::RowNotFound;
         assert!(!should_retry_on_error(&row_not_found_error));
+    }
+
+    #[test]
+    fn test_populate_missing_initial_properties_adds_missing_initial_for_tracked_props() {
+        let mut properties = HashMap::from([
+            ("$browser".to_string(), json!("Chrome")),
+            ("$os".to_string(), json!("iOS")),
+            ("utm_source".to_string(), json!("google")),
+            ("gclid".to_string(), json!("abc123")),
+            ("regular_prop".to_string(), json!("value")),
+        ]);
+
+        populate_missing_initial_properties(&mut properties);
+
+        // $-prefixed tracked properties get $initial_ versions
+        assert_eq!(properties.get("$initial_browser"), Some(&json!("Chrome")));
+        assert_eq!(properties.get("$initial_os"), Some(&json!("iOS")));
+        // Non-$-prefixed tracked properties also get $initial_ versions
+        assert_eq!(
+            properties.get("$initial_utm_source"),
+            Some(&json!("google"))
+        );
+        assert_eq!(properties.get("$initial_gclid"), Some(&json!("abc123")));
+        // Original properties still exist
+        assert_eq!(properties.get("$browser"), Some(&json!("Chrome")));
+        assert_eq!(properties.get("$os"), Some(&json!("iOS")));
+        assert_eq!(properties.get("utm_source"), Some(&json!("google")));
+        // Regular props unchanged, no $initial_ created
+        assert_eq!(properties.get("regular_prop"), Some(&json!("value")));
+        assert!(!properties.contains_key("$initial_regular_prop"));
+    }
+
+    #[test]
+    fn test_populate_missing_initial_properties_ignores_untracked_dollar_props() {
+        let mut properties = HashMap::from([
+            ("$session_id".to_string(), json!("sess_123")),
+            ("$timestamp".to_string(), json!("2024-01-01")),
+            ("$random_prop".to_string(), json!("value")),
+        ]);
+
+        populate_missing_initial_properties(&mut properties);
+
+        // These $-prefixed props are NOT in PROPERTIES_WITH_INITIAL_TRACKING
+        assert!(!properties.contains_key("$initial_session_id"));
+        assert!(!properties.contains_key("$initial_timestamp"));
+        assert!(!properties.contains_key("$initial_random_prop"));
+        assert_eq!(properties.len(), 3);
+    }
+
+    #[test]
+    fn test_populate_missing_initial_properties_preserves_existing_initial() {
+        let mut properties = HashMap::from([
+            ("$browser".to_string(), json!("Firefox")),
+            ("$initial_browser".to_string(), json!("Chrome")), // Already exists with different value
+        ]);
+
+        populate_missing_initial_properties(&mut properties);
+
+        // Existing $initial_ should NOT be overwritten
+        assert_eq!(properties.get("$initial_browser"), Some(&json!("Chrome")));
+        assert_eq!(properties.get("$browser"), Some(&json!("Firefox")));
+    }
+
+    #[test]
+    fn test_populate_missing_initial_properties_handles_campaign_properties() {
+        let mut properties = HashMap::from([
+            ("utm_source".to_string(), json!("newsletter")),
+            ("utm_medium".to_string(), json!("email")),
+            ("fbclid".to_string(), json!("fb_123")),
+            ("msclkid".to_string(), json!("ms_456")),
+        ]);
+
+        populate_missing_initial_properties(&mut properties);
+
+        assert_eq!(
+            properties.get("$initial_utm_source"),
+            Some(&json!("newsletter"))
+        );
+        assert_eq!(properties.get("$initial_utm_medium"), Some(&json!("email")));
+        assert_eq!(properties.get("$initial_fbclid"), Some(&json!("fb_123")));
+        assert_eq!(properties.get("$initial_msclkid"), Some(&json!("ms_456")));
+    }
+
+    #[test]
+    fn test_populate_missing_initial_properties_empty_properties() {
+        let mut properties = HashMap::new();
+
+        populate_missing_initial_properties(&mut properties);
+
+        assert!(properties.is_empty());
+    }
+
+    #[test]
+    fn test_populate_missing_initial_properties_no_tracked_props() {
+        let mut properties = HashMap::from([
+            ("email".to_string(), json!("test@example.com")),
+            ("name".to_string(), json!("Test User")),
+            ("custom_prop".to_string(), json!("custom_value")),
+        ]);
+
+        populate_missing_initial_properties(&mut properties);
+
+        // No changes should be made - none of these are tracked
+        assert_eq!(properties.len(), 3);
+        assert!(!properties.contains_key("$initial_email"));
+        assert!(!properties.contains_key("$initial_name"));
     }
 }

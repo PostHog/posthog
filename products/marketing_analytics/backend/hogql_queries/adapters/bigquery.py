@@ -67,6 +67,14 @@ class BigQueryAdapter(MarketingSourceAdapter[ExternalConfig]):
         else:
             return ast.Constant(value=UNKNOWN_CAMPAIGN)
 
+    def _get_campaign_id_field(self) -> ast.Expr:
+        id_field = getattr(self.config.source_map, "id", None)
+        if id_field:
+            return ast.Call(name="toString", args=[ast.Field(chain=[id_field])])
+        else:
+            # Fallback to campaign name if id field is not configured
+            return self._get_campaign_name_field()
+
     def _get_source_name_field(self) -> ast.Expr:
         """Override to use user-configured source field or fallback to unknown"""
         if self.config.source_map.source:
@@ -106,6 +114,20 @@ class BigQueryAdapter(MarketingSourceAdapter[ExternalConfig]):
             inner_expr = ast.Constant(value=0)
         else:
             inner_expr = ast.Field(chain=[reported_conversion_field])
+
+        coalesce = ast.Call(name="coalesce", args=[inner_expr, ast.Constant(value=0)])
+        return ast.Call(name="toFloat", args=[coalesce])
+
+    def _get_reported_conversion_value_field(self) -> ast.Expr:
+        # BigQuery sources may not have conversion value mapped
+        # Return 0 as default - users can map this field in future
+        reported_conversion_value_field = getattr(self.config.source_map, "reported_conversion_value", None)
+
+        inner_expr: ast.Expr
+        if reported_conversion_value_field is None:
+            inner_expr = ast.Constant(value=0)
+        else:
+            inner_expr = ast.Field(chain=[reported_conversion_value_field])
 
         coalesce = ast.Call(name="coalesce", args=[inner_expr, ast.Constant(value=0)])
         return ast.Call(name="toFloat", args=[coalesce])

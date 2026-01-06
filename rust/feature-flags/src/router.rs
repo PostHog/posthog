@@ -1,4 +1,9 @@
-use std::{future::ready, sync::Arc};
+use std::{
+    future::ready,
+    panic::{catch_unwind, AssertUnwindSafe},
+    sync::Arc,
+    time::Duration,
+};
 
 use crate::billing_limiters::{FeatureFlagsLimiter, SessionReplayLimiter};
 use crate::database_pools::DatabasePools;
@@ -12,6 +17,7 @@ use common_geoip::GeoIpClient;
 use common_metrics::{setup_metrics_recorder, track_metrics};
 use common_redis::Client as RedisClient;
 use health::HealthRegistry;
+use metrics::gauge;
 use tower::limit::ConcurrencyLimitLayer;
 use tower_http::{
     cors::{AllowHeaders, AllowOrigin, CorsLayer},
@@ -35,12 +41,12 @@ use crate::{
 #[derive(Clone)]
 pub struct State {
     // Shared Redis for non-critical path (analytics counters, billing limits)
-    pub redis_reader: Arc<dyn RedisClient + Send + Sync>,
-    pub redis_writer: Arc<dyn RedisClient + Send + Sync>,
+    // ReadWriteClient automatically routes reads to replica and writes to primary
+    pub redis_client: Arc<dyn RedisClient + Send + Sync>,
     // Dedicated Redis for flags cache (critical path isolation)
     // None if not configured (falls back to shared Redis)
-    pub dedicated_redis_reader: Option<Arc<dyn RedisClient + Send + Sync>>,
-    pub dedicated_redis_writer: Option<Arc<dyn RedisClient + Send + Sync>>,
+    // ReadWriteClient automatically routes reads to replica and writes to primary
+    pub dedicated_redis_client: Option<Arc<dyn RedisClient + Send + Sync>>,
     pub database_pools: Arc<DatabasePools>,
     pub cohort_cache_manager: Arc<CohortCacheManager>,
     pub geoip: Arc<GeoIpClient>,
@@ -55,11 +61,9 @@ pub struct State {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn router<RR, RW, DRR, DRW>(
-    redis_reader: Arc<RR>,
-    redis_writer: Arc<RW>,
-    dedicated_redis_reader: Option<Arc<DRR>>,
-    dedicated_redis_writer: Option<Arc<DRW>>,
+pub fn router(
+    redis_client: Arc<dyn RedisClient + Send + Sync>,
+    dedicated_redis_client: Option<Arc<dyn RedisClient + Send + Sync>>,
     database_pools: Arc<DatabasePools>,
     cohort_cache: Arc<CohortCacheManager>,
     geoip: Arc<GeoIpClient>,
@@ -68,13 +72,7 @@ pub fn router<RR, RW, DRR, DRW>(
     session_replay_billing_limiter: SessionReplayLimiter,
     cookieless_manager: Arc<CookielessManager>,
     config: Config,
-) -> Router
-where
-    RR: RedisClient + Send + Sync + 'static,
-    RW: RedisClient + Send + Sync + 'static,
-    DRR: RedisClient + Send + Sync + 'static,
-    DRW: RedisClient + Send + Sync + 'static,
-{
+) -> Router {
     // Initialize flag definitions rate limiter with default and custom team rates
     let flag_definitions_limiter = FlagDefinitionsRateLimiter::new(
         config.flag_definitions_default_rate_per_minute,
@@ -115,17 +113,16 @@ where
     // Clone database_pools for readiness check before moving into State
     let db_pools_for_readiness = database_pools.clone();
 
-    // Convert generic Arc types to trait objects for State
-    let dedicated_redis_reader_trait: Option<Arc<dyn RedisClient + Send + Sync>> =
-        dedicated_redis_reader.map(|arc| -> Arc<dyn RedisClient + Send + Sync> { arc });
-    let dedicated_redis_writer_trait: Option<Arc<dyn RedisClient + Send + Sync>> =
-        dedicated_redis_writer.map(|arc| -> Arc<dyn RedisClient + Send + Sync> { arc });
+    spawn_rate_limiter_cleanup_task(
+        flags_rate_limiter.clone(),
+        ip_rate_limiter.clone(),
+        flag_definitions_limiter.clone(),
+        config.rate_limiter_cleanup_interval_secs,
+    );
 
     let state = State {
-        redis_reader,
-        redis_writer,
-        dedicated_redis_reader: dedicated_redis_reader_trait,
-        dedicated_redis_writer: dedicated_redis_writer_trait,
+        redis_client,
+        dedicated_redis_client,
         database_pools,
         cohort_cache_manager: cohort_cache,
         geoip,
@@ -191,6 +188,51 @@ where
     } else {
         router
     }
+}
+
+/// Spawns a background task to periodically clean up stale rate limiter entries.
+/// Without this, the rate limiters would accumulate entries for every unique
+/// token/IP that makes a request, leading to unbounded memory growth.
+/// See: https://docs.rs/governor/latest/governor/struct.RateLimiter.html#method.retain_recent
+fn spawn_rate_limiter_cleanup_task(
+    flags_rate_limiter: FlagsRateLimiter,
+    ip_rate_limiter: IpRateLimiter,
+    flag_definitions_limiter: FlagDefinitionsRateLimiter,
+    cleanup_interval_secs: u64,
+) {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(cleanup_interval_secs));
+        loop {
+            interval.tick().await;
+
+            let result = catch_unwind(AssertUnwindSafe(|| {
+                // Remove stale entries and reclaim memory
+                flags_rate_limiter.cleanup();
+                ip_rate_limiter.cleanup();
+                flag_definitions_limiter.cleanup();
+
+                // Report metrics for monitoring
+                gauge!("flags_rate_limiter_token_entries").set(flags_rate_limiter.len() as f64);
+                gauge!("flags_rate_limiter_ip_entries").set(ip_rate_limiter.len() as f64);
+                gauge!("flags_rate_limiter_definitions_entries")
+                    .set(flag_definitions_limiter.len() as f64);
+
+                tracing::debug!(
+                    token_entries = flags_rate_limiter.len(),
+                    ip_entries = ip_rate_limiter.len(),
+                    definitions_entries = flag_definitions_limiter.len(),
+                    "Rate limiter cleanup completed"
+                );
+            }));
+
+            if let Err(e) = result {
+                tracing::error!(
+                    ?e,
+                    "Rate limiter cleanup panicked, will retry next interval"
+                );
+            }
+        }
+    });
 }
 
 pub async fn readiness(

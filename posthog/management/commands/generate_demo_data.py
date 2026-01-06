@@ -2,17 +2,16 @@
 
 import os
 import sys
-import json
 import logging
 import secrets
 import datetime as dt
-from pathlib import Path
 from time import monotonic
 from typing import Optional
 
 from django.core import exceptions
 from django.core.management.base import BaseCommand
 
+from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 from posthog.demo.matrix import Matrix, MatrixManager
 from posthog.demo.products.hedgebox import HedgeboxMatrix
 from posthog.demo.products.spikegpt import SpikeGPTMatrix
@@ -21,28 +20,12 @@ from posthog.models import User
 from posthog.models.file_system.user_product_list import UserProductList
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import Team
+from posthog.products import Products
 from posthog.taxonomy.taxonomy import PERSON_PROPERTIES_ADAPTED_FROM_EVENT
 
 from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
 
 logging.getLogger("kafka").setLevel(logging.ERROR)  # Hide kafka-python's logspam
-
-
-def get_default_product_paths() -> list[str]:
-    script_dir = Path(__file__).parent
-    project_root = script_dir.parent.parent.parent
-    products_json_path = project_root / "frontend" / "src" / "products.json"
-
-    if not products_json_path.exists():
-        raise FileNotFoundError(
-            f"products.json not found at {products_json_path}. Generate it by making sure `hogli start`'s `frontend` service is running"
-        )
-
-    with open(products_json_path) as f:
-        data = json.load(f)
-        product_paths = [product["path"] for product in data.get("products", [])]
-
-    return product_paths
 
 
 class Command(BaseCommand):
@@ -241,7 +224,7 @@ class Command(BaseCommand):
             )
 
             if options["say_on_complete"]:
-                os.system('say "demo data ready" || true')
+                os.system('say "initiating self destruct sequence" || true')
         else:
             print("Dry run - not saving results.")
             if options["say_on_complete"]:
@@ -321,13 +304,7 @@ class Command(BaseCommand):
 
         person_properties = {
             *PERSON_PROPERTIES_ADAPTED_FROM_EVENT,
-            "email",
-            "Email",
-            "name",
-            "Name",
-            "username",
-            "Username",
-            "UserName",
+            *PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES,
         }
         for prop in person_properties.copy():
             if prop.startswith("$initial_"):
@@ -370,7 +347,7 @@ class Command(BaseCommand):
 
     def create_default_user_product_list(self, team: Team, user: User) -> None:
         """Create UserProductList entries for all default sidebar products."""
-        product_paths = get_default_product_paths()
+        product_paths = Products.get_product_paths()
         created_count = 0
         for product_path in product_paths:
             _, created = UserProductList.objects.get_or_create(

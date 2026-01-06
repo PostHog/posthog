@@ -11,9 +11,11 @@ import { getCookie } from 'lib/api'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { SSOEnforcedLoginButton, SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { usePrevious } from 'lib/hooks/usePrevious'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
+import { isEmail } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -83,17 +85,32 @@ export function Login(): JSX.Element {
     const preventPasswordError = useRef(false)
     const isPasswordHidden = precheckResponse.status === 'pending' || precheckResponse.sso_enforcement
     const isEmailVerificationSent = generalError?.code === 'email_verification_sent'
+    const wasPasswordHiddenRef = useRef(isPasswordHidden)
 
     const lastLoginMethod = getCookie(LAST_LOGIN_METHOD_COOKIE) as LoginMethod
+    const prevEmail = usePrevious(login.email)
 
     useEffect(() => {
+        const wasPasswordHidden = wasPasswordHiddenRef.current
+        wasPasswordHiddenRef.current = isPasswordHidden
+
         if (!isPasswordHidden) {
             passwordInputRef.current?.focus()
-        } else {
-            // clear form when password field becomes hidden
+        } else if (!wasPasswordHidden) {
+            // clear form when transitioning from visible to hidden
             resetLogin()
         }
     }, [isPasswordHidden, resetLogin])
+
+    // Trigger precheck for password manager autofill/paste (detected by large character delta)
+    useEffect(() => {
+        const charDelta = login.email.length - (prevEmail?.length ?? 0)
+        const isAutofill = charDelta > 1
+
+        if (isAutofill && isEmail(login.email, { requireTLD: true }) && precheckResponse.status === 'pending') {
+            precheck({ email: login.email })
+        }
+    }, [login.email, prevEmail, precheckResponse.status, precheck])
 
     return (
         <BridgePage

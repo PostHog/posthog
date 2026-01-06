@@ -14,6 +14,7 @@ import { InsightLogicProps, RetentionPeriod } from '~/types'
 import { dateOptionToTimeIntervalMap } from './constants'
 import type { retentionGraphLogicType } from './retentionGraphLogicType'
 import { MeanRetentionValue, retentionLogic } from './retentionLogic'
+import { formatRetentionCohortLabel } from './utils'
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
 
@@ -51,11 +52,7 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                         days: cohortRetention.values.map((value) => value.cellDate.toISOString()),
                         labels: cohortRetention.values.map((_, index) => `${period} ${index}`),
                         count: 0,
-                        label: cohortRetention.date
-                            ? period === 'Hour'
-                                ? cohortRetention.date.format('MMM D, h A')
-                                : cohortRetention.date.format('MMM D')
-                            : cohortRetention.label,
+                        label: formatRetentionCohortLabel(cohortRetention, period),
                         data: cohortRetention.values.map((value) => value.percentage),
                         index: datasetIndex,
                     }

@@ -73,12 +73,8 @@ export function RetentionTable({
                         <th
                             key={header}
                             className={clsx({
-                                'RetentionTable__SelectedColumn--header':
-                                    allowSelectingColumns && columnIndex === selectedInterval,
-                                'RetentionTable__HoveredColumn--header':
-                                    allowSelectingColumns &&
-                                    columnIndex === hoveredColumn &&
-                                    columnIndex !== selectedInterval,
+                                'RetentionTable__SelectedColumn--header': columnIndex === selectedInterval,
+                                'RetentionTable__HoveredColumn--header': columnIndex === hoveredColumn,
                             })}
                             onClick={() => {
                                 if (allowSelectingColumns) {

@@ -178,6 +178,7 @@ export function CustomChannelTypes(): JSX.Element {
                 onSave={() => {
                     updateCurrentTeam({
                         modifiers: {
+                            ...currentTeam?.modifiers,
                             customChannelTypeRules: sanitizeCustomChannelTypeRules(customChannelTypeRules),
                         },
                     })

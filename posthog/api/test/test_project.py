@@ -2,9 +2,11 @@ from unittest.mock import MagicMock, patch
 
 from rest_framework import status
 
+from posthog.api.project import ProjectViewSet
 from posthog.api.test.test_team import EnvironmentToProjectRewriteClient, team_api_test_factory
 from posthog.constants import AvailableFeature
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.person import Person
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.project import Project
 from posthog.models.utils import generate_random_token_personal
@@ -30,7 +32,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             scoped_organizations=[other_org.id],
         )
 
-        response = self.client.get("/api/projects/", HTTP_AUTHORIZATION=f"Bearer {personal_api_key}")
+        response = self.client.get("/api/projects/", headers={"authorization": f"Bearer {personal_api_key}"})
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
@@ -188,3 +190,112 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         response = self.client.patch(f"/api/projects/{self.project.id}/", {"name": "Updated Name"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["name"], "Updated Name")
+
+    @patch("posthog.api.project.delete_batch_exports")
+    def test_project_deletion_deletes_persons_manually(self, mock_batch_exports):
+        """Verify that project deletion deletes Persons via manual delete, not CASCADE."""
+        # Create a Person
+        person = Person.objects.create(team=self.team)
+
+        # Delete project via API (which calls delete_bulky_postgres_data)
+        viewset = ProjectViewSet()
+        request = MagicMock()
+        request.user = self.user
+        viewset.request = request
+
+        viewset.perform_destroy(self.project)
+
+        # Verify Person was deleted (by manual delete, not CASCADE)
+        self.assertFalse(Person.objects.filter(id=person.id).exists())
+
+        # Verify project was deleted
+        self.assertFalse(Project.objects.filter(id=self.project.id).exists())
+
+    def test_team_deletion_does_not_cascade_to_persons(self):
+        """Verify that deleting Team directly doesn't CASCADE delete Persons (on_delete=DO_NOTHING)."""
+        # Create a Person
+        person = Person.objects.create(team=self.team)
+        person_id = person.id
+
+        # Delete the team directly (not via API, bypassing manual delete)
+        self.team.delete()
+
+        # Person should still exist (not CASCADE deleted)
+        self.assertTrue(Person.objects.filter(id=person_id).exists())
+
+        # Clean up orphaned person using raw delete to bypass signals
+        Person.objects.filter(id=person_id)._raw_delete(Person.objects.db)
+
+    def test_complete_product_onboarding_requires_product_type(self):
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/complete_product_onboarding/",
+            {"intent_context": "onboarding product selected - primary", "metadata": {}},
+            headers={"Referer": "https://posthogtest.com/my-url", "X-Posthog-Session-Id": "test_session_id"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "product_type is required")
+
+    def test_complete_product_onboarding_rejects_invalid_product_type(self):
+        from posthog.schema import ProductKey
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/complete_product_onboarding/",
+            {
+                "product_type": "invalid_product",
+                "intent_context": "onboarding product selected - primary",
+                "metadata": {},
+            },
+            headers={"Referer": "https://posthogtest.com/my-url", "X-Posthog-Session-Id": "test_session_id"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        error_message = response.json()["error"]
+        self.assertIn("invalid product_type", error_message)
+        self.assertIn("expected one of", error_message)
+
+        # Verify it lists valid ProductKey values in the error message
+        valid_keys = list(ProductKey)
+        self.assertIn(valid_keys[0].value, error_message)  # Check at least one valid key is mentioned
+
+    def test_conversations_settings_merges_with_existing(self):
+        self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"conversations_settings": {"widget_greeting_text": "Hello!"}},
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"conversations_settings": {"widget_color": "#ff0000"}},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        settings = response.json()["conversations_settings"]
+        self.assertEqual(settings["widget_greeting_text"], "Hello!")
+        self.assertEqual(settings["widget_color"], "#ff0000")
+
+    def test_enabling_conversations_auto_generates_token(self):
+        self.team.conversations_enabled = False
+        self.team.conversations_settings = None
+        self.team.save()
+
+        response = self.client.patch(f"/api/projects/{self.project.id}/", {"conversations_enabled": True})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        settings = response.json()["conversations_settings"]
+        self.assertIsNotNone(settings)
+        self.assertIsNotNone(settings.get("widget_public_token"))
+        self.assertGreater(len(settings["widget_public_token"]), 20)
+
+    def test_generate_conversations_public_token(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.post(f"/api/projects/{self.project.id}/generate_conversations_public_token/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        settings = response.json()["conversations_settings"]
+        self.assertIsNotNone(settings.get("widget_public_token"))
+
+    def test_generate_conversations_public_token_requires_admin(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.post(f"/api/projects/{self.project.id}/generate_conversations_public_token/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

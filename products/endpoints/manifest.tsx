@@ -1,7 +1,9 @@
+import { combineUrl } from 'kea-router'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { FileSystemIconType } from '~/queries/schema/schema-general'
+import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
@@ -18,46 +20,52 @@ export const manifest: ProductManifest = {
             iconType: 'endpoints',
             description: 'Define queries your application will use via the API and monitor their cost and usage.',
         },
-        EndpointsUsage: {
-            import: () => import('./frontend/EndpointsUsage'),
-            projectBased: true,
-            name: 'Endpoints usage',
-            activityScope: 'Endpoints',
-            layout: 'app-container',
-            iconType: 'endpoints',
-        },
         EndpointScene: {
             import: () => import('./frontend/EndpointScene'),
             projectBased: true,
             name: 'Endpoint',
             activityScope: 'Endpoint',
         },
-        EndpointNew: {
-            import: () => import('./frontend/EndpointScene'),
-            projectBased: true,
-            name: 'EndpointNew',
-            activityScope: 'Endpoint',
-        },
     },
     routes: {
         '/endpoints': ['EndpointsScene', 'endpoints'],
-        // EndpointsScene stays first as scene for Usage!
         '/endpoints/usage': ['EndpointsScene', 'endpointsUsage'],
         '/endpoints/:name': ['EndpointScene', 'endpoint'],
-        '/endpoints/new': ['EndpointNew', 'endpointNew'],
     },
     urls: {
         endpoints: (): string => '/endpoints',
         endpoint: (name: string): string => `/endpoints/${name}`,
         endpointsUsage: (params?: {
+            endpointFilter?: string[]
             dateFrom?: string
             dateTo?: string
-            requestNameBreakdownEnabled?: string
-            requestNameFilter?: string[]
+            materializationType?: 'materialized' | 'inline'
+            interval?: string
+            breakdownBy?: string
         }): string => {
-            const queryParams = new URLSearchParams(params as Record<string, string>)
-            const stringifiedParams = queryParams.toString()
-            return `/endpoints/usage${stringifiedParams ? `?${stringifiedParams}` : ''}`
+            if (!params) {
+                return '/endpoints/usage'
+            }
+            const searchParams: Record<string, string> = {}
+            if (params.endpointFilter?.length) {
+                searchParams.endpointFilter = params.endpointFilter.join(',')
+            }
+            if (params.dateFrom) {
+                searchParams.dateFrom = params.dateFrom
+            }
+            if (params.dateTo) {
+                searchParams.dateTo = params.dateTo
+            }
+            if (params.materializationType) {
+                searchParams.materializationType = params.materializationType
+            }
+            if (params.interval) {
+                searchParams.interval = params.interval
+            }
+            if (params.breakdownBy) {
+                searchParams.breakdownBy = params.breakdownBy
+            }
+            return combineUrl('/endpoints/usage', searchParams).url
         },
     },
     fileSystemTypes: {
@@ -73,11 +81,12 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Endpoints',
+            intents: [ProductKey.ENDPOINTS],
             category: 'Unreleased',
             href: urls.endpoints(),
             type: 'endpoints',
             flag: FEATURE_FLAGS.ENDPOINTS,
-            tags: ['alpha'],
+            tags: ['beta'],
             iconType: 'endpoints',
             iconColor: ['var(--color-product-endpoints-light)'] as FileSystemIconColor,
             sceneKey: 'EndpointsScene',
@@ -92,7 +101,7 @@ export const manifest: ProductManifest = {
             href: urls.endpoints(),
             sceneKey: 'EndpointsScene',
             flag: FEATURE_FLAGS.ENDPOINTS,
-            tags: ['alpha'],
+            tags: ['beta'],
         },
     ],
 }

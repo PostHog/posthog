@@ -32,6 +32,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         ],
         actionId: [props.actionId || null, { logout: () => null, clearUserIntent: () => null }],
         experimentId: [props.experimentId || null, { logout: () => null, clearUserIntent: () => null }],
+        productTourId: [props.productTourId || null, { logout: () => null, clearUserIntent: () => null }],
         userIntent: [props.userIntent || null, { logout: () => null, clearUserIntent: () => null }],
         buttonVisible: [true, { showButton: () => true, hideButton: () => false, logout: () => false }],
     })),
@@ -44,6 +45,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         ],
         dataAttributes: [(s) => [s.props], (props): string[] => props.dataAttributes ?? []],
         isAuthenticated: [(s) => [s.temporaryToken], (temporaryToken) => !!temporaryToken],
+        toolbarFlagsKey: [(s) => [s.props], (props): string | undefined => props.toolbarFlagsKey],
     }),
 
     listeners(({ values, actions }) => ({
@@ -73,9 +75,9 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
                 temporaryToken: values.temporaryToken ?? undefined,
                 actionId: values.actionId ?? undefined,
                 experimentId: values.experimentId ?? undefined,
+                productTourId: values.productTourId ?? undefined,
                 userIntent: values.userIntent ?? undefined,
                 posthog: undefined,
-                featureFlags: undefined,
             }
 
             localStorage.setItem(LOCALSTORAGE_KEY, JSON.stringify(toolbarParams))

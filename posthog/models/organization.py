@@ -11,6 +11,7 @@ from django.db.models.query_utils import Q
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 
 import structlog
 import dateutil.parser
@@ -39,6 +40,7 @@ class OrganizationUsageResource(TypedDict):
 
 # The "usage" field is essentially cached info from the Billing Service to be used for visual reporting to the user
 # as well as for enforcing limits.
+# These keys must match QuotaResource and UsageCounters (except for `period`).
 class OrganizationUsageInfo(TypedDict):
     events: OrganizationUsageResource | None
     exceptions: OrganizationUsageResource | None
@@ -50,6 +52,7 @@ class OrganizationUsageInfo(TypedDict):
     feature_flag_requests: OrganizationUsageResource | None
     api_queries_read_bytes: OrganizationUsageResource | None
     llm_events: OrganizationUsageResource | None
+    ai_credits: OrganizationUsageResource | None
     period: list[str] | None
 
 
@@ -149,6 +152,22 @@ class Organization(ModelActivityMixin, UUIDTModel):
     logo_media = models.ForeignKey("posthog.UploadedMedia", on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    is_active = models.BooleanField(
+        _("active"),
+        default=True,
+        null=True,
+        blank=True,
+        help_text=_("Set this to 'No' to temporarily disable an organization."),
+    )
+    is_not_active_reason = models.TextField(
+        _("de-activated reason"),
+        null=True,
+        blank=True,
+        help_text=_(
+            "(optional) reason for why the organization has been de-activated. This will be displayed to users on the web app."
+        ),
+        max_length=200,
+    )
 
     # Security / management settings
     session_cookie_age = models.IntegerField(
@@ -157,7 +176,7 @@ class Organization(ModelActivityMixin, UUIDTModel):
         help_text="Custom session cookie age in seconds. If not set, the global setting SESSION_COOKIE_AGE will be used.",
     )
     is_member_join_email_enabled = models.BooleanField(default=True)
-    is_ai_data_processing_approved = models.BooleanField(null=True, blank=True)
+    is_ai_data_processing_approved = models.BooleanField(null=True, blank=True, default=True)
     enforce_2fa = models.BooleanField(null=True, blank=True)
     members_can_invite = models.BooleanField(default=True, null=True, blank=True)
     members_can_use_personal_api_keys = models.BooleanField(default=True)

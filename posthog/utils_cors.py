@@ -17,6 +17,7 @@ CORS_ALLOWED_TRACING_HEADERS = (
     "x-highlight-request",
     "x-datadome-clientid",
     "x-posthog-token",
+    "x-conversations-token",
     "x-b3-sampled",
     "x-b3-spanid",
     "x-b3-traceid",
@@ -40,9 +41,9 @@ def cors_response(request: HttpRequest, response: HttpResponse) -> HttpResponse:
     Returns a HttpResponse with CORS headers set to allow all origins.
     Only use this for endpoints that get called by the PostHog JS SDK.
     """
-    if not request.META.get("HTTP_ORIGIN"):
+    if not request.headers.get("origin"):
         return response
-    url = urlparse(request.META["HTTP_ORIGIN"])
+    url = urlparse(request.headers["origin"])
     if url.netloc == "":
         response["Access-Control-Allow-Origin"] = "*"
         logger.info("cors_empty_netloc", path=request.path, method=request.method)
@@ -55,8 +56,8 @@ def cors_response(request: HttpRequest, response: HttpResponse) -> HttpResponse:
                 origin=url.netloc,
                 path=request.path,
                 method=request.method,
-                referer=request.META.get("HTTP_REFERER"),
-                user_agent=request.META.get("HTTP_USER_AGENT"),
+                referer=request.headers.get("referer"),
+                user_agent=request.headers.get("user-agent"),
             )
 
     response["Access-Control-Allow-Credentials"] = "true"
@@ -65,7 +66,7 @@ def cors_response(request: HttpRequest, response: HttpResponse) -> HttpResponse:
     # Handle headers that sentry randomly sends for every request.
     # Would cause a CORS failure otherwise.
     # specified here to override the default added by the cors headers package in web.py
-    allow_headers = request.META.get("HTTP_ACCESS_CONTROL_REQUEST_HEADERS", "").split(",")
+    allow_headers = request.headers.get("access-control-request-headers", "").split(",")
     allow_headers = [header for header in allow_headers if header in CORS_ALLOWED_TRACING_HEADERS]
 
     response["Access-Control-Allow-Headers"] = "X-Requested-With,Content-Type" + (

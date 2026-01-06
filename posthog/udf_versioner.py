@@ -6,17 +6,10 @@ import datetime
 import xml.etree.ElementTree as ET
 from xml import etree
 
-# For revertible cloud deploys:
-# 1. Develop using the python files at the top level of `user_scripts`, with schema defined in `docker/clickhouse/user_defined_function.xml`
-# 2. If you're made any changes to UDFs, when ready to deploy, increment the version below and run this file
-# 3. Overwrite `user_defined_function.xml` in the `posthog-cloud-infra` repo (us, eu, and dev) with `user_scripts/latest_user_defined_function.xml` and deploy it
-# 4. Land a version of the posthog repo with the updated `user_scripts` folder from the new branch (make sure this PR doesn't include changes to this file with the new version)
-# 5. Run the `copy_udfs_to_clickhouse` action in the `posthog_cloud_infra` repo to deploy the `user_scripts` folder to clickhouse
-# 6. After that deploy goes out, it is safe to land and deploy the full changes to the `posthog` repo
-UDF_VERSION = 9  # Last modified by: @orian, 2025-11-06
+UDF_VERSION = 10  # Last modified by: @thmsobrmlr, 2025-12-05
 
 # Clean up all versions less than this
-EARLIEST_UDF_VERSION = 7
+EARLIEST_UDF_VERSION = 8
 
 CLICKHOUSE_XML_FILENAME = "user_defined_function.xml"
 ACTIVE_XML_CONFIG = "../../docker/clickhouse/user_defined_function.xml"

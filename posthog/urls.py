@@ -30,11 +30,10 @@ from posthog.api import (
     uploaded_media,
     user,
 )
-from posthog.api.github_sdk_versions import github_sdk_versions
 from posthog.api.query import progress
+from posthog.api.sdk_doctor import sdk_doctor
 from posthog.api.slack import slack_interactivity_callback
 from posthog.api.survey import public_survey_page, surveys
-from posthog.api.team_sdk_versions import team_sdk_versions
 from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
 from posthog.api.utils import hostname_in_allowed_url_list
 from posthog.api.web_experiment import web_experiments
@@ -47,6 +46,8 @@ from posthog.oauth2_urls import urlpatterns as oauth2_urls
 from posthog.temporal.codec_server import decode_payloads
 
 from products.early_access_features.backend.api import early_access_features
+from products.product_tours.backend.api import product_tours
+from products.slack_app.backend.api import slack_event_handler
 
 from .utils import opt_slash_path, render_template
 from .views import (
@@ -101,11 +102,11 @@ def home(request, *args, **kwargs):
 def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
     if not request.GET.get("redirect"):
         return HttpResponse("You need to pass a url to ?redirect=", status=400)
-    if not request.META.get("HTTP_REFERER"):
+    if not request.headers.get("referer"):
         return HttpResponse('You need to make a request that includes the "Referer" header.', status=400)
 
     current_team = cast(User, request.user).team
-    referer_url = urlparse(request.META["HTTP_REFERER"])
+    referer_url = urlparse(request.headers["referer"])
     redirect_url = urlparse(request.GET["redirect"])
     is_forum_login = request.GET.get("forum_login", "").lower() == "true"
 
@@ -173,19 +174,22 @@ urlpatterns = [
     path("api/environments/<int:team_id>/query/<str:query_uuid>/progress", progress),
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/alerts/github", github.SecretAlert.as_view()),
-    path("api/sdk_versions/", github_sdk_versions),
-    path("api/team_sdk_versions/", team_sdk_versions),
+    path("api/sdk_doctor/", sdk_doctor),
+    path("api/conversations/", include("products.conversations.backend.api.urls")),
     opt_slash_path("api/support/ensure-zendesk-organization", csrf_exempt(ensure_zendesk_organization)),
     path("api/", include(router.urls)),
     # Override the tf_urls QRGeneratorView to use the cache-aware version (handles session race conditions)
     path("account/two_factor/qrcode/", CacheAwareQRGeneratorView.as_view()),
     path("", include(tf_urls)),
+    opt_slash_path("api/user/prepare_toolbar_preloaded_flags", user.prepare_toolbar_preloaded_flags),
+    opt_slash_path("api/user/get_toolbar_preloaded_flags", user.get_toolbar_preloaded_flags),
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
     opt_slash_path("api/user/redirect_to_website", user.redirect_to_website),
     opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
     opt_slash_path("api/early_access_features", early_access_features),
     opt_slash_path("api/web_experiments", web_experiments),
     opt_slash_path("api/surveys", surveys),
+    opt_slash_path("api/product_tours", product_tours),
     re_path(r"^external_surveys/(?P<survey_id>[^/]+)/?$", public_survey_page),
     opt_slash_path("api/signup", signup.SignupViewset.as_view()),
     opt_slash_path("api/social_signup", signup.SocialSignupViewset.as_view()),
@@ -240,6 +244,7 @@ urlpatterns = [
     path("", include("social_django.urls", namespace="social")),
     path("uploaded_media/<str:image_uuid>", uploaded_media.download),
     opt_slash_path("slack/interactivity-callback", slack_interactivity_callback),
+    opt_slash_path("slack/event-callback", slack_event_handler),
     # Message preferences
     path("messaging-preferences/<str:token>/", preferences_page, name="message_preferences"),
     opt_slash_path("messaging-preferences/update", update_preferences, name="message_preferences_update"),

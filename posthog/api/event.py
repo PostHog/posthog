@@ -1,10 +1,14 @@
 import json
+import time
 import uuid
+import random
 import urllib
 import dataclasses
 from datetime import datetime
 from typing import Any, Iterator, List, Optional, Union  # noqa: UP035
 
+from django.conf import settings
+from django.core.cache import cache
 from django.db.models.query import Prefetch
 from django.utils import timezone
 
@@ -27,7 +31,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.clickhouse.client import query_with_columns
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Element, Filter, Person, PropertyDefinition
+from posthog.models import Element, Filter, Person, PersonDistinctId, PropertyDefinition
 from posthog.models.event.query_event_list import query_events_list
 from posthog.models.event.sql import SELECT_ONE_EVENT_SQL
 from posthog.models.event.util import ClickhouseEventSerializer
@@ -41,6 +45,31 @@ from posthog.utils import convert_property_value, flatten, relative_date_parse
 tracer = trace.get_tracer(__name__)
 
 QUERY_DEFAULT_EXPORT_LIMIT = 3_500
+
+# Progressive time windows in seconds: 1min, 5min, 15min, 1hr, 6hr, 24hr
+EVENT_LIST_TIME_WINDOWS = [60, 300, 900, 3600, 21600, 86400]
+EVENT_LIST_CACHE_TTL = 86400  # 24 hours
+EVENT_LIST_CACHE_KEY_PREFIX = "event_list_good_period"
+
+
+def _get_limit_size_category(limit: int) -> str:
+    if limit < 1000:
+        return "s"
+    elif limit < 10000:
+        return "m"
+    return "l"
+
+
+def _get_event_list_cache_key(
+    team_id: int,
+    has_event_filter: bool,
+    has_distinct_id: bool,
+    limit: int,
+) -> str:
+    event_flag = "1" if has_event_filter else "0"
+    distinct_id_flag = "1" if has_distinct_id else "0"
+    size_category = _get_limit_size_category(limit)
+    return f"{EVENT_LIST_CACHE_KEY_PREFIX}:{team_id}:{event_flag}:{distinct_id_flag}:{size_category}"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -158,17 +187,26 @@ class EventViewSet(
             OpenApiParameter(
                 "before",
                 OpenApiTypes.DATETIME,
-                description="Only return events with a timestamp before this time.",
+                description="Only return events with a timestamp before this time. Default: now() + 5 seconds.",
             ),
             OpenApiParameter(
                 "after",
                 OpenApiTypes.DATETIME,
-                description="Only return events with a timestamp after this time.",
+                description="Only return events with a timestamp after this time. Default: now() - 24 hours.",
             ),
             OpenApiParameter(
                 "limit",
                 OpenApiTypes.INT,
                 description="The maximum number of results to return",
+            ),
+            OpenApiParameter(
+                "offset",
+                OpenApiTypes.INT,
+                description=(
+                    "Allows to skip first offset rows. Will fail for value larger than 100000. "
+                    "Read about proper way of paginating: https://posthog.com/docs/api/queries#5-use-timestamp-based-pagination-instead-of-offset"
+                ),
+                deprecated=True,
             ),
             PropertiesSerializer(required=False),
         ],
@@ -192,25 +230,80 @@ class EventViewSet(
                 offset = 0
 
             team = self.team
-            filter = Filter(request=request, team=self.team)
+
+            deprecate_offset = (
+                settings.PATCH_EVENT_LIST_MAX_OFFSET > 1 or team.id in settings.PATCH_EVENT_LIST_MAX_OFFSET_PER_TEAM
+            )
+            if settings.PATCH_EVENT_LIST_MAX_OFFSET > 0 or deprecate_offset:
+                if offset > 0:
+                    time.sleep(1)
+                if offset > 50000 and (deprecate_offset or random.random() < 0.01):  # 1% of queries fail
+                    raise serializers.ValidationError("Offset is deprecated. Max supported offset value is 50000")
+
+            filter = Filter(request=request, team=team)
             order_by: list[str] = (
                 list(json.loads(request.GET["orderBy"])) if request.GET.get("orderBy") else ["-timestamp"]
             )
 
-            query_result = query_events_list(
-                filter=filter,
-                team=team,
-                limit=limit,
-                offset=offset,
-                request_get_query_dict=request.GET.dict(),
-                order_by=order_by,
-                action_id=request.GET.get("action_id"),
-            )
+            # Progressive time window optimization
+            # Start with cached good_period or smallest window
+            has_event_filter = bool(request.GET.get("event"))
+            has_distinct_id = bool(request.GET.get("distinct_id"))
+            cache_key = _get_event_list_cache_key(team.pk, has_event_filter, has_distinct_id, limit)
+            cached_window = cache.get(cache_key)
 
-            # Retry the query without the 1-day optimization
-            if len(query_result) < limit:
-                query_result = query_events_list(
-                    unbounded_date_from=True,  # only this changed from the query above
+            # Calculate the user's requested time range in seconds
+            request_window_seconds: Optional[int] = None
+            if request.GET.get("before") and request.GET.get("after"):
+                try:
+                    before = relative_date_parse(request.GET["before"], team.timezone_info)
+                    after = relative_date_parse(request.GET["after"], team.timezone_info)
+                    request_window_seconds = int((before - after).total_seconds())
+                except (ValueError, TypeError):
+                    pass
+
+            # Build list of windows to try, only those shorter than request window
+            windows_to_try = [
+                w for w in EVENT_LIST_TIME_WINDOWS if request_window_seconds is None or w < request_window_seconds
+            ]
+
+            # If cached window is valid, try it first
+            if cached_window and cached_window in windows_to_try:
+                windows_to_try.remove(cached_window)
+                windows_to_try.insert(0, cached_window)
+
+            query_result: list = []
+            successful_window: Optional[int] = None
+            applied_window: Optional[int] = None
+            half_limit = max(limit // 2, 1)  # At least 1 result required
+
+            for window in windows_to_try:
+                query_result, applied_window = query_events_list(
+                    filter=filter,
+                    team=team,
+                    limit=limit,
+                    offset=offset,
+                    request_get_query_dict=request.GET.dict(),
+                    order_by=order_by,
+                    action_id=request.GET.get("action_id"),
+                    time_window_seconds=window,
+                )
+
+                # If window wasn't applied (e.g., ASC order), don't try other windows
+                if applied_window is None:
+                    break
+
+                if len(query_result) >= half_limit:
+                    successful_window = window
+                    break
+
+            if successful_window:
+                # Cache the successful window for future requests
+                if successful_window != cached_window:
+                    cache.set(cache_key, successful_window, EVENT_LIST_CACHE_TTL)
+            elif applied_window is not None or not windows_to_try:
+                # Windows were applied but didn't return enough results, or no windows to try - run full query
+                query_result, _ = query_events_list(
                     filter=filter,
                     team=team,
                     limit=limit,
@@ -229,7 +322,17 @@ class EventViewSet(
             next_url: Optional[str] = None
             if not is_csv_request and len(query_result) > limit:
                 next_url = self._build_next_url(request, query_result[limit - 1]["timestamp"], order_by)
-            return response.Response({"next": next_url, "results": result})
+            headers = None
+            if settings.PATCH_EVENT_LIST_MAX_OFFSET > 0:
+                headers = {"X-PostHog-Warn": "https://posthog.com/docs/api/events"}
+            elif deprecate_offset and offset:
+                headers = {
+                    "X-PostHog-Warn": (
+                        "offset is deprecated. "
+                        "Use: https://posthog.com/docs/api/queries#5-use-timestamp-based-pagination-instead-of-offset"
+                    )
+                }
+            return response.Response({"next": next_url, "results": result}, headers=headers)
 
         except Exception as ex:
             capture_exception(ex)
@@ -238,7 +341,13 @@ class EventViewSet(
     def _get_people(self, query_result: List[dict], team: Team) -> dict[str, Any]:  # noqa: UP006
         distinct_ids = [event["distinct_id"] for event in query_result]
         persons = get_persons_by_distinct_ids(team.pk, distinct_ids)
-        persons = persons.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+        persons = persons.prefetch_related(
+            Prefetch(
+                "persondistinctid_set",
+                queryset=PersonDistinctId.objects.filter(team_id=team.pk).order_by("id"),
+                to_attr="distinct_ids_cache",
+            )
+        )
         distinct_to_person: dict[str, Person] = {}
         for person in persons:
             for distinct_id in person.distinct_ids:

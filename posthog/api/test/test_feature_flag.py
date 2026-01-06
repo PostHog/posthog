@@ -8,6 +8,7 @@ from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
     FuzzyInt,
+    NonAtomicBaseTest,
     QueryMatchingTest,
     _create_person,
     flush_persons_and_events,
@@ -17,9 +18,8 @@ from posthog.test.base import (
 from unittest.mock import call, patch
 
 from django.core.cache import cache
-from django.db import connection
+from django.db import connection, connections
 from django.db.utils import OperationalError
-from django.test import TransactionTestCase
 from django.test.client import RequestFactory
 from django.utils.timezone import now
 
@@ -28,7 +28,7 @@ from rest_framework import status
 
 from posthog import redis
 from posthog.api.cohort import get_cohort_actors_for_feature_flag
-from posthog.api.feature_flag import FeatureFlagSerializer
+from posthog.api.feature_flag import FeatureFlagSerializer, extract_etag_from_header
 from posthog.constants import AvailableFeature
 from posthog.models import Experiment, FeatureFlag, GroupTypeMapping, Tag, TaggedItem, User
 from posthog.models.cohort import Cohort
@@ -51,6 +51,33 @@ from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.early_access_features.backend.models import EarlyAccessFeature
+from products.product_tours.backend.models import ProductTour
+
+
+class TestExtractEtagFromHeader:
+    """Unit tests for extract_etag_from_header function."""
+
+    @parameterized.expand(
+        [
+            # (test_name, input_header, expected_output)
+            ("strong_etag_quoted", '"abc123"', "abc123"),
+            ("strong_etag_unquoted", "abc123", "abc123"),
+            ("weak_etag", 'W/"abc123"', "abc123"),
+            # W/abc123 is malformed per RFC 7232 (weak ETags require quotes)
+            # We treat it as a literal string, which won't match any stored ETag
+            ("weak_etag_malformed", "W/abc123", "W/abc123"),
+            ("etag_starting_with_w", '"WXYZ1234"', "WXYZ1234"),
+            ("etag_starting_with_slash", '"/path/to/resource"', "/path/to/resource"),
+            ("etag_with_special_chars", '"abc-123_456"', "abc-123_456"),
+            ("etag_with_whitespace", '  "abc123"  ', "abc123"),
+            ("empty_string", "", None),
+            ("whitespace_only", "   ", None),
+            ("none_value", None, None),
+            ("empty_quotes", '""', None),
+        ]
+    )
+    def test_extract_etag_from_header(self, _name: str, header_value: str | None, expected: str | None):
+        assert extract_etag_from_header(header_value) == expected
 
 
 class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
@@ -1293,7 +1320,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
-            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            headers={"authorization": f"Bearer {personal_api_key}"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), '{"test": true}')
@@ -1319,7 +1346,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.client.logout()
         response = self.client.get(
             f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
-            HTTP_AUTHORIZATION=f"Bearer {self.team.secret_api_token}",
+            headers={"authorization": f"Bearer {self.team.secret_api_token}"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), '{"test": true}')
@@ -1355,7 +1382,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Try to access other team's flag using this team's secret key + other team's project_api_key in body
         response = self.client.get(
             f"/api/projects/{other_team.id}/feature_flags/other-team-flag/remote_config?token={other_team.api_token}",
-            HTTP_AUTHORIZATION=f"Bearer {self.team.secret_api_token}",
+            headers={"authorization": f"Bearer {self.team.secret_api_token}"},
         )
 
         # Should be forbidden due to team mismatch
@@ -2427,7 +2454,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             format="json",
         ).json()
 
-        with self.assertNumQueries(FuzzyInt(17, 18)):
+        with self.assertNumQueries(FuzzyInt(18, 19)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -2442,7 +2469,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 format="json",
             ).json()
 
-        with self.assertNumQueries(FuzzyInt(17, 18)):
+        with self.assertNumQueries(FuzzyInt(18, 19)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -2466,7 +2493,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="Flag role access",
         )
 
-        with self.assertNumQueries(FuzzyInt(17, 18)):
+        with self.assertNumQueries(FuzzyInt(18, 19)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 2)
@@ -2585,7 +2612,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Should not cause extra queries for the targeting flags
-        with self.assertNumQueries(FuzzyInt(15, 20)):
+        with self.assertNumQueries(FuzzyInt(15, 21)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             # Should include main_flag but not targeting flags (they're filtered out)
@@ -3288,7 +3315,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
             response = self.client.get(
                 f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts",
-                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                headers={"authorization": f"Bearer {personal_api_key}"},
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -3373,7 +3400,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         response = self.client.get(
             f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
-            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            headers={"authorization": f"Bearer {personal_api_key}"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -3483,7 +3510,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         response = self.client.get(
             f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts",
-            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            headers={"authorization": f"Bearer {personal_api_key}"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -3669,7 +3696,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         response = self.client.get(
             f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts",
-            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            headers={"authorization": f"Bearer {personal_api_key}"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -3839,7 +3866,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
             response = self.client.get(
                 f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
-                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                headers={"authorization": f"Bearer {personal_api_key}"},
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(
@@ -3850,7 +3877,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             for _ in range(5):
                 response = self.client.get(
                     f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
-                    HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                    headers={"authorization": f"Bearer {personal_api_key}"},
                 )
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -3911,7 +3938,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
             response = self.client.get(
                 f"/api/feature_flag/?token={self.team.api_token}",
-                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                headers={"authorization": f"Bearer {personal_api_key}"},
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(
@@ -3922,14 +3949,14 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             for _ in range(4):
                 response = self.client.get(
                     f"/api/feature_flag/?token={self.team.api_token}",
-                    HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                    headers={"authorization": f"Bearer {personal_api_key}"},
                 )
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
 
             # local evaluation still works
             response = self.client.get(
                 f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
-                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                headers={"authorization": f"Bearer {personal_api_key}"},
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -4068,7 +4095,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             def make_request_and_assert_requests_recorded(expected_requests=None):
                 response = self.client.get(
                     f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
-                    HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                    headers={"authorization": f"Bearer {personal_api_key}"},
                 )
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
                 self.assertEqual(
@@ -4146,7 +4173,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Make request using project secret key authentication
         response = self.client.get(
             f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
-            HTTP_AUTHORIZATION=f"Bearer {self.team.secret_api_token}",
+            headers={"authorization": f"Bearer {self.team.secret_api_token}"},
         )
 
         # Verify successful response
@@ -5084,6 +5111,27 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert len(response["results"]) == 1
         assert response["results"][0]["id"] is not survey.json()["targeting_flag"]["id"]
 
+    def test_get_flags_dont_return_product_tour_internal_targeting_flags(self):
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
+
+        internal_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="product-tour-targeting-test-tour-abc123",
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+        ProductTour.objects.create(
+            team=self.team,
+            name="Test Tour",
+            content={"steps": []},
+            internal_targeting_flag=internal_flag,
+        )
+
+        flags_list = self.client.get("/api/projects/@current/feature_flags")
+        response = flags_list.json()
+        assert len(response["results"]) == 1
+        assert response["results"][0]["key"] == "red_button"
+
     def test_get_flags_with_active_and_created_by_id_filters(self):
         FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
         another_user = User.objects.create(email="foo@bar.com")
@@ -5452,15 +5500,13 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         for _ in range(5):
             response = self.client.get(
-                f"/api/projects/{self.team.pk}/feature_flags",
-                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                f"/api/projects/{self.team.pk}/feature_flags", headers={"authorization": f"Bearer {personal_api_key}"}
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # Call to flags gets rate limited
         response = self.client.get(
-            f"/api/projects/{self.team.pk}/feature_flags",
-            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            f"/api/projects/{self.team.pk}/feature_flags", headers={"authorization": f"Bearer {personal_api_key}"}
         )
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
         self.assertEqual(
@@ -5483,8 +5529,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # but not call to local evaluation
         for _ in range(7):
             response = self.client.get(
-                f"/api/feature_flag/local_evaluation",
-                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                f"/api/feature_flag/local_evaluation", headers={"authorization": f"Bearer {personal_api_key}"}
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
@@ -6090,8 +6135,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # First request should miss cache and populate it
         self.client.logout()
         response = self.client.get(
-            f"/api/feature_flag/local_evaluation",
-            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            f"/api/feature_flag/local_evaluation", headers={"authorization": f"Bearer {personal_api_key}"}
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -6133,8 +6177,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Test cache for send_cohorts=true
         self.client.logout()
         response = self.client.get(
-            f"/api/feature_flag/local_evaluation?send_cohorts",
-            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            f"/api/feature_flag/local_evaluation?send_cohorts", headers={"authorization": f"Bearer {personal_api_key}"}
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -6166,8 +6209,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Populate cache
         self.client.logout()
         response = self.client.get(
-            f"/api/feature_flag/local_evaluation",
-            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            f"/api/feature_flag/local_evaluation", headers={"authorization": f"Bearer {personal_api_key}"}
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -6221,12 +6263,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Populate both cache variants
         self.client.logout()
         response1 = self.client.get(
-            f"/api/feature_flag/local_evaluation",
-            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            f"/api/feature_flag/local_evaluation", headers={"authorization": f"Bearer {personal_api_key}"}
         )
         response2 = self.client.get(
-            f"/api/feature_flag/local_evaluation?send_cohorts",
-            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            f"/api/feature_flag/local_evaluation?send_cohorts", headers={"authorization": f"Bearer {personal_api_key}"}
         )
 
         self.assertEqual(response1.status_code, status.HTTP_200_OK)
@@ -6239,12 +6279,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Make new requests to get potentially updated cache
         self.client.logout()
         updated_response1 = self.client.get(
-            f"/api/feature_flag/local_evaluation",
-            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            f"/api/feature_flag/local_evaluation", headers={"authorization": f"Bearer {personal_api_key}"}
         )
         updated_response2 = self.client.get(
-            f"/api/feature_flag/local_evaluation?send_cohorts",
-            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            f"/api/feature_flag/local_evaluation?send_cohorts", headers={"authorization": f"Bearer {personal_api_key}"}
         )
 
         self.assertEqual(updated_response1.status_code, status.HTTP_200_OK)
@@ -6590,6 +6628,329 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(instance.name, "")
         assert instance.usage_dashboard is None, "Usage dashboard should not be created"
 
+    def test_local_evaluation_returns_etag_header(self):
+        """Test that local_evaluation returns an ETag header in the response."""
+        FeatureFlag.objects.filter(team=self.team).delete()
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag-etag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+
+        from posthog.models.feature_flag.local_evaluation import clear_flag_caches
+
+        clear_flag_caches(self.team)
+
+        self.client.logout()
+        response = self.client.get(
+            "/api/feature_flag/local_evaluation", headers={"authorization": f"Bearer {personal_api_key}"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("ETag", response.headers)
+        self.assertTrue(response.headers["ETag"].startswith('W/"'))
+        self.assertTrue(response.headers["ETag"].endswith('"'))
+        self.assertIn("Cache-Control", response.headers)
+        self.assertEqual(response.headers["Cache-Control"], "private, must-revalidate")
+
+    def test_local_evaluation_returns_304_when_etag_matches(self):
+        """Test that local_evaluation returns 304 when If-None-Match header matches."""
+        FeatureFlag.objects.filter(team=self.team).delete()
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag-304",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+
+        from posthog.models.feature_flag.local_evaluation import clear_flag_caches
+
+        clear_flag_caches(self.team)
+
+        self.client.logout()
+
+        # First request to get the ETag
+        response1 = self.client.get(
+            "/api/feature_flag/local_evaluation", headers={"authorization": f"Bearer {personal_api_key}"}
+        )
+        self.assertEqual(response1.status_code, status.HTTP_200_OK)
+        etag = response1.headers["ETag"]
+
+        # Second request with If-None-Match header
+        response2 = self.client.get(
+            "/api/feature_flag/local_evaluation",
+            headers={"authorization": f"Bearer {personal_api_key}", "If-None-Match": etag},
+        )
+        self.assertEqual(response2.status_code, status.HTTP_304_NOT_MODIFIED)
+        self.assertEqual(response2.headers["ETag"], etag)
+
+    def test_local_evaluation_returns_200_when_etag_does_not_match(self):
+        """Test that local_evaluation returns 200 with new data when ETag doesn't match."""
+        FeatureFlag.objects.filter(team=self.team).delete()
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag-new-etag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+
+        from posthog.models.feature_flag.local_evaluation import clear_flag_caches
+
+        clear_flag_caches(self.team)
+
+        self.client.logout()
+
+        # Request with non-matching ETag
+        response = self.client.get(
+            "/api/feature_flag/local_evaluation",
+            headers={"authorization": f"Bearer {personal_api_key}", "If-None-Match": '"wrong-etag"'},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("ETag", response.headers)
+        self.assertIn("flags", response.json())
+
+    @patch("django.db.transaction.on_commit", side_effect=lambda f: f())
+    def test_local_evaluation_etag_changes_when_flag_updated(self, mock_on_commit):
+        """Test that ETag changes when a feature flag is modified."""
+        FeatureFlag.objects.filter(team=self.team).delete()
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag-update",
+            filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
+        )
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+
+        from posthog.models.feature_flag.local_evaluation import clear_flag_caches
+
+        clear_flag_caches(self.team)
+
+        self.client.logout()
+
+        # First request to get the initial ETag
+        response1 = self.client.get(
+            "/api/feature_flag/local_evaluation", headers={"authorization": f"Bearer {personal_api_key}"}
+        )
+        self.assertEqual(response1.status_code, status.HTTP_200_OK)
+        etag1 = response1.headers["ETag"]
+
+        # Update the flag
+        flag.filters = {"groups": [{"properties": [], "rollout_percentage": 100}]}
+        flag.save()
+
+        # Second request should have a different ETag
+        response2 = self.client.get(
+            "/api/feature_flag/local_evaluation", headers={"authorization": f"Bearer {personal_api_key}"}
+        )
+        self.assertEqual(response2.status_code, status.HTTP_200_OK)
+        etag2 = response2.headers["ETag"]
+
+        self.assertNotEqual(etag1, etag2)
+
+    def test_local_evaluation_etag_works_with_send_cohorts(self):
+        """Test that ETag works correctly with send_cohorts parameter."""
+        FeatureFlag.objects.filter(team=self.team).delete()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            groups=[{"properties": [{"key": "email", "value": "test@example.com", "type": "person"}]}],
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag-cohort-etag",
+            filters={
+                "groups": [
+                    {
+                        "properties": [{"key": "id", "value": cohort.id, "type": "cohort"}],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+
+        from posthog.models.feature_flag.local_evaluation import clear_flag_caches
+
+        clear_flag_caches(self.team)
+
+        self.client.logout()
+
+        # Request with send_cohorts
+        response1 = self.client.get(
+            "/api/feature_flag/local_evaluation?send_cohorts",
+            headers={"authorization": f"Bearer {personal_api_key}"},
+        )
+        self.assertEqual(response1.status_code, status.HTTP_200_OK)
+        etag_with_cohorts = response1.headers["ETag"]
+
+        # Second request with same ETag should return 304
+        response2 = self.client.get(
+            "/api/feature_flag/local_evaluation?send_cohorts",
+            headers={"authorization": f"Bearer {personal_api_key}", "If-None-Match": etag_with_cohorts},
+        )
+        self.assertEqual(response2.status_code, status.HTTP_304_NOT_MODIFIED)
+
+        # Request without send_cohorts should have different ETag
+        response3 = self.client.get(
+            "/api/feature_flag/local_evaluation",
+            headers={"authorization": f"Bearer {personal_api_key}"},
+        )
+        self.assertEqual(response3.status_code, status.HTTP_200_OK)
+        etag_without_cohorts = response3.headers["ETag"]
+
+        # Different caches should have different ETags
+        self.assertNotEqual(etag_with_cohorts, etag_without_cohorts)
+
+    def test_local_evaluation_304_response_has_empty_body(self):
+        """Test that 304 responses have empty body per HTTP spec."""
+        FeatureFlag.objects.filter(team=self.team).delete()
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag-empty-body",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+
+        from posthog.models.feature_flag.local_evaluation import clear_flag_caches
+
+        clear_flag_caches(self.team)
+
+        self.client.logout()
+
+        # First request to get the ETag
+        response1 = self.client.get(
+            "/api/feature_flag/local_evaluation", headers={"authorization": f"Bearer {personal_api_key}"}
+        )
+        self.assertEqual(response1.status_code, status.HTTP_200_OK)
+        etag = response1.headers["ETag"]
+
+        # Second request with matching ETag should return 304 with empty body
+        response2 = self.client.get(
+            "/api/feature_flag/local_evaluation",
+            headers={"authorization": f"Bearer {personal_api_key}", "If-None-Match": etag},
+        )
+        self.assertEqual(response2.status_code, status.HTTP_304_NOT_MODIFIED)
+        self.assertEqual(response2.content, b"")
+
+    def test_local_evaluation_etag_header_parsing_quoted(self):
+        """Test that quoted ETag headers are parsed correctly."""
+        FeatureFlag.objects.filter(team=self.team).delete()
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag-quoted",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+
+        from posthog.models.feature_flag.local_evaluation import clear_flag_caches
+
+        clear_flag_caches(self.team)
+
+        self.client.logout()
+
+        # Get initial ETag
+        response1 = self.client.get(
+            "/api/feature_flag/local_evaluation", headers={"authorization": f"Bearer {personal_api_key}"}
+        )
+        etag = response1.headers["ETag"]
+        # ETag is returned as weak ETag, e.g., 'W/"abc123"'
+        self.assertTrue(etag.startswith('W/"') and etag.endswith('"'))
+
+        # Client sends ETag with quotes (standard format) - should match
+        response2 = self.client.get(
+            "/api/feature_flag/local_evaluation",
+            headers={"authorization": f"Bearer {personal_api_key}", "If-None-Match": etag},
+        )
+        self.assertEqual(response2.status_code, status.HTTP_304_NOT_MODIFIED)
+
+    def test_local_evaluation_etag_header_parsing_unquoted(self):
+        """Test that unquoted ETag headers are handled gracefully."""
+        FeatureFlag.objects.filter(team=self.team).delete()
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag-unquoted",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+
+        from posthog.models.feature_flag.local_evaluation import clear_flag_caches
+
+        clear_flag_caches(self.team)
+
+        self.client.logout()
+
+        # Get initial ETag
+        response1 = self.client.get(
+            "/api/feature_flag/local_evaluation", headers={"authorization": f"Bearer {personal_api_key}"}
+        )
+        etag = response1.headers["ETag"]
+        # Strip weak ETag prefix and quotes to get raw ETag value (W/"abc123" -> abc123)
+        raw_etag = etag.removeprefix('W/"').removesuffix('"')
+
+        # Client sends ETag without quotes (non-standard but should work)
+        response2 = self.client.get(
+            "/api/feature_flag/local_evaluation",
+            headers={"authorization": f"Bearer {personal_api_key}", "If-None-Match": raw_etag},
+        )
+        self.assertEqual(response2.status_code, status.HTTP_304_NOT_MODIFIED)
+
+    def test_local_evaluation_etag_idempotent_304_responses(self):
+        """Test that same ETag consistently returns 304 across multiple requests."""
+        FeatureFlag.objects.filter(team=self.team).delete()
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag-idempotent",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+
+        from posthog.models.feature_flag.local_evaluation import clear_flag_caches
+
+        clear_flag_caches(self.team)
+
+        self.client.logout()
+
+        # Get initial ETag
+        response1 = self.client.get(
+            "/api/feature_flag/local_evaluation", headers={"authorization": f"Bearer {personal_api_key}"}
+        )
+        etag = response1.headers["ETag"]
+
+        # Make 5 sequential requests with same ETag - all should return 304
+        for i in range(5):
+            response = self.client.get(
+                "/api/feature_flag/local_evaluation",
+                headers={"authorization": f"Bearer {personal_api_key}", "If-None-Match": etag},
+            )
+            self.assertEqual(response.status_code, status.HTTP_304_NOT_MODIFIED, f"Request {i+1} should return 304")
+            self.assertEqual(response.headers["ETag"], etag)
+
 
 class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_creating_static_cohort_with_deleted_flag(self):
@@ -6800,7 +7161,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # TODO: Ensure server-side cursors are disabled, since in production we use this with pgbouncer
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(26):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(29):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
         cohort.refresh_from_db()
@@ -6854,7 +7215,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Extra queries because each batch adds its own queries
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(41):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(47):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk, batchsize=2)
 
         cohort.refresh_from_db()
@@ -6865,7 +7226,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(len(response.json()["results"]), 3, response)
 
         # if the batch is big enough, it's fewer queries
-        with self.assertNumQueries(23):
+        with self.assertNumQueries(26):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk, batchsize=10)
 
         cohort.refresh_from_db()
@@ -6929,7 +7290,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(25):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(28):
             # no queries to evaluate flags, because all evaluated using override properties
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
@@ -6946,7 +7307,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort2",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(25):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(28):
             # person3 doesn't match filter conditions so is pre-filtered out
             get_cohort_actors_for_feature_flag(cohort2.pk, "some-feature-new", self.team.pk)
 
@@ -7040,7 +7401,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(40):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(43):
             # forced to evaluate flags by going to db, because cohorts need db query to evaluate
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature-new", self.team.pk)
 
@@ -7691,7 +8052,7 @@ def slow_query(execute, sql, *args, **kwargs):
     return execute(f"SELECT pg_sleep(1); {sql}", *args, **kwargs)
 
 
-class TestResiliency(TransactionTestCase, QueryMatchingTest):
+class TestResiliency(NonAtomicBaseTest, QueryMatchingTest):
     def setUp(self) -> None:
         return super().setUp()
 
@@ -7767,7 +8128,11 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             self.assertFalse(errors)
 
         # now db is down
-        with snapshot_postgres_queries_context(self), connection.execute_wrapper(QueryTimeoutWrapper()):
+        with (
+            snapshot_postgres_queries_context(self),
+            connection.execute_wrapper(QueryTimeoutWrapper()),
+            connections["persons_db_writer"].execute_wrapper(QueryTimeoutWrapper()),
+        ):
             with self.assertNumQueries(3):
                 all_flags, _, _, errors = get_all_feature_flags(
                     self.team, "example_id", groups={"organization": "org:1"}
@@ -7869,7 +8234,11 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             self.assertFalse(errors)
 
         # now db is down
-        with snapshot_postgres_queries_context(self), connection.execute_wrapper(QueryTimeoutWrapper()):
+        with (
+            snapshot_postgres_queries_context(self),
+            connection.execute_wrapper(QueryTimeoutWrapper()),
+            connections["persons_db_writer"].execute_wrapper(QueryTimeoutWrapper()),
+        ):
             all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id")
 
             self.assertTrue("property-flag" not in all_flags)
@@ -7973,6 +8342,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         with (
             snapshot_postgres_queries_context(self),
             connection.execute_wrapper(slow_query),
+            connections["persons_db_writer"].execute_wrapper(slow_query),
             patch(
                 "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
                 500,
@@ -8071,6 +8441,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         with (
             self.assertNumQueries(0),
             connection.execute_wrapper(slow_query),
+            connections["persons_db_writer"].execute_wrapper(slow_query),
             patch(
                 "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
                 500,
@@ -8182,12 +8553,13 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         # now db is slow and times out
         with (
             snapshot_postgres_queries_context(self),
-            connection.execute_wrapper(slow_query),
+            connection.execute_wrapper(QueryTimeoutWrapper()),
+            connections["persons_db_writer"].execute_wrapper(QueryTimeoutWrapper()),
             patch(
                 "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
                 500,
             ),
-            self.assertNumQueries(4),
+            self.assertNumQueries(3),
         ):
             # no extra queries to get person properties for the second flag after first one failed
             all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id")
@@ -8282,6 +8654,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         with (
             snapshot_postgres_queries_context(self),
             connection.execute_wrapper(slow_query),
+            connections["persons_db_writer"].execute_wrapper(slow_query),
             patch(
                 "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
                 500,
@@ -8388,7 +8761,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         self.assertTrue(serialized_data.is_valid())
         serialized_data.save()
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(17):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(37):
             all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id", hash_key_override="random")
 
             self.assertTrue(all_flags["property-flag"])
@@ -8399,6 +8772,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         with (
             snapshot_postgres_queries_context(self),
             connection.execute_wrapper(slow_query),
+            connections["persons_db_writer"].execute_wrapper(slow_query),
             patch(
                 "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
                 500,

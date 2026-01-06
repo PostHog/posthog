@@ -1,13 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonModal, Link } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonModal, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
-import { ExperimentMetric } from '~/queries/schema/schema-general'
+import { ExperimentMetric, isExperimentRatioMetric } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
 
 import { VariantTag } from '../../ExperimentView/components'
@@ -44,7 +45,7 @@ export function TimeseriesModal({
     const isStaleExperiment =
         !experiment.start_date || experiment.end_date
             ? false
-            : dayjs(experiment.start_date).isBefore(dayjs().subtract(90, 'days'))
+            : dayjs(experiment.start_date).isBefore(dayjs().subtract(30, 'days'))
 
     const handleRecalculate = (): void => {
         LemonDialog.open({
@@ -111,7 +112,7 @@ export function TimeseriesModal({
                                     <div className="flex items-center justify-between">
                                         <div className="flex-1">
                                             <div className="text-sm">
-                                                This experiment has been running for more than 90 days. Automatic
+                                                This experiment has been running for more than 30 days. Automatic
                                                 timeseries updates are disabled. You can still manually recalculate the
                                                 data.
                                             </div>
@@ -146,7 +147,14 @@ export function TimeseriesModal({
                             </div>
                         )}
                         <div className="flex justify-between items-center mt-2 mb-4">
-                            <div className="text-xs text-muted">{progressMessage || ''}</div>
+                            <div className="flex items-center gap-1">
+                                <div className="text-xs text-muted">{progressMessage || ''}</div>
+                                {progressMessage && (
+                                    <Tooltip title="The chart displays data starting from the first day with meaningful results. Earlier days without sufficient data are excluded from the visualization.">
+                                        <IconInfo className="text-muted text-base" />
+                                    </Tooltip>
+                                )}
+                            </div>
                             <More
                                 overlay={
                                     <>
@@ -157,7 +165,10 @@ export function TimeseriesModal({
                         </div>
                         {hasTimeseriesData ? (
                             processedChartData ? (
-                                <VariantTimeseriesChart chartData={processedChartData} />
+                                <VariantTimeseriesChart
+                                    chartData={processedChartData}
+                                    isRatioMetric={isExperimentRatioMetric(metric)}
+                                />
                             ) : (
                                 <div className="p-10 text-center text-muted">
                                     No timeseries data available for this variant

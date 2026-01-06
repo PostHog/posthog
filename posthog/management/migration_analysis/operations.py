@@ -12,6 +12,41 @@ from posthog.management.migration_analysis.utils import VolatileFunctionDetector
 SAFE_MIGRATIONS_DOCS_URL = "https://github.com/PostHog/posthog/blob/master/docs/safe-django-migrations.md"
 
 
+def is_unmanaged_model(op, migration, unapplied_migrations=None) -> bool:
+    """Check if operation should be skipped due to managed=False.
+
+    Skip if:
+    1. Operation explicitly declares managed=False (e.g., AlterModelOptions, CreateModel)
+    2. Model is currently managed=False in app registry (Django won't execute DDL)
+
+    Otherwise analyze normally.
+
+    Args:
+        op: Migration operation
+        migration: Current migration object
+        unapplied_migrations: Unused, kept for signature compatibility
+    """
+    # Case 1: Operation explicitly declares managed=False
+    if hasattr(op, "options") and op.options.get("managed") is False:
+        return True
+
+    # Case 2: Check if model is currently managed=False
+    model_name = getattr(op, "model_name", None) or getattr(op, "name", None)
+    if model_name and migration:
+        try:
+            from django.apps import apps
+
+            model = apps.get_model(migration.app_label, model_name)
+            if model._meta.managed is False:
+                return True
+        except LookupError:
+            # Model not found in app registry - likely a third-party app or model no longer exists
+            # Skip the check and let the operation be analyzed normally
+            pass
+
+    return False
+
+
 class OperationAnalyzer:
     """Base class for operation-specific analyzers"""
 
@@ -34,6 +69,16 @@ class AddFieldAnalyzer(OperationAnalyzer):
     def analyze(self, op) -> OperationRisk:
         field = op.field
 
+        # ManyToMany fields don't add a column to the model's table - they create a junction table
+        # So there's no "NOT NULL without default" concern
+        if isinstance(field, models.ManyToManyField):
+            return OperationRisk(
+                type=self.operation_type,
+                score=0,
+                reason="Adding ManyToMany field is safe (creates separate junction table)",
+                details={"model": op.model_name, "field": op.name},
+            )
+
         # Only null=True matters for database safety (blank=True is just form validation)
         if field.null:
             return self._analyze_nullable_field(op)
@@ -51,14 +96,9 @@ class AddFieldAnalyzer(OperationAnalyzer):
             score=1,
             reason="Adding nullable field requires brief lock",
             details={"model": op.model_name, "field": op.name},
-            guidance="""While this operation doesn't rewrite the table, it still acquires an ACCESS EXCLUSIVE lock briefly.
+            guidance="""This operation acquires a brief lock but doesn't rewrite the table.
 
-For high-traffic tables, consider:
-- Deploy during low-traffic periods
-- Monitor lock contention and query timeouts during deployment
-- Have a rollback plan ready
-
-For low-traffic tables, this operation is generally safe to deploy anytime.""",
+Deployment uses lock timeouts with automatic retries, so lock contention will cause retries rather than connection pile-up.""",
         )
 
     def _risk_not_null_no_default(self, op) -> OperationRisk:
@@ -491,6 +531,30 @@ class RunSQLAnalyzer(OperationAnalyzer):
 - Replacing constraints: Add new → deploy → wait → drop old
 
 [See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL})""",
+            )
+
+        # Bare ADD CONSTRAINT without NOT VALID or USING INDEX - needs warning
+        # (Safe patterns like NOT VALID and USING INDEX are checked above and return early,
+        # but being explicit here makes the logic clearer)
+        if (
+            re.search(r"\bADD\s+CONSTRAINT\b", sql, re.IGNORECASE)
+            and "NOT VALID" not in sql
+            and "USING INDEX" not in sql
+        ):
+            return OperationRisk(
+                type=self.operation_type,
+                score=4,
+                reason="ADD CONSTRAINT without NOT VALID locks table during validation",
+                details={"sql": sql},
+                guidance=f"""Use NOT VALID pattern to avoid table locks:
+
+1. Add constraint with NOT VALID (instant, no table scan):
+   ALTER TABLE ... ADD CONSTRAINT ... NOT VALID
+
+2. Validate in separate migration (non-blocking):
+   ALTER TABLE ... VALIDATE CONSTRAINT ...
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#adding-constraints)""",
             )
 
         # Check for metadata-only operations (safe and instant)

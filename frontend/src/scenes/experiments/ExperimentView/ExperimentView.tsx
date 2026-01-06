@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonTabs } from '@posthog/lemon-ui'
+import { LemonTabs, LemonTag } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -8,6 +8,7 @@ import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperi
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import type { CachedExperimentQueryResponse } from '~/queries/schema/schema-general'
+import { ExperimentForm } from '~/scenes/experiments/ExperimentForm'
 import { LegacyExperimentInfo } from '~/scenes/experiments/legacy/LegacyExperimentInfo'
 import { ActivityScope, ProgressStatus } from '~/types'
 
@@ -32,13 +33,13 @@ import {
     ResultsQuery,
 } from '../components/ResultsBreakdown'
 import { SummarizeExperimentButton } from '../components/SummarizeExperimentButton'
-import { CreateExperiment } from '../create/CreateExperiment'
 import { experimentLogic } from '../experimentLogic'
 import type { ExperimentSceneLogicProps } from '../experimentSceneLogic'
 import { experimentSceneLogic } from '../experimentSceneLogic'
 import { getExperimentStatus } from '../experimentsLogic'
-import { isLegacyExperiment, isLegacyExperimentQuery, removeMetricFromOrderingArray } from '../utils'
+import { isLegacyExperiment, isLegacyExperimentQuery } from '../utils'
 import { DistributionModal, DistributionTable } from './DistributionTable'
+import { ExperimentFeedbackTab } from './ExperimentFeedbackTab'
 import { ExperimentHeader } from './ExperimentHeader'
 import { ExposureCriteriaModal } from './ExposureCriteria'
 import { Exposures } from './Exposures'
@@ -94,7 +95,10 @@ const MetricsTab = (): JSX.Element => {
         firstPrimaryMetric &&
         firstPrimaryMetricResult
 
-    const isAiSummaryEnabled = featureFlags[FEATURE_FLAGS.EXPERIMENT_AI_SUMMARY] === 'test'
+    const isAiSummaryEnabled =
+        featureFlags[FEATURE_FLAGS.EXPERIMENT_AI_SUMMARY] === 'test' &&
+        usesNewQueryRunner &&
+        hasMinimumExposureForResults
 
     return (
         <>
@@ -237,10 +241,6 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
     const { closeSharedMetricModal } = useActions(sharedMetricModalLogic)
 
     /**
-     * this is temporary, for testing purposes only.
-     * this has to be migrated into a scene with a proper path, and paramsToProps
-     * so it works seamlesly with the toolbar and tab bar navigation.
-     *
      * We show the create form if the experiment is draft + has no primary metrics. Otherwise,
      * we show the experiment view.
      */
@@ -253,10 +253,9 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
         !experimentLoading &&
         getExperimentStatus(experiment) === ProgressStatus.Draft &&
         experiment.type === 'product' &&
-        allPrimaryMetrics.length === 0 &&
-        featureFlags[FEATURE_FLAGS.EXPERIMENTS_USE_NEW_CREATE_FORM] === 'test'
+        allPrimaryMetrics.length === 0
     ) {
-        return <CreateExperiment draftExperiment={experiment} tabId={tabId} />
+        return <ExperimentForm draftExperiment={experiment} tabId={tabId} />
     }
 
     return (
@@ -266,7 +265,7 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                 <LoadingState />
             ) : (
                 <>
-                    {usesNewQueryRunner ? <Info /> : <LegacyExperimentInfo />}
+                    {usesNewQueryRunner ? <Info tabId={tabId} /> : <LegacyExperimentInfo />}
                     {usesNewQueryRunner ? <ExperimentHeader /> : <LegacyExperimentHeader />}
                     <LemonTabs
                         activeKey={activeTabKey}
@@ -297,6 +296,22 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                                 label: 'History',
                                 content: <ActivityLog scope={ActivityScope.EXPERIMENT} id={experimentId} />,
                             },
+                            ...(experiment.feature_flag && featureFlags[FEATURE_FLAGS.SURVEYS_EXPERIMENTS_CROSS_SELL]
+                                ? [
+                                      {
+                                          key: 'feedback',
+                                          label: (
+                                              <div className="flex flex-row">
+                                                  <div>User feedback</div>
+                                                  <LemonTag className="ml-2 float-right uppercase" type="primary">
+                                                      New
+                                                  </LemonTag>
+                                              </div>
+                                          ),
+                                          content: <ExperimentFeedbackTab experiment={experiment} />,
+                                      },
+                                  ]
+                                : []),
                         ]}
                     />
 
@@ -314,19 +329,12 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                                         [context.field]: isNew
                                             ? [...metrics, metric]
                                             : metrics.map((m) => (m.uuid === metric.uuid ? metric : m)),
-                                        ...(isNew && {
-                                            [context.orderingField]: [
-                                                ...(experiment[context.orderingField] ?? []),
-                                                metric.uuid,
-                                            ],
-                                        }),
                                     })
 
                                     updateExperimentMetrics()
                                     closeExperimentMetricModal()
                                 }}
                                 onDelete={(metric, context) => {
-                                    //bail if the metric has no uuid
                                     if (!metric.uuid) {
                                         return
                                     }
@@ -334,11 +342,6 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                                     setExperiment({
                                         [context.field]: experiment[context.field].filter(
                                             (m) => m.uuid !== metric.uuid
-                                        ),
-                                        [context.orderingField]: removeMetricFromOrderingArray(
-                                            experiment,
-                                            metric.uuid,
-                                            context.type === 'secondary'
                                         ),
                                     })
 
@@ -349,33 +352,13 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                             <SharedMetricModal
                                 experiment={experiment}
                                 onSave={(metrics, context) => {
-                                    const existingOrderingArray = experiment[context.orderingField] ?? []
-                                    const newMetricUuids = metrics
-                                        .map((metric) => metric.query.uuid)
-                                        .filter((uuid) => !existingOrderingArray.includes(uuid))
-                                    const newOrderingArray = [...existingOrderingArray, ...newMetricUuids]
-
-                                    setExperiment({
-                                        [context.orderingField]: newOrderingArray,
-                                    })
-
                                     addSharedMetricsToExperiment(
                                         metrics.map(({ id }) => id),
                                         { type: context.type }
                                     )
                                     closeSharedMetricModal()
                                 }}
-                                onDelete={(metric, context) => {
-                                    const newOrderingArray = removeMetricFromOrderingArray(
-                                        experiment,
-                                        metric.query.uuid,
-                                        context.type === 'secondary'
-                                    )
-
-                                    setExperiment({
-                                        [context.orderingField]: newOrderingArray,
-                                    })
-
+                                onDelete={(metric) => {
                                     removeSharedMetricFromExperiment(metric.id)
                                     closeSharedMetricModal()
                                 }}

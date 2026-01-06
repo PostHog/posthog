@@ -4,23 +4,28 @@ import { Scene } from 'scenes/sceneTypes'
 
 import type { appShortcutLogicType } from './appShortcutLogicType'
 
-export interface AppShortcutType {
-    /* The ref to the element to focus on */
-    ref: React.RefObject<HTMLElement>
-    /* The name of the shortcut used for reference */
+interface AppShortcutBase {
     name: string
-    /* The keybind to use for the shortcut */
-    keybind: string[]
-    /* Describe what the shortcut does */
+    keybind: string[][]
     intent: string
-    /* The type of interaction to trigger */
-    interaction: 'click' | 'focus'
-    /* The scope of the shortcut - 'global' or a specific scene key 
-        @default 'global'
-        @see SceneKey for possible values
-    */
     scope?: 'global' | keyof typeof Scene
+    /** Higher priority items appear first in their group. Default: 0 */
+    priority?: number
 }
+
+interface AppShortcutWithRef extends AppShortcutBase {
+    ref: React.RefObject<HTMLElement>
+    interaction: 'click' | 'focus'
+    callback?: never
+}
+
+interface AppShortcutWithCallback extends AppShortcutBase {
+    callback: () => void
+    interaction: 'function'
+    ref?: never
+}
+
+export type AppShortcutType = AppShortcutWithRef | AppShortcutWithCallback
 
 export const appShortcutLogic = kea<appShortcutLogicType>([
     path(['lib', 'components', 'AppShortcuts', 'appShortcutLogic']),
@@ -87,8 +92,10 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
 
                 // Find matching shortcut
                 const matchingShortcut = values.registeredAppShortcuts.find((shortcut) => {
-                    const shortcutKeyString = shortcut.keybind.map((k: string) => k.toLowerCase()).join('+')
-                    return shortcutKeyString === pressedKeyString
+                    return shortcut.keybind.some((keybind) => {
+                        const shortcutKeyString = keybind.map((k: string) => k.toLowerCase()).join('+')
+                        return shortcutKeyString === pressedKeyString
+                    })
                 })
 
                 if (matchingShortcut) {
@@ -99,18 +106,20 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
                         matchingShortcut.ref.current?.click()
                     } else if (matchingShortcut.interaction === 'focus') {
                         matchingShortcut.ref.current?.focus()
+                    } else if (matchingShortcut.interaction === 'function') {
+                        matchingShortcut.callback()
                     }
                 }
             }
         }
 
-        window.addEventListener('keydown', cache.onKeyDown)
+        window.addEventListener('keydown', cache.onKeyDown, { capture: true })
         window.addEventListener('keyup', cache.onKeyUp)
         window.addEventListener('blur', cache.onBlur)
     }),
     beforeUnmount(({ cache }) => {
         // unregister app shortcuts
-        window.removeEventListener('keydown', cache.onKeyDown)
+        window.removeEventListener('keydown', cache.onKeyDown, { capture: true })
         window.removeEventListener('keyup', cache.onKeyUp)
         window.removeEventListener('blur', cache.onBlur)
     }),

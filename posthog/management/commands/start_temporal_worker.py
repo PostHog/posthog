@@ -41,13 +41,29 @@ from posthog.temporal.delete_recordings import (
     ACTIVITIES as DELETE_RECORDING_ACTIVITIES,
     WORKFLOWS as DELETE_RECORDING_WORKFLOWS,
 )
+from posthog.temporal.dlq_replay import (
+    ACTIVITIES as DLQ_REPLAY_ACTIVITIES,
+    WORKFLOWS as DLQ_REPLAY_WORKFLOWS,
+)
+from posthog.temporal.ducklake import (
+    ACTIVITIES as DUCKLAKE_COPY_ACTIVITIES,
+    WORKFLOWS as DUCKLAKE_COPY_WORKFLOWS,
+)
 from posthog.temporal.enforce_max_replay_retention import (
     ACTIVITIES as ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES,
     WORKFLOWS as ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS,
 )
+from posthog.temporal.export_recording import (
+    ACTIVITIES as EXPORT_RECORDING_ACTIVITIES,
+    WORKFLOWS as EXPORT_RECORDING_WORKFLOWS,
+)
 from posthog.temporal.exports_video import (
     ACTIVITIES as VIDEO_EXPORT_ACTIVITIES,
     WORKFLOWS as VIDEO_EXPORT_WORKFLOWS,
+)
+from posthog.temporal.import_recording import (
+    ACTIVITIES as IMPORT_RECORDING_ACTIVITIES,
+    WORKFLOWS as IMPORT_RECORDING_WORKFLOWS,
 )
 from posthog.temporal.llm_analytics import (
     ACTIVITIES as LLM_ANALYTICS_ACTIVITIES,
@@ -77,6 +93,10 @@ from posthog.temporal.subscriptions import (
     ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
     WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
 )
+from posthog.temporal.sync_person_distinct_ids import (
+    ACTIVITIES as SYNC_PERSON_DISTINCT_IDS_ACTIVITIES,
+    WORKFLOWS as SYNC_PERSON_DISTINCT_IDS_WORKFLOWS,
+)
 from posthog.temporal.tests.utils.workflow import (
     ACTIVITIES as TEST_ACTIVITIES,
     WORKFLOWS as TEST_WORKFLOWS,
@@ -99,6 +119,8 @@ from products.tasks.backend.temporal import (
     WORKFLOWS as TASKS_WORKFLOWS,
 )
 
+# When adding modules to a queue, also update the corresponding CI trigger
+# in .github/workflows/container-images-cd.yml (check_changes_*_temporal_worker)
 _task_queue_specs = [
     (
         settings.SYNC_BATCH_EXPORTS_TASK_QUEUE,
@@ -127,14 +149,23 @@ _task_queue_specs = [
         + USAGE_REPORTS_WORKFLOWS
         + SALESFORCE_ENRICHMENT_WORKFLOWS
         + PRODUCT_ANALYTICS_WORKFLOWS
-        + LLM_ANALYTICS_WORKFLOWS,
+        + LLM_ANALYTICS_WORKFLOWS
+        + DLQ_REPLAY_WORKFLOWS
+        + SYNC_PERSON_DISTINCT_IDS_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
         + USAGE_REPORTS_ACTIVITIES
         + QUOTA_LIMITING_ACTIVITIES
         + SALESFORCE_ENRICHMENT_ACTIVITIES
         + PRODUCT_ANALYTICS_ACTIVITIES
-        + LLM_ANALYTICS_ACTIVITIES,
+        + LLM_ANALYTICS_ACTIVITIES
+        + DLQ_REPLAY_ACTIVITIES
+        + SYNC_PERSON_DISTINCT_IDS_ACTIVITIES,
+    ),
+    (
+        settings.DUCKLAKE_TASK_QUEUE,
+        DUCKLAKE_COPY_WORKFLOWS,
+        DUCKLAKE_COPY_ACTIVITIES,
     ),
     (
         settings.ANALYTICS_PLATFORM_TASK_QUEUE,
@@ -168,8 +199,14 @@ _task_queue_specs = [
     ),
     (
         settings.SESSION_REPLAY_TASK_QUEUE,
-        DELETE_RECORDING_WORKFLOWS + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS,
-        DELETE_RECORDING_ACTIVITIES + ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES,
+        DELETE_RECORDING_WORKFLOWS
+        + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
+        + EXPORT_RECORDING_WORKFLOWS
+        + IMPORT_RECORDING_WORKFLOWS,
+        DELETE_RECORDING_ACTIVITIES
+        + ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES
+        + EXPORT_RECORDING_ACTIVITIES
+        + IMPORT_RECORDING_ACTIVITIES,
     ),
     (
         settings.MESSAGING_TASK_QUEUE,
@@ -388,15 +425,22 @@ class Command(BaseCommand):
                 _ = runner.run(asyncio.wait([shutdown_task]))
                 logger.info("Finished Temporal worker shutdown")
 
-        logger.info("Listing active threads at shutdown:")
-        for t in threading.enumerate():
-            logger.info(
-                "Thread still alive at shutdown",
-                thread_name=t.name,
-                daemon=t.daemon,
-                ident=t.ident,
-            )
+                logger.info("Listing active threads at shutdown:")
+                for t in threading.enumerate():
+                    logger.info(
+                        "Thread still alive at shutdown",
+                        thread_name=t.name,
+                        daemon=t.daemon,
+                        ident=t.ident,
+                    )
 
-        # _something_ is preventing clean exit after worker shutdown
-        logger.info("Temporal Worker has shut down, hard exiting")
-        os._exit(0)
+                # _something_ is preventing clean exit after worker shutdown
+                logger.info("Temporal Worker has shut down, starting hard exit timer of 5 mins")
+
+                def hard_exit():
+                    logger.info("Hard exiting")
+                    os._exit(0)
+
+                timer = threading.Timer(60 * 5, hard_exit)
+                timer.daemon = True
+                timer.start()

@@ -3,6 +3,7 @@ import os
 import pytest
 
 import aioboto3
+import pytest_asyncio
 
 from posthog.batch_exports.service import BatchExportModel, BatchExportSchema
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export
@@ -29,7 +30,7 @@ pytestmark = [
 ]
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def s3_client(bucket_name, s3_key_prefix):
     """Manage an S3 client to interact with an S3 bucket.
 
@@ -45,7 +46,7 @@ async def s3_client(bucket_name, s3_key_prefix):
         await delete_all_from_s3(s3_client, bucket_name, key_prefix=s3_key_prefix)
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def s3_batch_export(
     ateam,
     s3_key_prefix,

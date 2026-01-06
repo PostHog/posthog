@@ -44,6 +44,7 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
         savePayloadOverride: (flagKey: string) => ({ flagKey }),
         setPayloadError: (flagKey: string, error: string | null) => ({ flagKey, error }),
         setPayloadEditorOpen: (flagKey: string, isOpen: boolean) => ({ flagKey, isOpen }),
+        clearAllOverrides: true,
     }),
     loaders(({ values }) => ({
         userFlags: [
@@ -248,6 +249,9 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
                     actions.setPayloadError(flagKey, 'Invalid JSON')
                     console.error('Invalid JSON:', e)
                 }
+            },
+            clearAllOverrides: () => {
+                clearFeatureFlagOverrides()
             },
             logout: () => {
                 clearFeatureFlagOverrides()

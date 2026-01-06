@@ -1,8 +1,10 @@
 import re
 import ssl
+import sys
 import enum
 import json
 import uuid
+import socket
 import typing
 import asyncio
 import datetime as dt
@@ -545,6 +547,32 @@ class ClickHouseClient:
     ) -> ClickHouseQueryStatus:
         """Check the status of a query in ClickHouse.
 
+        This method first checks the query log to see if the query has finished, failed, or is still running.
+        If it's not found in the query log for whatever reason (we've seen this happen many times in production), it
+        checks the process list to see if the query is still running.
+
+        Arguments:
+            query_id: The ID of the query to check.
+            raise_on_error: Whether to raise an exception if the query has
+                failed.
+        """
+        try:
+            return await self.acheck_query_in_query_log(query_id, raise_on_error=raise_on_error)
+        except ClickHouseQueryNotFound:
+            is_running = await self.acheck_query_in_process_list(query_id)
+            if is_running:
+                return ClickHouseQueryStatus.RUNNING
+            else:
+                self.logger.warning("Expected query not found in query log or process list", query_id=query_id)
+                raise
+
+    async def acheck_query_in_query_log(
+        self,
+        query_id: str,
+        raise_on_error: bool = True,
+    ) -> ClickHouseQueryStatus:
+        """Check the status of a query in the ClickHouse query log.
+
         Arguments:
             query_id: The ID of the query to check.
             raise_on_error: Whether to raise an exception if the query has
@@ -555,13 +583,13 @@ class ClickHouseClient:
                 FROM clusterAllReplicas({{cluster_name:String}}, system.query_log)
                 WHERE query_id = {{query_id:String}}
                     AND event_date >= yesterday() AND event_time >= now() - interval 24 hour
-                    FORMAT JSONEachRow \
+                FORMAT JSONEachRow
                 """
 
         resp = await self.read_query(
             query,
             query_parameters={"query_id": query_id, "cluster_name": settings.CLICKHOUSE_CLUSTER},
-            query_id=f"{query_id}-CHECK",
+            query_id=f"{query_id}-CHECK-QUERY-LOG",
         )
 
         if not resp:
@@ -597,6 +625,50 @@ class ClickHouseClient:
             return ClickHouseQueryStatus.RUNNING
         else:
             raise ClickHouseQueryNotFound(query, query_id)
+
+    async def acheck_query_in_process_list(self, query_id: str) -> bool:
+        """Check if a query is running in the ClickHouse process list.
+
+        Arguments:
+            query_id: The ID of the query to check.
+
+        Returns:
+            True if the query is running, False otherwise.
+        """
+        query = """
+                SELECT 1
+                FROM clusterAllReplicas({{cluster_name:String}}, system.processes)
+                WHERE query_id = {{query_id:String}}
+                    AND NOT is_cancelled
+                LIMIT 1
+                """
+
+        resp = await self.read_query(
+            query,
+            query_parameters={"query_id": query_id, "cluster_name": settings.CLICKHOUSE_CLUSTER},
+            query_id=f"{query_id}-CHECK-PROCESS-LIST",
+        )
+        if not resp:
+            return False
+
+        result = resp.decode("utf-8").strip()
+        return result == "1"
+
+    async def acancel_query(self, query_id: str) -> None:
+        """Cancel a running query in ClickHouse.
+
+        Arguments:
+            query_id: The ID of the query to cancel.
+        """
+        query = f"KILL QUERY ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' WHERE query_id = {{{{query_id:String}}}}"
+
+        await self.execute_query(
+            query,
+            query_parameters={"query_id": query_id},
+            query_id=f"{query_id}-KILL",
+        )
+
+        self.logger.info("Cancelled query", query_id=query_id)
 
     async def stream_query_as_jsonl(
         self,
@@ -675,7 +747,34 @@ class ClickHouseClient:
 
     async def __aenter__(self):
         """Enter method part of the AsyncContextManager protocol."""
-        self.connector = aiohttp.TCPConnector(ssl=self.ssl)
+
+        def socket_factory(addr_info):
+            family, type_, proto, _, _ = addr_info
+            sock = socket.socket(family=family, type=type_, proto=proto)
+            # Enable keepalive in the socket
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, True)
+
+            if sys.platform == "linux":
+                # Start sending keepalive probes after 60s
+                # Ensure that any idle timeouts allow at least 60s
+                tcp_keepidle = 60
+                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, tcp_keepidle)
+                # Send keepalive probes every 10s
+                tcp_keepintvl = 10
+                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, tcp_keepintvl)
+                # Give up after 5 failed probes
+                tcp_keepcnt = 5
+                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, tcp_keepcnt)
+                self.logger.debug(
+                    "Configured keepalive probes",
+                    tcp_keepidle=tcp_keepidle,
+                    tcp_keepintvl=tcp_keepintvl,
+                    tcp_keepcnt=tcp_keepcnt,
+                )
+
+            return sock
+
+        self.connector = aiohttp.TCPConnector(ssl=self.ssl, socket_factory=socket_factory)
         self.session = aiohttp.ClientSession(connector=self.connector, timeout=self.timeout)
         return self
 
@@ -734,6 +833,7 @@ async def get_client(
             team_id, settings.CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT
         )
     max_block_size = kwargs.pop("max_block_size", None) or default_max_block_size
+    http_send_timeout = kwargs.pop("http_send_timeout", 0)
 
     if clickhouse_url is None:
         url = settings.CLICKHOUSE_OFFLINE_HTTP_URL
@@ -752,7 +852,7 @@ async def get_client(
         max_block_size=max_block_size,
         cancel_http_readonly_queries_on_client_close=1,
         output_format_arrow_string_as_string="true",
-        http_send_timeout=0,
+        http_send_timeout=http_send_timeout,
         **kwargs,
     ) as client:
         yield client

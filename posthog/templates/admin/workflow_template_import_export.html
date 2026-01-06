@@ -1,0 +1,300 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls static %}
+
+{% block extrastyle %}
+{{ super }}
+<style>
+    .form-row {
+        margin-bottom: 15px;
+    }
+    .help {
+        font-size: 11px;
+        color: #666;
+    }
+    .submit-row {
+        margin-top: 30px;
+    }
+    .alert {
+        padding: 10px;
+        margin: 20px 0;
+        border-radius: 5px;
+    }
+    .alert-info {
+        background: #e3f2fd;
+        border: 1px solid #90caf9;
+        color: #1565c0;
+    }
+    .alert-warning {
+        background: #fff3cd;
+        border: 1px solid #ffc107;
+        color: #856404;
+    }
+    .preview-section {
+        margin-top: 20px;
+        padding: 15px;
+        background: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-radius: 5px;
+        display: none;
+    }
+    .preview-section.visible {
+        display: block;
+    }
+    .preview-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 10px;
+    }
+    .preview-table th,
+    .preview-table td {
+        padding: 8px;
+        text-align: left;
+        border-bottom: 1px solid #dee2e6;
+    }
+    .preview-table th {
+        background: #e9ecef;
+        font-weight: bold;
+    }
+    .preview-table tr:hover {
+        background: #f1f3f5;
+    }
+    .preview-error {
+        color: #dc3545;
+        margin-top: 10px;
+    }
+    .overwrite-warning {
+        margin-top: 15px;
+        padding: 10px;
+        background: #fff3cd;
+        border: 1px solid #ffc107;
+        border-radius: 5px;
+        color: #856404;
+    }
+    .overwrite-warning strong {
+        display: block;
+        margin-bottom: 8px;
+    }
+    .overwrite-warning ul {
+        margin: 8px 0 0 0;
+        padding-left: 20px;
+    }
+    select[multiple] {
+        width: 100%;
+        min-height: 200px;
+    }
+    .section-divider {
+        margin: 40px 0;
+        border-top: 2px solid #ddd;
+        padding-top: 30px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+{% if messages %}
+    {% for message in messages %}
+        <div class="alert alert-{{ message.tags }}">
+            {{ message }}
+        </div>
+    {% endfor %}
+{% endif %}
+
+<!-- Import Section -->
+<div>
+    <h2>Import Official Workflow Templates</h2>
+    
+    <div class="alert alert-info" style="max-width: 900px;">
+        <strong>Note:</strong> Upload a JSON file containing global workflow template(s) to import.<br>
+        Only global templates can be imported. The file should be in the same format as exported templates.<br>
+        Team ID is automatically detected from the domain (us.posthog.com → team 2, eu.posthog.com → team 1).<br>
+        Existing templates will be automatically overwritten.
+    </div>
+
+    <form method="post" enctype="multipart/form-data" id="workflow-template-import-form">
+        {% csrf_token %}
+        
+        <fieldset class="module aligned">
+            <div class="form-row">
+                <label for="{{ import_form.json_file.id_for_label }}" class="required">
+                    {{ import_form.json_file.label }}:
+                </label>
+                {{ import_form.json_file }}
+                {% if import_form.json_file.help_text %}
+                    <p class="help">{{ import_form.json_file.help_text }}</p>
+                {% endif %}
+                {{ import_form.json_file.errors }}
+            </div>
+        </fieldset>
+        
+        <div class="preview-section" id="preview-section">
+            <h3>Preview: Templates to be imported</h3>
+            <div id="preview-content"></div>
+        </div>
+
+        <div class="submit-row">
+            <input type="submit" value="Import Templates" class="default" />
+        </div>
+    </form>
+</div>
+
+<!-- Export Section -->
+<div class="section-divider">
+    <h2>Export Official Workflow Templates</h2>
+    
+    <div class="alert alert-info" style="max-width: 900px;">
+        <strong>Note:</strong> Select one or more global workflow templates to export.<br>
+        Only global templates can be exported and imported.<br>
+        The exported JSON file includes all metadata and can be imported into another PostHog instance or used for backup purposes.
+    </div>
+
+    <form method="post" id="workflow-template-export-form">
+        {% csrf_token %}
+        
+        <fieldset class="module aligned">
+            <div class="form-row">
+                <label for="{{ export_form.template_ids.id_for_label }}" class="required">
+                    {{ export_form.template_ids.label }}:
+                </label>
+                {{ export_form.template_ids }}
+                {% if export_form.template_ids.help_text %}
+                    <p class="help">{{ export_form.template_ids.help_text }}</p>
+                {% endif %}
+                {{ export_form.template_ids.errors }}
+            </div>
+        </fieldset>
+        
+        <div class="submit-row">
+            <input type="submit" value="Export Templates" class="default" />
+        </div>
+    </form>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const fileInput = document.querySelector('#workflow-template-import-form input[name="json_file"]');
+    const previewSection = document.getElementById('preview-section');
+    const previewContent = document.getElementById('preview-content');
+
+    if (fileInput) {
+        fileInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) {
+                previewSection.classList.remove('visible');
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const jsonData = JSON.parse(e.target.result);
+                    const templates = Array.isArray(jsonData) ? jsonData : [jsonData];
+                    
+                    if (templates.length === 0) {
+                        previewContent.innerHTML = '<p class="preview-error">No templates found in file.</p>';
+                        previewSection.classList.add('visible');
+                        return;
+                    }
+
+                    // Separate global and non-global templates
+                    const globalTemplates = [];
+                    const nonGlobalTemplates = [];
+                    templates.forEach(function(template) {
+                        if (template.scope === 'global') {
+                            globalTemplates.push(template);
+                        } else {
+                            nonGlobalTemplates.push(template);
+                        }
+                    });
+
+                    const table = document.createElement('table');
+                    table.className = 'preview-table';
+                    
+                    const thead = document.createElement('thead');
+                    const headerRow = document.createElement('tr');
+                    ['ID', 'Name', 'Scope'].forEach(function(headerText) {
+                        const th = document.createElement('th');
+                        th.textContent = headerText;
+                        headerRow.appendChild(th);
+                    });
+                    thead.appendChild(headerRow);
+                    table.appendChild(thead);
+                    
+                    const tbody = document.createElement('tbody');
+                    globalTemplates.forEach(function(template) {
+                        const id = template.id || 'New (no ID)';
+                        const name = template.name || 'Unnamed';
+                        const scope = template.scope || 'global';
+                        
+                        const tr = document.createElement('tr');
+                        const tdId = document.createElement('td');
+                        tdId.textContent = id;
+                        const tdName = document.createElement('td');
+                        tdName.textContent = name;
+                        const tdScope = document.createElement('td');
+                        tdScope.textContent = scope;
+                        tr.appendChild(tdId);
+                        tr.appendChild(tdName);
+                        tr.appendChild(tdScope);
+                        tbody.appendChild(tr);
+                    });
+                    table.appendChild(tbody);
+                    
+                    const p = document.createElement('p');
+                    const strong = document.createElement('strong');
+                    strong.textContent = 'Total to import:';
+                    p.appendChild(strong);
+                    p.appendChild(document.createTextNode(' ' + globalTemplates.length + ' template(s)'));
+                    
+                    previewContent.innerHTML = '';
+                    previewContent.appendChild(table);
+                    previewContent.appendChild(p);
+                    
+                    // Show warning for filtered templates using DOM methods to prevent XSS
+                    if (nonGlobalTemplates.length > 0) {
+                        const warningDiv = document.createElement('div');
+                        warningDiv.className = 'overwrite-warning';
+                        
+                        const strong = document.createElement('strong');
+                        strong.textContent = '⚠️ Warning: ' + nonGlobalTemplates.length + ' template(s) will not be imported because they are not official/global:';
+                        warningDiv.appendChild(strong);
+                        
+                        const ul = document.createElement('ul');
+                        nonGlobalTemplates.forEach(function(template) {
+                            const li = document.createElement('li');
+                            const strong1 = document.createElement('strong');
+                            strong1.textContent = 'ID:';
+                            li.appendChild(strong1);
+                            li.appendChild(document.createTextNode(' ' + (template.id || 'No ID') + ', '));
+                            const strong2 = document.createElement('strong');
+                            strong2.textContent = 'Name:';
+                            li.appendChild(strong2);
+                            li.appendChild(document.createTextNode(' ' + (template.name || 'Unnamed')));
+                            ul.appendChild(li);
+                        });
+                        warningDiv.appendChild(ul);
+                        
+                        previewContent.appendChild(warningDiv);
+                    }
+                    
+                    previewSection.classList.add('visible');
+                } catch (error) {
+                    const p = document.createElement('p');
+                    p.className = 'preview-error';
+                    p.textContent = 'Error parsing JSON: ' + error.message;
+                    previewContent.innerHTML = '';
+                    previewContent.appendChild(p);
+                    previewSection.classList.add('visible');
+                }
+            };
+            
+            reader.onerror = function() {
+                previewContent.innerHTML = '<p class="preview-error">Error reading file.</p>';
+                previewSection.classList.add('visible');
+            };
+            
+            reader.readAsText(file);
+        });
+    }
+});
+</script>
+{% endblock %}

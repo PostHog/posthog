@@ -136,10 +136,7 @@ const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
         backgroundColor: 'bg-warning-highlight',
         getDescription: (_billingPlan: BillingPlan, scrollToProduct: (productType: string) => void) => (
             <>
-                <p>
-                    Enjoy your founder merch, and don't forget to say hello in the{' '}
-                    <Link to="https://posthog.slack.com/archives/C04J1TJ11UZ">Founders Club!</Link>
-                </p>
+                <p>You'll get $50K in credits every year, forever. Your credits will renew automatically.</p>
                 <p>
                     If you're growing like crazy, you might want to check out our{' '}
                     {scrollToProduct ? (

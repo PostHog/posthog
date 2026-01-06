@@ -5,7 +5,6 @@ use crate::{
 };
 use common_database::PostgresReader;
 use common_redis::Client as RedisClient;
-use common_types::ProjectId;
 use std::{future::Future, sync::Arc};
 use tracing::{debug, warn};
 
@@ -18,14 +17,12 @@ use tracing::{debug, warn};
 /// 4. Return the team
 ///
 /// # Arguments
-/// * `redis_reader` - Redis client for cache reads
-/// * `redis_writer` - Redis client for cache writes
+/// * `redis_client` - Redis client (ReadWriteClient automatically routes reads to replica, writes to primary)
 /// * `token` - Token to use for cache key lookup
 /// * `db_lookup` - Async function to fetch team from PostgreSQL on cache miss
 /// * `cache_ttl_seconds` - Optional TTL for Redis cache entries in seconds
 pub async fn fetch_team_from_redis_with_fallback<F, Fut>(
-    redis_reader: Arc<dyn RedisClient + Send + Sync>,
-    redis_writer: Arc<dyn RedisClient + Send + Sync>,
+    redis_client: Arc<dyn RedisClient + Send + Sync>,
     token: &str,
     cache_ttl_seconds: Option<u64>,
     db_lookup: F,
@@ -34,8 +31,8 @@ where
     F: FnOnce() -> Fut,
     Fut: Future<Output = Result<Team, FlagError>>,
 {
-    // Try to get team from cache first
-    match Team::from_redis(redis_reader.clone(), token).await {
+    // Try to get team from cache first (ReadWriteClient routes reads to replica)
+    match Team::from_redis(redis_client.clone(), token).await {
         Ok(team) => {
             debug!(team_id = team.id, "Found team in Redis cache");
             Ok(team)
@@ -46,9 +43,9 @@ where
             match db_lookup().await {
                 Ok(team) => {
                     debug!(team_id = team.id, "Found team in PostgreSQL");
-                    // Update Redis cache for next time
+                    // Update Redis cache for next time (ReadWriteClient routes writes to primary)
                     if let Err(e) =
-                        Team::update_redis_cache(redis_writer, &team, cache_ttl_seconds).await
+                        Team::update_redis_cache(redis_client, &team, cache_ttl_seconds).await
                     {
                         warn!(team_id = team.id, error = %e, "Failed to update Redis cache");
                     }
@@ -69,7 +66,6 @@ const TEAM_COLUMNS: &str = "
     uuid,
     name,
     api_token,
-    project_id,
     organization_id,
     cookieless_server_hash_mode,
     timezone,
@@ -82,6 +78,8 @@ const TEAM_COLUMNS: &str = "
     inject_web_apps,
     surveys_opt_in,
     heatmaps_opt_in,
+    conversations_enabled,
+    conversations_settings,
     capture_dead_clicks,
     flags_persistence_default,
     session_recording_sample_rate,
@@ -93,6 +91,7 @@ const TEAM_COLUMNS: &str = "
     session_recording_masking_config,
     session_replay_config,
     survey_config,
+    extra_settings,
     session_recording_url_trigger_config,
     session_recording_url_blocklist_config,
     session_recording_event_trigger_config,
@@ -116,11 +115,10 @@ impl Team {
             .await?;
 
         // TODO: Consider an LRU cache for teams as well, with small TTL to skip redis/pg lookups
-        let mut team: Team = serde_json::from_str(&serialized_team).map_err(|e| {
+        let team: Team = serde_json::from_str(&serialized_team).map_err(|e| {
             tracing::error!("failed to parse data to team for token {token}: {e}");
             FlagError::RedisDataParsingError
         })?;
-        team.project_id = Some(team.project_id());
 
         tracing::debug!(
             "Successfully read team {} from Redis at key '{}{}'",
@@ -222,17 +220,13 @@ impl Team {
 
         Ok(row)
     }
-
-    pub fn project_id(&self) -> ProjectId {
-        // If `project_id` is not present, this means the payload is from before December 2024, which we correct for here
-        self.project_id.unwrap_or(self.id as ProjectId)
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use rand::Rng;
     use redis::AsyncCommands;
+    use sqlx::types::Json;
     use uuid::Uuid;
 
     use super::*;
@@ -255,7 +249,6 @@ mod tests {
             .unwrap();
         assert_eq!(team_from_redis.api_token, target_token);
         assert_eq!(team_from_redis.id, team.id);
-        assert_eq!(team_from_redis.project_id, team.project_id);
     }
 
     #[tokio::test]
@@ -277,11 +270,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_corrupted_data_in_redis_is_handled() {
-        let id = rand::thread_rng().gen_range(1..10_000_000);
+        let id = rand::thread_rng().gen_range(1_000_000..100_000_000);
         let token = random_string("phc_", 12);
         let team = Team {
             id,
-            project_id: Some(i64::from(id) - 1),
             name: "team".to_string(),
             api_token: token,
             cookieless_server_hash_mode: Some(0),
@@ -312,43 +304,6 @@ mod tests {
             Err(other) => panic!("Expected DataParsingError, got {other:?}"),
             Ok(_) => panic!("Expected DataParsingError"),
         };
-    }
-
-    #[tokio::test]
-    async fn test_fetch_team_from_before_project_id_from_redis() {
-        let client = setup_redis_client(None).await;
-        let target_token = "phc_123456789012".to_string();
-        // A payload form before December 2025, it's missing `project_id`
-        let test_team = Team {
-            id: 343,
-            name: "team".to_string(),
-            api_token: target_token.clone(),
-            project_id: None,
-            uuid: Uuid::nil(),
-            session_recording_opt_in: false,
-            cookieless_server_hash_mode: Some(0),
-            timezone: "UTC".to_string(),
-            ..Default::default()
-        };
-
-        let serialized_team = serde_json::to_string(&test_team).expect("Failed to serialize team");
-        tracing::info!("Inserting test team payload: {serialized_team}");
-        client
-            .set(
-                format!("{TEAM_TOKEN_CACHE_PREFIX}{target_token}"),
-                serialized_team,
-            )
-            .await
-            .expect("Failed to write data to redis");
-
-        let team_from_redis = Team::from_redis(client.clone(), target_token.as_str())
-            .await
-            .expect("Failed to fetch team from redis");
-
-        assert_eq!(team_from_redis.api_token, target_token);
-        assert_eq!(team_from_redis.id, 343);
-        assert_eq!(team_from_redis.project_id, Some(343)); // Same as `id`
-        assert_eq!(team_from_redis.cookieless_server_hash_mode, Some(0));
     }
 
     #[tokio::test]
@@ -439,35 +394,28 @@ mod tests {
     async fn test_fetch_team_from_redis_with_fallback_writes_on_not_found() {
         use common_redis::{CustomRedisError, MockRedisClient};
 
-        let team_id = rand::thread_rng().gen_range(1..10_000_000);
+        let team_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
         let token = random_string("phc_", 12);
         let test_team = Team {
             id: team_id,
-            project_id: Some(i64::from(team_id)),
             name: "team".to_string(),
             api_token: token.clone(),
             organization_id: Some(Uuid::new_v4()),
             ..Default::default()
         };
 
-        // Set up mock redis_reader to return NotFound (which maps to TokenValidationError)
-        let mut mock_reader = MockRedisClient::new();
-        mock_reader.get_ret(
+        // Set up mock redis client to return NotFound (which maps to TokenValidationError)
+        let mut mock_client = MockRedisClient::new();
+        mock_client.get_ret(
             &format!("{TEAM_TOKEN_CACHE_PREFIX}{token}"),
             Err(CustomRedisError::NotFound),
         );
 
-        // Set up mock redis_writer to track SET calls
-        // Note: We don't need to set up exists/set return values - the mock
-        // will track calls and we just check if SET was invoked
-        let mock_writer = MockRedisClient::new();
-
-        let reader: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_reader.clone());
-        let writer: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_writer.clone());
+        let redis_client: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_client.clone());
 
         // Call the function with a DB lookup that returns the team
         let result =
-            fetch_team_from_redis_with_fallback(reader, writer, &token, Some(3600), || async {
+            fetch_team_from_redis_with_fallback(redis_client, &token, Some(3600), || async {
                 Ok(test_team.clone())
             })
             .await;
@@ -477,9 +425,9 @@ mod tests {
         assert_eq!(result.unwrap().id, team_id);
 
         // Verify SETEX was called (cache write happened with TTL)
-        let writer_calls = mock_writer.get_calls();
+        let client_calls = mock_client.get_calls();
         assert!(
-            writer_calls.iter().any(|call| call.op == "setex"),
+            client_calls.iter().any(|call| call.op == "setex"),
             "Expected SETEX to be called for NotFound error, but it wasn't"
         );
     }
@@ -488,33 +436,28 @@ mod tests {
     async fn test_fetch_team_from_redis_with_fallback_skips_write_on_timeout() {
         use common_redis::{CustomRedisError, MockRedisClient};
 
-        let team_id = rand::thread_rng().gen_range(1..10_000_000);
+        let team_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
         let token = random_string("phc_", 12);
         let test_team = Team {
             id: team_id,
-            project_id: Some(i64::from(team_id)),
             name: "team".to_string(),
             api_token: token.clone(),
             organization_id: Some(Uuid::new_v4()),
             ..Default::default()
         };
 
-        // Set up mock redis_reader to return Timeout
-        let mut mock_reader = MockRedisClient::new();
-        mock_reader.get_ret(
+        // Set up mock redis client to return Timeout
+        let mut mock_client = MockRedisClient::new();
+        mock_client.get_ret(
             &format!("{TEAM_TOKEN_CACHE_PREFIX}{token}"),
             Err(CustomRedisError::Timeout),
         );
 
-        // Set up mock redis_writer to track SET calls
-        let mock_writer = MockRedisClient::new();
-
-        let reader: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_reader.clone());
-        let writer: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_writer.clone());
+        let redis_client: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_client.clone());
 
         // Call the function with a DB lookup that returns the team
         let result =
-            fetch_team_from_redis_with_fallback(reader, writer, &token, Some(3600), || async {
+            fetch_team_from_redis_with_fallback(redis_client, &token, Some(3600), || async {
                 Ok(test_team.clone())
             })
             .await;
@@ -524,9 +467,9 @@ mod tests {
         assert_eq!(result.unwrap().id, team_id);
 
         // Verify SET was NOT called (cache write was skipped)
-        let writer_calls = mock_writer.get_calls();
+        let client_calls = mock_client.get_calls();
         assert!(
-            !writer_calls.iter().any(|call| call.op == "set"),
+            !client_calls.iter().any(|call| call.op == "set"),
             "Expected SET to NOT be called for Timeout error, but it was"
         );
     }
@@ -535,20 +478,19 @@ mod tests {
     async fn test_fetch_team_from_redis_with_fallback_skips_write_on_redis_unavailable() {
         use common_redis::{CustomRedisError, MockRedisClient, RedisErrorKind};
 
-        let team_id = rand::thread_rng().gen_range(1..10_000_000);
+        let team_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
         let token = random_string("phc_", 12);
         let test_team = Team {
             id: team_id,
-            project_id: Some(i64::from(team_id)),
             name: "team".to_string(),
             api_token: token.clone(),
             organization_id: Some(Uuid::new_v4()),
             ..Default::default()
         };
 
-        // Set up mock redis_reader to return Redis error (unavailable)
-        let mut mock_reader = MockRedisClient::new();
-        mock_reader.get_ret(
+        // Set up mock redis client to return Redis error (unavailable)
+        let mut mock_client = MockRedisClient::new();
+        mock_client.get_ret(
             &format!("{TEAM_TOKEN_CACHE_PREFIX}{token}"),
             Err(CustomRedisError::from_redis_kind(
                 RedisErrorKind::IoError,
@@ -556,15 +498,11 @@ mod tests {
             )),
         );
 
-        // Set up mock redis_writer to track SET calls
-        let mock_writer = MockRedisClient::new();
-
-        let reader: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_reader.clone());
-        let writer: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_writer.clone());
+        let redis_client: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_client.clone());
 
         // Call the function with a DB lookup that returns the team
         let result =
-            fetch_team_from_redis_with_fallback(reader, writer, &token, Some(3600), || async {
+            fetch_team_from_redis_with_fallback(redis_client, &token, Some(3600), || async {
                 Ok(test_team.clone())
             })
             .await;
@@ -574,10 +512,178 @@ mod tests {
         assert_eq!(result.unwrap().id, team_id);
 
         // Verify SET was NOT called (cache write was skipped)
-        let writer_calls = mock_writer.get_calls();
+        let client_calls = mock_client.get_calls();
         assert!(
-            !writer_calls.iter().any(|call| call.op == "set"),
+            !client_calls.iter().any(|call| call.op == "set"),
             "Expected SET to NOT be called for Redis unavailable error, but it was"
         );
+    }
+
+    #[tokio::test]
+    async fn test_fetch_team_with_extra_settings_from_pg() {
+        let context = TestContext::new(None).await;
+
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team in pg");
+
+        // Update the team with extra_settings containing recorder_script
+        let mut conn = get_connection_with_metrics(
+            &context.non_persons_reader,
+            "non_persons_reader",
+            "test_extra_settings",
+        )
+        .await
+        .expect("Failed to get connection");
+
+        let extra_settings = serde_json::json!({
+            "recorder_script": "posthog-recorder",
+            "something_else": 123
+        });
+
+        sqlx::query("UPDATE posthog_team SET extra_settings = $1 WHERE id = $2")
+            .bind(&extra_settings)
+            .bind(team.id)
+            .execute(&mut *conn)
+            .await
+            .expect("Failed to update team with extra_settings");
+
+        // Fetch the team and verify extra_settings deserializes correctly
+        let team_from_pg = Team::from_pg(context.non_persons_reader.clone(), &team.api_token)
+            .await
+            .expect("Failed to fetch team with extra_settings from pg");
+
+        assert!(team_from_pg.extra_settings.is_some());
+        let config = team_from_pg.extra_settings.unwrap();
+        assert_eq!(
+            config.get("recorder_script").and_then(|v| v.as_str()),
+            Some("posthog-recorder")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_fetch_team_with_empty_recorder_script_from_pg() {
+        let context = TestContext::new(None).await;
+
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team in pg");
+
+        // Update the team with extra_settings containing empty recorder_script
+        let mut conn = get_connection_with_metrics(
+            &context.non_persons_reader,
+            "non_persons_reader",
+            "test_empty_recorder_script",
+        )
+        .await
+        .expect("Failed to get connection");
+
+        let extra_settings = serde_json::json!({
+            "recorder_script": ""
+        });
+
+        sqlx::query("UPDATE posthog_team SET extra_settings = $1 WHERE id = $2")
+            .bind(&extra_settings)
+            .bind(team.id)
+            .execute(&mut *conn)
+            .await
+            .expect("Failed to update team with empty recorder_script");
+
+        // Fetch the team and verify empty string is handled correctly
+        let team_from_pg = Team::from_pg(context.non_persons_reader.clone(), &team.api_token)
+            .await
+            .expect("Failed to fetch team with empty recorder_script from pg");
+
+        assert!(team_from_pg.extra_settings.is_some());
+        let config = team_from_pg.extra_settings.unwrap();
+        let recorder_script = config.get("recorder_script").and_then(|v| v.as_str());
+        assert_eq!(recorder_script, Some(""));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_team_with_extra_settings_from_redis() {
+        let client = setup_redis_client(None).await;
+
+        let team_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
+        let token = random_string("phc_", 12);
+
+        let extra_settings = serde_json::json!({
+            "recorder_script": "posthog-recorder"
+        });
+
+        let team = Team {
+            id: team_id,
+            name: "team".to_string(),
+            api_token: token.clone(),
+            extra_settings: Some(Json(extra_settings.clone())),
+            cookieless_server_hash_mode: Some(0),
+            timezone: "UTC".to_string(),
+            ..Default::default()
+        };
+
+        // Manually set team with extra_settings in Redis
+        let serialized_team = serde_json::to_string(&team).expect("Failed to serialize team");
+
+        client
+            .set(format!("{TEAM_TOKEN_CACHE_PREFIX}{token}"), serialized_team)
+            .await
+            .expect("Failed to write team to redis");
+
+        // Fetch from Redis and verify extra_settings deserializes correctly
+        let team_from_redis = Team::from_redis(client.clone(), &token)
+            .await
+            .expect("Failed to fetch team with extra_settings from redis");
+
+        assert_eq!(team_from_redis.api_token, token);
+        assert_eq!(team_from_redis.id, team_id);
+        assert!(team_from_redis.extra_settings.is_some());
+
+        let config = team_from_redis.extra_settings.unwrap();
+        assert_eq!(
+            config.get("recorder_script").and_then(|v| v.as_str()),
+            Some("posthog-recorder")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_fetch_team_with_empty_recorder_script_from_redis() {
+        let client = setup_redis_client(None).await;
+
+        let team_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
+        let token = random_string("phc_", 12);
+
+        let extra_settings = serde_json::json!({
+            "recorder_script": ""
+        });
+
+        let team = Team {
+            id: team_id,
+            name: "team".to_string(),
+            api_token: token.clone(),
+            extra_settings: Some(Json(extra_settings.clone())),
+            cookieless_server_hash_mode: Some(0),
+            timezone: "UTC".to_string(),
+            ..Default::default()
+        };
+
+        // Manually set team with empty recorder_script in Redis
+        let serialized_team = serde_json::to_string(&team).expect("Failed to serialize team");
+
+        client
+            .set(format!("{TEAM_TOKEN_CACHE_PREFIX}{token}"), serialized_team)
+            .await
+            .expect("Failed to write team to redis");
+
+        // Fetch from Redis and verify empty recorder_script is preserved
+        let team_from_redis = Team::from_redis(client.clone(), &token)
+            .await
+            .expect("Failed to fetch team with empty recorder_script from redis");
+
+        assert!(team_from_redis.extra_settings.is_some());
+        let config = team_from_redis.extra_settings.unwrap();
+        let recorder_script = config.get("recorder_script").and_then(|v| v.as_str());
+        assert_eq!(recorder_script, Some(""));
     }
 }

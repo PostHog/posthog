@@ -1,10 +1,7 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
-
-import { NewSourcesWizard } from 'scenes/data-warehouse/new/NewSourceWizard'
+import { InlineSourceSetup } from 'scenes/data-warehouse/new/InlineSourceSetup'
 import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
-import { sourceWizardLogic } from 'scenes/data-warehouse/new/sourceWizardLogic'
 
 import { OnboardingStepKey } from '~/types'
 
@@ -17,29 +14,22 @@ export function OnboardingDataWarehouseSourcesStep({
     stepKey?: OnboardingStepKey
 }): JSX.Element {
     const { goToNextStep } = useActions(onboardingLogic)
-    const { currentStep } = useValues(sourceWizardLogic)
-    const { availableSources, availableSourcesLoading } = useValues(availableSourcesDataLogic)
+    const { availableSourcesLoading } = useValues(availableSourcesDataLogic)
 
     return (
         <OnboardingStep
-            title="Link data"
+            title="Connect your data for better insights"
             stepKey={stepKey}
-            continueOverride={<></>}
-            showSkip={currentStep == 1}
-            subtitle={
-                currentStep == 1
-                    ? `Link all your important data from your CRM, payment processor, 
-                or database and query across them seamlessly.`
-                    : undefined
-            }
+            showContinue={false}
+            showSkip={!availableSourcesLoading}
+            subtitle="Link sources like Stripe and Hubspot so you can query them alongside product data to find correlations."
         >
-            {availableSourcesLoading || availableSources === null ? (
-                <LemonSkeleton />
-            ) : (
-                <BindLogic logic={sourceWizardLogic} props={{ availableSources }}>
-                    <NewSourcesWizard onComplete={() => goToNextStep()} />
-                </BindLogic>
-            )}
+            <InlineSourceSetup
+                onComplete={() => goToNextStep()}
+                featured
+                title="Choose from 20+ sources"
+                subtitle="You can always connect more sources later."
+            />
         </OnboardingStep>
     )
 }

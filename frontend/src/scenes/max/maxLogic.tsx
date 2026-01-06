@@ -24,6 +24,7 @@ import { Breadcrumb, Conversation, ConversationDetail, ConversationStatus, SideP
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import type { maxLogicType } from './maxLogicType'
+import { MaxUIContext } from './maxTypes'
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
@@ -87,7 +88,11 @@ export const maxLogic = kea<maxLogicType>([
 
     actions({
         setQuestion: (question: string) => ({ question }), // update the form input
-        askMax: (prompt: string | null) => ({ prompt }), // used by maxThreadLogic to start a conversation
+        askMax: (prompt: string | null, addToThread: boolean = true, uiContext?: Partial<MaxUIContext>) => ({
+            prompt,
+            addToThread,
+            uiContext,
+        }), // used by maxThreadLogic to start a conversation
         scrollThreadToBottom: (behavior?: 'instant' | 'smooth') => ({ behavior }),
         openConversation: (conversationId: string) => ({ conversationId }),
         setConversationId: (conversationId: string) => ({ conversationId }),
@@ -172,6 +177,7 @@ export const maxLogic = kea<maxLogicType>([
             null as SuggestionGroup | null,
             {
                 setActiveGroup: (_, { group }) => group,
+                setQuestion: (state, { question }) => (question === '' ? null : state),
             },
         ],
 
@@ -272,7 +278,7 @@ export const maxLogic = kea<maxLogicType>([
                     {
                         key: Scene.Max,
                         name: 'AI',
-                        path: urls.max(),
+                        path: urls.ai(),
                         iconType: 'chat',
                     },
                     ...(conversationHistoryVisible || searchParams.from === 'history'
@@ -280,7 +286,7 @@ export const maxLogic = kea<maxLogicType>([
                               {
                                   key: Scene.Max,
                                   name: 'Chat history',
-                                  path: urls.maxHistory(),
+                                  path: urls.aiHistory(),
                                   iconType: 'chat' as const,
                               },
                           ]
@@ -290,7 +296,7 @@ export const maxLogic = kea<maxLogicType>([
                               {
                                   key: Scene.Max,
                                   name: chatTitle || 'Chat',
-                                  path: urls.max(conversationId),
+                                  path: urls.ai(conversationId),
                                   iconType: 'chat' as const,
                               },
                           ]
@@ -441,12 +447,12 @@ export const maxLogic = kea<maxLogicType>([
     }),
 
     tabAwareUrlToAction(({ actions, values }) => ({
-        [urls.maxHistory()]: () => {
+        [urls.aiHistory()]: () => {
             if (!values.conversationHistoryVisible) {
                 actions.toggleConversationHistory()
             }
         },
-        [urls.max()]: (_, search) => {
+        [urls.ai()]: (_, search) => {
             if (search.ask && !search.chat && !values.question) {
                 window.setTimeout(() => {
                     // ensure maxThreadLogic is mounted
@@ -468,19 +474,19 @@ export const maxLogic = kea<maxLogicType>([
     tabAwareActionToUrl(({ values }) => ({
         toggleConversationHistory: () => {
             if (values.conversationHistoryVisible) {
-                return [urls.maxHistory(), {}, router.values.location.hash]
+                return [urls.aiHistory(), {}, router.values.location.hash]
             } else if (values.conversationId) {
-                return [urls.max(values.conversationId), {}, router.values.location.hash]
+                return [urls.ai(values.conversationId), {}, router.values.location.hash]
             }
-            return [urls.max(), {}, router.values.location.hash]
+            return [urls.ai(), {}, router.values.location.hash]
         },
         startNewConversation: () => {
-            return [urls.max(), {}, router.values.location.hash]
+            return [urls.ai(), {}, router.values.location.hash]
         },
         setConversationId: ({ conversationId }) => {
             // Only set the URL parameter if this is a new conversation (using frontendConversationId)
             if (conversationId && conversationId === values.frontendConversationId) {
-                return [urls.max(conversationId), {}, router.values.location.hash, { replace: true }]
+                return [urls.ai(conversationId), {}, router.values.location.hash, { replace: true }]
             }
             // Return undefined to not update URL for existing conversations
             return undefined
@@ -492,12 +498,17 @@ export function getScrollableContainer(element?: Element | null): HTMLElement | 
     if (!element) {
         return null
     }
-    const scrollableEl = element.parentElement // .Navigation3000__scene or .SidePanel3000__content
-    if (scrollableEl && !scrollableEl.classList.contains('SidePanel3000__content')) {
-        // In this case we need to go up to <main>, since .Navigation3000__scene is not scrollable
-        return scrollableEl.parentElement
+    let current = element.parentElement
+    while (current) {
+        if (current.classList.contains('SidePanel3000__content')) {
+            return current
+        }
+        if (current.tagName === 'MAIN') {
+            return current
+        }
+        current = current.parentElement
     }
-    return scrollableEl
+    return null
 }
 
 export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
@@ -576,6 +587,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
     {
         label: 'Feature flags',
         icon: iconForType('feature_flag'),
+        url: urls.featureFlags(),
         suggestions: [
             {
                 content: 'Create a flag to gradually roll out…',
@@ -594,6 +606,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
     {
         label: 'Experiments',
         icon: iconForType('experiment'),
+        url: urls.experiments(),
         suggestions: [
             {
                 content: 'Create an experiment to test…',

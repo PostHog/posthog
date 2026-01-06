@@ -2,7 +2,7 @@ import json
 
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from django.core.cache import cache
 from django.test import override_settings
@@ -268,7 +268,7 @@ class TestHyperCacheCustomCacheClient(BaseTest):
         }
     )
     def test_custom_cache_client_isolation(self):
-        """Test that custom cache_client writes to dedicated cache, not default"""
+        """Test that custom cache_alias writes to dedicated cache, not default"""
         from django.core.cache import caches
 
         caches["default"].clear()
@@ -277,12 +277,12 @@ class TestHyperCacheCustomCacheClient(BaseTest):
         def load_fn(team):
             return self.sample_data
 
-        # Create HyperCache with custom cache client
+        # Create HyperCache with custom cache alias
         hc = HyperCache(
             namespace="test",
             value="value",
             load_fn=load_fn,
-            cache_client=caches["flags_dedicated"],
+            cache_alias="flags_dedicated",
         )
 
         team_id = self.team.id
@@ -312,7 +312,7 @@ class TestHyperCacheCustomCacheClient(BaseTest):
         }
     )
     def test_custom_cache_client_reads_from_dedicated(self):
-        """Test that reads use the custom cache client"""
+        """Test that reads use the custom cache alias"""
         from django.core.cache import caches
 
         caches["default"].clear()
@@ -321,12 +321,12 @@ class TestHyperCacheCustomCacheClient(BaseTest):
         def load_fn(team):
             return {"fallback": "data"}
 
-        # Create HyperCache with custom cache client
+        # Create HyperCache with custom cache alias
         hc = HyperCache(
             namespace="test",
             value="value",
             load_fn=load_fn,
-            cache_client=caches["flags_dedicated"],
+            cache_alias="flags_dedicated",
         )
 
         team_id = self.team.id
@@ -354,7 +354,7 @@ class TestHyperCacheCustomCacheClient(BaseTest):
         }
     )
     def test_clear_cache_uses_custom_client(self):
-        """Test that clear_cache targets the custom cache client"""
+        """Test that clear_cache targets the custom cache alias"""
         from django.core.cache import caches
 
         caches["default"].clear()
@@ -363,12 +363,12 @@ class TestHyperCacheCustomCacheClient(BaseTest):
         def load_fn(team):
             return self.sample_data
 
-        # Create HyperCache with custom cache client
+        # Create HyperCache with custom cache alias
         hc = HyperCache(
             namespace="test",
             value="value",
             load_fn=load_fn,
-            cache_client=caches["flags_dedicated"],
+            cache_alias="flags_dedicated",
         )
 
         team_id = self.team.id
@@ -389,13 +389,13 @@ class TestHyperCacheCustomCacheClient(BaseTest):
         default_value = caches["default"].get(cache_key)
         assert default_value == json.dumps(self.sample_data)
 
-    def test_default_cache_client_backward_compatibility(self):
-        """Test that HyperCache without cache_client uses default cache"""
+    def test_default_cache_alias_backward_compatibility(self):
+        """Test that HyperCache without cache_alias uses default cache"""
 
         def load_fn(team):
             return self.sample_data
 
-        # Create HyperCache without cache_client (should use default)
+        # Create HyperCache without cache_alias (should use default)
         hc = HyperCache(
             namespace="test",
             value="value",
@@ -412,3 +412,428 @@ class TestHyperCacheCustomCacheClient(BaseTest):
         cache_key = hc.get_cache_key(team_id)
         default_value = cache.get(cache_key)
         assert default_value == json.dumps(self.sample_data)
+
+    @override_settings(
+        CACHES={
+            "default": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "default-test-cache",
+            },
+            "flags_dedicated": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "flags-dedicated-test-cache",
+            },
+        }
+    )
+    def test_custom_cache_client_stores_etag_in_dedicated_cache(self):
+        """Test that ETags are stored in the custom cache, not default"""
+        from django.core.cache import caches
+
+        caches["default"].clear()
+        caches["flags_dedicated"].clear()
+
+        def load_fn(team):
+            return self.sample_data
+
+        hc = HyperCache(
+            namespace="test",
+            value="value",
+            load_fn=load_fn,
+            cache_alias="flags_dedicated",
+            enable_etag=True,
+        )
+
+        team_id = self.team.id
+
+        # Write to cache
+        hc.set_cache_value(team_id, self.sample_data)
+
+        # Verify ETag is in dedicated cache only
+        etag_key = hc.get_etag_key(team_id)
+        dedicated_etag = caches["flags_dedicated"].get(etag_key)
+        default_etag = caches["default"].get(etag_key)
+
+        assert dedicated_etag is not None
+        assert len(dedicated_etag) == 16
+        assert default_etag is None
+
+
+class TestHyperCacheBatchGetFromCache(BaseTest):
+    """Tests for batch_get_from_cache() method using MGET optimization."""
+
+    @property
+    def sample_data(self) -> dict:
+        return {"key": "value", "nested": {"data": "test"}}
+
+    def create_hypercache(self) -> HyperCache:
+        def load_fn(team):
+            return {"default": "data"}
+
+        return HyperCache(namespace="test_batch", value="test_value", load_fn=load_fn)
+
+    def test_batch_get_from_cache_all_hits(self):
+        """Test batch get when all teams have cached data."""
+        hc = self.create_hypercache()
+        teams = [self.team]
+
+        # Populate cache
+        hc.set_cache_value(self.team, self.sample_data)
+
+        results = hc.batch_get_from_cache(teams)
+
+        assert len(results) == 1
+        assert self.team.id in results
+        data, source = results[self.team.id]
+        assert source == "redis"
+        assert data == self.sample_data
+
+    def test_batch_get_from_cache_all_misses(self):
+        """Test batch get when all teams have cache misses."""
+        hc = self.create_hypercache()
+        teams = [self.team]
+
+        # Clear cache
+        hc.clear_cache(self.team)
+
+        results = hc.batch_get_from_cache(teams)
+
+        assert len(results) == 1
+        assert self.team.id in results
+        data, source = results[self.team.id]
+        assert source == "miss"
+        assert data is None
+
+    def test_batch_get_from_cache_partial_hits(self):
+        """Test batch get with mix of hits and misses."""
+        from posthog.models.team import Team
+
+        hc = self.create_hypercache()
+
+        # Create a second team
+        team2 = Team.objects.create(organization=self.organization, name="Test Team 2")
+        teams = [self.team, team2]
+
+        # Cache first team only
+        hc.set_cache_value(self.team, self.sample_data)
+        hc.clear_cache(team2)
+
+        results = hc.batch_get_from_cache(teams)
+
+        assert len(results) == 2
+
+        # First team: hit
+        data1, source1 = results[self.team.id]
+        assert source1 == "redis"
+        assert data1 == self.sample_data
+
+        # Second team: miss
+        data2, source2 = results[team2.id]
+        assert source2 == "miss"
+        assert data2 is None
+
+    def test_batch_get_from_cache_empty_list(self):
+        """Test batch get with empty team list."""
+        hc = self.create_hypercache()
+
+        results = hc.batch_get_from_cache([])
+
+        assert results == {}
+
+    def test_batch_get_from_cache_handles_empty_value_marker(self):
+        """Test batch get correctly handles HyperCacheStoreMissing (None) cached values."""
+        hc = self.create_hypercache()
+
+        # Store a "missing" marker (None)
+        hc.set_cache_value(self.team, HyperCacheStoreMissing())
+
+        results = hc.batch_get_from_cache([self.team])
+
+        # Should return (None, "redis") not (None, "miss")
+        # This is the cached "empty" marker, not a cache miss
+        data, source = results[self.team.id]
+        assert data is None
+        assert source == "redis"
+
+    def test_batch_get_from_cache_uses_get_many(self):
+        """Test that batch_get uses get_many (MGET) instead of individual gets."""
+        hc = self.create_hypercache()
+        teams = [self.team]
+
+        # Populate cache first so there's data to return
+        hc.set_cache_value(self.team, self.sample_data)
+
+        # Track that get_many is called with the correct keys
+        cache_key = hc.get_cache_key(self.team)
+        get_many_called_keys = []
+
+        original_get_many = hc.cache_client.get_many
+
+        def track_get_many(keys):
+            get_many_called_keys.extend(keys)
+            return original_get_many(keys)
+
+        with patch.object(hc.cache_client, "get_many", side_effect=track_get_many):
+            results = hc.batch_get_from_cache(teams)
+
+        # Verify get_many was called with the correct cache key
+        assert cache_key in get_many_called_keys
+        # Verify we got the expected result
+        assert self.team.id in results
+        data, source = results[self.team.id]
+        assert source == "redis"
+        assert data == self.sample_data
+
+    def test_batch_get_from_cache_no_s3_fallback(self):
+        """Test that batch get does NOT fall back to S3 (verification-specific optimization)."""
+        hc = self.create_hypercache()
+
+        # Set data in S3 only, not Redis
+        hc.set_cache_value(self.team, self.sample_data)
+        hc.clear_cache(self.team, kinds=["redis"])
+
+        results = hc.batch_get_from_cache([self.team])
+
+        # Should return miss, NOT load from S3
+        data, source = results[self.team.id]
+        assert source == "miss"
+        assert data is None
+
+
+class TestHyperCacheETagDisabled(HyperCacheTestBase):
+    """Tests for HyperCache when ETag is disabled (default)"""
+
+    def test_etag_not_stored_when_disabled(self):
+        """Test that ETags are not stored when enable_etag=False"""
+        self.hypercache.set_cache_value(self.team_id, self.sample_data)
+
+        # ETag should not be stored
+        etag = self.hypercache.get_etag(self.team_id)
+        assert etag is None
+
+        # Data should still be retrievable
+        data = self.hypercache.get_from_cache(self.team_id)
+        assert data == self.sample_data
+
+    def test_get_if_none_match_returns_data_when_disabled(self):
+        """Test that get_if_none_match always returns data when ETags disabled"""
+        self.hypercache.set_cache_value(self.team_id, self.sample_data)
+
+        # Even with a client ETag, should return full data
+        data, etag, modified = self.hypercache.get_if_none_match(self.team_id, "some-etag")
+
+        assert data == self.sample_data
+        assert etag is None
+        assert modified is True
+
+
+class TestHyperCacheETag(HyperCacheTestBase):
+    """Tests for ETag functionality in HyperCache"""
+
+    @property
+    def hypercache(self) -> HyperCache:
+        """Override to enable ETag support for these tests"""
+
+        def load_fn(team):
+            return {"default": "data"}
+
+        return HyperCache(namespace="test_namespace", value="test_value", load_fn=load_fn, enable_etag=True)
+
+    def test_etag_key_format(self):
+        """Test that ETag key is derived correctly from cache key"""
+        etag_key = self.hypercache.get_etag_key(self.team_id)
+        assert etag_key == "cache/teams/123/test_namespace/test_value:etag"
+
+    def test_compute_etag_deterministic(self):
+        """Test that ETag computation is deterministic for same input"""
+        json_data = '{"key": "value"}'
+        etag1 = self.hypercache._compute_etag(json_data)
+        etag2 = self.hypercache._compute_etag(json_data)
+        assert etag1 == etag2
+        assert len(etag1) == 16  # SHA-256 truncated to 16 chars
+
+    def test_compute_etag_different_for_different_data(self):
+        """Test that different data produces different ETags"""
+        etag1 = self.hypercache._compute_etag('{"key": "value1"}')
+        etag2 = self.hypercache._compute_etag('{"key": "value2"}')
+        assert etag1 != etag2
+
+    def test_etag_consistent_for_same_dict_content(self):
+        """Test that storing the same dict content produces consistent ETags.
+
+        Uses different key orderings to verify sort_keys=True is working.
+        This is important because data loaded from different sources (DB vs cache)
+        might have different key orderings.
+        """
+        # Store data with keys in one order
+        self.hypercache.set_cache_value(self.team_id, {"z": 3, "a": 1, "m": 2})
+        etag1 = self.hypercache.get_etag(self.team_id)
+
+        # Clear and store same data with keys in different order
+        self.hypercache.clear_cache(self.team_id)
+        self.hypercache.set_cache_value(self.team_id, {"a": 1, "m": 2, "z": 3})
+        etag2 = self.hypercache.get_etag(self.team_id)
+
+        # ETags should match because we use sort_keys=True
+        assert etag1 == etag2
+
+    def test_set_cache_value_stores_etag(self):
+        """Test that set_cache_value stores an ETag alongside the data"""
+        self.hypercache.set_cache_value(self.team_id, self.sample_data)
+
+        etag = self.hypercache.get_etag(self.team_id)
+        assert etag is not None
+        assert len(etag) == 16
+
+    def test_get_etag_returns_none_when_not_set(self):
+        """Test that get_etag returns None when no ETag is stored"""
+        self.hypercache.clear_cache(self.team_id)
+        etag = self.hypercache.get_etag(self.team_id)
+        assert etag is None
+
+    def test_clear_cache_clears_etag(self):
+        """Test that clear_cache also clears the ETag"""
+        self.hypercache.set_cache_value(self.team_id, self.sample_data)
+        assert self.hypercache.get_etag(self.team_id) is not None
+
+        self.hypercache.clear_cache(self.team_id, kinds=["redis"])
+        assert self.hypercache.get_etag(self.team_id) is None
+
+    def test_get_if_none_match_returns_not_modified_when_etag_matches(self):
+        """Test that get_if_none_match returns (None, etag, False) when ETags match"""
+        self.hypercache.set_cache_value(self.team_id, self.sample_data)
+        current_etag = self.hypercache.get_etag(self.team_id)
+
+        data, etag, modified = self.hypercache.get_if_none_match(self.team_id, current_etag)
+
+        assert data is None
+        assert etag == current_etag
+        assert modified is False
+
+    def test_get_if_none_match_returns_data_when_etag_differs(self):
+        """Test that get_if_none_match returns full data when ETags differ"""
+        self.hypercache.set_cache_value(self.team_id, self.sample_data)
+
+        data, etag, modified = self.hypercache.get_if_none_match(self.team_id, "wrong-etag")
+
+        assert data == self.sample_data
+        assert etag is not None
+        assert modified is True
+
+    def test_get_if_none_match_returns_data_when_no_client_etag(self):
+        """Test that get_if_none_match returns full data when client sends no ETag"""
+        self.hypercache.set_cache_value(self.team_id, self.sample_data)
+
+        data, etag, modified = self.hypercache.get_if_none_match(self.team_id, None)
+
+        assert data == self.sample_data
+        assert etag is not None
+        assert modified is True
+
+    def test_etag_changes_when_data_changes(self):
+        """Test that ETag changes when cached data is updated"""
+        self.hypercache.set_cache_value(self.team_id, {"key": "value1"})
+        etag1 = self.hypercache.get_etag(self.team_id)
+
+        self.hypercache.set_cache_value(self.team_id, {"key": "value2"})
+        etag2 = self.hypercache.get_etag(self.team_id)
+
+        assert etag1 != etag2
+
+    def test_etag_deleted_when_data_becomes_missing(self):
+        """Test that ETags are deleted when data transitions to missing state"""
+        # First, store data with ETag
+        self.hypercache.set_cache_value(self.team_id, self.sample_data)
+        old_etag = self.hypercache.get_etag(self.team_id)
+        assert old_etag is not None
+
+        # Store missing value
+        self.hypercache.set_cache_value(self.team_id, HyperCacheStoreMissing())
+
+        # ETag should be deleted
+        assert self.hypercache.get_etag(self.team_id) is None
+
+    def test_get_if_none_match_returns_modified_when_data_becomes_missing(self):
+        """Test that old ETag returns modified=True when data transitions to missing"""
+        # Store data and get ETag
+        self.hypercache.set_cache_value(self.team_id, self.sample_data)
+        old_etag = self.hypercache.get_etag(self.team_id)
+
+        # Transition to missing
+        self.hypercache.set_cache_value(self.team_id, HyperCacheStoreMissing())
+
+        # Request with old ETag should return modified=True with null data
+        data, etag, modified = self.hypercache.get_if_none_match(self.team_id, old_etag)
+        assert modified is True
+        assert data is None
+        assert etag is None
+
+    def test_etag_consistency_when_loaded_from_s3(self):
+        """Test that ETag remains consistent when data is loaded from S3 fallback"""
+        # Set data in both Redis and S3
+        self.hypercache.set_cache_value(self.team_id, self.sample_data)
+        original_etag = self.hypercache.get_etag(self.team_id)
+
+        # Clear Redis only, leaving S3 intact
+        self.hypercache.clear_cache(self.team_id, kinds=["redis"])
+
+        # Load from S3 - should repopulate Redis with same ETag
+        data, source = self.hypercache.get_from_cache_with_source(self.team_id)
+        assert source == "s3"
+        assert data == self.sample_data
+
+        # ETag should be regenerated and match original
+        new_etag = self.hypercache.get_etag(self.team_id)
+        assert new_etag == original_etag
+
+    def test_etag_consistency_when_loaded_from_db(self):
+        """Test that ETag is generated correctly when loading from DB"""
+        # Clear all caches
+        self.hypercache.clear_cache(self.team_id, kinds=["redis", "s3"])
+
+        # Load from DB
+        data, source = self.hypercache.get_from_cache_with_source(self.team_id)
+        assert source == "db"
+
+        # ETag should be created and stored
+        etag = self.hypercache.get_etag(self.team_id)
+        assert etag is not None
+        assert len(etag) == 16
+
+        # Subsequent request with matching ETag should return not modified
+        data2, etag2, modified = self.hypercache.get_if_none_match(self.team_id, etag)
+        assert modified is False
+        assert etag2 == etag
+
+    def test_get_if_none_match_idempotent_304_responses(self):
+        """Test that same ETag consistently returns not modified across multiple requests"""
+        self.hypercache.set_cache_value(self.team_id, self.sample_data)
+        etag = self.hypercache.get_etag(self.team_id)
+
+        # Make 5 sequential requests with same ETag
+        for i in range(5):
+            data, returned_etag, modified = self.hypercache.get_if_none_match(self.team_id, etag)
+            assert modified is False, f"Request {i+1} should return not modified"
+            assert returned_etag == etag
+            assert data is None
+
+    def test_get_if_none_match_handles_redis_failure_gracefully(self):
+        """Test that get_if_none_match degrades gracefully when Redis fails during ETag check.
+
+        When Redis is unavailable, the endpoint should NOT crash with a 500 error.
+        Instead, it returns modified=True so the client knows to fetch fresh data.
+        """
+        # Set up data
+        self.hypercache.set_cache_value(self.team_id, self.sample_data)
+
+        # Mock Redis to fail on get operations
+        def failing_get(key):
+            raise ConnectionError("Redis unavailable")
+
+        with patch.object(self.hypercache.cache_client, "get", side_effect=failing_get):
+            # Should NOT raise - should gracefully degrade
+            data, etag, modified = self.hypercache.get_if_none_match(self.team_id, "some-etag")
+
+            # When Redis fails completely, we can't get data but we don't crash
+            # The caller (API endpoint) should handle None data appropriately
+            assert etag is None  # Can't get ETag when Redis fails
+            assert modified is True  # Signal that client should treat as modified

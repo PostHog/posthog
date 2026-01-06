@@ -3,11 +3,22 @@
 set -e
 
 export REPOSITORY_ROOT=$(realpath "$(dirname "$0")/..")
+export LOCK_FILE="$REPOSITORY_ROOT/bin/start.lock"
+
+# Acquire exclusive lock using flock (atomic, no race condition)
+exec 9>"$LOCK_FILE"
+if ! flock -n 9; then
+    echo "⚠️  Another instance of bin/start is already running (lock file: $LOCK_FILE)"
+    echo "   To skip this check, delete the lock file: rm $LOCK_FILE"
+    exit 1
+fi
+
+export SESSION_RECORDING_V2_S3_ENDPOINT=${SESSION_RECORDING_V2_S3_ENDPOINT:-http://localhost:8333}
+
 export DEBUG=${DEBUG:-1}
 export SKIP_SERVICE_VERSION_REQUIREMENTS=${SKIP_SERVICE_VERSION_REQUIREMENTS:-1}
 
 export BILLING_SERVICE_URL=${BILLING_SERVICE_URL:-https://billing.dev.posthog.dev}
-export HOG_HOOK_URL=${HOG_HOOK_URL:-http://localhost:3300/hoghook}
 export API_QUERIES_PER_TEAM='{"1": 100}'
 
 # Dagster
@@ -37,7 +48,7 @@ else
 fi
 
 if [[ "$*" == *"--skip-typegen"* ]]; then
-    export SKIP_TYPEGEN="exit 0"
+    export SKIP_TYPEGEN="1"
 fi
 
 if [ -f .env ]; then
@@ -46,6 +57,27 @@ if [ -f .env ]; then
     set +o allexport
 fi
 
+# Ducklake
+export DUCKLAKE_RDS_HOST=${DUCKLAKE_RDS_HOST:-localhost}
+export DUCKLAKE_RDS_PORT=${DUCKLAKE_RDS_PORT:-5432}
+export DUCKLAKE_RDS_DATABASE=${DUCKLAKE_RDS_DATABASE:-ducklake}
+export DUCKLAKE_RDS_USERNAME=${DUCKLAKE_RDS_USERNAME:-posthog}
+export DUCKLAKE_RDS_PASSWORD=${DUCKLAKE_RDS_PASSWORD:-posthog}
+export DUCKLAKE_BUCKET=${DUCKLAKE_BUCKET:-ducklake-dev}
+export DUCKLAKE_BUCKET_REGION=${DUCKLAKE_BUCKET_REGION:-us-east-1}
+export DUCKLAKE_S3_ACCESS_KEY=${DUCKLAKE_S3_ACCESS_KEY:-object_storage_root_user}
+export DUCKLAKE_S3_SECRET_KEY=${DUCKLAKE_S3_SECRET_KEY:-object_storage_root_password}
+
+if ! python3 - <<'PY' >/dev/null 2>&1
+import duckdb  # noqa: F401
+PY
+then
+    echo "DuckLake requires the duckdb Python package."
+    echo "Run 'uv sync --active' (or activate Flox) before executing hogli start."
+    exit 1
+fi
+
+# Geo files
 ./bin/download-mmdb
 
 if ! command -v mprocs &>/dev/null; then
@@ -84,8 +116,8 @@ if [[ "$*" == *"--custom"* ]]; then
         exit 1
     fi
     exec mprocs --config "$config_path"
-# Use minimal config
-elif [[ "$*" == *"--minimal"* ]]; then
+    # Use minimal config
+    elif [[ "$*" == *"--minimal"* ]]; then
     exec mprocs --config bin/mprocs-minimal.yaml
 else
     exec mprocs --config bin/mprocs.yaml

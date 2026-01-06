@@ -1431,6 +1431,20 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 actions.sparklineQueryChanged(sparklineQuery)
             }
         },
+        configuration: (configuration, oldConfiguration) => {
+            if (
+                typeof configuration?.filters?.source === 'string' &&
+                typeof oldConfiguration?.filters?.source === 'string' &&
+                configuration?.filters?.source !== oldConfiguration?.filters?.source
+            ) {
+                actions.setConfigurationValue('filters', {
+                    ...configuration.filters,
+                    events: [],
+                    actions: [],
+                    data_warehouse: [],
+                })
+            }
+        },
     })),
 
     beforeUnload(({ values, cache }) => ({

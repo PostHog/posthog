@@ -4,7 +4,6 @@ import json
 import asyncio
 from collections.abc import Generator
 from contextlib import contextmanager
-from datetime import UTC, datetime
 from json import JSONDecodeError
 from typing import Any, Literal, cast
 from urllib.parse import urlparse
@@ -12,6 +11,7 @@ from urllib.parse import urlparse
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
+from django.db.models import Q
 from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 
 import requests
@@ -41,7 +41,8 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ra
 from posthog.schema import (
     MatchedRecordingEvent,
     MatchingEventsResponse,
-    NodeKind,
+    ProductIntentContext,
+    ProductKey,
     PropertyFilterType,
     PropertyOperator,
     QueryTiming,
@@ -79,11 +80,12 @@ from posthog.session_recordings.utils import (
     query_as_params_to_dict,
 )
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
-from posthog.storage import object_storage, session_recording_v2_object_storage
+from posthog.storage import session_recording_v2_object_storage
 from posthog.storage.session_recording_v2_object_storage import BlockFetchError
 
 from ee.hogai.session_summaries.llm.call import get_openai_client
 from ee.hogai.session_summaries.session.stream import stream_recording_summary
+from ee.hogai.session_summaries.tracking import capture_session_summary_started, generate_tracking_id
 
 from ..models.product_intent.product_intent import ProductIntent
 from .queries.combine_session_ids_for_filtering import combine_session_id_filters
@@ -118,10 +120,6 @@ STREAM_RESPONSE_TO_CLIENT_HISTOGRAM = Histogram(
     "session_snapshots_stream_response_to_client_histogram",
     "Time taken to stream a session snapshot to the client",
     labelnames=["blob_version", "decompress"],
-)
-
-LOADING_V1_LTS_COUNTER = Counter(
-    "session_snapshots_loading_v1_lts_counter", "Count of times we loaded a v1 recording from the lts path"
 )
 
 LOADING_V2_LTS_COUNTER = Counter(
@@ -256,7 +254,6 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             "console_error_count",
             "start_url",
             "person",
-            "storage",
             "retention_period_days",
             "expiry_time",
             "recording_ttl",
@@ -281,7 +278,6 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             "console_warn_count",
             "console_error_count",
             "start_url",
-            "storage",
             "retention_period_days",
             "expiry_time",
             "recording_ttl",
@@ -339,10 +335,6 @@ class SessionRecordingSnapshotsRequestSerializer(serializers.Serializer):
     # shared
     # need to ignore type here because mypy is being weird
     source = serializers.CharField(required=False, allow_null=True)  # type: ignore
-    blob_v2 = serializers.BooleanField(default=False, help_text="Whether to enable v2 blob functionality")
-    blob_v2_lts = serializers.BooleanField(
-        required=False, default=False, help_text="Whether to enable v2 blob functionality for LTS recordings"
-    )
     blob_key = serializers.CharField(required=False, allow_blank=True, help_text="Single blob key to fetch")
     decompress = serializers.BooleanField(
         default=True,
@@ -366,45 +358,27 @@ class SessionRecordingSnapshotsRequestSerializer(serializers.Serializer):
         end_blob_key = data.get("end_blob_key")
         is_personal_api_key = self.context.get("is_personal_api_key")
 
-        if source not in ["realtime", "blob", "blob_v2", None]:
-            raise exceptions.ValidationError("Invalid source must be one of [realtime, blob, blob_v2, None]")
+        if source not in ["blob_v2", "blob_v2_lts", None]:
+            raise exceptions.ValidationError("Invalid source must be one of [blob_v2, blob_v2_ts, None]")
 
         # Validate blob_v2 parameters
         if source == "blob_v2":
-            if not blob_key and not start_blob_key and not end_blob_key:
-                raise serializers.ValidationError("Must provide either a blob key or start and end blob keys")
+            if not start_blob_key or not end_blob_key:
+                raise serializers.ValidationError("Must provide both start blob key and end blob key")
 
-            if blob_key and (start_blob_key or end_blob_key):
-                raise serializers.ValidationError("Must provide a single blob key or start and end blob keys, not both")
+            try:
+                data["min_blob_key"] = int(start_blob_key)
+                data["max_blob_key"] = int(end_blob_key)
+            except (ValueError, TypeError):
+                raise serializers.ValidationError("Blob keys must be integers")
 
-            if blob_key and "/" in blob_key:
-                # blob key that has any / is (probably) an LTS path
-                pass
-            else:
-                if start_blob_key and not end_blob_key:
-                    raise serializers.ValidationError("Must provide both start_blob_key and end_blob_key")
-                if end_blob_key and not start_blob_key:
-                    raise serializers.ValidationError("Must provide both start_blob_key and end_blob_key")
+            max_blobs_allowed = 20 if is_personal_api_key else 100
+            if int(end_blob_key) - int(start_blob_key) > max_blobs_allowed:
+                raise serializers.ValidationError(f"Cannot request more than {max_blobs_allowed} blob keys at once")
 
-                try:
-                    min_blob_key = int(start_blob_key or blob_key)
-                    max_blob_key = int(end_blob_key or blob_key)
-                    data["min_blob_key"] = min_blob_key
-                    data["max_blob_key"] = max_blob_key
-                except (ValueError, TypeError):
-                    raise serializers.ValidationError("Blob key must be an integer")
-
-                max_blobs_allowed = 20 if is_personal_api_key else 100
-                if max_blob_key - min_blob_key > max_blobs_allowed:
-                    raise serializers.ValidationError(f"Cannot request more than {max_blobs_allowed} blob keys at once")
-
-        # Validate blob parameters (v1)
-        elif source == "blob" and blob_key:
+        if source == "blob_v2_lts":
             if not blob_key:
-                raise serializers.ValidationError("Must provide a snapshot file blob key")
-            # blob key should be a string of the form 1619712000-1619712060
-            if not all(x.isdigit() for x in blob_key.split("-")):
-                raise serializers.ValidationError("Invalid blob key: " + blob_key)
+                raise serializers.ValidationError("Must provide a blob key")
 
         return data
 
@@ -743,9 +717,14 @@ class SessionRecordingViewSet(
     @extend_schema(exclude=True)
     @action(methods=["POST"], detail=False, url_path="bulk_delete")
     def bulk_delete(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        """Bulk soft delete recordings by providing a list of recording IDs."""
+        """Bulk soft delete recordings by providing a list of recording IDs.
+
+        Accepts optional date_from parameter to optimize ClickHouse query performance by limiting the search range.
+        If not provided, defaults to the team's retention period to ensure all recordings can be found.
+        """
 
         session_recording_ids = request.data.get("session_recording_ids", [])
+        date_from = request.data.get("date_from", None)
 
         if not session_recording_ids or not isinstance(session_recording_ids, list):
             raise exceptions.ValidationError("session_recording_ids must be provided as a non-empty array")
@@ -756,10 +735,16 @@ class SessionRecordingViewSet(
             )
 
         # Load recordings from ClickHouse to get distinct_ids for ones that don't exist in Postgres
+        # Use date_from from UI if provided (optimization for when UI knows the filter range)
+        # Otherwise fall back to retention period (handles direct links where no filter context exists)
+        if not date_from:
+            retention_period = self.team.session_recording_retention_period or "90d"
+            date_from = f"-{retention_period}"
+
         # Create minimal query with only session_ids - pass None for user to bypass access control filtering
         query_data = {
             "session_ids": session_recording_ids,
-            "date_from": None,
+            "date_from": date_from,
             "date_to": None,
             "kind": "RecordingsQuery",
         }
@@ -775,7 +760,6 @@ class SessionRecordingViewSet(
 
         # Filter out recordings that are already deleted
         non_deleted_recordings = [recording for recording in accessible_recordings if not recording.deleted]
-
         # First, bulk create any missing records
         session_recordings_to_create = [
             SessionRecording(
@@ -910,21 +894,6 @@ class SessionRecordingViewSet(
             {"success": True, "not_viewed_count": deleted_count, "total_requested": len(session_recording_ids)}
         )
 
-    @extend_schema(exclude=True)
-    @action(methods=["POST"], detail=True)
-    def persist(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        recording = self.get_object()
-
-        if not settings.EE_AVAILABLE:
-            raise exceptions.ValidationError("LTS persistence is only available in the full version of PostHog")
-
-        # Indicates it is not yet persisted
-        # "Persistence" is simply saving a record in the DB currently - the actual save to S3 is done on a worker
-        if recording.storage == "object_storage":
-            recording.save()
-
-        return Response({"success": True})
-
     @tracer.start_as_current_span("replay_snapshots_api")
     @extend_schema(exclude=True)
     @action(
@@ -935,15 +904,9 @@ class SessionRecordingViewSet(
     )
     def snapshots(self, request: request.Request, **kwargs):
         """
-        Snapshots can be loaded from multiple places:
-        1. From S3 if the session is older than our ingestion limit. This will be multiple files that can be streamed to the client
-        2. or from Redis if the session is newer than our ingestion limit.
-
         Clients need to call this API twice.
         First without a source parameter to get a list of sources supported by the given session.
         And then once for each source in the returned list to get the actual snapshots.
-
-        NB version 1 of this API has been deprecated and ClickHouse stored snapshots are no longer supported.
         """
 
         tag_queries(product=Product.REPLAY)
@@ -966,23 +929,15 @@ class SessionRecordingViewSet(
         source = validated_data.get("source")
         source_log_label = source or "listing"
 
-        is_v2_enabled: bool = validated_data.get("blob_v2", False)
-        is_v2_lts_enabled: bool = validated_data.get("blob_v2_lts", False)
         decompress: bool = validated_data.get("decompress", True)
 
-        if (
-            not recording.full_recording_v2_path
-            and not recording.object_storage_path
-            and not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team)
+        if not recording.full_recording_v2_path and not SessionReplayEvents().exists(
+            session_id=str(recording.session_id), team=self.team
         ):
             raise exceptions.NotFound("Recording not found")
 
         SNAPSHOT_SOURCE_REQUESTED.labels(source=source_log_label).inc()
 
-        # blob v1 API has been deprecated for a while now,
-        # we now only allow blob v1 on self-hosted installs
-        # before we can have a release that officially deprecates it for self-hosted
-        blob_v1_sources_are_allowed = False if is_cloud() or settings.DEBUG else True
         if is_personal_api_key:
             personal_api_authenticator = cast(PersonalAPIKeyAuthentication, request.successful_authenticator)
             used_key = personal_api_authenticator.personal_api_key
@@ -1004,33 +959,20 @@ class SessionRecordingViewSet(
 
         try:
             response: Response | HttpResponse
-            if not source:
-                response = self._gather_session_recording_sources(recording, timer, is_v2_enabled, is_v2_lts_enabled)
-            elif source == "blob":
-                is_likely_v1_lts = recording.object_storage_path and not recording.full_recording_v2_path
-                if not blob_v1_sources_are_allowed and not is_likely_v1_lts:
-                    raise exceptions.ValidationError("blob snapshots are no longer supported")
-                with timer("stream_blob_to_client"):
-                    response = self._stream_blob_to_client(
-                        recording, validated_data.get("blob_key", ""), validated_data.get("if_none_match")
-                    )
-            elif source == "blob_v2":
-                if "min_blob_key" in validated_data:
-                    response = self._stream_blob_v2_to_client(
-                        recording,
-                        timer,
-                        min_blob_key=validated_data["min_blob_key"],
-                        max_blob_key=validated_data["max_blob_key"],
-                        decompress=decompress,
-                    )
-                elif "blob_key" in validated_data:
-                    response = self._stream_lts_blob_v2_to_client(
-                        blob_key=validated_data["blob_key"], decompress=decompress
-                    )
-                else:
-                    response = self._gather_session_recording_sources(
-                        recording, timer, is_v2_enabled, is_v2_lts_enabled
-                    )
+            if source == "blob_v2" and "min_blob_key" in validated_data:
+                response = self._stream_blob_v2_to_client(
+                    recording,
+                    timer,
+                    min_blob_key=validated_data["min_blob_key"],
+                    max_blob_key=validated_data["max_blob_key"],
+                    decompress=decompress,
+                )
+            elif source == "blob_v2_lts" and "blob_key" in validated_data:
+                response = self._stream_lts_blob_v2_to_client(
+                    blob_key=validated_data["blob_key"], decompress=decompress
+                )
+            else:
+                response = self._gather_session_recording_sources(recording, timer)
 
             response.headers["Server-Timing"] = timer.to_header_string()
             return response
@@ -1084,8 +1026,8 @@ class SessionRecordingViewSet(
 
             ProductIntent.register(
                 team=team,
-                product_type="session_replay",
-                context="session_replay_set_filters",
+                product_type=ProductKey.SESSION_REPLAY,
+                context=ProductIntentContext.SESSION_REPLAY_SET_FILTERS,
                 user=cast(User, request.user),
                 metadata={"$current_url": current_url, "$session_id": session_id, **partial_filters},
             )
@@ -1104,97 +1046,42 @@ class SessionRecordingViewSet(
         self,
         recording: SessionRecording,
         timer: ServerTimingsGathered,
-        is_v2_enabled: bool = False,
-        is_v2_lts_enabled: bool = False,
     ) -> Response:
-        response_data = {}
         sources: list[dict] = []
-        blob_keys: list[str] | None = None
-        blob_prefix = ""
 
-        with GATHER_RECORDING_SOURCES_HISTOGRAM.labels(blob_version="v2" if is_v2_enabled else "v1").time():
-            if is_v2_enabled:
-                with posthoganalytics.new_context():
-                    posthoganalytics.tag("gather_session_recording_sources_version", "2")
-                    if is_v2_lts_enabled and recording.full_recording_v2_path:
-                        posthoganalytics.tag("recording_location", "recording.full_recording_v2_path")
-                        LOADING_V2_LTS_COUNTER.inc()
-                        try:
-                            # Parse S3 URL to extract prefix (path without query parameters)
-                            # Example: s3://bucket/path?range=bytes=0-1372588 -> path
-                            # s3:/the_bucket/the_session_recordings_lts_prefix/{uuid}?range=bytes=0-14468
-                            # for now we can ignore that v2 is in a different bucket and just use the path
-                            sources.append(
-                                {
-                                    "source": "blob_v2",
-                                    "blob_key": urlparse(recording.full_recording_v2_path).path.lstrip("/"),
-                                }
-                            )
-                        except Exception as e:
-                            capture_exception(e)
-                    else:
-                        with timer("list_blocks__gather_session_recording_sources"):
-                            blocks = list_blocks(recording)
-
-                        for i, block in enumerate(blocks):
-                            sources.append(
-                                {
-                                    "source": "blob_v2",
-                                    "start_timestamp": block.start_time,
-                                    "end_timestamp": block.end_time,
-                                    "blob_key": str(i),
-                                }
-                            )
+        with GATHER_RECORDING_SOURCES_HISTOGRAM.labels(blob_version="v2").time():
+            if recording.full_recording_v2_path:
+                # Parse S3 URL to extract prefix (path without query parameters)
+                # Example: s3://bucket/path?range=bytes=0-1372588 -> path
+                # s3:/the_bucket/the_session_recordings_lts_prefix/{uuid}?range=bytes=0-14468
+                # for now we can ignore that v2 is in a different bucket and just use the path
+                sources.append(
+                    {
+                        "source": "blob_v2_lts",
+                        "blob_key": urlparse(recording.full_recording_v2_path).path.lstrip("/"),
+                    }
+                )
+                LOADING_V2_LTS_COUNTER.inc()
             else:
-                with timer("list_objects__gather_session_recording_sources"):
-                    if recording.object_storage_path:
-                        LOADING_V1_LTS_COUNTER.inc()
-                        # like session_recordings_lts/team_id/{team_id}/session_id/{uuid}/data
-                        # /data has 1 to n files (it should be 1, but we support multiple files)
-                        # session_recordings_lts is a prefix in a fixed bucket that all v1 playback files are stored in
-                        blob_prefix = recording.object_storage_path
-                        blob_keys = object_storage.list_objects(cast(str, blob_prefix))
-                    else:
-                        blob_prefix = recording.build_blob_ingestion_storage_path()
-                        blob_keys = object_storage.list_objects(blob_prefix)
+                with timer("list_blocks__gather_session_recording_sources"):
+                    blocks = list_blocks(recording)
 
-            with timer("prepare_sources__gather_session_recording_sources"):
-                if blob_keys:
-                    for full_key in blob_keys:
-                        # Keys are like 1619712000-1619712060
-                        blob_key = full_key.replace(blob_prefix.rstrip("/") + "/", "")
-                        blob_key_base = blob_key.split(".")[0]  # Remove the extension if it exists
-                        time_range = [datetime.fromtimestamp(int(x) / 1000, tz=UTC) for x in blob_key_base.split("-")]
-
-                        sources.append(
-                            {
-                                "source": "blob",
-                                "start_timestamp": time_range[0],
-                                "end_timestamp": time_range.pop(),
-                                "blob_key": blob_key,
-                            }
-                        )
-                if sources:
-                    sources = sorted(sources, key=lambda x: x.get("start_timestamp", -1))
-
-                response_data["sources"] = sources
+                for i, block in enumerate(blocks):
+                    sources.append(
+                        {
+                            "source": "blob_v2",
+                            "start_timestamp": block.start_time,
+                            "end_timestamp": block.end_time,
+                            "blob_key": str(i),
+                        }
+                    )
 
             with timer("serialize_data__gather_session_recording_sources"):
-                serializer = SessionRecordingSourcesSerializer(response_data)
+                serializer = SessionRecordingSourcesSerializer(
+                    {"sources": sorted(sources, key=lambda x: x.get("start_timestamp", -1))}
+                )
 
             return Response(serializer.data)
-
-    @staticmethod
-    def _validate_blob_key(blob_key: Any) -> None:
-        if not blob_key:
-            raise exceptions.ValidationError("Must provide a snapshot file blob key")
-
-        if not isinstance(blob_key, str):
-            raise exceptions.ValidationError("Invalid blob key: " + blob_key)
-
-        # blob key should be a string of the form 1619712000-1619712060
-        if not all(x.isdigit() for x in blob_key.split("-")):
-            raise exceptions.ValidationError("Invalid blob key: " + blob_key)
 
     @staticmethod
     def _distinct_id_from_request(request):
@@ -1236,72 +1123,35 @@ class SessionRecordingViewSet(
         has_openai_api_key = bool(os.environ.get("OPENAI_API_KEY"))
         if not environment_is_allowed or not has_openai_api_key:
             raise exceptions.ValidationError("session summary is only supported in PostHog Cloud")
-        if not posthoganalytics.feature_enabled("ai-session-summary", str(user.distinct_id)):
+        if not posthoganalytics.feature_enabled(
+            "ai-session-summary", str(user.distinct_id)
+        ) and not posthoganalytics.feature_enabled(
+            "max-session-summarization",
+            str(user.distinct_id),
+            groups={"organization": str(self.team.organization_id)},
+            group_properties={"organization": {"id": str(self.team.organization_id)}},
+            send_feature_flag_events=False,
+        ):
             raise exceptions.ValidationError("session summary is not enabled for this user")
-
+        session_id = str(recording.session_id)
+        # Track streaming summary start (no completion tracking for streaming)
+        tracking_id = generate_tracking_id()
+        capture_session_summary_started(
+            user=user,
+            team=self.team,
+            tracking_id=tracking_id,
+            summary_source="api",
+            summary_type="single",
+            is_streaming=True,
+            session_ids=[session_id],
+            video_validation_enabled=None,  # Not checked for streaming endpoint
+        )
         # If you want to test sessions locally - override `session_id` and `self.team.pk`
         # with session/team ids of your choice and set `local_reads_prod` to True
-        session_id = recording.session_id
         return StreamingHttpResponse(
-            stream_recording_summary(session_id=session_id, user_id=user.pk, team=self.team),
+            stream_recording_summary(session_id=session_id, user=user, team=self.team),
             content_type=ServerSentEventRenderer.media_type,
         )
-
-    def _stream_blob_to_client(
-        self, recording: SessionRecording, blob_key: str, if_none_match: str | None
-    ) -> HttpResponse:
-        # very short-lived pre-signed URL
-        with GENERATE_PRE_SIGNED_URL_HISTOGRAM.time():
-            if recording.object_storage_path:
-                if recording.storage_version == "2023-08-01":
-                    file_key = f"{recording.object_storage_path}/{blob_key}"
-                else:
-                    raise NotImplementedError(
-                        f"Unknown session replay object storage version {recording.storage_version}"
-                    )
-            else:
-                blob_prefix = settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER
-                file_key = f"{recording.build_blob_ingestion_storage_path(root_prefix=blob_prefix)}/{blob_key}"
-            url = object_storage.get_presigned_url(file_key, expiration=60)
-            if not url:
-                raise exceptions.NotFound("Snapshot file not found")
-
-        with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.labels(blob_version="v1", decompress=True).time():
-            # streams the file from S3 to the client
-            # will not decompress the possibly large file because of `stream=True`
-            #
-            # we pass some headers through to the client
-            # particularly we should signal the content-encoding
-            # to help the client know it needs to decompress
-            #
-            # if the client provides an e-tag we can use it to check if the file has changed
-            # object store will respect this and send back 304 if the file hasn't changed,
-            # and we don't need to send the large file over the wire
-
-            headers = {}
-            if if_none_match:
-                headers["If-None-Match"] = ensure_not_weak(if_none_match)
-
-            with stream_from(url=url, headers=headers) as streaming_response:
-                streaming_response.raise_for_status()
-
-                response = HttpResponse(content=streaming_response.raw, status=streaming_response.status_code)
-
-                etag = streaming_response.headers.get("ETag")
-                if etag:
-                    response["ETag"] = ensure_not_weak(etag)
-
-                # blobs are immutable, _really_ we can cache forever
-                # but let's cache for an hour since people won't re-watch too often
-                # we're setting cache control and ETag which might be considered overkill,
-                # but it helps avoid network latency from the client to PostHog, then to object storage, and back again
-                # when a client has a fresh copy
-                response["Cache-Control"] = streaming_response.headers.get("Cache-Control") or "max-age=3600"
-
-                response["Content-Type"] = "application/json"
-                response["Content-Disposition"] = "inline"
-
-                return response
 
     async def _stream_lts_blob_v2_to_client_async(
         self,
@@ -1539,6 +1389,51 @@ class SessionRecordingViewSet(
         return Response(response_data)
 
 
+@tracer.start_as_current_span("load_recording_if_matches_filters")
+def _load_recording_if_matches_filters(
+    session_id: str,
+    query: RecordingsQuery,
+    team: Team,
+    allow_event_property_expansion: bool,
+) -> SessionRecording | None:
+    """
+    Check if a specific recording matches the current filters (ignoring pagination).
+    Returns the recording if it matches, None otherwise.
+    """
+    prepend_check_query = query.model_copy(
+        update={
+            "session_ids": [session_id],
+            "session_recording_id": None,
+            "limit": 1,
+            "offset": 0,
+            "after": None,
+        }
+    )
+    ch_query_result = SessionRecordingListFromQuery(
+        query=prepend_check_query,
+        team=team,
+        hogql_query_modifiers=None,
+        allow_event_property_expansion=allow_event_property_expansion,
+    ).run()
+
+    if not ch_query_result.results:
+        return None
+
+    s3_persisted_recording = (
+        SessionRecording.objects.filter(team=team, session_id=session_id)
+        .exclude(Q(object_storage_path=None) & Q(full_recording_v2_path=None))
+        .first()
+    )
+    if s3_persisted_recording:
+        return s3_persisted_recording
+
+    prepend_recordings = SessionRecording.get_or_build_from_clickhouse(team, ch_query_result.results)
+    if prepend_recordings and not prepend_recordings[0].deleted:
+        return prepend_recordings[0]
+
+    return None
+
+
 # TODO i guess this becomes the query runner for our _internal_ use of RecordingsQuery
 def list_recordings_from_query(
     query: RecordingsQuery, user: User | None, team: Team, allow_event_property_expansion: bool = False
@@ -1572,37 +1467,15 @@ def list_recordings_from_query(
             ]
         else:
             # We need to fetch this specific recording alongside the filtered results
-            # Create a separate query to fetch just this recording
-            with timer("load_prepend_recording"), tracer.start_as_current_span("load_prepend_recording"):
-                s3_persisted_recording = (
-                    SessionRecording.objects.filter(team=team, session_id=session_recording_id_to_prepend)
-                    .exclude(object_storage_path=None)
-                    .first()
+            with timer("load_prepend_recording"):
+                prepend_recording = _load_recording_if_matches_filters(
+                    session_recording_id_to_prepend,
+                    query,
+                    team,
+                    allow_event_property_expansion,
                 )
-
-                if s3_persisted_recording:
-                    recordings.append(s3_persisted_recording)
-                else:
-                    # Try to load from ClickHouse
-                    # Optimize query by searching only within the team's retention period
-                    retention_period = team.session_recording_retention_period or "90d"
-                    ch_query_result = SessionRecordingListFromQuery(
-                        query=RecordingsQuery(
-                            kind=NodeKind.RECORDINGS_QUERY,
-                            session_ids=[session_recording_id_to_prepend],
-                            date_from=f"-{retention_period}",
-                            date_to=None,
-                        ),
-                        team=team,
-                        hogql_query_modifiers=None,
-                        allow_event_property_expansion=allow_event_property_expansion,
-                    ).run()
-                    if ch_query_result.results:
-                        prepend_recordings = SessionRecording.get_or_build_from_clickhouse(
-                            team, ch_query_result.results
-                        )
-                        if prepend_recordings and not prepend_recordings[0].deleted:
-                            recordings.append(prepend_recordings[0])
+                if prepend_recording:
+                    recordings.append(prepend_recording)
 
     if all_session_ids:
         with timer("load_persisted_recordings"), tracer.start_as_current_span("load_persisted_recordings"):
@@ -1611,7 +1484,7 @@ def list_recordings_from_query(
 
             persisted_recordings_queryset = SessionRecording.objects.filter(
                 team=team, session_id__in=sorted_session_ids
-            ).exclude(object_storage_path=None)
+            ).exclude(Q(object_storage_path=None) & Q(full_recording_v2_path=None))
 
             persisted_recordings = persisted_recordings_queryset.all()
 
@@ -1637,6 +1510,7 @@ def list_recordings_from_query(
                 query_updates["session_ids"] = remaining_session_ids
 
             query_for_list = query.model_copy(update=query_updates)
+
             query_result = SessionRecordingListFromQuery(
                 query=query_for_list,
                 team=team,
@@ -1644,6 +1518,7 @@ def list_recordings_from_query(
                 allow_event_property_expansion=allow_event_property_expansion,
             ).run()
             ch_session_recordings = query_result.results
+
             more_recordings_available = query_result.has_more_recording
             hogql_timings = query_result.timings
             next_cursor = query_result.next_cursor

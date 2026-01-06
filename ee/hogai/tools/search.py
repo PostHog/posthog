@@ -2,18 +2,14 @@ from typing import Literal
 
 from django.conf import settings
 
-import posthoganalytics
 from langchain_core.output_parsers import SimpleJsonOutputParser
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import RunnableLambda
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
-from ee.hogai.graph.insights.nodes import InsightSearchNode, NoInsightsException
 from ee.hogai.tool import MaxSubtool, MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.tools.full_text_search.tool import EntitySearchTool, FTSKind
-from ee.hogai.utils.types.base import AssistantState, PartialAssistantState
 
 SEARCH_TOOL_PROMPT = """
 Use this tool to search docs, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, error tracking issues, and surveys in PostHog.
@@ -126,16 +122,6 @@ class SearchTool(MaxTool):
             )
             return await docs_tool.execute(query, self.tool_call_id)
 
-        if kind == "insights" and not self._has_insights_fts_search_feature_flag():
-            insights_tool = InsightSearchTool(
-                team=self._team,
-                user=self._user,
-                state=self._state,
-                config=self._config,
-                context_manager=self._context_manager,
-            )
-            return await insights_tool.execute(query, self.tool_call_id)
-
         if kind not in self._fts_entities:
             raise MaxToolRetryableError(INVALID_ENTITY_KIND_PROMPT.format(kind=kind))
 
@@ -153,15 +139,6 @@ class SearchTool(MaxTool):
     def _fts_entities(self) -> list[str]:
         entities = list(FTSKind)
         return [*entities, FTSKind.ALL]
-
-    def _has_insights_fts_search_feature_flag(self) -> bool:
-        return posthoganalytics.feature_enabled(
-            "hogai-insights-fts-search",
-            str(self._user.distinct_id),
-            groups={"organization": str(self._team.organization_id)},
-            group_properties={"organization": {"id": str(self._team.organization_id)}},
-            send_feature_flag_events=False,
-        )
 
 
 DOCS_SEARCH_RESULTS_TEMPLATE = """Found {count} relevant documentation page(s):
@@ -229,20 +206,3 @@ class InkeepDocsSearchTool(MaxSubtool):
 EMPTY_DATABASE_ERROR_MESSAGE = """
 The user doesn't have any insights created yet.
 """.strip()
-
-
-class InsightSearchTool(MaxSubtool):
-    async def execute(self, query: str, tool_call_id: str) -> tuple[str, ToolMessagesArtifact | None]:
-        try:
-            node = InsightSearchNode(self._team, self._user)
-            copied_state = self._state.model_copy(
-                deep=True, update={"search_insights_query": query, "root_tool_call_id": tool_call_id}
-            )
-            chain: RunnableLambda[AssistantState, PartialAssistantState | None] = RunnableLambda(node)
-            result = await chain.ainvoke(copied_state)
-            return "", ToolMessagesArtifact(messages=result.messages) if result else None
-        except NoInsightsException:
-            raise MaxToolFatalError(
-                "No insights available: The team has not created any insights yet. "
-                "Insights must be created before they can be searched. You can create insights using the query generation tools."
-            )

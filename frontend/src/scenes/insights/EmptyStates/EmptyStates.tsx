@@ -7,7 +7,6 @@ import { useEffect, useState } from 'react'
 
 import {
     IconArchive,
-    IconHourglass,
     IconInfo,
     IconPieChart,
     IconPlus,
@@ -20,23 +19,20 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { BuilderHog3 } from 'lib/components/hedgehogs'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { isChristmas } from 'lib/holidays'
+import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconErrorOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { IconChristmasOrnament, IconErrorOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { humanFriendlyNumber, humanizeBytes, inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -59,16 +55,26 @@ import { insightVizDataLogic } from '../insightVizDataLogic'
 export function InsightEmptyState({
     heading = 'There are no matching events for this query',
     detail = 'Try changing the date range, or pick another action, event or breakdown.',
+    icon: iconProp,
 }: {
     heading?: string
     detail?: string | JSX.Element
+    icon?: JSX.Element
 }): JSX.Element {
+    const icon =
+        iconProp ??
+        (isChristmas() ? (
+            <IconChristmasOrnament className="text-5xl mb-2 text-red-500" />
+        ) : (
+            <IconArchive className="text-5xl mb-2 text-tertiary" />
+        ))
+
     return (
         <div
             data-attr="insight-empty-state"
             className="flex flex-col flex-1 rounded p-4 w-full items-center justify-center text-center text-balance"
         >
-            <IconArchive className="text-5xl mb-2 text-tertiary" />
+            {icon}
             <h2 className="text-xl leading-tight">{heading}</h2>
             <p className="text-sm text-tertiary">{detail}</p>
         </div>
@@ -183,8 +189,6 @@ export const LOADING_MESSAGES = [
     </>,
 ]
 
-export const DELAYED_LOADING_MESSAGE = 'Waiting for changes...'
-
 function LoadingDetails({
     pollResponse,
     queryId,
@@ -230,22 +234,17 @@ function LoadingDetails({
     )
 }
 
-const LOADING_ANIMATION_DELAY_SECONDS = 4
-
 export function StatelessInsightLoadingState({
     queryId,
     pollResponse,
     suggestion,
     setProgress,
     progress,
-    delayLoadingAnimation = false,
-    loadingTimeSeconds = 0,
     renderEmptyStateAsSkeleton = false,
 }: {
     queryId?: string | null
     pollResponse?: Record<string, QueryStatus | null> | null
     suggestion?: JSX.Element
-    delayLoadingAnimation?: boolean
     loadingTimeSeconds?: number
     renderEmptyStateAsSkeleton?: boolean
     setProgress?: (loadId: string, progress: number) => void
@@ -259,36 +258,41 @@ export function StatelessInsightLoadingState({
         inStorybook() || inStorybookTestRunner() ? 0 : Math.floor(Math.random() * LOADING_MESSAGES.length)
     )
     const [isLoadingMessageVisible, setIsLoadingMessageVisible] = useState(true)
-
-    const showLoadingDetails = !delayLoadingAnimation || loadingTimeSeconds >= LOADING_ANIMATION_DELAY_SECONDS
+    const { isVisible: isPageVisible } = usePageVisibility()
 
     useEffect(() => {
-        if (showLoadingDetails) {
-            const status = pollResponse?.status?.query_progress
-            const previousStatus = pollResponse?.previousStatus?.query_progress
-            setRowsRead(previousStatus?.rows_read || 0)
-            setBytesRead(previousStatus?.bytes_read || 0)
-
-            const interval = setInterval(() => {
-                setRowsRead((rowsRead) => {
-                    const diff = (status?.rows_read || 0) - (previousStatus?.rows_read || 0)
-                    return Math.min(rowsRead + diff / 30, status?.rows_read || 0)
-                })
-                setBytesRead((bytesRead) => {
-                    const diff = (status?.bytes_read || 0) - (previousStatus?.bytes_read || 0)
-                    return Math.min(bytesRead + diff / 30, status?.bytes_read || 0)
-                })
-                setSecondsElapsed(() => {
-                    return dayjs().diff(dayjs(pollResponse?.status?.start_time), 'milliseconds')
-                })
-            }, 100)
-
-            return () => clearInterval(interval)
+        if (!isPageVisible) {
+            return
         }
-    }, [pollResponse, showLoadingDetails])
+
+        const status = pollResponse?.status?.query_progress
+        const previousStatus = pollResponse?.previousStatus?.query_progress
+        setRowsRead(previousStatus?.rows_read || 0)
+        setBytesRead(previousStatus?.bytes_read || 0)
+
+        const interval = setInterval(() => {
+            setRowsRead((rowsRead) => {
+                const diff = (status?.rows_read || 0) - (previousStatus?.rows_read || 0)
+                return Math.min(rowsRead + diff / 30, status?.rows_read || 0)
+            })
+            setBytesRead((bytesRead) => {
+                const diff = (status?.bytes_read || 0) - (previousStatus?.bytes_read || 0)
+                return Math.min(bytesRead + diff / 30, status?.bytes_read || 0)
+            })
+            setSecondsElapsed(() => {
+                return dayjs().diff(dayjs(pollResponse?.status?.start_time), 'milliseconds')
+            })
+        }, 100)
+
+        return () => clearInterval(interval)
+    }, [pollResponse, isPageVisible])
 
     // Toggle between loading messages every 2.5-3.5 seconds, with 300ms fade out, then change text, keep in sync with the transition duration below
-    useOnMountEffect(() => {
+    useEffect(() => {
+        if (!isPageVisible) {
+            return
+        }
+
         const TOGGLE_INTERVAL_MIN = 2500
         const TOGGLE_INTERVAL_JITTER = 1000
         const FADE_OUT_DURATION = 300
@@ -317,15 +321,15 @@ export function StatelessInsightLoadingState({
         )
 
         return () => clearInterval(interval)
-    })
+    }, [isPageVisible])
 
     const suggestions = suggestion ? (
         suggestion
-    ) : showLoadingDetails ? (
+    ) : (
         <div className="flex gap-3">
             <p className="text-xs m-0">Need to speed things up? Try reducing the date range.</p>
         </div>
-    ) : null
+    )
 
     return (
         <div
@@ -342,34 +346,25 @@ export function StatelessInsightLoadingState({
                     isLoadingMessageVisible ? 'opacity-100' : 'opacity-0'
                 )}
             >
-                {!showLoadingDetails ? (
-                    <>
-                        <IconHourglass className="mr-2 inline-block brief-spin" />
-                        {DELAYED_LOADING_MESSAGE}
-                    </>
-                ) : (
-                    LOADING_MESSAGES[loadingMessageIndex]
-                )}
+                {LOADING_MESSAGES[loadingMessageIndex]}
             </span>
 
-            {showLoadingDetails && (
-                <div
-                    className={clsx(
-                        'flex flex-col gap-2 justify-center max-w-120',
-                        renderEmptyStateAsSkeleton ? 'items-start' : 'items-center'
-                    )}
-                >
-                    <LoadingBar loadId={queryId} progress={progress} setProgress={setProgress} />
-                    {suggestions}
-                    <LoadingDetails
-                        pollResponse={pollResponse}
-                        queryId={queryId}
-                        rowsRead={rowsRead}
-                        bytesRead={bytesRead}
-                        secondsElapsed={secondsElapsed}
-                    />
-                </div>
-            )}
+            <div
+                className={clsx(
+                    'flex flex-col gap-2 justify-center max-w-120',
+                    renderEmptyStateAsSkeleton ? 'items-start' : 'items-center'
+                )}
+            >
+                <LoadingBar loadId={queryId} progress={progress} setProgress={setProgress} />
+                {suggestions}
+                <LoadingDetails
+                    pollResponse={pollResponse}
+                    queryId={queryId}
+                    rowsRead={rowsRead}
+                    bytesRead={bytesRead}
+                    secondsElapsed={secondsElapsed}
+                />
+            </div>
         </div>
     )
 }
@@ -458,10 +453,8 @@ export function InsightLoadingState({
     renderEmptyStateAsSkeleton?: boolean
 }): JSX.Element {
     const { suggestedSamplingPercentage, samplingPercentage } = useValues(samplingFilterLogic(insightProps))
-    const { insightPollResponse, insightLoadingTimeSeconds, queryChanged } = useValues(insightDataLogic(insightProps))
-    const { activeSceneId } = useValues(sceneLogic)
+    const { insightPollResponse, insightLoadingTimeSeconds } = useValues(insightDataLogic(insightProps))
     const { currentTeam } = useValues(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const personsOnEventsMode =
         currentTeam?.modifiers?.personsOnEventsMode ?? currentTeam?.default_modifiers?.personsOnEventsMode ?? 'disabled'
@@ -470,11 +463,6 @@ export function InsightLoadingState({
         <StatelessInsightLoadingState
             queryId={queryId}
             pollResponse={insightPollResponse}
-            delayLoadingAnimation={
-                featureFlags[FEATURE_FLAGS.DELAYED_LOADING_ANIMATION] === 'test' &&
-                activeSceneId == Scene.Insight &&
-                queryChanged
-            }
             loadingTimeSeconds={insightLoadingTimeSeconds}
             renderEmptyStateAsSkeleton={renderEmptyStateAsSkeleton}
             suggestion={

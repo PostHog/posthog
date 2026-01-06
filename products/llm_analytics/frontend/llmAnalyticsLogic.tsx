@@ -11,15 +11,23 @@ import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { objectsEqual } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { isAnyPropertyFilters } from '~/queries/schema-guards'
-import { DataTableNode, LLMTrace, NodeKind, TraceQuery, TrendsQuery } from '~/queries/schema/schema-general'
+import {
+    DataTableNode,
+    LLMTrace,
+    NodeKind,
+    ProductIntentContext,
+    ProductKey,
+    TraceQuery,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import {
     AnyPropertyFilter,
@@ -29,7 +37,6 @@ import {
     EventDefinitionType,
     HogQLMathType,
     InsightShortId,
-    ProductKey,
     PropertyFilterType,
     PropertyMathType,
     PropertyOperator,
@@ -41,7 +48,7 @@ import type { llmAnalyticsLogicType } from './llmAnalyticsLogicType'
 export const LLM_ANALYTICS_DATA_COLLECTION_NODE_ID = 'llm-analytics-data'
 
 const INITIAL_DASHBOARD_DATE_FROM = '-7d' as string | null
-const INITIAL_EVENTS_DATE_FROM = '-1d' as string | null
+const INITIAL_EVENTS_DATE_FROM = '-1h' as string | null
 const INITIAL_DATE_TO = null as string | null
 
 export function getDefaultGenerationsColumns(showInputOutput: boolean): string[] {
@@ -97,13 +104,23 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
     props({} as LLMAnalyticsLogicProps),
     key((props: LLMAnalyticsLogicProps) => props?.personId || 'llmAnalyticsScene'),
     connect(() => ({
-        values: [sceneLogic, ['sceneKey'], groupsModel, ['groupsEnabled'], featureFlagLogic, ['featureFlags']],
+        values: [
+            sceneLogic,
+            ['sceneKey'],
+            groupsModel,
+            ['groupsEnabled'],
+            featureFlagLogic,
+            ['featureFlags'],
+            userLogic,
+            ['user'],
+        ],
         actions: [teamLogic, ['addProductIntent']],
     })),
 
     actions({
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
+        setShouldFilterSupportTraces: (shouldFilterSupportTraces: boolean) => ({ shouldFilterSupportTraces }),
         setPropertyFilters: (propertyFilters: AnyPropertyFilter[]) => ({ propertyFilters }),
         setGenerationsQuery: (query: DataTableNode) => ({ query }),
         setGenerationsColumns: (columns: string[]) => ({ columns }),
@@ -153,6 +170,13 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
             false,
             {
                 setShouldFilterTestAccounts: (_, { shouldFilterTestAccounts }) => shouldFilterTestAccounts,
+            },
+        ],
+
+        shouldFilterSupportTraces: [
+            false, // For impersonated users, default to NOT filtering (show support traces)
+            {
+                setShouldFilterSupportTraces: (_, { shouldFilterSupportTraces }) => shouldFilterSupportTraces,
             },
         ],
 
@@ -407,6 +431,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 loadLLMDashboards: async () => {
                     const response = await api.dashboards.list({
                         tags: 'llm-analytics',
+                        creation_mode: 'unlisted',
                     })
                     const dashboards = response.results || []
                     return dashboards.map((d) => ({
@@ -560,7 +585,12 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     return 'datasets'
                 } else if (sceneKey === 'llmAnalyticsEvaluations') {
                     return 'evaluations'
+                } else if (sceneKey === 'llmAnalyticsPrompts') {
+                    return 'prompts'
+                } else if (sceneKey === 'llmAnalyticsSettings') {
+                    return 'settings'
                 }
+
                 return 'dashboard'
             },
         ],
@@ -833,7 +863,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                             type: PropertyFilterType.Event,
                             key: '$ai_is_error',
                             operator: PropertyOperator.Exact,
-                            value: true,
+                            value: 'true',
                         }),
                         filterTestAccounts: shouldFilterTestAccounts,
                     },
@@ -855,7 +885,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                                             type: PropertyFilterType.Event,
                                             key: '$ai_is_error',
                                             operator: PropertyOperator.Exact,
-                                            value: true,
+                                            value: 'true',
                                         },
                                     ] as AnyPropertyFilter[],
                                 })
@@ -970,62 +1000,73 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
             (s) => [
                 s.dateFilter,
                 s.shouldFilterTestAccounts,
+                s.shouldFilterSupportTraces,
                 s.propertyFilters,
                 (_, props) => props.personId,
                 (_, props) => props.group,
                 groupsModel.selectors.groupsTaxonomicTypes,
                 featureFlagLogic.selectors.featureFlags,
+                userLogic.selectors.user,
             ],
             (
                 dateFilter: { dateFrom: string | null; dateTo: string | null },
                 shouldFilterTestAccounts: boolean,
+                shouldFilterSupportTraces: boolean,
                 propertyFilters: AnyPropertyFilter[],
                 personId: string | undefined,
                 group: { groupKey: string; groupTypeIndex: number } | undefined,
                 groupsTaxonomicTypes: TaxonomicFilterGroupType[],
-                featureFlags: { [flag: string]: boolean | string | undefined }
-            ): DataTableNode => ({
-                kind: NodeKind.DataTableNode,
-                source: {
-                    kind: NodeKind.TracesQuery,
-                    dateRange: {
-                        date_from: dateFilter.dateFrom || undefined,
-                        date_to: dateFilter.dateTo || undefined,
+                featureFlags: { [flag: string]: boolean | string | undefined },
+                user: { is_impersonated?: boolean } | null
+            ): DataTableNode => {
+                // For impersonated users (support agents), default to showing support traces
+                // For regular users, always filter out support traces
+                const filterSupportTraces = user?.is_impersonated ? shouldFilterSupportTraces : true
+
+                return {
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.TracesQuery,
+                        dateRange: {
+                            date_from: dateFilter.dateFrom || undefined,
+                            date_to: dateFilter.dateTo || undefined,
+                        },
+                        filterTestAccounts: shouldFilterTestAccounts ?? false,
+                        filterSupportTraces,
+                        properties: propertyFilters,
+                        personId: personId ?? undefined,
+                        groupKey: group?.groupKey,
+                        groupTypeIndex: group?.groupTypeIndex,
                     },
-                    filterTestAccounts: shouldFilterTestAccounts ?? false,
-                    properties: propertyFilters,
-                    personId: personId ?? undefined,
-                    groupKey: group?.groupKey,
-                    groupTypeIndex: group?.groupTypeIndex,
-                },
-                columns: [
-                    'id',
-                    'traceName',
-                    ...(featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT]
-                        ? ['inputState', 'outputState']
-                        : []),
-                    'person',
-                    'errors',
-                    'totalLatency',
-                    'usage',
-                    'totalCost',
-                    'timestamp',
-                ],
-                showDateRange: true,
-                showReload: true,
-                showSearch: true,
-                showTestAccountFilters: true,
-                showExport: true,
-                showOpenEditorButton: false,
-                showColumnConfigurator: false,
-                showPropertyFilter: [
-                    TaxonomicFilterGroupType.EventProperties,
-                    TaxonomicFilterGroupType.PersonProperties,
-                    ...groupsTaxonomicTypes,
-                    TaxonomicFilterGroupType.Cohorts,
-                    TaxonomicFilterGroupType.HogQLExpression,
-                ],
-            }),
+                    columns: [
+                        'id',
+                        'traceName',
+                        ...(featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT]
+                            ? ['inputState', 'outputState']
+                            : []),
+                        'person',
+                        'errors',
+                        'totalLatency',
+                        'usage',
+                        'totalCost',
+                        'timestamp',
+                    ],
+                    showDateRange: true,
+                    showReload: true,
+                    showSearch: true,
+                    showTestAccountFilters: true,
+                    showExport: true,
+                    showOpenEditorButton: false,
+                    showColumnConfigurator: false,
+                    showPropertyFilter: [
+                        TaxonomicFilterGroupType.EventProperties,
+                        TaxonomicFilterGroupType.PersonProperties,
+                        ...groupsTaxonomicTypes,
+                        TaxonomicFilterGroupType.Cohorts,
+                        TaxonomicFilterGroupType.HogQLExpression,
+                    ],
+                }
+            },
         ],
         generationsQuery: [
             (s) => [s.generationsQueryOverride, s.defaultGenerationsQuery],
@@ -1168,12 +1209,10 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 groupsTaxonomicTypes: TaxonomicFilterGroupType[]
             ): DataTableNode => {
                 // Use the shared query template
-                // The SQL template uses Python's .format() escaping ({{ for literal {), so normalize those for HogQL
+                // Simple placeholder replacement - no escaping needed
                 const query = errorsQueryTemplate
-                    .replace(/\{\{/g, '{')
-                    .replace(/\}\}/g, '}')
-                    .replace('{orderBy}', errorsSort.column)
-                    .replace('{orderDirection}', errorsSort.direction)
+                    .replace('__ORDER_BY__', errorsSort.column)
+                    .replace('__ORDER_DIRECTION__', errorsSort.direction)
 
                 return {
                     kind: NodeKind.DataTableNode,
@@ -1347,6 +1386,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
             [urls.llmAnalyticsErrors()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsSessions()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsPlayground()]: (_, searchParams) => applySearchParams(searchParams),
+            [urls.llmAnalyticsSettings()]: () => {},
         }
     }),
 
@@ -1378,7 +1418,10 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
     afterMount(({ actions, values }) => {
         actions.loadAIEventDefinition()
 
-        if (values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CUSTOMIZABLE_DASHBOARD]) {
+        if (
+            values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CUSTOMIZABLE_DASHBOARD] ||
+            values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
+        ) {
             actions.loadLLMDashboards()
         }
     }),

@@ -54,7 +54,6 @@ impl From<&RawDartFrame> for Frame {
             context: None,
             suspicious: false,
             module: None,
-            exception_type: None,
             code_variables: None,
         };
 

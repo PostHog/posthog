@@ -15,7 +15,6 @@ from typing import Any, TypedDict, TypeGuard, cast
 
 from django.http import StreamingHttpResponse
 
-import posthoganalytics
 from anthropic.types import MessageParam
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
@@ -26,7 +25,7 @@ from rest_framework.response import Response
 from posthog.auth import SessionAuthentication
 from posthog.event_usage import report_user_action
 from posthog.models import User
-from posthog.rate_limit import LLMProxyBurstRateThrottle, LLMProxySustainedRateThrottle
+from posthog.rate_limit import LLMProxyBurstRateThrottle, LLMProxyDailyRateThrottle, LLMProxySustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 
@@ -85,16 +84,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
     renderer_classes = [SafeJSONRenderer, ServerSentEventRenderer]
 
     def get_throttles(self):
-        return [LLMProxyBurstRateThrottle(), LLMProxySustainedRateThrottle()]
-
-    def validate_feature_flag(self, request):
-        if not request.user or not request.user.is_authenticated:
-            return False
-
-        llm_analytics_enabled = posthoganalytics.feature_enabled(
-            "llm-observability-playground", request.user.email, person_properties={"email": request.user.email}
-        )
-        return llm_analytics_enabled
+        return [LLMProxyBurstRateThrottle(), LLMProxySustainedRateThrottle(), LLMProxyDailyRateThrottle()]
 
     def validate_messages(self, messages: list[dict[str, Any]]) -> TypeGuard[list[MessageParam]]:
         if not messages:
@@ -137,8 +127,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
     ) -> StreamingHttpResponse | Response:
         """Generic handler for LLM proxy requests"""
         try:
-            valid_feature_flag = self.validate_feature_flag(request)
-            if not valid_feature_flag:
+            if not request.user or not request.user.is_authenticated:
                 return Response({"error": "You are not authorized to use this feature"}, status=401)
 
             serializer = serializer_class(data=request.data)

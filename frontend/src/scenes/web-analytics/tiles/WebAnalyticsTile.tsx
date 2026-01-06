@@ -10,18 +10,20 @@ import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
+import { StarHog } from 'lib/components/hedgehogs'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { IconOpenInNew, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
-import { UnexpectedNeverError, percentage, tryDecodeURIComponent } from 'lib/utils'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { UnexpectedNeverError, humanFriendlyDuration, percentage, tryDecodeURIComponent } from 'lib/utils'
 import {
     COUNTRY_CODE_TO_LONG_NAME,
     LANGUAGE_CODE_TO_NAME,
     countryCodeToFlag,
     languageCodeToFlag,
 } from 'lib/utils/geography/country'
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -30,22 +32,25 @@ import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import { Query } from '~/queries/Query/Query'
-import { MarketingAnalyticsColumnsSchemaNames } from '~/queries/schema/schema-general'
 import {
     DataTableNode,
     DataVisualizationNode,
     InsightVizNode,
+    MarketingAnalyticsColumnsSchemaNames,
     NodeKind,
+    ProductIntentContext,
+    ProductKey,
     QuerySchema,
     WebAnalyticsOrderByFields,
     WebStatsBreakdown,
     WebVitalsPathBreakdownQuery,
 } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
-import { ChartDisplayType, InsightLogicProps, ProductKey, PropertyFilterType } from '~/types'
+import { ChartDisplayType, InsightLogicProps, PropertyFilterType } from '~/types'
 
 import { NewActionButton } from 'products/actions/frontend/components/NewActionButton'
 
+import { CreateSurveyButton } from '../CrossSellButtons/CreateSurveyButton'
 import { ErrorTrackingButton } from '../CrossSellButtons/ErrorTrackingButton'
 import { HeatmapButton } from '../CrossSellButtons/HeatmapButton'
 import { ReplayButton } from '../CrossSellButtons/ReplayButton'
@@ -72,15 +77,25 @@ export const toUtcOffsetFormat = (value: number): string => {
     return `UTC${sign}${integerPart}${formattedMinutes}`
 }
 
-type VariationCellProps = { isPercentage?: boolean; reverseColors?: boolean }
+type VariationCellProps = { isPercentage?: boolean; reverseColors?: boolean; isDuration?: boolean }
 const VariationCell = (
-    { isPercentage, reverseColors }: VariationCellProps = { isPercentage: false, reverseColors: false }
+    { isPercentage, reverseColors, isDuration }: VariationCellProps = {
+        isPercentage: false,
+        reverseColors: false,
+        isDuration: false,
+    }
 ): QueryContextColumnComponent => {
-    const formatNumber = (value: number): string =>
-        isPercentage ? `${(value * 100).toFixed(1)}%` : (value?.toLocaleString() ?? '(empty)')
+    const formatNumber = (value: number): string => {
+        if (isPercentage) {
+            return `${(value * 100).toFixed(1)}%`
+        } else if (isDuration) {
+            return humanFriendlyDuration(value)
+        }
+        return value?.toLocaleString() ?? '(empty)'
+    }
 
-    return function Cell({ value }) {
-        const { compareFilter } = useValues(webAnalyticsLogic)
+    return function Cell({ value, context }) {
+        const compareFilter = context?.compareFilter
 
         if (!value) {
             return null
@@ -207,6 +222,8 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
 const BreakdownValueCell: QueryContextColumnComponent = (props) => {
     const { value, query } = props
     const { source } = query
+    const { featureFlags } = useValues(featureFlagLogic)
+
     if (source.kind !== NodeKind.WebStatsTableQuery) {
         return null
     }
@@ -300,6 +317,24 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
                 return <PropertyIcon.WithLabel property="$os" value={value} />
             }
             break
+        case WebStatsBreakdown.InitialReferringDomain:
+            if (featureFlags[FEATURE_FLAGS.SHOW_REFERRER_FAVICON]) {
+                if (typeof value === 'string') {
+                    return (
+                        <div className="flex items-center gap-2">
+                            <img
+                                src={`/static/favicons/${value}.png`}
+                                width={24}
+                                height={24}
+                                alt={`Favicon for ${value}`}
+                                onError={(e) => (e.currentTarget.style.display = 'none')}
+                            />
+                            {value}
+                        </div>
+                    )
+                }
+            }
+            break
     }
 
     if (typeof value === 'string') {
@@ -348,6 +383,11 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
         bounce_rate: {
             renderTitle: SortableCell('Bounce Rate', WebAnalyticsOrderByFields.BounceRate),
             render: VariationCell({ isPercentage: true, reverseColors: true }),
+            align: 'right',
+        },
+        avg_time_on_page: {
+            renderTitle: SortableCell('Avg Time on Page', WebAnalyticsOrderByFields.AvgTimeOnPage),
+            render: VariationCell({ isDuration: true }),
             align: 'right',
         },
         views: {
@@ -430,6 +470,7 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
                         />
                         <HeatmapButton breakdownBy={breakdownBy} value={value} />
                         <ErrorTrackingButton breakdownBy={breakdownBy} value={value} />
+                        <CreateSurveyButton value={value} />
                     </div>
                 )
             },
@@ -480,6 +521,7 @@ export const WebStatsTrendTile = ({
                 ...insightProps,
                 query,
             },
+            compareFilter: 'compareFilter' in query.source ? query.source.compareFilter : undefined,
         }
 
         // World maps need custom click handler for country filtering, trend lines use default persons modal
@@ -516,6 +558,34 @@ export const WebStatsTrendTile = ({
     )
 }
 
+export const AveragePageViewVisualizationTile = ({
+    query,
+    insightProps,
+    attachTo,
+}: QueryWithInsightProps<DataVisualizationNode>): JSX.Element => {
+    const { setInterval } = useActions(webAnalyticsLogic)
+    const {
+        dateFilter: { interval },
+    } = useValues(webAnalyticsLogic)
+
+    return (
+        <div className="border rounded bg-surface-primary flex-1 flex flex-col">
+            <div className="flex flex-row items-center justify-end m-2 mr-4">
+                <div className="flex flex-row items-center">
+                    <span className="mr-2">Group by</span>
+                    <IntervalFilterStandalone interval={interval} onIntervalChange={setInterval} />
+                </div>
+            </div>
+            <Query
+                attachTo={attachTo}
+                query={query}
+                readOnly={true}
+                context={{ ...webAnalyticsDataTableQueryContext, insightProps }}
+            />
+        </div>
+    )
+}
+
 export const MarketingAnalyticsTrendTile = ({
     query,
     showIntervalTile,
@@ -529,7 +599,12 @@ export const MarketingAnalyticsTrendTile = ({
         { value: MarketingAnalyticsColumnsSchemaNames.Cost, label: 'Cost' },
         { value: MarketingAnalyticsColumnsSchemaNames.Impressions, label: 'Impressions' },
         { value: MarketingAnalyticsColumnsSchemaNames.Clicks, label: 'Clicks' },
-        { value: MarketingAnalyticsColumnsSchemaNames.ReportedConversion, label: 'Reported Conversion' },
+        { value: MarketingAnalyticsColumnsSchemaNames.ReportedConversion, label: 'Reported conversion' },
+        {
+            value: MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue,
+            label: 'Reported conversion value',
+        },
+        { value: 'roas', label: 'Reported ROAS' },
     ]
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">
@@ -622,8 +697,9 @@ export const WebStatsTableTile = ({
             ...webAnalyticsDataTableQueryContext,
             insightProps,
             rowProps,
+            compareFilter: 'compareFilter' in query.source ? query.source.compareFilter : undefined,
         }
-    }, [onClick, insightProps, breakdownBy, key, type])
+    }, [onClick, insightProps, breakdownBy, key, type, query])
 
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">
@@ -838,7 +914,13 @@ export const WebQuery = ({
                         query={query}
                         key={uniqueKey}
                         readOnly={true}
-                        context={{ ...webAnalyticsDataTableQueryContext, insightProps }}
+                        context={{
+                            ...webAnalyticsDataTableQueryContext,
+                            insightProps,
+                            emptyStateHeading: '',
+                            emptyStateDetail: FrustrationMetricsEmptyState,
+                            emptyStateIcon: <></>,
+                        }}
                     />
                 </div>
             )
@@ -914,6 +996,10 @@ export const WebQuery = ({
         return <WebVitalsPathBreakdownTile attachTo={attachTo} query={query} insightProps={insightProps} />
     }
 
+    if (query.kind === NodeKind.DataVisualizationNode) {
+        return <AveragePageViewVisualizationTile attachTo={attachTo} query={query} insightProps={insightProps} />
+    }
+
     return (
         <Query
             uniqueKey={uniqueKey}
@@ -924,3 +1010,18 @@ export const WebQuery = ({
         />
     )
 }
+
+const FrustrationMetricsEmptyState = (
+    <>
+        <div className="w-full p-8 justify-center rounded mt-2 mb-4">
+            <div className="flex items-center gap-8 w-full justify-center">
+                <div>
+                    <div className="w-40 lg:w-50 mx-auto mb-4 hidden md:block">
+                        <StarHog />
+                    </div>
+                    <p>No frustrating pages found! Keep up the great work!</p>
+                </div>
+            </div>
+        </div>
+    </>
+)

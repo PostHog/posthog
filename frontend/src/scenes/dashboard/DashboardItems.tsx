@@ -15,12 +15,14 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { BREAKPOINTS, BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
+import { useSurveyLinkedInsights } from 'scenes/surveys/hooks/useSurveyLinkedInsights'
+import { getBestSurveyOpportunityFunnel } from 'scenes/surveys/utils/opportunityDetection'
 import { urls } from 'scenes/urls'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
-import { DashboardMode, DashboardPlacement, DashboardTile, DashboardType, QueryBasedInsightModel } from '~/types'
+import { DashboardMode, DashboardPlacement, DashboardType } from '~/types'
 
 export function DashboardItems(): JSX.Element {
     const {
@@ -49,11 +51,18 @@ export function DashboardItems(): JSX.Element {
         moveToDashboard,
         setTileOverride,
     } = useActions(dashboardLogic)
-    const { duplicateInsight, renameInsight } = useActions(insightsModel)
+    const { renameInsight } = useActions(insightsModel)
     const { push } = useActions(router)
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const otherDashboards = nameSortedDashboards.filter((nsdb) => nsdb.id !== dashboard?.id)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { data: surveyLinkedInsights, loading: surveyLinkedInsightsLoading } = useSurveyLinkedInsights({
+        skip: !featureFlags[FEATURE_FLAGS.SURVEYS_FUNNELS_CROSS_SELL],
+    })
+
+    const bestSurveyOpportunityFunnel = surveyLinkedInsightsLoading
+        ? null
+        : getBestSurveyOpportunityFunnel(tiles || [], surveyLinkedInsights)
 
     const [resizingItem, setResizingItem] = useState<any>(null)
 
@@ -67,15 +76,6 @@ export function DashboardItems(): JSX.Element {
 
     const { width: gridWrapperWidth, ref: gridWrapperRef } = useResizeObserver()
     const canResizeWidth = !gridWrapperWidth || gridWrapperWidth > BREAKPOINTS['sm']
-
-    const canAccessTileOverrides = !!featureFlags[FEATURE_FLAGS.DASHBOARD_TILE_OVERRIDES]
-    const duplicate = (tile: DashboardTile<QueryBasedInsightModel>, insight: QueryBasedInsightModel): void => {
-        if (canAccessTileOverrides) {
-            duplicateTile(tile)
-        } else {
-            duplicateInsight(insight)
-        }
-    }
 
     return (
         <div className="dashboard-items-wrapper" ref={gridWrapperRef}>
@@ -174,7 +174,7 @@ export function DashboardItems(): JSX.Element {
                                     refresh={() => refreshDashboardItem({ tile })}
                                     refreshEnabled={!itemsLoading}
                                     rename={() => renameInsight(insight)}
-                                    duplicate={() => duplicate(tile, insight)}
+                                    duplicate={() => duplicateTile(tile)}
                                     setOverride={() => setTileOverride(tile)}
                                     showDetailsControls={
                                         placement != DashboardPlacement.Export &&
@@ -187,6 +187,7 @@ export function DashboardItems(): JSX.Element {
                                     // :HACKY: The two props below aren't actually used in the component, but are needed to trigger a re-render
                                     breakdownColorOverride={temporaryBreakdownColors}
                                     dataColorThemeId={dataColorThemeId}
+                                    surveyOpportunity={tile.id === bestSurveyOpportunityFunnel?.id}
                                     {...commonTileProps}
                                     // NOTE: ReactGridLayout additionally injects its resize handles as `children`!
                                 />

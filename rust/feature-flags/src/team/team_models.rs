@@ -1,4 +1,4 @@
-use common_types::{ProjectId, TeamId, TeamIdentifier};
+use common_types::{TeamId, TeamIdentifier};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sqlx::types::{Json, Uuid};
@@ -10,9 +10,6 @@ pub struct Team {
     pub id: TeamId,
     pub name: String,
     pub api_token: String,
-    /// Project ID. This field may be None in Redis cache for teams created before Dec 2024.
-    /// For such teams, project_id equals the team id. Use Team::project_id() to get the resolved value.
-    pub project_id: Option<ProjectId>,
     pub uuid: Uuid,
     pub organization_id: Option<Uuid>,
     pub autocapture_opt_out: Option<bool>,
@@ -25,6 +22,8 @@ pub struct Team {
     pub inject_web_apps: Option<bool>,
     pub surveys_opt_in: Option<bool>,
     pub heatmaps_opt_in: Option<bool>,
+    pub conversations_enabled: Option<bool>,
+    pub conversations_settings: Option<Json<serde_json::Value>>,
     pub capture_dead_clicks: Option<bool>,
     pub flags_persistence_default: Option<bool>,
     pub session_recording_sample_rate: Option<Decimal>, // numeric(3,2) in postgres, see https://docs.rs/sqlx/latest/sqlx/postgres/types/index.html#rust_decimal
@@ -36,6 +35,7 @@ pub struct Team {
     pub session_recording_masking_config: Option<Json<serde_json::Value>>,
     pub session_replay_config: Option<Json<serde_json::Value>>,
     pub survey_config: Option<Json<serde_json::Value>>,
+    pub extra_settings: Option<Json<serde_json::Value>>,
     pub session_recording_url_trigger_config: Option<Vec<Json<serde_json::Value>>>, // jsonb[] in postgres
     pub session_recording_url_blocklist_config: Option<Vec<Json<serde_json::Value>>>, // jsonb[] in postgres
     pub session_recording_event_trigger_config: Option<Vec<Option<String>>>, // text[] in postgres. NB: this also contains NULL entries along with strings.

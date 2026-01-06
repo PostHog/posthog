@@ -1,5 +1,33 @@
 # posthog-cli
 
+# 0.5.20
+
+- chore: add global `--rate-limit` option for Posthog client
+
+# 0.5.19
+
+- chore: upgrade cargo-dist to 0.30.3
+
+# 0.5.18
+
+- fix: fix git info parsing in vercel environment
+
+# 0.5.17
+
+- feat: add --file option to target built files directly
+
+# 0.5.16
+
+- fix: cut a new version for fixing compromised package
+
+# 0.5.15
+
+- Compromised
+
+# 0.5.14
+
+- Fix authentication issue on sourcemap upload
+
 # 0.5.13
 
 - Add `--include` option on sourcemap commands to match specific files inside directory

@@ -237,7 +237,7 @@ def stripe_source(
         partition_count=1,  # this enables partitioning
         partition_size=1,  # this enables partitioning
         partition_mode="datetime",
-        partition_format="month",
+        partition_format="week",
         partition_keys=[incremental_field_name],
     )
 

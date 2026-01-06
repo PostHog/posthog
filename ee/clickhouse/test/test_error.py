@@ -49,7 +49,7 @@ from posthog.errors import ch_error_type, wrap_query_error
         ),
         (
             ServerException(
-                "Code: 439. DB::Exception: Cannot schedule a task: cannot allocate thread (threads=36, jobs=36). (CANNOT_SCHEDULE_TASK) (version 25.8.11.66 (official build))",
+                "Code: 439. DB::Exception: Cannot schedule a task: cannot allocate thread (threads=36, jobs=36). (CANNOT_SCHEDULE_TASK) (version 25.8.12.129 (official build))",
                 code=439,
             ),
             "ClickHouseAtCapacity",
@@ -59,13 +59,83 @@ from posthog.errors import ch_error_type, wrap_query_error
         ),
         (
             ServerException(
-                "Code: 159. DB::Exception: Timeout exceeded: elapsed 60.046752587 seconds, maximum: 60. (TIMEOUT_EXCEEDED) (version 25.8.11.66 (official build))",
+                "Code: 159. DB::Exception: Timeout exceeded: elapsed 60.046752587 seconds, maximum: 60. (TIMEOUT_EXCEEDED) (version 25.8.12.129 (official build))",
                 code=159,
             ),
             "ClickHouseQueryTimeOut",
             "Query has hit the max execution time before completing. See our docs for how to improve your query performance. You may need to materialize.",
             None,
             "CHQueryErrorTimeoutExceeded",
+        ),
+        (
+            ServerException(
+                "Code: 499. DB::Exception: Failed to get object info: No response body.. HTTP response code: 404: while reading file.parquet",
+                code=499,
+            ),
+            "CHQueryErrorS3Error",
+            "Code: 499.\nS3 error occurred. Try again later.",
+            499,
+            "CHQueryErrorS3Error",
+        ),
+        (
+            ServerException(
+                "Code: 43. DB::Exception: Illegal type String of argument of function toInt64.",
+                code=43,
+            ),
+            "CHQueryErrorIllegalTypeOfArgument",
+            "Illegal type String of argument of function toInt64.",
+            43,
+            "CHQueryErrorIllegalTypeOfArgument",
+        ),
+        (
+            ServerException(
+                "Code: 386. DB::Exception: There is no common type for types String, Int64.",
+                code=386,
+            ),
+            "CHQueryErrorNoCommonType",
+            "There is no common type for types String, Int64.",
+            386,
+            "CHQueryErrorNoCommonType",
+        ),
+        (
+            ServerException(
+                "Code: 215. DB::Exception: Column count is not an aggregate function.",
+                code=215,
+            ),
+            "CHQueryErrorNotAnAggregate",
+            "Column count is not an aggregate function.",
+            215,
+            "CHQueryErrorNotAnAggregate",
+        ),
+        (
+            ServerException(
+                "Code: 46. DB::Exception: Unknown function foobar.",
+                code=46,
+            ),
+            "CHQueryErrorUnknownFunction",
+            "Unknown function foobar.",
+            46,
+            "CHQueryErrorUnknownFunction",
+        ),
+        (
+            ServerException(
+                "Code: 53. DB::Exception: Type mismatch in IN or VALUES section.",
+                code=53,
+            ),
+            "CHQueryErrorTypeMismatch",
+            "Type mismatch in IN or VALUES section.",
+            53,
+            "CHQueryErrorTypeMismatch",
+        ),
+        (
+            ServerException(
+                "Code: 184. DB::Exception: Aggregate function sum(count()) is found inside another aggregate function.",
+                code=184,
+            ),
+            "CHQueryErrorIllegalAggregation",
+            "Aggregate function sum(count()) is found inside another aggregate function.",
+            184,
+            "CHQueryErrorIllegalAggregation",
         ),
     ],
 )

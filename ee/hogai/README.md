@@ -70,7 +70,10 @@ You'll need to set [env vars](https://posthog.slack.com/docs/TSS5W8YQZ/F08UU1LJF
    }
    ```
 
-For an example, see `products/replay/backend/max_tools.py`, which defines the `search_session_recordings` tool, and `products/data_warehouse/backend/max_tools.py`, which defines the `generate_hogql_query` tool.
+For an example, see `ee/hogai/tools`:
+
+- `execute_sql` – SQL generation and execution.
+- `upsert_dashboard` – creating and editing dashboards.
 
 ### Mounting
 
@@ -116,6 +119,32 @@ When developing, get full visibility into what the tool is doing using local Pos
 
 If you've got any requests for Max, including around tools, let us know at #team-posthog-ai in Slack!
 
+### Access control
+
+MaxTools use **resource-level access control** to restrict tool execution based on user permissions (e.g., prevent creating feature flags if the user lacks editor access).
+The access check runs automatically before `_arun_impl()` is called. If the user lacks permission, a `MaxToolAccessDeniedError` is raised with a clear message to the agent.
+
+The main access check logic lives in `posthog/rbac/user_access_control.py`.
+
+**To implement access control:**
+
+1. Override `get_required_resource_access()` in your tool:
+
+```python
+def get_required_resource_access(self):
+    return [("feature_flag", "editor")]  # Single resource
+    # Or multiple: return [("dashboard", "editor"), ("insight", "viewer")]
+```
+
+Supported resources: see `APIScopeObject` in `posthog/scopes.py` (e.g., `feature_flag`, `dashboard`, `insight`, `experiment`, `survey`)
+Access levels: `none`, `viewer`, `editor`, `manager`
+
+2. Update `TOOLS_WITHOUT_ACCESS_CONTROL` in `ee/hogai/test/test_tool.py` to remove your tool from the exempt list.
+
+**What's NOT implemented yet:** Object-level access control (e.g., filtering insights the user can access, or restricting edits to a dashboard). If you need this, check access in your `_arun_impl()` or in the ArtifactManager.
+
+**Opting out:** If your tool doesn't need access control (read-only, no protected resources), add it to `TOOLS_WITHOUT_ACCESS_CONTROL` in `ee/hogai/test/test_tool.py`.
+
 ### Best practices for LLM-based tools
 
 - Provide comprehensive context about current state from the frontend
@@ -133,65 +162,24 @@ NOTE: this won't extend query types generation. For that, talk to the PostHog AI
 
 ### Adding a new query type
 
-1. **Update the schema to include the new query types**
-   - Update `AnyAssistantSupportedQuery` in [`schema-assistant-messages.ts`](frontend/src/queries/schema/schema-assistant-messages.ts)
-
-     ```typescript
-     AnyAssistantSupportedQuery =
-         | TrendsQuery
-         | FunnelsQuery
-         | RetentionQuery
-         | HogQLQuery
-         | YourNewQuery           // Add your query type
-     ```
-
-   - Add your new query type to the `SupportedQueryTypes` union in [`query_executor.py`](ee/hogai/graph/query_executor/query_executor.py):
-
-     ```python
-     SupportedQueryTypes = (
-         AssistantTrendsQuery
-         | TrendsQuery
-         | AssistantFunnelsQuery
-         | FunnelsQuery
-         | AssistantRetentionQuery
-         | RetentionQuery
-         | AssistantHogQLQuery
-         | HogQLQuery
-         | YourNewQuery           # Add your query type
-     )
-     ```
-
-2. **Update the query executor and formatters** (`@ee/hogai/graph/query_executor/`):
-   - Add a new formatter class in `query_executor/format/` that implements query result formatting for AI consumption. Make sure it's imported and exported from `query_executor/format/__init__.py`. See below (Step 3) for more information.
-   - Add formatting logic to `_compress_results()` method in `query_executor/query_executor.py`:
+1. **Update the query executor and formatters** (`@ee/hogai/context/insight/`):
+   - Add a new formatter class in `context/insight/format/` that implements query result formatting for AI consumption. Make sure it's imported and exported from `context/insight/format/__init__.py`. See below (Step 3) for more information.
+   - Add formatting logic to `_compress_results()` method in `context/insight/query_executor.py`:
 
      ```python
      elif isinstance(query, YourNewAssistantQuery | YourNewQuery):
          return YourNewResultsFormatter(query, response["results"]).format()
      ```
 
-   - Add example prompts for your query type in `query_executor/prompts.py`, this explains to the LLM the query results formatting
-   - Update `_get_example_prompt()` method in `query_executor/nodes.py` to handle your new query type:
+   - Add example prompts for your query type in `context/insight/prompts.py`, this explains to the LLM the query results formatting
+   - Update `get_example_prompt()` function in `context/insight/query_executor.py` to handle your new query type:
 
      ```python
      if isinstance(viz_message.answer, YourNewAssistantQuery):
          return YOUR_NEW_EXAMPLE_PROMPT
      ```
 
-3. **Update the root node** (`@ee/hogai/graph/root/`):
-   - Add your new query type to the `MAX_SUPPORTED_QUERY_KIND_TO_MODEL` mapping in `nodes.py:57`:
-
-     ```python
-     MAX_SUPPORTED_QUERY_KIND_TO_MODEL: dict[str, type[SupportedQueryTypes]] = {
-         "TrendsQuery": TrendsQuery,
-         "FunnelsQuery": FunnelsQuery,
-         "RetentionQuery": RetentionQuery,
-         "HogQLQuery": HogQLQuery,
-         "YourNewQuery": YourNewQuery,  # Add your query mapping
-     }
-     ```
-
-4. **Create the formatter class**:
+2. **Create the formatter class**:
 
    Create a new formatter in `format/your_formatter.py` following the pattern of existing formatters:
 
@@ -209,7 +197,7 @@ NOTE: this won't extend query types generation. For that, talk to the PostHog AI
            pass
    ```
 
-5. **Add tests**:
+3. **Add tests**:
    - Add test cases in `test/test_query_executor.py` for your new query type
    - Add test cases in `test/format/test_format.py` for your new formatter
    - Ensure tests cover both successful execution and error handling
@@ -234,8 +222,8 @@ class MaxToolTaxonomyOutput(BaseModel):
 
 ```python
 from pydantic import BaseModel, Field
-from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
-from ee.hogai.graph.taxonomy.tools import base_final_answer
+from ee.hogai.chat_agent.taxonomy.toolkit import TaxonomyAgentToolkit
+from ee.hogai.chat_agent.taxonomy.tools import base_final_answer
 from posthog.models import Team
 
 
@@ -276,9 +264,9 @@ class YourToolkit(TaxonomyAgentToolkit):
 ```python
 from langchain_core.prompts import ChatPromptTemplate
 from posthog.models import Team, User
-from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
-from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
-from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
+from ee.hogai.chat_agent.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
+from ee.hogai.chat_agent.taxonomy.agent import TaxonomyAgent
+from ee.hogai.chat_agent.taxonomy.types import TaxonomyAgentState
 
 class LoopNode(TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgentState[MaxToolTaxonomyOutput]]):
     def __init__(self, team: Team, user: User, toolkit_class: type[YourToolkit]):

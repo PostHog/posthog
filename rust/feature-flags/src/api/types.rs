@@ -187,6 +187,10 @@ pub struct ConfigResponse {
     /// Error tracking configuration
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_tracking: Option<ErrorTrackingConfig>,
+
+    /// Conversations configuration
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conversations: Option<Value>,
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -199,12 +203,21 @@ pub struct ErrorTrackingConfig {
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FlagsResponse {
+    /// Whether any errors occurred while evaluating feature flags.
+    /// If true, some flags may be missing or have fallback values.
     pub errors_while_computing_flags: bool,
+    /// Map of feature flag keys to their evaluation results and values
     pub flags: HashMap<String, FlagDetails>,
+    /// List of resource types that hit quota limits during evaluation (e.g., "database", "redis")
+    /// Only included in response if quotas were exceeded
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub quota_limited: Option<Vec<String>>, // list of quota limited resources
+    pub quota_limited: Option<Vec<String>>,
+    /// Unique identifier for this flag evaluation request, useful for debugging and tracing
     pub request_id: Uuid,
+    /// Timestamp when flags were evaluated, in milliseconds since Unix epoch
+    pub evaluated_at: i64,
 
+    /// Additional configuration data merged into the response at the top level
     #[serde(flatten)]
     pub config: ConfigResponse,
 }
@@ -218,6 +231,7 @@ pub struct LegacyFlagsResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quota_limited: Option<Vec<String>>, // list of quota limited resources
     pub request_id: Uuid,
+    pub evaluated_at: i64,
 
     #[serde(flatten)]
     pub config: ConfigResponse,
@@ -245,6 +259,7 @@ impl LegacyFlagsResponse {
             feature_flag_payloads,
             quota_limited: response.quota_limited,
             request_id: response.request_id,
+            evaluated_at: response.evaluated_at,
             config: response.config,
         }
     }
@@ -258,6 +273,7 @@ pub struct DecideV1Response {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quota_limited: Option<Vec<String>>,
     pub request_id: Uuid,
+    pub evaluated_at: i64,
 
     #[serde(flatten)]
     pub config: ConfigResponse,
@@ -277,6 +293,7 @@ impl DecideV1Response {
             feature_flags: active_flags,
             quota_limited: response.quota_limited,
             request_id: response.request_id,
+            evaluated_at: response.evaluated_at,
             config: response.config,
         }
     }
@@ -290,6 +307,7 @@ pub struct DecideV2Response {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quota_limited: Option<Vec<String>>,
     pub request_id: Uuid,
+    pub evaluated_at: i64,
 
     #[serde(flatten)]
     pub config: ConfigResponse,
@@ -309,6 +327,7 @@ impl DecideV2Response {
             feature_flags: active_flags,
             quota_limited: response.quota_limited,
             request_id: response.request_id,
+            evaluated_at: response.evaluated_at,
             config: response.config,
         }
     }
@@ -326,6 +345,26 @@ impl FlagsResponse {
             flags,
             quota_limited,
             request_id,
+            evaluated_at: chrono::Utc::now().timestamp_millis(),
+            config: ConfigResponse::default(),
+        }
+    }
+
+    /// Test helper to create a FlagsResponse with a specific evaluated_at timestamp
+    #[cfg(test)]
+    pub fn with_evaluated_at(
+        errors_while_computing_flags: bool,
+        flags: HashMap<String, FlagDetails>,
+        quota_limited: Option<Vec<String>>,
+        request_id: Uuid,
+        evaluated_at: i64,
+    ) -> Self {
+        Self {
+            errors_while_computing_flags,
+            flags,
+            quota_limited,
+            request_id,
+            evaluated_at,
             config: ConfigResponse::default(),
         }
     }
@@ -564,6 +603,7 @@ mod tests {
     use super::*;
     use crate::flags::flag_match_reason::FeatureFlagMatchReason;
     use crate::flags::flag_matching::FeatureFlagMatch;
+    use chrono::Utc;
     use rstest::rstest;
     use serde_json::json;
 
@@ -717,7 +757,9 @@ mod tests {
         );
 
         let request_id = Uuid::new_v4();
-        let response = FlagsResponse::new(false, flags, None, request_id);
+        let evaluated_at = Utc::now().timestamp_millis();
+        let response =
+            FlagsResponse::with_evaluated_at(false, flags, None, request_id, evaluated_at);
         let legacy_response = LegacyFlagsResponse::from_response(response);
 
         // Check that only flag1 with actual payload is included
@@ -783,5 +825,23 @@ mod tests {
         // Config fields should be present when set
         assert!(obj.contains_key("analytics"));
         assert!(obj.contains_key("supportedCompression"));
+    }
+
+    #[test]
+    fn test_evaluated_at_field_is_present() {
+        let before = Utc::now().timestamp_millis();
+        let response = FlagsResponse::new(false, HashMap::new(), None, Uuid::new_v4());
+        let after = Utc::now().timestamp_millis();
+
+        let json = serde_json::to_value(&response).unwrap();
+        let obj = json.as_object().unwrap();
+
+        // evaluated_at field should always be present
+        assert!(obj.contains_key("evaluatedAt"));
+
+        // Verify it's a number and within a reasonable range
+        let evaluated_at = obj.get("evaluatedAt").unwrap().as_i64().unwrap();
+        assert!(evaluated_at >= before);
+        assert!(evaluated_at <= after);
     }
 }

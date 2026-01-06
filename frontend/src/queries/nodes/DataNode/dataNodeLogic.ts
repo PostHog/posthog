@@ -128,6 +128,8 @@ function getConcurrencyController(
             Scene.WebAnalyticsWebVitals,
             Scene.WebAnalyticsPageReports,
             Scene.WebAnalyticsMarketing,
+            Scene.WebAnalyticsHealth,
+            Scene.WebAnalyticsLive,
         ].includes(activeScene as Scene) &&
         featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_HIGHER_CONCURRENCY] &&
         !currentTeam?.modifiers?.useWebAnalyticsPreAggregatedTables
@@ -987,6 +989,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }, AUTOLOAD_INTERVAL)
                     return () => window.clearInterval(timerId)
                 }, 'autoLoadInterval')
+            } else {
+                cache.disposables.dispose('autoLoadInterval')
             }
         },
         dataLoading: (dataLoading) => {

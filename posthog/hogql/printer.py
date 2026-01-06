@@ -12,6 +12,7 @@ from posthog.schema import (
     HogQLQueryModifiers,
     InCohortVia,
     MaterializationMode,
+    MaterializedColumnsOptimizationMode,
     PersonsOnEventsMode,
     PropertyGroupsMode,
 )
@@ -22,7 +23,13 @@ from posthog.hogql.base import _T_AST, AST
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_max_limit_for_context
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import DANGEROUS_NoTeamIdCheckTable, FunctionCallTable, SavedQuery, Table
+from posthog.hogql.database.models import (
+    DANGEROUS_NoTeamIdCheckTable,
+    DatabaseField,
+    FunctionCallTable,
+    SavedQuery,
+    Table,
+)
 from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import (
@@ -481,8 +488,9 @@ class _Printer(Visitor[str]):
             clauses.append(f"LIMIT {self.visit(limit)}")
             if node.limit_with_ties:
                 clauses.append("WITH TIES")
-            if node.offset is not None:
-                clauses.append(f"OFFSET {self.visit(node.offset)}")
+
+        if node.offset is not None:
+            clauses.append(f"OFFSET {self.visit(node.offset)}")
 
         if (
             self.context.output_format
@@ -724,6 +732,43 @@ class _Printer(Visitor[str]):
     def visit_order_expr(self, node: ast.OrderExpr):
         return f"{self.visit(node.expr)} {node.order}"
 
+    def __optimize_in_with_string_values(
+        self, values: list[ast.Expr], property_source: PrintableMaterializedPropertyGroupItem
+    ) -> str | None:
+        """
+        Optimizes an IN comparison against a list of values for property group bloom filter usage.
+        Returns the optimized expression string, or None if optimization is not possible.
+        """
+        # Bail on the optimisation if any value is not a Constant, is the empty string, is NULL, or is not a string
+        for v in values:
+            if not isinstance(v, ast.Constant):
+                return None
+            if v.value == "" or v.value is None or not isinstance(v.value, str):
+                return None
+
+        # IN with an empty set of values is always false
+        if len(values) == 0:
+            return "0"
+
+        # A problem we run into here is that an expression like
+        # in(events.properties_group_feature_flags['$feature/onboarding-use-case-selection'], ('control', 'test'))
+        # does not hit the bloom filter on the key, so we need to modify the expression so that it does
+
+        # If only one value, switch to equality operator. Expressions like this will hit the bloom filter for both keys and values:
+        # events.properties_group_feature_flags['$feature/onboarding-use-case-selection'] = 'control'
+        if len(values) == 1:
+            return f"equals({property_source.value_expr}, {self.visit(values[0])})"
+
+        # With transform_null_in=1 in SETTINGS (which we have by default), if there are several values, we need to
+        # include a check for whether the key exists to hit the keys bloom filter.
+        # Unlike the version WITHOUT mapKeys above, the following expression WILL hit the bloom filter:
+        # and(has(mapKeys(properties_group_feature_flags), '$feature/onboarding-use-case-selection'),
+        #     in(events.properties_group_feature_flags['$feature/onboarding-use-case-selection'], ('control', 'test')))
+        # Note that we could add a mapValues to this to use the values bloom filter
+        # TODO to profile whether we should add mapValues. Probably no for flags, yes for properties.
+        values_tuple = ", ".join(self.visit(v) for v in values)
+        return f"and({property_source.has_expr}, in({property_source.value_expr}, tuple({values_tuple})))"
+
     def __get_optimized_property_group_compare_operation(self, node: ast.CompareOperation) -> str | None:
         """
         Returns a printed expression corresponding to the provided compare operation, if one of the operands is part of
@@ -816,37 +861,15 @@ class _Printer(Visitor[str]):
 
             if isinstance(node.right, ast.Constant):
                 if node.right.value is None:
-                    return "0"
-                elif node.right.value == "":
+                    # we can't optimize here, as the unoptimized version returns true if the key doesn't exist OR the value is null
+                    return None
+                if node.right.value == "":
                     # If the RHS is the empty string, we need to disambiguate it from the default value for missing keys.
                     return f"and({property_source.has_expr}, equals({property_source.value_expr}, {self.visit(node.right)}))"
                 elif isinstance(node.right.type, ast.StringType):
-                    return f"in({property_source.value_expr}, {self.visit(node.right)})"
-            elif isinstance(node.right, ast.Tuple):
-                # If any of the values on the RHS are the empty string, we need to disambiguate it from the default
-                # value for missing keys. NULLs should also be dropped, but everything else we can directly compare
-                # (strings) can be passed through as-is
-                default_value_expr: ast.Constant | None = None
-                for expr in node.right.exprs[:]:
-                    if not isinstance(expr, ast.Constant):
-                        return None  # only optimize constants for now, see above
-                    if expr.value is None:
-                        node.right.exprs.remove(expr)
-                    elif expr.value == "":
-                        default_value_expr = expr
-                        node.right.exprs.remove(expr)
-                    elif not isinstance(expr.type, ast.StringType):
-                        return None
-                if len(node.right.exprs) > 0:
-                    # TODO: Check to see if it'd be faster to do equality comparison here instead?
-                    printed_expr = f"in({property_source.value_expr}, {self.visit(node.right)})"
-                    if default_value_expr is not None:
-                        printed_expr = f"or({printed_expr}, and({property_source.has_expr}, equals({property_source.value_expr}, {self.visit(default_value_expr)})))"
-                elif default_value_expr is not None:
-                    printed_expr = f"and({property_source.has_expr}, equals({property_source.value_expr}, {self.visit(default_value_expr)}))"
-                else:
-                    printed_expr = "0"
-                return printed_expr
+                    return f"equals({property_source.value_expr}, {self.visit(node.right)})"
+            elif isinstance(node.right, ast.Tuple) or isinstance(node.right, ast.Array):
+                return self.__optimize_in_with_string_values(node.right.exprs, property_source)
             else:
                 # TODO: Alias types are not resolved here (similarly to equality operations above) so some expressions
                 # are not optimized that possibly could be if we took that additional step to determine whether or not
@@ -855,11 +878,79 @@ class _Printer(Visitor[str]):
 
         return None  # nothing to optimize
 
+    def __get_optimized_materialized_column_compare_operation(self, node: ast.CompareOperation) -> str | None:
+        """
+        Returns an optimized printed expression for comparisons involving individually materialized columns.
+
+        When comparing a materialized column to a non-empty, non-null string constant, we can skip the
+        nullIf() wrapping that normally happens. This allows ClickHouse to use skip indexes on the
+        materialized column.
+
+        For example, instead of:
+            ifNull(equals(nullIf(nullIf(events.`mat_$feature_flag`, ''), 'null'), 'some_value'), 0)
+        We can emit:
+            equals(events.`mat_$feature_flag`, 'some_value')
+
+        This is safe because we know 'some_value' is neither empty string nor 'null', so the nullIf
+        checks are redundant for the comparison result.
+        """
+        if self.context.modifiers.materializedColumnsOptimizationMode != MaterializedColumnsOptimizationMode.OPTIMIZED:
+            return None
+
+        if node.op not in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
+            return None
+
+        property_type: ast.PropertyType | None = None
+        constant_expr: ast.Constant | None = None
+
+        if isinstance(node.right, ast.Constant):
+            left_type = resolve_field_type(node.left)
+            if isinstance(left_type, ast.PropertyType):
+                property_type = left_type
+                constant_expr = node.right
+        elif isinstance(node.left, ast.Constant):
+            right_type = resolve_field_type(node.right)
+            if isinstance(right_type, ast.PropertyType):
+                property_type = right_type
+                constant_expr = node.left
+
+        if property_type is None or constant_expr is None:
+            return None
+
+        # Only optimize simple property access (not chained like properties.foo.bar)
+        if len(property_type.chain) != 1:
+            return None
+
+        # Only optimize for non-empty, non-null string constants
+        if not isinstance(constant_expr.value, str):
+            return None
+        if constant_expr.value == "" or constant_expr.value == "null":
+            return None
+
+        # Check if this property uses an individually materialized column (not a property group)
+        property_source = self.__get_materialized_property_source_for_property_type(property_type)
+        if not isinstance(property_source, PrintableMaterializedColumn):
+            return None
+
+        # Build the optimized comparison using the raw materialized column
+        materialized_column_sql = str(property_source)
+        constant_sql = self.visit(constant_expr)
+
+        if node.op == ast.CompareOperationOp.Eq:
+            return f"equals({materialized_column_sql}, {constant_sql})"
+        else:  # NotEq
+            return f"notEquals({materialized_column_sql}, {constant_sql})"
+
     def visit_compare_operation(self, node: ast.CompareOperation):
         # If either side of the operation is a property that is part of a property group, special optimizations may
         # apply here to ensure that data skipping indexes can be used when possible.
         if optimized_property_group_compare_operation := self.__get_optimized_property_group_compare_operation(node):
             return optimized_property_group_compare_operation
+
+        # If either side is an individually materialized column being compared to a string constant,
+        # we can skip the nullIf wrapping to allow skip index usage.
+        if optimized_materialized_column_compare := self.__get_optimized_materialized_column_compare_operation(node):
+            return optimized_materialized_column_compare
 
         in_join_constraint = any(isinstance(item, ast.JoinConstraint) for item in self.stack)
         left = self.visit(node.left)
@@ -1146,9 +1237,8 @@ class _Printer(Visitor[str]):
                 # field and falls back to the equivalent ``JSONHas(properties, ...)`` call instead. However, if this
                 # property is part of *any* property group, we can use that column instead to evaluate this expression
                 # more efficiently -- even if the materialized column would be a better choice in other situations.
-                for property_source in self.__get_all_materialized_property_sources(field_type, str(property_name)):
-                    if isinstance(property_source, PrintableMaterializedPropertyGroupItem):
-                        return property_source.has_expr
+                if property_source := self.__get_property_group_source_for_field(field_type, str(property_name)):
+                    return property_source.has_expr
 
         return None  # nothing to optimize
 
@@ -1464,7 +1554,7 @@ class _Printer(Visitor[str]):
                     survey_id = node.args[0]
                     if not isinstance(survey_id, ast.Constant):
                         raise QueryError("uniqueSurveySubmissionsFilter first argument must be a constant")
-                    return filter_survey_sent_events_by_unique_submission(survey_id.value)
+                    return filter_survey_sent_events_by_unique_submission(survey_id.value, self.context.team_id)
 
                 relevant_clickhouse_name = func_meta.clickhouse_name
                 if "{}" in relevant_clickhouse_name:
@@ -1636,7 +1726,15 @@ class _Printer(Visitor[str]):
                     is_nullable=materialized_column.is_nullable,
                 )
 
-            if self.context.modifiers.propertyGroupsMode in (
+            # Check for dmat (dynamic materialized) columns
+            if dmat_column := self._get_dmat_column(table_name, field_name, property_name):
+                yield PrintableMaterializedColumn(
+                    self.visit(field_type.table_type),
+                    self._print_identifier(dmat_column),
+                    is_nullable=True,
+                )
+
+            if self.dialect == "clickhouse" and self.context.modifiers.propertyGroupsMode in (
                 PropertyGroupsMode.ENABLED,
                 PropertyGroupsMode.OPTIMIZED,
             ):
@@ -1665,6 +1763,45 @@ class _Printer(Visitor[str]):
                     self._print_identifier(materialized_column.name),
                     is_nullable=materialized_column.is_nullable,
                 )
+
+    def __get_property_group_source_for_field(
+        self, field_type: ast.FieldType, property_name: str
+    ) -> PrintableMaterializedPropertyGroupItem | None:
+        """
+        Find a property group source for the given field and property name.
+        Used for JSONHas optimizations where we specifically need property group sources
+        (not mat_* columns) because property groups can efficiently check for key existence.
+        """
+        if self.dialect != "clickhouse":
+            return None
+
+        if self.context.modifiers.propertyGroupsMode not in (
+            PropertyGroupsMode.ENABLED,
+            PropertyGroupsMode.OPTIMIZED,
+        ):
+            return None
+
+        field = field_type.resolve_database_field(self.context)
+        table = field_type.table_type
+        while isinstance(table, ast.TableAliasType) or isinstance(table, ast.VirtualTableType):
+            table = table.table_type
+
+        if not isinstance(table, ast.TableType):
+            return None
+
+        table_name = table.table.to_printed_clickhouse(self.context)
+        if field is None or not isinstance(field, DatabaseField):
+            return None
+        field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
+
+        for property_group_column in property_groups.get_property_group_columns(table_name, field_name, property_name):
+            return PrintableMaterializedPropertyGroupItem(
+                self.visit(field_type.table_type),
+                self._print_identifier(property_group_column),
+                self.context.add_value(property_name),
+            )
+
+        return None
 
     def visit_property_type(self, type: ast.PropertyType):
         if type.joined_subquery is not None and type.joined_subquery_field_name is not None:
@@ -1702,7 +1839,11 @@ class _Printer(Visitor[str]):
             self.visit(type.field_type), [self.context.add_value(name) for name in type.chain]
         )
 
-    def visit_sample_expr(self, node: ast.SampleExpr):
+    def visit_sample_expr(self, node: ast.SampleExpr) -> Optional[str]:
+        # SAMPLE 1 means no sampling, skip it entirely
+        if node.sample_value.left.value == 1 and node.sample_value.right is None and node.offset_value is None:
+            return None
+
         sample_value = self.visit_ratio_expr(node.sample_value)
         offset_clause = ""
         if node.offset_value:
@@ -1922,6 +2063,26 @@ class _Printer(Visitor[str]):
         return get_materialized_column_for_property(
             cast(TablesWithMaterializedColumns, table_name), field_name, property_name
         )
+
+    def _get_dmat_column(self, table_name: str, field_name: str, property_name: str) -> str | None:
+        """
+        Get the dmat column name for a property if available.
+
+        Returns the column name (e.g., 'dmat_numeric_3') if a materialized slot exists,
+        otherwise None.
+        """
+        if self.context.property_swapper is None:
+            return None
+
+        # Only event properties have dmat columns
+        if table_name != "events" or field_name != "properties":
+            return None
+
+        prop_info = self.context.property_swapper.event_properties.get(property_name)
+        if prop_info:
+            return prop_info.get("dmat")
+
+        return None
 
     def _get_timezone(self) -> str:
         if self.context.modifiers.convertToProjectTimezone is False:

@@ -1,3 +1,5 @@
+import { match } from 'ts-pattern'
+
 import { getSeriesColor } from 'lib/colors'
 import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -21,6 +23,7 @@ import {
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
     isExperimentRatioMetric,
+    isExperimentRetentionMetric,
 } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isNodeWithSource, isTrendsQuery, isValidQueryForExperiment } from '~/queries/utils'
 import {
@@ -292,9 +295,13 @@ export function getViewRecordingFiltersLegacy(
         return []
     } else if (metric.kind === NodeKind.ExperimentTrendsQuery) {
         if (metric.exposure_query) {
-            const exposure_filter = seriesToFilterLegacy(metric.exposure_query.series[0], featureFlagKey, variantKey)
-            if (exposure_filter) {
-                filters.push(exposure_filter)
+            const exposureSeries = metric.exposure_query.series[0]
+            // Experiments don't support GroupNode yet - skip if it's a group
+            if (exposureSeries.kind !== NodeKind.GroupNode) {
+                const exposure_filter = seriesToFilterLegacy(exposureSeries, featureFlagKey, variantKey)
+                if (exposure_filter) {
+                    filters.push(exposure_filter)
+                }
             }
         } else {
             filters.push({
@@ -317,9 +324,13 @@ export function getViewRecordingFiltersLegacy(
                 ],
             })
         }
-        const count_filter = seriesToFilterLegacy(metric.count_query.series[0], featureFlagKey, variantKey)
-        if (count_filter) {
-            filters.push(count_filter)
+        const countSeries = metric.count_query.series[0]
+        // Experiments don't support GroupNode yet - skip if it's a group
+        if (countSeries.kind !== NodeKind.GroupNode) {
+            const count_filter = seriesToFilterLegacy(countSeries, featureFlagKey, variantKey)
+            if (count_filter) {
+                filters.push(count_filter)
+            }
         }
         return filters
     }
@@ -464,12 +475,39 @@ export function getDefaultRatioMetric(): ExperimentMetric {
     }
 }
 
+export function getDefaultRetentionMetric(): ExperimentMetric {
+    return {
+        kind: NodeKind.ExperimentMetric,
+        uuid: uuid(),
+        metric_type: ExperimentMetricType.RETENTION,
+        goal: ExperimentMetricGoal.Increase,
+        start_event: {
+            kind: NodeKind.EventsNode,
+            event: '$pageview',
+            name: '$pageview',
+            math: ExperimentMetricMathType.TotalCount,
+        },
+        completion_event: {
+            kind: NodeKind.EventsNode,
+            event: '$pageview',
+            name: '$pageview',
+            math: ExperimentMetricMathType.TotalCount,
+        },
+        retention_window_start: 1,
+        retention_window_end: 1,
+        retention_window_unit: FunnelConversionWindowTimeUnit.Day,
+        start_handling: 'first_seen',
+    }
+}
+
 export function getDefaultExperimentMetric(metricType: ExperimentMetricType): ExperimentMetric {
     switch (metricType) {
         case ExperimentMetricType.FUNNEL:
             return getDefaultFunnelMetric()
         case ExperimentMetricType.RATIO:
             return getDefaultRatioMetric()
+        case ExperimentMetricType.RETENTION:
+            return getDefaultRetentionMetric()
         default:
             return getDefaultCountMetric()
     }
@@ -676,60 +714,15 @@ export const isLegacyExperiment = ({ metrics, metrics_secondary, saved_metrics }
 
 export const isLegacySharedMetric = ({ query }: SharedMetric): boolean => isLegacyExperimentQuery(query)
 
-/**
- * Builds a TrendsQuery for counting events in the last 14 days for experiment metric preview
- */
-export function getEventCountQuery(metric: ExperimentMetric, filterTestAccounts: boolean): TrendsQuery | null {
-    let series: AnyEntityNode[] = []
-
-    if (isExperimentMeanMetric(metric) || isExperimentRatioMetric(metric)) {
-        let source: ExperimentMetricSource
-        // For now, we simplify things by just showing the number of numerator events for ratio metrics
-        if (isExperimentRatioMetric(metric)) {
-            source = metric.numerator
-        } else {
-            source = metric.source
-        }
-        if (source.kind === NodeKind.EventsNode) {
-            series = [
-                {
-                    kind: NodeKind.EventsNode,
-                    name: source.event || undefined,
-                    event: source.event || undefined,
-                    math: ExperimentMetricMathType.TotalCount,
-                    ...(source.properties && source.properties.length > 0 && { properties: source.properties }),
-                },
-            ]
-        } else if (source.kind === NodeKind.ActionsNode) {
-            series = [
-                {
-                    kind: NodeKind.ActionsNode,
-                    id: source.id,
-                    name: source.name,
-                    math: ExperimentMetricMathType.TotalCount,
-                    ...(source.properties && source.properties.length > 0 && { properties: source.properties }),
-                },
-            ]
-        } else if (source.kind === NodeKind.ExperimentDataWarehouseNode) {
-            series = [
-                {
-                    kind: NodeKind.DataWarehouseNode,
-                    id: source.table_name,
-                    id_field: source.data_warehouse_join_key,
-                    table_name: source.table_name,
-                    timestamp_field: source.timestamp_field,
-                    distinct_id_field: source.events_join_key,
-                    name: source.name,
-                    math: ExperimentMetricMathType.TotalCount,
-                    ...(source.properties && source.properties.length > 0 && { properties: source.properties }),
-                },
-            ]
-        }
-    } else if (isExperimentFunnelMetric(metric)) {
+const getEventCountSeries = (metric: ExperimentMetric): AnyEntityNode[] => {
+    /**
+     * we short circuit for funnel metrics
+     */
+    if (isExperimentFunnelMetric(metric)) {
         const lastStep = metric.series[metric.series.length - 1]
         if (lastStep) {
             if (lastStep.kind === NodeKind.EventsNode) {
-                series = [
+                return [
                     {
                         kind: NodeKind.EventsNode,
                         name: lastStep.event || undefined,
@@ -740,7 +733,7 @@ export function getEventCountQuery(metric: ExperimentMetric, filterTestAccounts:
                     },
                 ]
             } else if (lastStep.kind === NodeKind.ActionsNode) {
-                series = [
+                return [
                     {
                         kind: NodeKind.ActionsNode,
                         id: lastStep.id,
@@ -753,6 +746,61 @@ export function getEventCountQuery(metric: ExperimentMetric, filterTestAccounts:
             }
         }
     }
+
+    const source: ExperimentMetricSource | null = match(metric)
+        .when(isExperimentRatioMetric, (ratioMetric) => ratioMetric.numerator)
+        .when(isExperimentRetentionMetric, (retentionMetric) => retentionMetric.start_event)
+        .when(isExperimentMeanMetric, (meanMetric) => meanMetric.source)
+        .otherwise(() => null)
+
+    if (!source) {
+        return []
+    }
+
+    const series: AnyEntityNode[] = match(source)
+        .with({ kind: NodeKind.EventsNode }, (eventsNode) => [
+            {
+                kind: NodeKind.EventsNode as const,
+                name: eventsNode.event || undefined,
+                event: eventsNode.event || undefined,
+                math: ExperimentMetricMathType.TotalCount,
+                ...(eventsNode.properties && eventsNode.properties.length > 0 && { properties: eventsNode.properties }),
+            },
+        ])
+        .with({ kind: NodeKind.ActionsNode }, (actionsNode) => [
+            {
+                kind: NodeKind.ActionsNode as const,
+                id: actionsNode.id,
+                name: actionsNode.name,
+                math: ExperimentMetricMathType.TotalCount,
+                ...(actionsNode.properties &&
+                    actionsNode.properties.length > 0 && { properties: actionsNode.properties }),
+            },
+        ])
+        .with({ kind: NodeKind.ExperimentDataWarehouseNode }, (dataWarehouseNode) => [
+            {
+                kind: NodeKind.DataWarehouseNode as const,
+                id: dataWarehouseNode.table_name,
+                id_field: dataWarehouseNode.data_warehouse_join_key,
+                table_name: dataWarehouseNode.table_name,
+                timestamp_field: dataWarehouseNode.timestamp_field,
+                distinct_id_field: dataWarehouseNode.events_join_key,
+                name: dataWarehouseNode.name,
+                math: ExperimentMetricMathType.TotalCount,
+                ...(dataWarehouseNode.properties &&
+                    dataWarehouseNode.properties.length > 0 && { properties: dataWarehouseNode.properties }),
+            },
+        ])
+        .exhaustive()
+
+    return series
+}
+
+/**
+ * Builds a TrendsQuery for counting events in the last 14 days for experiment metric preview
+ */
+export function getEventCountQuery(metric: ExperimentMetric, filterTestAccounts: boolean): TrendsQuery | null {
+    const series = getEventCountSeries(metric)
 
     if (series.length === 0) {
         return null
@@ -773,52 +821,6 @@ export function getEventCountQuery(metric: ExperimentMetric, filterTestAccounts:
         interval: 'day',
         filterTestAccounts,
     }
-}
-
-/**
- * Appends a metric UUID to the appropriate ordering array
- * Returns a new array with the UUID added
- */
-export function appendMetricToOrderingArray(experiment: Experiment, uuid: string, isSecondary: boolean): string[] {
-    const orderingField = isSecondary ? 'secondary_metrics_ordered_uuids' : 'primary_metrics_ordered_uuids'
-    const orderingArray = experiment[orderingField] ?? []
-
-    if (!orderingArray.includes(uuid)) {
-        return [...orderingArray, uuid]
-    }
-
-    return orderingArray
-}
-
-/**
- * Removes a metric UUID from the appropriate ordering array
- * Returns a new array with the UUID removed
- */
-export function removeMetricFromOrderingArray(experiment: Experiment, uuid: string, isSecondary: boolean): string[] {
-    const orderingField = isSecondary ? 'secondary_metrics_ordered_uuids' : 'primary_metrics_ordered_uuids'
-    const orderingArray = experiment[orderingField] ?? []
-
-    return orderingArray.filter((existingUuid) => existingUuid !== uuid)
-}
-
-/**
- * Inserts a metric UUID into the ordering array right after another UUID
- * Returns a new array with the UUID inserted at the correct position
- */
-export function insertMetricIntoOrderingArray(
-    experiment: Experiment,
-    newUuid: string,
-    afterUuid: string,
-    isSecondary: boolean
-): string[] {
-    const orderingField = isSecondary ? 'secondary_metrics_ordered_uuids' : 'primary_metrics_ordered_uuids'
-    const orderingArray = experiment[orderingField] ?? []
-
-    const afterIndex = orderingArray.indexOf(afterUuid)
-
-    const newArray = [...orderingArray]
-    newArray.splice(afterIndex + 1, 0, newUuid)
-    return newArray
 }
 
 /**

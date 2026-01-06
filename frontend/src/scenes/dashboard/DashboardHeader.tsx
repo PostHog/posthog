@@ -2,7 +2,17 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useMemo, useState } from 'react'
 
-import { IconGraph, IconGridMasonry, IconNotebook, IconPalette, IconScreen, IconTrash } from '@posthog/icons'
+import {
+    IconCode2,
+    IconGraph,
+    IconGridMasonry,
+    IconNotebook,
+    IconPalette,
+    IconPlusSmall,
+    IconScreen,
+    IconShare,
+    IconTrash,
+} from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
@@ -21,6 +31,7 @@ import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
+import { TerraformExportModal } from 'lib/components/TerraformExporter/TerraformExportModal'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -37,7 +48,6 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import {
     ScenePanel,
@@ -99,6 +109,9 @@ export function DashboardHeader(): JSX.Element | null {
 
     const [isPinned, setIsPinned] = useState(dashboard?.pinned)
 
+    const [terraformModalOpen, setTerraformModalOpen] = useState(false)
+    const terraformFeatureEnabled = useFeatureFlag('MANAGE_INSIGHTS_THROUGH_TERRAFORM')
+
     const isNewDashboard = useMemo(() => {
         if (!dashboard || dashboardLoading) {
             return false
@@ -122,8 +135,7 @@ export function DashboardHeader(): JSX.Element | null {
         )
     }, [dashboard, dashboardLoading])
 
-    const hasDashboardColors = useFeatureFlag('DASHBOARD_COLORS')
-    const useAppShortcuts = useFeatureFlag('APP_SHORTCUTS')
+    const hasDashboardColors = useFeatureFlag('PRODUCT_ANALYTICS_DASHBOARD_COLORS')
 
     const exportOptions: ExportButtonItem[] = [
         {
@@ -147,6 +159,8 @@ export function DashboardHeader(): JSX.Element | null {
     useEffect(() => {
         setIsPinned(dashboard?.pinned)
     }, [dashboard?.pinned])
+
+    const hasUpsertDashboardFeatureFlag = useFeatureFlag('POSTHOG_AI_UPSERT_DASHBOARD')
 
     return dashboard || dashboardLoading ? (
         <>
@@ -180,6 +194,13 @@ export function DashboardHeader(): JSX.Element | null {
                     {canEditDashboard && <DuplicateDashboardModal />}
                     {canEditDashboard && <DashboardInsightColorsModal />}
                     {user?.is_staff && <DashboardTemplateEditor />}
+                    {terraformFeatureEnabled && (
+                        <TerraformExportModal
+                            isOpen={terraformModalOpen}
+                            onClose={() => setTerraformModalOpen(false)}
+                            resource={{ type: 'dashboard', data: dashboard }}
+                        />
+                    )}
                 </>
             )}
 
@@ -252,11 +273,9 @@ export function DashboardHeader(): JSX.Element | null {
                         <AppShortcut
                             name="ToggleEditMode"
                             scope={Scene.Dashboard}
-                            keybind={keyBinds.edit}
+                            keybind={[keyBinds.edit]}
                             intent="Toggle edit mode"
                             interaction="click"
-                            asChild
-                            disabled={!useAppShortcuts}
                         >
                             <ButtonPrimitive
                                 onClick={() => {
@@ -269,11 +288,11 @@ export function DashboardHeader(): JSX.Element | null {
                                 menuItem
                                 active={dashboardMode === DashboardMode.Edit}
                                 data-attr={`${RESOURCE_TYPE}-edit-layout`}
-                                tooltip={useAppShortcuts ? 'Toggle edit mode' : null}
+                                tooltip="Toggle edit mode"
                                 tooltipPlacement="left"
                             >
                                 <IconGridMasonry />
-                                Edit layout {useAppShortcuts ? null : <KeyboardShortcut e />}
+                                Edit layout
                             </ButtonPrimitive>
                         </AppShortcut>
                     )}
@@ -321,6 +340,17 @@ export function DashboardHeader(): JSX.Element | null {
                                     : []),
                             ]}
                         />
+                    )}
+
+                    {dashboard && terraformFeatureEnabled && (
+                        <ButtonPrimitive
+                            onClick={() => setTerraformModalOpen(true)}
+                            menuItem
+                            data-attr={`${RESOURCE_TYPE}-manage-terraform`}
+                        >
+                            <IconCode2 />
+                            Manage with Terraform
+                        </ButtonPrimitive>
                     )}
 
                     {user?.is_staff && (
@@ -428,12 +458,10 @@ export function DashboardHeader(): JSX.Element | null {
                                 </LemonButton>
                                 <AppShortcut
                                     name="SaveDashboard"
-                                    keybind={keyBinds.save}
+                                    keybind={[keyBinds.save]}
                                     intent="Save dashboard"
                                     interaction="click"
                                     scope={Scene.Dashboard}
-                                    asChild
-                                    disabled={!useAppShortcuts}
                                 >
                                     <LemonButton
                                         data-attr="dashboard-edit-mode-save"
@@ -476,9 +504,10 @@ export function DashboardHeader(): JSX.Element | null {
                                             data-attr="dashboard-share-button"
                                             onClick={() => push(urls.dashboardSharing(dashboard.id))}
                                             size="small"
-                                        >
-                                            Share
-                                        </LemonButton>
+                                            icon={<IconShare fontSize="16" />}
+                                            tooltip="Share"
+                                            tooltipPlacement="top"
+                                        />
                                     </>
                                 )}
                                 {dashboard ? (
@@ -491,11 +520,9 @@ export function DashboardHeader(): JSX.Element | null {
                                             <AppShortcut
                                                 name="AddTextTileToDashboard"
                                                 scope={Scene.Dashboard}
-                                                keybind={keyBinds.dashboardAddTextTile}
+                                                keybind={[keyBinds.dashboardAddTextTile]}
                                                 intent="Add text card"
                                                 interaction="click"
-                                                asChild
-                                                disabled={!useAppShortcuts}
                                             >
                                                 <LemonButton
                                                     onClick={() => {
@@ -504,15 +531,20 @@ export function DashboardHeader(): JSX.Element | null {
                                                     data-attr="add-text-tile-to-dashboard"
                                                     type="secondary"
                                                     size="small"
-                                                    tooltip={useAppShortcuts ? 'Add text card' : null}
+                                                    tooltip="Add text card"
                                                     tooltipPlacement="top"
+                                                    icon={<IconPlusSmall />}
                                                 >
-                                                    Add text card
+                                                    Text card
                                                 </LemonButton>
                                             </AppShortcut>
                                         </AccessControlAction>
                                         <MaxTool
-                                            identifier="edit_current_dashboard"
+                                            identifier={
+                                                hasUpsertDashboardFeatureFlag
+                                                    ? 'upsert_dashboard'
+                                                    : 'edit_current_dashboard'
+                                            }
                                             context={{
                                                 current_dashboard: dashboard
                                                     ? {

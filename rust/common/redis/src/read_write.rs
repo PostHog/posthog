@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use std::sync::Arc;
+use std::time::Duration;
 use tracing::warn;
 
 use crate::{Client, CompressionConfig, CustomRedisError, RedisClient, RedisValueFormat};
@@ -21,6 +22,8 @@ use crate::{Client, CompressionConfig, CustomRedisError, RedisClient, RedisValue
 ///     "redis://replica:6379".to_string(),
 ///     CompressionConfig::default(),
 ///     RedisValueFormat::Pickle,
+///     None, // No response timeout
+///     None, // No connection timeout
 /// );
 ///
 /// let client = config.build().await.unwrap();
@@ -32,6 +35,8 @@ pub struct ReadWriteClientConfig {
     pub replica_url: String,
     pub compression: CompressionConfig,
     pub format: RedisValueFormat,
+    pub response_timeout: Option<Duration>,
+    pub connection_timeout: Option<Duration>,
 }
 
 impl ReadWriteClientConfig {
@@ -42,17 +47,23 @@ impl ReadWriteClientConfig {
     /// * `replica_url` - Redis connection string for reads (replica instance)
     /// * `compression` - Compression configuration applied to both connections
     /// * `format` - Serialization format applied to both connections
+    /// * `response_timeout` - Optional timeout for Redis command responses. `None` means no timeout.
+    /// * `connection_timeout` - Optional timeout for establishing connections. `None` means no timeout.
     pub fn new(
         primary_url: String,
         replica_url: String,
         compression: CompressionConfig,
         format: RedisValueFormat,
+        response_timeout: Option<Duration>,
+        connection_timeout: Option<Duration>,
     ) -> Self {
         Self {
             primary_url,
             replica_url,
             compression,
             format,
+            response_timeout,
+            connection_timeout,
         }
     }
 
@@ -86,6 +97,8 @@ impl ReadWriteClientConfig {
 ///     "redis://replica:6379".to_string(),
 ///     CompressionConfig::default(),
 ///     RedisValueFormat::Pickle,
+///     None, // No response timeout
+///     None, // No connection timeout
 /// );
 ///
 /// let client = ReadWriteClient::with_config(config).await.unwrap();
@@ -96,6 +109,8 @@ impl ReadWriteClientConfig {
 ///     "redis://replica:6379".to_string(),
 ///     CompressionConfig::default(),
 ///     RedisValueFormat::Pickle,
+///     None, // No response timeout
+///     None, // No connection timeout
 /// )
 /// .build()
 /// .await
@@ -150,6 +165,8 @@ impl ReadWriteClient {
     ///         "redis://replica:6379".to_string(),
     ///         CompressionConfig::default(),
     ///         RedisValueFormat::Pickle,
+    ///         None, // No response timeout
+    ///         None, // No connection timeout
     ///     )
     ///     .await
     ///     .unwrap()
@@ -160,6 +177,8 @@ impl ReadWriteClient {
     ///         "redis://primary:6379".to_string(),
     ///         CompressionConfig::default(),
     ///         RedisValueFormat::Pickle,
+    ///         None, // No response timeout
+    ///         None, // No connection timeout
     ///     )
     ///     .await
     ///     .unwrap()
@@ -194,6 +213,8 @@ impl ReadWriteClient {
     ///     "redis://replica:6379".to_string(),
     ///     CompressionConfig::default(),
     ///     RedisValueFormat::Pickle,
+    ///     None, // No response timeout
+    ///     None, // No connection timeout
     /// );
     ///
     /// let client = ReadWriteClient::with_config(config).await.unwrap();
@@ -205,11 +226,20 @@ impl ReadWriteClient {
                 config.replica_url,
                 config.compression.clone(),
                 config.format,
+                config.response_timeout,
+                config.connection_timeout,
             )
             .await?,
         );
         let writer = Arc::new(
-            RedisClient::with_config(config.primary_url, config.compression, config.format).await?,
+            RedisClient::with_config(
+                config.primary_url,
+                config.compression,
+                config.format,
+                config.response_timeout,
+                config.connection_timeout,
+            )
+            .await?,
         );
 
         Ok(Self::new(reader, writer))
@@ -353,6 +383,24 @@ impl Client for ReadWriteClient {
             .await
     }
 
+    async fn batch_incr_by_expire_nx(
+        &self,
+        items: Vec<(String, i64)>,
+        ttl_seconds: usize,
+    ) -> Result<(), CustomRedisError> {
+        self.writer
+            .batch_incr_by_expire_nx(items, ttl_seconds)
+            .await
+    }
+
+    async fn batch_incr_by_expire(
+        &self,
+        items: Vec<(String, i64)>,
+        ttl_seconds: usize,
+    ) -> Result<(), CustomRedisError> {
+        self.writer.batch_incr_by_expire(items, ttl_seconds).await
+    }
+
     async fn del(&self, k: String) -> Result<(), CustomRedisError> {
         self.writer.del(k).await
     }
@@ -364,6 +412,21 @@ impl Client for ReadWriteClient {
         count: Option<i32>,
     ) -> Result<(), CustomRedisError> {
         self.writer.hincrby(k, v, count).await
+    }
+
+    async fn mget(&self, keys: Vec<String>) -> Result<Vec<Option<Vec<u8>>>, CustomRedisError> {
+        match self.reader.mget(keys.clone()).await {
+            Ok(value) => Ok(value),
+            Err(err) if !err.is_unrecoverable_error() => {
+                warn!(
+                    "Replica mget failed for {} keys, falling back to primary: {}",
+                    keys.len(),
+                    err
+                );
+                self.writer.mget(keys).await
+            }
+            Err(err) => Err(err),
+        }
     }
 }
 
@@ -666,5 +729,60 @@ mod tests {
         assert!(debug_output.contains("reader"));
         assert!(debug_output.contains("writer"));
         assert!(debug_output.contains("<Redis Client>"));
+    }
+
+    #[tokio::test]
+    async fn test_mget_uses_reader() {
+        let client = create_test_client(
+            |reader| {
+                reader.mget_ret("key1", Some(b"value1".to_vec()));
+                reader.mget_ret("key2", Some(b"value2".to_vec()));
+            },
+            |_writer| {},
+        );
+
+        let result = client
+            .mget(vec!["key1".to_string(), "key2".to_string()])
+            .await;
+        assert_eq!(
+            result.unwrap(),
+            vec![Some(b"value1".to_vec()), Some(b"value2".to_vec())]
+        );
+    }
+
+    #[tokio::test]
+    async fn test_mget_fallback_on_transient_error() {
+        let client = create_test_client(
+            |reader| {
+                reader.mget_error(CustomRedisError::Timeout);
+            },
+            |writer| {
+                writer.mget_ret("key1", Some(b"fallback1".to_vec()));
+                writer.mget_ret("key2", Some(b"fallback2".to_vec()));
+            },
+        );
+
+        let result = client
+            .mget(vec!["key1".to_string(), "key2".to_string()])
+            .await;
+        assert_eq!(
+            result.unwrap(),
+            vec![Some(b"fallback1".to_vec()), Some(b"fallback2".to_vec())]
+        );
+    }
+
+    #[tokio::test]
+    async fn test_mget_no_fallback_on_unrecoverable_error() {
+        let client = create_test_client(
+            |reader| {
+                reader.mget_error(CustomRedisError::ParseError("bad data".to_string()));
+            },
+            |writer| {
+                writer.mget_ret("key1", Some(b"fallback".to_vec()));
+            },
+        );
+
+        let result = client.mget(vec!["key1".to_string()]).await;
+        assert!(matches!(result, Err(CustomRedisError::ParseError(_))));
     }
 }

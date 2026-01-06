@@ -1,6 +1,7 @@
 import { Link } from 'lib/lemon-ui/Link'
 
-import { ProductKey, SDK, SDKKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { SDK, SDKKey } from '~/types'
 
 import { SDKFeatureAnnouncementBanner } from './sdk-install-instructions/components/SDKFeatureAnnouncementBanner'
 

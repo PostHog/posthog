@@ -40,6 +40,8 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils import str_to_bool
 
+from products.product_tours.backend.models import ProductTour
+
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
@@ -85,6 +87,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "metrics",
             "metrics_secondary",
             "stats_config",
+            "scheduling_config",
             "_create_in_folder",
             "conclusion",
             "conclusion_comment",
@@ -159,10 +162,12 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             if "metadata" in saved_metric and "type" not in saved_metric["metadata"]:
                 raise ValidationError("Metadata must have a type key")
 
-        # check if all saved metrics exist
-        saved_metrics = ExperimentSavedMetric.objects.filter(id__in=[saved_metric["id"] for saved_metric in value])
+        # check if all saved metrics exist and belong to the same team
+        saved_metrics = ExperimentSavedMetric.objects.filter(
+            id__in=[saved_metric["id"] for saved_metric in value], team_id=self.context["team_id"]
+        )
         if saved_metrics.count() != len(value):
-            raise ValidationError("Saved metric does not exist")
+            raise ValidationError("Saved metric does not exist or does not belong to this project")
 
         return value
 
@@ -306,6 +311,23 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                         metric, validated_data.get("start_date"), stats_method, validated_data.get("exposure_criteria")
                     )
 
+        # Sync ordering arrays for inline metrics (all metrics are "new" in create)
+        if "metrics" in validated_data:
+            primary_ordering = list(validated_data.get("primary_metrics_ordered_uuids") or [])
+            for metric in validated_data["metrics"]:
+                if uuid := metric.get("uuid"):
+                    if uuid not in primary_ordering:
+                        primary_ordering.append(uuid)
+            validated_data["primary_metrics_ordered_uuids"] = primary_ordering
+
+        if "metrics_secondary" in validated_data:
+            secondary_ordering = list(validated_data.get("secondary_metrics_ordered_uuids") or [])
+            for metric in validated_data["metrics_secondary"]:
+                if uuid := metric.get("uuid"):
+                    if uuid not in secondary_ordering:
+                        secondary_ordering.append(uuid)
+            validated_data["secondary_metrics_ordered_uuids"] = secondary_ordering
+
         experiment = Experiment.objects.create(
             team_id=self.context["team_id"], feature_flag=feature_flag, **validated_data
         )
@@ -335,8 +357,36 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 )
                 saved_metric_serializer.is_valid(raise_exception=True)
                 saved_metric_serializer.save()
-                # TODO: Going the above route means we can still sometimes fail when validation fails?
-                # But this shouldn't really happen, if it does its a bug in our validation logic (validate_saved_metrics_ids)
+
+            # Sync ordering arrays for saved metrics (all are "new" in create)
+            primary_ordering = list(experiment.primary_metrics_ordered_uuids or [])
+            secondary_ordering = list(experiment.secondary_metrics_ordered_uuids or [])
+            ordering_changed = False
+
+            saved_metric_ids = [sm["id"] for sm in saved_metrics_data]
+            saved_metrics_map = {sm.id: sm for sm in ExperimentSavedMetric.objects.filter(id__in=saved_metric_ids)}
+
+            for sm_data in saved_metrics_data:
+                saved_metric = saved_metrics_map.get(sm_data["id"])
+                if saved_metric and saved_metric.query:
+                    if uuid := saved_metric.query.get("uuid"):
+                        metric_type = (sm_data.get("metadata") or {}).get("type", "primary")
+                        if metric_type == "primary":
+                            if uuid not in primary_ordering:
+                                primary_ordering.append(uuid)
+                                ordering_changed = True
+                        else:
+                            if uuid not in secondary_ordering:
+                                secondary_ordering.append(uuid)
+                                ordering_changed = True
+
+            if ordering_changed:
+                experiment.primary_metrics_ordered_uuids = primary_ordering
+                experiment.secondary_metrics_ordered_uuids = secondary_ordering
+                experiment.save(update_fields=["primary_metrics_ordered_uuids", "secondary_metrics_ordered_uuids"])
+
+        self._validate_metric_ordering(experiment, {})
+
         return experiment
 
     def update(self, instance: Experiment, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
@@ -351,6 +401,19 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
 
         update_saved_metrics = "saved_metrics_ids" in validated_data
         saved_metrics_data = validated_data.pop("saved_metrics_ids", []) or []
+
+        # Capture old saved metric UUIDs BEFORE delete for ordering sync
+        old_saved_metric_uuids: dict[str, set[str]] = {"primary": set(), "secondary": set()}
+        if update_saved_metrics:
+            for link in instance.experimenttosavedmetric_set.select_related("saved_metric").all():
+                if link.saved_metric.query:
+                    uuid = link.saved_metric.query.get("uuid")
+                    if uuid:
+                        metric_type = (link.metadata or {}).get("type", "primary")
+                        if metric_type == "primary":
+                            old_saved_metric_uuids["primary"].add(uuid)
+                        else:
+                            old_saved_metric_uuids["secondary"].add(uuid)
 
         # We replace all saved metrics on update to avoid issues with partial updates
         if update_saved_metrics:
@@ -385,6 +448,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "metrics",
             "metrics_secondary",
             "stats_config",
+            "scheduling_config",
             "conclusion",
             "conclusion_comment",
             "primary_metrics_ordered_uuids",
@@ -490,6 +554,15 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
 
                 validated_data[metric_field] = updated_metrics
 
+        self._sync_ordering_with_metric_changes(instance, validated_data)
+        self._sync_ordering_for_saved_metrics(
+            instance,
+            validated_data,
+            old_saved_metric_uuids,
+            saved_metrics_data if update_saved_metrics else None,
+        )
+        self._validate_metric_ordering(instance, validated_data)
+
         if instance.is_draft and has_start_date:
             feature_flag.active = True
             feature_flag.save()
@@ -498,6 +571,197 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             # Not a draft, doesn't have start date
             # Or draft without start date
             return super().update(instance, validated_data)
+
+    def _sync_ordering_with_metric_changes(self, instance: Experiment, validated_data: dict) -> None:
+        """
+        Sync ordering arrays with inline metric changes in this request.
+
+        When metrics are added/removed, their UUIDs should be added/removed from
+        the ordering arrays. This handles the case where API consumers send metrics
+        without also updating the ordering arrays.
+        """
+        if "metrics" in validated_data:
+            old_uuids = {m.get("uuid") for m in instance.metrics or [] if m.get("uuid")}
+            new_uuids = {m.get("uuid") for m in validated_data.get("metrics") or [] if m.get("uuid")}
+
+            added = new_uuids - old_uuids
+            removed = old_uuids - new_uuids
+
+            if added or removed:
+                # Use ordering from request if explicitly provided, otherwise use instance's ordering
+                if "primary_metrics_ordered_uuids" in validated_data:
+                    current_ordering = list(validated_data["primary_metrics_ordered_uuids"] or [])
+                else:
+                    current_ordering = list(instance.primary_metrics_ordered_uuids or [])
+
+                current_ordering = [u for u in current_ordering if u not in removed]
+                for uuid in added:
+                    if uuid not in current_ordering:
+                        current_ordering.append(uuid)
+
+                validated_data["primary_metrics_ordered_uuids"] = current_ordering
+
+        if "metrics_secondary" in validated_data:
+            old_uuids = {m.get("uuid") for m in instance.metrics_secondary or [] if m.get("uuid")}
+            new_uuids = {m.get("uuid") for m in validated_data.get("metrics_secondary") or [] if m.get("uuid")}
+
+            added = new_uuids - old_uuids
+            removed = old_uuids - new_uuids
+
+            if added or removed:
+                if "secondary_metrics_ordered_uuids" in validated_data:
+                    current_ordering = list(validated_data["secondary_metrics_ordered_uuids"] or [])
+                else:
+                    current_ordering = list(instance.secondary_metrics_ordered_uuids or [])
+
+                current_ordering = [u for u in current_ordering if u not in removed]
+
+                for uuid in added:
+                    if uuid not in current_ordering:
+                        current_ordering.append(uuid)
+
+                validated_data["secondary_metrics_ordered_uuids"] = current_ordering
+
+    def _sync_ordering_for_saved_metrics(
+        self,
+        instance: Experiment,
+        validated_data: dict,
+        old_saved_metric_uuids: dict[str, set[str]],
+        saved_metrics_data: list[dict] | None,
+    ) -> None:
+        """
+        Sync ordering arrays with saved metric changes in this request.
+
+        Since saved_metrics_ids is popped from validated_data early and saved metrics
+        are deleted/recreated before this runs, we need the old UUIDs passed in.
+
+        Args:
+            instance: The experiment being updated
+            validated_data: The validated data dict (will be modified)
+            old_saved_metric_uuids: Dict with 'primary' and 'secondary' keys containing old UUIDs
+            saved_metrics_data: The new saved_metrics_ids from the request, or None if not updating
+        """
+        if saved_metrics_data is None:
+            return
+
+        new_primary_uuids: set[str] = set()
+        new_secondary_uuids: set[str] = set()
+
+        saved_metric_ids_list = [sm["id"] for sm in saved_metrics_data]
+        if saved_metric_ids_list:
+            saved_metrics = {sm.id: sm for sm in ExperimentSavedMetric.objects.filter(id__in=saved_metric_ids_list)}
+
+            for sm_data in saved_metrics_data:
+                saved_metric = saved_metrics.get(sm_data["id"])
+                if saved_metric and saved_metric.query:
+                    uuid = saved_metric.query.get("uuid")
+                    if uuid:
+                        metric_type = (sm_data.get("metadata") or {}).get("type", "primary")
+                        if metric_type == "primary":
+                            new_primary_uuids.add(uuid)
+                        else:
+                            new_secondary_uuids.add(uuid)
+
+        added_primary = new_primary_uuids - old_saved_metric_uuids["primary"]
+        removed_primary = old_saved_metric_uuids["primary"] - new_primary_uuids
+        added_secondary = new_secondary_uuids - old_saved_metric_uuids["secondary"]
+        removed_secondary = old_saved_metric_uuids["secondary"] - new_secondary_uuids
+
+        if added_primary or removed_primary:
+            if "primary_metrics_ordered_uuids" in validated_data:
+                current_ordering = list(validated_data["primary_metrics_ordered_uuids"] or [])
+            else:
+                current_ordering = list(instance.primary_metrics_ordered_uuids or [])
+
+            current_ordering = [u for u in current_ordering if u not in removed_primary]
+            for uuid in added_primary:
+                if uuid not in current_ordering:
+                    current_ordering.append(uuid)
+            validated_data["primary_metrics_ordered_uuids"] = current_ordering
+
+        if added_secondary or removed_secondary:
+            if "secondary_metrics_ordered_uuids" in validated_data:
+                current_ordering = list(validated_data["secondary_metrics_ordered_uuids"] or [])
+            else:
+                current_ordering = list(instance.secondary_metrics_ordered_uuids or [])
+
+            current_ordering = [u for u in current_ordering if u not in removed_secondary]
+            for uuid in added_secondary:
+                if uuid not in current_ordering:
+                    current_ordering.append(uuid)
+            validated_data["secondary_metrics_ordered_uuids"] = current_ordering
+
+    def _validate_metric_ordering(self, instance: Experiment, validated_data: dict) -> None:
+        """
+        Validate that ordering arrays contain all metric UUIDs.
+
+        This catches bugs where the frontend sends metrics but fails to include
+        their UUIDs in the ordering arrays
+        """
+        primary_ordering = validated_data.get("primary_metrics_ordered_uuids", instance.primary_metrics_ordered_uuids)
+        secondary_ordering = validated_data.get(
+            "secondary_metrics_ordered_uuids", instance.secondary_metrics_ordered_uuids
+        )
+
+        # Get inline metrics
+        primary_metrics = validated_data.get("metrics", instance.metrics) or []
+        secondary_metrics = validated_data.get("metrics_secondary", instance.metrics_secondary) or []
+
+        # Get saved metrics from the db (they were just created/recreated in update())
+        saved_metrics = list(instance.experimenttosavedmetric_set.select_related("saved_metric").all())
+
+        expected_primary_uuids: set[str] = set()
+        expected_secondary_uuids: set[str] = set()
+
+        # Add inline metric UUIDs
+        for metric in primary_metrics:
+            uuid = metric.get("uuid")
+            if uuid:
+                expected_primary_uuids.add(uuid)
+
+        for metric in secondary_metrics:
+            uuid = metric.get("uuid")
+            if uuid:
+                expected_secondary_uuids.add(uuid)
+
+        # Add saved metric UUIDs
+        for link in saved_metrics:
+            saved_metric = link.saved_metric
+            uuid = saved_metric.query.get("uuid") if saved_metric.query else None
+            if uuid:
+                metric_type = link.metadata.get("type", "primary") if link.metadata else "primary"
+                if metric_type == "primary":
+                    expected_primary_uuids.add(uuid)
+                else:
+                    expected_secondary_uuids.add(uuid)
+
+        # Validate: if there are primary metrics, ordering array must exist and contain all UUIDs
+        if expected_primary_uuids:
+            if primary_ordering is None:
+                raise ValidationError(
+                    "primary_metrics_ordered_uuids is null but primary metrics exist. "
+                    "This is likely a frontend bug - please refresh and try again."
+                )
+            missing = expected_primary_uuids - set(primary_ordering)
+            if missing:
+                raise ValidationError(
+                    f"primary_metrics_ordered_uuids is missing UUIDs: {sorted(missing)}. "
+                    "This is likely a frontend bug - please refresh and try again."
+                )
+
+        # Validate: if there are secondary metrics, ordering array must exist and contain all UUIDs
+        if expected_secondary_uuids:
+            if secondary_ordering is None:
+                raise ValidationError(
+                    "secondary_metrics_ordered_uuids is null but secondary metrics exist. "
+                    "This is likely a frontend bug - please refresh and try again."
+                )
+            missing = expected_secondary_uuids - set(secondary_ordering)
+            if missing:
+                raise ValidationError(
+                    f"secondary_metrics_ordered_uuids is missing UUIDs: {sorted(missing)}. "
+                    "This is likely a frontend bug - please refresh and try again."
+                )
 
 
 class ExperimentStatus(str, Enum):
@@ -621,6 +885,16 @@ class EnterpriseExperimentsViewSet(
         # Allow overriding the feature flag key from the request
         feature_flag_key = request.data.get("feature_flag_key", source_experiment.feature_flag.key)
 
+        # Check if the feature flag key refers to an existing flag with different variants
+        # If so, we need to update parameters.feature_flag_variants to match the new flag
+        parameters = deepcopy(source_experiment.parameters) or {}
+        if feature_flag_key != source_experiment.feature_flag.key:
+            existing_flag = FeatureFlag.objects.filter(
+                key=feature_flag_key, team_id=self.team_id, deleted=False
+            ).first()
+            if existing_flag and existing_flag.filters.get("multivariate", {}).get("variants"):
+                parameters["feature_flag_variants"] = existing_flag.filters["multivariate"]["variants"]
+
         # Generate a unique name for the duplicate
         base_name = f"{source_experiment.name} (Copy)"
         duplicate_name = base_name
@@ -644,11 +918,12 @@ class EnterpriseExperimentsViewSet(
             "name": duplicate_name,
             "description": source_experiment.description,
             "type": source_experiment.type,
-            "parameters": source_experiment.parameters,
+            "parameters": parameters,
             "filters": source_experiment.filters,
             "metrics": source_experiment.metrics,
             "metrics_secondary": source_experiment.metrics_secondary,
             "stats_config": source_experiment.stats_config,
+            "scheduling_config": source_experiment.scheduling_config,
             "exposure_criteria": source_experiment.exposure_criteria,
             "saved_metrics_ids": saved_metrics_data,
             "feature_flag_key": feature_flag_key,  # Use provided key or fall back to existing
@@ -776,6 +1051,7 @@ class EnterpriseExperimentsViewSet(
         - created_by_id: Filter by creator user ID
         - order: Sort order field
         - evaluation_runtime: Filter by evaluation runtime
+        - has_evaluation_tags: Filter by presence of evaluation tags ("true" or "false")
         """
         # validate limit and offset
         try:
@@ -797,13 +1073,11 @@ class EnterpriseExperimentsViewSet(
         )
 
         # Exclude survey targeting flags (same as regular feature flag list endpoint)
-        survey_targeting_flags = Survey.objects.filter(
-            team__project_id=self.project_id, targeting_flag__isnull=False
-        ).values_list("targeting_flag_id", flat=True)
-        survey_internal_targeting_flags = Survey.objects.filter(
+        survey_flag_ids = Survey.get_internal_flag_ids(project_id=self.project_id)
+        product_tour_internal_targeting_flags = ProductTour.all_objects.filter(
             team__project_id=self.project_id, internal_targeting_flag__isnull=False
         ).values_list("internal_targeting_flag_id", flat=True)
-        excluded_flag_ids = set(survey_targeting_flags) | set(survey_internal_targeting_flags)
+        excluded_flag_ids = survey_flag_ids | set(product_tour_internal_targeting_flags)
         queryset = queryset.exclude(id__in=excluded_flag_ids)
 
         # Apply search filter
@@ -825,6 +1099,18 @@ class EnterpriseExperimentsViewSet(
         evaluation_runtime = request.query_params.get("evaluation_runtime")
         if evaluation_runtime:
             queryset = queryset.filter(evaluation_runtime=evaluation_runtime)
+
+        # Apply has_evaluation_tags filter
+        has_evaluation_tags = request.query_params.get("has_evaluation_tags")
+        if has_evaluation_tags is not None:
+            from django.db.models import Count
+
+            filter_value = has_evaluation_tags.lower() in ("true", "1", "yes")
+            queryset = queryset.annotate(eval_tag_count=Count("evaluation_tags"))
+            if filter_value:
+                queryset = queryset.filter(eval_tag_count__gt=0)
+            else:
+                queryset = queryset.filter(eval_tag_count=0)
 
         # Ordering
         order = request.query_params.get("order")
@@ -919,10 +1205,16 @@ class EnterpriseExperimentsViewSet(
         latest_completed_at = None
 
         # Create mapping from query_to to result, deriving the day in project timezone
+        # Note: query_to is the EXCLUSIVE end of the time range
+        # Example: Data for 2025-11-09 has query_to = 2025-11-10T00:00:00 (recalculation)
+        #          or query_to = 2025-11-09T02:00:00 (regular DAG)
+        # To find which day the data represents, subtract 1 microsecond to get the last included moment
         results_by_date = {}
         for result in metric_results:
-            # Convert UTC query_to to project timezone to determine which day this result belongs to
-            day_in_project_tz = result.query_to.astimezone(project_tz).date()
+            # Subtract 1 microsecond to convert exclusive boundary to inclusive
+            query_to_adjusted = result.query_to - timedelta(microseconds=1)
+            query_to_in_project_tz = query_to_adjusted.astimezone(project_tz)
+            day_in_project_tz = query_to_in_project_tz.date()
             results_by_date[day_in_project_tz] = result
 
         for experiment_date in experiment_dates:

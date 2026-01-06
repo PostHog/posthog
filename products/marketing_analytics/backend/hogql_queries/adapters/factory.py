@@ -1,14 +1,18 @@
 # Marketing Source Adapter Factory
 
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import structlog
 
-from posthog.schema import SourceMap
+if TYPE_CHECKING:
+    from posthog.models.team.team_marketing_analytics_config import TeamMarketingAnalyticsConfig
+
+from posthog.schema import NativeMarketingSource, SourceMap
 
 from posthog.hogql.database.database import Database
 
 from products.data_warehouse.backend.models import DataWarehouseTable, ExternalDataSource
+from products.marketing_analytics.backend.hogql_queries.adapters.bing_ads import BingAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.linkedin_ads import LinkedinAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.meta_ads import MetaAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.reddit_ads import RedditAdsAdapter
@@ -22,6 +26,7 @@ from ..constants import (
 )
 from ..utils import map_url_to_provider
 from .base import (
+    BingAdsConfig,
     ExternalConfig,
     GoogleAdsConfig,
     LinkedinAdsConfig,
@@ -49,6 +54,7 @@ class MarketingSourceFactory:
         "RedditAds": RedditAdsAdapter,
         "MetaAds": MetaAdsAdapter,
         "TikTokAds": TikTokAdsAdapter,
+        "BingAds": BingAdsAdapter,
         # Non-native adapters
         "BigQuery": BigQueryAdapter,
         # Self-managed adapters
@@ -65,19 +71,49 @@ class MarketingSourceFactory:
         "RedditAds": "_create_redditads_config",
         "MetaAds": "_create_metaads_config",
         "TikTokAds": "_create_tiktokads_config",
+        "BingAds": "_create_bingads_config",
     }
 
     @classmethod
-    def get_all_source_identifier_mappings(cls) -> dict[str, list[str]]:
+    def get_all_source_identifier_mappings(
+        cls, team_config: Optional["TeamMarketingAnalyticsConfig"] = None
+    ) -> dict[str, list[str]]:
         """
-        Collect source identifier mappings from all registered adapters.
+        Collect source identifier mappings from all registered adapters
+        and merge with team's custom source mappings.
         Returns a combined dictionary of {primary_source: [all_utm_sources]}.
+
+        Args:
+            team_config: Optional TeamMarketingAnalyticsConfig to merge custom mappings from
         """
+        # Get hardcoded adapter mappings
         combined_mappings: dict[str, list[str]] = {}
         for adapter_class in cls._adapter_registry.values():
             mapping = adapter_class.get_source_identifier_mapping()
             if mapping:
                 combined_mappings.update(mapping)
+
+        # Merge custom mappings from team config if provided
+        if team_config:
+            custom_mappings = team_config.custom_source_mappings
+            for integration_type, custom_utm_sources in custom_mappings.items():
+                # Get the adapter class for this integration type
+                custom_adapter_class = cls._adapter_registry.get(integration_type)
+                if not custom_adapter_class:
+                    # Skip if integration type not found in registry
+                    continue
+
+                # Get the source identifier mapping for this adapter
+                adapter_mapping = custom_adapter_class.get_source_identifier_mapping()
+                if not adapter_mapping:
+                    continue
+
+                # Extend each primary source in the adapter's mapping with custom UTM sources
+                for primary_source in adapter_mapping.keys():
+                    if primary_source in combined_mappings:
+                        # Extend existing mapping with custom UTM sources
+                        combined_mappings[primary_source].extend(custom_utm_sources)
+
         return combined_mappings
 
     def __init__(self, context: QueryContext):
@@ -142,7 +178,7 @@ class MarketingSourceFactory:
         self, source: ExternalDataSource, tables: list[DataWarehouseTable]
     ) -> Optional[GoogleAdsConfig]:
         """Create Google Ads adapter config with campaign and stats tables"""
-        patterns = TABLE_PATTERNS["GoogleAds"]
+        patterns = TABLE_PATTERNS[NativeMarketingSource.GOOGLE_ADS]
         campaign_table = None
         campaign_stats_table = None
 
@@ -174,7 +210,7 @@ class MarketingSourceFactory:
         self, source: ExternalDataSource, tables: list[DataWarehouseTable]
     ) -> Optional[LinkedinAdsConfig]:
         """Create LinkedIn Ads adapter config with campaign and stats tables"""
-        patterns = TABLE_PATTERNS["LinkedinAds"]
+        patterns = TABLE_PATTERNS[NativeMarketingSource.LINKEDIN_ADS]
         campaign_table = None
         campaign_stats_table = None
 
@@ -206,7 +242,7 @@ class MarketingSourceFactory:
         self, source: ExternalDataSource, tables: list[DataWarehouseTable]
     ) -> Optional[RedditAdsConfig]:
         """Create Reddit Ads adapter config with campaign and stats tables"""
-        patterns = TABLE_PATTERNS["RedditAds"]
+        patterns = TABLE_PATTERNS[NativeMarketingSource.REDDIT_ADS]
         campaign_table = None
         campaign_stats_table = None
 
@@ -238,7 +274,7 @@ class MarketingSourceFactory:
         self, source: ExternalDataSource, tables: list[DataWarehouseTable]
     ) -> Optional[MetaAdsConfig]:
         """Create Meta Ads adapter config with campaign and stats tables"""
-        patterns = TABLE_PATTERNS["MetaAds"]
+        patterns = TABLE_PATTERNS[NativeMarketingSource.META_ADS]
         campaign_table = None
         campaign_stats_table = None
 
@@ -270,7 +306,7 @@ class MarketingSourceFactory:
         self, source: ExternalDataSource, tables: list[DataWarehouseTable]
     ) -> Optional[TikTokAdsConfig]:
         """Create TikTok Ads adapter config with campaign and stats tables"""
-        patterns = TABLE_PATTERNS["TikTokAds"]
+        patterns = TABLE_PATTERNS[NativeMarketingSource.TIK_TOK_ADS]
         campaign_table = None
         campaign_stats_table = None
 
@@ -290,6 +326,38 @@ class MarketingSourceFactory:
             return None
 
         config = TikTokAdsConfig(
+            source_type=source.source_type,
+            campaign_table=campaign_table,
+            stats_table=campaign_stats_table,
+            source_id=str(source.id),
+        )
+
+        return config
+
+    def _create_bingads_config(
+        self, source: ExternalDataSource, tables: list[DataWarehouseTable]
+    ) -> Optional[BingAdsConfig]:
+        """Create Bing Ads adapter config with campaign and stats tables"""
+        patterns = TABLE_PATTERNS[NativeMarketingSource.BING_ADS]
+        campaign_table = None
+        campaign_stats_table = None
+
+        for table in tables:
+            table_suffix = table.name.split(".")[-1].lower()
+
+            # Check for campaign table
+            if any(kw in table_suffix for kw in patterns["campaign_table_keywords"]) and not any(
+                ex in table_suffix for ex in patterns["campaign_table_exclusions"]
+            ):
+                campaign_table = table
+            # Check for stats table
+            elif any(kw in table_suffix for kw in patterns["stats_table_keywords"]):
+                campaign_stats_table = table
+
+        if not (campaign_table and campaign_stats_table):
+            return None
+
+        config = BingAdsConfig(
             source_type=source.source_type,
             campaign_table=campaign_table,
             stats_table=campaign_stats_table,

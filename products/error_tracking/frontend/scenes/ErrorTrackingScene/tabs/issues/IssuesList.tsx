@@ -129,33 +129,31 @@ export function IssuesList(): JSX.Element {
 
     return (
         <BindLogic logic={issuesDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>
-            <div>
-                <SceneStickyBar showBorderBottom={false}>
-                    <ListOptions />
-                    {orderBy === 'revenue' && (
-                        <LemonBanner
-                            type="warning"
-                            action={{
-                                children: 'Send feedback',
-                                onClick: () =>
-                                    openSupportForm({
-                                        kind: 'feedback',
-                                        target_area: 'error_tracking',
-                                        severity_level: 'medium',
-                                        isEmailFormOpen: true,
-                                    }),
-                                id: 'revenue-analytics-feedback-button',
-                            }}
-                        >
-                            Revenue sorting requires setting up{' '}
-                            <Link to="https://posthog.com/docs/revenue-analytics">Revenue analytics</Link>. It does not
-                            yet work well for customers with a large number of persons or groups. We're keen to hear
-                            feedback or any issues you have using it while we work to improve the performance
-                        </LemonBanner>
-                    )}
-                </SceneStickyBar>
-                <Query query={query} context={context} />
-            </div>
+            <SceneStickyBar showBorderBottom={false}>
+                <ListOptions />
+                {orderBy === 'revenue' && (
+                    <LemonBanner
+                        type="warning"
+                        action={{
+                            children: 'Send feedback',
+                            onClick: () =>
+                                openSupportForm({
+                                    kind: 'feedback',
+                                    target_area: 'error_tracking',
+                                    severity_level: 'medium',
+                                    isEmailFormOpen: true,
+                                }),
+                            id: 'revenue-analytics-feedback-button',
+                        }}
+                    >
+                        Revenue sorting requires setting up{' '}
+                        <Link to="https://posthog.com/docs/revenue-analytics">Revenue analytics</Link>. It does not yet
+                        work well for customers with a large number of persons or groups. We're keen to hear feedback or
+                        any issues you have using it while we work to improve the performance
+                    </LemonBanner>
+                )}
+            </SceneStickyBar>
+            <Query query={query} context={context} />
         </BindLogic>
     )
 }
