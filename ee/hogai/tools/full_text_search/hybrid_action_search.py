@@ -18,6 +18,7 @@ from posthog.hogql_queries.ai.vector_search_query_runner import (
 )
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Action
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.tool import MaxSubtool
@@ -230,6 +231,4 @@ class HybridActionSearchTool(MaxSubtool):
     # Required for search_entities compatibility
     @property
     def user_access_control(self):
-        from posthog.rbac.user_access_control import UserAccessControl
-
         return UserAccessControl(user=self._user, team=self._team, organization_id=self._team.organization.id)
