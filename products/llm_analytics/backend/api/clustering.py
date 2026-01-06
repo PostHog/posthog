@@ -7,7 +7,8 @@ from typing import cast
 from django.conf import settings
 
 import structlog
-from rest_framework import serializers, viewsets
+import posthoganalytics
+from rest_framework import serializers, status, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -151,6 +152,19 @@ class LLMAnalyticsClusteringRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
         This endpoint validates the request parameters and starts a Temporal workflow
         to perform trace clustering with the specified configuration.
         """
+        # Check feature flag
+        distinct_id = getattr(request.user, "distinct_id", None)
+        if not distinct_id or not posthoganalytics.feature_enabled(
+            "llm-analytics-clustering-admin",
+            distinct_id,
+            groups={"organization": str(self.organization.id)},
+            group_properties={"organization": {"id": str(self.organization.id)}},
+        ):
+            return Response(
+                {"detail": "This feature is not available."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         serializer = ClusteringRunRequestSerializer(data=request.data)
         if not serializer.is_valid():
             return Response({"error": serializer.errors}, status=400)
