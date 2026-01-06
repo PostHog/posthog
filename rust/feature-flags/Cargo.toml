@@ -38,6 +38,7 @@ pbkdf2 = { version = "0.12.2", features = ["simple"] }
 hex = "0.4.3"
 regex.workspace = true
 base64.workspace = true
+semver = "1.0"
 sqlx = { workspace = true, features = ["rust_decimal"] }
 uuid = { workspace = true }
 common-compression = { path = "../common/compression" }

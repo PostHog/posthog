@@ -3079,6 +3079,7 @@ dependencies = [
  "reqwest 0.12.15",
  "rstest",
  "rust_decimal",
+ "semver",
  "serde",
  "serde_json",
  "sha1",
