@@ -276,7 +276,10 @@ def _format_events_for_prompt(
     # Get indices for key columns
     column_indices: dict[str, int | None] = {}
     for col in key_columns:
-        column_indices[col] = get_column_index(simplified_events_columns, col)
+        try:
+            column_indices[col] = get_column_index(simplified_events_columns, col)
+        except ValueError:
+            column_indices[col] = None
 
     # Format events
     formatted_events = []

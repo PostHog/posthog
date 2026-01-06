@@ -92,7 +92,7 @@ async def consolidate_video_segments_activity(
                 confusion_detected=item.get("confusion_detected", False),
                 abandonment_detected=item.get("abandonment_detected", False),
             )
-            for item in parsed.get("segments", [])
+            for item in (parsed.get("segments") or [])
         ]
 
         # Parse session outcome

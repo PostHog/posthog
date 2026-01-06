@@ -74,7 +74,7 @@ class SessionSummarizationNode(AssistantNode):
             )
         )
 
-    def _determine_video_validation_enabled(self) -> bool | Literal["full"] | None:
+    def _determine_video_validation_enabled(self) -> bool | Literal["full"]:
         """
         Check if the user has the video validation for session summaries feature flag enabled.
         """
@@ -86,12 +86,15 @@ class SessionSummarizationNode(AssistantNode):
             send_feature_flag_events=False,
         ):
             return "full"  # Use video as base of summarization
-        return posthoganalytics.feature_enabled(
-            "max-session-summarization-video-validation",
-            str(self._user.distinct_id),
-            groups={"organization": str(self._team.organization_id)},
-            group_properties={"organization": {"id": str(self._team.organization_id)}},
-            send_feature_flag_events=False,
+        return (
+            posthoganalytics.feature_enabled(
+                "max-session-summarization-video-validation",
+                str(self._user.distinct_id),
+                groups={"organization": str(self._team.organization_id)},
+                group_properties={"organization": {"id": str(self._team.organization_id)}},
+                send_feature_flag_events=False,
+            )
+            or False
         )
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:

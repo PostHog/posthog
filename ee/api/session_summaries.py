@@ -93,7 +93,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             extra_summary_context = ExtraSummaryContext(focus_area=focus_area)
         return session_ids, min_timestamp, max_timestamp, extra_summary_context
 
-    def _determine_video_validation_enabled(self, user: User) -> bool | Literal["full"] | None:
+    def _determine_video_validation_enabled(self, user: User) -> bool | Literal["full"]:
         """
         Check if the user has the video validation for session summaries feature flag enabled.
         """
@@ -105,12 +105,15 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             send_feature_flag_events=False,
         ):
             return "full"  # Use video as base of summarization
-        return posthoganalytics.feature_enabled(
-            "max-session-summarization-video-validation",
-            str(user.distinct_id),
-            groups={"organization": str(self.team.organization_id)},
-            group_properties={"organization": {"id": str(self.team.organization_id)}},
-            send_feature_flag_events=False,
+        return (
+            posthoganalytics.feature_enabled(
+                "max-session-summarization-video-validation",
+                str(user.distinct_id),
+                groups={"organization": str(self.team.organization_id)},
+                group_properties={"organization": {"id": str(self.team.organization_id)}},
+                send_feature_flag_events=False,
+            )
+            or False
         )
 
     @staticmethod
