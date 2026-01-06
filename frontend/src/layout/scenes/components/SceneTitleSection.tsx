@@ -416,14 +416,8 @@ function SceneDescription({
     renameDebounceMs = 100,
     saveOnBlur = false,
 }: SceneDescriptionProps): JSX.Element | null {
-    const { zenMode } = useValues(navigation3000Logic)
     const [description, setDescription] = useState(initialDescription)
     const [isEditing, setIsEditing] = useState(forceEdit)
-    
-    // Hide descriptions in zen mode
-    if (zenMode) {
-        return null
-    }
 
     const textClasses = 'text-sm my-0 select-auto'
 
