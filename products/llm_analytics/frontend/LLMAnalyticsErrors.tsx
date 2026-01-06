@@ -76,7 +76,8 @@ export function LLMAnalyticsErrors(): JSX.Element {
                                                             type: PropertyFilterType.Event,
                                                             key: '$ai_error_normalized',
                                                             operator: PropertyOperator.Exact,
-                                                            value: errorString,
+                                                            // Escape quotes to match HogQL's JSONExtractRaw extraction
+                                                            value: errorString.replace(/"/g, '\\"'),
                                                         },
                                                     ],
                                                 }).url
