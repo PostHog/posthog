@@ -191,6 +191,8 @@ TEAM_CONFIG_FIELDS = (
     "onboarding_tasks",
     "base_currency",
     "web_analytics_pre_aggregated_tables_enabled",
+    "web_analytics_event_types",
+    "web_analytics_session_expansion_enabled",
     "experiment_recalculation_time",
     "receive_org_level_activity_logs",
     "business_model",
@@ -449,6 +451,26 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if not serializer.is_valid():
             raise exceptions.ValidationError(_format_serializer_errors(serializer.errors))
         return serializer.validated_data
+
+    @staticmethod
+    def validate_web_analytics_event_types(value) -> list[str] | None:
+        if value is None:
+            return None
+
+        if not isinstance(value, list):
+            raise exceptions.ValidationError("Must provide a list of event types.")
+
+        valid_types = {"$pageview", "$screen"}
+        for event_type in value:
+            if event_type not in valid_types:
+                raise exceptions.ValidationError(
+                    f"Invalid event type: {event_type}. Must be one of: {', '.join(sorted(valid_types))}"
+                )
+
+        if len(value) == 0:
+            raise exceptions.ValidationError("At least one event type must be selected.")
+
+        return value
 
     @staticmethod
     def validate_session_recording_linked_flag(value) -> dict | None:

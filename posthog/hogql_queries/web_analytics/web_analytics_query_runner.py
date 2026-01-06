@@ -199,19 +199,30 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
             return None
 
     @cached_property
+    def configured_event_types(self) -> list[str]:
+        event_types = self.team.web_analytics_event_types
+        if not event_types:
+            return ["$pageview", "$screen"]
+        return event_types
+
+    @cached_property
     def event_type_expr(self) -> ast.Expr:
-        exprs: list[ast.Expr] = [
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["event"]), right=ast.Constant(value="$pageview")
-            ),
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["event"]), right=ast.Constant(value="$screen")
-            ),
-        ]
+        exprs: list[ast.Expr] = []
+
+        for event_type in self.configured_event_types:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["event"]),
+                    right=ast.Constant(value=event_type),
+                )
+            )
 
         if self.conversion_goal_expr:
             exprs.append(self.conversion_goal_expr)
 
+        if len(exprs) == 1:
+            return exprs[0]
         return ast.Or(exprs=exprs)
 
     def period_aggregate(
@@ -251,10 +262,26 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
 
         return expr
 
+    @cached_property
+    def session_expansion_enabled(self) -> bool:
+        expansion_enabled = self.team.web_analytics_session_expansion_enabled
+        # Default to True (current behavior) if not explicitly set
+        return expansion_enabled is None or expansion_enabled is True
+
     def session_where(self, include_previous_period: Optional[bool] = None):
+        # When session expansion is enabled, expand the timestamp filter by 1 hour backward
+        # to capture sessions that started before the date range but have events within it.
+        # When disabled, use strict date boundaries like Product Analytics.
+        if self.session_expansion_enabled:
+            timestamp_expr = (
+                "events.timestamp <= {date_to} AND events.timestamp >= minus({date_from}, toIntervalHour(1))"
+            )
+        else:
+            timestamp_expr = "events.timestamp <= {date_to} AND events.timestamp >= {date_from}"
+
         properties = [
             parse_expr(
-                "events.timestamp <= {date_to} AND events.timestamp >= minus({date_from}, toIntervalHour(1))",
+                timestamp_expr,
                 placeholders={
                     "date_from": (
                         self.query_date_range.previous_period_date_from_as_hogql()
@@ -273,18 +300,25 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
         )
 
     def session_having(self, include_previous_period: Optional[bool] = None):
-        properties: list[Union[ast.Expr, EventPropertyFilter]] = [
-            parse_expr(
-                "min_timestamp >= {date_from}",
-                placeholders={
-                    "date_from": (
-                        self.query_date_range.previous_period_date_from_as_hogql()
-                        if include_previous_period
-                        else self.query_date_range.date_from_as_hogql()
-                    ),
-                },
+        properties: list[Union[ast.Expr, EventPropertyFilter]] = []
+
+        # Only apply the min_timestamp filter when session expansion is enabled.
+        # This filters out sessions that started too early (before the expanded window).
+        # When expansion is disabled, we use strict date boundaries in session_where instead.
+        if self.session_expansion_enabled:
+            properties.append(
+                parse_expr(
+                    "min_timestamp >= {date_from}",
+                    placeholders={
+                        "date_from": (
+                            self.query_date_range.previous_period_date_from_as_hogql()
+                            if include_previous_period
+                            else self.query_date_range.date_from_as_hogql()
+                        ),
+                    },
+                )
             )
-        ]
+
         pathname = self.pathname_property_filter
         if pathname:
             properties.append(
@@ -295,6 +329,10 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
                     value=pathname.value,
                 )
             )
+
+        if not properties:
+            return ast.Constant(value=True)
+
         return property_to_expr(
             properties,
             self.team,

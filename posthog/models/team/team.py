@@ -423,6 +423,21 @@ class Team(UUIDTClassicModel):
     web_analytics_pre_aggregated_tables_version = models.CharField(
         max_length=10, default="v2", null=True, choices=[("v1", "v1"), ("v2", "v2")]
     )
+    web_analytics_event_types: ArrayField = field_access_control(
+        ArrayField(
+            models.CharField(max_length=20),
+            default=list,
+            null=True,
+            blank=True,
+        ),
+        "web_analytics",
+        "editor",
+    )
+    web_analytics_session_expansion_enabled = field_access_control(
+        models.BooleanField(default=True, null=True),
+        "web_analytics",
+        "editor",
+    )
 
     # Feature flags
     flags_persistence_default = models.BooleanField(null=True, blank=True, default=False)

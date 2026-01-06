@@ -82,6 +82,10 @@ import {
 import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
 import { UsageMetricsConfig } from './environment/UsageMetricsConfig'
 import { WebAnalyticsEnablePreAggregatedTables } from './environment/WebAnalyticsAPISetting'
+import {
+    WebAnalyticsEventTypesSettings,
+    WebAnalyticsSessionExpansionSettings,
+} from './environment/WebAnalyticsEventSettings'
 import { WebhookIntegration } from './environment/WebhookIntegration'
 import { ApprovalPolicies } from './organization/Approvals/ApprovalPolicies'
 import { ChangeRequestsList } from './organization/Approvals/ChangeRequestsList'
@@ -381,6 +385,16 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Bounce rate page view mode',
                 component: <BounceRatePageViewModeSetting />,
                 flag: 'SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE',
+            },
+            {
+                id: 'web-analytics-event-types',
+                title: 'Event types',
+                component: <WebAnalyticsEventTypesSettings />,
+            },
+            {
+                id: 'web-analytics-session-expansion',
+                title: 'Session expansion',
+                component: <WebAnalyticsSessionExpansionSettings />,
             },
             {
                 id: 'session-join-mode',
