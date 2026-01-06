@@ -533,7 +533,7 @@ async def test_perform_recording_metadata_deletion_with_sessions():
     call_args = mock_client.execute_query.call_args
     query = call_args.args[0] if call_args.args else call_args.kwargs.get("query")
     query_parameters = call_args.kwargs.get("query_parameters")
-    assert "ALTER TABLE session_replay_events" in query
+    assert "ALTER TABLE sharded_session_replay_events" in query
     assert "DELETE WHERE session_id IN" in query
     assert set(query_parameters["session_ids"]) == {"session-1", "session-2", "session-3"}
 

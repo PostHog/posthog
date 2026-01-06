@@ -333,9 +333,10 @@ async def perform_recording_metadata_deletion(input: DeleteRecordingMetadataInpu
     session_id_list = [sid.decode("utf-8") for sid in session_ids]
     logger.info(f"Found {len(session_id_list)} session IDs to delete")
 
-    # Delete from ClickHouse
+    # Delete from ClickHouse - must target the sharded data table directly,
+    # not the Distributed table (which doesn't support mutations)
     query = """
-        ALTER TABLE session_replay_events
+        ALTER TABLE sharded_session_replay_events
         DELETE WHERE session_id IN %(session_ids)s
     """
 
