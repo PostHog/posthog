@@ -770,10 +770,7 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         self.other_user.allow_impersonation = False
         self.other_user.save()
 
-        self.client.post(
-            reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
-            follow=True,
-        )
+        self.login_as_other_user()
 
         # Should still be logged in as original user
         assert self.client.get("/api/users/@me").json()["email"] == self.user.email
@@ -821,9 +818,16 @@ class TestImpersonationBlockedPathsMiddleware(APIBaseTest):
         self.user.is_staff = True
         self.user.save()
 
+        # Use Django's standard Client instead of APIClient for these tests.
+        # The loginas admin view expects form-encoded POST data, which is
+        # Django Client's default (APIClient defaults to JSON).
+        self.client = DjangoClient()
+        self.client.force_login(self.user)
+
     def login_as_other_user(self):
         return self.client.post(
             reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
+            data={"read_only": "false"},
             follow=True,
         )
 
