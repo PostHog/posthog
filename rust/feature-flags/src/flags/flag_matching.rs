@@ -262,22 +262,26 @@ impl FeatureFlagMatcher {
 
         // Compute experience continuity stats from the filtered graph.
         // This considers all flags that will actually be evaluated (including dependencies).
-        let (has_experience_continuity, any_flag_needs_override) = {
-            let mut has_continuity = false;
+        let (experience_continuity_count, any_flag_needs_override) = {
+            let mut continuity_count = 0;
             let mut needs_override = false;
 
             for flag in dependency_graph.iter_nodes() {
                 if flag.has_experience_continuity() {
-                    has_continuity = true;
-                    if flag.needs_hash_key_override() {
+                    continuity_count += 1;
+                    if !needs_override && flag.needs_hash_key_override() {
                         needs_override = true;
-                        break; // Early exit once we know we need the lookup
                     }
                 }
             }
 
-            (has_continuity, needs_override)
+            (continuity_count, needs_override)
         };
+
+        // Log the experience continuity count from the filtered graph
+        with_canonical_log(|log| log.flags_experience_continuity = experience_continuity_count);
+
+        let has_experience_continuity = experience_continuity_count > 0;
 
         // Determine if we need to do the hash key override lookup.
         // In legacy mode (optimization disabled), we always do the lookup if any flag has continuity.
