@@ -1516,4 +1516,48 @@ mod tests {
             "Orphan should be removed after rebalance ends"
         );
     }
+
+    #[tokio::test]
+    async fn test_capacity_cleanup_skips_during_rebalance() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 100, // Very small to trigger cleanup
+        };
+
+        let manager = Arc::new(StoreManager::new(config));
+
+        // Create a store and add data
+        let store = manager.get_or_create("test-topic", 0).await.unwrap();
+        for i in 0..10 {
+            let event = RawEvent {
+                uuid: Some(uuid::Uuid::new_v4()),
+                event: format!("test_event_{i}"),
+                distinct_id: Some(serde_json::Value::String(format!("user_{i}"))),
+                token: Some("test_token".to_string()),
+                timestamp: Some("2021-01-01T00:00:00Z".to_string()),
+                properties: std::collections::HashMap::new(),
+                ..Default::default()
+            };
+            let key = TimestampKey::from(&event);
+            let metadata = TimestampMetadata::new(&event);
+            store.put_timestamp_record(&key, &metadata).unwrap();
+        }
+
+        // Set rebalancing flag
+        manager.set_rebalancing(true);
+        assert!(manager.is_rebalancing());
+
+        // During rebalance, capacity cleanup should skip
+        let freed = manager.cleanup_old_entries_if_needed().unwrap();
+        assert_eq!(freed, 0, "Should skip cleanup during rebalance");
+
+        // Clear rebalancing flag
+        manager.set_rebalancing(false);
+        assert!(!manager.is_rebalancing());
+
+        // Now cleanup should run (may or may not free bytes depending on actual size)
+        let result = manager.cleanup_old_entries_if_needed();
+        assert!(result.is_ok(), "Cleanup should run after rebalance ends");
+    }
 }
