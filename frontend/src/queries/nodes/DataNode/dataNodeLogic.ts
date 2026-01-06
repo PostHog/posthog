@@ -23,7 +23,12 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { shouldCancelQuery, uuid } from 'lib/utils'
 import { ConcurrencyController } from 'lib/utils/concurrencyController'
 import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
-import { compareDataNodeQuery, haveVariablesOrFiltersChanged, validateQuery } from 'scenes/insights/utils/queryUtils'
+import {
+    compareDataNodeQuery,
+    haveVariablesOrFiltersChanged,
+    transformResponseForSeriesNameChange,
+    validateQuery,
+} from 'scenes/insights/utils/queryUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -199,7 +204,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
     })),
     props({ query: {}, variablesOverride: undefined, autoLoad: true } as DataNodeLogicProps),
-    propsChanged(({ actions, props }, oldProps) => {
+    propsChanged(({ actions, props, values }, oldProps) => {
         if (!props.query) {
             return // Can't do anything without a query
         }
@@ -212,6 +217,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         const queryVarsHaveChanged = haveVariablesOrFiltersChanged(props.query, oldProps.query)
 
         const queryStatus = (props.cachedResults?.query_status || null) as QueryStatus | null
+
+        // if the query is semantically unchanged (e.g. we've renamed a series), and we already have results
+        // then we don't need to load it again
+        // if we are currently loading then we know our local cache could be out of date so we shouldn't skip
+        const canSkipLoadingData = !hasQueryChanged && values.response && !values.dataLoading
+
         if (hasQueryChanged && queryStatus?.complete === false) {
             // If there is an incomplete query, load the data with the same query_id which should return its status
             // We need to force a refresh in this case
@@ -238,6 +249,14 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             }
 
             actions.loadData(refreshType)
+        } else if (canSkipLoadingData) {
+            // Query didn't change semantically, but series_name may have changed
+            // Transform response to update if needed (only if no query is in-flight)
+            const transformed = transformResponseForSeriesNameChange(values.response, oldProps.query, props.query)
+
+            if (transformed !== values.response) {
+                actions.setResponse(transformed)
+            }
         } else if (props.cachedResults) {
             // Use cached results if available, otherwise this logic will load the data again
             actions.setResponse(props.cachedResults)
