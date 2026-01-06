@@ -102,6 +102,7 @@ async def analyze_video_segment_activity(
             segment_index=segment.segment_index,
         )
 
+        # We can't do async operations at the workflow level, so we have to fetch team_name in each individual activity here
         team_name = (await Team.objects.only("name").aget(id=inputs.team_id)).name
 
         # Analyze with Gemini using video_metadata to specify the time range
@@ -147,15 +148,6 @@ async def analyze_video_segment_activity(
 
         # Parse response into segments
         segments = []
-
-        if response_text.lower() == "static":
-            # No activity in this segment
-            logger.debug(
-                f"Segment {segment.segment_index} marked as static",
-                session_id=inputs.session_id,
-                segment_index=segment.segment_index,
-            )
-            return []
 
         # Parse bullet points in format: * MM:SS - MM:SS: description
         pattern_colon = r"\*\s+(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2}):\s*(.+?)(?=\n\*|$)"
@@ -210,7 +202,7 @@ Your task:
 - Note any problems, errors, confusion, or friction the user experienced
 - If tracked events show exceptions ($exception_types, $exception_values), validate if they happened in the video
 - Red lines indicate mouse movements, and should be ignored
-- If nothing is happening, return "Static"
+- If nothing is happening, return "Static" for the timestamp range
 
 Output format (use timestamps relative to the FULL recording, starting at {start_timestamp}):
 * MM:SS - MM:SS: <detailed description>
