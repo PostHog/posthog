@@ -38,6 +38,8 @@ from posthog.schema import (
     EventMetadataPropertyFilter,
     EventPropertyFilter,
     EventsNode,
+    FilterLogicalOperator,
+    GroupNode,
     HogQLQueryModifiers,
     InCohortVia,
     IntervalType,
@@ -6362,3 +6364,592 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             response_exact.results[0]["count"],
             "With explicitDate=True, only includes events within the 7-day filter even with relative dates",
         )
+
+    def test_breakdown_other_aggregates_correctly(self):
+        """
+        Test that the "Other" breakdown correctly sums values across all breakdown values
+        that didn't make the top list, rather than taking the maximum.
+        """
+        PropertyDefinition.objects.create(team=self.team, name="category", property_type="String")
+        PropertyDefinition.objects.create(team=self.team, name="ram_mb", property_type="Numeric")
+
+        # Create events with many distinct breakdown values to trigger "Other"
+        # We'll make sure top 3 categories by sum are A, B, C
+        # And D, E go to "Other" with varying ram_mb values to detect sum vs max bug
+
+        # Category A: 10 events with ram_mb=1000 each -> total 10000
+        for i in range(10):
+            _create_event(
+                team=self.team,
+                event="server_created",
+                distinct_id=f"person_a_{i}",
+                timestamp="2020-01-11T12:00:00Z",
+                properties={"category": "A", "ram_mb": 1000},
+            )
+
+        # Category B: 8 events with ram_mb=1000 each -> total 8000
+        for i in range(8):
+            _create_event(
+                team=self.team,
+                event="server_created",
+                distinct_id=f"person_b_{i}",
+                timestamp="2020-01-11T12:00:00Z",
+                properties={"category": "B", "ram_mb": 1000},
+            )
+
+        # Category C: 6 events with ram_mb=1000 each -> total 6000
+        for i in range(6):
+            _create_event(
+                team=self.team,
+                event="server_created",
+                distinct_id=f"person_c_{i}",
+                timestamp="2020-01-11T12:00:00Z",
+                properties={"category": "C", "ram_mb": 1000},
+            )
+
+        # Category D: 3 events -> goes to "Other"
+        # Event 1: ram_mb=500
+        # Event 2: ram_mb=1000
+        # Event 3: ram_mb=2000 <- This is the MAX value in D
+        # Sum: 3500 (correct), Max: 2000 (incorrect if bug exists)
+        _create_event(
+            team=self.team,
+            event="server_created",
+            distinct_id="person_d_1",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"category": "D", "ram_mb": 500},
+        )
+        _create_event(
+            team=self.team,
+            event="server_created",
+            distinct_id="person_d_2",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"category": "D", "ram_mb": 1000},
+        )
+        _create_event(
+            team=self.team,
+            event="server_created",
+            distinct_id="person_d_3",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"category": "D", "ram_mb": 2000},
+        )
+
+        # Category E: 2 events -> goes to "Other"
+        # Event 1: ram_mb=800
+        # Event 2: ram_mb=1200
+        # Sum: 2000
+        _create_event(
+            team=self.team,
+            event="server_created",
+            distinct_id="person_e_1",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"category": "E", "ram_mb": 800},
+        )
+        _create_event(
+            team=self.team,
+            event="server_created",
+            distinct_id="person_e_2",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"category": "E", "ram_mb": 1200},
+        )
+
+        flush_persons_and_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="server_created", math=PropertyMathType.SUM, math_property="ram_mb")],
+            None,
+            BreakdownFilter(breakdown="category", breakdown_type=BreakdownType.EVENT, breakdown_limit=3),
+        )
+
+        # Should have 4 results: A, B, C, and "Other"
+        self.assertEqual(len(response.results), 4)
+
+        breakdown_to_result = {result["breakdown_value"]: result for result in response.results}
+
+        # Verify top 3 categories are correct (by sum: A=10000, B=8000, C=6000)
+        self.assertIn("A", breakdown_to_result)
+        self.assertIn("B", breakdown_to_result)
+        self.assertIn("C", breakdown_to_result)
+        self.assertIn("$$_posthog_breakdown_other_$$", breakdown_to_result)
+
+        # Check the sums for known categories
+        self.assertEqual(breakdown_to_result["A"]["data"][2], 10000.0)  # 10 * 1000
+        self.assertEqual(breakdown_to_result["B"]["data"][2], 8000.0)  # 8 * 1000
+        self.assertEqual(breakdown_to_result["C"]["data"][2], 6000.0)  # 6 * 1000
+
+        # The critical assertion: "Other" should sum D + E
+        # D sum: 500 + 1000 + 2000 = 3500
+        # E sum: 800 + 1200 = 2000
+        # Total Other sum: 5500 (correct)
+        #
+        # If the bug exists and it takes max of each category then sums:
+        # D max: 2000, E max: 1200 -> total 3200 (incorrect)
+        #
+        # Or if it takes the overall max across all "Other" values: 2000 (incorrect)
+        other_result = breakdown_to_result["$$_posthog_breakdown_other_$$"]
+        self.assertEqual(
+            other_result["data"][2],
+            5500.0,
+            "Other should sum all ram_mb values from categories D and E (3500 + 2000 = 5500), not take the max",
+        )
+
+    def test_breakdown_other_with_histogram_bins_and_max_aggregation(self):
+        """
+        Test that the "Other" breakdown with histogram bins and MAX aggregation correctly
+        takes the maximum, not sums values.
+        """
+        PropertyDefinition.objects.create(team=self.team, name="vcpu", property_type="Numeric")
+        PropertyDefinition.objects.create(team=self.team, name="ram_mb", property_type="Numeric")
+
+        # Create events with various vcpu values that will be binned
+        # We'll use MAX aggregation on ram_mb
+
+        # Bin 1: vcpu=[1,2] - should have high max to be in top 2
+        # 5 events with varying ram_mb, max=10000
+        for i, ram in enumerate([1000, 2000, 5000, 8000, 10000]):
+            _create_event(
+                team=self.team,
+                event="server_created",
+                distinct_id=f"person_vcpu1_{i}",
+                timestamp="2020-01-11T12:00:00Z",
+                properties={"vcpu": 1, "ram_mb": ram},
+            )
+
+        # Bin 2: vcpu=[3,4] - should have high max to be in top 2
+        # 5 events with varying ram_mb, max=9000
+        for i, ram in enumerate([1000, 2000, 4000, 7000, 9000]):
+            _create_event(
+                team=self.team,
+                event="server_created",
+                distinct_id=f"person_vcpu3_{i}",
+                timestamp="2020-01-11T12:00:00Z",
+                properties={"vcpu": 3, "ram_mb": ram},
+            )
+
+        # Bin 3: vcpu=[5,6] - will go to "Other"
+        # 3 events, max=3000
+        for i, ram in enumerate([500, 1500, 3000]):
+            _create_event(
+                team=self.team,
+                event="server_created",
+                distinct_id=f"person_vcpu5_{i}",
+                timestamp="2020-01-11T12:00:00Z",
+                properties={"vcpu": 5, "ram_mb": ram},
+            )
+
+        # Bin 4: vcpu=[7,8] - will also go to "Other"
+        # 2 events, max=2500
+        for i, ram in enumerate([1200, 2500]):
+            _create_event(
+                team=self.team,
+                event="server_created",
+                distinct_id=f"person_vcpu7_{i}",
+                timestamp="2020-01-11T12:00:00Z",
+                properties={"vcpu": 7, "ram_mb": ram},
+            )
+
+        flush_persons_and_events()
+
+        # Use histogram bins with MAX aggregation and limit=2
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="server_created", math=PropertyMathType.MAX, math_property="ram_mb")],
+            None,
+            BreakdownFilter(
+                breakdowns=[Breakdown(property="vcpu", histogram_bin_count=4)],
+                breakdown_limit=2,
+            ),
+        )
+
+        # Should have 3 results: 2 bins + "Other"
+        self.assertEqual(len(response.results), 3)
+
+        # Find the "Other" result (breakdown_value is a list when using multiple breakdowns)
+        other_result = None
+        for result in response.results:
+            bv = result["breakdown_value"]
+            if (
+                isinstance(bv, list) and "$$_posthog_breakdown_other_$$" in bv
+            ) or bv == "$$_posthog_breakdown_other_$$":
+                other_result = result
+                break
+
+        self.assertIsNotNone(other_result, "Should have an 'Other' breakdown")
+        assert other_result is not None  # for mypy
+
+        # The critical assertion: "Other" should take MAX of all bins that didn't make top 2
+        # Bin with vcpu=5 has max=3000
+        # Bin with vcpu=7 has max=2500
+        # So "Other" should show max(3000, 2500) = 3000
+        #
+        # If the bug exists and it sums instead of taking max:
+        # It might show 3000 + 2500 = 5500 (incorrect - bigger than the max!)
+        #
+        # The user reported: "the Other suddenly is bigger than the previous max"
+        # which would happen if it's summing (5500) instead of maxing (3000)
+        self.assertEqual(
+            other_result["data"][2],
+            3000.0,
+            "Other with MAX aggregation should take the maximum value across bins (max of 3000 and 2500 = 3000), not sum them (which would be 5500)",
+        )
+
+    def test_breakdown_other_with_histogram_bins_aggregates_correctly(self):
+        """
+        Test that the "Other" breakdown with histogram bins correctly sums values,
+        not takes the maximum.
+        """
+        PropertyDefinition.objects.create(team=self.team, name="vcpu", property_type="Numeric")
+        PropertyDefinition.objects.create(team=self.team, name="ram_mb", property_type="Numeric")
+
+        # We'll create events with various vcpu values that will be binned
+        # and have different ram_mb values to aggregate
+
+        # Bin 1: vcpu=[1,2] - should have high total to be in top 2
+        # 10 events with vcpu=1, ram_mb=1000 each -> total 10000
+        for i in range(10):
+            _create_event(
+                team=self.team,
+                event="server_created",
+                distinct_id=f"person_vcpu1_{i}",
+                timestamp="2020-01-11T12:00:00Z",
+                properties={"vcpu": 1, "ram_mb": 1000},
+            )
+
+        # Bin 2: vcpu=[3,4] - should have high total to be in top 2
+        # 8 events with vcpu=3, ram_mb=1000 each -> total 8000
+        for i in range(8):
+            _create_event(
+                team=self.team,
+                event="server_created",
+                distinct_id=f"person_vcpu3_{i}",
+                timestamp="2020-01-11T12:00:00Z",
+                properties={"vcpu": 3, "ram_mb": 1000},
+            )
+
+        # Bin 3: vcpu=[5,6] - will go to "Other"
+        # 3 events with varying ram_mb values
+        _create_event(
+            team=self.team,
+            event="server_created",
+            distinct_id="person_vcpu5_1",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"vcpu": 5, "ram_mb": 500},
+        )
+        _create_event(
+            team=self.team,
+            event="server_created",
+            distinct_id="person_vcpu5_2",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"vcpu": 5, "ram_mb": 1000},
+        )
+        _create_event(
+            team=self.team,
+            event="server_created",
+            distinct_id="person_vcpu5_3",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"vcpu": 5, "ram_mb": 3000},  # <- MAX value is 3000
+        )
+        # vcpu=5 total: 500 + 1000 + 3000 = 4500
+
+        # Bin 4: vcpu=[7,8] - will also go to "Other"
+        # 2 events
+        _create_event(
+            team=self.team,
+            event="server_created",
+            distinct_id="person_vcpu7_1",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"vcpu": 7, "ram_mb": 800},
+        )
+        _create_event(
+            team=self.team,
+            event="server_created",
+            distinct_id="person_vcpu7_2",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"vcpu": 7, "ram_mb": 1200},
+        )
+        # vcpu=7 total: 800 + 1200 = 2000
+
+        flush_persons_and_events()
+
+        # Use histogram bins with limit=2, so bins for vcpu=5 and vcpu=7 should go to "Other"
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="server_created", math=PropertyMathType.SUM, math_property="ram_mb")],
+            None,
+            BreakdownFilter(
+                breakdowns=[Breakdown(property="vcpu", histogram_bin_count=4)],
+                breakdown_limit=2,
+            ),
+        )
+
+        # Should have 3 results: 2 bins + "Other"
+        self.assertEqual(len(response.results), 3)
+
+        # Find the "Other" result (breakdown_value is a list when using multiple breakdowns)
+        other_result = None
+        for result in response.results:
+            bv = result["breakdown_value"]
+            if (
+                isinstance(bv, list) and "$$_posthog_breakdown_other_$$" in bv
+            ) or bv == "$$_posthog_breakdown_other_$$":
+                other_result = result
+                break
+
+        self.assertIsNotNone(other_result, "Should have an 'Other' breakdown")
+        assert other_result is not None  # for mypy
+
+        # The critical assertion: "Other" should sum all bins that didn't make top 2
+        # This should be: 4500 (vcpu=5) + 2000 (vcpu=7) = 6500
+        #
+        # If the bug exists, it might show:
+        # - 3000 (the max single value across all "Other" events)
+        # - 4500 (max of the bin totals if those were computed incorrectly)
+        # - Some other incorrect value
+        self.assertEqual(
+            other_result["data"][2],
+            6500.0,
+            "Other should sum all ram_mb values from bins that didn't make the top 2 (4500 + 2000 = 6500), not take the max",
+        )
+
+    def test_group_node_or_operator_combines_events(self):
+        """Test that GroupNode with OR operator correctly combines multiple events"""
+        self._create_test_events()
+        flush_persons_and_events()
+
+        # Create a GroupNode that combines $pageview OR $pageleave with OR operator
+        group_node = GroupNode(
+            operator=FilterLogicalOperator.OR_,
+            nodes=[
+                EventsNode(event="$pageview"),
+                EventsNode(event="$pageleave"),
+            ],
+        )
+
+        response = TrendsQueryRunner(
+            query=TrendsQuery(
+                dateRange=DateRange(
+                    date_from=self.default_date_from,
+                    date_to=self.default_date_to,
+                ),
+                interval=IntervalType.DAY,
+                series=[group_node],
+            ),
+            team=self.team,
+        ).calculate()
+
+        self.assertEqual(1, len(response.results))
+        # Should combine all $pageview (10) + $pageleave (6) events = 16 total
+        self.assertEqual(16, response.results[0]["count"])
+        # Label should show combined events
+        self.assertEqual("$pageview, $pageleave", response.results[0]["label"])
+
+    def test_group_node_with_actions(self):
+        """Test that GroupNode works with ActionsNode"""
+        self._create_test_events()
+        flush_persons_and_events()
+
+        # Create an action for pageview
+        page_action = Action.objects.create(
+            team=self.team,
+            name="Pageview Action",
+            steps_json=[
+                {"event": "$pageview"},
+                {"event": "$pageleave"},
+            ],
+        )
+
+        group_node = GroupNode(
+            operator=FilterLogicalOperator.OR_,
+            nodes=[
+                ActionsNode(id=page_action.id),
+                EventsNode(event="$pageleave"),
+            ],
+        )
+
+        response = TrendsQueryRunner(
+            query=TrendsQuery(
+                dateRange=DateRange(
+                    date_from=self.default_date_from,
+                    date_to=self.default_date_to,
+                ),
+                interval=IntervalType.DAY,
+                series=[group_node],
+            ),
+            team=self.team,
+        ).calculate()
+
+        self.assertEqual(1, len(response.results))
+        # Should have the action name in the label
+        self.assertIn("Pageview Action", response.results[0]["label"])
+        self.assertIn("$pageleave", response.results[0]["label"])
+        # Action matches pageview (10) + pageleave (6), combined with pageleave event (6) via OR = 16 total
+        self.assertEqual(16, response.results[0]["count"])
+
+    def test_group_node_with_breakdown(self):
+        """Test that GroupNode works correctly with breakdowns"""
+        self._create_test_events()
+        flush_persons_and_events()
+
+        group_node = GroupNode(
+            operator=FilterLogicalOperator.OR_,
+            nodes=[
+                EventsNode(event="$pageview"),
+                EventsNode(event="$pageleave"),
+            ],
+        )
+
+        response = TrendsQueryRunner(
+            query=TrendsQuery(
+                dateRange=DateRange(
+                    date_from=self.default_date_from,
+                    date_to=self.default_date_to,
+                ),
+                interval=IntervalType.DAY,
+                series=[group_node],
+                breakdownFilter=BreakdownFilter(
+                    breakdown="$browser",
+                    breakdown_type=BreakdownType.EVENT,
+                ),
+            ),
+            team=self.team,
+        ).calculate()
+
+        # Should have breakdown by browser
+        self.assertGreater(len(response.results), 1)
+        # Check that breakdown values are present
+        breakdown_values = [r["breakdown_value"] for r in response.results]
+        self.assertIn("Chrome", breakdown_values)
+        self.assertIn("Firefox", breakdown_values)
+
+    def test_group_node_with_properties_filter(self):
+        """Test that GroupNode respects properties filters"""
+        self._create_test_events()
+        flush_persons_and_events()
+
+        # Create a GroupNode with property filters on the values
+        group_node = GroupNode(
+            operator=FilterLogicalOperator.OR_,
+            nodes=[
+                EventsNode(
+                    event="$pageview",
+                    properties=[
+                        EventPropertyFilter(
+                            key="$browser",
+                            value="Chrome",
+                            operator=PropertyOperator.EXACT,
+                            type="event",
+                        )
+                    ],
+                ),
+                EventsNode(event="$pageleave"),
+            ],
+        )
+
+        response = TrendsQueryRunner(
+            query=TrendsQuery(
+                dateRange=DateRange(
+                    date_from=self.default_date_from,
+                    date_to=self.default_date_to,
+                ),
+                interval=IntervalType.DAY,
+                series=[group_node],
+            ),
+            team=self.team,
+        ).calculate()
+
+        self.assertEqual(1, len(response.results))
+        # Should only count Chrome $pageview events + all $pageleave events
+        # Chrome has 6 pageviews, all users have 6 pageleave total
+        self.assertEqual(12, response.results[0]["count"])
+
+    def test_mixed_series_group_event_and_action(self):
+        """
+        Test a query with 3 different series types:
+        1. GroupNode with 1 event ($pageleave) + 1 action (Page Action that combines pageview + pageleave)
+        2. Single EventsNode ($pageview)
+        3. Single ActionsNode (Pageview Action)
+        """
+        self._create_test_events()
+        flush_persons_and_events()
+
+        # Page Action combines both pageview and pageleave events
+        page_action = Action.objects.create(
+            team=self.team,
+            name="Page Action",
+            steps_json=[
+                {"event": "$pageview"},
+                {"event": "$pageleave"},
+            ],
+        )
+
+        pageview_action = Action.objects.create(
+            team=self.team,
+            name="Pageview Action",
+            steps_json=[
+                {"event": "$pageview"},
+            ],
+        )
+
+        # Series 1: GroupNode with 1 event + 1 action
+        group_node = GroupNode(
+            operator=FilterLogicalOperator.OR_,
+            nodes=[
+                EventsNode(event="$pageleave"),
+                ActionsNode(id=page_action.id),
+            ],
+        )
+
+        # Series 2: Single EventsNode
+        single_event = EventsNode(event="$pageview")
+
+        # Series 3: Single ActionsNode
+        single_action = ActionsNode(id=pageview_action.id)
+
+        response = TrendsQueryRunner(
+            query=TrendsQuery(
+                dateRange=DateRange(
+                    date_from=self.default_date_from,
+                    date_to=self.default_date_to,
+                ),
+                interval=IntervalType.DAY,
+                series=[
+                    group_node,
+                    single_event,
+                    single_action,
+                ],
+            ),
+            team=self.team,
+        ).calculate()
+
+        # Should have results for all 3 series
+        self.assertEqual(3, len(response.results))
+
+        # First result: GroupNode ($pageleave event OR Page Action)
+        # Page Action matches both $pageview (10) and $pageleave (6) = 16 total
+        # With OR operator: $pageleave OR Page Action = all 16 events (since Page Action already includes pageleave)
+        self.assertEqual(16, response.results[0]["count"])
+        self.assertIn("$pageleave", response.results[0]["label"])
+        self.assertIn("Page Action", response.results[0]["label"])
+        self.assertEqual(0, response.results[0]["action"]["order"])
+
+        # Second result: EventsNode (pageview only)
+        self.assertEqual(10, response.results[1]["count"])
+        self.assertEqual("$pageview", response.results[1]["label"])
+        self.assertEqual(1, response.results[1]["action"]["order"])
+
+        # Third result: ActionsNode (Pageview Action - matches only $pageview)
+        self.assertEqual(10, response.results[2]["count"])
+        self.assertEqual("Pageview Action", response.results[2]["label"])
+        self.assertEqual(2, response.results[2]["action"]["order"])
+
+        # Verify all series have proper data arrays
+        for result in response.results:
+            self.assertEqual(11, len(result["data"]), "Should have 11 days of data")
+            self.assertEqual(result["count"], sum(result["data"]), "Count should equal sum of data points")

@@ -40,6 +40,12 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Actions: () => import('../../products/actions/frontend/pages/Actions'),
     Action: () => import('../../products/actions/frontend/pages/Action'),
     NewAction: () => import('../../products/actions/frontend/pages/Action'),
+    ConversationsTickets: () =>
+        import('../../products/conversations/frontend/scenes/tickets/ConversationsTicketsScene'),
+    ConversationsTicketDetail: () =>
+        import('../../products/conversations/frontend/scenes/ticket/ConversationsTicketScene'),
+    ConversationsSettings: () =>
+        import('../../products/conversations/frontend/scenes/settings/ConversationsSettingsScene'),
     CustomerAnalytics: () => import('../../products/customer_analytics/frontend/CustomerAnalyticsScene'),
     CustomerAnalyticsConfiguration: () =>
         import(
@@ -49,7 +55,6 @@ export const productScenes: Record<string, () => Promise<any>> = {
     EarlyAccessFeatures: () => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
     EarlyAccessFeature: () => import('../../products/early_access_features/frontend/EarlyAccessFeature'),
     EndpointsScene: () => import('../../products/endpoints/frontend/EndpointsScene'),
-    EndpointsUsage: () => import('../../products/endpoints/frontend/EndpointsUsage'),
     EndpointScene: () => import('../../products/endpoints/frontend/EndpointScene'),
     ErrorTracking: () => import('../../products/error_tracking/frontend/scenes/ErrorTrackingScene/ErrorTrackingScene'),
     ErrorTrackingIssue: () =>
@@ -100,6 +105,9 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-management/actions/new': ['NewAction', 'actionNew'],
     '/data-management/actions/:id': ['Action', 'action'],
     '/data-management/actions/new/': ['NewAction', 'actionNew'],
+    '/conversations/tickets': ['ConversationsTickets', 'conversationsTickets'],
+    '/conversations/tickets/:ticketId': ['ConversationsTicketDetail', 'conversationsTicketDetail'],
+    '/conversations/settings': ['ConversationsSettings', 'conversationsSettings'],
     '/customer_analytics': ['CustomerAnalytics', 'customerAnalytics'],
     '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
     '/data-warehouse': ['DataWarehouse', 'dataWarehouse'],
@@ -163,6 +171,7 @@ export const productRedirects: Record<
     string,
     string | ((params: Params, searchParams: Params, hashParams: Params) => string)
 > = {
+    '/conversations': '/conversations/tickets',
     '/llm-observability': (_params, searchParams, hashParams) =>
         combineUrl(`/llm-analytics`, searchParams, hashParams).url,
     '/llm-observability/dashboard': (_params, searchParams, hashParams) =>
@@ -204,6 +213,9 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'Action',
         iconType: 'action',
     },
+    ConversationsTickets: { name: 'Ticket list', projectBased: true, layout: 'app-container' },
+    ConversationsTicketDetail: { name: 'Ticket detail', projectBased: true, layout: 'app-container' },
+    ConversationsSettings: { name: 'Conversations settings', projectBased: true, layout: 'app-container' },
     CustomerAnalytics: {
         defaultDocsPath: '/docs/customer-analytics',
         projectBased: true,
@@ -253,13 +265,6 @@ export const productConfiguration: Record<string, any> = {
         defaultDocsPath: '/docs/endpoints',
         iconType: 'endpoints',
         description: 'Define queries your application will use via the API and monitor their cost and usage.',
-    },
-    EndpointsUsage: {
-        projectBased: true,
-        name: 'Endpoints usage',
-        activityScope: 'Endpoints',
-        layout: 'app-container',
-        iconType: 'endpoints',
     },
     EndpointScene: { projectBased: true, name: 'Endpoint', activityScope: 'Endpoint' },
     ErrorTracking: {
@@ -363,6 +368,7 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'logs',
         description: 'Monitor and analyze your logs to understand and fix issues.',
         defaultDocsPath: '/docs/logs',
+        changelogTeamSlug: 'Logs',
     },
     ManagedMigration: { name: 'Managed migrations', projectBased: true },
     ManagedMigrationNew: { name: 'Managed migrations', projectBased: true },
@@ -425,6 +431,10 @@ export const productUrls = {
     cohort: (id: string | number): string => `/cohorts/${id}`,
     cohorts: (): string => '/cohorts',
     cohortCalculationHistory: (id: string | number): string => `/cohorts/${id}/calculation-history`,
+    conversationsDashboard: (): string => '/conversations',
+    conversationsTickets: (): string => '/conversations/tickets',
+    conversationsTicketDetail: (ticketId: string | number): string => `/conversations/tickets/${ticketId}`,
+    conversationsSettings: (): string => '/conversations/settings',
     customerAnalytics: (): string => '/customer_analytics',
     customerAnalyticsConfiguration: (): string => '/customer_analytics/configuration',
     dashboards: (): string => '/dashboard',
@@ -443,14 +453,36 @@ export const productUrls = {
     endpoints: (): string => '/endpoints',
     endpoint: (name: string): string => `/endpoints/${name}`,
     endpointsUsage: (params?: {
+        endpointFilter?: string[]
         dateFrom?: string
         dateTo?: string
-        requestNameBreakdownEnabled?: string
-        requestNameFilter?: string[]
+        materializationType?: 'materialized' | 'inline'
+        interval?: string
+        breakdownBy?: string
     }): string => {
-        const queryParams = new URLSearchParams(params as Record<string, string>)
-        const stringifiedParams = queryParams.toString()
-        return `/endpoints/usage${stringifiedParams ? `?${stringifiedParams}` : ''}`
+        if (!params) {
+            return '/endpoints/usage'
+        }
+        const searchParams: Record<string, string> = {}
+        if (params.endpointFilter?.length) {
+            searchParams.endpointFilter = params.endpointFilter.join(',')
+        }
+        if (params.dateFrom) {
+            searchParams.dateFrom = params.dateFrom
+        }
+        if (params.dateTo) {
+            searchParams.dateTo = params.dateTo
+        }
+        if (params.materializationType) {
+            searchParams.materializationType = params.materializationType
+        }
+        if (params.interval) {
+            searchParams.interval = params.interval
+        }
+        if (params.breakdownBy) {
+            searchParams.breakdownBy = params.breakdownBy
+        }
+        return combineUrl('/endpoints/usage', searchParams).url
     },
     errorTracking: (params = {}): string => combineUrl('/error_tracking', params).url,
     errorTrackingConfiguration: (params = {}): string => combineUrl('/error_tracking/configuration', params).url,
@@ -650,6 +682,7 @@ export const productUrls = {
     webAnalyticsPageReports: (): string => `/web/page-reports`,
     webAnalyticsMarketing: (): string => `/web/marketing`,
     webAnalyticsHealth: (): string => `/web/health`,
+    webAnalyticsLive: (): string => `/web/live`,
     workflows: (tab?: WorkflowsSceneTab): string => `/workflows${tab ? `/${tab}` : ''}`,
     workflow: (id: string, tab: string): string => `/workflows/${id}/${tab}`,
     workflowNew: (): string => '/workflows/new/workflow',
@@ -957,6 +990,19 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
+        path: 'Conversations',
+        intents: [ProductKey.CONVERSATIONS],
+        category: 'Unreleased',
+        href: urls.conversationsTickets(),
+        type: 'conversations',
+        flag: FEATURE_FLAGS.PRODUCT_CONVERSATIONS,
+        tags: ['alpha'],
+        iconType: 'conversations',
+        iconColor: ['var(--color-product-conversations-light)'] as FileSystemIconColor,
+        sceneKey: 'ConversationsTickets',
+        sceneKeys: ['ConversationsTickets', 'ConversationsTicketDetail', 'ConversationsSettings'],
+    },
+    {
         path: 'Customer analytics',
         intents: [ProductKey.CUSTOMER_ANALYTICS],
         category: 'Analytics',
@@ -1024,7 +1070,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'endpoints',
         iconColor: ['var(--color-product-endpoints-light)'] as FileSystemIconColor,
         sceneKey: 'EndpointsScene',
-        sceneKeys: ['EndpointsScene', 'EndpointsUsage', 'EndpointScene'],
+        sceneKeys: ['EndpointsScene', 'EndpointScene'],
     },
     {
         path: 'Error tracking',
@@ -1128,7 +1174,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'logs' as FileSystemIconType,
         iconColor: ['var(--color-product-logs-light)'] as FileSystemIconColor,
         href: urls.logs(),
-        flag: FEATURE_FLAGS.LOGS_PRE_EARLY_ACCESS,
         tags: ['beta'],
         sceneKey: 'Logs',
         sceneKeys: ['Logs'],
@@ -1302,6 +1347,17 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         sceneKeys: ['Comments'],
     },
     {
+        path: 'Conversations',
+        category: 'Unreleased',
+        iconType: 'conversations' as FileSystemIconType,
+        iconColor: ['var(--color-product-conversations-light)'] as FileSystemIconColor,
+        href: urls.conversationsTickets(),
+        sceneKey: 'ConversationsTickets',
+        flag: FEATURE_FLAGS.PRODUCT_CONVERSATIONS,
+        tags: ['alpha'],
+        sceneKeys: ['ConversationsTickets', 'ConversationsTicketDetail', 'ConversationsSettings'],
+    },
+    {
         path: 'Core events',
         category: 'Schema',
         iconType: 'event_definition' as FileSystemIconType,
@@ -1337,7 +1393,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         sceneKey: 'EndpointsScene',
         flag: FEATURE_FLAGS.ENDPOINTS,
         tags: ['beta'],
-        sceneKeys: ['EndpointsScene', 'EndpointsUsage', 'EndpointScene'],
+        sceneKeys: ['EndpointsScene', 'EndpointScene'],
     },
     {
         path: 'Event definitions',

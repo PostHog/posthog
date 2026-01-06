@@ -32,6 +32,7 @@ describe('externalDataSourcesLogic', () => {
                     status: 'Running',
                     schemas: [],
                     prefix: 'test',
+                    description: null,
                     latest_error: null,
                     revenue_analytics_config: {
                         enabled: false,

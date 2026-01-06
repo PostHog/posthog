@@ -1,4 +1,4 @@
-import { IconBrackets, IconChevronRight, IconPin, IconPinFilled } from '@posthog/icons'
+import { IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel, TZLabelProps } from 'lib/components/TZLabel'
@@ -7,11 +7,10 @@ import { cn } from 'lib/utils/css-classes'
 import { LogMessage } from '~/queries/schema/schema-general'
 
 import { ExpandedLogContent } from 'products/logs/frontend/components/LogsViewer/ExpandedLogContent'
-import { LogsViewerRowActions } from 'products/logs/frontend/components/LogsViewer/LogsViewerRowActions'
+import { LogRowFAB } from 'products/logs/frontend/components/LogsViewer/LogRowFAB/LogRowFAB'
 import { AttributeCell } from 'products/logs/frontend/components/VirtualizedLogsList/cells/AttributeCell'
 import { MessageCell } from 'products/logs/frontend/components/VirtualizedLogsList/cells/MessageCell'
 import {
-    ACTIONS_WIDTH,
     CHECKBOX_WIDTH,
     EXPAND_WIDTH,
     RESIZER_HANDLE_WIDTH,
@@ -45,7 +44,7 @@ export interface LogRowProps {
     tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime' | 'displayTimezone'>
     onTogglePin: (log: ParsedLogMessage) => void
     onToggleExpand: () => void
-    onSetCursor: () => void
+    onSetCursor?: () => void
     rowWidth?: number
     attributeColumns?: string[]
     attributeColumnWidths?: Record<string, number>
@@ -94,7 +93,7 @@ export function LogRow({
             e.preventDefault()
             onShiftClick(logIndex)
         } else {
-            onSetCursor()
+            onSetCursor?.()
         }
     }
 
@@ -106,11 +105,10 @@ export function LogRow({
             <div
                 style={{ gap: ROW_GAP }}
                 className={cn(
-                    'flex items-center cursor-pointer hover:bg-fill-highlight-100 group',
+                    'relative flex items-center cursor-pointer hover:bg-fill-highlight-100 group',
                     isSelected && 'bg-fill-highlight-100',
                     isAtCursor && 'bg-primary-highlight',
-                    pinned && 'bg-warning-highlight',
-                    pinned && showPinnedWithOpacity && 'opacity-50'
+                    pinned && showPinnedWithOpacity && 'bg-warning-highlight opacity-50'
                 )}
                 onMouseDown={handleMouseDown}
             >
@@ -177,38 +175,15 @@ export function LogRow({
                     style={getMessageStyle(flexWidth)}
                 />
 
-                {/* Actions */}
-                <div className="flex items-center gap-1 justify-end shrink-0 px-1" style={{ width: ACTIONS_WIDTH }}>
-                    <LemonButton
-                        size="xsmall"
-                        noPadding
-                        icon={<IconBrackets />}
-                        onClick={(e) => {
-                            e.preventDefault()
-                            onTogglePrettify?.(log)
-                        }}
-                        onMouseDown={(e) => e.stopPropagation()}
-                        tooltip={isPrettified ? 'Collapse JSON' : 'Prettify JSON'}
-                        className={cn(
-                            isPrettified ? 'text-brand-blue' : 'text-muted opacity-0 group-hover:opacity-100'
-                        )}
-                    />
-                    <LemonButton
-                        size="xsmall"
-                        noPadding
-                        icon={pinned ? <IconPinFilled /> : <IconPin />}
-                        onClick={(e) => {
-                            e.preventDefault()
-                            onTogglePin(log)
-                        }}
-                        onMouseDown={(e) => e.stopPropagation()}
-                        tooltip={pinned ? 'Unpin log' : 'Pin log'}
-                        className={cn(pinned ? 'text-warning' : 'text-muted opacity-0 group-hover:opacity-100')}
-                    />
-                    <div className="opacity-0 group-hover:opacity-100" onMouseDown={(e) => e.stopPropagation()}>
-                        <LogsViewerRowActions log={log} />
-                    </div>
-                </div>
+                {/* Actions FAB */}
+                <LogRowFAB
+                    log={log}
+                    pinned={pinned}
+                    isPrettified={isPrettified}
+                    onTogglePin={onTogglePin}
+                    onTogglePrettify={onTogglePrettify}
+                    showScrollButtons={!wrapBody}
+                />
             </div>
             {isExpanded && <ExpandedLogContent log={log} logIndex={logIndex} />}
         </div>

@@ -358,12 +358,12 @@ export type AssistantTool =
     | 'search_session_recordings'
     | 'fix_hogql_query'
     | 'analyze_user_interviews'
-    | 'create_and_query_insight'
     | 'create_hog_transformation_function'
     | 'create_hog_function_filters'
     | 'create_hog_function_inputs'
     | 'create_message_template'
     | 'filter_error_tracking_issues'
+    | 'search_error_tracking_issues'
     | 'find_error_tracking_impactful_issue_event_list'
     | 'error_tracking_explain_issue'
     | 'experiment_results_summary'
@@ -400,6 +400,7 @@ export enum AgentMode {
     ProductAnalytics = 'product_analytics',
     SQL = 'sql',
     SessionReplay = 'session_replay',
+    ErrorTracking = 'error_tracking',
 }
 
 export enum SlashCommandName {
@@ -455,6 +456,7 @@ export enum AssistantNavigateUrl {
     WebAnalytics = 'webAnalytics',
     WebAnalyticsWebVitals = 'webAnalyticsWebVitals',
     WebAnalyticsHealth = 'webAnalyticsHealth',
+    WebAnalyticsLive = 'webAnalyticsLive',
     Persons = 'persons',
 }
 

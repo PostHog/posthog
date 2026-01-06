@@ -429,6 +429,9 @@ importers:
       '@posthog/products-cohorts':
         specifier: workspace:*
         version: link:../products/cohorts
+      '@posthog/products-conversations':
+        specifier: workspace:*
+        version: link:../products/conversations
       '@posthog/products-customer-analytics':
         specifier: workspace:*
         version: link:../products/customer_analytics
@@ -814,8 +817,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.310.1
-        version: 1.310.1
+        specifier: 1.314.0
+        version: 1.314.0
       posthog-js-lite:
         specifier: 4.2.2
         version: 4.2.2
@@ -1152,16 +1155,7 @@ importers:
         specifier: ^2.3.2
         version: 2.3.3
 
-  playwright:
-    dependencies:
-      '@playwright/test':
-        specifier: 1.45.0
-        version: 1.45.0
-      '@posthog/frontend':
-        specifier: workspace:*
-        version: link:../frontend
-
-  plugin-server:
+  nodejs:
     dependencies:
       '@amplitude/ua-parser-js':
         specifier: ^0.7.33
@@ -1501,6 +1495,15 @@ importers:
         specifier: ^4.7.0
         version: 4.20.5
 
+  playwright:
+    dependencies:
+      '@playwright/test':
+        specifier: 1.45.0
+        version: 1.45.0
+      '@posthog/frontend':
+        specifier: workspace:*
+        version: link:../frontend
+
   products/actions:
     dependencies:
       '@posthog/icons':
@@ -1565,6 +1568,39 @@ importers:
       react:
         specifier: '*'
         version: 18.2.0
+
+  products/conversations:
+    dependencies:
+      '@posthog/icons':
+        specifier: 0.35.2
+        version: 0.35.2(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@posthog/lemon-ui':
+        specifier: '*'
+        version: 0.0.0(antd@5.26.0(date-fns@2.29.3)(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0))(kea-router@3.4.1(kea@3.1.7(react@18.2.0)))(kea@3.1.7(react@18.2.0))(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@types/react':
+        specifier: '*'
+        version: 17.0.52
+      '@types/react-dom':
+        specifier: '*'
+        version: 18.3.7(@types/react@17.0.52)
+      clsx:
+        specifier: '*'
+        version: 1.2.1
+      kea:
+        specifier: ^3.1.7
+        version: 3.1.7(react@18.2.0)
+      kea-loaders:
+        specifier: ^3.1.1
+        version: 3.1.1(kea@3.1.7(react@18.2.0))
+      kea-router:
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.7(react@18.2.0))
+      react:
+        specifier: '*'
+        version: 18.2.0
+      react-dom:
+        specifier: '*'
+        version: 18.2.0(react@18.2.0)
 
   products/customer_analytics:
     dependencies:
@@ -1746,8 +1782,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.310.1
-        version: 1.310.1
+        specifier: 1.314.0
+        version: 1.314.0
       react:
         specifier: '*'
         version: 18.2.0
@@ -2062,6 +2098,9 @@ importers:
       kea-router:
         specifier: ^3.4.1
         version: 3.4.1(kea@3.1.7(react@18.2.0))
+      kea-subscriptions:
+        specifier: ^3.0.1
+        version: 3.0.1(kea@3.1.7(react@18.2.0))
       papaparse:
         specifier: '*'
         version: 5.4.1
@@ -2382,8 +2421,8 @@ importers:
         specifier: ^3.4.1
         version: 3.4.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.310.1
-        version: 1.310.1
+        specifier: 1.314.0
+        version: 1.314.0
       react:
         specifier: '*'
         version: 18.2.0
@@ -2454,8 +2493,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.310.1
-        version: 1.310.1
+        specifier: 1.314.0
+        version: 1.314.0
       react:
         specifier: '*'
         version: 18.2.0
@@ -16452,8 +16491,8 @@ packages:
   posthog-js-lite@4.2.2:
     resolution: {integrity: sha512-fFCoGtMICWwoW0tsEdyFS7OFFgwe7bTTha/SKEtUdyJ56UyJ8wi6VghxyPkO2GVWpco5Za/edT1z1ovGYPCyLQ==}
 
-  posthog-js@1.310.1:
-    resolution: {integrity: sha512-UkR6zzlWNtqHDXHJl2Yk062DOmZyVKTPL5mX4j4V+u3RiYbMHJe47+PpMMUsvK1R2e1r/m9uSlHaJMJRzyUjGg==}
+  posthog-js@1.314.0:
+    resolution: {integrity: sha512-qW1T73UAFpA0g2Ln0blsOUJxRhv0Tn4DrPdhGyTpw+MupW+qvVjzEg/i9jWQ4Al+8AkrNcmZFafJcSWXxWsWqg==}
 
   posthog-node@5.10.4:
     resolution: {integrity: sha512-sy020/Q4mt18eCkVo/cGEJD+wgdxeg5DTgNUaA85awBCbuEP43BOdCTOOw/K2Tvgw2oZfag3PFyhkVuQ6nJfBg==}
@@ -16483,6 +16522,9 @@ packages:
 
   preact@10.28.0:
     resolution: {integrity: sha512-rytDAoiXr3+t6OIP3WGlDd0ouCUG1iCWzkcY3++Nreuoi17y6T5i/zRhe6uYfoVcxq6YU+sBtJouuRDsq8vvqA==}
+
+  preact@10.28.1:
+    resolution: {integrity: sha512-u1/ixq/lVQI0CakKNvLDEcW5zfCjUQfZdK9qqWuIJtsezuyG6pk9TWj75GMuI/EzRSZB/VAE43sNWWZfiy8psw==}
 
   prelude-ls@1.2.1:
     resolution: {integrity: sha512-vkcDPrRZo1QZLbn5RLGPpg/WmIQ65qoWWhcGKf/b5eplkkarX0m9z8ppCat4mlOqUsWpyNuYgO3VRyrYHSzX5g==}
@@ -16719,6 +16761,10 @@ packages:
 
   qs@6.14.0:
     resolution: {integrity: sha512-YWWTjgABSKcvs/nWBi9PycY/JiPJqOD4JA6o9Sej2AtvSGarXxKC3OQSk4pAarbdQlKAh5D4FCQkJNkW+GAn3w==}
+    engines: {node: '>=0.6'}
+
+  qs@6.14.1:
+    resolution: {integrity: sha512-4EK3+xJl8Ts67nLYNwqw/dsFVnCf+qR7RgXSK9jEEm9unao3njwMDdmsdvoKBKHzxd7tCYz5e5M+SnMjdtXGQQ==}
     engines: {node: '>=0.6'}
 
   qs@6.9.7:
@@ -28280,7 +28326,7 @@ snapshots:
     dependencies:
       '@storybook/client-logger': 7.6.20
       memoizerific: 1.11.3
-      qs: 6.14.0
+      qs: 6.14.1
 
   '@storybook/router@7.6.4':
     dependencies:
@@ -38211,12 +38257,12 @@ snapshots:
     dependencies:
       '@posthog/core': 1.7.1
 
-  posthog-js@1.310.1:
+  posthog-js@1.314.0:
     dependencies:
       '@posthog/core': 1.9.0
       core-js: 3.40.0
       fflate: 0.4.8
-      preact: 10.28.0
+      preact: 10.28.1
       web-vitals: 4.2.4
 
   posthog-node@5.10.4:
@@ -38245,6 +38291,8 @@ snapshots:
   pprof-format@2.2.1: {}
 
   preact@10.28.0: {}
+
+  preact@10.28.1: {}
 
   prelude-ls@1.2.1: {}
 
@@ -38534,6 +38582,10 @@ snapshots:
       side-channel: 1.1.0
 
   qs@6.14.0:
+    dependencies:
+      side-channel: 1.1.0
+
+  qs@6.14.1:
     dependencies:
       side-channel: 1.1.0
 

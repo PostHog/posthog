@@ -171,6 +171,7 @@ impl CheckpointManager {
                             debug!("No stores to flush");
                             continue;
                         }
+
                         info!("Checkpoint manager: attempting checkpoint submission for {} stores", store_count);
 
                         // Attempt to checkpoint each partitions' backing store in
@@ -259,7 +260,6 @@ impl CheckpointManager {
                                 // store manager when the worker thread has started executing
                                 let target_store = match worker_store_manager.get(partition.topic(), partition.partition_number()) {
                                     Some(store) => store,
-
                                     _ => {
                                         metrics::counter!(CHECKPOINT_STORE_NOT_FOUND_COUNTER).increment(1);
                                         warn!(partition = partition_tag, "Checkpoint worker thread: partition no longer owned by store manager, skipping");

@@ -81,8 +81,9 @@ def wrap_query_error(err: Exception) -> Exception:
 
     meta = look_up_error_code_meta(err)
 
-    if meta.name in CLICKHOUSE_SPECIFIC_ERROR_LOOKUP:
-        return CLICKHOUSE_SPECIFIC_ERROR_LOOKUP[meta.name]
+    specific_error = get_specific_clickhouse_error(meta.name, err.message, err.code)
+    if specific_error is not None:
+        return specific_error
 
     name = f"CHQueryError{meta.label}"
     processed_error_class = ExposedCHQueryError if meta.user_safe else InternalCHQueryError
@@ -111,13 +112,53 @@ class CHQueryErrorS3Error(InternalCHQueryError):
     pass
 
 
-CLICKHOUSE_SPECIFIC_ERROR_LOOKUP = {
-    "TOO_MANY_SIMULTANEOUS_QUERIES": CHQueryErrorTooManySimultaneousQueries(
-        "Too many simultaneous queries. Try again later.", code=202
-    ),
-    "CANNOT_SCHEDULE_TASK": CHQueryErrorCannotScheduleTask("Cannot schedule task. Try again later.", code=439),
-    "S3_ERROR": CHQueryErrorS3Error("S3 error occurred. Try again later.", code=499),
-}
+# User query errors - these are errors caused by user input/queries
+class CHQueryErrorIllegalTypeOfArgument(ExposedCHQueryError):
+    pass
+
+
+class CHQueryErrorNoCommonType(ExposedCHQueryError):
+    pass
+
+
+class CHQueryErrorNotAnAggregate(ExposedCHQueryError):
+    pass
+
+
+class CHQueryErrorUnknownFunction(ExposedCHQueryError):
+    pass
+
+
+class CHQueryErrorTypeMismatch(ExposedCHQueryError):
+    pass
+
+
+class CHQueryErrorIllegalAggregation(ExposedCHQueryError):
+    pass
+
+
+def get_specific_clickhouse_error(meta_name: str, original_message: str, code: int) -> InternalCHQueryError | None:
+    lookup: dict[str, InternalCHQueryError] = {
+        # Infrastructure errors - custom messages to hide internals
+        "TOO_MANY_SIMULTANEOUS_QUERIES": CHQueryErrorTooManySimultaneousQueries(
+            "Too many simultaneous queries. Try again later.", code=code
+        ),
+        "CANNOT_SCHEDULE_TASK": CHQueryErrorCannotScheduleTask("Cannot schedule task. Try again later.", code=code),
+        "S3_ERROR": CHQueryErrorS3Error("S3 error occurred. Try again later.", code=code),
+        # User query errors - pass through original message with proper code_name
+        "ILLEGAL_TYPE_OF_ARGUMENT": CHQueryErrorIllegalTypeOfArgument(
+            original_message, code=code, code_name="illegal_type_of_argument"
+        ),
+        "NO_COMMON_TYPE": CHQueryErrorNoCommonType(original_message, code=code, code_name="no_common_type"),
+        "NOT_AN_AGGREGATE": CHQueryErrorNotAnAggregate(original_message, code=code, code_name="not_an_aggregate"),
+        "UNKNOWN_FUNCTION": CHQueryErrorUnknownFunction(original_message, code=code, code_name="unknown_function"),
+        "TYPE_MISMATCH": CHQueryErrorTypeMismatch(original_message, code=code, code_name="type_mismatch"),
+        "ILLEGAL_AGGREGATION": CHQueryErrorIllegalAggregation(
+            original_message, code=code, code_name="illegal_aggregation"
+        ),
+    }
+    return lookup.get(meta_name)
+
 
 #
 # From https://github.com/ClickHouse/ClickHouse/blob/23.12/src/Common/ErrorCodes.cpp#L16-L622
