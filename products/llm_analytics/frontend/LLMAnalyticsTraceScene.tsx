@@ -1,7 +1,7 @@
 import classNames from 'classnames'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import { IconAIText, IconChat, IconComment, IconCopy, IconMessage, IconReceipt, IconSearch } from '@posthog/icons'
@@ -686,8 +686,8 @@ const EventContent = React.memo(
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SUMMARIZATION] ||
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
 
-        // Check if we're viewing a trace with actual content vs just a grouping of generations
-        const isTraceWithoutContent = !isLLMEvent(event) && !event.inputState && !event.outputState
+        // Check if we're viewing a trace with actual content vs. a psedo-trace (grouping of generations w/o input/output state)
+        const isTopLevelTraceWithoutContent = !event || (!isLLMEvent(event) && !event.inputState && !event.outputState)
 
         // Only pre-load for generation events ($ai_input/$ai_output_choices).
         // TODO: Figure out why spans can't load properties async
@@ -820,10 +820,18 @@ const EventContent = React.memo(
                                     label: 'Conversation',
                                     content: (
                                         <>
-                                            {isTraceWithoutContent ? (
+                                            {isTopLevelTraceWithoutContent ? (
                                                 <InsightEmptyState
-                                                    heading="No trace event content"
-                                                    detail="This trace is a grouping of generation events. Click on individual generations in the tree to view their content."
+                                                    heading="No top-level trace event"
+                                                    detail={
+                                                        <>
+                                                            This trace doesn't have an associated <code>$ai_trace</code>{' '}
+                                                            event.
+                                                            <br />
+                                                            Click on individual generations in the tree to view their
+                                                            content.
+                                                        </>
+                                                    }
                                                 />
                                             ) : displayOption === DisplayOption.TextView &&
                                               (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TEXT_VIEW] ||
