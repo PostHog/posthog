@@ -29362,9 +29362,6 @@
                 "id": {
                     "type": "string"
                 },
-                "issue_id": {
-                    "type": "string"
-                },
                 "integration": {
                     "additionalProperties": false,
                     "properties": {
@@ -29380,6 +29377,9 @@
                     },
                     "required": ["id", "kind", "display_name"],
                     "type": "object"
+                },
+                "issue_id": {
+                    "type": "string"
                 },
                 "title": {
                     "type": "string"
