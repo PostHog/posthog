@@ -74,7 +74,7 @@ jobs:
                   version: 0.9.21
 
             - name: Install bin script dependencies
-              run: uv sync --project bin
+              run: uv sync --project bin --frozen
 
             - name: Build and push container image
               id: build
