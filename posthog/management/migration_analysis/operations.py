@@ -574,7 +574,8 @@ class RunSQLAnalyzer(OperationAnalyzer):
                 details={"sql": sql},
             )
 
-        if "DROP" in sql:
+        # Check for actual DROP TABLE/COLUMN statements (not just "DROP" anywhere like ON COMMIT DROP)
+        if re.search(r"\bDROP\s+(TABLE|COLUMN)\b", sql, re.IGNORECASE):
             # Check for DROP COLUMN first (before DROP TABLE check)
             # ALTER TABLE ... DROP COLUMN can contain both "TABLE" and "DROP" keywords
             # Use regex to verify it's actually ALTER TABLE ... DROP COLUMN (not just "COLUMN" in table name)

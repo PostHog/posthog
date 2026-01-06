@@ -7,6 +7,7 @@ import api from 'lib/api'
 import { ErrorEventProperties, ErrorEventType, ErrorTrackingFingerprint } from 'lib/components/Errors/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils'
+import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -308,6 +309,21 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             (s) => [s.eventsQuery],
             () => {
                 return uuid()
+            },
+        ],
+
+        maxContext: [
+            (s) => [s.issue, s.issueId],
+            (issue: ErrorTrackingRelationalIssue | null, issueId: string): MaxContextInput[] => {
+                if (!issueId) {
+                    return []
+                }
+                return [
+                    createMaxContextHelpers.errorTrackingIssue({
+                        id: issueId,
+                        name: issue?.name ?? null,
+                    }),
+                ]
             },
         ],
     })),
