@@ -52,4 +52,4 @@ jobs:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   PR_NUMBER: ${{ steps.update-browserlist.outputs.pr_number }}
               run: |
-                  gh pr merge "$PR_NUMBER" --auto --merge
+                  gh pr merge "$PR_NUMBER" --auto --squash
