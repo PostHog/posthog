@@ -67,6 +67,12 @@ jobs:
                   password: ${{ secrets.GITHUB_TOKEN }}
                   logout: false
 
+            - name: Install uv
+              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
+              with:
+                  enable-cache: true
+                  version: 0.9.9
+
             - name: Install bin script dependencies
               run: uv sync --project bin
 
