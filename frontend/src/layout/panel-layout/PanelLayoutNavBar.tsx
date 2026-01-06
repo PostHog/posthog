@@ -150,6 +150,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         if (itemIdentifier === 'Toolbar' && currentPath === '/toolbar') {
             return true
         }
+        if (itemIdentifier === 'ai' && currentPath.startsWith('/ai')) {
+            return true
+        }
 
         return false
     }
