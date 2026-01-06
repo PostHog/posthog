@@ -23,7 +23,7 @@ from posthog.temporal.ai import (
     WORKFLOWS as AI_WORKFLOWS,
 )
 from posthog.temporal.common.logger import configure_logger, get_logger
-from posthog.temporal.common.worker import WorkerWithShutdown, create_worker
+from posthog.temporal.common.worker import ManagedWorker, create_worker
 from posthog.temporal.data_imports.settings import (
     ACTIVITIES as DATA_SYNC_ACTIVITIES,
     WORKFLOWS as DATA_SYNC_WORKFLOWS,
@@ -355,7 +355,7 @@ class Command(BaseCommand):
 
         tag_queries(kind="temporal")
 
-        def shutdown_worker_on_signal(worker: WorkerWithShutdown, sig: signal.Signals, loop: asyncio.AbstractEventLoop):
+        def shutdown_worker_on_signal(worker: ManagedWorker, sig: signal.Signals, loop: asyncio.AbstractEventLoop):
             """Shutdown Temporal worker on receiving signal."""
             nonlocal shutdown_task
 
@@ -414,7 +414,7 @@ class Command(BaseCommand):
             for sig in (signal.SIGTERM, signal.SIGINT):
                 loop.add_signal_handler(
                     sig,
-                    functools.partial(shutdown_worker_on_signal, worker_resources=worker, sig=sig, loop=loop),
+                    functools.partial(shutdown_worker_on_signal, worker=worker, sig=sig, loop=loop),
                 )
 
             runner.run(worker.run())
