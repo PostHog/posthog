@@ -17,6 +17,9 @@ const esmModules = [
     'escape-string-regexp',
     'unist-util-visit-parents',
     'unist-util-is',
+    '@tiptap',
+    'lowlight',
+    'devlop',
 ]
 function rootDirectories(): string[] {
     return ['<rootDir>/src', '<rootDir>/../products']

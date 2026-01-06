@@ -79,8 +79,8 @@ const WIDTH_PRESET_OPTIONS = [
     { value: PRODUCT_TOUR_STEP_WIDTHS['extra-wide'], label: 'Extra wide' },
 ]
 
-const MIN_WIDTH = 200
-const MAX_WIDTH = 700
+export const TOUR_STEP_MIN_WIDTH = 200
+export const TOUR_STEP_MAX_WIDTH = 700
 
 export function ProductTourStepsEditor({ steps, appearance, onChange }: ProductTourStepsEditorProps): JSX.Element {
     const [selectedStepIndex, setSelectedStepIndex] = useState<number>(0)
@@ -273,8 +273,8 @@ export function ProductTourStepsEditor({ steps, appearance, onChange }: ProductT
                                             <LemonSlider
                                                 value={getWidthValue(selectedStep.maxWidth)}
                                                 onChange={(value) => updateStep(selectedStepIndex, { maxWidth: value })}
-                                                min={MIN_WIDTH}
-                                                max={MAX_WIDTH}
+                                                min={TOUR_STEP_MIN_WIDTH}
+                                                max={TOUR_STEP_MAX_WIDTH}
                                                 step={10}
                                                 className="flex-1"
                                             />
