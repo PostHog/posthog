@@ -55,7 +55,7 @@ export function SidebarQuestionInputWithSuggestions({
             <div
                 hidden={hideSuggestions}
                 className={cn(
-                    'flex flex-col items-center justify-center gap-y-2 transition-opacity duration-300 starting:opacity-1 [[hidden]]:opacity-0 [transition-behavior:allow-discrete]',
+                    'flex flex-col items-center justify-center gap-y-2 transition-opacity duration-300 starting:opacity-100 [[hidden]]:opacity-0 [transition-behavior:allow-discrete]',
                     hideSuggestions && 'opacity-0'
                 )}
             >
