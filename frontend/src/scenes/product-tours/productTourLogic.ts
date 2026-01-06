@@ -87,6 +87,7 @@ export interface ProductTourLogicProps {
 
 export enum ProductTourEditTab {
     Configuration = 'configuration',
+    Customization = 'customization',
 }
 
 export interface ProductTourStats {

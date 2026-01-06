@@ -18,10 +18,24 @@ from posthog.tasks.exports.image_exporter import get_driver
 class TestIsUserQueryErrorType(TestCase):
     @parameterized.expand(
         [
+            # User query errors - should return True
             ("QueryError", True),
             ("SyntaxError", True),
+            ("CHQueryErrorIllegalAggregation", True),
+            ("CHQueryErrorIllegalTypeOfArgument", True),
+            ("CHQueryErrorNoCommonType", True),
+            ("CHQueryErrorNotAnAggregate", True),
+            ("CHQueryErrorTypeMismatch", True),
+            ("CHQueryErrorUnknownFunction", True),
+            ("ClickHouseQueryTimeOut", True),
+            ("ClickHouseQueryMemoryLimitExceeded", True),
+            # Non-user errors - should return False
             ("TimeoutError", False),
             ("ValueError", False),
+            ("CHQueryErrorS3Error", False),
+            ("CHQueryErrorTooManySimultaneousQueries", False),
+            ("ClickHouseAtCapacity", False),
+            ("ConcurrencyLimitExceeded", False),
             (None, False),
             ("", False),
         ]

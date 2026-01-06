@@ -35,6 +35,7 @@ APIScopeObject = Literal[
     "group",
     "hog_function",
     "insight",
+    "insight_variable",
     "integration",
     "link",
     "live_debugger",
@@ -58,6 +59,7 @@ APIScopeObject = Literal[
     "sharing_configuration",
     "subscription",
     "survey",
+    "ticket",
     "task",
     "user",
     "user_interview_DO_NOT_USE",  # This is a super alpha product, so only exposing here for internal personal API key access

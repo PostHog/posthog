@@ -58,6 +58,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
     actions({
         runDataWarehouseSavedQuery: (viewId: string) => ({ viewId }),
         cancelDataWarehouseSavedQuery: (viewId: string) => ({ viewId }),
+        materializeDataWarehouseSavedQuery: (viewId: string) => ({ viewId }),
         revertMaterialization: (viewId: string) => ({ viewId }),
         loadOlderDataModelingJobs: () => {},
         resetDataModelingJobs: () => {},
@@ -185,6 +186,19 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 actions.loadDataWarehouseSavedQueries()
             } catch {
                 lemonToast.error(`Failed to cancel materialization`)
+            }
+        },
+        materializeDataWarehouseSavedQuery: async ({ viewId }) => {
+            try {
+                await api.dataWarehouseSavedQueries.materialize(viewId)
+                lemonToast.success('View materialized successfully')
+                posthog.capture('materialized view created', {
+                    sync_frequency: '24hour',
+                })
+                actions.loadDataWarehouseSavedQueries()
+                actions.loadDatabase()
+            } catch {
+                lemonToast.error(`Failed to materialize view`)
             }
         },
         revertMaterialization: async ({ viewId }) => {

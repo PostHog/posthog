@@ -6,23 +6,29 @@ import { ParsedLogMessage } from 'products/logs/frontend/types'
 
 import { logsViewerLogic } from './logsViewerLogic'
 
-const createMockParsedLog = (uuid: string): ParsedLogMessage => ({
-    uuid,
-    trace_id: 'trace-1',
-    span_id: 'span-1',
-    body: `Log ${uuid}`,
-    attributes: {},
-    timestamp: '2024-01-01T00:00:00Z',
-    observed_timestamp: '2024-01-01T00:00:00Z',
-    severity_text: 'info',
-    severity_number: 9,
-    level: 'info',
-    resource_attributes: {},
-    instrumentation_scope: 'test',
-    event_name: 'log',
-    cleanBody: `Log ${uuid}`,
-    parsedBody: null,
-})
+const createMockParsedLog = (uuid: string): ParsedLogMessage => {
+    const baseLog = {
+        uuid,
+        trace_id: 'trace-1',
+        span_id: 'span-1',
+        body: `Log ${uuid}`,
+        attributes: {},
+        timestamp: '2024-01-01T00:00:00Z',
+        observed_timestamp: '2024-01-01T00:00:00Z',
+        severity_text: 'info' as const,
+        severity_number: 9,
+        level: 'info' as const,
+        resource_attributes: {},
+        instrumentation_scope: 'test',
+        event_name: 'log',
+    }
+    return {
+        ...baseLog,
+        cleanBody: `Log ${uuid}`,
+        parsedBody: null,
+        originalLog: baseLog,
+    }
+}
 
 const mockLogs = [createMockParsedLog('log-1'), createMockParsedLog('log-2'), createMockParsedLog('log-3')]
 
@@ -588,6 +594,63 @@ describe('logsViewerLogic', () => {
                 }).toMatchValues({
                     selectedLogIds: {},
                     isSelectionActive: false,
+                })
+            })
+        })
+    })
+
+    describe('attribute columns', () => {
+        beforeEach(() => {
+            logic = logsViewerLogic({ tabId: 'test-tab', logs: mockLogs, orderBy: 'latest' })
+            logic.mount()
+        })
+
+        describe('moveAttributeColumn', () => {
+            beforeEach(async () => {
+                // Set up initial columns: [A, B, C]
+                logic.actions.toggleAttributeColumn('A')
+                logic.actions.toggleAttributeColumn('B')
+                logic.actions.toggleAttributeColumn('C')
+                await expectLogic(logic).toFinishAllListeners()
+            })
+
+            it('moves column left', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.moveAttributeColumn('B', 'left')
+                }).toMatchValues({
+                    attributeColumns: ['B', 'A', 'C'],
+                })
+            })
+
+            it('moves column right', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.moveAttributeColumn('B', 'right')
+                }).toMatchValues({
+                    attributeColumns: ['A', 'C', 'B'],
+                })
+            })
+
+            it('does nothing when moving first column left', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.moveAttributeColumn('A', 'left')
+                }).toMatchValues({
+                    attributeColumns: ['A', 'B', 'C'],
+                })
+            })
+
+            it('does nothing when moving last column right', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.moveAttributeColumn('C', 'right')
+                }).toMatchValues({
+                    attributeColumns: ['A', 'B', 'C'],
+                })
+            })
+
+            it('does nothing for non-existent column', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.moveAttributeColumn('Z', 'left')
+                }).toMatchValues({
+                    attributeColumns: ['A', 'B', 'C'],
                 })
             })
         })

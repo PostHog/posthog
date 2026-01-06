@@ -5,6 +5,7 @@ use crate::{
     },
     flags::flag_request::FlagRequest,
     metrics::consts::FLAG_REQUEST_KLUDGE_COUNTER,
+    utils::user_agent::UserAgentInfo,
 };
 use axum::http::{header::CONTENT_TYPE, header::USER_AGENT, HeaderMap};
 use base64::{engine::general_purpose, Engine as _};
@@ -12,84 +13,6 @@ use bytes::Bytes;
 use common_compression;
 use common_metrics::inc;
 use percent_encoding::percent_decode;
-
-/// Classifies the client type from a User-Agent header for metric labels.
-/// Returns a low-cardinality string suitable for use as a Prometheus label.
-fn classify_client_type(user_agent: Option<&str>) -> &'static str {
-    let Some(ua) = user_agent else {
-        return "unknown";
-    };
-
-    // Empty string means header was present but empty - semantically same as missing
-    if ua.is_empty() {
-        return "unknown";
-    }
-
-    // PostHog JS SDK (browser)
-    if ua.starts_with("posthog-js/") {
-        return "posthog-js";
-    }
-
-    // PostHog mobile SDKs
-    if ua.starts_with("posthog-android/") {
-        return "posthog-android";
-    }
-    if ua.starts_with("posthog-ios/") {
-        return "posthog-ios";
-    }
-    if ua.starts_with("posthog-react-native/") {
-        return "posthog-react-native";
-    }
-    if ua.starts_with("posthog-flutter/") {
-        return "posthog-flutter";
-    }
-
-    // PostHog server SDKs
-    if ua.starts_with("posthog-python/") {
-        return "posthog-python";
-    }
-    if ua.starts_with("posthog-ruby/") {
-        return "posthog-ruby";
-    }
-    if ua.starts_with("posthog-php/") {
-        return "posthog-php";
-    }
-    if ua.starts_with("posthog-java/") {
-        return "posthog-java";
-    }
-    if ua.starts_with("posthog-go/") {
-        return "posthog-go";
-    }
-    if ua.starts_with("posthog-node/") {
-        return "posthog-node";
-    }
-    if ua.starts_with("posthog-dotnet/") {
-        return "posthog-dotnet";
-    }
-    if ua.starts_with("posthog-elixir/") {
-        return "posthog-elixir";
-    }
-
-    // Generic browser detection (for non-SDK browser requests)
-    if ua.contains("Mozilla/")
-        || ua.contains("Chrome/")
-        || ua.contains("Safari/")
-        || ua.contains("Firefox/")
-        || ua.contains("Edge/")
-    {
-        return "browser";
-    }
-
-    // Common HTTP clients
-    if ua.contains("curl/") {
-        return "curl";
-    }
-    if ua.contains("python-requests/") {
-        return "python-requests";
-    }
-
-    "other"
-}
 
 /// Lightweight token extraction for rate limiting.
 /// Tries to extract the token without full request deserialization.
@@ -234,7 +157,7 @@ pub fn try_parse_with_fallbacks(
 
     // Strategy 2: Try base64 decode then JSON
     // Even if compression is not specified, we still try to decode it as base64
-    let client_type = classify_client_type(user_agent);
+    let client_type = UserAgentInfo::client_type_label_from_raw(user_agent);
     tracing::warn!(
         client_type = client_type,
         "Direct JSON parsing failed, trying base64 decode fallback"
@@ -294,7 +217,7 @@ pub fn decode_form_data(
     } else {
         // Count how often we receive base64 data without the 'data=' prefix
         // Include client_type to help identify which SDKs are sending malformed data
-        let client_type = classify_client_type(user_agent);
+        let client_type = UserAgentInfo::client_type_label_from_raw(user_agent);
         inc(
             FLAG_REQUEST_KLUDGE_COUNTER,
             &[
@@ -535,7 +458,7 @@ mod tests {
         assert_eq!(token, None);
     }
 
-    mod classify_client_type_tests {
+    mod client_type_label_tests {
         use super::*;
         use rstest::rstest;
 
@@ -567,8 +490,11 @@ mod tests {
         #[case(Some("custom-client/1.0"), "other")]
         #[case(Some(""), "unknown")]
         #[case(None, "unknown")]
-        fn test_classify_client_type(#[case] user_agent: Option<&str>, #[case] expected: &str) {
-            assert_eq!(classify_client_type(user_agent), expected);
+        fn test_client_type_label(#[case] user_agent: Option<&str>, #[case] expected: &str) {
+            assert_eq!(
+                UserAgentInfo::client_type_label_from_raw(user_agent),
+                expected
+            );
         }
     }
 }

@@ -156,6 +156,37 @@ def test_clickhouse_memory_limit_exceeded_error(clickhouse_client):
                 pass
 
 
+@pytest.mark.parametrize(
+    "query,query_parameters,expected",
+    [
+        (
+            "select * from events where event = {event}",
+            {"event": "hello"},
+            "select * from events where event = 'hello'",
+        ),
+        (
+            "select * from events where event = %(event)s",
+            {"event": "world"},
+            "select * from events where event = 'world'",
+        ),
+        (
+            "select * from events where event = %(event)s and event != {another}",
+            {"event": "index_{1}", "another": "event"},
+            "select * from events where event = 'index_{1}' and event != 'event'",
+        ),
+        (
+            "select * from events where event = %(event)s and event != {another}",
+            {"event": "index_{something}", "another": "event"},
+            "select * from events where event = 'index_{something}' and event != 'event'",
+        ),
+    ],
+)
+def test_prepare_query(clickhouse_client, query, query_parameters, expected):
+    """Test data is encoded as expected."""
+    result = clickhouse_client.prepare_query(query, query_parameters)
+    assert result == expected
+
+
 async def test_acancel_query(clickhouse_client, django_db_setup):
     """Test that acancel_query successfully cancels a long-running query."""
     query_id = f"test-long-running-query-{uuid.uuid4()}"

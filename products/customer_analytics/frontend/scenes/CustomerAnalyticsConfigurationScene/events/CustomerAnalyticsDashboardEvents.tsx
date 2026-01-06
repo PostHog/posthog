@@ -13,10 +13,12 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { EntityTypes, FilterType } from '~/types'
 
 import { ConfigureWithAIButton } from 'products/customer_analytics/frontend/components/ConfigureWithAIButton'
+import { isPageviewWithoutFilters } from 'products/customer_analytics/frontend/utils'
 
 import { customerAnalyticsDashboardEventsLogic } from './customerAnalyticsDashboardEventsLogic'
 
@@ -34,12 +36,15 @@ function EventSelector({ filters, setFilters, title, caption, prompt }: EventSel
     const highlight = eventsToHighlight.includes(title) ? 'border rounded border-dashed border-danger' : ''
     const { reportCustomerAnalyticsDashboardEventPickerClicked } = useActions(eventUsageLogic)
 
+    const shouldShowAIButton =
+        !filters || isPageviewWithoutFilters(actionsAndEventsToSeries(filters as any, true, MathAvailability.None)[0])
+
     return (
         <div className={`py-2 ${highlight}`}>
             <div className="ml-1">
                 <div className="flex items-center gap-2">
                     <LemonLabel>{title}</LemonLabel>
-                    <ConfigureWithAIButton event={title} prompt={prompt} />
+                    {shouldShowAIButton && <ConfigureWithAIButton event={title} prompt={prompt} />}
                 </div>
                 <p className="text-xs text-muted-alt">{caption}</p>
             </div>

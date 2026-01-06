@@ -1,12 +1,12 @@
 import { useCallback, useMemo } from 'react'
 
-import { SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonSelect, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { AnyScaleOptions, Sparkline } from 'lib/components/Sparkline'
 import { dayjs } from 'lib/dayjs'
 import { shortTimeZone } from 'lib/utils'
 
-import { DateRange } from '~/queries/schema/schema-general'
+import { DateRange, LogsSparklineBreakdownBy } from '~/queries/schema/schema-general'
 
 export interface LogsSparklineData {
     data: {
@@ -23,13 +23,22 @@ interface LogsViewerSparklineProps {
     sparklineLoading: boolean
     onDateRangeChange: (dateRange: DateRange) => void
     displayTimezone: string // IANA timezone string (e.g. "UTC", "America/New_York", "Europe/London")
+    breakdownBy: LogsSparklineBreakdownBy
+    onBreakdownByChange: (breakdownBy: LogsSparklineBreakdownBy) => void
 }
+
+const BREAKDOWN_OPTIONS: { value: LogsSparklineBreakdownBy; label: string }[] = [
+    { value: 'severity', label: 'Severity' },
+    { value: 'service', label: 'Service' },
+]
 
 export function LogsSparkline({
     sparklineData,
     sparklineLoading,
     onDateRangeChange,
     displayTimezone,
+    breakdownBy,
+    onBreakdownByChange,
 }: LogsViewerSparklineProps): JSX.Element {
     const { timeUnit, tickFormat } = useMemo(() => {
         if (!sparklineData.dates.length) {
@@ -107,20 +116,34 @@ export function LogsSparkline({
     )
 
     return (
-        <div className="relative h-40 flex flex-col">
-            {sparklineData.data.length > 0 ? (
-                <Sparkline
-                    labels={sparklineLabels}
-                    data={sparklineData.data}
-                    className="w-full flex-1"
-                    onSelectionChange={onSelectionChange}
-                    withXScale={withXScale}
-                    renderLabel={renderLabel}
+        <div className="flex flex-col gap-1">
+            <div className="flex items-center justify-between">
+                <span className="text-xs text-muted">Volume over time</span>
+                <LemonSelect
+                    size="xsmall"
+                    value={breakdownBy}
+                    onChange={(value) => value && onBreakdownByChange(value)}
+                    options={BREAKDOWN_OPTIONS}
                 />
-            ) : !sparklineLoading ? (
-                <div className="flex-1 text-muted flex items-center justify-center">No results matching filters</div>
-            ) : null}
-            {sparklineLoading && <SpinnerOverlay />}
+            </div>
+            <div className="relative h-32">
+                {sparklineData.data.length > 0 ? (
+                    <Sparkline
+                        labels={sparklineLabels}
+                        data={sparklineData.data}
+                        className="w-full h-full"
+                        onSelectionChange={onSelectionChange}
+                        withXScale={withXScale}
+                        renderLabel={renderLabel}
+                        tooltipRowCutoff={20}
+                    />
+                ) : !sparklineLoading ? (
+                    <div className="h-full text-muted flex items-center justify-center">
+                        No results matching filters
+                    </div>
+                ) : null}
+                {sparklineLoading && <SpinnerOverlay />}
+            </div>
         </div>
     )
 }

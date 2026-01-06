@@ -85,8 +85,6 @@ class HogQLGeneratorMixin(AssistantContextMixin, HogQLDatabaseMixin):
         cleaned_query = result.query.rstrip(";").strip() if result.query else ""
         return SQLSchemaGeneratorOutput(
             query=AssistantHogQLQuery(query=cleaned_query),
-            name=result.name,
-            description=result.description,
         )
 
     @database_sync_to_async(thread_sensitive=False)

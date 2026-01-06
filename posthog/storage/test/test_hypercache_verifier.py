@@ -39,7 +39,9 @@ class TestVerificationResult(TestCase):
         assert result.expiry_missing_fixed == 0
         assert result.fix_failed == 0
         assert result.errors == 0
+        assert result.skipped_for_grace_period == 0
         assert result.fixed_team_ids == []
+        assert result.skipped_team_ids == []
 
     def test_total_fixed_property(self):
         """Test that total_fixed sums all fix types."""
@@ -86,6 +88,30 @@ class TestVerificationResult(TestCase):
         expected_truncated = list(range(1, 11))
         remaining = 1000 - MAX_FIXED_TEAM_IDS_TO_LOG
         assert formatted == f"{expected_truncated} ... and {remaining} more"
+
+    @parameterized.expand(
+        [
+            ("empty_list", [], "[]"),
+            ("single_id", [456], "[456]"),
+            ("few_ids", [7, 8, 9], "[7, 8, 9]"),
+            ("exactly_max", list(range(100, 110)), str(list(range(100, 110)))),
+        ]
+    )
+    def test_formatted_skipped_team_ids_no_truncation(self, name, team_ids, expected):
+        """Test formatted_skipped_team_ids with lists that don't need truncation."""
+        result = VerificationResult(skipped_team_ids=team_ids)
+        assert result.formatted_skipped_team_ids() == expected
+
+    def test_formatted_skipped_team_ids_truncates_beyond_max(self):
+        """Test that formatted_skipped_team_ids truncates lists beyond MAX_FIXED_TEAM_IDS_TO_LOG."""
+        team_ids = list(range(100, 120))  # 20 IDs
+        result = VerificationResult(skipped_team_ids=team_ids)
+
+        formatted = result.formatted_skipped_team_ids()
+
+        # Should show first 10 and indicate 10 more
+        expected_truncated = list(range(100, 110))
+        assert formatted == f"{expected_truncated} ... and 10 more"
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
@@ -267,6 +293,7 @@ class TestVerifyAndFixBatch(BaseTest):
         mock_config.hypercache.batch_load_fn = None
         mock_config.hypercache.batch_get_from_cache.return_value = {}
         mock_config.update_fn.return_value = True
+        mock_config.get_team_ids_to_skip_fix_fn = None
 
         result = VerificationResult()
 
@@ -294,6 +321,7 @@ class TestVerifyAndFixBatch(BaseTest):
         mock_config.hypercache.batch_get_from_cache.return_value = {}
         mock_config.hypercache.get_cache_identifier.return_value = str(self.team.id)
         mock_config.update_fn.return_value = True
+        mock_config.get_team_ids_to_skip_fix_fn = None
 
         result = VerificationResult()
 
@@ -382,6 +410,7 @@ class TestVerifyAndFixBatch(BaseTest):
         mock_db_batch_data: dict = {self.team.id: {"flags": ["flag1", "flag2"]}}
         mock_config.hypercache.batch_load_fn.return_value = mock_db_batch_data
         mock_config.hypercache.batch_get_from_cache.return_value = {}
+        mock_config.get_team_ids_to_skip_fix_fn = None
 
         result = VerificationResult()
 
@@ -409,6 +438,7 @@ class TestVerifyAndFixBatch(BaseTest):
         mock_config.hypercache.batch_load_fn.return_value = mock_db_batch_data
         mock_config.hypercache.batch_get_from_cache.return_value = {}
         mock_config.hypercache.get_cache_identifier.return_value = str(self.team.id)
+        mock_config.get_team_ids_to_skip_fix_fn = None
 
         result = VerificationResult()
 
@@ -439,6 +469,7 @@ class TestVerifyAndFixBatch(BaseTest):
         mock_config.hypercache.batch_load_fn = None
         mock_config.hypercache.batch_get_from_cache.return_value = {}
         mock_config.update_fn.return_value = True
+        mock_config.get_team_ids_to_skip_fix_fn = None
 
         result = VerificationResult()
 
@@ -489,6 +520,91 @@ class TestVerifyAndFixBatch(BaseTest):
         assert result.total == 1
         assert result.errors == 0  # Should not count as error, just fallback
 
+    def test_get_team_ids_to_skip_fix_fn_skips_fix_for_full_verification(self):
+        """Test that get_team_ids_to_skip_fix_fn can skip fixes for teams with recent updates."""
+        mock_config = MagicMock()
+        mock_config.hypercache.batch_load_fn = None
+        mock_config.hypercache.batch_get_from_cache.return_value = {}
+        # Return team ID in the skip set
+        mock_config.get_team_ids_to_skip_fix_fn.return_value = {self.team.id}
+
+        result = VerificationResult()
+
+        def verify_fn(team, db_batch_data, cache_batch_data):
+            return {"status": "miss", "issue": "CACHE_MISS"}
+
+        with patch("posthog.storage.hypercache_verifier.batch_check_expiry_tracking", return_value={}):
+            _verify_and_fix_batch(
+                teams=[self.team],
+                config=mock_config,
+                verify_team_fn=verify_fn,
+                cache_type="test_cache",
+                result=result,
+            )
+
+        # Fix should be skipped
+        assert result.total == 1
+        assert result.total_fixed == 0
+        assert result.skipped_for_grace_period == 1
+        assert self.team.id in result.skipped_team_ids
+        mock_config.update_fn.assert_not_called()
+        mock_config.hypercache.set_cache_value.assert_not_called()
+
+    def test_get_team_ids_to_skip_fix_fn_none_does_not_skip(self):
+        """Test that when get_team_ids_to_skip_fix_fn is None, fixes proceed normally."""
+        mock_config = MagicMock()
+        mock_config.hypercache.batch_load_fn = None
+        mock_config.hypercache.batch_get_from_cache.return_value = {}
+        mock_config.get_team_ids_to_skip_fix_fn = None  # No skip function
+        mock_config.update_fn.return_value = True
+
+        result = VerificationResult()
+
+        def verify_fn(team, db_batch_data, cache_batch_data):
+            return {"status": "miss", "issue": "CACHE_MISS"}
+
+        with patch("posthog.storage.hypercache_verifier.batch_check_expiry_tracking", return_value={}):
+            _verify_and_fix_batch(
+                teams=[self.team],
+                config=mock_config,
+                verify_team_fn=verify_fn,
+                cache_type="test_cache",
+                result=result,
+            )
+
+        # Fix should proceed
+        assert result.total == 1
+        assert result.cache_miss_fixed == 1
+        assert result.skipped_for_grace_period == 0
+        mock_config.update_fn.assert_called_once()
+
+    def test_get_team_ids_to_skip_fix_fn_empty_set_does_not_skip(self):
+        """Test that when get_team_ids_to_skip_fix_fn returns empty set, fixes proceed."""
+        mock_config = MagicMock()
+        mock_config.hypercache.batch_load_fn = None
+        mock_config.hypercache.batch_get_from_cache.return_value = {}
+        mock_config.get_team_ids_to_skip_fix_fn.return_value = set()  # Empty set - don't skip
+        mock_config.update_fn.return_value = True
+
+        result = VerificationResult()
+
+        def verify_fn(team, db_batch_data, cache_batch_data):
+            return {"status": "miss", "issue": "CACHE_MISS"}
+
+        with patch("posthog.storage.hypercache_verifier.batch_check_expiry_tracking", return_value={}):
+            _verify_and_fix_batch(
+                teams=[self.team],
+                config=mock_config,
+                verify_team_fn=verify_fn,
+                cache_type="test_cache",
+                result=result,
+            )
+
+        # Fix should proceed
+        assert result.total == 1
+        assert result.cache_miss_fixed == 1
+        assert result.skipped_for_grace_period == 0
+
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
 class TestVerifyAndFixAllTeams(BaseTest):
@@ -521,6 +637,7 @@ class TestVerifyAndFixAllTeams(BaseTest):
         mock_config.hypercache.batch_load_fn = None
         mock_config.hypercache.batch_get_from_cache.return_value = {}
         mock_config.update_fn.return_value = True
+        mock_config.get_team_ids_to_skip_fix_fn = None
 
         def verify_fn(team, db_batch_data, cache_batch_data):
             return {"status": "miss", "issue": "CACHE_MISS"}
@@ -627,6 +744,7 @@ class TestVerifyEmptyCacheTeam(BaseTest):
             expiry_status=None,
             cache_type="flags",
             result=result,
+            team_ids_to_skip_fix=set(),
         )
 
         # Should trigger cache_miss fix with empty_cache_value
@@ -649,6 +767,7 @@ class TestVerifyEmptyCacheTeam(BaseTest):
             expiry_status=None,
             cache_type="flags",
             result=result,
+            team_ids_to_skip_fix=set(),
         )
 
         assert result.cache_miss_fixed == 1
@@ -669,6 +788,7 @@ class TestVerifyEmptyCacheTeam(BaseTest):
             expiry_status=None,
             cache_type="flags",
             result=result,
+            team_ids_to_skip_fix=set(),
         )
 
         # Should trigger cache_mismatch fix
@@ -693,6 +813,7 @@ class TestVerifyEmptyCacheTeam(BaseTest):
             expiry_status=expiry_status,
             cache_type="flags",
             result=result,
+            team_ids_to_skip_fix=set(),
         )
 
         # No fixes should be triggered
@@ -717,6 +838,7 @@ class TestVerifyEmptyCacheTeam(BaseTest):
             expiry_status=expiry_status,
             cache_type="flags",
             result=result,
+            team_ids_to_skip_fix=set(),
         )
 
         # Should fix expiry tracking
@@ -738,10 +860,63 @@ class TestVerifyEmptyCacheTeam(BaseTest):
                 expiry_status=None,
                 cache_type="flags",
                 result=result,
+                team_ids_to_skip_fix=set(),
             )
 
         assert "empty_cache_value must be configured" in str(context.exception)
         assert str(self.team.id) in str(context.exception)
+
+    def test_team_ids_to_skip_fix_skips_fix_for_empty_cache_team(self):
+        """Test that team_ids_to_skip_fix can skip fixes in empty cache path."""
+        mock_config = MagicMock()
+        mock_config.empty_cache_value = {"flags": []}
+
+        result = VerificationResult()
+        # Cache miss - would normally trigger fix
+        cache_batch_data: dict = {}
+        # Team is in the skip set
+        team_ids_to_skip_fix = {self.team.id}
+
+        _verify_empty_cache_team(
+            team=self.team,
+            config=mock_config,
+            cache_batch_data=cache_batch_data,
+            expiry_status=None,
+            cache_type="flags",
+            result=result,
+            team_ids_to_skip_fix=team_ids_to_skip_fix,
+        )
+
+        # Fix should be skipped
+        assert result.total_fixed == 0
+        assert result.skipped_for_grace_period == 1
+        assert self.team.id in result.skipped_team_ids
+        mock_config.hypercache.set_cache_value.assert_not_called()
+
+    def test_empty_team_ids_to_skip_fix_does_not_skip_for_empty_cache_team(self):
+        """Test that empty team_ids_to_skip_fix allows empty cache fixes to proceed."""
+        mock_config = MagicMock()
+        mock_config.empty_cache_value = {"flags": []}
+
+        result = VerificationResult()
+        # Cache miss - should trigger fix
+        cache_batch_data: dict = {}
+        # Empty skip set - should proceed with fix
+        team_ids_to_skip_fix: set[int] = set()
+
+        _verify_empty_cache_team(
+            team=self.team,
+            config=mock_config,
+            cache_batch_data=cache_batch_data,
+            expiry_status=None,
+            cache_type="flags",
+            result=result,
+            team_ids_to_skip_fix=team_ids_to_skip_fix,
+        )
+
+        # Fix should proceed
+        assert result.cache_miss_fixed == 1
+        assert result.skipped_for_grace_period == 0
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")

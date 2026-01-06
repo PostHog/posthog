@@ -520,7 +520,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                         name: nativeSource.source.source_type,
                         type: 'native',
                         source_type: nativeSource.source.source_type,
-                        prefix: nativeSource.source.prefix,
+                        prefix: nativeSource.source.prefix ?? undefined,
                     })
                 })
 
@@ -582,7 +582,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 // Get all native sources with status and convert to ExternalTable format
                 const nativeSourcesAsExternalTables = nativeSources.map((source) => {
                     const status = getSourceStatus(
-                        { id: source.id, name: source.source_type, type: 'native', prefix: source.prefix },
+                        { id: source.id, name: source.source_type, type: 'native', prefix: source.prefix ?? undefined },
                         nativeSources,
                         []
                     )

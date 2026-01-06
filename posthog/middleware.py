@@ -19,14 +19,12 @@ from django.middleware.csrf import CsrfViewMiddleware
 from django.shortcuts import redirect
 from django.urls import resolve
 from django.utils.cache import add_never_cache_headers
-from django.views.decorators.csrf import csrf_protect
-from django.views.decorators.http import require_POST
 
 import structlog
 from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
 from rest_framework import status
-from social_core.exceptions import AuthFailed
+from social_core.exceptions import AuthCanceled, AuthFailed
 from statshog.defaults.django import statsd
 
 from posthog.api.decide import get_decide
@@ -337,6 +335,7 @@ class CHQueries:
             kind="request",
             id=request.path,
             route_id=route.route,
+            is_impersonated=is_impersonated_session(request) if user.is_authenticated else None,
             client_query_id=self._get_param(request, "client_query_id"),
             session_id=self._get_param(request, "session_id"),
             http_referer=request.headers.get("referer"),
@@ -812,6 +811,11 @@ class SocialAuthExceptionMiddleware:
         if not request.path.startswith("/complete/"):
             return None
 
+        # Handle AuthCanceled (user cancelled OAuth flow)
+        if isinstance(exception, AuthCanceled):
+            return redirect("/login?error_code=oauth_cancelled")
+
+        # Handle AuthFailed with specific error codes
         if isinstance(exception, AuthFailed) and len(exception.args) >= 1:
             error = exception.args[0]
             if error in (
@@ -940,44 +944,3 @@ def impersonated_session_logout(request: HttpRequest) -> HttpResponse:
     impersonated_user_pk = request.user.pk
     restore_original_login(request)
     return redirect(f"/admin/posthog/user/{impersonated_user_pk}/change/")
-
-
-@csrf_protect
-@require_POST
-def login_as_user_read_only(request: HttpRequest, user_id: str) -> HttpResponse:
-    """
-    Log in as another user in read-only mode.
-
-    This view wraps django-loginas functionality but additionally sets
-    a session flag that triggers read-only restrictions via
-    ImpersonationReadOnlyMiddleware.
-    """
-    from django.contrib import messages
-    from django.contrib.admin.utils import unquote
-    from django.contrib.auth import get_user_model
-    from django.core.exceptions import PermissionDenied
-
-    from loginas.utils import login_as
-
-    User = get_user_model()
-
-    can_login_as = settings.CAN_LOGIN_AS
-    target_user = User.objects.get(pk=unquote(user_id))
-
-    error_message = None
-    try:
-        if not can_login_as(request, target_user):
-            error_message = "You do not have permission to do that."
-    except PermissionDenied as e:
-        error_message = str(e)
-
-    if error_message:
-        messages.error(request, error_message)
-        return redirect(f"/admin/posthog/user/{target_user.pk}/change/")
-
-    login_as(target_user, request)
-
-    # Mark this session as read-only
-    request.session[IMPERSONATION_READ_ONLY_SESSION_KEY] = True
-
-    return redirect("/")
