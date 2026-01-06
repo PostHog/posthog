@@ -36,8 +36,8 @@ const statusText = {
 }
 
 export function ManagedReverseProxy(): JSX.Element {
-    const { formState, proxyRecords, proxyRecordsLoading, cloudflareOptInAcknowledged } = useValues(proxyLogic)
-    const { showForm, deleteRecord, acknowledgeCloudflareOptIn } = useActions(proxyLogic)
+    const { cloudflareOptInAcknowledged, formState, proxyRecords, proxyRecordsLoading } = useValues(proxyLogic)
+    const { acknowledgeCloudflareOptIn, deleteRecord, showForm } = useActions(proxyLogic)
     const { preflight } = useValues(preflightLogic)
 
     const cloudflareProxyEnabled = preflight?.instance_preferences?.cloudflare_proxy_enabled
