@@ -8,6 +8,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.rate_limit import OnboardingIPThrottle
 
 from ee.hogai.llm import MaxChatOpenAI
 
@@ -104,6 +105,7 @@ class ProductRecommendationResponse(BaseModel):
 class OnboardingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "INTERNAL"
     permission_classes = [IsAuthenticated]
+    throttle_classes = [OnboardingIPThrottle]
 
     @action(detail=False, methods=["POST"])
     def recommend_products(self, request: request.Request, *args, **kwargs) -> response.Response:
