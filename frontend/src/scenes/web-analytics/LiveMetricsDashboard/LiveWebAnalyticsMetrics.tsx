@@ -93,7 +93,7 @@ const AnimatedPathRow = ({
     deltaVersion: number
 }): JSX.Element => {
     const currentOffsetRef = useRef(offset)
-    const isFirstRender = currentOffsetRef.current === offset
+    const shouldSkipAnimation = currentOffsetRef.current === offset
 
     useLayoutEffect(() => {
         currentOffsetRef.current = offset
@@ -103,7 +103,7 @@ const AnimatedPathRow = ({
         <div
             className={clsx(
                 'flex items-center justify-between px-3 absolute w-full left-0 ease-out border-b border-border',
-                isFirstRender ? 'duration-0' : 'transition-transform duration-500'
+                shouldSkipAnimation ? 'duration-0' : 'transition-transform duration-500'
             )}
             style={{
                 height: ROW_HEIGHT,
