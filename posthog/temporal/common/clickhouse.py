@@ -219,14 +219,18 @@ def add_log_comment_param(params: dict[str, typing.Any], query_tags: typing.Opti
 class KeywordOnlyFormatter(Formatter):
     """Formatter supporting only keyword arguments.
 
-    Positional arguments are unchanged.
+    Positional arguments are unchanged, missing keys are also left unchanged.
     """
 
     def get_value(self, key, args, kwargs):
         if isinstance(key, int):
             # Returns '{n}' unchanged, where n is a numerical index.
             return f"{{{key}}}"
-        return kwargs[key]
+        try:
+            return kwargs[key]
+        except KeyError:
+            # Returns '{key}' unchanged
+            return f"{{{key}}}"
 
 
 class ClickHouseClient:

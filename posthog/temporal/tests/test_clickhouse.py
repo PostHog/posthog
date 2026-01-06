@@ -174,6 +174,11 @@ def test_clickhouse_memory_limit_exceeded_error(clickhouse_client):
             {"event": "index_{1}", "another": "event"},
             "select * from events where event = 'index_{1}' and event != 'event'",
         ),
+        (
+            "select * from events where event = %(event)s and event != {another}",
+            {"event": "index_{something}", "another": "event"},
+            "select * from events where event = 'index_{something}' and event != 'event'",
+        ),
     ],
 )
 def test_prepare_query(clickhouse_client, query, query_parameters, expected):
