@@ -452,7 +452,6 @@ class OauthIntegration:
 
     @classmethod
     def redirect_uri(cls, kind: str) -> str:
-        # The redirect uri is fixed but should always be https and include the "next" parameter for the frontend to redirect
         return f"{settings.SITE_URL.replace('http://', 'https://')}/integrations/{kind}/callback"
 
     @classmethod

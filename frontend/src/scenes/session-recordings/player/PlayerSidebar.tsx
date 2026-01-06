@@ -51,6 +51,11 @@ export function PlayerSidebar(): JSX.Element {
         sidebarTabs.splice(1, 0, SessionRecordingSidebarTab.SESSION_SUMMARY)
     }
 
+    // Show linked issues tab if the flag is enabled
+    if (featureFlags[FEATURE_FLAGS.REPLAY_LINEAR_INTEGRATION]) {
+        sidebarTabs.push(SessionRecordingSidebarTab.LINKED_ISSUES)
+    }
+
     return (
         <div
             className={clsx(

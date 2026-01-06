@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
+from django.db import OperationalError, ProgrammingError
 from django.db.models import Q
 from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 
@@ -214,6 +215,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
     id = serializers.CharField(source="session_id", read_only=True)
     recording_duration = serializers.IntegerField(source="duration", read_only=True)
     person = MinimalPersonSerializer(required=False)
+    external_references = serializers.SerializerMethodField()
 
     ongoing = serializers.SerializerMethodField()
     viewed = serializers.SerializerMethodField()
@@ -233,6 +235,24 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
 
     def get_activity_score(self, obj: SessionRecording) -> float | None:
         return getattr(obj, "activity_score", None)
+
+    def get_external_references(self, obj: SessionRecording) -> list[dict]:
+        """Load external references (linked issues) for this recording"""
+
+        # Skip loading in list views to prevent N+1 queries
+        view = self.context.get("view")
+        if view and getattr(view, "action", None) == "list":
+            return []
+
+        try:
+            from posthog.session_recordings.session_recording_external_reference_api import (
+                SessionRecordingExternalReferenceSerializer,
+            )
+
+            references = obj.external_references.select_related("integration").all()
+            return list(SessionRecordingExternalReferenceSerializer(references, many=True, context=self.context).data)
+        except (ProgrammingError, OperationalError):
+            return []
 
     class Meta:
         model = SessionRecording
@@ -260,6 +280,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             "snapshot_source",
             "ongoing",
             "activity_score",
+            "external_references",
         ]
 
         read_only_fields = [
