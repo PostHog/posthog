@@ -176,6 +176,8 @@ export function SurveyQuestionVisualization({ question, questionIndex, demoData 
                         (demoData.type === SurveyQuestionType.SingleChoice ||
                             demoData.type === SurveyQuestionType.MultipleChoice) && (
                             <MultipleChoiceQuestionViz
+                                question={question}
+                                questionIndex={questionIndex}
                                 responseData={demoData.data}
                                 totalResponses={demoData.totalResponses}
                             />
@@ -242,6 +244,8 @@ export function SurveyQuestionVisualization({ question, questionIndex, demoData 
                         (processedData.type === SurveyQuestionType.SingleChoice ||
                             processedData.type === SurveyQuestionType.MultipleChoice) && (
                             <MultipleChoiceQuestionViz
+                                question={question}
+                                questionIndex={questionIndex}
                                 responseData={processedData.data}
                                 totalResponses={processedData.totalResponses}
                             />

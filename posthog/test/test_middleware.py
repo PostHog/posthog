@@ -805,6 +805,121 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         assert self.client.get("/api/users/@me").json()["email"] == self.user.email
 
 
+@override_settings(IMPERSONATION_TIMEOUT_SECONDS=100)
+@override_settings(IMPERSONATION_IDLE_TIMEOUT_SECONDS=20)
+@override_settings(ADMIN_PORTAL_ENABLED=True)
+@override_settings(ADMIN_AUTH_GOOGLE_OAUTH2_KEY=None)
+@override_settings(ADMIN_AUTH_GOOGLE_OAUTH2_SECRET=None)
+class TestImpersonationBlockedPathsMiddleware(APIBaseTest):
+    other_user: User
+
+    def setUp(self):
+        super().setUp()
+        self.other_user = User.objects.create_and_join(
+            self.organization, email="other-user@posthog.com", password="123456"
+        )
+        self.user.is_staff = True
+        self.user.save()
+
+    def login_as_other_user(self):
+        return self.client.post(
+            reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
+            follow=True,
+        )
+
+    def test_impersonation_allows_get_to_users_api(self):
+        """Verify impersonation allows GET requests to /api/users/."""
+        self.login_as_other_user()
+
+        response = self.client.get("/api/users/@me/")
+        assert response.status_code == 200
+        assert response.json()["email"] == "other-user@posthog.com"
+
+    def test_impersonation_blocks_patch_to_users_api(self):
+        """Verify any impersonation blocks PATCH requests to /api/users/."""
+        self.login_as_other_user()
+
+        # Verify we're logged in as the other user
+        assert self.client.get("/api/users/@me/").json()["email"] == "other-user@posthog.com"
+
+        # Try to update user
+        response = self.client.patch(
+            "/api/users/@me/",
+            data={"first_name": "Changed"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 403
+        response_data = response.json()
+        assert response_data["type"] == "authentication_error"
+        assert response_data["code"] == "impersonation_path_blocked"
+
+    def test_non_impersonated_session_can_patch_users_api(self):
+        """Verify non-impersonated sessions can PATCH /api/users/."""
+        response = self.client.patch(
+            "/api/users/@me/",
+            data={"first_name": "Updated"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        self.user.refresh_from_db()
+        assert self.user.first_name == "Updated"
+
+    def test_impersonation_allows_set_current_organization(self):
+        """Verify impersonation allows PATCH with only set_current_organization."""
+        self.login_as_other_user()
+
+        response = self.client.patch(
+            "/api/users/@me/",
+            data={"set_current_organization": str(self.organization.id)},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+
+    def test_impersonation_blocks_set_current_organization_with_other_fields(self):
+        """Verify impersonation blocks PATCH with set_current_organization plus other fields."""
+        self.login_as_other_user()
+
+        response = self.client.patch(
+            "/api/users/@me/",
+            data={"set_current_organization": str(self.organization.id), "first_name": "Hacked"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 403
+        assert response.json()["code"] == "impersonation_path_blocked"
+
+    def test_impersonation_allows_get_to_personal_api_keys(self):
+        """Verify impersonation allows GET requests to /api/personal_api_keys/."""
+        self.login_as_other_user()
+
+        # Verify we're logged in as the other user
+        assert self.client.get("/api/users/@me/").json()["email"] == "other-user@posthog.com"
+
+        response = self.client.get("/api/personal_api_keys/")
+        assert response.status_code == 200
+
+    def test_impersonation_blocks_post_to_personal_api_keys(self):
+        """Verify any impersonation blocks POST requests to /api/personal_api_keys/."""
+        self.login_as_other_user()
+
+        # Verify we're logged in as the other user
+        assert self.client.get("/api/users/@me/").json()["email"] == "other-user@posthog.com"
+
+        response = self.client.post(
+            "/api/personal_api_keys/",
+            data={"label": "Test Key"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 403
+        response_data = response.json()
+        assert response_data["type"] == "authentication_error"
+        assert response_data["code"] == "impersonation_path_blocked"
+
+
 @override_settings(SESSION_COOKIE_AGE=100)
 class TestSessionAgeMiddleware(APIBaseTest):
     def setUp(self):
