@@ -2074,6 +2074,11 @@ class OrderBy3(StrEnum):
     EARLIEST = "earliest"
 
 
+class LogsSparklineBreakdownBy(StrEnum):
+    SEVERITY = "severity"
+    SERVICE = "service"
+
+
 class MarkdownBlock(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -15567,6 +15572,9 @@ class LogsQuery(BaseModel):
     searchTerm: str | None = None
     serviceNames: list[str]
     severityLevels: list[LogSeverityLevel]
+    sparklineBreakdownBy: LogsSparklineBreakdownBy | None = Field(
+        default=None, description="Field to break down sparkline data by (used only by sparkline endpoint)"
+    )
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
