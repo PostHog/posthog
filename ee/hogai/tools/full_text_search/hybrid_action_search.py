@@ -130,11 +130,8 @@ class HybridActionSearchTool(MaxSubtool):
             if not settings.AZURE_INFERENCE_ENDPOINT or not settings.AZURE_INFERENCE_CREDENTIAL:
                 return []
 
-            client = get_async_azure_embeddings_client()
-            try:
+            async with get_async_azure_embeddings_client() as client:
                 embedding = await aembed_search_query(client, query)
-            finally:
-                await client.close()
 
             runner = VectorSearchQueryRunner(
                 team=self._team,

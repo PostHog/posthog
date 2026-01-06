@@ -115,6 +115,8 @@ class TestHybridActionSearchTool(NonAtomicBaseTest):
         mock_settings.AZURE_INFERENCE_CREDENTIAL = "test-credential"
 
         mock_client = AsyncMock()
+        mock_client.__aenter__.return_value = mock_client
+        mock_client.__aexit__.return_value = None
         mock_get_client.return_value = mock_client
         mock_embed.return_value = [0.1] * 1024
 
@@ -134,7 +136,7 @@ class TestHybridActionSearchTool(NonAtomicBaseTest):
         result = await self.tool._vector_search("test query")
 
         self.assertEqual(result, [("1", 0.1), ("2", 0.2)])
-        mock_client.close.assert_called_once()
+        mock_client.__aexit__.assert_called_once()
 
     @patch("ee.hogai.tools.full_text_search.hybrid_action_search.search_entities")
     async def test_fts_search_returns_results(self, mock_search):
