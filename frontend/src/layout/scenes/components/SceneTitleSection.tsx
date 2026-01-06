@@ -11,8 +11,8 @@ import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
 
-import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { Breadcrumb, FileSystemIconColor } from '~/types'
 
@@ -152,11 +152,6 @@ export function SceneTitleSection({
     const willShowBreadcrumbs = forceBackTo || breadcrumbs.length > 2
     const [isScrolled, setIsScrolled] = useState(false)
 
-    // Hide entire title section in zen mode
-    if (zenMode) {
-        return null
-    }
-
     const effectiveDescription = description
 
     useEffect(() => {
@@ -175,6 +170,11 @@ export function SceneTitleSection({
         observer.observe(stickyElement)
         return () => observer.disconnect()
     }, [])
+
+    // Hide entire title section in zen mode
+    if (zenMode) {
+        return null
+    }
 
     const icon = resourceType.forceIcon ? (
         <ProductIconWrapper type={resourceType.type} colorOverride={resourceType.forceIconColorOverride}>
