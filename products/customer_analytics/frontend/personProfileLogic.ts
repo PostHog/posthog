@@ -44,7 +44,7 @@ export const personProfileLogic = kea<personProfileLogicType>([
         ],
         actions: [
             customerProfileConfigLogic({ scope: 'person' }),
-            ['createConfig', 'updateConfig', 'loadConfigsSuccess'],
+            ['createConfig', 'updateConfig', 'loadConfigsSuccess', 'updateConfigSuccess', 'createConfigSuccess'],
             notebookLogic({ shortId: `canvas-${props.personId}`, mode: 'canvas' }),
             ['setLocalContent'],
         ],
@@ -200,8 +200,13 @@ export const personProfileLogic = kea<personProfileLogicType>([
                 actions.createConfig(config)
             }
         },
-        saveChangesSuccess: () => {
+        createConfigSuccess: () => {
             actions.setLocalContent(values.content, true)
+            actions.resetToDefaults()
+        },
+        updateConfigSuccess: () => {
+            actions.setLocalContent(values.content, true)
+            actions.resetToDefaults()
         },
         loadConfigsSuccess: () => {
             actions.setLocalContent(values.content, true)

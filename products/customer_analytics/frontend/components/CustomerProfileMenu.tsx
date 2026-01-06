@@ -24,11 +24,6 @@ export function CustomerProfileMenu({ scope, content }: CustomerProfileMenuProps
         checked ? addNode(nodeType) : removeNode(nodeType)
     }
 
-    const handleSave = (): void => {
-        saveChanges()
-        resetToDefaults()
-    }
-
     const items: LemonMenuSection[] = [
         {
             title: 'Visible tiles',
@@ -62,7 +57,7 @@ export function CustomerProfileMenu({ scope, content }: CustomerProfileMenuProps
                         className="ml-2"
                         children="Save changes"
                         sideIcon={null}
-                        onClick={handleSave}
+                        onClick={() => saveChanges()}
                     />
                     <LemonButton
                         type="secondary"
