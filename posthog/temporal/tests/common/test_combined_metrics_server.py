@@ -140,6 +140,23 @@ class TestTemporalMetricsCollector:
         # Counter should have been incremented twice (5 + 3 = 8)
         assert metric._value.get() == 8.0  # type: ignore[union-attr]
 
+    def test_skips_updates_with_mismatched_label_sets(self, isolated_registry):
+        buffer = MagicMock(spec=MetricBuffer)
+        buffer.retrieve_updates.return_value = [
+            create_mock_metric_update("my_metric", BUFFERED_METRIC_KIND_COUNTER, 10, {"label_a": "value"}),
+        ]
+
+        collector = TemporalMetricsCollector(buffer, metric_prefix="test_", registry=isolated_registry)
+        collector.collect_updates()
+
+        buffer.retrieve_updates.return_value = [
+            create_mock_metric_update("my_metric", BUFFERED_METRIC_KIND_COUNTER, 5, {"label_b": "value"}),
+        ]
+        collector.collect_updates()
+
+        assert len(collector._metrics) == 1
+        assert "test_my_metric:label_a" in collector._metrics
+
 
 class TestCombinedMetricsServer:
     def test_serves_combined_metrics(self, mock_metric_buffer, test_counter, isolated_registry):

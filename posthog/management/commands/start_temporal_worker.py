@@ -361,7 +361,7 @@ class Command(BaseCommand):
 
             logger.info("Signal %s received", sig)
 
-            if worker.is_shutdown:
+            if worker.is_shutdown():
                 logger.info("Temporal worker already shut down")
                 return
 

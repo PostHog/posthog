@@ -46,7 +46,7 @@ BATCH_EXPORTS_LATENCY_HISTOGRAM_METRICS = (
     "batch_exports_activity_interval_execution_latency",
     "batch_exports_workflow_interval_execution_latency",
 )
-BATCH_EXPORTS_LATENCY_HISTOGRAM_BUCKETS = [
+BATCH_EXPORTS_LATENCY_HISTOGRAM_BUCKETS = (
     1_000.0,
     30_000.0,  # 30 seconds
     60_000.0,  # 1 minute
@@ -57,7 +57,7 @@ BATCH_EXPORTS_LATENCY_HISTOGRAM_BUCKETS = [
     21_600_000.0,  # 6 hours
     43_200_000.0,  # 12 hours
     86_400_000.0,  # 24 hours
-]
+)
 
 
 async def create_worker(
@@ -131,7 +131,7 @@ async def create_worker(
                 itertools.repeat(BATCH_EXPORTS_LATENCY_HISTOGRAM_BUCKETS),
             )
         )
-        | {"batch_exports_activity_attempt": [1.0, 5.0, 10.0, 100.0]},
+        | {"batch_exports_activity_attempt": (1.0, 5.0, 10.0, 100.0)},
     )
     client = await connect(
         host,

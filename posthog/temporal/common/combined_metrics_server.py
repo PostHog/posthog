@@ -64,6 +64,12 @@ class TemporalMetricsCollector:
         self._histogram_bucket_overrides = histogram_bucket_overrides or {}
 
         self._metrics: dict[str, Union[Counter, Gauge, Histogram]] = {}
+        # prometheus_client requires label names to be declared at metric creation and raises
+        # ValueError('Incorrect label names') if different names are used later.
+        # See: https://prometheus.github.io/client_python/instrumenting/labels/
+        # Source: https://github.com/prometheus/client_python/blob/e8f8bae6554de11ebffffcc878ab19abd67528f2/prometheus_client/metrics.py#L175
+        # We track the first-seen label set for each metric and skip updates with different labels.
+        self._label_names_by_metric: dict[str, tuple[str, ...]] = {}
         self._lock = threading.Lock()
 
     def _get_metric_key(self, name: str, label_names: tuple[str, ...]) -> str:
@@ -117,9 +123,21 @@ class TemporalMetricsCollector:
 
             for update in updates:
                 try:
+                    metric_name = update.metric.name
                     label_names = tuple(sorted(update.attributes.keys()))
-                    label_values = {k: str(v) for k, v in update.attributes.items()}
 
+                    if metric_name not in self._label_names_by_metric:
+                        self._label_names_by_metric[metric_name] = label_names
+                    elif self._label_names_by_metric[metric_name] != label_names:
+                        logger.warning(
+                            "temporal_metrics_collector.label_set_mismatch",
+                            metric_name=metric_name,
+                            expected=self._label_names_by_metric[metric_name],
+                            actual=label_names,
+                        )
+                        continue
+
+                    label_values = {k: str(v) for k, v in update.attributes.items()}
                     metric = self._get_or_create_metric(update, label_names)
                     kind = update.metric.kind
 
@@ -138,7 +156,7 @@ class TemporalMetricsCollector:
                 except Exception as e:
                     logger.warning(
                         "temporal_metrics_collector.update_failed",
-                        metric_name=update.metric.name,
+                        metric_name=metric_name,
                         error=str(e),
                     )
                     capture_exception(e)
@@ -216,7 +234,7 @@ class CombinedMetricsServer:
         if self._server is not None:
             raise RuntimeError("Server already started")
 
-        self._server = HTTPServer(("0.0.0.0", self._port), self._handler)  # type: ignore[arg-type]
+        self._server = HTTPServer(("0.0.0.0", self._port), self._handler)
         self._thread = threading.Thread(
             target=self._server.serve_forever,
             daemon=True,
