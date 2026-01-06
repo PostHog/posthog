@@ -13,6 +13,7 @@ import structlog
 import temporalio
 from google.genai import types
 from posthoganalytics.ai.gemini import genai
+from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.ai.session_summary.types.video import (
     ConsolidatedVideoAnalysis,
@@ -47,10 +48,10 @@ async def consolidate_video_segments_activity(
     - Per-segment outcomes (success, confusion, abandonment, failures)
     """
     if not raw_segments:
-        return ConsolidatedVideoAnalysis(
-            segments=[],
-            session_outcome=VideoSessionOutcome(success=True, description="Empty session with no activity"),
-            segment_outcomes=[],
+        raise ApplicationError(
+            f"No segments extracted from video analysis for session {inputs.session_id}. "
+            "All video segments may have been static or the LLM output format was not parseable.",
+            non_retryable=True,
         )
 
     try:

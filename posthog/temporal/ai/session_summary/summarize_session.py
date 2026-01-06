@@ -475,13 +475,6 @@ async def ensure_llm_single_session_summary(inputs: SingleSessionSummaryInputs):
     for segment_output_list in segment_results:
         raw_segments.extend(segment_output_list)
 
-    if not raw_segments:
-        raise ApplicationError(
-            f"No segments extracted from video analysis for session {inputs.session_id}. "
-            "All video segments may have been static or the LLM output format was not parseable.",
-            non_retryable=True,
-        )
-
     # Activity 4: Consolidate raw segments into meaningful semantic segments
     consolidated_analysis = await temporalio.workflow.execute_activity(
         consolidate_video_segments_activity,
