@@ -46,3 +46,16 @@ def embed_search_query(client: EmbeddingsClient, text: str) -> list[float]:
     if not response.data:
         raise ValueError("No embeddings returned")
     return cast(list[float], response.data[0].embedding)
+
+
+async def aembed_search_query(client: EmbeddingsClientAsync, text: str) -> list[float]:
+    """Async embed a search query for semantic search by stored documents."""
+    response = await client.embed(
+        input=[text],
+        encoding_format="float",
+        model="embed-v-4-0",
+        input_type="query",
+    )
+    if not response.data:
+        raise ValueError("No embeddings returned")
+    return cast(list[float], response.data[0].embedding)

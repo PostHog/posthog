@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from ee.hogai.tool import MaxSubtool, MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
+from ee.hogai.tools.full_text_search.hybrid_action_search import HybridActionSearchTool
 from ee.hogai.tools.full_text_search.tool import EntitySearchTool, FTSKind
 
 SEARCH_TOOL_PROMPT = """
@@ -65,6 +66,12 @@ If you want to search for all entities, you should use `all`.
 
 INVALID_ENTITY_KIND_PROMPT = """
 Invalid entity kind: {{{kind}}}. Please provide a valid entity kind for the tool.
+""".strip()
+
+HYBRID_ACTION_SEARCH_RESULTS_TEMPLATE = """
+Successfully found {total_results} actions matching the query using hybrid search (semantic + keyword).
+
+{actions_list}
 """.strip()
 
 ENTITIES = [f"{entity}" for entity in FTSKind if entity != FTSKind.INSIGHTS]
@@ -125,6 +132,19 @@ class SearchTool(MaxTool):
         if kind not in self._fts_entities:
             raise MaxToolRetryableError(INVALID_ENTITY_KIND_PROMPT.format(kind=kind))
 
+        # Use hybrid search (vector + FTS with RRF) for actions when embeddings are available
+        if kind == "actions" and settings.AZURE_INFERENCE_ENDPOINT:
+            hybrid_tool = HybridActionSearchTool(
+                team=self._team,
+                user=self._user,
+                state=self._state,
+                config=self._config,
+                context_manager=self._context_manager,
+            )
+            results = await hybrid_tool.execute(query)
+            response = self._format_hybrid_action_results(query, results)
+            return response, None
+
         entity_search_toolkit = EntitySearchTool(
             team=self._team,
             user=self._user,
@@ -134,6 +154,28 @@ class SearchTool(MaxTool):
         )
         response = await entity_search_toolkit.execute(query, FTSKind(kind))
         return response, None
+
+    def _format_hybrid_action_results(self, query: str, results: list[dict]) -> str:
+        """Format hybrid search results for display."""
+        if not results:
+            return f"No actions found matching the query '{query}'"
+
+        formatted_actions = []
+        for action in results:
+            action_url = f"{settings.SITE_URL}/project/{self._team.id}/data-management/actions/{action['id']}"
+            parts = [
+                f"name: {action['name']}",
+                f"action_id: '{action['id']}'",
+                f"url: {action_url}",
+            ]
+            if action.get("description"):
+                parts.append(f"description: {action['description']}")
+            formatted_actions.append("\n".join(parts))
+
+        return HYBRID_ACTION_SEARCH_RESULTS_TEMPLATE.format(
+            total_results=len(results),
+            actions_list="\n---\n".join(formatted_actions),
+        )
 
     @property
     def _fts_entities(self) -> list[str]:
