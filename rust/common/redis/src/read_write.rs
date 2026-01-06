@@ -414,7 +414,7 @@ impl Client for ReadWriteClient {
         self.writer.hincrby(k, v, count).await
     }
 
-    async fn mget(&self, keys: Vec<String>) -> Result<Vec<Option<i64>>, CustomRedisError> {
+    async fn mget(&self, keys: Vec<String>) -> Result<Vec<Option<Vec<u8>>>, CustomRedisError> {
         match self.reader.mget(keys.clone()).await {
             Ok(value) => Ok(value),
             Err(err) if !err.is_unrecoverable_error() => {

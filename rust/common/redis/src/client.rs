@@ -416,22 +416,13 @@ impl Client for RedisClient {
         Ok(result)
     }
 
-    async fn mget(&self, keys: Vec<String>) -> Result<Vec<Option<i64>>, CustomRedisError> {
+    async fn mget(&self, keys: Vec<String>) -> Result<Vec<Option<Vec<u8>>>, CustomRedisError> {
         if keys.is_empty() {
             return Ok(vec![]);
         }
         let mut conn = self.connection.clone();
         let results: Vec<Option<Vec<u8>>> = conn.mget(&keys).await?;
-        Ok(results
-            .into_iter()
-            .map(|opt| {
-                opt.and_then(|bytes| {
-                    std::str::from_utf8(&bytes)
-                        .ok()
-                        .and_then(|s| s.parse().ok())
-                })
-            })
-            .collect())
+        Ok(results)
     }
 
     async fn scard_multiple(&self, keys: Vec<String>) -> Result<Vec<u64>, CustomRedisError> {

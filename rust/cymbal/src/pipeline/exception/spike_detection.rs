@@ -414,6 +414,11 @@ async fn fetch_bucket_data(
     let all_values = redis.mget(all_keys).await?;
     let team_issue_counts = redis.scard_multiple(team_issue_set_keys).await?;
 
+    let all_values: Vec<Option<i64>> = all_values
+        .into_iter()
+        .map(|opt| opt.and_then(|bytes| std::str::from_utf8(&bytes).ok()?.parse().ok()))
+        .collect();
+
     let issue_values = all_values[..issue_ids.len() * NUM_BUCKETS].to_vec();
     let team_values = all_values[issue_ids.len() * NUM_BUCKETS..].to_vec();
 
@@ -443,6 +448,10 @@ mod tests {
     use chrono::TimeZone;
     use common_redis::MockRedisClient;
 
+    fn bytes(v: i64) -> Vec<u8> {
+        v.to_string().into_bytes()
+    }
+
     struct TestContext {
         redis: MockRedisClient,
         issue_id: Uuid,
@@ -464,7 +473,8 @@ mod tests {
                 let offset = Duration::minutes(ISSUE_BUCKET_INTERVAL_MINUTES * i as i64);
                 let ts = get_rounded_to_minutes(now - offset, ISSUE_BUCKET_INTERVAL_MINUTES);
                 let key = issue_bucket_key(&self.issue_id, &ts);
-                self.redis.mget_ret(&key, *value);
+                self.redis
+                    .mget_ret(&key, value.map(|v| v.to_string().into_bytes()));
             }
             for i in values.len()..NUM_BUCKETS {
                 let offset = Duration::minutes(ISSUE_BUCKET_INTERVAL_MINUTES * i as i64);
@@ -481,7 +491,8 @@ mod tests {
                 let ts = get_rounded_to_minutes(now - offset, ISSUE_BUCKET_INTERVAL_MINUTES);
 
                 let bucket_key = team_bucket_key(self.team_id, &ts);
-                self.redis.mget_ret(&bucket_key, *value);
+                self.redis
+                    .mget_ret(&bucket_key, value.map(|v| v.to_string().into_bytes()));
 
                 let issue_count = issue_counts.get(i).copied().unwrap_or(0);
                 let issue_set_key = team_issue_set_key(self.team_id, &ts);
@@ -843,43 +854,43 @@ mod tests {
 
         // Setup issue buckets
         // Issue A: current=60, no history
-        redis.mget_ret(&issue_bucket_key(&issue_a, &timestamps[0]), Some(60));
+        redis.mget_ret(&issue_bucket_key(&issue_a, &timestamps[0]), Some(bytes(60)));
         for ts in &timestamps[1..] {
             redis.mget_ret(&issue_bucket_key(&issue_a, ts), None);
         }
 
         // Issue B: current=30, history=[2, 2]
-        redis.mget_ret(&issue_bucket_key(&issue_b, &timestamps[0]), Some(30));
-        redis.mget_ret(&issue_bucket_key(&issue_b, &timestamps[1]), Some(2));
-        redis.mget_ret(&issue_bucket_key(&issue_b, &timestamps[2]), Some(2));
+        redis.mget_ret(&issue_bucket_key(&issue_b, &timestamps[0]), Some(bytes(30)));
+        redis.mget_ret(&issue_bucket_key(&issue_b, &timestamps[1]), Some(bytes(2)));
+        redis.mget_ret(&issue_bucket_key(&issue_b, &timestamps[2]), Some(bytes(2)));
         for ts in &timestamps[3..] {
             redis.mget_ret(&issue_bucket_key(&issue_b, ts), None);
         }
 
         // Issue C: current=100, no history
-        redis.mget_ret(&issue_bucket_key(&issue_c, &timestamps[0]), Some(100));
+        redis.mget_ret(&issue_bucket_key(&issue_c, &timestamps[0]), Some(bytes(100)));
         for ts in &timestamps[1..] {
             redis.mget_ret(&issue_bucket_key(&issue_c, ts), None);
         }
 
         // Issue D: current=50, history=[10]
-        redis.mget_ret(&issue_bucket_key(&issue_d, &timestamps[0]), Some(50));
-        redis.mget_ret(&issue_bucket_key(&issue_d, &timestamps[1]), Some(10));
+        redis.mget_ret(&issue_bucket_key(&issue_d, &timestamps[0]), Some(bytes(50)));
+        redis.mget_ret(&issue_bucket_key(&issue_d, &timestamps[1]), Some(bytes(10)));
         for ts in &timestamps[2..] {
             redis.mget_ret(&issue_bucket_key(&issue_d, ts), None);
         }
 
         // Issue E: current=300, no history
-        redis.mget_ret(&issue_bucket_key(&issue_e, &timestamps[0]), Some(300));
+        redis.mget_ret(&issue_bucket_key(&issue_e, &timestamps[0]), Some(bytes(300)));
         for ts in &timestamps[1..] {
             redis.mget_ret(&issue_bucket_key(&issue_e, ts), None);
         }
 
         // Setup team 1 buckets: [10, 20, 30, None...] with issue counts [2, 4, 6, 0...]
         // Rates: 10/2=5, 20/4=5, 30/6=5 -> average = 5
-        redis.mget_ret(&team_bucket_key(team_1, &timestamps[0]), Some(10));
-        redis.mget_ret(&team_bucket_key(team_1, &timestamps[1]), Some(20));
-        redis.mget_ret(&team_bucket_key(team_1, &timestamps[2]), Some(30));
+        redis.mget_ret(&team_bucket_key(team_1, &timestamps[0]), Some(bytes(10)));
+        redis.mget_ret(&team_bucket_key(team_1, &timestamps[1]), Some(bytes(20)));
+        redis.mget_ret(&team_bucket_key(team_1, &timestamps[2]), Some(bytes(30)));
         for ts in &timestamps[3..] {
             redis.mget_ret(&team_bucket_key(team_1, ts), None);
         }
@@ -892,8 +903,8 @@ mod tests {
 
         // Setup team 2 buckets: [40, 60, None...] with issue counts [2, 3, 0...]
         // Rates: 40/2=20, 60/3=20 -> average = 20
-        redis.mget_ret(&team_bucket_key(team_2, &timestamps[0]), Some(40));
-        redis.mget_ret(&team_bucket_key(team_2, &timestamps[1]), Some(60));
+        redis.mget_ret(&team_bucket_key(team_2, &timestamps[0]), Some(bytes(40)));
+        redis.mget_ret(&team_bucket_key(team_2, &timestamps[1]), Some(bytes(60)));
         for ts in &timestamps[2..] {
             redis.mget_ret(&team_bucket_key(team_2, ts), None);
         }
