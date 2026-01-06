@@ -425,9 +425,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                                 className="group"
                                                                 menuItem={!isLayoutNavCollapsed}
                                                                 iconOnly={isLayoutNavCollapsed}
-                                                                // tooltip={tooltip}
-                                                                // tooltipPlacement="right"
-                                                                // tooltipDocLink={item.documentationUrl}
                                                                 data-attr={`menu-item-${item.identifier.toString().toLowerCase()}`}
                                                             >
                                                                 <span className={iconClassName}>{item.icon}</span>
@@ -466,9 +463,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                                         active: isStaticNavItemActive(item.identifier),
                                                                     }}
                                                                     to={item.to}
-                                                                    // tooltip={tooltip}
-                                                                    // tooltipPlacement="right"
-                                                                    // tooltipDocLink={item.documentationUrl}
                                                                 >
                                                                     <span className={iconClassName}>{item.icon}</span>
                                                                     {!isLayoutNavCollapsed && (
@@ -585,8 +579,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                     : openSidePanel(SidePanelTab.Activation)
                                             }
                                             data-attr="activation-button"
-                                            tooltip={isLayoutNavCollapsed ? 'Quick start' : undefined}
-                                            tooltipPlacement="right"
                                             iconOnly={isLayoutNavCollapsed}
                                         >
                                             <span>

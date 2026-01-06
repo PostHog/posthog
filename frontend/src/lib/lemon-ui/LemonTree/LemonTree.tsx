@@ -414,11 +414,6 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                     aria-haspopup={!!itemContextMenu?.(item)}
                                     aria-roledescription="tree item"
                                     aria-label={ariaLabel}
-                                    tooltip={
-                                        isDragging || isEmptyFolder || mode === 'table'
-                                            ? undefined
-                                            : renderItemTooltip?.(item)
-                                    }
                                     newTooltipPayload={{
                                         title:
                                             isDragging || isEmptyFolder || mode === 'table'
