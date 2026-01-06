@@ -1221,6 +1221,7 @@ class EntityType(StrEnum):
     EVENTS = "events"
     DATA_WAREHOUSE = "data_warehouse"
     NEW_ENTITY = "new_entity"
+    GROUPS = "groups"
 
 
 class ErrorBlock(BaseModel):
@@ -2462,6 +2463,7 @@ class NativeMarketingSource(StrEnum):
 
 class NodeKind(StrEnum):
     EVENTS_NODE = "EventsNode"
+    GROUP_NODE = "GroupNode"
     ACTIONS_NODE = "ActionsNode"
     DATA_WAREHOUSE_NODE = "DataWarehouseNode"
     EVENTS_QUERY = "EventsQuery"
@@ -13982,6 +13984,90 @@ class FunnelsFilter(BaseModel):
     useUdf: bool | None = None
 
 
+class GroupNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: str | None = None
+    fixedProperties: (
+        list[
+            EventPropertyFilter
+            | PersonPropertyFilter
+            | ElementPropertyFilter
+            | EventMetadataPropertyFilter
+            | SessionPropertyFilter
+            | CohortPropertyFilter
+            | RecordingPropertyFilter
+            | LogEntryPropertyFilter
+            | GroupPropertyFilter
+            | FeaturePropertyFilter
+            | FlagPropertyFilter
+            | HogQLPropertyFilter
+            | EmptyPropertyFilter
+            | DataWarehousePropertyFilter
+            | DataWarehousePersonPropertyFilter
+            | ErrorTrackingIssueFilter
+            | LogPropertyFilter
+            | RevenueAnalyticsPropertyFilter
+        ]
+        | None
+    ) = Field(
+        default=None,
+        description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+    )
+    kind: Literal["GroupNode"] = "GroupNode"
+    limit: int | None = None
+    math: (
+        BaseMathType
+        | FunnelMathType
+        | PropertyMathType
+        | CountPerActorMathType
+        | ExperimentMetricMathType
+        | CalendarHeatmapMathType
+        | Literal["unique_group"]
+        | Literal["hogql"]
+        | None
+    ) = None
+    math_group_type_index: MathGroupTypeIndex | None = None
+    math_hogql: str | None = None
+    math_multiplier: float | None = None
+    math_property: str | None = None
+    math_property_revenue_currency: RevenueCurrencyPropertyConfig | None = None
+    math_property_type: str | None = None
+    name: str | None = None
+    nodes: list[EventsNode | ActionsNode | DataWarehouseNode] = Field(
+        ..., description="Entities to combine in this group"
+    )
+    operator: FilterLogicalOperator = Field(..., description="Group of entities combined with AND/OR operator")
+    optionalInFunnel: bool | None = None
+    orderBy: list[str] | None = Field(default=None, description="Columns to order by")
+    properties: (
+        list[
+            EventPropertyFilter
+            | PersonPropertyFilter
+            | ElementPropertyFilter
+            | EventMetadataPropertyFilter
+            | SessionPropertyFilter
+            | CohortPropertyFilter
+            | RecordingPropertyFilter
+            | LogEntryPropertyFilter
+            | GroupPropertyFilter
+            | FeaturePropertyFilter
+            | FlagPropertyFilter
+            | HogQLPropertyFilter
+            | EmptyPropertyFilter
+            | DataWarehousePropertyFilter
+            | DataWarehousePersonPropertyFilter
+            | ErrorTrackingIssueFilter
+            | LogPropertyFilter
+            | RevenueAnalyticsPropertyFilter
+        ]
+        | None
+    ) = Field(default=None, description="Properties configurable in the interface")
+    response: dict[str, Any] | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class GroupsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -14553,7 +14639,9 @@ class TrendsQuery(BaseModel):
     ) = Field(default=[], description="Property filters for all series")
     response: TrendsQueryResponse | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
-    series: list[EventsNode | ActionsNode | DataWarehouseNode] = Field(..., description="Events and actions to include")
+    series: list[GroupNode | EventsNode | ActionsNode | DataWarehouseNode] = Field(
+        ..., description="Events and actions to include"
+    )
     tags: QueryLogTags | None = Field(default=None, description="Tags that will be added to the Query log comment")
     trendsFilter: TrendsFilter | None = Field(default=None, description="Properties specific to the trends insight")
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
