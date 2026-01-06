@@ -126,6 +126,10 @@ class TeamManager(models.Manager):
 
         team.test_account_filters = self.set_test_account_filters(organization.id)
 
+        # Self-hosted deployments get 5-year session recording retention by default
+        if not is_cloud():
+            team.session_recording_retention_period = SessionRecordingRetentionPeriod.FIVE_YEARS
+
         if team.extra_settings is None:
             team.extra_settings = {}
         team.extra_settings.setdefault("recorder_script", "posthog-recorder")
