@@ -105,7 +105,7 @@ async def create_worker(
             Defaults to 1.0. Only takes effect if target_memory_usage is set.
     """
 
-    temporal_metrics_port = _get_free_port()
+    temporal_metrics_port = get_free_port()
     temporal_metrics_bind_address = f"127.0.0.1:{temporal_metrics_port}"
 
     # Use PrometheusConfig to expose Temporal SDK metrics on an internal port.
@@ -187,7 +187,7 @@ async def create_worker(
     return ManagedWorker(worker=worker, metrics_server=metrics_server)
 
 
-def _get_free_port() -> int:
+def get_free_port() -> int:
     """Find an available port on localhost."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))

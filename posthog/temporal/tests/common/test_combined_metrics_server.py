@@ -8,7 +8,8 @@ import pytest
 
 from prometheus_client import CollectorRegistry, Counter
 
-from posthog.temporal.common.combined_metrics_server import CombinedMetricsServer, get_free_port
+from posthog.temporal.common.combined_metrics_server import CombinedMetricsServer
+from posthog.temporal.common.worker import get_free_port
 
 
 def create_mock_temporal_server(port: int, metrics_content: bytes) -> HTTPServer:
@@ -52,6 +53,19 @@ class TestCombinedMetricsServer:
         temporal_metrics = b"""# HELP temporal_workflow_completed Workflow completions
 # TYPE temporal_workflow_completed counter
 temporal_workflow_completed{namespace="default"} 42
+# HELP temporal_request Count of client request successes by rpc name
+# TYPE temporal_request counter
+temporal_request{operation="GetSystemInfo",service_name="temporal-core-sdk"} 1
+temporal_request{namespace="default",operation="DescribeNamespace",service_name="temporal-core-sdk"} 1
+# HELP temporal_long_request_latency Histogram of client long-poll request latencies
+# TYPE temporal_long_request_latency histogram
+temporal_long_request_latency_bucket{namespace="default",operation="PollActivityTaskQueue",service_name="temporal-core-sdk",task_queue="development-task-queue",le="50"} 8
+temporal_long_request_latency_bucket{namespace="default",operation="PollActivityTaskQueue",service_name="temporal-core-sdk",task_queue="development-task-queue",le="100"} 8
+temporal_long_request_latency_bucket{namespace="default",operation="PollActivityTaskQueue",service_name="temporal-core-sdk",task_queue="development-task-queue",le="500"} 8
+temporal_long_request_latency_bucket{namespace="default",operation="PollActivityTaskQueue",service_name="temporal-core-sdk",task_queue="development-task-queue",le="1000"} 8
+temporal_long_request_latency_bucket{namespace="default",operation="PollActivityTaskQueue",service_name="temporal-core-sdk",task_queue="development-task-queue",le="2500"} 8
+temporal_long_request_latency_bucket{namespace="default",operation="PollActivityTaskQueue",service_name="temporal-core-sdk",task_queue="development-task-queue",le="10000"} 8
+temporal_long_request_latency_bucket{namespace="default",operation="PollActivityTaskQueue",service_name="temporal-core-sdk",task_queue="development-task-queue",le="+Inf"} 313
 """
 
         mock_server = create_mock_temporal_server(temporal_port, temporal_metrics)
@@ -60,7 +74,7 @@ temporal_workflow_completed{namespace="default"} 42
 
         server = CombinedMetricsServer(
             port=metrics_port,
-            temporal_metrics_port=temporal_port,
+            temporal_metrics_url=f"http://127.0.0.1:{temporal_port}/metrics",
             registry=isolated_registry,
         )
         server.start()
@@ -71,8 +85,7 @@ temporal_workflow_completed{namespace="default"} 42
                 content = response.read().decode("utf-8")
 
             # Check Temporal metrics are included
-            assert "temporal_workflow_completed" in content
-            assert 'namespace="default"' in content
+            assert temporal_metrics in content
             # Check prometheus_client metrics are included
             assert test_counter in content
         finally:
@@ -85,7 +98,7 @@ temporal_workflow_completed{namespace="default"} 42
 
         server = CombinedMetricsServer(
             port=metrics_port,
-            temporal_metrics_port=temporal_port,
+            temporal_metrics_url=f"http://127.0.0.1:{temporal_port}/metrics",
             registry=isolated_registry,
         )
         server.start()
@@ -97,6 +110,7 @@ temporal_workflow_completed{namespace="default"} 42
 
             # prometheus_client metrics should still be served
             assert test_counter in content
+            assert "temporal" not in content
         finally:
             server.stop()
 
@@ -106,7 +120,7 @@ temporal_workflow_completed{namespace="default"} 42
 
         server = CombinedMetricsServer(
             port=metrics_port,
-            temporal_metrics_port=temporal_port,
+            temporal_metrics_url=f"http://127.0.0.1:{temporal_port}/metrics",
             registry=isolated_registry,
         )
         server.start()
@@ -135,7 +149,7 @@ temporal_active_workers{task_queue="main"} 5
 
         server = CombinedMetricsServer(
             port=metrics_port,
-            temporal_metrics_port=temporal_port,
+            temporal_metrics_url=f"http://127.0.0.1:{temporal_port}/metrics",
             registry=isolated_registry,
         )
         server.start()
@@ -145,20 +159,19 @@ temporal_active_workers{task_queue="main"} 5
             with urllib.request.urlopen(url, timeout=5) as response:
                 content = response.read().decode("utf-8")
 
-            assert "temporal_active_workers" in content
+            assert temporal_metrics in content
             assert test_counter in content
         finally:
             server.stop()
             mock_server.shutdown()
 
-
-class TestTemporalMetricFormat:
     def test_counter_metrics_preserve_type_without_total_suffix(self, isolated_registry):
         """Verify that Temporal counter metrics preserve their format when passed through."""
         temporal_port = get_free_port()
         metrics_port = get_free_port()
 
         # This is the format Temporal produces with counters_total_suffix=False
+        # This is different compared to Pythons Prometheus Client which always adds the _total suffix.
         temporal_metrics = b"""# HELP temporal_request Count of requests
 # TYPE temporal_request counter
 temporal_request{operation="GetSystemInfo"} 1
@@ -171,7 +184,7 @@ temporal_request{operation="DescribeNamespace"} 2
 
         server = CombinedMetricsServer(
             port=metrics_port,
-            temporal_metrics_port=temporal_port,
+            temporal_metrics_url=f"http://127.0.0.1:{temporal_port}/metrics",
             registry=isolated_registry,
         )
         server.start()
