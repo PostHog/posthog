@@ -134,6 +134,7 @@ jobs:
                   pattern: 'frontend/dist/toolbar.js'
                   # we only care if the toolbar will increase a lot
                   minimum-change-threshold: 1000
+                  comment-key: toolbar
 
             - name: Check toolbar for CSP eval violations
               run: pnpm --filter=@posthog/frontend check-toolbar-csp-eval
@@ -143,6 +144,9 @@ jobs:
         needs: [changes]
         if: needs.changes.outputs.frontend == 'true' && github.event_name == 'pull_request'
         runs-on: depot-ubuntu-24.04
+        permissions:
+            contents: read
+            pull-requests: write
         steps:
             - uses: actions/checkout@v4
             - name: Install pnpm
@@ -165,6 +169,7 @@ jobs:
             - name: Check frontend bundle size
               uses: preactjs/compressed-size-action@946a292cd35bd1088e0d7eb92b69d1a8d5b5d76a # v2
               with:
+                  repo-token: ${{ secrets.GITHUB_TOKEN }}
                   build-script: '--filter=@posthog/frontend build'
                   install-script: 'pnpm --filter=@posthog/frontend... install'
                   compression: 'none'
@@ -174,6 +179,7 @@ jobs:
                   exclude: 'frontend/dist/*.js.map'
                   # Only show large changes
                   minimum-change-threshold: 1000
+                  comment-key: frontend
 
     frontend-typescript-checks:
         name: Frontend typechecking
