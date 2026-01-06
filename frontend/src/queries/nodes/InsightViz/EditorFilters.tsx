@@ -32,7 +32,6 @@ import { castAssistantQuery } from 'scenes/max/utils'
 import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { userLogic } from 'scenes/userLogic'
 
-import { useFeatureFlag } from '~/lib/hooks/useFeatureFlag'
 import { StickinessCriteria } from '~/queries/nodes/InsightViz/StickinessCriteria'
 import {
     AssistantFunnelsQuery,
@@ -76,7 +75,6 @@ export interface EditorFiltersProps {
 
 export function EditorFilters({ query, showing, embedded }: EditorFiltersProps): JSX.Element | null {
     const { hasAvailableFeature } = useValues(userLogic)
-    const hasAgentModesFeatureFlag = useFeatureFlag('AGENT_MODES')
 
     const { insightProps } = useValues(insightLogic)
     const {
@@ -138,7 +136,11 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsLineGraphCumulative].includes(
                 display || ChartDisplayType.ActionsLineGraph
             )) ||
-        (isFunnels && isTrendsFunnel)
+        (isFunnels && isTrendsFunnel) ||
+        (isRetention &&
+            [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsBar].includes(
+                display || ChartDisplayType.ActionsLineGraph
+            ))
 
     const leftEditorFilterGroups: InsightEditorFilterGroup[] = [
         {
@@ -434,7 +436,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
 
                 <div>
                     <MaxTool
-                        identifier={hasAgentModesFeatureFlag ? 'create_insight' : 'create_and_query_insight'}
+                        identifier="create_insight"
                         context={{
                             current_query: querySource,
                         }}

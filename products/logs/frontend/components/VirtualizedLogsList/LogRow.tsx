@@ -1,7 +1,6 @@
-import { IconBrackets, IconChevronRight, IconPin, IconPinFilled, IconX } from '@posthog/icons'
+import { IconBrackets, IconChevronRight, IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
 
-import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { TZLabel, TZLabelProps } from 'lib/components/TZLabel'
 import { cn } from 'lib/utils/css-classes'
 
@@ -15,7 +14,6 @@ import {
     ACTIONS_WIDTH,
     CHECKBOX_WIDTH,
     EXPAND_WIDTH,
-    MIN_ATTRIBUTE_COLUMN_WIDTH,
     RESIZER_HANDLE_WIDTH,
     ROW_GAP,
     SEVERITY_WIDTH,
@@ -213,106 +211,6 @@ export function LogRow({
                 </div>
             </div>
             {isExpanded && <ExpandedLogContent log={log} logIndex={logIndex} />}
-        </div>
-    )
-}
-
-export interface LogRowHeaderProps {
-    rowWidth: number
-    attributeColumns?: string[]
-    attributeColumnWidths?: Record<string, number>
-    onRemoveAttributeColumn?: (attributeKey: string) => void
-    onResizeAttributeColumn?: (attributeKey: string, width: number) => void
-    // Selection
-    selectedCount?: number
-    totalCount?: number
-    onSelectAll?: () => void
-    onClearSelection?: () => void
-}
-
-export function LogRowHeader({
-    rowWidth,
-    attributeColumns = [],
-    attributeColumnWidths = {},
-    onRemoveAttributeColumn,
-    onResizeAttributeColumn,
-    selectedCount = 0,
-    totalCount = 0,
-    onSelectAll,
-    onClearSelection,
-}: LogRowHeaderProps): JSX.Element {
-    const flexWidth =
-        rowWidth -
-        getFixedColumnsWidth(attributeColumns, attributeColumnWidths) -
-        attributeColumns.length * RESIZER_HANDLE_WIDTH
-
-    const allSelected = totalCount > 0 && selectedCount === totalCount
-    const someSelected = selectedCount > 0 && selectedCount < totalCount
-
-    return (
-        <div
-            style={{ width: rowWidth, gap: ROW_GAP }}
-            className="flex items-center h-8 border-b border-border bg-bg-3000 text-xs font-semibold text-muted sticky top-0 z-10"
-        >
-            {/* Severity + Checkbox + Expand header space */}
-            <div className="flex items-center self-stretch">
-                <div style={{ width: SEVERITY_WIDTH, flexShrink: 0 }} />
-                <div className="flex items-center justify-center shrink-0" style={{ width: CHECKBOX_WIDTH }}>
-                    <LemonCheckbox
-                        checked={someSelected ? 'indeterminate' : allSelected}
-                        onChange={() => (allSelected ? onClearSelection?.() : onSelectAll?.())}
-                        size="small"
-                    />
-                </div>
-                <div style={{ width: EXPAND_WIDTH, flexShrink: 0 }} />
-            </div>
-
-            {/* Timestamp */}
-            <div className="flex items-center pr-3" style={{ width: TIMESTAMP_WIDTH, flexShrink: 0 }}>
-                Timestamp
-            </div>
-
-            {/* Attribute columns */}
-            {attributeColumns.map((attributeKey) => {
-                const width = getAttributeColumnWidth(attributeKey, attributeColumnWidths)
-                return (
-                    <ResizableElement
-                        key={`attr-${attributeKey}`}
-                        defaultWidth={width + RESIZER_HANDLE_WIDTH}
-                        minWidth={MIN_ATTRIBUTE_COLUMN_WIDTH + RESIZER_HANDLE_WIDTH}
-                        maxWidth={Infinity}
-                        onResize={(newWidth) =>
-                            onResizeAttributeColumn?.(attributeKey, newWidth - RESIZER_HANDLE_WIDTH)
-                        }
-                        className="flex items-center h-full shrink-0 group/header"
-                        innerClassName="h-full"
-                    >
-                        <div className="flex items-center pr-3 gap-1 h-full w-full">
-                            <span className="truncate flex-1" title={attributeKey}>
-                                {attributeKey}
-                            </span>
-                            {onRemoveAttributeColumn && (
-                                <LemonButton
-                                    size="xsmall"
-                                    noPadding
-                                    icon={<IconX className="text-muted" />}
-                                    onClick={() => onRemoveAttributeColumn(attributeKey)}
-                                    tooltip="Remove column"
-                                    className="opacity-0 group-hover/header:opacity-100 shrink-0"
-                                />
-                            )}
-                        </div>
-                    </ResizableElement>
-                )
-            })}
-
-            {/* Message */}
-            <div className="flex items-center px-1" style={getMessageStyle(flexWidth)}>
-                Message
-            </div>
-
-            {/* Actions (no label) */}
-            <div className="flex items-center px-1" style={{ width: ACTIONS_WIDTH, flexShrink: 0 }} />
         </div>
     )
 }
