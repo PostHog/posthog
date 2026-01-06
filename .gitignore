@@ -136,8 +136,9 @@ posthog/management/commands/clear_demo_data.py
 # Ignore local mprocs configs
 bin/mprocs*.local.yaml
 
-# Ignore bin lockfiles
+# Ignore bin lockfiles (runtime locks for preventing multiple instances)
 bin/*.lock
+!bin/uv.lock
 
 # Debug output of our session summaries product
 .session-summaries

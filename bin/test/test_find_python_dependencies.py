@@ -62,6 +62,8 @@ class TestFindPythonDependencies(unittest.TestCase):
 
     @parameterized.expand(
         [
+            # Common files - should trigger rebuild
+            ("common_logger", "posthog/temporal/common/logger.py", True),
             # Direct dependencies - should trigger rebuild
             ("entrypoint_init", "posthog/temporal/subscriptions/__init__.py", True),
             ("entrypoint_workflow", "posthog/temporal/subscriptions/subscription_scheduling_workflow.py", True),
@@ -128,6 +130,7 @@ class TestFindPythonDependencies(unittest.TestCase):
             # posthog/temporal/common - should trigger rebuild
             ("temporal_common_base", "posthog/temporal/common/base.py", True),
             ("temporal_common_client", "posthog/temporal/common/client.py", True),
+            ("temporal_common_logger", "posthog/temporal/common/logger.py", True),
             # posthog/tasks/exporter.py - should trigger rebuild
             ("exporter", "posthog/tasks/exporter.py", True),
             # posthog/tasks/exports/ - should trigger rebuild

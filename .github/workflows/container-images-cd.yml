@@ -67,6 +67,9 @@ jobs:
                   password: ${{ secrets.GITHUB_TOKEN }}
                   logout: false
 
+            - name: Install bin script dependencies
+              run: uv sync --project bin
+
             - name: Build and push container image
               id: build
               uses: depot/build-push-action@2583627a84956d07561420dcc1d0eb1f2af3fac0 # v1
@@ -287,7 +290,7 @@ jobs:
               id: check_python_changes_analytics_platform_temporal_worker
               run: |
                   CHANGED_FILES=$(git diff --name-only HEAD^ HEAD | tr '\n' ' ')
-                  RESULT=$(python3 bin/find_python_dependencies.py posthog.temporal.subscriptions --check-changes "$CHANGED_FILES" | jq -r '.affected') || RESULT="true"
+                  RESULT=$(uv run --project bin python bin/find_python_dependencies.py posthog.temporal.subscriptions --check-changes "$CHANGED_FILES" | jq -r '.affected') || RESULT="true"
                   echo "changed=$RESULT" >> $GITHUB_OUTPUT
 
             - name: Trigger Billing Temporal Worker Cloud deployment
