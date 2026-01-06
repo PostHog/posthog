@@ -10,12 +10,12 @@ import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { AnyPropertyFilter, Group, PropertyFilterType, PropertyOperator } from '~/types'
 
-interface GroupFeedCanvasProps {
+interface GroupProfileCanvasProps {
     group: Group
     tabId: string
 }
 
-export const GroupFeedCanvas = ({ group, tabId }: GroupFeedCanvasProps): JSX.Element => {
+export const GroupProfileCanvas = ({ group, tabId }: GroupProfileCanvasProps): JSX.Element => {
     const { aggregationLabel } = useValues(groupsModel)
     const { reportGroupProfileViewed } = useActions(eventUsageLogic)
     const groupKey = group.group_key
