@@ -138,7 +138,7 @@ class TestTemporalMetricsCollector:
 
         metric = collector._metrics["test_accumulated:"]
         # Counter should have been incremented twice (5 + 3 = 8)
-        assert metric._value.get() == 8.0
+        assert metric._value.get() == 8.0  # type: ignore[union-attr]
 
 
 class TestCombinedMetricsServer:
@@ -260,7 +260,7 @@ class TestHistogramBucketOverrides:
         collector.collect_updates()
 
         metric = collector._metrics["test_custom_histogram:"]
-        assert tuple(metric._upper_bounds) == custom_buckets
+        assert tuple(metric._upper_bounds) == custom_buckets  # type: ignore[union-attr]
 
     def test_uses_default_buckets_for_unspecified_metric(self, isolated_registry):
         buffer = MagicMock(spec=MetricBuffer)
@@ -277,4 +277,4 @@ class TestHistogramBucketOverrides:
         collector.collect_updates()
 
         metric = collector._metrics["test_default_histogram:"]
-        assert tuple(metric._upper_bounds) == DEFAULT_HISTOGRAM_BUCKETS
+        assert tuple(metric._upper_bounds) == DEFAULT_HISTOGRAM_BUCKETS  # type: ignore[union-attr]

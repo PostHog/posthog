@@ -127,11 +127,11 @@ class TemporalMetricsCollector:
                         labeled_metric = metric
 
                     if kind == BUFFERED_METRIC_KIND_COUNTER:
-                        labeled_metric.inc(update.value)
+                        labeled_metric.inc(update.value)  # type: ignore[union-attr]
                     elif kind == BUFFERED_METRIC_KIND_GAUGE:
-                        labeled_metric.set(update.value)
+                        labeled_metric.set(update.value)  # type: ignore[union-attr]
                     elif kind == BUFFERED_METRIC_KIND_HISTOGRAM:
-                        labeled_metric.observe(update.value)
+                        labeled_metric.observe(update.value)  # type: ignore[union-attr]
                 except Exception as e:
                     logger.warning(
                         "temporal_metrics_collector.update_failed",
