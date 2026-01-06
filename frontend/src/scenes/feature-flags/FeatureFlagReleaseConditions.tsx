@@ -707,6 +707,10 @@ export function FeatureFlagReleaseConditions({
                                 data-attr="feature-flag-group-type-select"
                                 value={filters.aggregation_group_type_index}
                                 onChange={(value) => {
+                                    // MatchByGroupsIntroductionOption
+                                    if (value == -2) {
+                                        return
+                                    }
                                     if (value != null) {
                                         setAggregationGroupTypeIndex(value)
                                     }
