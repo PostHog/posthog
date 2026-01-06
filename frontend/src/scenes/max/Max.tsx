@@ -52,7 +52,7 @@ export function Max({ tabId }: { tabId?: string }): JSX.Element {
     const { closeSidePanel } = useActions(sidePanelLogic)
     const { conversationId: tabConversationId } = useValues(maxLogic({ tabId: tabId || '' }))
     const { conversationId: sidepanelConversationId } = useValues(maxLogic({ tabId: 'sidepanel' }))
-    const isAiFirst = useFeatureFlag('AI_FIRST_EXPERIENCE')
+    const isAiUx = useFeatureFlag('AI_UX')
 
     if (sidePanelOpen && selectedTab === SidePanelTab.Max && sidepanelConversationId === tabConversationId) {
         return (
@@ -75,7 +75,7 @@ export function Max({ tabId }: { tabId?: string }): JSX.Element {
         )
     }
 
-    if (isAiFirst) {
+    if (isAiUx) {
         return <AiFirstMaxInstance tabId={tabId ?? ''} />
     }
 

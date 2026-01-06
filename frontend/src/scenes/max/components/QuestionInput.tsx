@@ -9,6 +9,7 @@ import React, { ReactNode, useEffect, useState } from 'react'
 import { IconArrowRight, IconStopFilled } from '@posthog/icons'
 import { LemonButton, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { userLogic } from 'scenes/userLogic'
 
@@ -62,11 +63,12 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         pendingPrompt,
         isImpersonatingExistingConversation,
         supportOverrideEnabled,
+        streamingActive,
     } = useValues(maxThreadLogic)
     const { askMax, stopGeneration, completeThreadGeneration, setSupportOverrideEnabled } = useActions(maxThreadLogic)
-
     // Show info banner for conversations created during impersonation (marked as internal)
     const isImpersonatedInternalConversation = user?.is_impersonated && conversation?.is_internal
+    const isAiUx = useFeatureFlag('AI_UX')
 
     const [showAutocomplete, setShowAutocomplete] = useState(false)
 
@@ -87,6 +89,12 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     if (cancelLoading) {
         disabledReason = 'Cancelling...'
     }
+
+    useEffect(() => {
+        if (!streamingActive && textAreaRef?.current) {
+            textAreaRef.current.focus()
+        }
+    }, [streamingActive])
 
     return (
         <div
@@ -113,7 +121,12 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             'input-like flex flex-col cursor-text',
                             'border border-primary',
                             'bg-[var(--color-bg-fill-input)]',
-                            isThreadVisible ? 'border-primary m-0.5 rounded-[7px]' : 'rounded-lg'
+                            isThreadVisible ? 'border-primary m-0.5 rounded-[7px]' : 'rounded-lg',
+                            // for flag, we change the ring size and color
+                            isAiUx && '[--input-ring-size:2px]',
+                            // when streaming, we make the ring default color, and when done streaming pop back to very this purple to let users know it's their turn to type
+                            // When we allow appending messages, this ux will likely not be useful
+                            isAiUx && !streamingActive && '[--input-ring-color:#b62ad9]'
                         )}
                     >
                         <SlashCommandAutocomplete visible={showAutocomplete} onClose={() => setShowAutocomplete(false)}>

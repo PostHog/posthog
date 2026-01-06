@@ -103,7 +103,7 @@ function ChatArea({ threadVisible, conversationId, conversation, onStartNewConve
             {/* Intro - fades out when messages appear */}
             <div
                 className={`flex flex-col items-center transition-all duration-200 ease-out ${
-                    hasMessages ? 'opacity-0 h-0 overflow-hidden' : 'opacity-100'
+                    hasMessages ? 'opacity-0 h-0 overflow-hidden' : 'opacity-100 pb-3'
                 }`}
             >
                 <Intro />
