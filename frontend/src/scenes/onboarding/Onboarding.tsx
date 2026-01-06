@@ -79,7 +79,6 @@ const OnboardingWrapper = ({
         scope: RestrictionScope.Organization,
     })
 
-    const shouldShowAIConsentStep = useFeatureFlag('ONBOARDING_AI_CONSENT_STEP', 'test')
     const shouldShowTellUsMoreStep = useFeatureFlag('ONBOARDING_TELL_US_MORE_STEP', 'test')
 
     useEffect(() => {
@@ -107,10 +106,8 @@ const OnboardingWrapper = ({
             steps = [...steps, BillingStep]
         }
 
-        if (shouldShowAIConsentStep) {
-            const aiConsentStep = <OnboardingAIConsent stepKey={OnboardingStepKey.AI_CONSENT} />
-            steps = [...steps, aiConsentStep]
-        }
+        const aiConsentStep = <OnboardingAIConsent stepKey={OnboardingStepKey.AI_CONSENT} />
+        steps = [...steps, aiConsentStep]
 
         const userCannotInvite = minAdminRestrictionReason && !currentOrganization?.members_can_invite
         if (!userCannotInvite) {
@@ -126,14 +123,7 @@ const OnboardingWrapper = ({
         steps = steps.filter(Boolean)
 
         setAllSteps(steps)
-    }, [
-        children,
-        billingLoading,
-        minAdminRestrictionReason,
-        currentOrganization,
-        shouldShowAIConsentStep,
-        shouldShowTellUsMoreStep,
-    ]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [children, billingLoading, minAdminRestrictionReason, currentOrganization, shouldShowTellUsMoreStep]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         if (!allSteps.length || (billingLoading && waitForBilling)) {

@@ -1,17 +1,11 @@
 import { expect, test } from '../utils/playwright-test-base'
 
 test.describe('Use Case Selection Onboarding', () => {
-    test.beforeEach(async ({ page, request }) => {
+    test.beforeEach(async ({ request }) => {
         // Reset onboarding state
         await request.patch('/api/projects/1/', {
             data: { completed_snippet_onboarding: false },
             headers: { Authorization: 'Bearer e2e_demo_api_key' },
-        })
-
-        // Enable the feature flag
-        await page.goto('/home')
-        await page.evaluate(() => {
-            window.posthog?.featureFlags?.override({ 'onboarding-use-case-selection': true })
         })
     })
 
