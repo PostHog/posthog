@@ -188,7 +188,12 @@ async def create_worker(
 
 
 def get_free_port() -> int:
-    """Find an available port on localhost."""
+    """Find an available port on localhost.
+
+    Note: There's a small race window between this returning and binding.
+    Acceptable for localhost internal ports where collisions are rare,
+    and would fail fast with a port-in-use exception if it occurs.
+    """
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
