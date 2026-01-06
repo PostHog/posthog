@@ -3,12 +3,19 @@ import { useMemo } from 'react'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
+import { OpenQuestionSummaryV2 } from 'scenes/surveys/components/question-visualizations/OpenQuestionSummaryV2'
 import { ResponseCard, ScrollToSurveyResultsCard } from 'scenes/surveys/components/question-visualizations/ResponseCard'
 import { VirtualizedResponseList } from 'scenes/surveys/components/question-visualizations/VirtualizedResponseList'
 import { CHART_INSIGHTS_COLORS } from 'scenes/surveys/components/question-visualizations/util'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 
-import { ChoiceQuestionResponseData, GraphType, InsightLogicProps, OpenQuestionResponseData } from '~/types'
+import {
+    ChoiceQuestionResponseData,
+    GraphType,
+    InsightLogicProps,
+    MultipleSurveyQuestion,
+    OpenQuestionResponseData,
+} from '~/types'
 
 const insightProps: InsightLogicProps = {
     dashboardItemId: `new-survey`,
@@ -17,6 +24,8 @@ const insightProps: InsightLogicProps = {
 const barColor = CHART_INSIGHTS_COLORS[2]
 
 interface Props {
+    question: MultipleSurveyQuestion
+    questionIndex: number
     responseData: ChoiceQuestionResponseData[]
     totalResponses: number
 }
@@ -38,14 +47,23 @@ function toOpenQuestionFormat(responses: ChoiceQuestionResponseData[]): OpenQues
 function OpenEndedResponsesSection({
     openEndedResponses,
     useVirtualizedList,
+    questionId,
+    questionIndex,
 }: {
     openEndedResponses: ChoiceQuestionResponseData[]
     useVirtualizedList: boolean
+    questionId?: string
+    questionIndex: number
 }): JSX.Element {
     if (useVirtualizedList) {
         return (
             <div>
                 <h4 className="font-semibold mb-3 text-sm text-muted-foreground">Open-ended responses:</h4>
+                <OpenQuestionSummaryV2
+                    questionId={questionId}
+                    questionIndex={questionIndex}
+                    totalResponses={openEndedResponses.length}
+                />
                 <VirtualizedResponseList responses={toOpenQuestionFormat(openEndedResponses)} />
             </div>
         )
@@ -73,7 +91,12 @@ function OpenEndedResponsesSection({
     )
 }
 
-export function MultipleChoiceQuestionViz({ responseData, totalResponses }: Props): JSX.Element | null {
+export function MultipleChoiceQuestionViz({
+    question,
+    questionIndex,
+    responseData,
+    totalResponses,
+}: Props): JSX.Element | null {
     const { isSurveyResultsV2Enabled } = useValues(surveyLogic)
 
     const { chartData, openEndedResponses } = useMemo((): ProcessedData => {
@@ -140,6 +163,8 @@ export function MultipleChoiceQuestionViz({ responseData, totalResponses }: Prop
                 <OpenEndedResponsesSection
                     openEndedResponses={openEndedResponses}
                     useVirtualizedList={isSurveyResultsV2Enabled}
+                    questionId={question.id}
+                    questionIndex={questionIndex}
                 />
             )}
         </div>
