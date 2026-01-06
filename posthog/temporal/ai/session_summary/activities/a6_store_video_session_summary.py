@@ -4,7 +4,7 @@ Saving the single session summary.
 (Python modules have to start with a letter, hence the file is prefixed `a6_` instead of `6_`.)
 """
 
-from typing import Any, cast
+from typing import Any
 
 import structlog
 import temporalio
@@ -67,31 +67,17 @@ async def store_video_session_summary_activity(
             return
 
         # Retrieve cached event data from Redis (populated by fetch_session_data_activity)
-        llm_input: SingleSessionSummaryLlmInputs | None = None
-        if inputs.redis_key_base:
-            redis_client, redis_input_key, _ = get_redis_state_client(
-                key_base=inputs.redis_key_base,
-                input_label=StateActivitiesEnum.SESSION_DB_DATA,
-                state_id=inputs.session_id,
-            )
-            llm_input_raw = await get_data_class_from_redis(
-                redis_client=redis_client,
-                redis_key=redis_input_key,
-                label=StateActivitiesEnum.SESSION_DB_DATA,
-                target_class=SingleSessionSummaryLlmInputs,
-            )
-            if llm_input_raw:
-                llm_input = cast(SingleSessionSummaryLlmInputs, llm_input_raw)
-                logger.info(
-                    f"Retrieved cached event data for video summary alignment, session {inputs.session_id}",
-                    session_id=inputs.session_id,
-                    event_count=len(llm_input.simplified_events_mapping),
-                )
-            else:
-                logger.warning(
-                    f"No cached event data found for session {inputs.session_id}, using fallback summary format",
-                    session_id=inputs.session_id,
-                )
+        redis_client, redis_input_key, _ = get_redis_state_client(
+            key_base=inputs.redis_key_base,
+            input_label=StateActivitiesEnum.SESSION_DB_DATA,
+            state_id=inputs.session_id,
+        )
+        llm_input = await get_data_class_from_redis(
+            redis_client=redis_client,
+            redis_key=redis_input_key,
+            label=StateActivitiesEnum.SESSION_DB_DATA,
+            target_class=SingleSessionSummaryLlmInputs,
+        )
 
         # Convert video segments to session summary format, using real events if available
         summary_dict = _convert_video_segments_to_session_summary(
@@ -100,11 +86,8 @@ async def store_video_session_summary_activity(
             llm_input=llm_input,
         )
 
-        # Validate the summary - use streaming validation only if we don't have real event data
-        use_streaming_validation = llm_input is None
-        session_summary = SessionSummarySerializer(
-            data=summary_dict, context={"streaming_validation": use_streaming_validation}
-        )
+        # Validate the summary
+        session_summary = SessionSummarySerializer(data=summary_dict)
         if not session_summary.is_valid():
             msg = f"Failed to validate video-based summary for session {inputs.session_id}: {session_summary.errors}"
             logger.error(msg, session_id=inputs.session_id)
@@ -158,7 +141,7 @@ async def store_video_session_summary_activity(
 def _convert_video_segments_to_session_summary(
     analysis: ConsolidatedVideoAnalysis,
     session_id: str,
-    llm_input: SingleSessionSummaryLlmInputs | None = None,
+    llm_input: SingleSessionSummaryLlmInputs,
 ) -> dict:
     """Convert video segments to session summary format
 
@@ -170,10 +153,6 @@ def _convert_video_segments_to_session_summary(
     When llm_input is not available, falls back to placeholder data.
     """
     segments = analysis.segments
-    if not llm_input:
-        # Fallback to placeholder-based summary if no cached event data available
-        return _convert_video_segments_to_session_summary_fallback(analysis, session_id)
-
     # Extract data from cached LLM input
     simplified_events_mapping = llm_input.simplified_events_mapping
     event_ids_mapping = llm_input.event_ids_mapping
@@ -346,92 +325,6 @@ def _convert_video_segments_to_session_summary(
             {
                 "segment_index": idx,
                 "events": [key_action_event],
-            }
-        )
-
-    # Use LLM-provided segment outcomes, or fall back to generating from segment data
-    if analysis.segment_outcomes:
-        segment_outcomes = analysis.segment_outcomes
-    else:
-        segment_outcomes = [
-            {
-                "segment_index": idx,
-                "summary": segment.description,
-                "success": segment.success,
-            }
-            for idx, segment in enumerate(segments)
-        ]
-
-    # Use LLM-provided session outcome
-    session_outcome = {
-        "description": analysis.session_outcome.description,
-        "success": analysis.session_outcome.success,
-    }
-
-    return {
-        "segments": summary_segments,
-        "key_actions": key_actions,
-        "segment_outcomes": segment_outcomes,
-        "session_outcome": session_outcome,
-    }
-
-
-def _convert_video_segments_to_session_summary_fallback(
-    analysis: ConsolidatedVideoAnalysis,
-    session_id: str,
-) -> dict:
-    """Fallback conversion when no cached event data is available.
-
-    Uses placeholder event IDs and minimal metadata, but still uses the richer
-    analysis data (failure/confusion/abandonment detection, outcomes).
-    """
-    segments = analysis.segments
-    summary_segments = []
-    key_actions = []
-
-    for idx, segment in enumerate(segments):
-        start_ms = _parse_timestamp_to_ms(segment.start_time)
-
-        summary_segments.append(
-            {
-                "index": idx,
-                "name": segment.title,
-                "start_event_id": f"vid_{idx:04d}_start",
-                "end_event_id": f"vid_{idx:04d}_end",
-                "meta": {
-                    "duration": 0,
-                    "duration_percentage": 0.0,
-                    "events_count": 0,
-                    "events_percentage": 0.0,
-                    "key_action_count": 1,
-                    "failure_count": 1 if segment.failure_detected else 0,
-                    "abandonment_count": 1 if segment.abandonment_detected else 0,
-                    "confusion_count": 1 if segment.confusion_detected else 0,
-                    "exception_count": 0,
-                },
-            }
-        )
-
-        key_actions.append(
-            {
-                "segment_index": idx,
-                "events": [
-                    {
-                        "description": segment.description,
-                        "abandonment": segment.abandonment_detected,
-                        "confusion": segment.confusion_detected,
-                        "exception": None,
-                        "event_id": f"vid_{idx:04d}",
-                        "timestamp": segment.start_time,
-                        "milliseconds_since_start": start_ms,
-                        "current_url": None,
-                        "event": "video_segment",
-                        "event_type": "video_analysis",
-                        "event_index": idx,
-                        "session_id": session_id,
-                        "event_uuid": None,
-                    }
-                ],
             }
         )
 
