@@ -601,7 +601,8 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
             res = self.client.get("/api/users/@me")
             assert res.status_code == 401
 
-    def test_after_timeout_redirects_to_logout_then_admin(self):
+    def test_after_timeout_non_admin_page_redirects_to_admin(self):
+        """When session times out on a non-admin page, redirect to /admin/."""
         now = datetime.now()
         with freeze_time(now):
             self.login_as_other_user()
@@ -609,12 +610,45 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
         with freeze_time(now + timedelta(seconds=35)):
             res = self.client.get("/dashboards")
             assert res.status_code == 302
-            assert res.headers["Location"] == "/logout/"
+            assert res.headers["Location"] == "/admin/"
 
-            res = self.client.get("/logout/")
+            # Verify we're back to original user
+            res = self.client.get("/api/users/@me")
+            assert res.status_code == 200
+            assert res.json()["email"] == "user1@posthog.com"
+
+    def test_after_timeout_admin_page_redirects_to_intended_admin_page(self):
+        """When session times out navigating to an admin page, redirect to that page."""
+        third_user = User.objects.create_and_join(self.organization, email="third-user@posthog.com", password="123456")
+
+        now = datetime.now()
+        with freeze_time(now):
+            self.login_as_other_user()
+
+        with freeze_time(now + timedelta(seconds=35)):
+            # Navigate to a different user's admin page
+            res = self.client.get(f"/admin/posthog/user/{third_user.id}/change/")
+            assert res.status_code == 302
+            # Should redirect to the intended admin page, not the impersonated user's page
+            assert res.headers["Location"] == f"/admin/posthog/user/{third_user.id}/change/"
+
+            # Verify we're back to original user
+            res = self.client.get("/api/users/@me")
+            assert res.status_code == 200
+            assert res.json()["email"] == "user1@posthog.com"
+
+    def test_explicit_logout_redirects_to_impersonated_user_admin(self):
+        """When explicitly logging out via /logout, redirect to impersonated user's admin page."""
+        now = datetime.now()
+        with freeze_time(now):
+            self.login_as_other_user()
+
+            # Explicit logout via the main logout endpoint
+            res = self.client.get("/logout")
             assert res.status_code == 302
             assert res.headers["Location"] == f"/admin/posthog/user/{self.other_user.id}/change/"
 
+            # Verify we're back to original user
             res = self.client.get("/api/users/@me")
             assert res.status_code == 200
             assert res.json()["email"] == "user1@posthog.com"
@@ -754,14 +788,14 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         assert self.client.get("/api/users/@me").json()["email"] == self.user.email
 
     def test_read_only_impersonation_logout_redirects_to_user_admin(self):
-        """Verify logout from read-only impersonation redirects to user's admin page."""
+        """Verify explicit logout from read-only impersonation redirects to user's admin page."""
         self.login_as_other_user_read_only()
 
         # Verify we're logged in as the other user
         assert self.client.get("/api/users/@me").json()["email"] == "other-user@posthog.com"
 
-        # Logout
-        response = self.client.get("/logout/")
+        # Explicit logout via main logout endpoint
+        response = self.client.get("/logout")
 
         assert response.status_code == 302
         assert response.headers["Location"] == f"/admin/posthog/user/{self.other_user.id}/change/"
