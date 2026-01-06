@@ -32,7 +32,7 @@ jobs:
                   RAW_BODY: ${{ github.event.pull_request.body }}
 
             # `gh` CLI in the next step requires the repo to be checked out
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
               if: steps.is-shame-worthy.outputs.is-shame-worthy == 'true'
               with:
                   # make the checkout extremely quickly

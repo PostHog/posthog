@@ -23,7 +23,7 @@ jobs:
         permissions:
             contents: read
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
 
             - uses: ./.github/actions/run-backend-tests
               with:
@@ -36,7 +36,7 @@ jobs:
                   person-on-events: false
 
             - name: Upload updated timing data as artifacts
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: ${{ inputs.person-on-events != 'true' && inputs.clickhouse-server-image == 'clickhouse/clickhouse-server:25.8.12.129' }}
               with:
                   name: timing_data-${{ inputs.segment }}-${{ inputs.group }}
