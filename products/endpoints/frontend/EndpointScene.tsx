@@ -59,7 +59,7 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
         },
         {
             key: EndpointTab.PLAYGROUND,
-            label: 'Playground',
+            label: 'Play around',
             content: <EndpointPlayground tabId={tabId} />,
             link: endpoint
                 ? combineUrl(urls.endpoint(endpoint.name), { ...searchParams, tab: EndpointTab.PLAYGROUND }).url

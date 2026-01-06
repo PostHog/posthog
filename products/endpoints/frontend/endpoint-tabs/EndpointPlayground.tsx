@@ -259,7 +259,7 @@ export function EndpointPlayground({ tabId }: EndpointPlaygroundProps): JSX.Elem
 
     return (
         <SceneSection
-            title="Playground"
+            title="Play around"
             description={
                 <>
                     Send API requests to your endpoints, play with setting different parameters in the request body and
