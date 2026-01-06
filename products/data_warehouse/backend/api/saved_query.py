@@ -43,6 +43,8 @@ from posthog.temporal.common.client import sync_connect
 
 from products.data_warehouse.backend.data_load.saved_query_service import (
     pause_saved_query_schedule,
+    saved_query_workflow_exists,
+    sync_saved_query_workflow,
     trigger_saved_query_schedule,
 )
 from products.data_warehouse.backend.models import (
@@ -370,6 +372,16 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
                 except Exception as e:
                     posthoganalytics.capture_exception(e)
                     logger.exception("Failed to update model path when updating view %s", view.name)
+
+                # update the temporal schedule if the view is materialized
+                if view.is_materialized:
+                    try:
+                        sync_saved_query_workflow(view, create=not saved_query_workflow_exists(str(view.id)))
+                    except Exception as e:
+                        capture_exception(e)
+                        logger.exception(
+                            "Failed to update schedule when updating sync frequency for view %s", view.name
+                        )
 
         return view
 

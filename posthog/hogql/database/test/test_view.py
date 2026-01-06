@@ -2,6 +2,8 @@ from typing import Literal
 
 from posthog.test.base import BaseTest
 
+from django.test import override_settings
+
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import TableNode
@@ -63,37 +65,45 @@ class TestView(BaseTest):
         return prepare_and_print_ast(parse_select(query), self.context, dialect=dialect)[0]
 
     def test_view_table_select(self):
-        hogql = self._select(query="SELECT * FROM aapl_stock LIMIT 10", dialect="hogql")
-        self.assertEqual(
-            hogql,
-            "SELECT Date, Open, High, Low, Close, Volume, OpenInt FROM aapl_stock LIMIT 10",
-        )
+        with override_settings(
+            AIRBYTE_BUCKET_KEY=None,
+            AIRBYTE_BUCKET_SECRET=None,
+        ):
+            hogql = self._select(query="SELECT * FROM aapl_stock LIMIT 10", dialect="hogql")
+            self.assertEqual(
+                hogql,
+                "SELECT Date, Open, High, Low, Close, Volume, OpenInt FROM aapl_stock LIMIT 10",
+            )
 
-        clickhouse = self._select(query="SELECT * FROM aapl_stock_view LIMIT 10", dialect="clickhouse")
+            clickhouse = self._select(query="SELECT * FROM aapl_stock_view LIMIT 10", dialect="clickhouse")
 
-        self.assertEqual(
-            clickhouse,
-            "SELECT aapl_stock_view.Date AS Date, aapl_stock_view.Open AS Open, aapl_stock_view.High AS High, "
-            "aapl_stock_view.Low AS Low, aapl_stock_view.Close AS Close, aapl_stock_view.Volume AS Volume, "
-            "aapl_stock_view.OpenInt AS OpenInt FROM (SELECT aapl_stock.Date AS Date, aapl_stock.Open AS Open, "
-            "aapl_stock.High AS High, aapl_stock.Low AS Low, aapl_stock.Close AS Close, aapl_stock.Volume AS Volume, "
-            "aapl_stock.OpenInt AS OpenInt FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_1)s) AS aapl_stock) "
-            "AS aapl_stock_view LIMIT 10",
-        )
+            self.assertEqual(
+                clickhouse,
+                "SELECT aapl_stock_view.Date AS Date, aapl_stock_view.Open AS Open, aapl_stock_view.High AS High, "
+                "aapl_stock_view.Low AS Low, aapl_stock_view.Close AS Close, aapl_stock_view.Volume AS Volume, "
+                "aapl_stock_view.OpenInt AS OpenInt FROM (SELECT aapl_stock.Date AS Date, aapl_stock.Open AS Open, "
+                "aapl_stock.High AS High, aapl_stock.Low AS Low, aapl_stock.Close AS Close, aapl_stock.Volume AS Volume, "
+                "aapl_stock.OpenInt AS OpenInt FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_1)s) AS aapl_stock) "
+                "AS aapl_stock_view LIMIT 10",
+            )
 
     def test_view_with_alias(self):
-        hogql = self._select(query="SELECT * FROM aapl_stock LIMIT 10", dialect="hogql")
-        self.assertEqual(
-            hogql,
-            "SELECT Date, Open, High, Low, Close, Volume, OpenInt FROM aapl_stock LIMIT 10",
-        )
+        with override_settings(
+            AIRBYTE_BUCKET_KEY=None,
+            AIRBYTE_BUCKET_SECRET=None,
+        ):
+            hogql = self._select(query="SELECT * FROM aapl_stock LIMIT 10", dialect="hogql")
+            self.assertEqual(
+                hogql,
+                "SELECT Date, Open, High, Low, Close, Volume, OpenInt FROM aapl_stock LIMIT 10",
+            )
 
-        clickhouse = self._select(
-            query="SELECT * FROM aapl_stock_view AS some_alias LIMIT 10",
-            dialect="clickhouse",
-        )
+            clickhouse = self._select(
+                query="SELECT * FROM aapl_stock_view AS some_alias LIMIT 10",
+                dialect="clickhouse",
+            )
 
-        self.assertEqual(
-            clickhouse,
-            "SELECT some_alias.Date AS Date, some_alias.Open AS Open, some_alias.High AS High, some_alias.Low AS Low, some_alias.Close AS Close, some_alias.Volume AS Volume, some_alias.OpenInt AS OpenInt FROM (SELECT aapl_stock.Date AS Date, aapl_stock.Open AS Open, aapl_stock.High AS High, aapl_stock.Low AS Low, aapl_stock.Close AS Close, aapl_stock.Volume AS Volume, aapl_stock.OpenInt AS OpenInt FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_1)s) AS aapl_stock) AS some_alias LIMIT 10",
-        )
+            self.assertEqual(
+                clickhouse,
+                "SELECT some_alias.Date AS Date, some_alias.Open AS Open, some_alias.High AS High, some_alias.Low AS Low, some_alias.Close AS Close, some_alias.Volume AS Volume, some_alias.OpenInt AS OpenInt FROM (SELECT aapl_stock.Date AS Date, aapl_stock.Open AS Open, aapl_stock.High AS High, aapl_stock.Low AS Low, aapl_stock.Close AS Close, aapl_stock.Volume AS Volume, aapl_stock.OpenInt AS OpenInt FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_1)s) AS aapl_stock) AS some_alias LIMIT 10",
+            )

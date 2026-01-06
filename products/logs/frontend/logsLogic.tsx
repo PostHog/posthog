@@ -8,6 +8,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { syncSearchParams, updateSearchParams } from '@posthog/products-error-tracking/frontend/utils'
 
 import api from 'lib/api'
+import { dataColorVars } from 'lib/colors'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { dayjs } from 'lib/dayjs'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
@@ -17,7 +18,13 @@ import { humanFriendlyDetailedTime, parseTagsFilter } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { Params } from 'scenes/sceneTypes'
 
-import { DateRange, LogMessage, LogSeverityLevel, LogsQuery } from '~/queries/schema/schema-general'
+import {
+    DateRange,
+    LogMessage,
+    LogSeverityLevel,
+    LogsQuery,
+    LogsSparklineBreakdownBy,
+} from '~/queries/schema/schema-general'
 import { integer } from '~/queries/schema/type-utils'
 import {
     JsonType,
@@ -47,13 +54,15 @@ const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
 const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MS = 1000
 const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MAX_MS = 5000
 
-const parseLogAttributes = (logs: LogMessage[]): void => {
-    logs.forEach((row) => {
-        Object.keys(row.attributes).forEach((key) => {
-            const value = row.attributes[key]
-            row.attributes[key] = typeof value === 'string' ? value : JSON.stringify(value)
-        })
-    })
+const DEFAULT_SPARKLINE_BREAKDOWN_BY: LogsSparklineBreakdownBy = 'severity'
+
+const stringifyLogAttributes = (attributes: Record<string, any>): Record<string, string> => {
+    const result: Record<string, string> = {}
+    for (const key of Object.keys(attributes)) {
+        const value = attributes[key]
+        result[key] = typeof value === 'string' ? value : JSON.stringify(value)
+    }
+    return result
 }
 
 export interface LogsLogicProps {
@@ -256,6 +265,7 @@ export const logsLogic = kea<logsLogicType>([
         expireLiveTail: () => true,
         setLiveTailExpired: (liveTailExpired: boolean) => ({ liveTailExpired }),
         addLogsToSparkline: (logs: LogMessage[]) => logs,
+        setSparklineBreakdownBy: (sparklineBreakdownBy: LogsSparklineBreakdownBy) => ({ sparklineBreakdownBy }),
     }),
 
     reducers({
@@ -436,6 +446,13 @@ export const logsLogic = kea<logsLogicType>([
                 clearLogs: () => new Set<string>(),
             },
         ],
+        sparklineBreakdownBy: [
+            DEFAULT_SPARKLINE_BREAKDOWN_BY as LogsSparklineBreakdownBy,
+            { persist: true },
+            {
+                setSparklineBreakdownBy: (_, { sparklineBreakdownBy }) => sparklineBreakdownBy,
+            },
+        ],
     }),
 
     loaders(({ values, actions }) => ({
@@ -464,7 +481,6 @@ export const logsLogic = kea<logsLogicType>([
                     actions.setLogsAbortController(null)
                     actions.setHasMoreLogsToLoad(!!response.hasMore)
                     actions.setNextCursor(response.nextCursor ?? null)
-                    parseLogAttributes(response.results)
                     return response.results
                 },
                 fetchNextLogsPage: async ({ limit }, breakpoint) => {
@@ -493,7 +509,6 @@ export const logsLogic = kea<logsLogicType>([
                     actions.setLogsAbortController(null)
                     actions.setHasMoreLogsToLoad(!!response.hasMore)
                     actions.setNextCursor(response.nextCursor ?? null)
-                    parseLogAttributes(response.results)
                     return [...values.logs, ...response.results]
                 },
                 setLogs: ({ logs }) => logs,
@@ -515,6 +530,7 @@ export const logsLogic = kea<logsLogicType>([
                             filterGroup: values.filterGroup as PropertyGroupFilter,
                             severityLevels: values.severityLevels,
                             serviceNames: values.serviceNames,
+                            sparklineBreakdownBy: values.sparklineBreakdownBy,
                         },
                         signal,
                     })
@@ -585,7 +601,13 @@ export const logsLogic = kea<logsLogicType>([
                     } catch {
                         // Not JSON, that's fine
                     }
-                    result.push({ ...log, cleanBody, parsedBody })
+                    result.push({
+                        ...log,
+                        attributes: stringifyLogAttributes(log.attributes),
+                        cleanBody,
+                        parsedBody,
+                        originalLog: log,
+                    })
                 }
 
                 return result
@@ -602,7 +624,13 @@ export const logsLogic = kea<logsLogicType>([
                     } catch {
                         // Not JSON, that's fine
                     }
-                    return { ...log, cleanBody, parsedBody }
+                    return {
+                        ...log,
+                        attributes: stringifyLogAttributes(log.attributes),
+                        cleanBody,
+                        parsedBody,
+                        originalLog: log,
+                    }
                 })
             },
         ],
@@ -637,14 +665,16 @@ export const logsLogic = kea<logsLogicType>([
             },
         ],
         sparklineData: [
-            (s) => [s.sparkline],
-            (sparkline: any[]) => {
+            (s) => [s.sparkline, s.sparklineBreakdownBy],
+            (sparkline: any[], sparklineBreakdownBy: LogsSparklineBreakdownBy) => {
+                const breakdownKey = sparklineBreakdownBy
+
                 let lastTime = ''
                 let i = -1
                 const labels: string[] = []
                 const dates: string[] = []
-                const data = Object.entries(
-                    sparkline.reduce((accumulator, currentItem) => {
+                const accumulated = sparkline.reduce(
+                    (accumulator, currentItem) => {
                         if (currentItem.time !== lastTime) {
                             labels.push(
                                 humanFriendlyDetailedTime(currentItem.time, 'YYYY-MM-DD', 'HH:mm:ss', {
@@ -655,25 +685,38 @@ export const logsLogic = kea<logsLogicType>([
                             lastTime = currentItem.time
                             i++
                         }
-                        const key = currentItem.level
+                        const key = currentItem[breakdownKey]
+                        if (!key) {
+                            return accumulator
+                        }
                         if (!accumulator[key]) {
-                            accumulator[key] = [...Array(sparkline.length)].map(() => 0)
+                            accumulator[key] = []
+                        }
+                        while (accumulator[key].length <= i) {
+                            accumulator[key].push(0)
                         }
                         accumulator[key][i] += currentItem.count
                         return accumulator
-                    }, {})
+                    },
+                    {} as Record<string, number[]>
                 )
-                    .map(([level, data]) => ({
-                        name: level,
-                        values: data as number[],
-                        color: {
-                            fatal: 'danger-dark',
-                            error: 'danger',
-                            warn: 'warning',
-                            info: 'brand-blue',
-                            debug: 'muted',
-                            trace: 'muted-alt',
-                        }[level],
+
+                const data = Object.entries(accumulated)
+                    .sort(([a], [b]) => a.localeCompare(b))
+                    .map(([name, values], index) => ({
+                        name,
+                        values: values as number[],
+                        color:
+                            sparklineBreakdownBy === 'service'
+                                ? dataColorVars[index % dataColorVars.length]
+                                : {
+                                      fatal: 'danger-dark',
+                                      error: 'danger',
+                                      warn: 'warning',
+                                      info: 'brand-blue',
+                                      debug: 'muted',
+                                      trace: 'muted-alt',
+                                  }[name],
                     }))
                     .filter((series) => series.values.reduce((a, b) => a + b) > 0)
 
@@ -723,6 +766,9 @@ export const logsLogic = kea<logsLogicType>([
                 values.sparklineAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
             }
             actions.setSparklineAbortController(sparklineAbortController)
+        },
+        setSparklineBreakdownBy: () => {
+            actions.fetchSparkline()
         },
         cancelInProgressLiveTail: ({ liveTailAbortController }) => {
             if (values.liveTailAbortController !== null) {
@@ -872,13 +918,6 @@ export const logsLogic = kea<logsLogicType>([
                     actions.setLiveLogsCheckpoint(response.results[0].live_logs_checkpoint ?? null)
                 }
 
-                response.results.forEach((row) => {
-                    Object.keys(row.attributes).forEach((key) => {
-                        const value = row.attributes[key]
-                        row.attributes[key] = typeof value === 'string' ? value : JSON.stringify(value)
-                    })
-                })
-
                 const existingUuids = new Set(values.logs.map((log) => log.uuid))
                 const newLogs = response.results.filter((log) => !existingUuids.has(log.uuid))
 
@@ -921,8 +960,12 @@ export const logsLogic = kea<logsLogicType>([
                 }
             }
         },
-        // insert logs into the sparkline data
+        // insert logs into the sparkline data (only works for severity breakdown)
         addLogsToSparkline: (logs: LogMessage[]) => {
+            // Only update incrementally for severity breakdown - service would need service_name from logs
+            if (values.sparklineBreakdownBy !== 'severity') {
+                return
+            }
             // if the sparkline hasn't loaded do nothing.
             if (!values.sparkline || values.sparkline.length < 2) {
                 return
@@ -934,10 +977,10 @@ export const logsLogic = kea<logsLogicType>([
             const interval = dayjs(values.sparklineData.dates[1]).diff(first_bucket, 'seconds')
             let latest_time_bucket = dayjs(last_bucket)
 
-            const sparklineMap: Map<string, { time: string; level: string; count: number }> = new Map()
+            const sparklineMap: Map<string, { time: string; severity: string; count: number }> = new Map()
 
             for (const bucket of values.sparkline) {
-                const key = `${dayjs(bucket.time).toISOString()}_${bucket.level}`
+                const key = `${dayjs(bucket.time).toISOString()}_${bucket.severity}`
                 sparklineMap.set(key, { ...bucket })
             }
 
@@ -950,12 +993,12 @@ export const logsLogic = kea<logsLogicType>([
                 if (sparklineMap.has(key)) {
                     sparklineMap.get(key)!.count += 1
                 } else {
-                    sparklineMap.set(key, { time: time_bucket.toISOString(), level: log.level, count: 1 })
+                    sparklineMap.set(key, { time: time_bucket.toISOString(), severity: log.level, count: 1 })
                 }
             }
             actions.setSparkline(
                 Array.from(sparklineMap.values())
-                    .sort((a, b) => dayjs(a.time).diff(dayjs(b.time)) || a.level.localeCompare(b.level))
+                    .sort((a, b) => dayjs(a.time).diff(dayjs(b.time)) || a.severity.localeCompare(b.severity))
                     .filter((item) => latest_time_bucket.diff(dayjs(item.time), 'seconds') <= sparklineTimeWindow)
             )
         },
