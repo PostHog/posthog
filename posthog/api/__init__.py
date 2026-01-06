@@ -303,7 +303,8 @@ register_grandfathered_environment_nested_viewset(
     "environment_ingestion_warnings",
     ["team_id"],
 )
-register_grandfathered_environment_nested_viewset(
+
+environments_router.register(
     r"customer_profile_configs",
     customer_analytics.CustomerProfileConfigViewSet,
     "environment_customer_profile_configs",
