@@ -11,6 +11,7 @@ from django.conf import settings
 
 import structlog
 import temporalio
+import posthoganalytics
 from dateutil import parser as dateutil_parser
 from redis import Redis
 from temporalio.client import WorkflowExecutionStatus, WorkflowHandle
@@ -468,11 +469,22 @@ async def ensure_llm_single_session_summary(inputs: SingleSessionSummaryInputs):
         )
         for segment_spec in segment_specs
     ]
-    segment_results = await asyncio.gather(*segment_tasks)
+    segment_results = await asyncio.gather(*segment_tasks, return_exceptions=True)
 
     # Flatten results from all segments
     raw_segments = []
     for segment_output_list in segment_results:
+        if isinstance(segment_output_list, Exception):
+            posthoganalytics.capture_exception(
+                segment_output_list,
+                distinct_id=inputs.user_distinct_id_to_log,
+                properties={"$session_id": inputs.session_id},
+            )
+            logger.exception(
+                f"Error analyzing video segment for session {inputs.session_id}: {segment_output_list}",
+                signals_type="session-summaries",
+            )
+            continue
         raw_segments.extend(segment_output_list)
 
     # Activity 4: Consolidate raw segments into meaningful semantic segments
