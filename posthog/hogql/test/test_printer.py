@@ -3335,6 +3335,20 @@ class TestMaterializedColumnOptimization(BaseTest):
                 ast.Alias(alias="distinct_id", expr=ast.Field(chain=["distinct_id"])),
                 ast.Alias(alias="email_value", expr=ast.Field(chain=["person", "properties", "email"])),
                 ast.Alias(alias="is_not_set_result", expr=is_not_set_expr),
+                ast.Alias(
+                    alias="is_not_set_result_historical",
+                    expr=ast.Or(
+                        exprs=[
+                            is_not_set_expr,
+                            ast.Not(
+                                expr=ast.Call(
+                                    name="JSONHas",
+                                    args=[ast.Field(chain=["person", "properties"]), ast.Constant(value="email")],
+                                )
+                            ),
+                        ]
+                    ),
+                ),  # this is the historical behaviour for is_not_set, was removed in https://github.com/PostHog/posthog/pull/44346 but test for equivalence here
             ],
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=ast.CompareOperation(
@@ -3354,20 +3368,26 @@ class TestMaterializedColumnOptimization(BaseTest):
         # Note: When columns are materialized, empty strings become NULL due to
         # nullIf(nullIf(..., ''), 'null') wrapping. This affects both POE modes.
         expected_results = {
-            (distinct_id_with_email, "test@example.com", 0),
+            (distinct_id_with_email, "test@example.com", 0, 0),
             # Empty string behavior differs: becomes null when materialized
-            (distinct_id_with_empty, None if is_materialized else "", 1 if is_materialized else 0),
-            (distinct_id_with_null, None, 1),
-            (distinct_id_without, None, 1),
+            (
+                distinct_id_with_empty,
+                None if is_materialized else "",
+                1 if is_materialized else 0,
+                1 if is_materialized else 0,
+            ),
+            (distinct_id_with_null, None, 1, 1),
+            (distinct_id_without, None, 1, 1),
         }
         self.assertEqual(set(result.results), expected_results)
 
         # The query should never touch the json properties object if we are using the materialized column, these asserts protects against regression for the performance the bug in
         # https://posthog.slack.com/archives/C09B0SSQEDA/p1767698123669229?thread_ts=1767672165.250289&cid=C09B0SSQEDA
         if is_materialized:
-            sql = result.clickhouse
-            self.assertNotIn("json", sql.lower())
-            self.assertNotIn("has", sql.lower())
+            sql_lower = result.clickhouse.lower()
+            # should only appear in is_not_set_result_historical
+            assert sql_lower.count("json") == 1
+            assert sql_lower.count("has") == 1
 
 
 class TestPrinted(APIBaseTest):
