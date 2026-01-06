@@ -758,8 +758,8 @@ mod tests {
     async fn test_mget_uses_reader() {
         let client = create_test_client(
             |reader| {
-                reader.mget_ret("key1", Some(100));
-                reader.mget_ret("key2", Some(200));
+                reader.mget_ret("key1", Some(b"value1".to_vec()));
+                reader.mget_ret("key2", Some(b"value2".to_vec()));
             },
             |_writer| {},
         );
@@ -767,7 +767,10 @@ mod tests {
         let result = client
             .mget(vec!["key1".to_string(), "key2".to_string()])
             .await;
-        assert_eq!(result.unwrap(), vec![Some(100), Some(200)]);
+        assert_eq!(
+            result.unwrap(),
+            vec![Some(b"value1".to_vec()), Some(b"value2".to_vec())]
+        );
     }
 
     #[tokio::test]
@@ -777,15 +780,18 @@ mod tests {
                 reader.mget_error(CustomRedisError::Timeout);
             },
             |writer| {
-                writer.mget_ret("key1", Some(300));
-                writer.mget_ret("key2", Some(400));
+                writer.mget_ret("key1", Some(b"fallback1".to_vec()));
+                writer.mget_ret("key2", Some(b"fallback2".to_vec()));
             },
         );
 
         let result = client
             .mget(vec!["key1".to_string(), "key2".to_string()])
             .await;
-        assert_eq!(result.unwrap(), vec![Some(300), Some(400)]);
+        assert_eq!(
+            result.unwrap(),
+            vec![Some(b"fallback1".to_vec()), Some(b"fallback2".to_vec())]
+        );
     }
 
     #[tokio::test]
@@ -795,7 +801,7 @@ mod tests {
                 reader.mget_error(CustomRedisError::ParseError("bad data".to_string()));
             },
             |writer| {
-                writer.mget_ret("key1", Some(500));
+                writer.mget_ret("key1", Some(b"fallback".to_vec()));
             },
         );
 
