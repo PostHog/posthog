@@ -26,8 +26,8 @@ use crate::metrics::consts::{
 use crate::metrics::utils::parse_exception_for_prometheus_label;
 use crate::properties::property_models::PropertyFilter;
 use crate::utils::graph_utils::{
-    build_dependency_graph, filter_graph_by_keys, log_dependency_graph_construction_errors,
-    log_dependency_graph_operation_error, DependencyGraph,
+    build_dependency_graph, filter_graph_by_keys, log_dependency_graph_operation_error,
+    DependencyGraph,
 };
 use anyhow::Result;
 use common_metrics::{inc, timing_guard};
@@ -254,11 +254,8 @@ impl FeatureFlagMatcher {
             global_dependency_graph
         };
 
-        // Track graph construction errors for the response
+        // Track graph construction errors for the response (errors already logged in build_dependency_graph)
         let has_graph_errors = !graph_errors.is_empty();
-        if has_graph_errors {
-            log_dependency_graph_construction_errors(&graph_errors, self.team_id);
-        }
 
         // Compute experience continuity stats from the filtered graph.
         // This considers all flags that will actually be evaluated (including dependencies).
