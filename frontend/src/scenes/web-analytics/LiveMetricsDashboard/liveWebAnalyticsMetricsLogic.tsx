@@ -150,15 +150,16 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             actions.setIsLoading(true)
 
             try {
-                const handoff = Date.now()
-                const cutoff = new Date(handoff - 30 * 60 * 1000)
+                const now = Date.now()
+                const dateFrom = new Date(now - 30 * 60 * 1000)
+                const handoff = new Date(now)
 
                 // The SSE stream will drop any events older than this value
-                // Those values will be handled by the HogQL queries
-                cache.newerThan = new Date(handoff)
+                // Those values will be retrieved by the HogQL queries instead
+                cache.newerThan = handoff
 
                 actions.updateConnection()
-                const [usersPageviewsResponse, deviceResponse, pathsResponse] = await loadQueryData(cutoff)
+                const [usersPageviewsResponse, deviceResponse, pathsResponse] = await loadQueryData(dateFrom, handoff)
 
                 const bucketMap = new Map<number, SlidingWindowBucket>()
 
@@ -273,7 +274,10 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
     })),
 ])
 
-const loadQueryData = async (cutoff: Date): Promise<[HogQLQueryResponse, TrendsQueryResponse, TrendsQueryResponse]> => {
+const loadQueryData = async (
+    dateFrom: Date,
+    dateTo: Date
+): Promise<[HogQLQueryResponse, TrendsQueryResponse, TrendsQueryResponse]> => {
     const usersPageviewsQuery: HogQLQuery = {
         kind: NodeKind.HogQLQuery,
         query: `SELECT 
@@ -282,14 +286,16 @@ const loadQueryData = async (cutoff: Date): Promise<[HogQLQueryResponse, TrendsQ
                     count() as total 
                 FROM events 
                 WHERE 
-                    event = '$pageview' AND 
-                    timestamp >= toDateTime({cutoff})
+                    event = '$pageview' AND
+                    timestamp >= toDateTime({dateFrom}) AND
+                    timestamp <= toDateTime({dateTo}) 
                 GROUP BY 
                     minute_bucket 
                 ORDER BY 
                     minute_bucket ASC`,
         values: {
-            cutoff,
+            dateFrom: dateFrom.toISOString(),
+            dateTo: dateTo.toISOString(),
         },
     }
 
@@ -298,7 +304,10 @@ const loadQueryData = async (cutoff: Date): Promise<[HogQLQueryResponse, TrendsQ
         interval: 'minute',
         series: [{ kind: NodeKind.EventsNode, event: '$pageview', math: BaseMathType.TotalCount }],
         breakdownFilter: { breakdown_type: 'event', breakdown: '$device_type' },
-        dateRange: { date_from: cutoff.toISOString() },
+        dateRange: {
+            date_from: dateFrom.toISOString(),
+            date_to: dateTo.toISOString(),
+        },
     }
 
     const pathsQuery: TrendsQuery = {
@@ -311,7 +320,10 @@ const loadQueryData = async (cutoff: Date): Promise<[HogQLQueryResponse, TrendsQ
             breakdown_limit: 10,
             breakdown_hide_other_aggregation: true,
         },
-        dateRange: { date_from: cutoff.toISOString() },
+        dateRange: {
+            date_from: dateFrom.toISOString(),
+            date_to: dateTo.toISOString(),
+        },
     }
 
     return await Promise.all([performQuery(usersPageviewsQuery), performQuery(deviceQuery), performQuery(pathsQuery)])
