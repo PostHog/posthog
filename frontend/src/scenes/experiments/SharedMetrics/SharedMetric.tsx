@@ -127,7 +127,7 @@ export function SharedMetric(): JSX.Element {
                         <AccessControlAction
                             resourceType={AccessControlResourceType.Experiment}
                             minAccessLevel={AccessControlLevel.Editor}
-                            userAccessLevel={sharedMetric.user_access_level}
+                            userAccessLevel={AccessControlLevel.Editor}
                         >
                             <ButtonPrimitive
                                 variant="danger"
@@ -136,9 +136,7 @@ export function SharedMetric(): JSX.Element {
                                     LemonDialog.open({
                                         title: 'Delete this metric?',
                                         content: (
-                                            <div className="text-sm text-secondary">
-                                                This action cannot be undone.
-                                            </div>
+                                            <div className="text-sm text-secondary">This action cannot be undone.</div>
                                         ),
                                         primaryButton: {
                                             children: 'Delete',
@@ -186,7 +184,7 @@ export function SharedMetric(): JSX.Element {
                     <AccessControlAction
                         resourceType={AccessControlResourceType.Experiment}
                         minAccessLevel={AccessControlLevel.Editor}
-                        userAccessLevel={sharedMetric.user_access_level}
+                        userAccessLevel={AccessControlLevel.Editor}
                     >
                         <LemonButton
                             disabledReason={sharedMetric.name ? undefined : 'You must give your metric a name'}
@@ -254,7 +252,7 @@ export function SharedMetric(): JSX.Element {
                 <AccessControlAction
                     resourceType={AccessControlResourceType.Experiment}
                     minAccessLevel={AccessControlLevel.Editor}
-                    userAccessLevel={sharedMetric.user_access_level}
+                    userAccessLevel={AccessControlLevel.Editor}
                 >
                     <LemonButton
                         disabledReason={sharedMetric.name ? undefined : 'You must give your metric a name'}
