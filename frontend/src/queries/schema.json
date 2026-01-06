@@ -29362,7 +29362,7 @@
                 "id": {
                     "type": "string"
                 },
-                "identifier": {
+                "issue_id": {
                     "type": "string"
                 },
                 "integration": {
@@ -29385,7 +29385,7 @@
                     "type": "string"
                 }
             },
-            "required": ["id", "integration", "external_url", "title", "identifier"],
+            "required": ["id", "integration", "external_url", "title", "issue_id"],
             "type": "object"
         },
         "SessionRecordingType": {
