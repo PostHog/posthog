@@ -6,6 +6,7 @@ import { subscriptions } from 'kea-subscriptions'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { uuid } from 'lib/utils'
+import { prepareStepForRender, prepareStepsForRender } from 'scenes/product-tours/editor/generateStepHtml'
 import { urls } from 'scenes/urls'
 
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
@@ -328,8 +329,8 @@ export const productToursLogic = kea<productToursLogicType>([
                 const { id, name, steps } = formValues
                 const isUpdate = !!id
 
-                // Strip element references from steps before saving (element is a local-only DOM ref)
-                const stepsForApi = steps.map(({ element: _, ...step }) => step)
+                // Strip element references and add pre-computed HTML for SDK consumption
+                const stepsForApi = steps.map(({ element: _, ...step }) => prepareStepForRender(step))
 
                 // Get existing step_order_history if updating an existing tour
                 const existingTour = id ? values.tours.find((t: ProductTour) => t.id === id) : null
@@ -612,7 +613,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 type: 'product_tour' as const,
                 start_date: null,
                 end_date: null,
-                steps: tourForm.steps,
+                steps: prepareStepsForRender(tourForm.steps),
                 appearance: existingTour?.content?.appearance,
             }
 

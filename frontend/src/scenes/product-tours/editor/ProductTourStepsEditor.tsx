@@ -27,6 +27,7 @@ import {
 
 import { StepContentEditor } from './StepContentEditor'
 import { SurveyStepEditor } from './SurveyStepEditor'
+import { prepareStepForRender } from './generateStepHtml'
 
 export interface ProductTourStepsEditorProps {
     steps: ProductTourStep[]
@@ -124,7 +125,7 @@ export function ProductTourStepsEditor({ steps, appearance, onChange }: ProductT
     useEffect(() => {
         if (previewElement && selectedStep) {
             renderProductTourPreview({
-                step: selectedStep as any,
+                step: prepareStepForRender(selectedStep) as any,
                 appearance: appearance as any,
                 parentElement: previewElement,
                 stepIndex: selectedStepIndex,
@@ -137,7 +138,7 @@ export function ProductTourStepsEditor({ steps, appearance, onChange }: ProductT
     useEffect(() => {
         if (surveyPreviewElement && selectedStep?.type === 'survey') {
             renderProductTourPreview({
-                step: selectedStep as any,
+                step: prepareStepForRender(selectedStep) as any,
                 appearance: appearance as any,
                 parentElement: surveyPreviewElement,
                 stepIndex: selectedStepIndex,

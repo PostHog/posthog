@@ -48,6 +48,7 @@ jest.mock('posthog-js/dist/product-tours-preview', () => ({
 
 jest.mock('@tiptap/extension-code-block-lowlight', () => {
     const mockExtension = {
+        configure: jest.fn(() => ({})),
         extend: jest.fn(() => ({
             configure: jest.fn(() => ({})),
         })),

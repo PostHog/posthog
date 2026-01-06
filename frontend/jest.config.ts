@@ -20,6 +20,17 @@ const esmModules = [
     '@tiptap',
     'lowlight',
     'devlop',
+    'hast-util-to-html',
+    'html-void-elements',
+    'property-information',
+    'stringify-entities',
+    'character-entities-html4',
+    'character-entities-legacy',
+    'ccount',
+    'hast-util-whitespace',
+    'space-separated-tokens',
+    'comma-separated-tokens',
+    'zwitch',
 ]
 function rootDirectories(): string[] {
     return ['<rootDir>/src', '<rootDir>/../products']
