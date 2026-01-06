@@ -58,7 +58,7 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
                 existing_asset.export_context.get("duration", 0) if existing_asset.export_context else 0
             )
             if existing_duration_s * 1000 < MIN_SESSION_DURATION_FOR_SUMMARY_MS:
-                logger.info(
+                logger.warning(
                     f"Session {inputs.session_id} in team {inputs.team_id} is too short ({existing_duration_s * 1000:.0f}ms) to summarize, skipping",
                     extra={
                         "session_id": inputs.session_id,
@@ -67,7 +67,7 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
                     },
                 )
                 return None
-            logger.info(
+            logger.debug(
                 f"Found existing video export for session {inputs.session_id}, reusing asset {existing_asset.id}",
                 session_id=inputs.session_id,
                 asset_id=existing_asset.id,
@@ -89,7 +89,7 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
 
         # Check if session is too short for summarization - note: this is different from the video duration, but probs close enough
         if session_duration * 1000 < MIN_SESSION_DURATION_FOR_SUMMARY_MS:
-            logger.info(
+            logger.warning(
                 f"Session {inputs.session_id} in team {inputs.team_id} is too short ({session_duration * 1000:.0f}ms) to summarize, skipping",
                 extra={"session_id": inputs.session_id, "team_id": inputs.team_id, "signals_type": "session-summaries"},
             )
@@ -125,7 +125,7 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
         )
 
-        logger.info(
+        logger.debug(
             f"Video exported successfully for session {inputs.session_id}",
             session_id=inputs.session_id,
             asset_id=exported_asset.id,

@@ -60,7 +60,7 @@ async def store_video_session_summary_activity(
         )
 
         if summary_exists.get(inputs.session_id):
-            logger.info(
+            logger.debug(
                 f"Video-based summary already exists for session {inputs.session_id}, skipping storage",
                 session_id=inputs.session_id,
             )
@@ -122,14 +122,12 @@ async def store_video_session_summary_activity(
             distinct_id=distinct_id,
             created_by=user,
         )
-
-        logger.info(
+        logger.debug(
             f"Successfully stored video-based summary for session {inputs.session_id}",
             session_id=inputs.session_id,
             segment_count=len(analysis.segments),
             has_real_events=llm_input is not None,
         )
-
     except Exception as e:
         logger.exception(
             f"Failed to store video-based summary for session {inputs.session_id}: {e}",

@@ -59,7 +59,7 @@ async def upload_video_to_gemini_activity(inputs: VideoSummarySingleSessionInput
             tmp_file.write(video_bytes)
             tmp_file.flush()  # Ensure data is flushed to disk before reading by path
             # Upload to Gemini
-            logger.info(
+            logger.debug(
                 f"Uploading full video to Gemini for session {inputs.session_id}",
                 duration=duration,
                 session_id=inputs.session_id,
@@ -79,7 +79,7 @@ async def upload_video_to_gemini_activity(inputs: VideoSummarySingleSessionInput
                         f"File may still be processing on Gemini's side. State: {uploaded_file.state.name}"
                     )
                 await asyncio.sleep(0.5)
-                logger.info(
+                logger.debug(
                     f"Waiting for file to be ready: {uploaded_file.state.name}",
                     session_id=inputs.session_id,
                     file_name=uploaded_file.name,
@@ -94,7 +94,7 @@ async def upload_video_to_gemini_activity(inputs: VideoSummarySingleSessionInput
                 raise RuntimeError(f"File processing failed. State: {final_state_name}")
             if not uploaded_file.uri:
                 raise RuntimeError("Uploaded file has no URI")
-            logger.info(
+            logger.debug(
                 f"Video uploaded successfully to Gemini for session {inputs.session_id}",
                 session_id=inputs.session_id,
                 file_uri=uploaded_file.uri,

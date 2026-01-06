@@ -53,7 +53,7 @@ async def consolidate_video_segments_activity(
         )
 
     try:
-        logger.info(
+        logger.debug(
             f"Consolidating {len(raw_segments)} raw segments for session {inputs.session_id}",
             session_id=inputs.session_id,
             raw_segment_count=len(raw_segments),
@@ -89,7 +89,7 @@ async def consolidate_video_segments_activity(
         # Parse using Pydantic model validation
         consolidated_analysis = ConsolidatedVideoAnalysis.model_validate(parsed)
 
-        logger.info(
+        logger.debug(
             f"Consolidated {len(raw_segments)} raw segments into {len(consolidated_analysis.segments)} semantic segments",
             session_id=inputs.session_id,
             raw_count=len(raw_segments),

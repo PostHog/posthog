@@ -84,7 +84,7 @@ async def analyze_video_segment_activity(
                         url_mapping_reversed=llm_input.url_mapping_reversed,
                         window_mapping_reversed=llm_input.window_mapping_reversed,
                     )
-                    logger.info(
+                    logger.debug(
                         f"Found {len(events_in_range)} events in segment {segment.segment_index} time range",
                         session_id=inputs.session_id,
                         segment_index=segment.segment_index,
@@ -96,7 +96,7 @@ async def analyze_video_segment_activity(
         end_timestamp = _format_timestamp_as_mm_ss(segment.end_time)
         segment_duration = segment.end_time - segment.start_time
 
-        logger.info(
+        logger.debug(
             f"Analyzing segment {segment.segment_index} ({start_timestamp} - {end_timestamp}) for session {inputs.session_id}",
             session_id=inputs.session_id,
             segment_index=segment.segment_index,
@@ -137,7 +137,7 @@ async def analyze_video_segment_activity(
 
         response_text = (response.text or "").strip()
 
-        logger.info(
+        logger.debug(
             f"Received analysis for segment {segment.segment_index}",
             session_id=inputs.session_id,
             segment_index=segment.segment_index,
@@ -181,7 +181,7 @@ async def analyze_video_segment_activity(
                     )
                 )
 
-        logger.info(
+        logger.debug(
             f"Parsed {len(segments)} segments from segment {segment.segment_index}",
             session_id=inputs.session_id,
             segment_index=segment.segment_index,
@@ -208,7 +208,7 @@ Your task:
 - Describe what's happening in the video as a list of salient moments
 - Highlight what features were used, and what the user was doing with them
 - Note any problems, errors, confusion, or friction the user experienced
-- If tracked events show exceptions ($exception_types, $exception_values), identify them in your analysis
+- If tracked events show exceptions ($exception_types, $exception_values), validate if they happened in the video
 - Red lines indicate mouse movements, and should be ignored
 - If nothing is happening, return "Static"
 

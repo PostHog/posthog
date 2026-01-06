@@ -28,13 +28,6 @@ async def embed_and_store_segments_activity(
     distinct_id, and timestamps.
     """
     try:
-        if not segments:
-            logger.info(
-                f"No segments to embed for session {inputs.session_id}",
-                session_id=inputs.session_id,
-            )
-            return
-
         for segment in segments:
             # Use the description directly as the content to embed
             content = segment.description
@@ -68,7 +61,7 @@ async def embed_and_store_segments_activity(
                 document_id=document_id,
             )
 
-        logger.info(
+        logger.debug(
             f"Successfully produced {len(segments)} embeddings for session {inputs.session_id}",
             session_id=inputs.session_id,
             segment_count=len(segments),
