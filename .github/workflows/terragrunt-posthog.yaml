@@ -98,13 +98,13 @@ jobs:
             - name: Plan Terraform ${{ matrix.working_dir }}
               if: github.ref != 'refs/heads/master'
               uses: datadrivers/terragrunt-action@2e86aa69b6198c3ec87a090e58eaf9b7d3269615 # v4.0.3
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               with:
-                  github-token: ${{ secrets.GITHUB_TOKEN }}
                   terraform-version: ${{ env.TERRAFORM_VERSION }}
                   terragrunt-version: ${{ env.TERRAGRUNT_VERSION }}
                   use-aws-auth: false
-                  enable-terraform-change-pr-commenter: true
-                  terragrunt-working-directory: ${{ matrix.working_dir }}
+                  working-directory: ${{ matrix.working_dir }}
                   commands: |
                       exit_code=0
                       terragrunt --non-interactive run -- plan -detailed-exitcode -out="terraform.tfplan" -lock-timeout=10m || exit_code=$?
@@ -119,12 +119,12 @@ jobs:
             - name: Apply Terraform ${{ matrix.working_dir }}
               if: github.ref == 'refs/heads/master'
               uses: datadrivers/terragrunt-action@2e86aa69b6198c3ec87a090e58eaf9b7d3269615 # v4.0.3
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               with:
-                  github-token: ${{ secrets.GITHUB_TOKEN }}
                   terraform-version: ${{ env.TERRAFORM_VERSION }}
                   terragrunt-version: ${{ env.TERRAGRUNT_VERSION }}
                   use-aws-auth: false
-                  enable-terraform-change-pr-commenter: false
-                  terragrunt-working-directory: ${{ matrix.working_dir }}
+                  working-directory: ${{ matrix.working_dir }}
                   commands: |
                       terragrunt --non-interactive run -- apply -lock-timeout=10m -auto-approve
