@@ -155,6 +155,9 @@ class SearchErrorTrackingIssuesTool(MaxTool):
     args_schema: type[BaseModel] = SearchErrorTrackingIssuesArgs
     description: str = TOOL_DESCRIPTION
 
+    def get_required_resource_access(self):
+        return [("error_tracking", "viewer")]
+
     async def _arun_impl(self, query: ErrorTrackingQuery) -> tuple[str, ToolMessagesArtifact | None]:
         # Adding some sane default limits
         if query.limit is None or query.limit <= 0:
