@@ -3,7 +3,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import React, { useState } from 'react'
 
 import { IconExpand45, IconInfo, IconLineGraph, IconOpenSidebar, IconX } from '@posthog/icons'
-import { LemonSegmentedButton, LemonSegmentedButtonWithSelect, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonSegmentedButton, LemonSegmentedDropdown, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
@@ -338,7 +338,7 @@ export const WebTabs = ({
                     />
                 )}
 
-                <LemonSegmentedButtonWithSelect
+                <LemonSegmentedDropdown
                     splitIndex={tabSplitIndexMap[tileId]}
                     size="small"
                     value={activeTabId}

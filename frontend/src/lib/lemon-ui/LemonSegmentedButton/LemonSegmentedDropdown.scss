@@ -1,4 +1,4 @@
-.LemonSegmentedButtonWithSelect {
+.LemonSegmentedDropdown {
     position: relative;
     flex-shrink: 0;
     width: fit-content;
@@ -11,11 +11,11 @@
         list-style: none;
     }
 
-    &.LemonSegmentedButtonWithSelect--full-width {
+    &.LemonSegmentedDropdown--full-width {
         width: 100%;
     }
 
-    .LemonSegmentedButtonWithSelect__slider {
+    .LemonSegmentedDropdown__slider {
         position: absolute;
         top: 0;
         bottom: 0;
@@ -37,13 +37,13 @@
         }
     }
 
-    &.LemonSegmentedButtonWithSelect--transitioning .LemonSegmentedButtonWithSelect__slider {
+    &.LemonSegmentedDropdown--transitioning .LemonSegmentedDropdown__slider {
         transition:
             transform 200ms ease,
             width 200ms ease;
     }
 
-    .LemonSegmentedButtonWithSelect__option {
+    .LemonSegmentedDropdown__option {
         display: flex;
         flex: 1;
 
@@ -91,7 +91,7 @@
             }
         }
 
-        &.LemonSegmentedButtonWithSelect__option--selected {
+        &.LemonSegmentedDropdown__option--selected {
             z-index: 2;
 
             .LemonButton {

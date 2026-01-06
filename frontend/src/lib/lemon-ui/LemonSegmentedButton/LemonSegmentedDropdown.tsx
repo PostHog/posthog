@@ -1,4 +1,4 @@
-import './LemonSegmentedButtonWithSelect.scss'
+import './LemonSegmentedDropdown.scss'
 
 import clsx from 'clsx'
 import React, { useMemo } from 'react'
@@ -8,7 +8,7 @@ import { LemonMenu } from '../LemonMenu/LemonMenu'
 import { useSliderPositioning } from '../hooks'
 import { LemonSegmentedButtonOption } from './LemonSegmentedButton'
 
-export interface LemonSegmentedButtonWithSelectProps<T extends React.Key> {
+export interface LemonSegmentedDropdownProps<T extends React.Key> {
     value?: T
     onChange?: (newValue: T, e?: React.MouseEvent) => void
     options: LemonSegmentedButtonOption<T>[]
@@ -19,13 +19,13 @@ export interface LemonSegmentedButtonWithSelectProps<T extends React.Key> {
     fullWidth?: boolean
 }
 
-interface LemonSegmentedButtonWithSelectCSSProperties extends React.CSSProperties {
+interface LemonSegmentedDropdownCSSProperties extends React.CSSProperties {
     '--lemon-segmented-button-slider-width': `${number}px`
     '--lemon-segmented-button-slider-offset': `${number}px`
 }
 
 /** Hybrid component showing initial options as segmented buttons and remaining options as a dropdown. */
-export function LemonSegmentedButtonWithSelect<T extends React.Key>({
+export function LemonSegmentedDropdown<T extends React.Key>({
     value,
     onChange,
     options,
@@ -33,7 +33,7 @@ export function LemonSegmentedButtonWithSelect<T extends React.Key>({
     size,
     fullWidth,
     className,
-}: LemonSegmentedButtonWithSelectProps<T>): JSX.Element {
+}: LemonSegmentedDropdownProps<T>): JSX.Element {
     const effectiveSplitIndex = splitIndex ?? options.length
     const buttonOptions = options.slice(0, effectiveSplitIndex)
     const dropdownOptions = options.slice(effectiveSplitIndex)
@@ -73,9 +73,9 @@ export function LemonSegmentedButtonWithSelect<T extends React.Key>({
     return (
         <div
             className={clsx(
-                'LemonSegmentedButtonWithSelect',
-                fullWidth && 'LemonSegmentedButtonWithSelect--full-width',
-                transitioning && 'LemonSegmentedButtonWithSelect--transitioning',
+                'LemonSegmentedDropdown',
+                fullWidth && 'LemonSegmentedDropdown--full-width',
+                transitioning && 'LemonSegmentedDropdown--transitioning',
                 className
             )}
             // eslint-disable-next-line react/forbid-dom-props
@@ -83,18 +83,18 @@ export function LemonSegmentedButtonWithSelect<T extends React.Key>({
                 {
                     '--lemon-segmented-button-slider-width': `${sliderWidth}px`,
                     '--lemon-segmented-button-slider-offset': `${sliderOffset}px`,
-                } as LemonSegmentedButtonWithSelectCSSProperties
+                } as LemonSegmentedDropdownCSSProperties
             }
             ref={containerRef}
         >
             {sliderWidth > 0 && (
                 <div
                     className={clsx(
-                        'LemonSegmentedButtonWithSelect__slider',
+                        'LemonSegmentedDropdown__slider',
                         isFirstSelected
-                            ? 'LemonSegmentedButtonWithSelect__slider--first'
+                            ? 'LemonSegmentedDropdown__slider--first'
                             : isLastButtonSelected || isDropdownValueSelected
-                              ? 'LemonSegmentedButtonWithSelect__slider--last'
+                              ? 'LemonSegmentedDropdown__slider--last'
                               : null
                     )}
                 />
@@ -104,9 +104,9 @@ export function LemonSegmentedButtonWithSelect<T extends React.Key>({
                     <li
                         key={option.value}
                         className={clsx(
-                            'LemonSegmentedButtonWithSelect__option',
-                            option.disabledReason && 'LemonSegmentedButtonWithSelect__option--disabled',
-                            option.value === value && 'LemonSegmentedButtonWithSelect__option--selected'
+                            'LemonSegmentedDropdown__option',
+                            option.disabledReason && 'LemonSegmentedDropdown__option--disabled',
+                            option.value === value && 'LemonSegmentedDropdown__option--selected'
                         )}
                         ref={option.value === value ? selectionRef : undefined}
                     >
@@ -132,9 +132,9 @@ export function LemonSegmentedButtonWithSelect<T extends React.Key>({
                 {shouldShowDropdown && (
                     <li
                         className={clsx(
-                            'LemonSegmentedButtonWithSelect__option',
-                            'LemonSegmentedButtonWithSelect__option--dropdown',
-                            isDropdownValueSelected && 'LemonSegmentedButtonWithSelect__option--selected'
+                            'LemonSegmentedDropdown__option',
+                            'LemonSegmentedDropdown__option--dropdown',
+                            isDropdownValueSelected && 'LemonSegmentedDropdown__option--selected'
                         )}
                         ref={isDropdownValueSelected ? selectionRef : undefined}
                     >
