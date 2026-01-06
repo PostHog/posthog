@@ -20,6 +20,8 @@ class TestTeamCacheSizeTracker(BaseTest):
         cache.delete("test_key_3")
         cache.delete("expired_key")
         cache.delete("real_key")
+        cache.delete("test_key")
+        cache.delete("large_key")
         super().tearDown()
 
     def test_track_cache_write_increments_total(self):
