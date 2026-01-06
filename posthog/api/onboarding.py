@@ -8,6 +8,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.exceptions_capture import capture_exception
 from posthog.rate_limit import OnboardingIPThrottle
 
 from ee.hogai.llm import MaxChatOpenAI
@@ -164,7 +165,8 @@ class OnboardingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         except Exception as e:
             logger.exception("Error in product recommendation", error=str(e), team_id=self.team.id)
-            return response.Response(
-                {"error": "Error in product recommendation"},
-                status=500,
+            capture_exception(
+                e, {"team_id": self.team.id, "description": description, "browsing_history": browsing_history}
             )
+
+            return response.Response({"error": "Error in product recommendation"}, status=500)
