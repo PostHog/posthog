@@ -1,3 +1,4 @@
+import socket
 import datetime as dt
 import itertools
 import collections.abc
@@ -5,11 +6,11 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 from prometheus_client import REGISTRY
-from temporalio.runtime import MetricBuffer, Runtime, TelemetryConfig
+from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
 from temporalio.worker import ResourceBasedSlotConfig, UnsandboxedWorkflowRunner, Worker, WorkerTuner
 
 from posthog.temporal.common.client import connect
-from posthog.temporal.common.combined_metrics_server import CombinedMetricsServer
+from posthog.temporal.common.combined_metrics_server import CombinedMetricsServer, get_free_port
 from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
 
@@ -17,28 +18,6 @@ from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsI
 
 logger = get_write_only_logger()
 
-
-@dataclass
-class ManagedWorker:
-    """A Temporal worker bundled with its associated resources for unified lifecycle management."""
-
-    worker: Worker
-    metrics_server: CombinedMetricsServer
-
-    async def run(self) -> None:
-        self.metrics_server.start()
-        await self.worker.run()
-
-    def is_shutdown(self) -> bool:
-        return self.worker.is_shutdown
-
-    async def shutdown(self) -> None:
-        await self.worker.shutdown()
-        self.metrics_server.stop()
-
-
-# Buffer size for Temporal metrics - should be large enough to hold all metrics between scrapes
-METRIC_BUFFER_SIZE = 25000
 
 # Custom histogram bucket overrides for specific metrics
 BATCH_EXPORTS_LATENCY_HISTOGRAM_METRICS = (
@@ -58,6 +37,25 @@ BATCH_EXPORTS_LATENCY_HISTOGRAM_BUCKETS = (
     43_200_000.0,  # 12 hours
     86_400_000.0,  # 24 hours
 )
+
+
+@dataclass
+class ManagedWorker:
+    """A Temporal worker bundled with its associated resources for unified lifecycle management."""
+
+    worker: Worker
+    metrics_server: CombinedMetricsServer
+
+    async def run(self) -> None:
+        self.metrics_server.start()
+        await self.worker.run()
+
+    def is_shutdown(self) -> bool:
+        return self.worker.is_shutdown
+
+    async def shutdown(self) -> None:
+        await self.worker.shutdown()
+        self.metrics_server.stop()
 
 
 async def create_worker(
@@ -108,30 +106,36 @@ async def create_worker(
             Defaults to 1.0. Only takes effect if target_memory_usage is set.
     """
 
-    # Use MetricBuffer to collect Temporal SDK metrics directly (no HTTP needed).
-    # The combined metrics server reads from this buffer and serves all metrics
-    # (both Temporal and prometheus_client) on a single endpoint.
-    metric_buffer = MetricBuffer(buffer_size=METRIC_BUFFER_SIZE)
+    temporal_metrics_port = get_free_port()
+    temporal_metrics_bind_address = f"127.0.0.1:{temporal_metrics_port}"
 
+    # Use PrometheusConfig to expose Temporal SDK metrics on an internal port.
+    # The combined metrics server fetches from this endpoint and merges with
+    # prometheus_client metrics on the main metrics port.
     runtime = Runtime(
         telemetry=TelemetryConfig(
             metric_prefix=metric_prefix,
-            metrics=metric_buffer,
+            metrics=PrometheusConfig(
+                bind_address=temporal_metrics_bind_address,
+                durations_as_seconds=False,
+                # Units are u64 milliseconds in sdk-core,
+                # given that the `duration_as_seconds` is `False`.
+                # But in Python we still need to pass floats due to type hints.
+                histogram_bucket_overrides=dict(
+                    zip(
+                        BATCH_EXPORTS_LATENCY_HISTOGRAM_METRICS,
+                        itertools.repeat(BATCH_EXPORTS_LATENCY_HISTOGRAM_BUCKETS),
+                    )
+                )
+                | {"batch_exports_activity_attempt": (1.0, 5.0, 10.0, 100.0)},
+            ),
         )
     )
 
     metrics_server = CombinedMetricsServer(
         port=metrics_port,
-        metric_buffer=metric_buffer,
+        temporal_metrics_url=f"http://{temporal_metrics_bind_address}/metrics",
         registry=REGISTRY,
-        metric_prefix=metric_prefix or "",
-        histogram_bucket_overrides=dict(
-            zip(
-                BATCH_EXPORTS_LATENCY_HISTOGRAM_METRICS,
-                itertools.repeat(BATCH_EXPORTS_LATENCY_HISTOGRAM_BUCKETS),
-            )
-        )
-        | {"batch_exports_activity_attempt": (1.0, 5.0, 10.0, 100.0)},
     )
     client = await connect(
         host,
@@ -182,3 +186,10 @@ async def create_worker(
         )
 
     return ManagedWorker(worker=worker, metrics_server=metrics_server)
+
+
+def _get_free_port() -> int:
+    """Find an available port on localhost."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]

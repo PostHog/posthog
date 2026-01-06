@@ -1,168 +1,17 @@
 import threading
+import urllib.error
+import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import Union
 
 from posthoganalytics import capture_exception
-from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, generate_latest
-from temporalio.runtime import (
-    BUFFERED_METRIC_KIND_COUNTER,
-    BUFFERED_METRIC_KIND_GAUGE,
-    BUFFERED_METRIC_KIND_HISTOGRAM,
-    BufferedMetricUpdate,
-    MetricBuffer,
-)
+from prometheus_client import CollectorRegistry, generate_latest
 
 from posthog.temporal.common.logger import get_write_only_logger
 
 logger = get_write_only_logger(__name__)
 
-# Default histogram buckets suitable for Temporal metrics (in milliseconds when using MILLISECONDS format)
-# These cover a wide range from 1ms to 24 hours
-DEFAULT_HISTOGRAM_BUCKETS = (
-    1.0,
-    5.0,
-    10.0,
-    25.0,
-    50.0,
-    75.0,
-    100.0,
-    250.0,
-    500.0,
-    750.0,
-    1000.0,
-    2500.0,
-    5000.0,
-    7500.0,
-    10000.0,
-    30000.0,
-    60000.0,
-    300000.0,
-    600000.0,
-    900000.0,
-    1800000.0,
-    3600000.0,
-    21600000.0,  # 6 hours
-    43200000.0,  # 12 hours
-    86400000.0,  # 24 hours
-    float("inf"),
-)
 
-
-class TemporalMetricsCollector:
-    """Collects metrics from Temporal's MetricBuffer and converts them to prometheus_client metrics."""
-
-    def __init__(
-        self,
-        metric_buffer: MetricBuffer,
-        registry: CollectorRegistry,
-        metric_prefix: str = "",
-        histogram_bucket_overrides: dict[str, tuple[float, ...]] | None = None,
-    ):
-        self._metric_buffer = metric_buffer
-        self._registry = registry
-        self._metric_prefix = metric_prefix
-        self._histogram_bucket_overrides = histogram_bucket_overrides or {}
-
-        self._metrics: dict[str, Union[Counter, Gauge, Histogram]] = {}
-        # prometheus_client requires label names to be declared at metric creation and raises
-        # ValueError('Incorrect label names') if different names are used later.
-        # See: https://prometheus.io/docs/instrumenting/writing_clientlibs/#labels
-        # Source: https://github.com/prometheus/client_python/blob/e8f8bae6554de11ebffffcc878ab19abd67528f2/prometheus_client/metrics.py#L175
-        # We track the first-seen label set for each metric and skip updates with different labels.
-        self._label_names_by_metric: dict[str, tuple[str, ...]] = {}
-        self._lock = threading.Lock()
-
-    def _get_metric_key(self, name: str, label_names: tuple[str, ...]) -> str:
-        return f"{self._metric_prefix}{name}:{','.join(sorted(label_names))}"
-
-    def _get_or_create_metric(
-        self,
-        update: BufferedMetricUpdate,
-        label_names: tuple[str, ...],
-    ) -> Union[Counter, Gauge, Histogram]:
-        """Get an existing metric or create a new one based on the update."""
-        metric_name = f"{self._metric_prefix}{update.metric.name}"
-        key = self._get_metric_key(update.metric.name, label_names)
-
-        if key in self._metrics:
-            return self._metrics[key]
-
-        description = update.metric.description or f"Temporal metric: {update.metric.name}"
-        kind = update.metric.kind
-
-        if kind == BUFFERED_METRIC_KIND_COUNTER:
-            self._metrics[key] = Counter(metric_name, description, labelnames=label_names, registry=self._registry)
-        elif kind == BUFFERED_METRIC_KIND_GAUGE:
-            self._metrics[key] = Gauge(metric_name, description, labelnames=label_names, registry=self._registry)
-        elif kind == BUFFERED_METRIC_KIND_HISTOGRAM:
-            buckets = self._histogram_bucket_overrides.get(update.metric.name, DEFAULT_HISTOGRAM_BUCKETS)
-            self._metrics[key] = Histogram(
-                metric_name,
-                description,
-                labelnames=label_names,
-                buckets=buckets,
-                registry=self._registry,
-            )
-        else:
-            raise ValueError(f"Unknown metric kind: {kind}")
-
-        return self._metrics[key]
-
-    def collect_updates(self) -> None:
-        """Pull metrics from the buffer and update prometheus_client metrics.
-
-        This should be called before serving metrics to ensure fresh data.
-        """
-        with self._lock:
-            try:
-                updates = self._metric_buffer.retrieve_updates()
-            except Exception as e:
-                logger.warning("temporal_metrics_collector.retrieve_failed", error=str(e))
-                capture_exception(e)
-                return
-
-            for update in updates:
-                try:
-                    metric_name = update.metric.name
-                    label_names = tuple(sorted(update.attributes.keys()))
-
-                    if metric_name not in self._label_names_by_metric:
-                        self._label_names_by_metric[metric_name] = label_names
-                    elif self._label_names_by_metric[metric_name] != label_names:
-                        logger.warning(
-                            "temporal_metrics_collector.label_set_mismatch",
-                            metric_name=metric_name,
-                            expected=self._label_names_by_metric[metric_name],
-                            actual=label_names,
-                        )
-                        continue
-
-                    label_values = {k: str(v) for k, v in update.attributes.items()}
-                    metric = self._get_or_create_metric(update, label_names)
-                    kind = update.metric.kind
-
-                    # Handle metrics with and without labels
-                    if label_names:
-                        labeled_metric = metric.labels(**label_values)
-                    else:
-                        labeled_metric = metric
-
-                    if kind == BUFFERED_METRIC_KIND_COUNTER:
-                        labeled_metric.inc(update.value)  # type: ignore[union-attr]
-                    elif kind == BUFFERED_METRIC_KIND_GAUGE:
-                        labeled_metric.set(update.value)  # type: ignore[union-attr]
-                    elif kind == BUFFERED_METRIC_KIND_HISTOGRAM:
-                        labeled_metric.observe(update.value)  # type: ignore[union-attr]
-                except Exception as e:
-                    logger.warning(
-                        "temporal_metrics_collector.update_failed",
-                        metric_name=metric_name,
-                        error=str(e),
-                    )
-                    capture_exception(e)
-
-
-def create_handler(collector: TemporalMetricsCollector, registry: CollectorRegistry) -> type[BaseHTTPRequestHandler]:
+def create_handler(temporal_metrics_url: str, registry: CollectorRegistry) -> type[BaseHTTPRequestHandler]:
     class CombinedMetricsHandler(BaseHTTPRequestHandler):
         """HTTP handler that serves combined Temporal SDK and prometheus_client metrics."""
 
@@ -175,11 +24,19 @@ def create_handler(collector: TemporalMetricsCollector, registry: CollectorRegis
 
         def _serve_combined_metrics(self) -> None:
             try:
-                # Collect latest Temporal metrics from the buffer before serving
-                collector.collect_updates()
+                # Fetch Temporal SDK metrics from its Prometheus endpoint
+                temporal_output = b""
+                try:
+                    with urllib.request.urlopen(temporal_metrics_url, timeout=5) as response:
+                        temporal_output = response.read()
+                except urllib.error.URLError as e:
+                    logger.warning("combined_metrics_server.temporal_fetch_failed", error=str(e))
 
-                # All metrics (Temporal + app) are now in prometheus_client registry
-                output = generate_latest(registry)
+                # Get prometheus_client metrics
+                client_output = generate_latest(registry)
+
+                # Combine both outputs
+                output = temporal_output + client_output
 
                 self.send_response(200)
                 self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
@@ -206,27 +63,20 @@ def create_handler(collector: TemporalMetricsCollector, registry: CollectorRegis
 class CombinedMetricsServer:
     """Metrics server combining Temporal SDK and prometheus_client metrics.
 
-    Uses Temporal's MetricBuffer to access metrics directly without any HTTP
-    calls. All metrics are served from a single prometheus_client registry.
+    Fetches Temporal metrics from its Prometheus HTTP endpoint and combines them
+    with prometheus_client metrics on a single endpoint. This preserves the exact
+    metric format that Temporal uses (including counter types without _total suffix).
     """
 
     def __init__(
         self,
         port: int,
-        metric_buffer: MetricBuffer,
+        temporal_metrics_url: str,
         registry: CollectorRegistry,
-        metric_prefix: str = "",
-        histogram_bucket_overrides: dict[str, tuple[float, ...]] | None = None,
     ):
         self._port = port
-        self._metric_prefix = metric_prefix
-        self._collector = TemporalMetricsCollector(
-            metric_buffer,
-            registry,
-            metric_prefix=metric_prefix,
-            histogram_bucket_overrides=histogram_bucket_overrides,
-        )
-        self._handler = create_handler(self._collector, registry)
+        self._temporal_metrics_url = temporal_metrics_url
+        self._handler = create_handler(self._temporal_metrics_url, registry)
         self._server: HTTPServer | None = None
         self._thread: threading.Thread | None = None
 
@@ -245,7 +95,7 @@ class CombinedMetricsServer:
         logger.info(
             "combined_metrics_server.started",
             port=self._port,
-            metric_prefix=self._metric_prefix,
+            temporal_metrics_port=self._temporal_metrics_url,
         )
 
     def stop(self) -> None:
