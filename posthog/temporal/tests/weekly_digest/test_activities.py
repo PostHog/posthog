@@ -17,6 +17,7 @@ from posthog.temporal.weekly_digest.activities import (
     generate_feature_flag_lookup,
     generate_filter_lookup,
     generate_organization_digest_batch,
+    generate_product_suggestion_lookup,
     generate_recording_lookup,
     generate_survey_lookup,
     generate_user_notification_lookup,
@@ -722,3 +723,168 @@ async def test_send_weekly_digest_batch_dry_run(mock_redis, common_input, digest
 
     # In dry run mode, PostHog client should not be called
     mock_ph_client.capture.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_generate_product_suggestion_lookup(mock_redis, common_input, digest):
+    """Test generating product suggestion lookup stores only one suggestion per user."""
+    batch = (0, 1)
+    input_data = GenerateDigestDataBatchInput(batch=batch, digest=digest, common=common_input)
+
+    mock_team = MagicMock()
+    mock_team.id = 1
+
+    mock_user_1 = MagicMock()
+    mock_user_1.id = 100
+
+    mock_user_2 = MagicMock()
+    mock_user_2.id = 101
+
+    # Mock product suggestions - user 1 has multiple, but only first should be stored
+    mock_suggestions_user_1: list[dict] = [
+        {"product_path": "Error tracking", "reason": "sales_led", "reason_text": None},
+        {"product_path": "Session replay", "reason": "new_product", "reason_text": "Custom text"},
+    ]
+    mock_suggestions_user_2: list[dict] = []  # No suggestions for user 2
+
+    mock_team_queryset = MockAsyncQuerySet([mock_team])
+
+    # Create an async generator function for users
+    async def async_user_generator():
+        for user in [mock_user_1, mock_user_2]:
+            yield user
+
+    async def async_wrapper():
+        return async_user_generator()
+
+    # Mock queryset that returns different results based on user_id
+    def mock_query_user_product_suggestions(user_id, team_id, period_start, period_end):
+        mock_qs = MagicMock()
+        mock_qs.user_id = user_id
+        return mock_qs
+
+    async def mock_queryset_to_list(qs):
+        if hasattr(qs, "user_id"):
+            if qs.user_id == 100:
+                return mock_suggestions_user_1
+            return mock_suggestions_user_2
+        return []
+
+    with patch("posthog.temporal.weekly_digest.activities.query_teams_for_digest", return_value=mock_team_queryset):
+        with patch(
+            "posthog.temporal.weekly_digest.activities.query_user_product_suggestions",
+            side_effect=mock_query_user_product_suggestions,
+        ):
+            with patch("posthog.temporal.weekly_digest.activities.queryset_to_list", side_effect=mock_queryset_to_list):
+                with patch("posthog.temporal.weekly_digest.activities.database_sync_to_async") as mock_sync:
+                    mock_sync.return_value = async_wrapper
+                    with patch("posthog.temporal.weekly_digest.activities.redis.from_url", return_value=mock_redis):
+                        await generate_product_suggestion_lookup(input_data)
+
+    # Verify only one suggestion stored per user (user 100), none for user 101
+    assert f"{digest.key}-product-suggestion-100" in mock_redis.data
+    assert f"{digest.key}-product-suggestion-101" not in mock_redis.data
+
+    # Verify only the first suggestion was stored with team_id
+    import json
+
+    stored_data = json.loads(mock_redis.data[f"{digest.key}-product-suggestion-100"])
+    assert stored_data["team_id"] == mock_team.id
+    assert stored_data["product_path"] == "Error tracking"
+    assert stored_data["reason"] == "sales_led"
+
+
+@pytest.mark.asyncio
+async def test_send_weekly_digest_batch_with_product_suggestion(mock_redis, common_input, digest):
+    """Test sending weekly digest batch includes single product suggestion in payload."""
+    batch = (0, 1)
+    input_data = SendWeeklyDigestBatchInput(
+        batch=batch, dry_run=True, allow_already_sent=False, digest=digest, common=common_input
+    )
+
+    mock_org = MagicMock()
+    mock_org.id = UUID("12345678-1234-1234-1234-123456789abc")
+    mock_org.name = "Test Organization"
+
+    mock_member = MagicMock()
+    mock_user = MagicMock()
+    mock_user.id = 100
+    mock_user.distinct_id = "user-100"
+    mock_user.email = "test@example.com"
+    mock_member.user = mock_user
+
+    # Pre-populate Redis with organization digest
+    org_digest_json = """{
+        "id": "12345678-1234-1234-1234-123456789abc",
+        "name": "Test Organization",
+        "created_at": "2024-01-01T00:00:00Z",
+        "team_digests": [
+            {
+                "id": 1,
+                "name": "Test Team",
+                "dashboards": [{"name": "Test Dashboard", "id": 1}],
+                "event_definitions": [],
+                "experiments_launched": [
+                    {"name": "Experiment A", "id": 1, "start_date": "2024-01-01T00:00:00Z"},
+                    {"name": "Experiment B", "id": 2, "start_date": "2024-01-01T00:00:00Z"}
+                ],
+                "experiments_completed": [],
+                "external_data_sources": [
+                    {"source_type": "stripe", "id": "12345678-1234-1234-1234-123456789abc"}
+                ],
+                "feature_flags": [],
+                "filters": [],
+                "expiring_recordings": {"recording_count": 0},
+                "surveys_launched": []
+            }
+        ]
+    }"""
+    await mock_redis.setex(f"{digest.key}-{mock_org.id}", 3600, org_digest_json)
+
+    # Add user notification
+    await mock_redis.sadd(f"{digest.key}-user-notify-100", "1")
+
+    # Add single product suggestion for user 100 (team_id matches the team in the digest)
+    suggestion_json = '{"team_id": 1, "product_path": "Error tracking", "reason": "sales_led", "reason_text": null}'
+    await mock_redis.setex(f"{digest.key}-product-suggestion-100", 3600, suggestion_json)
+
+    mock_org_queryset = MockAsyncQuerySet([mock_org])
+    mock_member_queryset = MockAsyncQuerySet([mock_member])
+
+    mock_ph_client = MagicMock()
+    mock_ph_client.capture = MagicMock()
+
+    mock_messaging_record = MagicMock()
+    mock_messaging_record.sent_at = None
+
+    mock_messaging_objects = MagicMock()
+    mock_messaging_objects.aget_or_create = AsyncMock(return_value=(mock_messaging_record, True))
+
+    captured_payload = {}
+
+    # Capture the logged payload in dry run mode
+    with patch("posthog.temporal.weekly_digest.activities.query_orgs_for_digest", return_value=mock_org_queryset):
+        with patch("posthog.temporal.weekly_digest.activities.query_org_members", return_value=mock_member_queryset):
+            with patch("posthog.temporal.weekly_digest.activities.get_ph_client", return_value=mock_ph_client):
+                with patch("posthog.temporal.weekly_digest.activities.MessagingRecord.objects", mock_messaging_objects):
+                    with patch("posthog.temporal.weekly_digest.activities.redis.from_url", return_value=mock_redis):
+                        with patch("posthog.temporal.weekly_digest.activities.LOGGER") as mock_logger:
+                            mock_bound_logger = MagicMock()
+                            mock_logger.bind.return_value = mock_bound_logger
+
+                            def capture_info(*args, **kwargs):
+                                if "digest" in kwargs:
+                                    captured_payload.update(kwargs["digest"])
+
+                            mock_bound_logger.info = capture_info
+                            await send_weekly_digest_batch(input_data)
+
+    # Verify single product suggestion was included in the team's report
+    assert "teams" in captured_payload
+    teams = captured_payload["teams"]
+    assert len(teams) == 1
+    team_report = teams[0]["report"]
+    assert "new_product_suggestion" in team_report
+    suggestion = team_report["new_product_suggestion"]
+    assert suggestion["product_path"] == "Error tracking"
+    assert suggestion["reason_text"] == "This product is recommended for you by our team."
