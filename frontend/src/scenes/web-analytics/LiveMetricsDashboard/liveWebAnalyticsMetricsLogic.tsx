@@ -45,12 +45,11 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
         slidingWindow: [
             new LiveMetricsSlidingWindow(BUCKET_WINDOW_MINUTES),
             {
-                setInitialData: (_, { buckets }) => {
-                    const window = new LiveMetricsSlidingWindow(BUCKET_WINDOW_MINUTES)
+                setInitialData: (existingWindow, { buckets }) => {
                     for (const { timestamp, bucket } of buckets) {
-                        window.addDataPoint(timestamp / 1000, bucket)
+                        existingWindow.addDataPoint(timestamp / 1000, bucket)
                     }
-                    return window
+                    return existingWindow
                 },
                 addEvents: (window, { events, newerThan }) => {
                     for (const event of events) {
@@ -76,6 +75,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
         windowVersion: [
             0,
             {
+                setInitialData: (v) => v + 1,
                 addEvents: (v) => v + 1,
                 tickCurrentMinute: (v) => v + 1,
             },
