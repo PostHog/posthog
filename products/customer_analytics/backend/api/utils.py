@@ -14,7 +14,7 @@ def log_customer_profile_config_activity(
     activity: str,
     previous: Optional[CustomerProfileConfig] = None,
 ) -> None:
-    name = f"{instance.scope} (ID: {instance.id})"
+    name = f"{instance.scope} profile"
     changes = changes_between("CustomerProfileConfig", previous=previous, current=instance)
     detail = Detail(name=name, changes=changes)
     log_activity(
