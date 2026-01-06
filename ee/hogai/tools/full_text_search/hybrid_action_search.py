@@ -214,16 +214,14 @@ class HybridActionSearchTool(MaxSubtool):
         if not action_ids:
             return []
 
-        actions = await database_sync_to_async(
-            lambda: list(
-                Action.objects.filter(
-                    team__project_id=self._team.project_id,
-                    id__in=action_ids,
-                    deleted=False,
-                ).only("id", "name", "description")
-            ),
-            thread_sensitive=False,
-        )()
+        actions = [
+            action
+            async for action in Action.objects.filter(
+                team__project_id=self._team.project_id,
+                id__in=action_ids,
+                deleted=False,
+            ).only("id", "name", "description")
+        ]
 
         # Preserve ordering from RRF ranking
         action_map = {str(a.id): a for a in actions}
