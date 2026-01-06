@@ -802,6 +802,8 @@ posthog/test/test_health.py:0: error: "HttpResponse" has no attribute "json"  [a
 posthog/test/test_health.py:0: error: "HttpResponse" has no attribute "json"  [attr-defined]
 posthog/test/test_health.py:0: error: Incompatible return value type (got "_MonkeyPatchedWSGIResponse", expected "HttpResponse")  [return-value]
 posthog/test/test_health.py:0: error: Incompatible return value type (got "_MonkeyPatchedWSGIResponse", expected "HttpResponse")  [return-value]
+posthog/test/test_middleware.py:0: error: Incompatible types in assignment (expression has type "Client", variable has type "APIClient")  [assignment]
+posthog/test/test_middleware.py:0: error: Incompatible types in assignment (expression has type "Client", variable has type "APIClient")  [assignment]
 posthog/test/test_migration_0273.py:0: error: Value of type "Any | None" is not indexable  [index]
 posthog/test/test_migration_0273.py:0: error: Value of type "Any | None" is not indexable  [index]
 posthog/test/test_migration_0385.py:0: error: Statement is unreachable  [unreachable]

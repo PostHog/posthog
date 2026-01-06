@@ -76,6 +76,7 @@ export { ChartDisplayCategory }
 export enum NodeKind {
     // Data nodes
     EventsNode = 'EventsNode',
+    GroupNode = 'GroupNode',
     ActionsNode = 'ActionsNode',
     DataWarehouseNode = 'DataWarehouseNode',
     EventsQuery = 'EventsQuery',
@@ -757,6 +758,17 @@ export interface ActionsNode extends EntityNode {
 
 export type AnyEntityNode = EventsNode | ActionsNode | DataWarehouseNode
 
+export interface GroupNode extends EntityNode {
+    kind: NodeKind.GroupNode
+    /** Group of entities combined with AND/OR operator */
+    operator: FilterLogicalOperator
+    /** Entities to combine in this group */
+    nodes: AnyEntityNode[]
+    limit?: integer
+    /** Columns to order by */
+    orderBy?: string[]
+}
+
 export interface QueryTiming {
     /** Key. Shortened to 'k' to save on data. */
     k: string
@@ -1331,7 +1343,7 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
      */
     interval?: IntervalType
     /** Events and actions to include */
-    series: AnyEntityNode[]
+    series: (AnyEntityNode | GroupNode)[]
     /** Properties specific to the trends insight */
     trendsFilter?: TrendsFilter
     /** Breakdown of the events and actions */
@@ -2434,11 +2446,6 @@ export interface ErrorTrackingIssueFilteringToolOutput
 
 export interface ErrorTrackingIssueImpactToolOutput {
     events: string[]
-}
-
-export interface ErrorTrackingExplainIssueToolContext {
-    stacktrace: string
-    issue_name: string
 }
 
 export type ErrorTrackingIssueAssigneeType = 'user' | 'role'

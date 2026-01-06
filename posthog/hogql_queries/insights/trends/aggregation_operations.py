@@ -1,6 +1,14 @@
 from typing import Optional, Union, cast
 
-from posthog.schema import ActionsNode, BaseMathType, ChartDisplayType, DataWarehouseNode, EventsNode, PropertyMathType
+from posthog.schema import (
+    ActionsNode,
+    BaseMathType,
+    ChartDisplayType,
+    DataWarehouseNode,
+    EventsNode,
+    GroupNode,
+    PropertyMathType,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.base import Expr
@@ -34,7 +42,7 @@ def create_placeholder(name: str) -> ast.Placeholder:
 
 class AggregationOperations(DataWarehouseInsightQueryMixin):
     team: Team
-    series: Union[EventsNode, ActionsNode, DataWarehouseNode]
+    series: Union[EventsNode, ActionsNode, DataWarehouseNode, GroupNode]
     chart_display_type: ChartDisplayType
     query_date_range: QueryDateRange
     is_total_value: bool
@@ -42,7 +50,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
     def __init__(
         self,
         team: Team,
-        series: Union[EventsNode, ActionsNode, DataWarehouseNode],
+        series: Union[EventsNode, ActionsNode, DataWarehouseNode, GroupNode],
         chart_display_type: ChartDisplayType,
         query_date_range: QueryDateRange,
         is_total_value: bool,
