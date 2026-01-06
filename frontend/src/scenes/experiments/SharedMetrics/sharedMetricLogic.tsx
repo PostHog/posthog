@@ -154,9 +154,9 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
             }),
         ],
         [SIDE_PANEL_CONTEXT_KEY]: [
-            (s) => [s.sharedMetric],
-            (sharedMetric: Partial<SharedMetric>): SidePanelSceneContext | null => {
-                return sharedMetric?.id && sharedMetric.id !== 'new'
+            (s) => [s.sharedMetric, s.sharedMetricId],
+            (sharedMetric: Partial<SharedMetric>, sharedMetricId: string | number): SidePanelSceneContext | null => {
+                return sharedMetric?.id && sharedMetricId !== 'new'
                     ? {
                           activity_scope: ActivityScope.EXPERIMENT,
                           activity_item_id: `${sharedMetric.id}`,
