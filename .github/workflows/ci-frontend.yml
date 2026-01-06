@@ -173,7 +173,7 @@ jobs:
                   # Exclude source maps
                   exclude: 'frontend/dist/*.js.map'
                   # Only show large changes
-                  # minimum-change-threshold: 1000
+                  minimum-change-threshold: 1000
 
     frontend-typescript-checks:
         name: Frontend typechecking
