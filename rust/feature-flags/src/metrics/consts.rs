@@ -51,6 +51,13 @@ pub const FLAG_CONNECTION_HOLD_TIME: &str = "flags_connection_hold_time_ms";
 pub const FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER: &str =
     "flags_experience_continuity_requests_total";
 
+// Experience continuity optimization metric
+// Tracks requests where optimization could apply, with status label:
+// - status="skipped": lookup was actually skipped (optimization enabled, no flags needed it)
+// - status="eligible": lookup could be skipped but wasn't (optimization off or another flag needed it)
+pub const FLAG_EXPERIENCE_CONTINUITY_OPTIMIZED: &str =
+    "flags_experience_continuity_optimized_total";
+
 // Flag definitions rate limiting
 pub const FLAG_DEFINITIONS_RATE_LIMITED_COUNTER: &str = "flags_flag_definitions_rate_limited_total";
 pub const FLAG_DEFINITIONS_REQUESTS_COUNTER: &str = "flags_flag_definitions_requests_total";
