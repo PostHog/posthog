@@ -3191,8 +3191,8 @@ class SessionRecordingExternalReference(BaseModel):
     )
     external_url: str
     id: str
-    issue_id: str
     integration: Integration
+    issue_id: str
     title: str
 
 
