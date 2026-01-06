@@ -10,7 +10,6 @@ from collections import defaultdict
 
 import structlog
 from temporalio import workflow
-from temporalio.worker import Worker
 
 from posthog.temporal.common.base import PostHogWorkflow
 
@@ -24,7 +23,7 @@ from posthog.temporal.ai import (
     WORKFLOWS as AI_WORKFLOWS,
 )
 from posthog.temporal.common.logger import configure_logger, get_logger
-from posthog.temporal.common.worker import create_worker
+from posthog.temporal.common.worker import WorkerResources, create_worker
 from posthog.temporal.data_imports.settings import (
     ACTIVITIES as DATA_SYNC_ACTIVITIES,
     WORKFLOWS as DATA_SYNC_WORKFLOWS,
@@ -356,18 +355,21 @@ class Command(BaseCommand):
 
         tag_queries(kind="temporal")
 
-        def shutdown_worker_on_signal(worker: Worker, sig: signal.Signals, loop: asyncio.AbstractEventLoop):
+        def shutdown_worker_on_signal(
+            worker_resources: WorkerResources, sig: signal.Signals, loop: asyncio.AbstractEventLoop
+        ):
             """Shutdown Temporal worker on receiving signal."""
             nonlocal shutdown_task
 
             logger.info("Signal %s received", sig)
 
-            if worker.is_shutdown:
+            if worker_resources.worker.is_shutdown:
                 logger.info("Temporal worker already shut down")
                 return
 
             logger.info("Initiating Temporal worker shutdown")
-            shutdown_task = loop.create_task(worker.shutdown())
+            shutdown_task = loop.create_task(worker_resources.worker.shutdown())
+            worker_resources.shutdown_metrics_server()
 
         with asyncio.Runner() as runner:
             loop = runner.get_loop()
@@ -386,7 +388,7 @@ class Command(BaseCommand):
             )
             logger.info("Starting Temporal Worker")
 
-            worker = runner.run(
+            worker_resources = runner.run(
                 create_worker(
                     temporal_host,
                     temporal_port,
@@ -415,10 +417,10 @@ class Command(BaseCommand):
             for sig in (signal.SIGTERM, signal.SIGINT):
                 loop.add_signal_handler(
                     sig,
-                    functools.partial(shutdown_worker_on_signal, worker=worker, sig=sig, loop=loop),
+                    functools.partial(shutdown_worker_on_signal, worker_resources=worker_resources, sig=sig, loop=loop),
                 )
 
-            runner.run(worker.run())
+            runner.run(worker_resources.worker.run())
 
             if shutdown_task:
                 logger.info("Waiting on shutdown_task")

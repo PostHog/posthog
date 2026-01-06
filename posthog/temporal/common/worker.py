@@ -1,6 +1,8 @@
 import datetime as dt
 import collections.abc
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from http.server import HTTPServer
 
 from temporalio.runtime import MetricBuffer, Runtime, TelemetryConfig
 from temporalio.worker import ResourceBasedSlotConfig, UnsandboxedWorkflowRunner, Worker, WorkerTuner
@@ -14,8 +16,27 @@ from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsI
 
 logger = get_write_only_logger()
 
+
+@dataclass
+class WorkerResources:
+    """Container for worker and associated resources that may need cleanup."""
+
+    worker: Worker
+    metrics_server: HTTPServer
+
+    def shutdown_metrics_server(self) -> None:
+        """Explicitly shutdown the metrics server."""
+        self.metrics_server.shutdown()
+
+
 # Buffer size for Temporal metrics - should be large enough to hold all metrics between scrapes
 METRIC_BUFFER_SIZE = 10000
+
+# Custom histogram bucket overrides for specific metrics
+HISTOGRAM_BUCKET_OVERRIDES: dict[str, tuple[float, ...]] = {
+    # Activity attempts are typically small integers (1-10 retries)
+    "batch_exports_activity_attempt": (1.0, 5.0, 10.0, 100.0, float("inf")),
+}
 
 
 async def create_worker(
@@ -36,8 +57,8 @@ async def create_worker(
     use_pydantic_converter: bool = False,
     target_memory_usage: float | None = None,
     target_cpu_usage: float | None = None,
-) -> Worker:
-    """Connect to Temporal server and return a Worker.
+) -> WorkerResources:
+    """Connect to Temporal server and return a WorkerResources containing the Worker and metrics server.
 
     Arguments:
         host: The Temporal Server host.
@@ -78,10 +99,11 @@ async def create_worker(
         )
     )
 
-    start_combined_metrics_server(
+    metrics_server = start_combined_metrics_server(
         port=metrics_port,
         metric_buffer=metric_buffer,
         metric_prefix=metric_prefix or "",
+        histogram_bucket_overrides=HISTOGRAM_BUCKET_OVERRIDES,
     )
     client = await connect(
         host,
@@ -131,4 +153,4 @@ async def create_worker(
             max_heartbeat_throttle_interval=dt.timedelta(seconds=5),
         )
 
-    return worker
+    return WorkerResources(worker=worker, metrics_server=metrics_server)

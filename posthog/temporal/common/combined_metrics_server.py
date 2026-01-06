@@ -2,7 +2,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Union
 
-from prometheus_client import REGISTRY, Counter, Gauge, Histogram, generate_latest
+from prometheus_client import REGISTRY, CollectorRegistry, Counter, Gauge, Histogram, generate_latest
 from temporalio.runtime import (
     BUFFERED_METRIC_KIND_COUNTER,
     BUFFERED_METRIC_KIND_GAUGE,
@@ -40,6 +40,9 @@ DEFAULT_HISTOGRAM_BUCKETS = (
     900000.0,
     1800000.0,
     3600000.0,
+    21600000.0,  # 6 hours
+    43200000.0,  # 12 hours
+    86400000.0,  # 24 hours
     float("inf"),
 )
 
@@ -47,9 +50,17 @@ DEFAULT_HISTOGRAM_BUCKETS = (
 class TemporalMetricsCollector:
     """Collects metrics from Temporal's MetricBuffer and converts them to prometheus_client metrics."""
 
-    def __init__(self, metric_buffer: MetricBuffer, metric_prefix: str = ""):
+    def __init__(
+        self,
+        metric_buffer: MetricBuffer,
+        metric_prefix: str = "",
+        histogram_bucket_overrides: dict[str, tuple[float, ...]] | None = None,
+        registry: CollectorRegistry | None = None,
+    ):
         self._metric_buffer = metric_buffer
         self._metric_prefix = metric_prefix
+        self._histogram_bucket_overrides = histogram_bucket_overrides or {}
+        self._registry = registry or REGISTRY
         self._metrics: dict[str, Union[Counter, Gauge, Histogram]] = {}
         self._lock = threading.Lock()
 
@@ -72,15 +83,17 @@ class TemporalMetricsCollector:
         kind = update.metric.kind
 
         if kind == BUFFERED_METRIC_KIND_COUNTER:
-            self._metrics[key] = Counter(metric_name, description, labelnames=label_names)
+            self._metrics[key] = Counter(metric_name, description, labelnames=label_names, registry=self._registry)
         elif kind == BUFFERED_METRIC_KIND_GAUGE:
-            self._metrics[key] = Gauge(metric_name, description, labelnames=label_names)
+            self._metrics[key] = Gauge(metric_name, description, labelnames=label_names, registry=self._registry)
         elif kind == BUFFERED_METRIC_KIND_HISTOGRAM:
+            buckets = self._histogram_bucket_overrides.get(update.metric.name, DEFAULT_HISTOGRAM_BUCKETS)
             self._metrics[key] = Histogram(
                 metric_name,
                 description,
                 labelnames=label_names,
-                buckets=DEFAULT_HISTOGRAM_BUCKETS,
+                buckets=buckets,
+                registry=self._registry,
             )
         else:
             raise ValueError(f"Unknown metric kind: {kind}")
@@ -131,6 +144,7 @@ class CombinedMetricsHandler(BaseHTTPRequestHandler):
     """HTTP handler that serves combined Temporal SDK and prometheus_client metrics."""
 
     temporal_collector: TemporalMetricsCollector | None = None
+    registry: CollectorRegistry = REGISTRY
 
     def do_GET(self) -> None:
         if self.path in ("/metrics", "/"):
@@ -146,7 +160,7 @@ class CombinedMetricsHandler(BaseHTTPRequestHandler):
                 self.temporal_collector.collect_updates()
 
             # All metrics (Temporal + app) are now in prometheus_client registry
-            output = generate_latest(REGISTRY)
+            output = generate_latest(self.registry)
 
             self.send_response(200)
             self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
@@ -167,6 +181,8 @@ def start_combined_metrics_server(
     port: int,
     metric_buffer: MetricBuffer,
     metric_prefix: str = "",
+    histogram_bucket_overrides: dict[str, tuple[float, ...]] | None = None,
+    registry: CollectorRegistry | None = None,
 ) -> HTTPServer:
     """Start a metrics server combining Temporal SDK and prometheus_client metrics.
 
@@ -177,14 +193,25 @@ def start_combined_metrics_server(
         port: Port to expose combined metrics on (e.g., 8001)
         metric_buffer: The MetricBuffer instance configured in Temporal's Runtime
         metric_prefix: Prefix to apply to Temporal metric names (e.g., "temporal_")
+        histogram_bucket_overrides: Optional dict mapping metric names (without prefix)
+            to custom bucket tuples for histogram metrics
+        registry: Optional CollectorRegistry to use. Defaults to the global REGISTRY.
+            Useful for test isolation.
 
     Returns:
         The HTTPServer instance
     """
-    collector = TemporalMetricsCollector(metric_buffer, metric_prefix=metric_prefix)
+    effective_registry = registry or REGISTRY
+    collector = TemporalMetricsCollector(
+        metric_buffer,
+        metric_prefix=metric_prefix,
+        histogram_bucket_overrides=histogram_bucket_overrides,
+        registry=effective_registry,
+    )
 
     handler = CombinedMetricsHandler
     handler.temporal_collector = collector
+    handler.registry = effective_registry
 
     server = HTTPServer(("0.0.0.0", port), handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True, name="combined-metrics-server")
