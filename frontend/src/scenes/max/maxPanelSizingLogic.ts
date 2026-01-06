@@ -51,15 +51,15 @@ export const maxPanelSizingLogic = kea<maxPanelSizingLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
-        chatHistoryPanelDesiredSize: (desiredSize) => {
+        chatHistoryPanelSetDesiredSize: ({ size }) => {
             // Update willCollapse state based on desired size
-            if (desiredSize !== null) {
-                actions.setChatHistoryPanelWillCollapse(desiredSize <= CHAT_HISTORY_COLLAPSE_THRESHOLD)
+            if (size !== null) {
+                actions.setChatHistoryPanelWillCollapse(size <= CHAT_HISTORY_COLLAPSE_THRESHOLD)
             }
         },
-        chatHistoryPanelIsResizing: ({ isResizeInProgress }) => {
+        chatHistoryPanelEndResize: () => {
             // When resizing stops and the panel is at or below the collapse threshold, collapse it
-            if (!isResizeInProgress && values.chatHistoryPanelDesiredSize !== null) {
+            if (values.chatHistoryPanelDesiredSize !== null) {
                 if (values.chatHistoryPanelDesiredSize <= CHAT_HISTORY_COLLAPSE_THRESHOLD) {
                     actions.setChatHistoryPanelCollapsed(true)
                     actions.chatHistoryPanelSetDesiredSize(CHAT_HISTORY_DEFAULT_WIDTH)

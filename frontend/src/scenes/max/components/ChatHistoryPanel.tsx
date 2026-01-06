@@ -65,7 +65,7 @@ export const ChatHistoryPanel = memo(function ChatHistoryPanel({ tabId }: ChatHi
                     iconOnly
                 >
                     <IconSidebarClose
-                        className={cn('size-4 text-tertiary', isChatHistoryPanelCollapsed && 'rotate-180')}
+                        className={cn('size-4 text-tertiary', !isChatHistoryPanelCollapsed && 'rotate-180')}
                     />
                 </ButtonPrimitive>
                 {!isChatHistoryPanelCollapsed && (
