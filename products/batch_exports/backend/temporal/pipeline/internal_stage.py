@@ -535,11 +535,12 @@ async def _execute_query(client: ClickHouseClient, query: str, query_parameters:
     except ClickHouseClientTimeoutError:
         logger.warning(
             "Timed-out waiting for insert into S3. Will attempt to check query status and wait for completion",
+            timeout=300,
         )
         await _wait_for_query_completion(client, str(query_id))
 
     execution_time = time.monotonic() - start_time
-    logger.info("Query completed successfully", query_id=str(query_id), query_duration_seconds=execution_time)
+    logger.info("Query completed successfully", query_duration_seconds=execution_time)
 
 
 async def _wait_for_query_completion(client: ClickHouseClient, query_id: str) -> None:
@@ -568,12 +569,9 @@ async def _wait_for_query_completion(client: ClickHouseClient, query_id: str) ->
             await asyncio.sleep(10)
             status = await check_query(str(query_id), raise_on_error=True)
     except (ClickHouseQueryNotFound, ClickHouseCheckQueryStatusError) as e:
-        if isinstance(e, ClickHouseQueryNotFound):
-            logger.exception(f"Query not found in query_log or processes after {num_attempts} attempts")
-        else:
-            logger.exception(f"Error checking query status after {num_attempts} attempts")
+        logger.exception("Wait for query failed", num_attempts=num_attempts)
         try:
             await client.acancel_query(str(query_id))
         except Exception as cancel_error:
-            logger.warning("Failed to cancel query", error=str(cancel_error))
+            logger.warning("Failed to cancel query", exc_info=True)
         raise
