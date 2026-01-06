@@ -375,9 +375,9 @@ def create_resources(
                 data_from=predecessor,
                 **resource_kwargs,  # TODO: implement typing.Unpack
             )(
-                method=endpoint_config.get("method", "get"),  # type: ignore[arg-type]
-                path=endpoint_config.get("path"),  # type: ignore[arg-type]
-                params=base_params,  # type: ignore[arg-type]
+                method=endpoint_config.get("method", "get"),
+                path=endpoint_config.get("path"),
+                params=base_params,
                 paginator=paginator,
                 data_selector=endpoint_config.get("data_selector"),
                 hooks=hooks,
