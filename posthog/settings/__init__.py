@@ -51,7 +51,6 @@ from posthog.settings.ses import *
 from posthog.settings.utils import get_from_env, str_to_bool
 
 from posthog.settings.base_variables import DEBUG, TEST
-from posthog.settings.base_variables import DEBUG, TEST
 from posthog.settings.web import INSTALLED_APPS
 
 # Instance configuration preferences
