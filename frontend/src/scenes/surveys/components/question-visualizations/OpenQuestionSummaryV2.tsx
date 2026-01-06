@@ -231,7 +231,7 @@ export function OpenQuestionSummaryV2({
                                     ? ` of ${totalResponses} responses (sampled)`
                                     : ' responses'}
                                 {generatedTime.isValid() && ` • ${generatedTime.fromNow()}`}
-                                {' • AI-generated • May not be accurate'}
+                                {' • AI-generated • Verify key details'}
                             </span>
                             {dataProcessingAccepted || !showConsentPopover ? (
                                 <LemonButton
