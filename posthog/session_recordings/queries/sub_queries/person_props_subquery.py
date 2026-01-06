@@ -47,3 +47,14 @@ class PersonsPropertiesSubQuery(SessionRecordingsListingBaseQuery):
             if self.person_properties
             else ast.Constant(value=True)
         )
+
+    def get_person_property_expr_for_replay_table(self) -> ast.Expr | None:
+        """
+        Returns a person property expression that can be applied directly to session_replay_events table.
+        This is used when PoE is enabled to filter recordings by person properties on the replay table itself,
+        rather than relying only on the events subquery which may miss recordings.
+        """
+        if not self.person_properties:
+            return None
+
+        return property_to_expr(self.person_properties, team=self._team, scope="replay")

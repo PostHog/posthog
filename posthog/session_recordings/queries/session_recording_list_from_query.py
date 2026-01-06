@@ -30,6 +30,7 @@ from posthog.session_recordings.queries.utils import (
     UnexpectedQueryProperties,
     _strip_person_and_event_and_cohort_properties,
     expand_test_account_filters,
+    is_person_property,
 )
 
 logger = structlog.get_logger(__name__)
@@ -290,9 +291,10 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
 
         # we want to avoid a join to persons since we don't ever need to select from them,
         # so we create our own persons sub query here
-        # if PoE mode is on then this will be handled in the events subquery, and we don't need to do anything here
-        person_subquery = PersonsPropertiesSubQuery(self._team, self._query).get_query()
+        person_props_query = PersonsPropertiesSubQuery(self._team, self._query)
+        person_subquery = person_props_query.get_query()
         if person_subquery:
+            # PoE is disabled, use the person_distinct_ids subquery
             optional_exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.In,
@@ -300,6 +302,46 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                     right=person_subquery,
                 )
             )
+        else:
+            # PoE is enabled - also filter directly on session_replay_events.person.properties
+            # This ensures we catch recordings even when their events don't have person properties
+            person_property_expr = person_props_query.get_person_property_expr_for_replay_table()
+            if person_property_expr:
+                # We need to OR this with the events-based person property filter because:
+                # - Events may have the person property (denormalized by PoE)
+                # - session_replay_events may have it even when events don't
+                # - We want recordings where EITHER table matches
+
+                # Check if events subquery includes non-person-property filters
+                has_event_or_group_filters = bool(
+                    (self._query.events and len(self._query.events) > 0)
+                    or (self._query.actions and len(self._query.actions) > 0)
+                    or any(not is_person_property(p) for p in (self._query.properties or []))
+                )
+
+                if not has_event_or_group_filters:
+                    # Only person property filters - we need to find recordings where EITHER:
+                    # 1. Events have the person property (via PoE denormalization), OR
+                    # 2. session_replay_events has the person property
+                    # We do this by ORing all approaches together, regardless of user's operand
+
+                    if events_sub_queries:
+                        # Combine events-based queries with session_replay_events filter using OR
+                        num_events_queries = len(events_sub_queries)
+                        person_props_from_events = optional_exprs[-num_events_queries:]
+                        optional_exprs = optional_exprs[:-num_events_queries]
+
+                        # Add all person property approaches as a single OR expression
+                        all_person_approaches = [*person_props_from_events, person_property_expr]
+                        optional_exprs.append(ast.Or(exprs=all_person_approaches))
+                    else:
+                        # No events queries, just use session_replay_events filter
+                        optional_exprs.append(person_property_expr)
+                else:
+                    # There are other filters (events/groups) - use the user's chosen operand
+                    # NOTE: With AND operand, this may miss some recordings when events
+                    # don't have person properties. This is a known limitation.
+                    optional_exprs.append(person_property_expr)
 
         cohort_subquery = CohortPropertyGroupsSubQuery(self._team, self._query).get_query()
         if cohort_subquery:
