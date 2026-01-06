@@ -38,11 +38,11 @@ def create_handler(temporal_metrics_url: str, registry: CollectorRegistry) -> ty
                 client_output = generate_latest(registry)
 
                 # Combine both outputs, ensuring proper newline separation.
-                # Prometheus text format requires metrics to be separated by newlines.
-                # If Temporal output doesn't end with a newline, we add one to prevent
-                # malformed output like "temporal_metric 5prometheus_metric 10".
-                if temporal_output and not temporal_output.endswith(b"\n"):
-                    temporal_output += b"\n"
+                # Prometheus text format requires metrics to be separated by exactly one newline.
+                # Strip any trailing newlines from Temporal output and add exactly one to prevent
+                # malformed output or extra blank lines between metric blocks.
+                if temporal_output:
+                    temporal_output = temporal_output.rstrip(b"\n") + b"\n"
 
                 output = temporal_output + client_output
 
