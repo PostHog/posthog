@@ -50,4 +50,4 @@ SHORT_VALIDATION_VIDEO_PLAYBACK_SPEED = (
 FAILED_MOMENTS_MIN_RATIO = 0.5  # If less than 50% of moments failed to generate videos, fail the analysis
 EXPIRES_AFTER_DAYS = 90  # How long to store the videos used for validation
 DEFAULT_VIDEO_EXPORT_MIME_TYPE = "video/webm"
-DEFAULT_VIDEO_UNDERSTANDING_MODEL = "gemini-2.5-flash-preview-09-2025"
+DEFAULT_VIDEO_UNDERSTANDING_MODEL = "gemini-2.5-flash"

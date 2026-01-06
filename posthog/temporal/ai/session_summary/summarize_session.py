@@ -48,6 +48,7 @@ from posthog.temporal.common.client import async_connect
 
 from ee.hogai.session_summaries import ExceptionToRetry
 from ee.hogai.session_summaries.constants import (
+    DEFAULT_VIDEO_UNDERSTANDING_MODEL,
     SESSION_SUMMARIES_STREAMING_MODEL,
     SESSION_SUMMARIES_SYNC_MODEL,
     SESSION_VIDEO_RENDERING_DELAY,
@@ -414,7 +415,7 @@ async def ensure_llm_single_session_summary(inputs: SingleSessionSummaryInputs):
         user_distinct_id_to_log=inputs.user_distinct_id_to_log,
         team_id=inputs.team_id,
         redis_key_base=inputs.redis_key_base,
-        model_to_use="gemini-2.5-flash",  # Default model for video analysis
+        model_to_use=DEFAULT_VIDEO_UNDERSTANDING_MODEL,
         extra_summary_context=inputs.extra_summary_context,
     )
 
