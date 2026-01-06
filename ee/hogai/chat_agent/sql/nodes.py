@@ -19,8 +19,6 @@ class SQLGeneratorNode(HogQLGeneratorMixin, SchemaGeneratorNode[AssistantHogQLQu
     hogql_context: HogQLContext
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        if not self._has_agent_modes_feature_flag():
-            self.dispatcher.update("Creating SQL query")
         prompt = await self._construct_system_prompt()
         return await super()._run_with_prompt(state, prompt, config=config)
 

@@ -66,10 +66,10 @@ metadata:
             name: Celery
             about: Distributed task queue for running background jobs like async exports,
                 scheduled tasks, and email sending.
-        plugin-server:
-            name: Plugin server
-            about: Event ingestion pipeline that processes incoming events, runs plugins,
-                and writes to ClickHouse.
+        nodejs:
+            name: Node.js
+            about: Event ingestion pipeline that processes incoming events, runs CDP workflows,
+                and writes to Kafka (then ClickHouse).
         django:
             name: Django
             about: Python web framework powering PostHog's backend API, admin interface,
@@ -175,7 +175,7 @@ start:
             - django
             - frontend
             - celery
-            - plugin-server
+            - nodejs
             - postgresql
             - redis
             - kafka
@@ -210,10 +210,10 @@ start:
         hidden: true
     start:worker:
         bin_script: start-worker
-        description: Launch all background workers (Celery worker, beat scheduler, plugin-server)
+        description: Launch all background workers (Celery worker, beat scheduler, nodejs)
         services:
             - celery
-            - plugin-server
+            - nodejs
             - kafka
             - temporal
             - redis
@@ -418,7 +418,7 @@ tests:
 quality:
     lint:
         cmd: ./bin/ruff.sh check . && pnpm --filter=@posthog/frontend run lint
-        description: Run code quality checks for Python and JavaScript
+        description: Run Python and JS/TS linting
     format:
         cmd: pnpm format
         description: Format both backend and frontend code
@@ -432,10 +432,10 @@ quality:
         cmd: pnpm oxlint --fix --fix-suggestions --quiet "$@" && pnpm prettier --write
             "$@"
         description: Format JavaScript/TypeScript files (frontend)
-    format:plugin-server:
-        cmd: pnpm --dir plugin-server exec eslint --fix "$@" && pnpm --dir plugin-server
-            exec prettier --write "$@"
-        description: Format plugin-server JavaScript files
+    format:nodejs:
+        cmd: pnpm --dir nodejs exec eslint --fix "$@" && pnpm --dir nodejs exec prettier
+            --write "$@"
+        description: Format nodejs JavaScript files
     format:rust:
         cmd: rustfmt
         description: Format Rust files
@@ -452,9 +452,9 @@ tools:
     tool:temporal-django-worker:
         bin_script: temporal-django-worker
         description: Start Temporal worker with graceful shutdown handling
-    tool:plugin-server:
-        bin_script: plugin-server
-        description: Start plugin-server with optional restart loop
+    tool:nodejs:
+        bin_script: nodejs
+        description: Start nodejs with optional restart loop
     tool:download-mmdb:
         bin_script: download-mmdb
         description: Download and cache GeoLite2 MaxMind database with retry logic
@@ -509,6 +509,10 @@ tools:
     start:llm:gateway:
         bin_script: start-llm-gateway
         description: 'TODO: add description for start-llm-gateway'
+        hidden: true
+    posthog:node:
+        bin_script: posthog-node
+        description: 'TODO: add description for posthog-node'
         hidden: true
 utilities:
     nuke:

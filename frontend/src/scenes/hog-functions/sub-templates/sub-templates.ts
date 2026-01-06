@@ -339,7 +339,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                     value: '{event.properties.description}',
                 },
                 posthog_issue_id: {
-                    value: '{event.properties.distinct_id}',
+                    value: '{event.distinct_id}',
                 },
             },
         },
@@ -356,7 +356,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                     value: '{event.properties.description}',
                 },
                 posthog_issue_id: {
-                    value: '{event.properties.distinct_id}',
+                    value: '{event.distinct_id}',
                 },
             },
         },
@@ -373,7 +373,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                     value: '{event.properties.description}',
                 },
                 posthog_issue_id: {
-                    value: '{event.properties.distinct_id}',
+                    value: '{event.distinct_id}',
                 },
             },
         },

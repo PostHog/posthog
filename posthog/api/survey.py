@@ -778,28 +778,66 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if instance.iteration_count is not None and instance.iteration_count > 0:
             survey_key = f"{instance.id}/{instance.current_iteration or 1}"
 
-        user_submitted_dismissed_filter = {
-            "groups": [
-                {
-                    "variant": "",
-                    "rollout_percentage": 100,
-                    "properties": [
-                        {
-                            "key": f"{SurveyEventProperties.SURVEY_DISMISSED}/{survey_key}",
-                            "value": "is_not_set",
-                            "operator": "is_not_set",
-                            "type": "person",
-                        },
-                        {
-                            "key": f"{SurveyEventProperties.SURVEY_RESPONDED}/{survey_key}",
-                            "value": "is_not_set",
-                            "operator": "is_not_set",
-                            "type": "person",
-                        },
-                    ],
-                }
-            ]
-        }
+        base_properties = [
+            {
+                "key": f"{SurveyEventProperties.SURVEY_DISMISSED}/{survey_key}",
+                "value": "is_not_set",
+                "operator": "is_not_set",
+                "type": "person",
+            },
+            {
+                "key": f"{SurveyEventProperties.SURVEY_RESPONDED}/{survey_key}",
+                "value": "is_not_set",
+                "operator": "is_not_set",
+                "type": "person",
+            },
+        ]
+
+        wait_period_days = None
+        if instance.conditions and isinstance(instance.conditions, dict):
+            wait_period_days = instance.conditions.get("seenSurveyWaitPeriodInDays")
+
+        if wait_period_days is not None and wait_period_days > 0:
+            user_submitted_dismissed_filter = {
+                "groups": [
+                    {
+                        "variant": "",
+                        "rollout_percentage": 100,
+                        "properties": [
+                            *base_properties,
+                            {
+                                "key": SurveyEventProperties.SURVEY_LAST_SEEN_DATE,
+                                "value": "is_not_set",
+                                "operator": "is_not_set",
+                                "type": "person",
+                            },
+                        ],
+                    },
+                    {
+                        "variant": "",
+                        "rollout_percentage": 100,
+                        "properties": [
+                            *base_properties,
+                            {
+                                "key": SurveyEventProperties.SURVEY_LAST_SEEN_DATE,
+                                "value": f"{int(wait_period_days)}d",
+                                "operator": "is_date_before",
+                                "type": "person",
+                            },
+                        ],
+                    },
+                ]
+            }
+        else:
+            user_submitted_dismissed_filter = {
+                "groups": [
+                    {
+                        "variant": "",
+                        "rollout_percentage": 100,
+                        "properties": base_properties,
+                    }
+                ]
+            }
 
         if instance.internal_targeting_flag:
             existing_targeting_flag = instance.internal_targeting_flag

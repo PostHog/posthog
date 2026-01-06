@@ -22,4 +22,10 @@ test.describe('Toolbar', () => {
         await page.getByText('Add authorized URL').click()
         await expect(page).toHaveURL(/.*\/toolbar/)
     })
+
+    test('Can open add authorized URL form', async ({ page }) => {
+        await page.goToMenuItem('toolbar')
+        await page.locator('[data-attr="toolbar-add-url"]').click()
+        await expect(page.locator('[data-attr="url-input"]')).toBeVisible()
+    })
 })

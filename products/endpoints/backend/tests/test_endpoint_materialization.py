@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 import pytest
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest import mock
 
 from django.utils import timezone
@@ -11,8 +11,9 @@ from asgiref.sync import sync_to_async
 from rest_framework import status
 from rest_framework.response import Response
 
-from posthog.schema import DataWarehouseSyncInterval
+from posthog.schema import DataWarehouseSyncInterval, PathsFilter, PathsQuery, PathType, RetentionQuery
 
+from posthog.constants import RETENTION_FIRST_EVER_OCCURRENCE, TREND_FILTER_TYPE_EVENTS
 from posthog.settings.temporal import DATA_MODELING_TASK_QUEUE
 from posthog.sync import database_sync_to_async
 
@@ -219,14 +220,20 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         # The API wraps validation errors in a generic message
         self.assertIn("Failed to update endpoint", response.json()["detail"])
 
-    def test_cannot_materialize_non_hogql_query(self):
-        """Test that only HogQL queries can be materialized."""
+    def test_can_materialize_lifecycle_query(self):
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user1",
+        )
+        flush_persons_and_events()
+
         endpoint = Endpoint.objects.create(
-            name="test_trends_query",
+            name="test_lifecycle_query",
             team=self.team,
             query={
-                "kind": "TrendsQuery",
-                "series": [{"kind": "EventsNode", "event": "$pageview", "math": "total"}],
+                "kind": "LifecycleQuery",
+                "series": [{"kind": "EventsNode", "event": "$pageview"}],
                 "dateRange": {"date_from": "-7d"},
                 "interval": "day",
             },
@@ -237,14 +244,138 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
             {
                 "is_materialized": True,
-                "sync_frequency": DataWarehouseSyncInterval.FIELD_24HOUR,
+                "sync_frequency": DataWarehouseSyncInterval.FIELD_12HOUR,
             },
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        # The API wraps validation errors in a generic message
-        self.assertIn("Failed to update endpoint", response.json()["detail"])
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        endpoint.refresh_from_db()
+        self.assertIsNotNone(endpoint.saved_query)
+        saved_query = endpoint.saved_query
+        assert saved_query is not None
+        assert saved_query.query is not None
+        self.assertEqual(saved_query.query["kind"], "HogQLQuery")
+        self.assertIsInstance(saved_query.query["query"], str)
+
+    def test_can_materialize_stickiness_query(self):
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user1",
+        )
+        flush_persons_and_events()
+
+        endpoint = Endpoint.objects.create(
+            name="test_stickiness_query",
+            team=self.team,
+            query={
+                "kind": "StickinessQuery",
+                "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                "dateRange": {"date_from": "-7d"},
+                "interval": "day",
+            },
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {
+                "is_materialized": True,
+                "sync_frequency": DataWarehouseSyncInterval.FIELD_12HOUR,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        endpoint.refresh_from_db()
+        self.assertIsNotNone(endpoint.saved_query)
+        saved_query = endpoint.saved_query
+        assert saved_query is not None
+        assert saved_query.query is not None
+        self.assertEqual(saved_query.query["kind"], "HogQLQuery")
+
+    def test_can_materialize_retention_query(self):
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user1",
+        )
+        flush_persons_and_events()
+
+        endpoint = Endpoint.objects.create(
+            name="test_retention_query",
+            team=self.team,
+            query=RetentionQuery(
+                dateRange={"date_from": "2025-01-01", "date_to": "2025-01-08"},
+                retentionFilter={
+                    "period": "Day",
+                    "totalIntervals": 7,
+                    "retentionType": RETENTION_FIRST_EVER_OCCURRENCE,
+                    "targetEntity": {
+                        "id": "$user_signed_up",
+                        "name": "$user_signed_up",
+                        "type": TREND_FILTER_TYPE_EVENTS,
+                    },
+                    "returningEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
+                },
+            ).model_dump(),
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {
+                "is_materialized": True,
+                "sync_frequency": DataWarehouseSyncInterval.FIELD_12HOUR,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        endpoint.refresh_from_db()
+        self.assertIsNotNone(endpoint.saved_query)
+        saved_query = endpoint.saved_query
+        assert saved_query is not None
+        assert saved_query.query is not None
+        self.assertEqual(saved_query.query["kind"], "HogQLQuery")
+
+    def test_can_materialize_paths_query(self):
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user1",
+        )
+        flush_persons_and_events()
+
+        endpoint = Endpoint.objects.create(
+            name="test_paths_query",
+            team=self.team,
+            query=PathsQuery(
+                pathsFilter=PathsFilter(
+                    includeEventTypes=[PathType.FIELD_PAGEVIEW, PathType.FIELD_SCREEN],
+                    excludeEvents=["logout", "https://example.com"],  # URL should be filtered out
+                )
+            ).model_dump(),
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {
+                "is_materialized": True,
+                "sync_frequency": DataWarehouseSyncInterval.FIELD_12HOUR,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        endpoint.refresh_from_db()
+        self.assertIsNotNone(endpoint.saved_query)
+        saved_query = endpoint.saved_query
+        assert saved_query is not None
+        assert saved_query.query is not None
+        self.assertEqual(saved_query.query["kind"], "HogQLQuery")
 
     def test_materialization_status_in_response(self):
         """Test that materialization status is included in endpoint response."""
@@ -580,6 +711,118 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             # Should use materialized table because data is fresh
             mock_materialized.assert_called_once()
             mock_inline.assert_not_called()
+
+    def test_force_mode_uses_materialized_table(self):
+        """Test that 'force' mode on a materialized endpoint still uses the materialized table (not inline)."""
+        now = timezone.now()
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="force_mode_endpoint",
+            query=self.sample_hogql_query,
+            is_materialized=True,
+            status=DataWarehouseSavedQuery.Status.COMPLETED,
+            sync_frequency_interval=timedelta(hours=1),
+            last_run_at=now - timedelta(minutes=30),
+        )
+        saved_query.table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="force_mode_endpoint",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern="s3://test-bucket/path",
+        )
+        saved_query.save()
+
+        endpoint = Endpoint.objects.create(
+            name="force_mode_endpoint",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+            saved_query=saved_query,
+        )
+
+        with (
+            mock.patch.object(
+                EndpointViewSet, "_execute_materialized_endpoint", return_value=Response({})
+            ) as mock_materialized,
+            mock.patch.object(EndpointViewSet, "_execute_inline_endpoint", return_value=Response({})) as mock_inline,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run",
+                {"refresh": "force"},
+                format="json",
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            # 'force' should still use materialized table, just bypass cache
+            mock_materialized.assert_called_once()
+            mock_inline.assert_not_called()
+
+    def test_direct_mode_bypasses_materialization(self):
+        """Test that 'direct' mode on a materialized endpoint bypasses materialization and runs inline."""
+        now = timezone.now()
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="direct_mode_endpoint",
+            query=self.sample_hogql_query,
+            is_materialized=True,
+            status=DataWarehouseSavedQuery.Status.COMPLETED,
+            sync_frequency_interval=timedelta(hours=1),
+            last_run_at=now - timedelta(minutes=30),
+        )
+        saved_query.table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="direct_mode_endpoint",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern="s3://test-bucket/path",
+        )
+        saved_query.save()
+
+        endpoint = Endpoint.objects.create(
+            name="direct_mode_endpoint",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+            saved_query=saved_query,
+        )
+
+        with (
+            mock.patch.object(
+                EndpointViewSet, "_execute_materialized_endpoint", return_value=Response({})
+            ) as mock_materialized,
+            mock.patch.object(EndpointViewSet, "_execute_inline_endpoint", return_value=Response({})) as mock_inline,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run",
+                {"refresh": "direct"},
+                format="json",
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            # 'direct' should bypass materialization and run inline
+            mock_inline.assert_called_once()
+            mock_materialized.assert_not_called()
+
+    def test_direct_mode_rejected_for_non_materialized_endpoint(self):
+        """Test that 'direct' mode is rejected for non-materialized endpoints."""
+        endpoint = Endpoint.objects.create(
+            name="non_materialized_endpoint",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run",
+            {"refresh": "direct"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("direct", response.json()["detail"].lower())
+        self.assertIn("materialized", response.json()["detail"].lower())
 
 
 @pytest.mark.asyncio

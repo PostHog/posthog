@@ -19,8 +19,6 @@ from django.middleware.csrf import CsrfViewMiddleware
 from django.shortcuts import redirect
 from django.urls import resolve
 from django.utils.cache import add_never_cache_headers
-from django.views.decorators.csrf import csrf_protect
-from django.views.decorators.http import require_POST
 
 import structlog
 from django_prometheus.middleware import Metrics
@@ -44,6 +42,7 @@ from posthog.rate_limit import DecideRateThrottle
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.user_permissions import UserPermissions
+from posthog.utils import _is_valid_ip_address
 
 from products.notebooks.backend.models import Notebook
 
@@ -91,7 +90,22 @@ class AllowIPMiddleware:
         else:
             return []
 
-    def extract_client_ip(self, request: HttpRequest):
+    def _normalize_ip(self, ip: str) -> str | None:
+        """Strip port from IP and validate format."""
+        # IPv6 with port: [2001:db8::1]:8080 -> 2001:db8::1
+        if ip.startswith("["):
+            bracket_end = ip.find("]")
+            if bracket_end != -1:
+                ip = ip[1:bracket_end]
+        # IPv4 with port: 192.168.1.1:8080 -> 192.168.1.1
+        elif ip.count(":") == 1:
+            ip = ip.split(":")[0]
+
+        if not _is_valid_ip_address(ip):
+            return None
+        return ip
+
+    def extract_client_ip(self, request: HttpRequest) -> str | None:
         client_ip = request.META["REMOTE_ADDR"]
         if getattr(settings, "USE_X_FORWARDED_HOST", False):
             forwarded_for = self.get_forwarded_for(request)
@@ -99,12 +113,13 @@ class AllowIPMiddleware:
                 closest_proxy = client_ip
                 client_ip = forwarded_for.pop(0)
                 if settings.TRUST_ALL_PROXIES:
-                    return client_ip
+                    return self._normalize_ip(client_ip)
                 proxies = [closest_proxy, *forwarded_for]
                 for proxy in proxies:
-                    if proxy not in self.trusted_proxies:
+                    normalized = self._normalize_ip(proxy)
+                    if normalized is None or normalized not in self.trusted_proxies:
                         return None
-        return client_ip
+        return self._normalize_ip(client_ip)
 
     def __call__(self, request: HttpRequest):
         response: HttpResponse = self.get_response(request)
@@ -320,6 +335,7 @@ class CHQueries:
             kind="request",
             id=request.path,
             route_id=route.route,
+            is_impersonated=is_impersonated_session(request) if user.is_authenticated else None,
             client_query_id=self._get_param(request, "client_query_id"),
             session_id=self._get_param(request, "session_id"),
             http_referer=request.headers.get("referer"),
@@ -863,6 +879,8 @@ IMPERSONATION_ALLOWLISTED_PATHS: list[str | re.Pattern] = [
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/query/?$"),
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/insights/viewed/?$"),
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/metalytics/?$"),
+    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/endpoints/[^/]+/run/?$"),
+    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/endpoints/last_execution_times/?$"),
 ]
 
 
@@ -921,44 +939,3 @@ def impersonated_session_logout(request: HttpRequest) -> HttpResponse:
     impersonated_user_pk = request.user.pk
     restore_original_login(request)
     return redirect(f"/admin/posthog/user/{impersonated_user_pk}/change/")
-
-
-@csrf_protect
-@require_POST
-def login_as_user_read_only(request: HttpRequest, user_id: str) -> HttpResponse:
-    """
-    Log in as another user in read-only mode.
-
-    This view wraps django-loginas functionality but additionally sets
-    a session flag that triggers read-only restrictions via
-    ImpersonationReadOnlyMiddleware.
-    """
-    from django.contrib import messages
-    from django.contrib.admin.utils import unquote
-    from django.contrib.auth import get_user_model
-    from django.core.exceptions import PermissionDenied
-
-    from loginas.utils import login_as
-
-    User = get_user_model()
-
-    can_login_as = settings.CAN_LOGIN_AS
-    target_user = User.objects.get(pk=unquote(user_id))
-
-    error_message = None
-    try:
-        if not can_login_as(request, target_user):
-            error_message = "You do not have permission to do that."
-    except PermissionDenied as e:
-        error_message = str(e)
-
-    if error_message:
-        messages.error(request, error_message)
-        return redirect(f"/admin/posthog/user/{target_user.pk}/change/")
-
-    login_as(target_user, request)
-
-    # Mark this session as read-only
-    request.session[IMPERSONATION_READ_ONLY_SESSION_KEY] = True
-
-    return redirect("/")

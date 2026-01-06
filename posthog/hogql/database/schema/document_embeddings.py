@@ -135,7 +135,6 @@ class DocumentEmbeddingsTable(LazyTable):
         model_name = extract_model_name_from_where(node.where if node else None)
 
         if model_name and model_name in HOGQL_EMBEDDING_TABLES:
-            # Route to specific model table with FINAL
             model_table = HOGQL_EMBEDDING_TABLES[model_name]
             table_name = model_table.to_printed_hogql()
 
@@ -148,12 +147,10 @@ class DocumentEmbeddingsTable(LazyTable):
                 else:
                     exprs.append(ast.Alias(alias=name, expr=ast.Field(chain=[table_name, *chain])))
 
-            # Create SELECT with FINAL from model-specific table
             return ast.SelectQuery(
                 select=exprs,
                 select_from=ast.JoinExpr(
                     table=ast.Field(chain=[table_name]),
-                    table_final=True,  # Add FINAL for ReplacingMergeTree deduplication
                 ),
             )
         else:

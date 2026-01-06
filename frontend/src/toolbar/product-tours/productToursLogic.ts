@@ -23,7 +23,7 @@ import {
 } from '~/types'
 
 import type { productToursLogicType } from './productToursLogicType'
-import { captureScreenshot, getElementMetadata, getSmartUrlDefaults } from './utils'
+import { captureScreenshot, getElementMetadata } from './utils'
 
 const RECENT_GOALS_KEY = 'posthog-product-tours-recent-goals'
 
@@ -154,6 +154,8 @@ export const productToursLogic = kea<productToursLogicType>([
         selectTour: (id: string | null) => ({ id }),
         newTour: true,
         saveTour: true,
+        previewTour: true,
+        stopPreview: true,
         deleteTour: (id: string) => ({ id }),
 
         updateRects: true,
@@ -200,6 +202,14 @@ export const productToursLogic = kea<productToursLogicType>([
             {
                 showButtonProductTours: () => true,
                 hideButtonProductTours: () => false,
+            },
+        ],
+        isPreviewing: [
+            false,
+            {
+                previewTour: () => true,
+                stopPreview: () => false,
+                selectTour: () => false,
             },
         ],
         selectedTourId: [
@@ -326,9 +336,6 @@ export const productToursLogic = kea<productToursLogicType>([
                 // Update history if step order changed (or create initial version for new tours)
                 const stepOrderHistory = getUpdatedStepOrderHistory(stepsForApi, existingHistory)
 
-                // For new tours, set smart URL defaults based on current page
-                const urlDefaults = !isUpdate ? getSmartUrlDefaults() : null
-
                 const payload = {
                     name,
                     content: {
@@ -336,15 +343,6 @@ export const productToursLogic = kea<productToursLogicType>([
                         ...existingTour?.content,
                         steps: stepsForApi,
                         step_order_history: stepOrderHistory,
-                        // Set smart URL defaults for new tours (don't override existing conditions)
-                        ...(!isUpdate && !existingTour?.content?.conditions
-                            ? {
-                                  conditions: {
-                                      url: urlDefaults?.url,
-                                      urlMatchType: urlDefaults?.urlMatchType,
-                                  },
-                              }
-                            : {}),
                     },
                 }
                 const url = isUpdate
@@ -378,7 +376,7 @@ export const productToursLogic = kea<productToursLogicType>([
     })),
 
     connect(() => ({
-        values: [toolbarConfigLogic, ['dataAttributes', 'apiURL', 'userIntent', 'productTourId']],
+        values: [toolbarConfigLogic, ['dataAttributes', 'apiURL', 'userIntent', 'productTourId', 'posthog']],
     })),
 
     selectors({
@@ -570,6 +568,44 @@ export const productToursLogic = kea<productToursLogicType>([
         saveTour: () => {
             actions.submitTourForm()
         },
+        previewTour: () => {
+            const { tourForm, posthog, selectedTourId, tours } = values
+            if (!tourForm || !posthog?.productTours) {
+                lemonToast.error('Unable to preview tour')
+                return
+            }
+
+            // we can clean this up when posthog-js is updated in the main repo...
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const productTours = posthog.productTours as any
+            if (typeof productTours.previewTour !== 'function') {
+                lemonToast.error('Preview requires an updated version of posthog-js')
+                return
+            }
+
+            toolbarLogic.actions.toggleMinimized(true)
+
+            // Get appearance from the saved tour if editing an existing one
+            const existingTour =
+                selectedTourId && selectedTourId !== 'new'
+                    ? tours.find((t: ProductTour) => t.id === selectedTourId)
+                    : null
+
+            const tour = {
+                id: `preview-${Date.now()}`,
+                name: tourForm.name || 'Preview Tour',
+                type: 'product_tour' as const,
+                start_date: null,
+                end_date: null,
+                steps: tourForm.steps,
+                appearance: existingTour?.content?.appearance,
+            }
+
+            productTours.previewTour(tour)
+        },
+        stopPreview: () => {
+            toolbarLogic.actions.toggleMinimized(false)
+        },
         updateRects: () => {
             // When editing an element step, check if selected element is still valid
             const { editorState, selectedElement, tourForm } = values
@@ -747,6 +783,10 @@ export const productToursLogic = kea<productToursLogicType>([
             })
 
             cache.onMouseOver = (e: MouseEvent): void => {
+                // During preview, don't track hover
+                if (values.isPreviewing) {
+                    return
+                }
                 // Only show hover highlight when in selecting mode
                 if (values.editorState.mode !== 'selecting') {
                     return
@@ -760,6 +800,10 @@ export const productToursLogic = kea<productToursLogicType>([
             cache.onClick = (e: MouseEvent): void => {
                 // Cmd/ctrl+click always passes through (for click-through navigation)
                 if (e.metaKey || e.ctrlKey) {
+                    return
+                }
+
+                if (values.isPreviewing) {
                     return
                 }
 
@@ -818,6 +862,14 @@ export const productToursLogic = kea<productToursLogicType>([
             document.addEventListener('scroll', cache.onScroll, true)
             window.addEventListener('resize', cache.onResize)
             window.addEventListener('keydown', cache.onKeyDown)
+
+            cache.onTourEnded = (): void => {
+                if (values.isPreviewing) {
+                    actions.stopPreview()
+                }
+            }
+            window.addEventListener('PHProductTourCompleted', cache.onTourEnded)
+            window.addEventListener('PHProductTourDismissed', cache.onTourEnded)
         },
         beforeUnmount: () => {
             if (cache.mutationTimeout) {
@@ -840,6 +892,10 @@ export const productToursLogic = kea<productToursLogicType>([
             }
             if (cache.onKeyDown) {
                 window.removeEventListener('keydown', cache.onKeyDown)
+            }
+            if (cache.onTourEnded) {
+                window.removeEventListener('PHProductTourCompleted', cache.onTourEnded)
+                window.removeEventListener('PHProductTourDismissed', cache.onTourEnded)
             }
         },
     })),

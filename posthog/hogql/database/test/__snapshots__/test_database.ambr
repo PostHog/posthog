@@ -159,6 +159,7 @@
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."description",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -211,6 +212,7 @@
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."description",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
@@ -370,6 +372,7 @@
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."description",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -422,6 +425,7 @@
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."description",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
@@ -581,7 +585,7 @@
                       "$virt_initial_referring_domain_type",
                       "$virt_initial_channel_type",
                       "$virt_revenue",
-                      "$virt_revenue_last_30_days"
+                      "$virt_mrr"
                   ],
                   "hogql_value": "poe",
                   "id": null,
@@ -673,7 +677,7 @@
                       "$virt_initial_referring_domain_type",
                       "$virt_initial_channel_type",
                       "$virt_revenue",
-                      "$virt_revenue_last_30_days"
+                      "$virt_mrr"
                   ],
                   "hogql_value": "person",
                   "id": "person",
@@ -1055,7 +1059,7 @@
                       "team_id",
                       "group_key",
                       "revenue",
-                      "revenue_last_30_days"
+                      "mrr"
                   ],
                   "hogql_value": "revenue_analytics",
                   "id": "revenue_analytics",
@@ -1077,15 +1081,15 @@
                   "table": null,
                   "type": "field_traverser"
               },
-              "$virt_revenue_last_30_days": {
+              "$virt_mrr": {
                   "chain": [
                       "revenue_analytics",
-                      "revenue_last_30_days"
+                      "mrr"
                   ],
                   "fields": null,
-                  "hogql_value": "`$virt_revenue_last_30_days`",
+                  "hogql_value": "`$virt_mrr`",
                   "id": null,
-                  "name": "$virt_revenue_last_30_days",
+                  "name": "$virt_mrr",
                   "schema_valid": true,
                   "table": null,
                   "type": "field_traverser"
@@ -1158,7 +1162,7 @@
                       "team_id",
                       "person_id",
                       "revenue",
-                      "revenue_last_30_days"
+                      "mrr"
                   ],
                   "hogql_value": "revenue_analytics",
                   "id": "revenue_analytics",
@@ -1200,15 +1204,15 @@
                   "table": null,
                   "type": "field_traverser"
               },
-              "$virt_revenue_last_30_days": {
+              "$virt_mrr": {
                   "chain": [
                       "revenue_analytics",
-                      "revenue_last_30_days"
+                      "mrr"
                   ],
                   "fields": null,
-                  "hogql_value": "`$virt_revenue_last_30_days`",
+                  "hogql_value": "`$virt_mrr`",
                   "id": null,
-                  "name": "$virt_revenue_last_30_days",
+                  "name": "$virt_mrr",
                   "schema_valid": true,
                   "table": null,
                   "type": "field_traverser"
@@ -3084,7 +3088,7 @@
                       "$virt_initial_referring_domain_type",
                       "$virt_initial_channel_type",
                       "$virt_revenue",
-                      "$virt_revenue_last_30_days"
+                      "$virt_mrr"
                   ],
                   "hogql_value": "poe",
                   "id": null,
@@ -3523,7 +3527,7 @@
                       "team_id",
                       "group_key",
                       "revenue",
-                      "revenue_last_30_days"
+                      "mrr"
                   ],
                   "hogql_value": "revenue_analytics",
                   "id": "revenue_analytics",
@@ -3545,15 +3549,15 @@
                   "table": null,
                   "type": "field_traverser"
               },
-              "$virt_revenue_last_30_days": {
+              "$virt_mrr": {
                   "chain": [
                       "revenue_analytics",
-                      "revenue_last_30_days"
+                      "mrr"
                   ],
                   "fields": null,
-                  "hogql_value": "`$virt_revenue_last_30_days`",
+                  "hogql_value": "`$virt_mrr`",
                   "id": null,
-                  "name": "$virt_revenue_last_30_days",
+                  "name": "$virt_mrr",
                   "schema_valid": true,
                   "table": null,
                   "type": "field_traverser"
@@ -3626,7 +3630,7 @@
                       "team_id",
                       "person_id",
                       "revenue",
-                      "revenue_last_30_days"
+                      "mrr"
                   ],
                   "hogql_value": "revenue_analytics",
                   "id": "revenue_analytics",
@@ -3668,15 +3672,15 @@
                   "table": null,
                   "type": "field_traverser"
               },
-              "$virt_revenue_last_30_days": {
+              "$virt_mrr": {
                   "chain": [
                       "revenue_analytics",
-                      "revenue_last_30_days"
+                      "mrr"
                   ],
                   "fields": null,
-                  "hogql_value": "`$virt_revenue_last_30_days`",
+                  "hogql_value": "`$virt_mrr`",
                   "id": null,
-                  "name": "$virt_revenue_last_30_days",
+                  "name": "$virt_mrr",
                   "schema_valid": true,
                   "table": null,
                   "type": "field_traverser"

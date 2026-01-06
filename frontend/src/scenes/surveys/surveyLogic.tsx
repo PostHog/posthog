@@ -569,6 +569,11 @@ export const surveyLogic = kea<surveyLogicType>([
                 if (props.id && props.id !== 'new') {
                     try {
                         const survey = await api.surveys.get(props.id)
+                        // patch surveys with a potentially null appearance...
+                        // pending root cause on _how_ these get to be null
+                        if (!survey.appearance) {
+                            survey.appearance = defaultSurveyAppearance
+                        }
                         const currentFilters = values.answerFilters
                         actions.reportSurveyViewed(survey)
                         // Initialize answer filters for all questions - first for index-based, then for id-based
@@ -857,15 +862,18 @@ export const surveyLogic = kea<surveyLogicType>([
                 return { responsesByQuestion }
             },
         },
-        archivedResponseUuids: {
-            loadArchivedResponseUuids: async (): Promise<Set<string>> => {
-                if (props.id === NEW_SURVEY.id) {
-                    return new Set()
-                }
-                const uuids = await api.surveys.getArchivedResponseUuids(props.id)
-                return new Set(uuids)
+        archivedResponseUuids: [
+            new Set<string>(),
+            {
+                loadArchivedResponseUuids: async (): Promise<Set<string>> => {
+                    if (props.id === NEW_SURVEY.id) {
+                        return new Set()
+                    }
+                    const uuids = await api.surveys.getArchivedResponseUuids(props.id)
+                    return new Set(uuids)
+                },
             },
-        },
+        ],
     })),
     listeners(({ actions, values }) => {
         const reloadAllSurveyResults = debounce((): void => {
