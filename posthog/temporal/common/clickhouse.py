@@ -169,6 +169,14 @@ class ClickHouseMemoryLimitExceededError(ClickHouseError):
         super().__init__(query, error_message)
 
 
+class ClickHouseCheckQueryStatusError(ClickHouseError):
+    """Exception raised when checking the status of a query fails."""
+
+    def __init__(self, query, query_id: str, error_message: str):
+        super().__init__(query, error_message)
+        self.query_id = query_id
+
+
 def update_query_tags_with_temporal_info(query_tags: typing.Optional[QueryTags] = None):
     """
     Updates query_tags with a temporal workflow's properties.
@@ -573,6 +581,11 @@ class ClickHouseClient:
             query_id: The ID of the query to check.
             raise_on_error: Whether to raise an exception if the query has
                 failed.
+
+        Raises:
+            ClickHouseQueryNotFound: If the query is not found in the query log or process list.
+            ClickHouseCheckQueryStatusError: If an error occurs while checking the query status.
+            ClickHouseError: If raise_on_error is True and the query has failed.
         """
         try:
             return await self.acheck_query_in_query_log(query_id, raise_on_error=raise_on_error)
@@ -604,11 +617,15 @@ class ClickHouseClient:
                 FORMAT JSONEachRow
                 """
 
-        resp = await self.read_query(
-            query,
-            query_parameters={"query_id": query_id, "cluster_name": settings.CLICKHOUSE_CLUSTER},
-            query_id=f"{query_id}-CHECK-QUERY-LOG",
-        )
+        try:
+            resp = await self.read_query(
+                query,
+                query_parameters={"query_id": query_id, "cluster_name": settings.CLICKHOUSE_CLUSTER},
+                query_id=f"{query_id}-CHECK-QUERY-LOG",
+            )
+        except ClickHouseError as e:
+            error_message = f"Error checking for query '{query_id}' in query log: {str(e)}"
+            raise ClickHouseCheckQueryStatusError(query, query_id, error_message) from e
 
         if not resp:
             raise ClickHouseQueryNotFound(query, query_id)
@@ -636,7 +653,8 @@ class ClickHouseClient:
                     error_message = error
                 else:
                     error_message = f"Unknown query error in query with ID: {query_id}"
-                raise ClickHouseError(query, error_message=error_message)
+                # we don't have the original query here so just use the query id
+                raise ClickHouseError(f"Query with ID: {query_id}", error_message=error_message)
 
             return ClickHouseQueryStatus.ERROR
         elif "QueryStart" in events:
@@ -661,11 +679,16 @@ class ClickHouseClient:
                 LIMIT 1
                 """
 
-        resp = await self.read_query(
-            query,
-            query_parameters={"query_id": query_id, "cluster_name": settings.CLICKHOUSE_CLUSTER},
-            query_id=f"{query_id}-CHECK-PROCESS-LIST",
-        )
+        try:
+            resp = await self.read_query(
+                query,
+                query_parameters={"query_id": query_id, "cluster_name": settings.CLICKHOUSE_CLUSTER},
+                query_id=f"{query_id}-CHECK-PROCESS-LIST",
+            )
+        except ClickHouseError as e:
+            error_message = f"Error checking for query '{query_id}' in process list: {str(e)}"
+            raise ClickHouseCheckQueryStatusError(query, query_id, error_message) from e
+
         if not resp:
             return False
 
