@@ -68,7 +68,7 @@ class TestHogFlowBatchJob(TestCase):
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
     )
-    @patch("products.workflows.backend.models.hog_flow_batch_job.handle_hog_flow_batch_job_created")
+    @patch("products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.handle_hog_flow_batch_job_created")
     def test_hog_flow_batch_job_created_signal(self, mock_handler, mock_create_invocation):
         # Disconnect the signal temporarily to test it
         from django.db.models.signals import post_save
