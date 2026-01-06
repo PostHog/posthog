@@ -3365,8 +3365,7 @@ class TestMaterializedColumnOptimization(BaseTest):
         )
         assert result.clickhouse
 
-        # Note: When columns are materialized, empty strings become NULL due to
-        # nullIf(nullIf(..., ''), 'null') wrapping. This affects both POE modes.
+        # Note: When columns are materialized, empty strings become NULL due to nullIf(nullIf(..., ''), 'null') wrapping - this is known inconsistent behaviour for materialized properties
         expected_results = {
             (distinct_id_with_email, "test@example.com", 0, 0),
             # Empty string behavior differs: becomes null when materialized
@@ -3381,12 +3380,16 @@ class TestMaterializedColumnOptimization(BaseTest):
         }
         self.assertEqual(set(result.results), expected_results)
 
-        # The query should never touch the json properties object if we are using the materialized column, these asserts protects against regression for the performance the bug in
+        # The query should never touch the json properties object if we are using the materialized column, these asserts protect against regression of the performance the bug fixed in
         # https://posthog.slack.com/archives/C09B0SSQEDA/p1767698123669229?thread_ts=1767672165.250289&cid=C09B0SSQEDA
         sql_lower = result.clickhouse.lower()
-        # should only appear in is_not_set_result_historical
-        assert sql_lower.count("json") == 1
-        assert sql_lower.count("has") == 1
+        # JSONHas is used in calculating is_not_set_result_historical, but nowhere else
+        assert sql_lower.count("jsonhas") == 1
+        if is_materialized:
+            # the materialized version should not use any JSON operation, or any other Has operation (e.g. the Array/Set function `has`)
+            assert sql_lower.count("json") == 1
+            assert sql_lower.count("has") == 1
+            assert sql_lower.count("contains") == 0
 
 
 class TestPrinted(APIBaseTest):
