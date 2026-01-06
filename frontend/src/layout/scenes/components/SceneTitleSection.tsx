@@ -12,6 +12,7 @@ import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/Wrapping
 import { cn } from 'lib/utils/css-classes'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { Breadcrumb, FileSystemIconColor } from '~/types'
 
@@ -146,9 +147,15 @@ export function SceneTitleSection({
     forceBackTo,
     className,
 }: SceneMainTitleProps): JSX.Element | null {
+    const { zenMode } = useValues(navigation3000Logic)
     const { breadcrumbs } = useValues(breadcrumbsLogic)
     const willShowBreadcrumbs = forceBackTo || breadcrumbs.length > 2
     const [isScrolled, setIsScrolled] = useState(false)
+
+    // Hide entire title section in zen mode
+    if (zenMode) {
+        return null
+    }
 
     const effectiveDescription = description
 
@@ -409,8 +416,14 @@ function SceneDescription({
     renameDebounceMs = 100,
     saveOnBlur = false,
 }: SceneDescriptionProps): JSX.Element | null {
+    const { zenMode } = useValues(navigation3000Logic)
     const [description, setDescription] = useState(initialDescription)
     const [isEditing, setIsEditing] = useState(forceEdit)
+    
+    // Hide descriptions in zen mode
+    if (zenMode) {
+        return null
+    }
 
     const textClasses = 'text-sm my-0 select-auto'
 
