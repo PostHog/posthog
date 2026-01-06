@@ -8,6 +8,8 @@ and group type mappings), this cache provides just the raw flag data.
 The cache is automatically invalidated when:
 - FeatureFlag models are created, updated, or deleted
 - Team models are created or deleted (to ensure flag caches are cleaned up)
+- FeatureFlagEvaluationTag models are created or deleted
+- Tag models are updated (since tag names are cached in evaluation_tags)
 - Hourly refresh job detects expiring entries (TTL < 24h)
 
 Cache Key Pattern:
@@ -23,7 +25,9 @@ Manual operations:
     clear_flags_cache(team_id)
 """
 
+import time
 from collections import defaultdict
+from datetime import timedelta
 from typing import Any
 
 from django.conf import settings
@@ -32,6 +36,7 @@ from django.db import transaction
 from django.db.models import Q
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
+from django.utils import timezone
 
 import structlog
 
@@ -43,6 +48,7 @@ from posthog.models.feature_flag.feature_flag import (
     get_feature_flags,
     serialize_feature_flags,
 )
+from posthog.models.tag import Tag
 from posthog.models.team import Team
 from posthog.redis import get_client
 from posthog.storage.cache_expiry_manager import (
@@ -103,11 +109,12 @@ def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str,
     if not teams:
         return {}
 
-    # Load all flags for all teams in one query with evaluation tags pre-loaded
+    # Load all flags for all teams in one query with evaluation tags pre-loaded.
+    # Note: We intentionally don't select_related("team") here because we only need
+    # team_id (already on the model) for grouping, and the Team objects are already
+    # loaded by the caller. Avoiding the join saves memory.
     all_flags = list(
-        FeatureFlag.objects.filter(team__in=teams, active=True, deleted=False)
-        .select_related("team")
-        .annotate(
+        FeatureFlag.objects.filter(team__in=teams, active=True, deleted=False).annotate(
             evaluation_tag_names_agg=ArrayAgg(
                 "evaluation_tags__tag__name",
                 filter=Q(evaluation_tags__isnull=False),
@@ -206,32 +213,41 @@ def update_flags_cache(team: Team | int, ttl: int | None = None) -> bool:
     return success
 
 
-def verify_team_flags(team: Team, batch_data: dict | None = None, verbose: bool = False) -> dict:
+def verify_team_flags(
+    team: Team,
+    db_batch_data: dict | None = None,
+    cache_batch_data: dict | None = None,
+    verbose: bool = False,
+) -> dict:
     """
     Verify a team's flags cache against the database.
 
     Args:
         team: Team to verify
-        batch_data: Pre-loaded batch data from batch_load_fn (keyed by team.id)
+        db_batch_data: Pre-loaded DB data from batch_load_fn (keyed by team.id)
+        cache_batch_data: Pre-loaded cache data from batch_get_from_cache (keyed by team.id)
         verbose: If True, include detailed diffs with flag keys and field-level differences
 
     Returns:
         Dict with 'status' ("match", "miss", "mismatch") and 'issue' type.
         When verbose=True, includes 'diffs' list with detailed diff information.
     """
-    # Use get_from_cache_with_source to detect true cache misses
-    # (get_from_cache has cache-through behavior that hides misses)
-    cached_data, source = flags_hypercache.get_from_cache_with_source(team)
+    # Get cached data - use pre-loaded batch data if available (single MGET for whole batch)
+    if cache_batch_data and team.id in cache_batch_data:
+        cached_data, source = cache_batch_data[team.id]
+    else:
+        # Fall back to individual lookup (shouldn't happen in batch verification)
+        cached_data, source = flags_hypercache.get_from_cache_with_source(team)
 
-    # Get flags from database - use batch_data if available to avoid N+1 queries
-    if batch_data and team.id in batch_data:
-        db_data = batch_data[team.id]
+    # Get flags from database - use db_batch_data if available to avoid N+1 queries
+    if db_batch_data and team.id in db_batch_data:
+        db_data = db_batch_data[team.id]
     else:
         db_data = _get_feature_flags_for_service(team)
     db_flags = db_data.get("flags", []) if isinstance(db_data, dict) else []
 
-    # Cache miss (source="db" means data was loaded from database, not cache)
-    if source == "db":
+    # Cache miss (source="db" or "miss" means data was not found in cache)
+    if source in ("db", "miss"):
         return {
             "status": "miss",
             "issue": "CACHE_MISS",
@@ -341,11 +357,66 @@ def _compare_flag_fields(db_flag: dict, cached_flag: dict) -> list[dict]:
     return field_diffs
 
 
+def _get_team_ids_with_flags() -> set[int]:
+    """
+    Get the set of team IDs that have at least one active, non-deleted flag.
+
+    Used by verification to skip expensive DB loads for the ~90% of teams
+    that have zero flags. For those teams, we just verify the cache contains
+    {"flags": []}.
+    """
+    start_time = time.time()
+    result = set(FeatureFlag.objects.filter(active=True, deleted=False).values_list("team_id", flat=True).distinct())
+    duration_ms = (time.time() - start_time) * 1000
+
+    logger.info(
+        "Loaded team IDs with flags",
+        count=len(result),
+        duration_ms=round(duration_ms, 2),
+    )
+
+    return result
+
+
+def _get_team_ids_with_recently_updated_flags(team_ids: list[int]) -> set[int]:
+    """
+    Batch check which teams have active flags updated within the grace period.
+
+    When a flag is updated, an async task updates the cache. If verification
+    runs before the async task completes, it sees a stale cache and tries to
+    "fix" it, causing unnecessary work. This grace period lets recent async
+    updates complete before treating cache misses as genuine errors.
+
+    Only considers active, non-deleted flags. When a flag is deleted or
+    deactivated, the cache update removes it, so we shouldn't skip verification
+    just because a deleted/inactive flag was recently updated.
+
+    Args:
+        team_ids: List of team IDs to check
+
+    Returns:
+        Set of team IDs that have recently updated active flags (should skip fix)
+    """
+    grace_period_minutes = settings.FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES
+    if grace_period_minutes <= 0 or not team_ids:
+        return set()
+
+    cutoff = timezone.now() - timedelta(minutes=grace_period_minutes)
+    return set(
+        FeatureFlag.objects.filter(team_id__in=team_ids, updated_at__gte=cutoff, active=True, deleted=False)
+        .values_list("team_id", flat=True)
+        .distinct()
+    )
+
+
 # Initialize hypercache management config after update_flags_cache is defined
 FLAGS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     hypercache=flags_hypercache,
     update_fn=update_flags_cache,
     cache_name="flags",
+    get_team_ids_needing_full_verification_fn=_get_team_ids_with_flags,
+    empty_cache_value={"flags": []},
+    get_team_ids_to_skip_fix_fn=_get_team_ids_with_recently_updated_flags,
 )
 
 
@@ -525,3 +596,31 @@ def evaluation_tag_changed_flags_cache(sender, instance: "FeatureFlagEvaluationT
 
     team_id = instance.feature_flag.team_id
     transaction.on_commit(lambda: update_team_service_flags_cache.delay(team_id))
+
+
+@receiver(post_save, sender=Tag)
+def tag_changed_flags_cache(sender, instance: "Tag", created: bool, **kwargs):
+    """
+    Invalidate flags cache when a tag is renamed.
+
+    Tag names are cached in evaluation_tags, so if a tag used by any flag
+    is renamed, we need to refresh those teams' caches.
+    Only operates when FLAGS_REDIS_URL is configured.
+    """
+    if created:
+        return  # New tags can't be used by any flags yet
+
+    # In practice, update_fields is rarely specified when saving Tags,
+    # but this check follows the pattern used elsewhere in the codebase.
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and "name" not in update_fields:
+        return
+
+    if not settings.FLAGS_REDIS_URL:
+        return
+
+    from posthog.tasks.feature_flags import update_team_service_flags_cache
+
+    for team_id in FeatureFlagEvaluationTag.get_team_ids_using_tag(instance):
+        # Capture team_id in closure to avoid late binding issues
+        transaction.on_commit(lambda tid=team_id: update_team_service_flags_cache.delay(tid))  # type: ignore[misc]

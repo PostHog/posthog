@@ -175,6 +175,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         resetCancelCount: true,
         setConversation: (conversation: Conversation) => ({ conversation }),
         resetThread: true,
+        finalizeStreamingMessages: true,
         setTraceId: (traceId: string) => ({ traceId }),
         selectCommand: (command: SlashCommand) => ({ command }),
         activateCommand: (command: SlashCommand) => ({ command }),
@@ -221,6 +222,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     ...state.slice(index + 1),
                 ],
                 setThread: (_, { thread }) => thread,
+                // Remove streaming messages on failure so server state becomes source of truth
+                finalizeStreamingMessages: (state) => state.filter((msg) => msg.status !== 'loading'),
             },
         ],
 
@@ -369,11 +372,16 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             const releaseStreamingLock = mount() // lock the logic - don't unmount before we're done streaming
             actions.incrActiveStreamingThreads()
 
+            // Generate a new trace ID for this interaction
+            const traceId = uuid()
+            actions.setTraceId(traceId)
+
             if (generationAttempt === 0 && streamData.content && addToThread) {
                 const message: ThreadMessage = {
                     type: AssistantMessageType.Human,
                     content: streamData.content,
                     status: 'completed',
+                    trace_id: traceId,
                 }
                 actions.addMessage(message)
             }
@@ -383,10 +391,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
                 // Ensure we have valid data for the API call
                 const apiData: any = { ...streamData }
-
-                // Generate a new trace ID for this interaction
-                const traceId = uuid()
-                actions.setTraceId(traceId)
                 apiData.trace_id = traceId
 
                 if (values.billingContext && values.featureFlags[FEATURE_FLAGS.MAX_BILLING_CONTEXT]) {
@@ -517,10 +521,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     }
 
                     if (releaseException) {
-                        if (values.threadRaw[values.threadRaw.length - 1]?.status === 'loading') {
-                            actions.replaceMessage(values.threadRaw.length - 1, relevantErrorMessage)
-                        } else if (values.threadRaw[values.threadRaw.length - 1]?.status !== 'error') {
-                            actions.addMessage(relevantErrorMessage)
+                        // Remove streaming messages and reload from server (source of truth)
+                        actions.finalizeStreamingMessages()
+                        actions.addMessage(relevantErrorMessage)
+                        if (values.conversation?.id) {
+                            actions.loadConversation(values.conversation.id)
                         }
                     }
                 }
@@ -1021,8 +1026,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
     subscriptions(({ actions, values }) => ({
         sceneId: (sceneId: Scene | null) => {
-            // Only auto-set mode when the agent modes feature is enabled and no conversation is active
-            if (values.featureFlags[FEATURE_FLAGS.AGENT_MODES] && !values.conversation) {
+            // Only auto-set mode when no conversation is active
+            if (!values.conversation) {
                 const suggestedMode = getAgentModeForScene(sceneId)
                 if (suggestedMode !== values.agentMode) {
                     // Use sync action to not lock - allows conversation to still update mode if agent changes it

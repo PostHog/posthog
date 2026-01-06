@@ -23,13 +23,19 @@ import { WorkflowSceneLogicProps, WorkflowTab, workflowSceneLogic } from './work
 export const scene: SceneExport<WorkflowSceneLogicProps> = {
     component: WorkflowScene,
     logic: workflowSceneLogic,
-    paramsToProps: ({ params: { id, tab } }) => ({ id: id || 'new', tab: tab || 'workflow' }),
+    paramsToProps: ({ params: { id, tab } }) => ({
+        id: id || 'new',
+        tab: tab || 'workflow',
+    }),
 }
 
 export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const { currentTab } = useValues(workflowSceneLogic)
+    const { searchParams } = useValues(router)
+    const templateId = searchParams.templateId as string | undefined
+    const editTemplateId = searchParams.editTemplateId as string | undefined
 
-    const logic = workflowLogic(props)
+    const logic = workflowLogic({ id: props.id, templateId, editTemplateId })
     const { workflowLoading, workflow, originalWorkflow } = useValues(logic)
 
     if (!originalWorkflow && workflowLoading) {

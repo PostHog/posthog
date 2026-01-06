@@ -60,13 +60,13 @@ jobs:
                   fetch-depth: 1
 
             - name: Set up Python
-              uses: actions/setup-python@v5
+              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
               with:
                   python-version-file: 'pyproject.toml'
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
+              uses: astral-sh/setup-uv@681c641aba71e4a1c380be3ab5e12ad51f415867 # v7.1.6
               with:
                   enable-cache: true
                   version: 0.9.9
@@ -85,7 +85,7 @@ jobs:
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Set up Node.js
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
                   node-version: 18
                   cache: 'pnpm'
@@ -157,6 +157,9 @@ jobs:
         runs-on: ubuntu-24.04
         needs: check-package-version
         if: needs.changes.outputs.hog == 'true' && needs.check-package-version.outputs.is-new-version == 'true'
+        permissions:
+            contents: read
+            id-token: write
         env:
             COMMITTED_VERSION: ${{ needs.check-package-version.outputs.committed-version }}
             PUBLISHED_VERSION: ${{ needs.check-package-version.outputs.published-version }}
@@ -166,12 +169,12 @@ jobs:
               with:
                   fetch-depth: 1
             - name: Set up Python
-              uses: actions/setup-python@v5
+              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
               with:
                   python-version-file: 'pyproject.toml'
             - name: Install uv
               id: setup-uv-hogql-python
-              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
+              uses: astral-sh/setup-uv@681c641aba71e4a1c380be3ab5e12ad51f415867 # v7.1.6
               with:
                   enable-cache: true
                   version: 0.9.9
@@ -185,17 +188,13 @@ jobs:
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
             - name: Install pnpm
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
-            - name: Set up Node 18
-              uses: actions/setup-node@v4
+            - name: Set up Node 24
+              uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
-                  node-version: 18
+                  node-version: 24
                   cache: 'pnpm'
                   registry-url: https://registry.npmjs.org
             - name: Install package.json dependencies
               run: pnpm --filter=@posthog/hogvm install --frozen-lockfile
             - name: Publish the package in the npm registry
               run: cd common/hogvm/typescript && npm publish --access public
-              env:
-                  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-            - name: Sleep 60 seconds to allow npm to update the package
-              run: sleep 60

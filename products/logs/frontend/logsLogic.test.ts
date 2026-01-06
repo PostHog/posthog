@@ -1,7 +1,9 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { useMocks } from '~/mocks/jest'
 import { LogMessage } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
@@ -33,10 +35,18 @@ const createMockLog = (uuid: string): LogMessage => ({
 describe('logsLogic', () => {
     let logic: ReturnType<typeof logsLogic.build>
 
-    beforeEach(() => {
+    beforeEach(async () => {
+        useMocks({
+            post: {
+                '/api/environments/:team_id/logs/query/': () => [200, { results: [] }],
+                '/api/environments/:team_id/logs/sparkline/': () => [200, []],
+            },
+        })
         initKeaTests()
         logic = logsLogic({ tabId: 'test-tab' })
         logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners()
     })
 
     afterEach(() => {
@@ -247,6 +257,70 @@ describe('logsLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(lemonToast.error).toHaveBeenCalledWith('Failed to load more logs: Network error')
+        })
+    })
+
+    describe('URL parameter parsing', () => {
+        it.each([
+            ['JSON string array', '["error","warn"]', ['error', 'warn']],
+            ['single item JSON array', '["info"]', ['info']],
+            ['empty JSON array', '[]', []],
+        ])('parses severityLevels from %s', async (_, urlValue, expected) => {
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', { severityLevels: urlValue })
+            }).toFinishAllListeners()
+
+            expect(logic.values.severityLevels).toEqual(expected)
+        })
+
+        it.each([
+            ['JSON string array', '["my-service","other-service"]', ['my-service', 'other-service']],
+            ['single item JSON array', '["api"]', ['api']],
+        ])('parses serviceNames from %s', async (_, urlValue, expected) => {
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', { serviceNames: urlValue })
+            }).toFinishAllListeners()
+
+            expect(logic.values.serviceNames).toEqual(expected)
+        })
+
+        it('filters out malformed JSON as invalid severity level', async () => {
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', { severityLevels: 'not-valid-json[' })
+            }).toFinishAllListeners()
+
+            // parseTagsFilter falls back to comma-separated parsing, then validation filters invalid levels
+            expect(logic.values.severityLevels).toEqual([])
+        })
+
+        it('filters out non-array JSON as invalid severity level', async () => {
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', { severityLevels: '"just-a-string"' })
+            }).toFinishAllListeners()
+
+            // parseTagsFilter falls back to comma-separated parsing, then validation filters invalid levels
+            expect(logic.values.severityLevels).toEqual([])
+        })
+
+        it('handles comma-separated values via parseTagsFilter', async () => {
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', { severityLevels: 'error,warn,info' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.severityLevels).toEqual(['error', 'warn', 'info'])
+        })
+
+        it.each([
+            ['completely invalid value', '["invalid-level"]', []],
+            ['typo in valid level', '["debug123"]', []],
+            ['mix of valid and invalid', '["error","not-a-level","warn"]', ['error', 'warn']],
+            ['invalid comma-separated', 'invalid,also-invalid', []],
+        ])('filters out invalid severity levels (%s)', async (_, urlValue, expected) => {
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', { severityLevels: urlValue })
+            }).toFinishAllListeners()
+
+            expect(logic.values.severityLevels).toEqual(expected)
         })
     })
 })

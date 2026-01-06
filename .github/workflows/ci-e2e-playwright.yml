@@ -136,7 +136,6 @@ jobs:
               with:
                   ref: ${{ github.event.pull_request.head.sha || github.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
-                  token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
                   clean: false
             - name: Clean up data directories with container permissions
               run: |
@@ -185,14 +184,13 @@ jobs:
               run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
             - name: Set up Python
-              uses: actions/setup-python@v5
+              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
               with:
                   python-version: 3.12.12
-                  token: ${{ secrets.POSTHOG_BOT_PAT }}
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
+              uses: astral-sh/setup-uv@681c641aba71e4a1c380be3ab5e12ad51f415867 # v7.1.6
               with:
                   enable-cache: true
                   version: 0.9.9
@@ -215,7 +213,7 @@ jobs:
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Set up Node.js
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
                   node-version: 22.17.1
                   cache: pnpm
@@ -271,17 +269,6 @@ jobs:
                   touch frontend/dist/layout.html
                   touch frontend/dist/exporter.html
                   ./bin/download-mmdb
-
-            - name: Get pnpm cache directory path
-              id: pnpm-cache-dir
-              run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
-
-            - uses: actions/cache@v4
-              id: pnpm-cache
-              with:
-                  path: ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
-                  key: ${{ runner.os }}-pnpm-playwright-${{ hashFiles('pnpm-lock.yaml') }}
-                  restore-keys: ${{ runner.os }}-pnpm-playwright-
 
             - name: Install package.json dependencies with pnpm
               run: |
@@ -503,10 +490,18 @@ jobs:
         needs: [playwright, detect-snapshot-mode, changes]
         if: always() && needs.detect-snapshot-mode.outputs.mode == 'update' && needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
         steps:
+            # Use GitHub app token so Actions run after commiting updated snapshots
+            - name: Get app token
+              id: app-token
+              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3
+              with:
+                  app_id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private_key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+
             - uses: actions/checkout@v4
               with:
                   ref: ${{ github.event.pull_request.head.sha }}
-                  token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
+                  token: ${{ steps.app-token.outputs.token || github.token }}
 
             - name: Download screenshot patches
               id: download-patches
@@ -550,7 +545,7 @@ jobs:
                   repository: ${{ github.repository }}
                   commit-sha: ${{ github.event.pull_request.head.sha }}
                   branch-name: ${{ github.event.pull_request.head.ref }}
-                  github-token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
+                  github-token: ${{ steps.app-token.outputs.token || github.token }}
 
     # Job to collate the status of the matrix jobs for requiring passing status
     # Must depend on handle-screenshots to prevent auto-merge before commits complete

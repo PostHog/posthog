@@ -354,6 +354,7 @@ describe('maxThreadLogic', () => {
                     type: AssistantMessageType.Human,
                     content: 'hello',
                     status: 'completed',
+                    trace_id: expect.any(String),
                 },
                 partial({
                     type: AssistantMessageType.Assistant,
@@ -2007,6 +2008,127 @@ describe('maxThreadLogic', () => {
             }).toMatchValues({
                 retryCount: 0,
             })
+        })
+    })
+
+    describe('finalizeStreamingMessages', () => {
+        it('removes streaming messages so server becomes source of truth', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setThread([
+                    {
+                        type: AssistantMessageType.Human,
+                        content: 'hello',
+                        status: 'completed',
+                        id: 'human-1',
+                    },
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'partial response',
+                        status: 'loading',
+                        // no id - streaming message
+                    },
+                ])
+                logic.actions.finalizeStreamingMessages()
+            })
+
+            // Streaming message should be removed
+            expect(logic.values.threadRaw.length).toBe(1)
+            // Completed message should be unchanged
+            expect(logic.values.threadRaw[0].id).toBe('human-1')
+            expect(logic.values.threadRaw[0].status).toBe('completed')
+        })
+
+        it('does not modify already completed messages', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setThread([
+                    {
+                        type: AssistantMessageType.Human,
+                        content: 'hello',
+                        status: 'completed',
+                        id: 'human-1',
+                    },
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'complete response',
+                        status: 'completed',
+                        id: 'assistant-1',
+                    },
+                ])
+                logic.actions.finalizeStreamingMessages()
+            })
+
+            // Messages should be unchanged
+            expect(logic.values.threadRaw[0].id).toBe('human-1')
+            expect(logic.values.threadRaw[1].id).toBe('assistant-1')
+        })
+
+        it('removes all streaming messages', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setThread([
+                    {
+                        type: AssistantMessageType.Human,
+                        content: 'hello',
+                        status: 'completed',
+                        id: 'human-1',
+                    },
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'streaming assistant',
+                        status: 'loading',
+                    },
+                    {
+                        type: AssistantMessageType.Artifact,
+                        content: {},
+                        status: 'loading',
+                        artifact_id: 'artifact-1',
+                        source: 'artifact',
+                    } as any,
+                ])
+                logic.actions.finalizeStreamingMessages()
+            })
+
+            // Both streaming messages should be removed
+            expect(logic.values.threadRaw.length).toBe(1)
+            expect(logic.values.threadRaw[0].id).toBe('human-1')
+        })
+
+        it('allows new streaming messages after finalization', async () => {
+            await expectLogic(logic, () => {
+                // Set up a thread with a streaming message
+                logic.actions.setThread([
+                    {
+                        type: AssistantMessageType.Human,
+                        content: 'hello',
+                        status: 'completed',
+                        id: 'human-1',
+                    },
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'partial response before error',
+                        status: 'loading',
+                    },
+                ])
+                // Finalize it (simulating error handling - removes streaming messages)
+                logic.actions.finalizeStreamingMessages()
+            })
+
+            // Streaming message should be removed
+            expect(logic.values.threadRaw.length).toBe(1)
+
+            // Now simulate a new streaming message coming in after retry
+            await expectLogic(logic, () => {
+                logic.actions.addMessage({
+                    type: AssistantMessageType.Assistant,
+                    content: 'new streaming response',
+                    status: 'loading',
+                })
+            })
+
+            // Should have 2 messages now - the new streaming message is added
+            expect(logic.values.threadRaw.length).toBe(2)
+            expect(logic.values.threadRaw[0].id).toBe('human-1')
+            expect(logic.values.threadRaw[1].status).toBe('loading')
+            expect((logic.values.threadRaw[1] as AssistantMessage).content).toBe('new streaming response')
         })
     })
 

@@ -1,23 +1,35 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonInput, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { AutoShowSection } from './components/AutoShowSection'
 import { EditInToolbarButton } from './components/EditInToolbarButton'
-import { productTourLogic } from './productTourLogic'
+import { ProductTourCustomization } from './components/ProductTourCustomization'
+import { ProductTourEditTab, productTourLogic } from './productTourLogic'
 
 export function ProductTourEdit({ id }: { id: string }): JSX.Element {
-    const { productTour, productTourLoading, productTourForm, targetingFlagFilters, isProductTourFormSubmitting } =
-        useValues(productTourLogic({ id }))
-    const { editingProductTour, setProductTourFormValue, submitProductTourForm } = useActions(productTourLogic({ id }))
+    const {
+        productTour,
+        productTourLoading,
+        productTourForm,
+        targetingFlagFilters,
+        isProductTourFormSubmitting,
+        editTab,
+    } = useValues(productTourLogic({ id }))
+    const { editingProductTour, setProductTourFormValue, submitProductTourForm, setEditTab } = useActions(
+        productTourLogic({ id })
+    )
 
     if (!productTour) {
         return <LemonSkeleton />
@@ -51,168 +63,148 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                     }
                 />
 
-                <div className="space-y-6 max-w-3xl">
-                    <LemonField name="name" label="Name">
-                        <LemonInput
-                            placeholder="Tour name"
-                            value={productTourForm.name}
-                            onChange={(value) => setProductTourFormValue('name', value)}
-                        />
-                    </LemonField>
+                <LemonTabs
+                    activeKey={editTab}
+                    onChange={(newTab) => setEditTab(newTab as ProductTourEditTab)}
+                    tabs={[
+                        { key: ProductTourEditTab.Configuration, label: 'Configuration' },
+                        { key: ProductTourEditTab.Customization, label: 'Customization' },
+                    ]}
+                />
 
-                    <LemonField name="description" label="Description">
-                        <LemonInput
-                            placeholder="Optional description"
-                            value={productTourForm.description}
-                            onChange={(value) => setProductTourFormValue('description', value)}
-                        />
-                    </LemonField>
-
-                    <LemonDivider />
-
-                    <div>
-                        <h3 className="font-semibold mb-2">Tour URLs</h3>
-                        <p className="text-secondary text-sm mb-4">
-                            Tour will only display on URLs matching these conditions
-                        </p>
-                        <div className="flex gap-2">
-                            <LemonSelect
-                                value={conditions.urlMatchType || 'contains'}
-                                onChange={(value) => {
-                                    setProductTourFormValue('content', {
-                                        ...productTourForm.content,
-                                        conditions: {
-                                            ...conditions,
-                                            urlMatchType: value,
-                                        },
-                                    })
-                                }}
-                                options={[
-                                    { label: 'Contains', value: 'contains' },
-                                    { label: 'Exact match', value: 'exact' },
-                                    { label: 'Regex', value: 'regex' },
-                                ]}
-                            />
+                {editTab === ProductTourEditTab.Configuration && (
+                    <div className="space-y-6 max-w-3xl">
+                        <LemonField name="name" label="Name">
                             <LemonInput
-                                className="flex-1"
-                                value={conditions.url || ''}
-                                onChange={(value) => {
-                                    setProductTourFormValue('content', {
-                                        ...productTourForm.content,
-                                        conditions: {
-                                            ...conditions,
-                                            url: value,
-                                        },
-                                    })
-                                }}
-                                placeholder="e.g. /dashboard or https://example.com/app"
+                                placeholder="Tour name"
+                                value={productTourForm.name}
+                                onChange={(value) => setProductTourFormValue('name', value)}
                             />
-                        </div>
-                    </div>
+                        </LemonField>
 
-                    <LemonDivider />
+                        <LemonField name="description" label="Description">
+                            <LemonInput
+                                placeholder="Optional description"
+                                value={productTourForm.description}
+                                onChange={(value) => setProductTourFormValue('description', value)}
+                            />
+                        </LemonField>
 
-                    <div>
-                        <h3 className="font-semibold mb-2">Display conditions</h3>
-                        <p className="text-secondary text-sm mb-4">
-                            Configure how and when this tour is shown to users.
-                        </p>
+                        <LemonDivider />
 
-                        <div className="space-y-4">
-                            <div className="border rounded p-4 bg-surface-primary">
-                                <div className="flex items-center justify-between mb-2">
-                                    <h4 className="font-semibold">Auto-show this tour</h4>
-                                    <LemonSwitch
-                                        checked={productTourForm.auto_launch}
-                                        onChange={(checked) => setProductTourFormValue('auto_launch', checked)}
+                        <div>
+                            <h3 className="font-semibold mb-2">Display conditions</h3>
+                            <p className="text-secondary text-sm mb-4">
+                                Configure how and when this tour is shown to users.
+                            </p>
+
+                            <div className="space-y-4">
+                                <div className="border rounded p-4 bg-surface-primary">
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <h4 className="font-semibold">Auto-show this tour</h4>
+                                            <p className="text-secondary text-sm mb-0">
+                                                Automatically show this tour to users who match your conditions
+                                            </p>
+                                        </div>
+                                        <LemonSwitch
+                                            checked={productTourForm.auto_launch}
+                                            onChange={(checked) => setProductTourFormValue('auto_launch', checked)}
+                                        />
+                                    </div>
+
+                                    {productTourForm.auto_launch && (
+                                        <div className="mt-4 pt-4 border-t space-y-4">
+                                            <div>
+                                                <h5 className="font-semibold mb-3">
+                                                    Who to show&nbsp;
+                                                    <Tooltip title="Only auto-show the tour to users who match these conditions">
+                                                        <IconInfo />
+                                                    </Tooltip>
+                                                </h5>
+                                                <BindLogic
+                                                    logic={featureFlagLogic}
+                                                    props={{
+                                                        id: productTour.internal_targeting_flag?.id
+                                                            ? String(productTour.internal_targeting_flag.id)
+                                                            : 'new',
+                                                    }}
+                                                >
+                                                    <FeatureFlagReleaseConditions
+                                                        id={
+                                                            productTour.internal_targeting_flag?.id
+                                                                ? String(productTour.internal_targeting_flag.id)
+                                                                : 'new'
+                                                        }
+                                                        excludeTitle={true}
+                                                        filters={
+                                                            targetingFlagFilters || {
+                                                                groups: [
+                                                                    {
+                                                                        variant: '',
+                                                                        rollout_percentage: 100,
+                                                                        properties: [],
+                                                                    },
+                                                                ],
+                                                            }
+                                                        }
+                                                        onChange={(filters) => {
+                                                            setProductTourFormValue('targeting_flag_filters', filters)
+                                                        }}
+                                                    />
+                                                </BindLogic>
+                                            </div>
+
+                                            <AutoShowSection
+                                                conditions={conditions}
+                                                onChange={(newConditions) => {
+                                                    setProductTourFormValue('content', {
+                                                        ...productTourForm.content,
+                                                        conditions: newConditions,
+                                                    })
+                                                }}
+                                            />
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="border rounded p-4 bg-surface-primary">
+                                    <h4 className="font-semibold mb-2">Manual trigger</h4>
+                                    <p className="text-secondary text-sm mb-4">
+                                        Show this tour when users click an element matching this CSS selector.
+                                    </p>
+                                    <LemonInput
+                                        className="font-mono"
+                                        value={conditions.selector || ''}
+                                        onChange={(value) => {
+                                            setProductTourFormValue('content', {
+                                                ...productTourForm.content,
+                                                conditions: {
+                                                    ...conditions,
+                                                    selector: value,
+                                                },
+                                            })
+                                        }}
+                                        placeholder="e.g. #help-button or .tour-trigger"
                                     />
                                 </div>
-                                <p className="text-secondary text-sm">
-                                    Automatically show to users who match the targeting conditions.
-                                </p>
-
-                                {productTourForm.auto_launch && (
-                                    <div className="mt-4 pt-4 border-t space-y-4">
-                                        <div>
-                                            <h5 className="font-semibold mb-2">User targeting</h5>
-                                            <p className="text-secondary text-sm mb-4">
-                                                Target specific users based on their properties. Users who have
-                                                completed or dismissed this tour are automatically excluded.
-                                            </p>
-                                            <BindLogic
-                                                logic={featureFlagLogic}
-                                                props={{
-                                                    id: productTour.internal_targeting_flag?.id
-                                                        ? String(productTour.internal_targeting_flag.id)
-                                                        : 'new',
-                                                }}
-                                            >
-                                                <FeatureFlagReleaseConditions
-                                                    id={
-                                                        productTour.internal_targeting_flag?.id
-                                                            ? String(productTour.internal_targeting_flag.id)
-                                                            : 'new'
-                                                    }
-                                                    excludeTitle={true}
-                                                    filters={
-                                                        targetingFlagFilters || {
-                                                            groups: [
-                                                                {
-                                                                    variant: '',
-                                                                    rollout_percentage: 100,
-                                                                    properties: [],
-                                                                },
-                                                            ],
-                                                        }
-                                                    }
-                                                    onChange={(filters) => {
-                                                        setProductTourFormValue('targeting_flag_filters', filters)
-                                                    }}
-                                                />
-                                            </BindLogic>
-                                        </div>
-
-                                        {productTour.internal_targeting_flag && (
-                                            <>
-                                                <LemonDivider />
-                                                <div>
-                                                    <h5 className="font-semibold mb-2">Feature flag</h5>
-                                                    <p className="text-secondary text-sm mb-4">
-                                                        This tour uses an internal feature flag for targeting.
-                                                    </p>
-                                                    <div className="flex items-center gap-2">
-                                                        <LemonTag>{productTour.feature_flag_key}</LemonTag>
-                                                    </div>
-                                                </div>
-                                            </>
-                                        )}
-                                    </div>
-                                )}
-                            </div>
-
-                            <div className="border rounded p-4 bg-surface-primary">
-                                <h4 className="font-semibold mb-2">Trigger selector</h4>
-                                <p className="text-secondary text-sm mb-4">
-                                    Show this tour when users click an element matching this CSS selector.
-                                </p>
-                                <LemonInput
-                                    className="font-mono"
-                                    value={conditions.selector || ''}
-                                    onChange={(value) => {
-                                        setProductTourFormValue('content', {
-                                            ...productTourForm.content,
-                                            conditions: {
-                                                ...conditions,
-                                                selector: value,
-                                            },
-                                        })
-                                    }}
-                                    placeholder="e.g. #help-button or .tour-trigger"
-                                />
                             </div>
                         </div>
                     </div>
-                </div>
+                )}
+
+                {editTab === ProductTourEditTab.Customization && (
+                    <ProductTourCustomization
+                        appearance={productTourForm.content?.appearance}
+                        steps={productTourForm.content?.steps ?? []}
+                        onChange={(appearance) => {
+                            setProductTourFormValue('content', {
+                                ...productTourForm.content,
+                                appearance,
+                            })
+                        }}
+                    />
+                )}
             </SceneContent>
         </Form>
     )

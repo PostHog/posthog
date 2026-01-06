@@ -3,7 +3,6 @@ import time
 import hashlib
 from contextlib import suppress
 from functools import lru_cache
-from typing import Optional
 
 from django.conf import settings
 from django.urls import resolve
@@ -52,7 +51,7 @@ def get_team_allow_list(_ttl: int) -> list[str]:
     return get_list(get_instance_setting("RATE_LIMITING_ALLOW_LIST_TEAMS"))
 
 
-def team_is_allowed_to_bypass_throttle(team_id: Optional[int]) -> bool:
+def team_is_allowed_to_bypass_throttle(team_id: int | None) -> bool:
     """
     Check if a given team_id belongs to a throttle bypass allow list.
     """
@@ -206,6 +205,10 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
                     tags={"team_id": team_id, "route": route},
                 )
                 RATE_LIMIT_BYPASSED_COUNTER.labels(team_id=team_id, path=route, route=route).inc()
+
+                from posthog.clickhouse.query_tagging import tag_queries
+
+                tag_queries(rate_limit_bypass=1)
                 return True
             else:
                 scope = getattr(self, "scope", None)
@@ -279,7 +282,7 @@ class DecideRateThrottle(BaseThrottle):
         )
 
     @staticmethod
-    def safely_get_token_from_request(request: Request) -> Optional[str]:
+    def safely_get_token_from_request(request: Request) -> str | None:
         """
         Gets the token from a request without throwing.
 
@@ -441,16 +444,53 @@ class AISustainedRateThrottle(UserRateThrottle):
         return request_allowed
 
 
+LLM_GATEWAY_MODEL_RATE_LIMITS: dict[str, dict[str, str]] = {
+    "haiku": {"burst": "1000/minute", "sustained": "20000/hour"},
+}
+
+LLM_GATEWAY_DEFAULT_BURST_RATE = "100/minute"
+LLM_GATEWAY_DEFAULT_SUSTAINED_RATE = "1000/hour"
+
+
+def _get_model_from_request(request) -> str | None:
+    try:
+        return request.data.get("model")
+    except Exception:
+        return None
+
+
+def _get_rate_for_model(model: str | None, rate_type: str, default: str) -> str:
+    if not model:
+        return default
+
+    model_lower = model.lower()
+    for model_substring, limits in LLM_GATEWAY_MODEL_RATE_LIMITS.items():
+        if model_substring in model_lower:
+            return limits.get(rate_type, default)
+
+    return default
+
+
 class LLMGatewayBurstRateThrottle(UserRateThrottle):
     scope = "llm_gateway_burst"
-    rate = "1000/minute"
+    rate = LLM_GATEWAY_DEFAULT_BURST_RATE
+
+    def allow_request(self, request, view):
+        model = _get_model_from_request(request)
+        self.rate = _get_rate_for_model(model, "burst", LLM_GATEWAY_DEFAULT_BURST_RATE)
+        self.num_requests, self.duration = self.parse_rate(self.rate)
+        return super().allow_request(request, view)
 
 
 class LLMGatewaySustainedRateThrottle(UserRateThrottle):
-    # Throttle class that's very aggressive and is used specifically on endpoints that hit LLM providers
-    # Intended to block slower but sustained bursts of requests, per user
     scope = "llm_gateway_sustained"
-    rate = "20000/hour"
+    rate = LLM_GATEWAY_DEFAULT_SUSTAINED_RATE
+
+    def allow_request(self, request, view):
+        model = _get_model_from_request(request)
+        self.rate = _get_rate_for_model(model, "sustained", LLM_GATEWAY_DEFAULT_SUSTAINED_RATE)
+        self.num_requests, self.duration = self.parse_rate(self.rate)
+        return super().allow_request(request, view)
 
 
 class LLMProxyBurstRateThrottle(UserRateThrottle):
@@ -463,6 +503,13 @@ class LLMProxySustainedRateThrottle(UserRateThrottle):
     # Intended to block slower but sustained bursts of requests, per user
     scope = "llm_proxy_sustained"
     rate = "500/hour"
+
+
+class LLMProxyDailyRateThrottle(UserRateThrottle):
+    # Daily cap for LLM proxy (playground) endpoint
+    # Hard limit to prevent runaway costs from sustained abuse
+    scope = "llm_proxy_daily"
+    rate = "1000/day"
 
 
 class HogQLQueryThrottle(PersonalApiKeyRateThrottle):
@@ -613,13 +660,49 @@ class SetupWizardQueryRateThrottle(SimpleRateThrottle):
         return f"throttle_wizard_query_{sha_hash}"
 
 
-class BreakGlassBurstThrottle(UserOrEmailRateThrottle):
-    # Throttle class that can be applied when a bug is causing too many requests to hit and an endpoint, e.g. a bug in the frontend hitting an endpoint in a loop.
-    # Prefer making a subclass of this for specific endpoints, and setting a scope
-    rate = "15/minute"
+class SymbolSetUploadBurstRateThrottle(PersonalApiKeyRateThrottle):
+    scope = "symbol_set_upload_burst"
+    rate = "1200/minute"
 
 
 class BreakGlassSustainedThrottle(UserOrEmailRateThrottle):
     # Throttle class that can be applied when a bug is causing too many requests to hit and an endpoint, e.g. a bug in the frontend hitting an endpoint in a loop
     # Prefer making a subclass of this for specific endpoints, and setting a scope
     rate = "75/hour"
+
+
+class WidgetUserBurstThrottle(SimpleRateThrottle):
+    """Rate limit per widget_session_id or IP for POST/GET requests."""
+
+    scope = "widget_user_burst"
+    rate = "30/minute"
+
+    def get_cache_key(self, request, view):
+        # Throttle by widget_session_id if available, otherwise by IP
+        widget_session_id = request.data.get("widget_session_id") or request.query_params.get("widget_session_id")
+        if widget_session_id:
+            ident = hashlib.sha256(widget_session_id.encode()).hexdigest()
+        else:
+            ident = self.get_ident(request)
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
+class WidgetTeamThrottle(SimpleRateThrottle):
+    """Rate limit per team token."""
+
+    scope = "widget_team"
+    rate = "1000/hour"
+
+    def get_cache_key(self, request, view):
+        # Throttle by team token if available, otherwise by IP
+        token = request.headers.get("X-Conversations-Token", "")
+        if token:
+            ident = hashlib.sha256(token.encode()).hexdigest()
+        else:
+            ident = self.get_ident(request)
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
+class SymbolSetUploadSustainedRateThrottle(PersonalApiKeyRateThrottle):
+    scope = "symbol_set_upload_sustained"
+    rate = "12000/hour"

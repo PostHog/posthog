@@ -51,7 +51,21 @@ class TestExternalSurveys(APIBaseTest):
 
     def test_xss_prevention_in_survey_data(self):
         xss_payload = "</script><script>alert(1)</script>"
-        survey = self.create_external_survey(name=xss_payload)
+        survey = self.create_external_survey(
+            name=xss_payload,
+            questions=[
+                {
+                    "id": str(uuid.uuid4()),
+                    "type": "open",
+                    "question": xss_payload,
+                    "description": xss_payload,
+                }
+            ],
+            appearance={
+                "backgroundColor": xss_payload,
+                "submitButtonText": xss_payload,
+            },
+        )
 
         response = self.client.get(f"/external_surveys/{survey.id}/")
         assert response.status_code == 200

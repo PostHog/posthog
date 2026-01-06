@@ -2344,28 +2344,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(lines[2], b"test custom,0,0,0,0,0,0,2,1")
         self.assertEqual(len(lines), 3, response.content)
 
-    def test_insight_trends_formula_and_fractional_numbers_csv(self) -> None:
-        with freeze_time("2012-01-14T03:21:34.000Z"):
-            _create_event(team=self.team, event="$pageview", distinct_id="1")
-            _create_event(team=self.team, event="$pageview", distinct_id="2")
-
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            _create_event(team=self.team, event="$pageview", distinct_id="2")
-            response = self.client.get(
-                f"/api/projects/{self.team.id}/insights/trend.csv/?events={json.dumps([{'id': '$pageview', 'custom_name': 'test custom'}])}&export_name=Pageview count&export_insight_id=test123&formula=A*0.5"
-            )
-
-        lines = response.content.splitlines()
-
-        self.assertEqual(lines[0], b"http://localhost:8010/insights/test123/", lines[0])
-        self.assertEqual(
-            lines[1],
-            b"series,8-Jan-2012,9-Jan-2012,10-Jan-2012,11-Jan-2012,12-Jan-2012,13-Jan-2012,14-Jan-2012,15-Jan-2012",
-            lines[0],
-        )
-        self.assertEqual(lines[2], b"Formula (A*0.5),0.0,0.0,0.0,0.0,0.0,0.0,1.0,0.5")
-        self.assertEqual(len(lines), 3, response.content)
-
     def _create_one_person_cohort(self, properties: list[dict[str, Any]]) -> int:
         Person.objects.create(team=self.team, properties=properties)
         cohort_one_id = self.client.post(

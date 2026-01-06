@@ -9,6 +9,7 @@ from posthog.schema import (
     DataWarehouseNode,
     DataWarehousePropertyFilter,
     EventsNode,
+    GroupNode,
     HogQLQueryModifiers,
     TrendsQuery,
 )
@@ -27,7 +28,7 @@ from posthog.hogql_queries.insights.trends.breakdown import (
     Breakdown,
 )
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
-from posthog.hogql_queries.insights.trends.utils import is_groups_math, series_event_name
+from posthog.hogql_queries.insights.trends.utils import is_groups_math
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
@@ -38,7 +39,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
     query: TrendsQuery
     team: Team
     query_date_range: QueryDateRange
-    series: EventsNode | ActionsNode | DataWarehouseNode
+    series: EventsNode | ActionsNode | DataWarehouseNode | GroupNode
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
     limit_context: LimitContext
@@ -48,7 +49,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         trends_query: TrendsQuery,
         team: Team,
         query_date_range: QueryDateRange,
-        series: EventsNode | ActionsNode | DataWarehouseNode,
+        series: EventsNode | ActionsNode | DataWarehouseNode | GroupNode,
         timings: HogQLTimings,
         modifiers: HogQLQueryModifiers,
         limit_context: LimitContext = LimitContext.QUERY,
@@ -95,7 +96,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         return parse_select(
             """
             SELECT
-                SUM(total) AS total,
+                {outer_agg} AS total,
                 {breakdown_select}
             FROM
                 {rank_query}
@@ -107,6 +108,9 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 breakdown_value ASC
             """,
             placeholders={
+                "outer_agg": self._aggregation_operation.get_outer_aggregation(
+                    ast.Field(chain=["total"]), is_histogram_breakdown=self.breakdown.is_histogram_breakdown
+                ),
                 "breakdown_select": self._breakdown_outer_query_select(
                     self.breakdown, breakdown_limit=self._get_breakdown_limit() + 1
                 ),
@@ -178,11 +182,11 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                     -- "Other" breakdown value
                     SELECT
                         day_start,
-                        sum(count) as value,
+                        {{outer_agg}} as value,
                         {{breakdown_other}} as breakdown_value
                     FROM ranked_breakdown_values
                     WHERE breakdown_rank > {{breakdown_limit}}
-                    GROUP BY breakdown_value, day_start
+                    GROUP BY day_start
                 ) AS other_breakdown_values,
                 (
                     -- Combine and order top N and "other" breakdown values
@@ -194,7 +198,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 ) AS top_n_and_other_breakdown_values,
 
                 -- Transpose the results into arrays for each breakdown value
-                {'SELECT date, total, breakdown_value FROM (' if is_cumulative else ''}
+                {"SELECT date, total, breakdown_value FROM (" if is_cumulative else ""}
                 SELECT
                     {{all_dates}},
                     arrayMap(d ->
@@ -202,8 +206,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                             arrayMap((v, dd) -> dd = d ? v : 0, vals, days)
                         ),
                         date
-                    ) AS {'values' if is_cumulative else 'total'},
-                    {'arrayMap(i -> arraySum(arraySlice(values, 1, i)), arrayEnumerate(values)) AS total,' if is_cumulative else ''}
+                    ) AS {"values" if is_cumulative else "total"},
+                    {"arrayMap(i -> arraySum(arraySlice(values, 1, i)), arrayEnumerate(values)) AS total," if is_cumulative else ""}
                     breakdown_value
                 FROM (
                     SELECT
@@ -214,7 +218,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                     GROUP BY breakdown_value
                 )
                 ORDER BY {{breakdown_order}} ASC, arraySum(total) DESC, breakdown_value ASC
-                {')' if is_cumulative else ''}
+                {")" if is_cumulative else ""}
                 """,
                 {
                     "inner_query": inner_query,
@@ -222,6 +226,9 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                     "breakdown_limit": breakdown_limit_expr,
                     "breakdown_order": self._breakdown_query_order_by(self.breakdown),
                     "all_dates": self._get_date_subqueries(),
+                    "outer_agg": self._aggregation_operation.get_outer_aggregation(
+                        ast.Field(chain=["count"]), is_histogram_breakdown=self.breakdown.is_histogram_breakdown
+                    ),
                     **self.query_date_range.to_placeholders(),
                 },
             )
@@ -320,26 +327,26 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             #   [0, 0, 1],
             #   [0, 1, 0]
             # ]
-            # and turns it into
-            # [0, 1, 1]
+            # and combines them using the appropriate operation (sum for counts, max for max, etc.)
+            array_merge_operation = self._aggregation_operation.get_array_fold_merge_operation()
             return parse_select(
-                """
+                f"""
                 SELECT
                     groupArray(1)(date)[1] as date,
                     arrayFold(
                         (acc, x) -> arrayMap(
-                            i -> acc[i] + x[i],
+                            i -> {array_merge_operation},
                             range(1, length(date) + 1)
                         ),
                         groupArray(ifNull(total, 0)),
                         arrayWithConstant(length(date), reinterpretAsFloat64(0))
                     ) as total,
-                    {breakdown_select}
-                FROM {outer_query}
-                WHERE {breakdown_filter}
+                    {{breakdown_select}}
+                FROM {{outer_query}}
+                WHERE {{breakdown_filter}}
                 GROUP BY breakdown_value
                 ORDER BY
-                    {breakdown_order_by},
+                    {{breakdown_order_by}},
                     arraySum(total) DESC,
                     breakdown_value ASC
             """,
@@ -363,10 +370,15 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             parse_select(
                 """
                 SELECT
-                    sum(total) AS count
+                    {outer_agg} AS count
                 FROM {inner_query}
             """,
-                placeholders={"inner_query": inner_query},
+                placeholders={
+                    "outer_agg": self._aggregation_operation.get_outer_aggregation(
+                        ast.Field(chain=["total"]), is_histogram_breakdown=self.breakdown.is_histogram_breakdown
+                    ),
+                    "inner_query": inner_query,
+                },
             ),
         )
 
@@ -860,21 +872,73 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         return ast.And(exprs=filters)
 
     def _event_or_action_where_expr(self) -> ast.Expr | None:
-        # Event name
-        if series_event_name(self.series) is not None:
-            return parse_expr(
-                "event = {event}",
-                placeholders={"event": ast.Constant(value=series_event_name(self.series))},
-            )
+        if isinstance(self.series, EventsNode):
+            return self._get_event_expr(self.series)
 
-        # Actions
         if isinstance(self.series, ActionsNode):
-            try:
-                action = Action.objects.get(pk=int(self.series.id), team__project_id=self.team.project_id)
-                return action_to_expr(action)
-            except Action.DoesNotExist:
-                # If an action doesn't exist, we want to return no events
-                return parse_expr("1 = 2")
+            return self._get_action_expr(self.series)
+
+        if isinstance(self.series, GroupNode):
+            return self._get_group_expr(self.series)
+
+        return None
+
+    def _get_event_expr(self, series: EventsNode) -> ast.Expr | None:
+        if series.event is None:
+            return None
+        return parse_expr(
+            "event = {event}",
+            placeholders={"event": ast.Constant(value=series.event)},
+        )
+
+    def _get_action_expr(self, series: ActionsNode) -> ast.Expr | None:
+        try:
+            action = Action.objects.get(pk=int(series.id), team__project_id=self.team.project_id)
+            return action_to_expr(action)
+        except Action.DoesNotExist:
+            # If an action doesn't exist, we want to return no events
+            return parse_expr("1 = 2")
+
+    def _get_group_expr(self, series: GroupNode) -> ast.Expr | None:
+        group_filters: list[ast.Expr] = []
+        for node in series.nodes:
+            if isinstance(node, EventsNode):
+                event_expr = self._get_event_expr(node)
+                if event_expr is None:
+                    continue
+
+                # Add property filters if present
+                if node.properties is not None and node.properties != []:
+                    properties_expr = property_to_expr(node.properties, self.team)
+                    combined_expr: ast.Expr = ast.And(exprs=[event_expr, properties_expr])
+                    group_filters.append(combined_expr)
+                else:
+                    group_filters.append(event_expr)
+
+            if isinstance(node, ActionsNode):
+                action_expr = self._get_action_expr(node)
+                if action_expr is None:
+                    continue
+
+                # Add property filters if present
+                if node.properties is not None and node.properties != []:
+                    properties_expr = property_to_expr(node.properties, self.team)
+                    combined_expr = ast.And(exprs=[action_expr, properties_expr])
+                    group_filters.append(combined_expr)
+                else:
+                    group_filters.append(action_expr)
+
+        if len(group_filters) == 0:
+            return None
+
+        if len(group_filters) == 1:
+            return group_filters[0]
+
+        if series.operator == "OR":
+            return ast.Or(exprs=group_filters)
+
+        # if series.operator == "AND":
+        #     return ast.And(exprs=group_filters)
 
         return None
 

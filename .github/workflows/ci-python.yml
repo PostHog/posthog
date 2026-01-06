@@ -7,6 +7,9 @@ on:
     pull_request:
     merge_group:
 
+permissions:
+    contents: read
+
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -58,7 +61,7 @@ jobs:
         if: needs.changes.outputs.python == 'true'
         timeout-minutes: 30
 
-        name: Python code quality checks
+        name: Python code quality
         runs-on: depot-ubuntu-latest
 
         steps:
@@ -67,13 +70,13 @@ jobs:
                   fetch-depth: 1
 
             - name: Set up Python
-              uses: actions/setup-python@v5
+              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
               with:
                   python-version: 3.12.12
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
+              uses: astral-sh/setup-uv@681c641aba71e4a1c380be3ab5e12ad51f415867 # v7.1.6
               with:
                   enable-cache: true
                   version: 0.9.9
@@ -152,8 +155,44 @@ jobs:
               run: |
                   pytest common/hogli/tests/ -v --cov=common/hogli --cov-report=term
 
+            - name: Run dependency detection script tests
+              shell: bash
+              run: |
+                  pytest bin/test/test_find_python_dependencies.py -v
+
             # - name: Check if "taxonomy.json/taxonomy.tsx" is up to date
             #   if: needs.changes.outputs.python == 'true'
             #   shell: bash
             #   run: |
             #       npm run taxonomy:build:json && git diff --exit-code
+
+    # Collate job - single required status check for branch protection.
+    # The code-quality job skips when no Python changes, but this job always
+    # runs and reports success, allowing PRs to merge.
+    python_tests:
+        needs: [changes, code-quality]
+        name: Python code quality checks
+        runs-on: ubuntu-latest
+        if: always()
+        steps:
+            - name: Check Python CI status
+              run: |
+                  # Fail if change detection itself failed
+                  if [[ "${{ needs.changes.result }}" == "failure" ]]; then
+                    echo "Change detection job failed."
+                    exit 1
+                  fi
+
+                  # Pass if no Python changes detected (jobs were skipped)
+                  if [[ "${{ needs.changes.outputs.python }}" != "true" ]]; then
+                    echo "Python checks were skipped (no relevant changes)"
+                    exit 0
+                  fi
+
+                  # Check actual job result
+                  if [[ "${{ needs.code-quality.result }}" != "success" && "${{ needs.code-quality.result }}" != "skipped" ]]; then
+                    echo "Python code quality checks failed."
+                    exit 1
+                  fi
+
+                  echo "All Python checks passed."

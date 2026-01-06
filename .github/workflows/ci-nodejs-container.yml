@@ -1,0 +1,182 @@
+name: Build and deploy node container image
+
+on:
+    workflow_dispatch:
+    pull_request:
+    merge_group:
+    push:
+        branches:
+            - 'master'
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+    changes:
+        runs-on: ubuntu-24.04
+        permissions:
+            contents: read
+        timeout-minutes: 5
+        if: github.repository == 'PostHog/posthog' && github.event_name != 'merge_group'
+        name: Determine need to run node Docker build
+        outputs:
+            node_files: ${{ steps.filter.outputs.node_files }}
+        steps:
+            - name: Check out
+              uses: actions/checkout@v4
+
+            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+              id: filter
+              with:
+                  filters: |
+                      node_files:
+                        - 'nodejs/**'
+                        - 'common/hogvm/typescript/**'
+                        - 'common/plugin_transpiler/**'
+                        - 'common/esbuilder/**'
+                        - 'rust/cyclotron-node/**'
+                        - 'Dockerfile.node'
+                        - '.github/workflows/ci-nodejs-container.yml'
+                        - 'turbo.json'
+                        - 'package.json'
+                        - 'pnpm-lock.yaml'
+                        - 'pnpm-workspace.yaml'
+
+    build:
+        needs: changes
+        name: Build and push node image
+        if: |
+            (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.node_files == 'true') ||
+            github.event_name == 'merge_group' ||
+            (github.event_name == 'push' && github.ref == 'refs/heads/master')
+        runs-on: depot-ubuntu-latest
+        permissions:
+            id-token: write # allow issuing OIDC tokens for this workflow run
+            contents: read # allow reading the repo contents
+            packages: write # allow push to ghcr.io
+
+        outputs:
+            digest: ${{ steps.build.outputs.digest }}
+
+        steps:
+            - name: Check out
+              uses: actions/checkout@v4
+
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3
+
+            - name: Set up QEMU
+              uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3
+
+            - name: Set up Depot CLI
+              uses: depot/setup-action@b0b1ea4f69e92ebf5dea3f8713a1b0c37b2126a5 # v1
+
+            - name: Configure AWS credentials
+              uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5.1.1
+              with:
+                  role-to-assume: ${{ secrets.AWS_ECR_PUBLISH_IAM_ROLE }}
+                  aws-region: us-east-1
+
+            - name: Login to Amazon ECR
+              id: aws-ecr
+              uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2
+
+            - name: Login to ghcr.io
+              uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+                  logout: false
+
+            - name: Docker meta
+              id: meta
+              uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5
+              with:
+                  images: |
+                      ${{ steps.aws-ecr.outputs.registry }}/posthog-node
+                  tags: |
+                      type=ref,event=pr
+                      type=ref,event=branch
+                      type=sha
+                      type=raw,value=latest,enable={{is_default_branch}}
+
+            - name: Build and push container image
+              id: build
+              uses: depot/build-push-action@2583627a84956d07561420dcc1d0eb1f2af3fac0 # v1
+              with:
+                  buildx-fallback: false
+                  project: '00mrvlsdvh'
+                  push: true
+                  file: Dockerfile.node
+                  tags: ${{ steps.meta.outputs.tags }}
+                  labels: ${{ steps.meta.outputs.labels }}
+                  platforms: linux/arm64,linux/amd64
+                  build-args: |
+                      COMMIT_HASH=${{ github.sha }}
+
+            - name: Container image digest
+              run: |
+                  echo "Image digest: ${{ steps.build.outputs.digest }}"
+                  echo "Full image reference: $${{ steps.aws-ecr.outputs.registry }}/posthog-node:${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                  echo "## Container image built :rocket:" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "**Image reference:** \`$${{ steps.aws-ecr.outputs.registry }}/posthog-node:${{ github.sha }}@${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "**Image SHA:** \`${{ github.sha }}@${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "- Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+                  echo "- Digest: \`${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+
+            - name: Report failure
+              if: failure()
+              uses: PostHog/posthog-github-action@v0.1
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
+                  event: 'node-image-build'
+                  properties: '{"status": "failure", "commit_hash": "${{ github.sha }}"}'
+
+    deploy:
+        name: Deploy node services
+        runs-on: ubuntu-24.04
+        needs: build
+        if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+        permissions:
+            contents: read
+        steps:
+            - name: Check out
+              uses: actions/checkout@v4
+
+            - name: Get deployer token
+              id: deployer
+              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3
+              with:
+                  app_id: ${{ secrets.GH_APP_CHARTS_DEPLOYER_APP_ID }}
+                  private_key: ${{ secrets.GH_APP_CHARTS_DEPLOYER_PRIVATE_KEY }}
+
+            - name: Get PR labels
+              id: labels
+              uses: ./.github/actions/get-pr-labels
+              with:
+                  token: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Trigger node deployment
+              uses: peter-evans/repository-dispatch@ff45666b9427631e3450c54a1bcbee4d9ff4d7c0 # v3
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ github.sha }}@${{ needs.build.outputs.digest }}"
+                          }
+                        },
+                        "release": "node",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                      }

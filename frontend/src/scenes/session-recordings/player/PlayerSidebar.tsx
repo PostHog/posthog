@@ -32,6 +32,7 @@ export function PlayerSidebar(): JSX.Element {
         logicKey,
         containerRef: ref,
         persistent: true,
+        persistPrefix: '2025-12-29',
         closeThreshold: 100,
         placement: isVerticallyStacked ? 'top' : 'left',
         onToggleClosed: (shouldBeClosed) => setSidebarOpen(!shouldBeClosed),
@@ -71,9 +72,10 @@ export function PlayerSidebar(): JSX.Element {
                 placement={sidebarOpen && isVerticallyStacked ? 'top' : 'left'}
                 containerRef={ref}
                 closeThreshold={100}
+                offset="0.25rem"
             />
             {sidebarOpen && (
-                <>
+                <div className="SessionRecordingPlayer__sidebar__content">
                     <div className="flex bg-surface-primary pt-[1px]">
                         <div className="w-2.5 border-b shrink-0" />
                         <LemonTabs
@@ -119,7 +121,7 @@ export function PlayerSidebar(): JSX.Element {
                         </div>
                     </div>
                     <PlayerSidebarTab />
-                </>
+                </div>
             )}
         </div>
     )

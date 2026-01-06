@@ -724,6 +724,10 @@ export function getTraceTimestamp(timestamp: string): string {
     return dayjs(timestamp).utc().subtract(5, 'minutes').format('YYYY-MM-DDTHH:mm:ss[Z]')
 }
 
+export function getSessionStartTimestamp(timestamp: string): string {
+    return dayjs(timestamp).utc().subtract(24, 'hours').format('YYYY-MM-DDTHH:mm:ss[Z]')
+}
+
 export function formatLLMEventTitle(event: LLMTrace | LLMTraceEvent): string {
     if (isLLMEvent(event)) {
         if (event.event === '$ai_generation') {
@@ -862,9 +866,11 @@ export async function queryEvaluationRuns(params: {
         LIMIT 100
     `
 
-    const response = await api.SHAMEFULLY_UNTAGGED_queryHogQL(query, {
-        ...(forceRefresh && { refresh: 'force_blocking' }),
-    })
+    const response = await api.queryHogQL(
+        query,
+        { scene: 'LLMAnalytics', productKey: 'llm_analytics' },
+        { ...(forceRefresh && { refresh: 'force_blocking' }) }
+    )
 
     return (response.results || []).map(mapEvaluationRunRow)
 }

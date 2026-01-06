@@ -11,6 +11,8 @@ jobs:
             matrix:
                 # os: [depot-ubuntu-22.04, depot-ubuntu-22.04-4]
                 os: [depot-ubuntu-22.04-4]
+        permissions:
+            contents: read
 
         steps:
             - name: Check out code
@@ -37,14 +39,13 @@ jobs:
                   fi
 
             - name: Set up Python
-              uses: actions/setup-python@v5
+              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
               with:
                   python-version-file: 'pyproject.toml'
-                  token: ${{ secrets.POSTHOG_BOT_PAT }}
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
+              uses: astral-sh/setup-uv@681c641aba71e4a1c380be3ab5e12ad51f415867 # v7.1.6
               with:
                   enable-cache: true
                   version: 0.9.9
@@ -53,7 +54,7 @@ jobs:
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Set up Node.js
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
                   node-version: 18
                   cache: 'pnpm'

@@ -7,9 +7,8 @@ on:
             - .github/workflows/build-hogql-parser.yml
 
 permissions:
-    contents: write
+    contents: read
     pull-requests: write
-    actions: write
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -85,7 +84,7 @@ jobs:
         steps:
             - uses: actions/checkout@v4
 
-            - uses: actions/setup-python@v5
+            - uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
               with:
                   python-version: '3.12.10' # There is no 3.12.11/3.12.12 binary for mac/darwin architectures yet
 
@@ -149,18 +148,27 @@ jobs:
             - name: Publish package to PyPI
               uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc # release/v1
 
+            # Use GitHub app token so Actions run after commiting changes
+            - name: Get app token
+              id: app-token
+              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3
+              with:
+                  app_id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private_key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+
             - uses: actions/checkout@v4
               with:
                   ref: ${{ github.event.pull_request.head.ref }}
+                  token: ${{ steps.app-token.outputs.token }}
 
             - name: Set up Python
-              uses: actions/setup-python@v5
+              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
               with:
                   python-version: 3.12.12
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
+              uses: astral-sh/setup-uv@681c641aba71e4a1c380be3ab5e12ad51f415867 # v7.1.6
               with:
                   enable-cache: true
                   version: 0.9.9
@@ -187,4 +195,4 @@ jobs:
                   add: '["pyproject.toml", "uv.lock"]'
                   message: 'Use new hogql-parser version'
                   default_author: github_actions
-                  github_token: ${{ secrets.POSTHOG_BOT_PAT }}
+                  github_token: ${{ steps.app-token.outputs.token }}

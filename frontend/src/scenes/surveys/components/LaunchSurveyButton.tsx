@@ -12,7 +12,7 @@ import { doesSurveyHaveDisplayConditions } from 'scenes/surveys/utils'
 import { AccessControlLevel, AccessControlResourceType, SurveyType } from '~/types'
 
 export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNode }): JSX.Element {
-    const { survey, surveyVersionWarnings } = useValues(surveyLogic)
+    const { survey, surveyWarnings } = useValues(surveyLogic)
     const { showSurveysDisabledBanner } = useValues(surveysLogic)
     const { launchSurvey } = useActions(surveyLogic)
 
@@ -43,7 +43,7 @@ export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNo
                                         : 'all your users'}
                                     .
                                 </div>
-                                <SdkVersionWarnings warnings={surveyVersionWarnings} />
+                                <SdkVersionWarnings warnings={surveyWarnings} />
                             </div>
                         ),
                         primaryButton: {
