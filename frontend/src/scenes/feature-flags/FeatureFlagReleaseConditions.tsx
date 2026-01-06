@@ -648,7 +648,7 @@ export function FeatureFlagReleaseConditions({
             )}
             {!readOnly && showGroupsOptions && !hideMatchOptions && showBucketingIdentifierUI && (
                 <div className="mb-4">
-                    <LemonLabel className="mb-2">Assign variant by</LemonLabel>
+                    <LemonLabel className="mb-2">Match by</LemonLabel>
                     <LemonRadio
                         data-attr="feature-flag-aggregation-filter"
                         value={
@@ -678,8 +678,7 @@ export function FeatureFlagReleaseConditions({
                             {
                                 value: 'user',
                                 label: 'User ID',
-                                description:
-                                    'Stable assignment for logged-in users based on their unique user ID. Great fit for in-app features.',
+                                description: 'Stable assignment for logged-in users based on their unique user ID.',
                             },
                             {
                                 value: 'device',
