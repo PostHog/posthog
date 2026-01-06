@@ -3362,6 +3362,7 @@ class TestMaterializedColumnOptimization(BaseTest):
             query=query_ast,
             modifiers=HogQLQueryModifiers(personsOnEventsMode=poe_mode),
         )
+        assert result.clickhouse
 
         # Note: When columns are materialized, empty strings become NULL due to
         # nullIf(nullIf(..., ''), 'null') wrapping. This affects both POE modes.
