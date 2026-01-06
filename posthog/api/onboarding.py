@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, cast
 
 import structlog
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -83,6 +83,9 @@ Guidelines:
 - Be concise in your reasoning - one or two sentences explaining why these products fit their needs.
 """
 
+# Maximum number of products to recommend
+PRODUCTS_LIMIT: int = 3
+
 
 class ProductRecommendationResponse(BaseModel):
     """Structured response for product recommendations."""
@@ -91,7 +94,7 @@ class ProductRecommendationResponse(BaseModel):
 
     products: list[ProductKeyLiteral] = Field(
         description="List of recommended product keys (maximum 4)",
-        max_length=4,
+        max_length=PRODUCTS_LIMIT,
     )
     reasoning: str = Field(
         description="Brief explanation of why these products are recommended (1-2 sentences)",
@@ -145,10 +148,10 @@ class OnboardingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 HumanMessage(content=user_message),
             ]
 
-            result: ProductRecommendationResponse = llm.invoke(messages)
+            result = cast(ProductRecommendationResponse, llm.invoke(messages))
 
             # Filter to only valid products and limit to 4
-            valid_products = [p for p in result.products if p in VALID_PRODUCTS][:4]
+            valid_products = [p for p in result.products if p in VALID_PRODUCTS][:PRODUCTS_LIMIT]
 
             return response.Response(
                 {
@@ -160,6 +163,6 @@ class OnboardingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except Exception as e:
             logger.exception("Error in product recommendation", error=str(e), team_id=self.team.id)
             return response.Response(
-                {"error": str(e)},
+                {"error": "Error in product recommendation"},
                 status=500,
             )
