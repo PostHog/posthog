@@ -384,30 +384,29 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
         )
         # Generate session summary
         await ensure_llm_single_session_summary(inputs)
-        # Validate session summary with videos and apply updates
-        if inputs.video_validation_enabled and inputs.video_validation_enabled != "full":
-            await temporalio.workflow.execute_activity(
-                validate_llm_single_session_summary_with_videos_activity,
-                inputs,
-                start_to_close_timeout=timedelta(minutes=10),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
 
 
 async def ensure_llm_single_session_summary(inputs: SingleSessionSummaryInputs):
+    retry_policy = RetryPolicy(maximum_attempts=3)
+    trace_id = temporalio.workflow.info().workflow_id
+
     if inputs.video_validation_enabled != "full":
         # Run "classic" event-based summarization
         await temporalio.workflow.execute_activity(
             get_llm_single_session_summary_activity,
             inputs,
             start_to_close_timeout=timedelta(minutes=5),
-            retry_policy=RetryPolicy(maximum_attempts=3),
+            retry_policy=retry_policy,
         )
+        if inputs.video_validation_enabled:
+            await temporalio.workflow.execute_activity(
+                validate_llm_single_session_summary_with_videos_activity,
+                inputs,
+                start_to_close_timeout=timedelta(minutes=10),
+                retry_policy=retry_policy,
+            )
 
-    # Full video-based summarization: analyze video directly with Gemini
-    retry_policy = RetryPolicy(maximum_attempts=3)
-    trace_id = temporalio.workflow.info().workflow_id
-
+    # Full video-based summarization:
     # Convert inputs to video workflow format
     video_inputs = VideoSummarySingleSessionInputs(
         session_id=inputs.session_id,
@@ -427,6 +426,10 @@ async def ensure_llm_single_session_summary(inputs: SingleSessionSummaryInputs):
         retry_policy=retry_policy,
     )
 
+    # Skip video-based summarization if session is too short
+    if asset_id is None:
+        return
+
     # Activity 2: Upload full video to Gemini (single upload)
     uploaded_video = await temporalio.workflow.execute_activity(
         upload_video_to_gemini_activity,
@@ -438,7 +441,9 @@ async def ensure_llm_single_session_summary(inputs: SingleSessionSummaryInputs):
     # Calculate segment specs based on video duration
     # (We ignore the first couple of seconds, as they often include malformed frames)
     analysis_duration = uploaded_video.duration - SESSION_VIDEO_RENDERING_DELAY
-    num_segments = int(analysis_duration / SESSION_VIDEO_CHUNK_DURATION_S)  # Number of segments is floored
+    num_segments = (
+        int(analysis_duration / SESSION_VIDEO_CHUNK_DURATION_S) or 1
+    )  # Number of segments is floored, but can't be 0
     segment_specs = [
         VideoSegmentSpec(
             segment_index=i,

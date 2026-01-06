@@ -13,7 +13,6 @@ from django.utils.timezone import now
 import structlog
 import temporalio
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
-from temporalio.exceptions import ApplicationError
 
 from posthog.models.exported_asset import ExportedAsset
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
@@ -34,8 +33,8 @@ logger = structlog.get_logger(__name__)
 
 
 @temporalio.activity.defn
-async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs) -> int:
-    """Export full session video and return ExportedAsset ID"""
+async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs) -> int | None:
+    """Export full session video and return ExportedAsset ID, or None if session is too short"""
     try:
         # Check for existing exported asset for this session
         # TODO: Find a way to attach Gemini Files API id to the asset, with an expiration date, so we can reuse it (instead of re-uploading)
@@ -56,11 +55,15 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
                 existing_asset.export_context.get("duration", 0) if existing_asset.export_context else 0
             )
             if existing_duration_s * 1000 < MIN_SESSION_DURATION_FOR_SUMMARY_MS:
-                raise ApplicationError(
-                    f"Session {inputs.session_id} video is too short for summarization "
-                    f"({existing_duration_s * 1000:.0f}ms < {MIN_SESSION_DURATION_FOR_SUMMARY_MS}ms)",
-                    non_retryable=True,
+                logger.info(
+                    f"Session {inputs.session_id} in team {inputs.team_id} is too short ({existing_duration_s * 1000:.0f}ms) to summarize, skipping",
+                    extra={
+                        "session_id": inputs.session_id,
+                        "team_id": inputs.team_id,
+                        "signals_type": "session-summaries",
+                    },
                 )
+                return None
             logger.info(
                 f"Found existing video export for session {inputs.session_id}, reusing asset {existing_asset.id}",
                 session_id=inputs.session_id,
@@ -83,10 +86,11 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
 
         # Check if session is too short for summarization - note: this is different from the video duration, but probs close enough
         if session_duration * 1000 < MIN_SESSION_DURATION_FOR_SUMMARY_MS:
-            msg = f"Session {inputs.session_id} video is too short for summarization "
-            f"({session_duration * 1000:.0f}ms < {MIN_SESSION_DURATION_FOR_SUMMARY_MS}ms)"
-            logger.error(msg, session_id=inputs.session_id, signals_type="session-summaries")
-            raise ApplicationError(msg, non_retryable=True)
+            logger.info(
+                f"Session {inputs.session_id} in team {inputs.team_id} is too short ({session_duration * 1000:.0f}ms) to summarize, skipping",
+                extra={"session_id": inputs.session_id, "team_id": inputs.team_id, "signals_type": "session-summaries"},
+            )
+            return None
 
         # Create ExportedAsset
         filename = f"session-video-summary_{inputs.session_id}_{uuid.uuid4()}"
