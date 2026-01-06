@@ -1,5 +1,4 @@
 import threading
-import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
