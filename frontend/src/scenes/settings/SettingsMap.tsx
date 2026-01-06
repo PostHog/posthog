@@ -101,7 +101,7 @@ import { ProjectMove } from './project/ProjectMove'
 import { ProjectDisplayName } from './project/ProjectSettings'
 import { SettingSection } from './types'
 import { AllowImpersonation } from './user/AllowImpersonation'
-import { ChangePassword } from './user/ChangePassword'
+import { ChangePassword, ChangePasswordTitle } from './user/ChangePassword'
 import { HedgehogModeSettings } from './user/HedgehogModeSettings'
 import { OptOutCapture } from './user/OptOutCapture'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
@@ -873,7 +873,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'change-password',
-                title: 'Change password',
+                title: <ChangePasswordTitle />,
                 component: <ChangePassword />,
             },
             {
