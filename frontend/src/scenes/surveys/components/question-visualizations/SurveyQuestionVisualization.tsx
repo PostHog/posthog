@@ -181,7 +181,12 @@ export function SurveyQuestionVisualization({ question, questionIndex, demoData 
                             />
                         )}
                     {question.type === SurveyQuestionType.Open && demoData.type === SurveyQuestionType.Open && (
-                        <OpenQuestionViz question={question} responseData={demoData.data} />
+                        <OpenQuestionViz
+                            question={question}
+                            questionIndex={questionIndex}
+                            responseData={demoData.data}
+                            totalResponses={demoData.totalResponses}
+                        />
                     )}
                 </div>
             </div>
@@ -242,7 +247,12 @@ export function SurveyQuestionVisualization({ question, questionIndex, demoData 
                             />
                         )}
                     {question.type === SurveyQuestionType.Open && processedData.type === SurveyQuestionType.Open && (
-                        <OpenQuestionViz question={question} responseData={processedData.data} />
+                        <OpenQuestionViz
+                            question={question}
+                            questionIndex={questionIndex}
+                            responseData={processedData.data}
+                            totalResponses={processedData.totalResponses}
+                        />
                     )}
                 </ErrorBoundary>
             </div>
