@@ -354,6 +354,25 @@ export interface AssistantToolCallMessage extends BaseAssistantMessage {
     tool_call_id: string
 }
 
+/** Response returned when a tool operation requires user approval */
+export interface DangerousOperationResponse {
+    status: 'pending_approval'
+    proposalId: string
+    toolName: string
+    preview: string
+    payload: Record<string, any>
+}
+
+/** Status of an approval card in the UI */
+export type ApprovalCardStatus =
+    | 'pending'
+    | 'approving'
+    | 'approved'
+    | 'rejecting'
+    | 'rejected'
+    | 'auto_rejected'
+    | 'expired'
+
 export type AssistantTool =
     | 'search_session_recordings'
     | 'fix_hogql_query'

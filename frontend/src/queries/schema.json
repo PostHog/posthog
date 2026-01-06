@@ -749,6 +749,11 @@
                 }
             ]
         },
+        "ApprovalCardStatus": {
+            "description": "Status of an approval card in the UI",
+            "enum": ["pending", "approving", "approved", "rejecting", "rejected", "auto_rejected", "expired"],
+            "type": "string"
+        },
         "ArtifactContent": {
             "anyOf": [
                 {
@@ -8767,6 +8772,30 @@
                 "subscription_event",
                 "payment_event"
             ],
+            "type": "object"
+        },
+        "DangerousOperationResponse": {
+            "additionalProperties": false,
+            "description": "Response returned when a tool operation requires user approval",
+            "properties": {
+                "payload": {
+                    "type": "object"
+                },
+                "preview": {
+                    "type": "string"
+                },
+                "proposalId": {
+                    "type": "string"
+                },
+                "status": {
+                    "const": "pending_approval",
+                    "type": "string"
+                },
+                "toolName": {
+                    "type": "string"
+                }
+            },
+            "required": ["status", "proposalId", "toolName", "preview", "payload"],
             "type": "object"
         },
         "DashboardFilter": {
