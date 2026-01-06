@@ -141,103 +141,128 @@ export function ConversationsSettingsScene(): JSX.Element {
                         <div>
                             <h3 className="text-lg font-semibold">Enable conversations</h3>
                             <p className="text-sm text-muted-alt">
-                                Turn on the conversations widget to start receiving messages from your users
+                                Turn on conversations to enable API access for tickets and messages
                             </p>
                         </div>
                         <LemonSwitch
-                            checked={!!currentTeam?.conversations_settings?.widget_enabled}
+                            checked={!!currentTeam?.conversations_enabled}
                             onChange={(checked) => {
                                 updateCurrentTeam({
-                                    conversations_enabled: checked || !!currentTeam?.conversations_enabled,
-                                    conversations_settings: {
-                                        ...currentTeam?.conversations_settings,
-                                        widget_enabled: checked,
-                                    },
+                                    conversations_enabled: checked,
                                 })
                             }}
-                            label={currentTeam?.conversations_settings?.widget_enabled ? 'Enabled' : 'Disabled'}
+                            label={currentTeam?.conversations_enabled ? 'Enabled' : 'Disabled'}
                             loading={currentTeamLoading}
                         />
                     </div>
 
-                    {currentTeam?.conversations_settings?.widget_enabled && (
+                    {currentTeam?.conversations_enabled && (
                         <>
-                            <div className="space-y-4 pt-4 border-t">
-                                <div className="space-y-1">
-                                    <label className="text-sm font-medium">Button color</label>
-                                    <LemonColorPicker
-                                        colors={[
-                                            '#1d4aff',
-                                            '#00aaff',
-                                            '#00cc44',
-                                            '#ffaa00',
-                                            '#ff4444',
-                                            '#9b59b6',
-                                            '#1abc9c',
-                                            '#000000',
-                                        ]}
-                                        selectedColor={currentTeam?.conversations_settings?.widget_color || '#1d4aff'}
-                                        onSelectColor={(color) => {
-                                            updateCurrentTeam({
-                                                conversations_settings: {
-                                                    ...currentTeam?.conversations_settings,
-                                                    widget_color: color,
-                                                },
-                                            })
-                                        }}
-                                        showCustomColor
-                                    />
+                            <div className="flex items-center justify-between pt-4 border-t">
+                                <div>
+                                    <h4 className="text-base font-semibold">Enable widget</h4>
+                                    <p className="text-sm text-muted-alt">
+                                        Turn on the conversations widget to start receiving messages from your users
+                                    </p>
                                 </div>
-                                <div className="space-y-1">
-                                    <label className="text-sm font-medium">Greeting message</label>
-                                    <LemonInput
-                                        value={
-                                            currentTeam?.conversations_settings?.widget_greeting_text ||
-                                            'Hey, how can I help you today?'
-                                        }
-                                        placeholder="Enter greeting message"
-                                        onChange={(value) => {
-                                            updateCurrentTeam({
-                                                conversations_settings: {
-                                                    ...currentTeam?.conversations_settings,
-                                                    widget_greeting_text: value,
-                                                },
-                                            })
-                                        }}
-                                    />
-                                </div>
+                                <LemonSwitch
+                                    checked={!!currentTeam?.conversations_settings?.widget_enabled}
+                                    onChange={(checked) => {
+                                        updateCurrentTeam({
+                                            conversations_settings: {
+                                                ...currentTeam?.conversations_settings,
+                                                widget_enabled: checked,
+                                            },
+                                        })
+                                    }}
+                                    label={currentTeam?.conversations_settings?.widget_enabled ? 'Enabled' : 'Disabled'}
+                                    loading={currentTeamLoading}
+                                />
                             </div>
 
-                            <div className="space-y-2 pt-8">
-                                <label className="text-sm font-medium">Allowed domains</label>
-                                <p className="text-xs text-muted-alt">
-                                    Specify which domains can show the conversations widget. Leave empty to show on all
-                                    domains. Wildcards supported (e.g. https://*.example.com).
-                                </p>
-                                <ConversationsAuthorizedDomains />
-                            </div>
+                            {currentTeam?.conversations_settings?.widget_enabled && (
+                                <>
+                                    <div className="space-y-4 pt-4 border-t">
+                                        <div className="space-y-1">
+                                            <label className="text-sm font-medium">Button color</label>
+                                            <LemonColorPicker
+                                                colors={[
+                                                    '#1d4aff',
+                                                    '#00aaff',
+                                                    '#00cc44',
+                                                    '#ffaa00',
+                                                    '#ff4444',
+                                                    '#9b59b6',
+                                                    '#1abc9c',
+                                                    '#000000',
+                                                ]}
+                                                selectedColor={
+                                                    currentTeam?.conversations_settings?.widget_color || '#1d4aff'
+                                                }
+                                                onSelectColor={(color) => {
+                                                    updateCurrentTeam({
+                                                        conversations_settings: {
+                                                            ...currentTeam?.conversations_settings,
+                                                            widget_color: color,
+                                                        },
+                                                    })
+                                                }}
+                                                showCustomColor
+                                            />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <label className="text-sm font-medium">Greeting message</label>
+                                            <LemonInput
+                                                value={
+                                                    currentTeam?.conversations_settings?.widget_greeting_text ||
+                                                    'Hey, how can I help you today?'
+                                                }
+                                                placeholder="Enter greeting message"
+                                                onChange={(value) => {
+                                                    updateCurrentTeam({
+                                                        conversations_settings: {
+                                                            ...currentTeam?.conversations_settings,
+                                                            widget_greeting_text: value,
+                                                        },
+                                                    })
+                                                }}
+                                            />
+                                        </div>
+                                    </div>
 
-                            <div className="space-y-2 pt-8">
-                                <label className="text-sm font-medium">Public token</label>
-                                <p className="text-xs text-muted-alt mb-2">
-                                    Automatically generated when you enable conversations. Regenerate if compromised.
-                                </p>
-                                <div className="flex gap-2">
-                                    <LemonInput
-                                        value={
-                                            currentTeam?.conversations_settings?.widget_public_token ||
-                                            'Token will be auto-generated on save'
-                                        }
-                                        disabledReason="Read-only after generation"
-                                        fullWidth
-                                    />
-                                    {currentTeam?.conversations_settings?.widget_public_token && (
-                                        <LemonButton type="secondary" onClick={generateNewToken}>
-                                            Regenerate
-                                        </LemonButton>
-                                    )}
-                                </div>
-                            </div>
+                                    <div className="space-y-2 pt-8">
+                                        <label className="text-sm font-medium">Allowed domains</label>
+                                        <p className="text-xs text-muted-alt">
+                                            Specify which domains can show the conversations widget. Leave empty to show
+                                            on all domains. Wildcards supported (e.g. https://*.example.com).
+                                        </p>
+                                        <ConversationsAuthorizedDomains />
+                                    </div>
+
+                                    <div className="space-y-2 pt-8">
+                                        <label className="text-sm font-medium">Public token</label>
+                                        <p className="text-xs text-muted-alt mb-2">
+                                            Automatically generated when you enable conversations. Regenerate if
+                                            compromised.
+                                        </p>
+                                        <div className="flex gap-2">
+                                            <LemonInput
+                                                value={
+                                                    currentTeam?.conversations_settings?.widget_public_token ||
+                                                    'Token will be auto-generated on save'
+                                                }
+                                                disabledReason="Read-only after generation"
+                                                fullWidth
+                                            />
+                                            {currentTeam?.conversations_settings?.widget_public_token && (
+                                                <LemonButton type="secondary" onClick={generateNewToken}>
+                                                    Regenerate
+                                                </LemonButton>
+                                            )}
+                                        </div>
+                                    </div>
+                                </>
+                            )}
                         </>
                     )}
                 </LemonCard>

@@ -126,6 +126,12 @@ class TeamManager(models.Manager):
 
         team.test_account_filters = self.set_test_account_filters(organization.id)
 
+        # Self-hosted deployments get 5-year session recording retention by default
+        if not is_cloud():
+            team.session_recording_retention_period = kwargs.get(
+                "session_recording_retention_period", SessionRecordingRetentionPeriod.FIVE_YEARS
+            )
+
         if team.extra_settings is None:
             team.extra_settings = {}
         team.extra_settings.setdefault("recorder_script", "posthog-recorder")
@@ -573,13 +579,6 @@ class Team(UUIDTClassicModel):
         config, _ = TeamCustomerAnalyticsConfig.objects.get_or_create(
             team=self, defaults={"activity_event": DEFAULT_ACTIVITY_EVENT}
         )
-        return config
-
-    @cached_property
-    def core_events_config(self):
-        from posthog.models.core_event import TeamCoreEventsConfig
-
-        config, _ = TeamCoreEventsConfig.objects.get_or_create(team=self)
         return config
 
     @property

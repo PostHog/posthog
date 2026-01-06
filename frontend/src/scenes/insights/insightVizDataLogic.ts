@@ -26,6 +26,7 @@ import { actionsModel } from '~/models/actionsModel'
 import { seriesNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { extractValidationError, getAllEventNames, queryFromKind } from '~/queries/nodes/InsightViz/utils'
 import {
+    AnyEntityNode,
     BreakdownFilter,
     CompareFilter,
     DataWarehouseNode,
@@ -758,9 +759,13 @@ const handleQuerySourceUpdateSideEffects = (
         ((insightFilter as FunnelsFilter)?.funnelFromStep != null ||
             (insightFilter as FunnelsFilter)?.funnelToStep != null)
     ) {
+        // Filter out GroupNode types as funnels only use AnyEntityNode
+        const funnelSeries = maybeChangedSeries.filter(
+            (node): node is AnyEntityNode => node.kind !== NodeKind.GroupNode
+        )
         ;(mergedUpdate as FunnelsQuery).funnelsFilter = {
             ...(insightFilter as FunnelsFilter),
-            ...getClampedFunnelStepRange(insightFilter as FunnelsFilter, maybeChangedSeries),
+            ...getClampedFunnelStepRange(insightFilter as FunnelsFilter, funnelSeries),
         }
     }
 

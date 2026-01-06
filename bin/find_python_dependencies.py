@@ -1,4 +1,10 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "grimp==3.13",
+# ]
+# ///
 """
 Find all local Python dependencies for a given entrypoint file.
 
