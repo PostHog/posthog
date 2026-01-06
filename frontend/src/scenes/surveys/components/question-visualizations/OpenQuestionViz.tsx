@@ -1,14 +1,20 @@
+import { useValues } from 'kea'
+
 import { ResponseSummariesDisplay } from 'scenes/surveys/components/question-visualizations/OpenQuestionSummarizer'
 import { ResponseCard, ScrollToSurveyResultsCard } from 'scenes/surveys/components/question-visualizations/ResponseCard'
+import { VirtualizedResponseList } from 'scenes/surveys/components/question-visualizations/VirtualizedResponseList'
+import { surveyLogic } from 'scenes/surveys/surveyLogic'
 
 import { BasicSurveyQuestion, OpenQuestionResponseData } from '~/types'
 
 interface Props {
     question: BasicSurveyQuestion
+    questionIndex: number
     responseData: OpenQuestionResponseData[]
+    totalResponses: number
 }
 
-export function OpenQuestionViz({ question, responseData }: Props): JSX.Element | null {
+function OpenQuestionVizV1({ question, responseData }: Omit<Props, 'questionIndex' | 'totalResponses'>): JSX.Element {
     return (
         <div className="space-y-4">
             <ResponseSummariesDisplay />
@@ -26,4 +32,26 @@ export function OpenQuestionViz({ question, responseData }: Props): JSX.Element 
             </div>
         </div>
     )
+}
+
+function OpenQuestionVizV2({ responseData }: Pick<Props, 'responseData'>): JSX.Element {
+    return <VirtualizedResponseList responses={responseData} />
+}
+
+export function OpenQuestionViz({
+    question,
+    questionIndex: _questionIndex,
+    responseData,
+    totalResponses: _totalResponses,
+}: Props): JSX.Element | null {
+    void _questionIndex
+    void _totalResponses
+
+    const { isSurveyResultsV2Enabled } = useValues(surveyLogic)
+
+    if (isSurveyResultsV2Enabled) {
+        return <OpenQuestionVizV2 responseData={responseData} />
+    }
+
+    return <OpenQuestionVizV1 question={question} responseData={responseData} />
 }
