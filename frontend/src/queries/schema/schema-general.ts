@@ -2448,11 +2448,6 @@ export interface ErrorTrackingIssueImpactToolOutput {
     events: string[]
 }
 
-export interface ErrorTrackingExplainIssueToolContext {
-    stacktrace: string
-    issue_name: string
-}
-
 export type ErrorTrackingIssueAssigneeType = 'user' | 'role'
 
 export interface ErrorTrackingIssueAssignee {

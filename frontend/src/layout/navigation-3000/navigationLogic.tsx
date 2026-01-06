@@ -237,6 +237,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
         ],
         zenMode: [
             false,
+            { persist: true },
             {
                 setZenMode: (_, { zenMode }) => zenMode,
                 toggleZenMode: (state) => !state,
