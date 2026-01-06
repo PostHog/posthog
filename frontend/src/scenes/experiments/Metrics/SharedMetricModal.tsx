@@ -12,7 +12,6 @@ import { userLogic } from 'scenes/userLogic'
 import { ExperimentMetric, NodeKind } from '~/queries/schema/schema-general'
 import { AvailableFeature, Experiment } from '~/types'
 
-import { MetricDisplayFunnels, MetricDisplayTrends } from '../ExperimentView/components'
 import { getDefaultMetricTitle } from '../MetricsView/shared/utils'
 import { SharedMetric } from '../SharedMetrics/sharedMetricLogic'
 import { MetricContext } from './experimentMetricModalLogic'
@@ -32,12 +31,6 @@ function MetricSummary({ metric }: { metric: SharedMetric }): JSX.Element {
                 </Link>
             </div>
             {metric.description && <p className="mt-2">{metric.description}</p>}
-            {metric.query.kind === NodeKind.ExperimentTrendsQuery && (
-                <MetricDisplayTrends query={metric.query.count_query} />
-            )}
-            {metric.query.kind === NodeKind.ExperimentFunnelsQuery && (
-                <MetricDisplayFunnels query={metric.query.funnels_query} />
-            )}
             <div className="text-xs text-muted">
                 <p>Type: {metric.query.metric_type}</p>
                 <p>Metric: {getDefaultMetricTitle(metric.query as ExperimentMetric)}</p>
@@ -260,14 +253,7 @@ export function SharedMetricModal({
             {isEditMode &&
                 (() => {
                     const metric = compatibleSharedMetrics.find((m) => m.id === sharedMetricId)
-                    if (!metric) {
-                        return null
-                    }
-                    return (
-                        <div>
-                            <MetricSummary metric={metric} />
-                        </div>
-                    )
+                    return metric ? <MetricSummary metric={metric} /> : null
                 })()}
         </LemonModal>
     )
