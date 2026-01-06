@@ -11,13 +11,14 @@ class Migration(migrations.Migration):
     operations = [
         migrations.RunSQL(
             """
-    UPDATE posthog_datawarehousetable t
-    SET credential_id = NULL
-    WHERE t.id IN (
-        SELECT distinct table_id
-        FROM posthog_datawarehousesavedquery
-        WHERE table_id is not null
-    );
+-- migration-analyzer: safe reason=safe update with very few rows being updated (less than 10k)
+UPDATE posthog_datawarehousetable t
+SET credential_id = NULL
+WHERE t.id IN (
+    SELECT distinct table_id
+    FROM posthog_datawarehousesavedquery
+    WHERE table_id is not null
+);
 """,
             reverse_sql=migrations.RunSQL.noop,
         )
