@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo } from 'react'
+import { useMemo } from 'react'
 
 import { IconBolt, IconCheck, IconPencil, IconPlus, IconX } from '@posthog/icons'
 
@@ -39,23 +39,14 @@ export function FeatureFlagEvaluationTags({
     className,
     flagId,
 }: FeatureFlagEvaluationTagsProps): JSX.Element {
-    // Generate unique instance ID to ensure each component instance has its own logic
     const instanceId = useMemo(() => Math.random().toString(36).substring(7), [])
 
-    const logic = featureFlagEvaluationTagsLogic({ flagId, instanceId })
+    const logic = featureFlagEvaluationTagsLogic({ flagId, instanceId, tags, evaluationTags })
     const { isEditing, localTags, localEvaluationTags } = useValues(logic)
     const { setIsEditing, setLocalTags, setLocalEvaluationTags, saveTagsAndEvaluationTags, cancelEditing } =
         useActions(logic)
 
     const { featureFlagLoading } = useValues(featureFlagLogic)
-
-    // Sync kea state when props change (important for form updates)
-    useEffect(() => {
-        if (!isEditing) {
-            setLocalTags(tags)
-            setLocalEvaluationTags(evaluationTags)
-        }
-    }, [tags, evaluationTags, isEditing, setLocalTags, setLocalEvaluationTags])
 
     const handleSave = (): void => {
         if (onSave) {

@@ -1,4 +1,4 @@
-import { actions, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, kea, key, listeners, path, props, propsChanged, reducers } from 'kea'
 
 import type { featureFlagEvaluationTagsLogicType } from './featureFlagEvaluationTagsLogicType'
 import { featureFlagLogic } from './featureFlagLogic'
@@ -6,6 +6,8 @@ import { featureFlagLogic } from './featureFlagLogic'
 export interface FeatureFlagEvaluationTagsLogicProps {
     flagId?: number | string | null
     instanceId: string
+    tags: string[]
+    evaluationTags: string[]
 }
 
 export const featureFlagEvaluationTagsLogic = kea<featureFlagEvaluationTagsLogicType>([
@@ -21,7 +23,7 @@ export const featureFlagEvaluationTagsLogic = kea<featureFlagEvaluationTagsLogic
         cancelEditing: true,
     }),
 
-    reducers({
+    reducers(({ props }) => ({
         isEditing: [
             false,
             {
@@ -31,17 +33,28 @@ export const featureFlagEvaluationTagsLogic = kea<featureFlagEvaluationTagsLogic
             },
         ],
         localTags: [
-            [] as string[],
+            props.tags ?? ([] as string[]),
             {
                 setLocalTags: (_, { tags }) => tags,
             },
         ],
         localEvaluationTags: [
-            [] as string[],
+            props.evaluationTags ?? ([] as string[]),
             {
                 setLocalEvaluationTags: (_, { evaluationTags }) => evaluationTags,
             },
         ],
+    })),
+
+    propsChanged(({ actions, props, values }, oldProps) => {
+        if (!values.isEditing) {
+            if (props.tags !== oldProps.tags) {
+                actions.setLocalTags(props.tags)
+            }
+            if (props.evaluationTags !== oldProps.evaluationTags) {
+                actions.setLocalEvaluationTags(props.evaluationTags)
+            }
+        }
     }),
 
     listeners(({ actions, values }) => ({
