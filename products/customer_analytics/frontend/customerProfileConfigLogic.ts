@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -24,7 +24,6 @@ export const customerProfileConfigLogic = kea<customerProfileConfigLogicType>([
 
     actions({
         loadConfigs: true,
-        loadConfig: (id: CustomerProfileConfigType['id']) => ({ id }),
         createConfig: (config: Partial<CustomerProfileConfigType>) => ({ config }),
         updateConfig: (id: CustomerProfileConfigType['id'], config: Partial<CustomerProfileConfigType>) => ({
             id,
@@ -32,18 +31,6 @@ export const customerProfileConfigLogic = kea<customerProfileConfigLogicType>([
         }),
         deleteConfig: (id: CustomerProfileConfigType['id']) => ({ id }),
         setConfigs: (configs: CustomerProfileConfigType[]) => ({ configs }),
-        setSelectedConfigId: (id: CustomerProfileConfigType['id'] | null) => ({ id }),
-    }),
-
-    reducers({
-        selectedConfigId: [
-            null as CustomerProfileConfigType['id'] | null,
-            {
-                setSelectedConfigId: (_, { id }) => id,
-                loadConfigSuccess: (_, { config }) => config.id,
-                deleteConfigSuccess: () => null,
-            },
-        ],
     }),
 
     loaders(({ props, values }) => ({
@@ -92,54 +79,9 @@ export const customerProfileConfigLogic = kea<customerProfileConfigLogicType>([
                 },
             },
         ],
-        config: [
-            null as CustomerProfileConfigType | null,
-            {
-                loadConfig: async ({ id }) => {
-                    try {
-                        const config = await api.customerProfileConfigs.get(id)
-                        return config
-                    } catch (error) {
-                        lemonToast.error('Failed to load customer profile config')
-                        throw error
-                    }
-                },
-            },
-        ],
     })),
 
     selectors({
-        selectedConfig: [
-            (s) => [s.selectedConfigId, s.configs],
-            (selectedConfigId, configs) => {
-                if (!selectedConfigId) {
-                    return null
-                }
-                return configs.find((c) => c.id === selectedConfigId) || null
-            },
-        ],
-        configsForScope: [
-            (s) => [s.configs, (_, props) => props.scope],
-            (configs, scope) => {
-                if (!scope || scope === 'all') {
-                    return configs
-                }
-                return configs.find((c) => c.scope === scope)
-            },
-        ],
-        configsByScope: [
-            (s) => [s.configs],
-            (configs) => {
-                const grouped: Record<string, CustomerProfileConfigType[]> = {}
-                configs.forEach((config) => {
-                    if (!grouped[config.scope]) {
-                        grouped[config.scope] = []
-                    }
-                    grouped[config.scope].push(config)
-                })
-                return grouped
-            },
-        ],
         personProfileConfig: [
             (s) => [s.configs],
             (configs): CustomerProfileConfigType | undefined => configs.find((c) => c.scope === 'person'),
