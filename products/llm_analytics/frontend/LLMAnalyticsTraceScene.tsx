@@ -686,7 +686,7 @@ const EventContent = React.memo(
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SUMMARIZATION] ||
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
 
-        // Check if we're viewing a trace with actual content vs. a psedo-trace (grouping of generations w/o input/output state)
+        // Check if we're viewing a trace with actual content vs. a pseudo-trace (grouping of generations w/o input/output state)
         const isTopLevelTraceWithoutContent = !event || (!isLLMEvent(event) && !event.inputState && !event.outputState)
 
         // Only pre-load for generation events ($ai_input/$ai_output_choices).
