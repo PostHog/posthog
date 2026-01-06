@@ -82,30 +82,30 @@ class TestSummarizeWithGemini:
             summarize_with_gemini("Question", [])
         assert "responses cannot be empty" in str(exc_info.value.detail)
 
-    @patch("products.surveys.backend.summarization.llm.gemini._get_client")
-    def test_empty_api_response_raises_error(self, mock_get_client):
+    @patch("products.surveys.backend.summarization.llm.gemini._create_client")
+    def test_empty_api_response_raises_error(self, mock_create_client):
         mock_client = MagicMock()
-        mock_get_client.return_value = mock_client
+        mock_create_client.return_value = mock_client
         mock_client.models.generate_content.return_value = MagicMock(text="")
 
         with pytest.raises(exceptions.ValidationError) as exc_info:
             summarize_with_gemini("Question", ["Response"])
         assert "empty response" in str(exc_info.value.detail)
 
-    @patch("products.surveys.backend.summarization.llm.gemini._get_client")
-    def test_api_error_wrapped_as_api_exception(self, mock_get_client):
+    @patch("products.surveys.backend.summarization.llm.gemini._create_client")
+    def test_api_error_wrapped_as_api_exception(self, mock_create_client):
         mock_client = MagicMock()
-        mock_get_client.return_value = mock_client
+        mock_create_client.return_value = mock_client
         mock_client.models.generate_content.side_effect = Exception("API Error")
 
         with pytest.raises(exceptions.APIException) as exc_info:
             summarize_with_gemini("Question", ["Response"])
         assert "Failed to generate summary" in str(exc_info.value.detail)
 
-    @patch("products.surveys.backend.summarization.llm.gemini._get_client")
-    def test_returns_summarization_result_with_trace_id(self, mock_get_client):
+    @patch("products.surveys.backend.summarization.llm.gemini._create_client")
+    def test_returns_summarization_result_with_trace_id(self, mock_create_client):
         mock_client = MagicMock()
-        mock_get_client.return_value = mock_client
+        mock_create_client.return_value = mock_client
 
         valid_response = {
             "overview": "Users want better performance",

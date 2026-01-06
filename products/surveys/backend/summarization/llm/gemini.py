@@ -29,9 +29,16 @@ logger = structlog.get_logger(__name__)
 
 def _create_client() -> genai.Client:
     """Create a Gemini client with PostHog analytics (called per-request like GeminiProvider)."""
+    # In dev with --minimal, posthoganalytics may be disabled - enable it for LLM analytics
+    if settings.DEBUG and posthoganalytics.disabled:
+        posthoganalytics.disabled = False
+        if not posthoganalytics.host:
+            posthoganalytics.host = settings.SITE_URL
+
     posthog_client = posthoganalytics.default_client
     if not posthog_client:
         logger.warning("PostHog default_client not available, LLM analytics will not be tracked")
+
     return genai.Client(
         api_key=settings.GEMINI_API_KEY,
         posthog_client=posthog_client,
