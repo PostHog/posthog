@@ -45,10 +45,6 @@ const meta: Meta = {
 }
 export default meta
 
-// ==========================================
-// Product Selection - Choose Path Step
-// ==========================================
-
 export const ChoosePath: StoryFn = () => {
     useDelayedOnMountEffect(() => {
         router.actions.push(urls.onboarding())
@@ -71,31 +67,6 @@ ChoosePathWithAIFeatureFlag.parameters = {
     featureFlags: [FEATURE_FLAGS.ONBOARDING_AI_PRODUCT_RECOMMENDATIONS],
     testOptions: { waitForSelector: '[data-attr="use-case-see_user_behavior"]' },
 }
-
-// ==========================================
-// Product Selection - With Browsing History
-// ==========================================
-
-export const WithBrowsingHistory: StoryFn = () => {
-    useMountedLogic(productSelectionLogic)
-    const { setBrowsingHistory, setSelectedProducts } = useActions(productSelectionLogic)
-
-    useDelayedOnMountEffect(() => {
-        router.actions.push(urls.onboarding())
-        // Simulate browsing history
-        setBrowsingHistory(['session-replay', 'feature-flags', 'experiments'])
-        setSelectedProducts([ProductKey.SESSION_REPLAY, ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS])
-    })
-
-    return <App />
-}
-WithBrowsingHistory.parameters = {
-    testOptions: { waitForSelector: '[data-attr="use-case-see_user_behavior"]' },
-}
-
-// ==========================================
-// Product Selection - After AI Recommendation
-// ==========================================
 
 export const AfterAIRecommendation: StoryFn = () => {
     useMountedLogic(productSelectionLogic)
