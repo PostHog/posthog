@@ -51,6 +51,7 @@ import {
 import { Conversation, ConversationDetail, ConversationStatus, ConversationType } from '~/types'
 
 import { EnhancedToolCall, getToolCallDescriptionAndWidget } from './Thread'
+import { APPROVAL_MESSAGES } from './approvalOperationUtils'
 import { ToolRegistration } from './max-constants'
 import { MaxBillingContext, MaxBillingContextSubscriptionLevel, maxBillingContextLogic } from './maxBillingContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
@@ -197,6 +198,14 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             toolMap,
         }),
         setCancelLoading: (cancelLoading: boolean) => ({ cancelLoading }),
+        setPendingApproval: (proposalId: string) => ({ proposalId }),
+        clearPendingApproval: true,
+        continueAfterApproval: (proposalId: string) => ({ proposalId }),
+        continueAfterRejection: (proposalId: string) => ({ proposalId }),
+        setResolvedApprovalStatus: (proposalId: string, status: 'approved' | 'rejected' | 'auto_rejected') => ({
+            proposalId,
+            status,
+        }),
     }),
 
     reducers(({ props }) => ({
@@ -351,6 +360,26 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 stopGeneration: (state) => state + 1,
                 resetThread: () => 0,
                 resetCancelCount: () => 0,
+            },
+        ],
+
+        // Track pending approval proposals for auto-rejection when user sends a new message
+        pendingApprovalProposalId: [
+            null as string | null,
+            {
+                setPendingApproval: (_, { proposalId }) => proposalId,
+                clearPendingApproval: () => null,
+            },
+        ],
+
+        // Track resolved approval statuses by proposalId (persists across re-renders)
+        resolvedApprovalStatuses: [
+            {} as Record<string, 'approved' | 'rejected' | 'auto_rejected'>,
+            {
+                setResolvedApprovalStatus: (state, { proposalId, status }) => ({
+                    ...state,
+                    [proposalId]: status,
+                }),
             },
         ],
 
@@ -581,6 +610,18 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             } catch {
                 // sessionStorage might be unavailable
             }
+
+            // Auto-reject any pending approval when user sends a new message
+            if (values.pendingApprovalProposalId && values.conversationId) {
+                const proposalIdToReject = values.pendingApprovalProposalId
+                try {
+                    await api.conversations.rejectOperation(values.conversationId, proposalIdToReject)
+                } catch {
+                    // Ignore errors - operation may have already been resolved
+                }
+                actions.clearPendingApproval()
+                actions.setResolvedApprovalStatus(proposalIdToReject, 'auto_rejected')
+            }
             const agentMode = values.agentMode
 
             // Clear the question
@@ -741,12 +782,44 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 status: 'completed',
             })
         },
+        continueAfterApproval: ({ proposalId }) => {
+            // Clear the pending approval state so askMax doesn't auto-reject
+            actions.clearPendingApproval()
+            // Persist the approved status for the card to display
+            actions.setResolvedApprovalStatus(proposalId, 'approved')
+            // Continue the conversation with a visible approval message
+            // The agent will receive this and call the tool again,
+            // which will find the approved operation and execute it
+            actions.askMax(APPROVAL_MESSAGES.approved)
+        },
+        continueAfterRejection: ({ proposalId }) => {
+            // Clear the pending approval state
+            actions.clearPendingApproval()
+            // Persist the rejected status for the card to display
+            actions.setResolvedApprovalStatus(proposalId, 'rejected')
+            // Continue the conversation with a visible rejection message
+            actions.askMax(APPROVAL_MESSAGES.rejected)
+        },
     })),
 
     selectors({
         conversationId: [
             (s, p) => [s.conversation, p.conversationId],
             (conversation, propsConversationId) => conversation?.id || propsConversationId,
+        ],
+
+        effectiveApprovalStatuses: [
+            (s) => [s.resolvedApprovalStatuses, s.conversation],
+            (resolved, conversation): Record<string, 'approved' | 'rejected' | 'auto_rejected'> => {
+                const backendDecisions =
+                    typeof conversation?.approval_decisions === 'object' && conversation.approval_decisions !== null
+                        ? conversation.approval_decisions
+                        : {}
+                return {
+                    ...backendDecisions,
+                    ...resolved,
+                }
+            },
         ],
 
         isSharedThread: [
@@ -1190,6 +1263,11 @@ export async function onEventImplementation(
             for (const [toolName, toolResult] of Object.entries(parsedResponse.ui_payload)) {
                 if (values.availableStaticTools.some((tool) => tool.identifier === toolName)) {
                     continue // Static tools (mode-level) don't operate via ui_payload
+                }
+                // Track pending approval proposals for auto-rejection
+                const proposalId = toolResult?.proposalId || toolResult?.proposal_id
+                if (toolResult?.status === 'pending_approval' && proposalId) {
+                    actions.setPendingApproval(proposalId)
                 }
                 await values.toolMap[toolName]?.callback?.(toolResult, props.conversationId)
             }

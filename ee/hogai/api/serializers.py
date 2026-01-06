@@ -48,12 +48,13 @@ class ConversationMinimalSerializer(serializers.ModelSerializer):
 class ConversationSerializer(ConversationMinimalSerializer):
     class Meta:
         model = Conversation
-        fields = [*_conversation_fields, "messages", "has_unsupported_content", "agent_mode"]
+        fields = [*_conversation_fields, "messages", "has_unsupported_content", "agent_mode", "approval_decisions"]
         read_only_fields = fields
 
     messages = serializers.SerializerMethodField()
     has_unsupported_content = serializers.SerializerMethodField()
     agent_mode = serializers.SerializerMethodField()
+    approval_decisions = serializers.JSONField(read_only=True)
 
     def get_messages(self, conversation: Conversation) -> list[dict[str, Any]]:
         state, _ = self._get_cached_state(conversation)

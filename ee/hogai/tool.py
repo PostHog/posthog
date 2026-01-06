@@ -1,4 +1,5 @@
 import json
+import uuid
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from functools import cached_property
@@ -21,6 +22,11 @@ from posthog.sync import database_sync_to_async
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.core.context import get_node_path, set_node_path
 from ee.hogai.core.mixins import AssistantContextMixin, AssistantDispatcherMixin
+from ee.hogai.pending_operations import (
+    delete_pending_operation,
+    get_approved_operation_for_conversation,
+    store_pending_operation,
+)
 from ee.hogai.registry import CONTEXTUAL_TOOL_NAME_TO_TOOL
 from ee.hogai.tool_errors import MaxToolAccessDeniedError
 from ee.hogai.utils.types.base import AssistantMessageUnion, AssistantState, NodePath
@@ -32,6 +38,16 @@ class ToolMessagesArtifact(BaseModel):
     """Return messages directly. Use with `artifact`."""
 
     messages: Sequence[AssistantMessageUnion]
+
+
+class DangerousOperationResponse(BaseModel):
+    """Response returned when a tool operation requires user approval."""
+
+    status: Literal["pending_approval"] = "pending_approval"
+    proposal_id: str
+    tool_name: str
+    preview: str
+    payload: dict[str, Any]
 
 
 class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
@@ -62,6 +78,28 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
     async def _arun_impl(self, *args, **kwargs) -> tuple[str, Any]:
         """Tool execution, which should return a tuple of (content, artifact)"""
         raise NotImplementedError
+
+    def is_dangerous_operation(self, **kwargs) -> bool:
+        """
+        Override to mark certain operations as requiring user approval.
+
+        Returns True if the operation should require explicit user approval
+        before being executed. The default implementation returns False.
+        """
+        return False
+
+    def format_dangerous_operation_preview(self, **kwargs) -> str:
+        """
+        Override to provide a human-readable preview of the dangerous operation.
+        This is shown to the user when asking for approval. Should clearly
+        describe what will happen if the operation is approved.
+        """
+        return f"Execute {self.name} operation"
+
+    def _get_conversation_id(self) -> str | None:
+        """Extract conversation_id from the config."""
+        configurable = self._config.get("configurable", {})
+        return configurable.get("thread_id")
 
     def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
         """
@@ -183,9 +221,100 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
             return self._run_impl(*args, **kwargs)
 
     async def _arun_with_context(self, *args, **kwargs):
-        """Sets the context for the tool."""
+        """Sets the context for the tool. Checks for approved/dangerous operations before executing."""
         with set_node_path(self.node_path):
+            # Handle dangerous operation approval flow
+            dangerous_result = await self._handle_dangerous_operation(**kwargs)
+            if dangerous_result is not None:
+                return dangerous_result
+
+            # Normal execution
             return await self._arun_impl(*args, **kwargs)
+
+    async def _handle_dangerous_operation(self, **kwargs) -> tuple[str, Any] | None:
+        """
+        Handle dangerous operation approval flow.
+
+        Returns:
+            - tuple[str, Any]: Result if an approved operation was executed or approval is needed
+            - None: If normal execution should proceed
+        """
+        conversation_id = self._get_conversation_id()
+
+        # Check for approved operation - execute with stored payload
+        if conversation_id:
+            approved_op = get_approved_operation_for_conversation(conversation_id, self.name)
+            if approved_op:
+                delete_pending_operation(conversation_id, approved_op["proposal_id"])
+                stored_kwargs = self._reconstruct_kwargs_from_payload(approved_op["payload"])
+                return await self._arun_impl(**stored_kwargs)
+
+        # Check if this operation requires approval
+        if self.is_dangerous_operation(**kwargs):
+            return await self._create_dangerous_operation_response(**kwargs)
+
+        return None
+
+    def _reconstruct_kwargs_from_payload(self, payload: dict) -> dict:
+        """Reconstruct kwargs from stored payload (Pydantic deserialization)."""
+        args_schema = getattr(self, "args_schema", None)
+        if args_schema is not None and isinstance(args_schema, type) and issubclass(args_schema, BaseModel):
+            try:
+                validated_args = args_schema.model_validate(payload)
+                return {field_name: getattr(validated_args, field_name) for field_name in validated_args.model_fields}
+            except Exception as e:
+                logger.warning(f"Failed to reconstruct kwargs from payload: {e}, using raw payload")
+        return payload
+
+    def _serialize_kwargs_for_storage(self, kwargs: dict) -> dict:
+        """Serialize kwargs for cache storage, converting Pydantic models to dicts."""
+        serialized = {}
+        for key, value in kwargs.items():
+            if isinstance(value, BaseModel):
+                serialized[key] = value.model_dump()
+            else:
+                serialized[key] = value
+        return serialized
+
+    async def _create_dangerous_operation_response(self, **kwargs) -> tuple[str, Any] | None:
+        """Create a dangerous operation response requiring user approval."""
+        conversation_id = self._get_conversation_id()
+
+        # Without conversation_id, we can't track approvals - fall through to normal execution
+        if not conversation_id:
+            logger.warning(
+                "Cannot create dangerous operation response without conversation_id, executing without approval",
+                tool_name=self.name,
+            )
+            return None
+
+        proposal_id = str(uuid.uuid4())
+        preview = self.format_dangerous_operation_preview(**kwargs)
+
+        # Serialize kwargs for storage (Pydantic models -> dicts)
+        serialized_payload = self._serialize_kwargs_for_storage(kwargs)
+
+        await store_pending_operation(
+            conversation_id=conversation_id,
+            proposal_id=proposal_id,
+            tool_name=self.name,
+            payload=serialized_payload,
+        )
+
+        response = DangerousOperationResponse(
+            proposal_id=proposal_id,
+            tool_name=self.name,
+            preview=preview,
+            payload=serialized_payload,
+        )
+        # LLM content and response dict as artifact for ui_payload
+        return (
+            "STOP. This operation requires explicit user approval before proceeding. "
+            "The user is now seeing an approval dialog. Do NOT continue, do NOT summarize, do NOT say 'Done'. "
+            "Wait silently for the user's response. "
+            "When the user approves, call this tool again with the same arguments - it will execute normally.",
+            response.model_dump(),
+        )
 
     @property
     def node_name(self) -> str:

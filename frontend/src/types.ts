@@ -6070,6 +6070,7 @@ export interface Conversation {
     slack_thread_key?: string | null
     slack_workspace_domain?: string | null
     is_internal?: boolean
+    approval_decisions?: Record<string, 'approved' | 'rejected'>
 }
 
 export interface ConversationDetail extends Conversation {

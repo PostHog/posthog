@@ -69,6 +69,11 @@ class Conversation(UUIDTModel):
         blank=True,
         help_text="Slack workspace subdomain (e.g. 'posthog' for posthog.slack.com)",
     )
+    approval_decisions = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Stores approval decisions for dangerous operations. Format: {proposal_id: 'approved' | 'rejected'}",
+    )
 
 
 class ConversationCheckpoint(UUIDTModel):

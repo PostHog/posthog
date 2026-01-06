@@ -4880,6 +4880,14 @@ const api = {
                 .withAction('append_message')
                 .create({ data: { content } })
         },
+
+        approveOperation(conversationId: string, proposalId: string): Promise<{ status: string; result?: string }> {
+            return new ApiRequest().conversation(conversationId).withAction(`operations/${proposalId}/approve`).create()
+        },
+
+        rejectOperation(conversationId: string, proposalId: string): Promise<{ status: string }> {
+            return new ApiRequest().conversation(conversationId).withAction(`operations/${proposalId}/reject`).create()
+        },
     },
 
     datasets: {
