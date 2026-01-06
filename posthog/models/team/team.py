@@ -128,7 +128,9 @@ class TeamManager(models.Manager):
 
         # Self-hosted deployments get 5-year session recording retention by default
         if not is_cloud():
-            team.session_recording_retention_period = SessionRecordingRetentionPeriod.FIVE_YEARS
+            team.session_recording_retention_period = kwargs.get(
+                "session_recording_retention_period", SessionRecordingRetentionPeriod.FIVE_YEARS
+            )
 
         if team.extra_settings is None:
             team.extra_settings = {}
