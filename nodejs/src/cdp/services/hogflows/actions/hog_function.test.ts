@@ -38,9 +38,9 @@ describe('HogFunctionHandler', () => {
         team = await getFirstTeam(hub)
 
         mockHogFunctionExecutor = new HogExecutorService(hub)
-        mockHogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub)
+        mockHogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub.postgres)
         mockHogFlowFunctionsService = new HogFlowFunctionsService(
-            hub,
+            hub.SITE_URL,
             mockHogFunctionTemplateManager,
             mockHogFunctionExecutor
         )

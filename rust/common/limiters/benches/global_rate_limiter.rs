@@ -34,7 +34,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use chrono::Utc;
@@ -76,7 +76,7 @@ fn bench_config() -> GlobalRateLimiterConfig {
         rate_limit_interval: Duration::from_secs(60),
         redis_key_prefix: "bench:grl".to_string(),
         global_cache_ttl: Duration::from_secs(300),
-        local_cache_ttl: Duration::from_secs(120),
+        local_cache_ttl: Duration::from_secs(1200), // 20 minutes for hot cache simulation
         local_cache_max_entries: 100_000,
         batch_interval: Duration::from_millis(100),
         batch_max_update_count: 10000,
@@ -133,7 +133,7 @@ async fn prime_redis_buckets(
     let num_buckets = (window_secs / bucket_secs) as usize;
 
     // Use a long TTL so primed data survives the entire benchmark suite
-    let ttl_secs = 900; // 15 minutes
+    let ttl_secs = 1800; // 30 minutes
 
     // Current bucket boundary
     let now_ts = Utc::now().timestamp();
@@ -141,10 +141,10 @@ async fn prime_redis_buckets(
 
     // Prime buckets covering:
     // - Past: num_buckets back (the window the limiter reads)
-    // - Future: 10 minutes ahead to handle benchmark timing drift
+    // - Future: 20 minutes ahead to handle benchmark timing drift
     // The MGET reads buckets (current - 1*bucket) to (current - num_buckets*bucket),
     // so as time advances we need those future buckets ready.
-    let extra_future_buckets = 60; // 600s = 10 minutes with 10s buckets
+    let extra_future_buckets = 120; // 1200s = 20 minutes with 10s buckets
     let bucket_ids: Vec<i64> = (-(extra_future_buckets as i64)..=(num_buckets as i64))
         .map(|i| current_bucket - (i * bucket_secs))
         .collect();
@@ -494,15 +494,49 @@ fn bench_redis_mget_direct(c: &mut Criterion) {
 
 /// Simulation: 20 processes × 1000 req/sec, 100k key cardinality, random distribution
 ///
-/// This models a realistic high-cardinality scenario to measure:
-/// - Cache hit rate
-/// - Fail-open rate
-/// - Sustainable throughput
-/// - Redis saturation behavior
+/// Tests three cache warmth scenarios:
+/// - Cold (0%): All caches empty, every request hits Redis
+/// - Warm (50%): Half of keys pre-cached, mixed Redis/cache hits
+/// - Hot (100%): All keys pre-cached, minimal Redis reads
+///
+/// Uses metrics-util's DebuggingRecorder to capture accurate cache and eval metrics
+/// from the limiter implementation.
 fn bench_high_cardinality_simulation(c: &mut Criterion) {
+    use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};
-    use std::sync::atomic::AtomicU64;
+
+    // Install a global debugging recorder once per benchmark process.
+    static SNAPSHOTTER: OnceLock<Snapshotter> = OnceLock::new();
+    let snapshotter = SNAPSHOTTER.get_or_init(|| {
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        drop(recorder.install());
+        snapshotter
+    });
+
+    // Helper to get counter value for a metric with a specific label
+    let get_counter_value = |metric_name: &str, label_key: &str, label_value: &str| -> u64 {
+        snapshotter
+            .snapshot()
+            .into_vec()
+            .into_iter()
+            .find(|(key, _, _, _)| {
+                key.key().name() == metric_name
+                    && key
+                        .key()
+                        .labels()
+                        .any(|l| l.key() == label_key && l.value() == label_value)
+            })
+            .map(|(_, _, _, value)| {
+                if let DebugValue::Counter(v) = value {
+                    v
+                } else {
+                    0
+                }
+            })
+            .unwrap_or(0)
+    };
 
     let Some((rt, redis)) = setup_redis() else {
         eprintln!("Skipping bench_high_cardinality_simulation: Redis unavailable");
@@ -511,14 +545,13 @@ fn bench_high_cardinality_simulation(c: &mut Criterion) {
 
     const NUM_PROCESSES: usize = 20;
     const KEYS_CARDINALITY: u64 = 100_000;
-    const REQUESTS_PER_PROCESS: usize = 1000; // 1 second of traffic per process
+    const REQUESTS_PER_PROCESS: usize = 1000;
 
     let config = bench_config();
 
-    // Prime Redis with bucket data for all keys (this takes a while)
+    // Prime Redis with bucket data for all keys once at the start
     eprintln!("Priming {KEYS_CARDINALITY} keys in Redis...");
     rt.block_on(async {
-        // Prime in batches of 1000 keys
         for batch_start in (0..KEYS_CARDINALITY).step_by(1000) {
             let batch_end = (batch_start + 1000).min(KEYS_CARDINALITY);
             for i in batch_start..batch_end {
@@ -532,110 +565,259 @@ fn bench_high_cardinality_simulation(c: &mut Criterion) {
     });
     eprintln!("Priming complete.");
 
-    // Counters for results
-    static SIM_CACHE_HIT: AtomicU64 = AtomicU64::new(0);
-    static SIM_CACHE_MISS: AtomicU64 = AtomicU64::new(0);
-    static SIM_FAIL_OPEN: AtomicU64 = AtomicU64::new(0);
-    static SIM_LIMITED: AtomicU64 = AtomicU64::new(0);
-
-    // Reset counters
-    SIM_CACHE_HIT.store(0, Ordering::Relaxed);
-    SIM_CACHE_MISS.store(0, Ordering::Relaxed);
-    SIM_FAIL_OPEN.store(0, Ordering::Relaxed);
-    SIM_LIMITED.store(0, Ordering::Relaxed);
+    // Cache warmth scenarios: (name, percentage of keys to pre-cache, fresh_each_iter)
+    let scenarios: &[(&str, u64, bool)] = &[
+        ("cold_fresh", 0, true),    // Fresh limiters each iteration - true cold start
+        ("warm_50pct", 50, false),  // Persistent limiters, 50% pre-warmed
+        ("hot_100pct", 100, false), // Persistent limiters, 100% pre-warmed
+    ];
 
     let mut group = c.benchmark_group("simulation_20proc_100k_keys");
-    group.sample_size(10); // Fewer samples since each iteration is expensive
+    group.sample_size(10);
     group.measurement_time(Duration::from_secs(30));
     group.throughput(Throughput::Elements(
         (NUM_PROCESSES * REQUESTS_PER_PROCESS) as u64,
     ));
 
-    group.bench_function("1_second_of_traffic", |b| {
-        b.to_async(&rt).iter(|| {
-            let redis_clone = redis.clone();
-            let config_clone = config.clone();
+    for (scenario_name, cache_warmth_pct, fresh_each_iter) in scenarios {
+        if *fresh_each_iter {
+            // Capture baseline before benchmark (no warming phase for fresh limiters)
+            let baseline_cache_hit =
+                get_counter_value("global_rate_limiter_cache_counts_total", "result", "hit");
+            let baseline_cache_miss =
+                get_counter_value("global_rate_limiter_cache_counts_total", "result", "miss");
+            let baseline_cache_stale =
+                get_counter_value("global_rate_limiter_cache_counts_total", "result", "stale");
+            let baseline_eval_allowed =
+                get_counter_value("global_rate_limiter_eval_counts_total", "result", "allowed");
+            let baseline_eval_limited =
+                get_counter_value("global_rate_limiter_eval_counts_total", "result", "limited");
+            let baseline_eval_fail_open = get_counter_value(
+                "global_rate_limiter_eval_counts_total",
+                "result",
+                "fail_open",
+            );
+            // TRUE COLD START: Create fresh limiters each iteration
+            // This measures worst-case latency when all caches are empty
+            eprintln!("Running '{scenario_name}': fresh limiters each iteration (true cold start)");
 
-            async move {
-                // Create 20 independent limiters (simulating 20 processes)
-                let limiters: Vec<_> = (0..NUM_PROCESSES)
-                    .map(|_| {
-                        GlobalRateLimiterImpl::new(config_clone.clone(), vec![redis_clone.clone()])
-                            .expect("failed to create limiter for simulation")
-                    })
-                    .collect();
+            group.bench_function(*scenario_name, |b| {
+                b.to_async(&rt).iter(|| {
+                    let redis_clone = redis.clone();
+                    let config_clone = config.clone();
+                    async move {
+                        // Create fresh limiters with empty caches
+                        let limiters: Vec<_> = (0..NUM_PROCESSES)
+                            .map(|_| {
+                                GlobalRateLimiterImpl::new(
+                                    config_clone.clone(),
+                                    vec![redis_clone.clone()],
+                                )
+                                .expect("failed to create limiter")
+                            })
+                            .collect();
 
-                // Spawn 20 concurrent tasks, each processing 1000 requests
-                let handles: Vec<_> = limiters
-                    .into_iter()
-                    .enumerate()
-                    .map(|(proc_id, limiter)| {
-                        tokio::spawn(async move {
-                            let mut rng = StdRng::seed_from_u64(proc_id as u64);
-                            let mut local_results = (0u64, 0u64, 0u64, 0u64); // hit, miss, fail, limited
+                        let handles: Vec<_> = limiters
+                            .into_iter()
+                            .enumerate()
+                            .map(|(proc_id, limiter)| {
+                                tokio::spawn(async move {
+                                    let mut rng = StdRng::seed_from_u64(proc_id as u64);
+                                    for _ in 0..REQUESTS_PER_PROCESS {
+                                        let key_id: u64 = rng.gen_range(0..KEYS_CARDINALITY);
+                                        let key = format!("sim_key_{key_id}");
+                                        let _ = black_box(limiter.check_limit(&key, 1, None).await);
+                                    }
+                                })
+                            })
+                            .collect();
 
-                            for _ in 0..REQUESTS_PER_PROCESS {
-                                // Random key from 100k cardinality
-                                let key_id: u64 = rng.gen_range(0..KEYS_CARDINALITY);
-                                let key = format!("sim_key_{key_id}");
-
-                                let result = limiter.check_limit(&key, 1, None).await;
-
-                                match result {
-                                    EvalResult::Allowed => local_results.0 += 1,
-                                    EvalResult::Limited(_) => local_results.3 += 1,
-                                    EvalResult::FailOpen { .. } => local_results.2 += 1,
-                                    EvalResult::NotApplicable => {}
-                                }
-                            }
-
-                            local_results
-                        })
-                    })
-                    .collect();
-
-                // Wait for all "processes" to complete
-                for handle in handles {
-                    if let Ok((hits, misses, fails, limited)) = handle.await {
-                        SIM_CACHE_HIT.fetch_add(hits, Ordering::Relaxed);
-                        SIM_CACHE_MISS.fetch_add(misses, Ordering::Relaxed);
-                        SIM_FAIL_OPEN.fetch_add(fails, Ordering::Relaxed);
-                        SIM_LIMITED.fetch_add(limited, Ordering::Relaxed);
+                        for handle in handles {
+                            let _ = handle.await;
+                        }
                     }
+                });
+            });
+            // Report results for fresh_each_iter scenario
+            let cache_hit =
+                get_counter_value("global_rate_limiter_cache_counts_total", "result", "hit")
+                    - baseline_cache_hit;
+            let cache_miss =
+                get_counter_value("global_rate_limiter_cache_counts_total", "result", "miss")
+                    - baseline_cache_miss;
+            let cache_stale =
+                get_counter_value("global_rate_limiter_cache_counts_total", "result", "stale")
+                    - baseline_cache_stale;
+            let eval_allowed =
+                get_counter_value("global_rate_limiter_eval_counts_total", "result", "allowed")
+                    - baseline_eval_allowed;
+            let eval_limited =
+                get_counter_value("global_rate_limiter_eval_counts_total", "result", "limited")
+                    - baseline_eval_limited;
+            let eval_fail_open = get_counter_value(
+                "global_rate_limiter_eval_counts_total",
+                "result",
+                "fail_open",
+            ) - baseline_eval_fail_open;
+
+            let total_cache = cache_hit + cache_miss + cache_stale;
+            let total_eval = eval_allowed + eval_limited + eval_fail_open;
+
+            if total_cache > 0 || total_eval > 0 {
+                eprintln!("\n=== {scenario_name} Results ===");
+                if total_cache > 0 {
+                    eprintln!(
+                        "Cache: hit={} ({:.1}%) miss={} ({:.1}%) stale={} ({:.1}%)",
+                        cache_hit,
+                        cache_hit as f64 / total_cache as f64 * 100.0,
+                        cache_miss,
+                        cache_miss as f64 / total_cache as f64 * 100.0,
+                        cache_stale,
+                        cache_stale as f64 / total_cache as f64 * 100.0
+                    );
                 }
+                if total_eval > 0 {
+                    eprintln!(
+                        "Eval:  allowed={} ({:.1}%) limited={} ({:.1}%) fail_open={} ({:.1}%)",
+                        eval_allowed,
+                        eval_allowed as f64 / total_eval as f64 * 100.0,
+                        eval_limited,
+                        eval_limited as f64 / total_eval as f64 * 100.0,
+                        eval_fail_open,
+                        eval_fail_open as f64 / total_eval as f64 * 100.0
+                    );
+                }
+                eprintln!("================================\n");
             }
-        });
-    });
+        } else {
+            // PERSISTENT LIMITERS: Create once, pre-warm, reuse across iterations
+            let limiters: Vec<_> = rt.block_on(async {
+                (0..NUM_PROCESSES)
+                    .map(|_| {
+                        GlobalRateLimiterImpl::new(config.clone(), vec![redis.clone()])
+                            .expect("failed to create limiter")
+                    })
+                    .collect()
+            });
+
+            // Pre-warm the local caches
+            if *cache_warmth_pct > 0 {
+                let keys_to_warm = (KEYS_CARDINALITY * cache_warmth_pct / 100) as usize;
+                eprintln!(
+                    "Warming caches for '{scenario_name}': {keys_to_warm} keys ({cache_warmth_pct}%)..."
+                );
+                rt.block_on(async {
+                    for (proc_idx, limiter) in limiters.iter().enumerate() {
+                        for i in (proc_idx..keys_to_warm).step_by(NUM_PROCESSES) {
+                            let key = format!("sim_key_{i}");
+                            let _ = limiter.check_limit(&key, 1, None).await;
+                        }
+                    }
+                });
+                eprintln!("Cache warming complete.");
+            }
+
+            // Capture baseline AFTER warming so warming misses aren't counted
+            let baseline_cache_hit =
+                get_counter_value("global_rate_limiter_cache_counts_total", "result", "hit");
+            let baseline_cache_miss =
+                get_counter_value("global_rate_limiter_cache_counts_total", "result", "miss");
+            let baseline_cache_stale =
+                get_counter_value("global_rate_limiter_cache_counts_total", "result", "stale");
+            let baseline_eval_allowed =
+                get_counter_value("global_rate_limiter_eval_counts_total", "result", "allowed");
+            let baseline_eval_limited =
+                get_counter_value("global_rate_limiter_eval_counts_total", "result", "limited");
+            let baseline_eval_fail_open = get_counter_value(
+                "global_rate_limiter_eval_counts_total",
+                "result",
+                "fail_open",
+            );
+
+            let limiters = Arc::new(limiters);
+
+            group.bench_function(*scenario_name, |b| {
+                b.to_async(&rt).iter(|| {
+                    let limiters = limiters.clone();
+                    async move {
+                        let handles: Vec<_> = limiters
+                            .iter()
+                            .enumerate()
+                            .map(|(proc_id, limiter)| {
+                                let limiter = limiter.clone();
+                                tokio::spawn(async move {
+                                    let mut rng = StdRng::seed_from_u64(proc_id as u64);
+                                    for _ in 0..REQUESTS_PER_PROCESS {
+                                        let key_id: u64 = rng.gen_range(0..KEYS_CARDINALITY);
+                                        let key = format!("sim_key_{key_id}");
+                                        let _ = black_box(limiter.check_limit(&key, 1, None).await);
+                                    }
+                                })
+                            })
+                            .collect();
+
+                        for handle in handles {
+                            let _ = handle.await;
+                        }
+                    }
+                });
+            });
+
+            // Report results for persistent limiter scenario
+            let cache_hit =
+                get_counter_value("global_rate_limiter_cache_counts_total", "result", "hit")
+                    - baseline_cache_hit;
+            let cache_miss =
+                get_counter_value("global_rate_limiter_cache_counts_total", "result", "miss")
+                    - baseline_cache_miss;
+            let cache_stale =
+                get_counter_value("global_rate_limiter_cache_counts_total", "result", "stale")
+                    - baseline_cache_stale;
+            let eval_allowed =
+                get_counter_value("global_rate_limiter_eval_counts_total", "result", "allowed")
+                    - baseline_eval_allowed;
+            let eval_limited =
+                get_counter_value("global_rate_limiter_eval_counts_total", "result", "limited")
+                    - baseline_eval_limited;
+            let eval_fail_open = get_counter_value(
+                "global_rate_limiter_eval_counts_total",
+                "result",
+                "fail_open",
+            ) - baseline_eval_fail_open;
+
+            let total_cache = cache_hit + cache_miss + cache_stale;
+            let total_eval = eval_allowed + eval_limited + eval_fail_open;
+
+            if total_cache > 0 || total_eval > 0 {
+                eprintln!("\n=== {scenario_name} Results ===");
+                if total_cache > 0 {
+                    eprintln!(
+                        "Cache: hit={} ({:.1}%) miss={} ({:.1}%) stale={} ({:.1}%)",
+                        cache_hit,
+                        cache_hit as f64 / total_cache as f64 * 100.0,
+                        cache_miss,
+                        cache_miss as f64 / total_cache as f64 * 100.0,
+                        cache_stale,
+                        cache_stale as f64 / total_cache as f64 * 100.0
+                    );
+                }
+                if total_eval > 0 {
+                    eprintln!(
+                        "Eval:  allowed={} ({:.1}%) limited={} ({:.1}%) fail_open={} ({:.1}%)",
+                        eval_allowed,
+                        eval_allowed as f64 / total_eval as f64 * 100.0,
+                        eval_limited,
+                        eval_limited as f64 / total_eval as f64 * 100.0,
+                        eval_fail_open,
+                        eval_fail_open as f64 / total_eval as f64 * 100.0
+                    );
+                }
+                eprintln!("================================\n");
+            }
+        }
+    }
 
     group.finish();
-
-    // Report simulation results
-    let total_hits = SIM_CACHE_HIT.load(Ordering::Relaxed);
-    let total_misses = SIM_CACHE_MISS.load(Ordering::Relaxed);
-    let total_fails = SIM_FAIL_OPEN.load(Ordering::Relaxed);
-    let total_limited = SIM_LIMITED.load(Ordering::Relaxed);
-    let total = total_hits + total_misses + total_fails + total_limited;
-
-    if total > 0 {
-        eprintln!("\n=== Simulation Results ===");
-        eprintln!("Total requests: {total}");
-        eprintln!(
-            "Allowed: {} ({:.1}%)",
-            total_hits + total_misses,
-            (total_hits + total_misses) as f64 / total as f64 * 100.0
-        );
-        eprintln!(
-            "Fail-opens: {} ({:.1}%)",
-            total_fails,
-            total_fails as f64 / total as f64 * 100.0
-        );
-        eprintln!(
-            "Rate limited: {} ({:.1}%)",
-            total_limited,
-            total_limited as f64 / total as f64 * 100.0
-        );
-        eprintln!("===========================\n");
-    }
 }
 
 criterion_group!(

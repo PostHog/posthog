@@ -72,16 +72,15 @@ runs:
           run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
         - name: Set up Python
-          uses: actions/setup-python@v5
+          uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
           with:
               python-version: ${{ inputs.python-version }}
               token: ${{ inputs.token }}
 
         - name: Install uv
-          uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+          uses: astral-sh/setup-uv@681c641aba71e4a1c380be3ab5e12ad51f415867 # v7.1.6
           with:
               enable-cache: true
-              pyproject-file: 'pyproject.toml'
 
         - name: Determine if hogql-parser has changed compared to master
           shell: bash

@@ -3,6 +3,7 @@ kafka:
     brokers: 'kafka:9092'
     topic: 'events_plugin_ingestion'
     group_id: 'livestream'
+    security_protocol: 'PLAINTEXT'
     session_recording_enabled: true
     session_recording_security_protocol: 'PLAINTEXT'
 mmdb:

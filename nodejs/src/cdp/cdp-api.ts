@@ -11,10 +11,11 @@ import { logger } from '../utils/logger'
 import { UUID, UUIDT, delay } from '../utils/utils'
 import {
     CdpSourceWebhooksConsumer,
+    CdpSourceWebhooksConsumerHub,
     HogFunctionWebhookResult,
     SourceWebhookError,
 } from './consumers/cdp-source-webhooks.consumer'
-import { HogTransformerService } from './hog-transformations/hog-transformer.service'
+import { HogTransformerHub, HogTransformerService } from './hog-transformations/hog-transformer.service'
 import { HogExecutorExecuteAsyncOptions, HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogflows/hogflow-executor.service'
 import { HogFlowFunctionsService } from './services/hogflows/hogflow-functions.service'
@@ -33,6 +34,24 @@ import { HOG_FUNCTION_TEMPLATES } from './templates'
 import { HogFunctionInvocationGlobals, HogFunctionType, MinimalLogEntry } from './types'
 import { convertToHogFunctionInvocationGlobals, isNativeHogFunction, isSegmentPluginHogFunction } from './utils'
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
+
+/**
+ * Hub type for CdpApi.
+ * Combines all hub types needed by CdpApi and its dependencies.
+ */
+export type CdpApiHub = CdpSourceWebhooksConsumerHub &
+    HogTransformerHub &
+    Pick<
+        Hub,
+        | 'teamManager'
+        | 'SITE_URL'
+        | 'REDIS_URL'
+        | 'REDIS_POOL_MIN_SIZE'
+        | 'REDIS_POOL_MAX_SIZE'
+        | 'CDP_REDIS_HOST'
+        | 'CDP_REDIS_PORT'
+        | 'CDP_REDIS_PASSWORD'
+    >
 
 export class CdpApi {
     private hogExecutor: HogExecutorService
@@ -54,14 +73,14 @@ export class CdpApi {
     private recipientPreferencesService: RecipientPreferencesService
     private recipientTokensService: RecipientTokensService
 
-    constructor(private hub: Hub) {
+    constructor(private hub: CdpApiHub) {
         this.hogFunctionManager = new HogFunctionManagerService(hub)
-        this.hogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub)
-        this.hogFlowManager = new HogFlowManagerService(hub)
-        this.recipientsManager = new RecipientsManagerService(hub)
+        this.hogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub.postgres)
+        this.hogFlowManager = new HogFlowManagerService(hub.postgres, hub.pubSub)
+        this.recipientsManager = new RecipientsManagerService(hub.postgres)
         this.hogExecutor = new HogExecutorService(hub)
         this.hogFlowFunctionsService = new HogFlowFunctionsService(
-            hub,
+            hub.SITE_URL,
             this.hogFunctionTemplateManager,
             this.hogExecutor
         )
@@ -81,8 +100,9 @@ export class CdpApi {
                     ? {
                           url: hub.CDP_REDIS_HOST,
                           options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
+                          name: 'cdp-api-redis',
                       }
-                    : { url: hub.REDIS_URL },
+                    : { url: hub.REDIS_URL, name: 'cdp-api-redis-fallback' },
                 poolMinSize: hub.REDIS_POOL_MIN_SIZE,
                 poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
             })
@@ -91,7 +111,6 @@ export class CdpApi {
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(hub)
         this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(hub)
         this.emailTrackingService = new EmailTrackingService(
-            hub,
             this.hogFunctionManager,
             this.hogFlowManager,
             this.hogFunctionMonitoringService
@@ -472,6 +491,7 @@ export class CdpApi {
                 status: result.error ? 'error' : 'success',
                 errors: result.error ? [result.error] : [],
                 logs: [...result.logs, ...logs],
+                variables: result.invocation.state.variables ?? {},
             })
         } catch (e) {
             console.error(e)

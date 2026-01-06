@@ -79,6 +79,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'sharing_configuration', objectName: 'Sharing configuration', objectPlural: 'sharing configurations' },
     { key: 'subscription', objectName: 'Subscription', objectPlural: 'subscriptions' },
     { key: 'survey', objectName: 'Survey', objectPlural: 'surveys' },
+    { key: 'ticket', objectName: 'Ticket', objectPlural: 'tickets' },
     {
         key: 'user',
         objectName: 'User',
@@ -121,6 +122,11 @@ export const API_KEY_SCOPE_PRESETS: {
     {
         value: 'zapier',
         label: 'Zapier integration',
+        scopes: ['action:read', 'query:read', 'project:read', 'organization:read', 'user:read', 'webhook:write'],
+    },
+    {
+        value: 'n8n',
+        label: 'n8n integration',
         scopes: ['action:read', 'query:read', 'project:read', 'organization:read', 'user:read', 'webhook:write'],
     },
     { value: 'analytics', label: 'Performing analytics queries', scopes: ['query:read'] },
