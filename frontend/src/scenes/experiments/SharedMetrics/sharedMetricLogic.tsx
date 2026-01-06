@@ -9,7 +9,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 
-import { UserBasicType } from '~/types'
+import { AccessControlLevel, UserBasicType } from '~/types'
 
 import { getDefaultFunnelMetric } from '../utils'
 import type { sharedMetricLogicType } from './sharedMetricLogicType'
@@ -30,6 +30,7 @@ export interface SharedMetric {
     updated_at: string | null
     tags: string[]
     metadata?: Record<string, any>
+    user_access_level: AccessControlLevel
 }
 
 export const NEW_SHARED_METRIC: Partial<SharedMetric> = {
@@ -37,6 +38,7 @@ export const NEW_SHARED_METRIC: Partial<SharedMetric> = {
     description: '',
     query: undefined,
     tags: [],
+    user_access_level: AccessControlLevel.Editor,
 }
 
 export const sharedMetricLogic = kea<sharedMetricLogicType>([
