@@ -23,6 +23,7 @@ logger = structlog.get_logger(__name__)
 
 
 CHAT_AGENT_WORKFLOW_TIMEOUT = 30 * 60  # 30 minutes
+CHAT_AGENT_WORKFLOW_SCHEDULE_TO_CLOSE_TIMEOUT = 30 * 60  # 30 minutes
 CHAT_AGENT_STREAM_MAX_LENGTH = 1000  # 1000 messages
 CHAT_AGENT_ACTIVITY_RETRY_INTERVAL = 1  # 1 second
 CHAT_AGENT_ACTIVITY_RETRY_MAX_INTERVAL = 30 * 60  # 30 minutes
@@ -134,6 +135,7 @@ class ChatAgentWorkflow(AgentBaseWorkflow):
             process_chat_agent_activity,
             inputs,
             start_to_close_timeout=timedelta(seconds=CHAT_AGENT_WORKFLOW_TIMEOUT),
+            schedule_to_close_timeout=timedelta(hours=CHAT_AGENT_WORKFLOW_SCHEDULE_TO_CLOSE_TIMEOUT),
             retry_policy=RetryPolicy(
                 initial_interval=timedelta(seconds=CHAT_AGENT_ACTIVITY_RETRY_INTERVAL),
                 maximum_interval=timedelta(seconds=CHAT_AGENT_ACTIVITY_RETRY_MAX_INTERVAL),

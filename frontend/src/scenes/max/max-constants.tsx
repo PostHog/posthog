@@ -143,7 +143,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             if (toolCall.status === 'completed') {
                 return `Task (${title})`
             }
-            return `Running a task (${title})...`
+            return title ? `Running a task (${title})...` : 'Running a task...'
         },
     },
     create_form: {
@@ -856,6 +856,11 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                     return 'Switched to plan mode'
                 }
                 return 'Switching to plan mode...'
+            } else if (toolCall.args.new_mode === AgentMode.Research) {
+                if (toolCall.status === 'completed') {
+                    return 'Switched to research mode'
+                }
+                return 'Switching to research mode...'
             }
             // Use optional chaining since Plan and Research modes are not in MODE_DEFINITIONS
             const newMode = toolCall.args.new_mode as string
@@ -945,7 +950,10 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     },
 }
 
-export const MODE_DEFINITIONS: Record<Exclude<AgentMode, AgentMode.Plan | AgentMode.Execution>, ModeDefinition> = {
+export const MODE_DEFINITIONS: Record<
+    Exclude<AgentMode, AgentMode.Plan | AgentMode.Execution | AgentMode.Research>,
+    ModeDefinition
+> = {
     [AgentMode.ProductAnalytics]: {
         name: 'Product analytics',
         description: 'Creates insights and dashboards to analyze your product data.',
