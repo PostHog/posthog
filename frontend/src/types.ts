@@ -672,8 +672,8 @@ export interface TeamType extends TeamBasicType {
     flags_persistence_default: boolean
     feature_flag_confirmation_enabled: boolean
     feature_flag_confirmation_message: string
-    default_evaluation_environments_enabled: boolean
-    require_evaluation_environment_tags: boolean
+    default_evaluation_contexts_enabled: boolean
+    require_evaluation_contexts: boolean
     marketing_analytics_config: MarketingAnalyticsConfig
     core_events_config: { core_events: CoreEvent[] }
     base_currency: CurrencyCode
@@ -3633,7 +3633,8 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     surveys: Survey[] | null
     can_edit: boolean
     tags: string[]
-    evaluation_tags: string[]
+    evaluation_contexts: string[]
+    evaluation_tags: string[] // Deprecated: use evaluation_contexts
     usage_dashboard?: number
     has_enriched_analytics?: boolean
     is_remote_configuration: boolean

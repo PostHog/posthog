@@ -207,20 +207,28 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         )
 
     @property
+    def evaluation_tags(self):
+        """
+        Backward compatibility alias for evaluation_contexts.
+        DEPRECATED: Use evaluation_contexts instead.
+        """
+        return self.evaluation_contexts
+
+    @property
     def evaluation_tag_names(self) -> list[str] | None:
         """
-        Returns evaluation tag names for this flag.
+        Returns evaluation context tag names for this flag.
 
         Preferred source is the cache-populated list from Redis (set on instances
         as `_evaluation_tag_names`). If not present, falls back to the DB relation
-        via `evaluation_tags` → `Tag.name`.
+        via `evaluation_contexts` → `Tag.name`.
         """
         cached = getattr(self, "_evaluation_tag_names", None)
         if cached is not None:
             return cached
 
         try:
-            return [et.tag.name for et in self.evaluation_tags.select_related("tag").all()]
+            return [et.tag.name for et in self.evaluation_contexts.select_related("tag").all()]
         except (AttributeError, DatabaseError):
             return None
 
@@ -683,16 +691,16 @@ class FeatureFlagDashboards(models.Model):
 
 class FeatureFlagEvaluationTag(models.Model):
     """
-    Marks an existing tag as also being an evaluation constraint for a feature flag.
-    When a tag is marked as an evaluation tag, it serves dual purpose:
+    Marks an existing tag as also being an evaluation context for a feature flag.
+    When a tag is marked as an evaluation context, it serves dual purpose:
     1. It remains an organizational tag (via the TaggedItem relationship)
     2. It acts as an evaluation constraint - the flag will only evaluate when
-       the SDK/client provides matching environment tags
-    This allows for user-specified evaluation environments like "docs-page",
+       the SDK/client provides matching environment context tags
+    This allows for user-specified evaluation contexts like "docs-page",
     "marketing-site", "app", etc.
     """
 
-    feature_flag = models.ForeignKey("FeatureFlag", on_delete=models.CASCADE, related_name="evaluation_tags")
+    feature_flag = models.ForeignKey("FeatureFlag", on_delete=models.CASCADE, related_name="evaluation_contexts")
     tag = models.ForeignKey("Tag", on_delete=models.CASCADE, related_name="evaluation_flags")
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -716,13 +724,13 @@ class FeatureFlagEvaluationTag(models.Model):
 
 class TeamDefaultEvaluationTag(UUIDModel):
     """
-    Defines default evaluation tags that will be automatically applied to new feature flags in a team.
-    These tags serve as default evaluation environments that can be configured at the team/organization level.
-    When a new feature flag is created and the team has default_evaluation_environments_enabled=True,
-    these tags will be automatically added as evaluation tags for the new flag.
+    Defines default evaluation contexts that will be automatically applied to new feature flags in a team.
+    These contexts serve as default evaluation environments that can be configured at the team/organization level.
+    When a new feature flag is created and the team has default_evaluation_contexts_enabled=True,
+    these contexts will be automatically added as evaluation contexts for the new flag.
     """
 
-    team = models.ForeignKey("Team", on_delete=models.CASCADE, related_name="default_evaluation_tags")
+    team = models.ForeignKey("Team", on_delete=models.CASCADE, related_name="default_evaluation_contexts")
     tag = models.ForeignKey("Tag", on_delete=models.CASCADE, related_name="team_defaults")
     created_at = models.DateTimeField(auto_now_add=True)
 
