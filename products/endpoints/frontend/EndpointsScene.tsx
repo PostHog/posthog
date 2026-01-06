@@ -47,7 +47,7 @@ export function EndpointsScene({ tabId }: { tabId?: string }): JSX.Element {
         },
         {
             key: 'usage',
-            label: 'Usage',
+            label: 'Endpoints usage',
             content: <EndpointsUsage tabId={tabId || ''} />,
             link: urls.endpointsUsage(),
         },
