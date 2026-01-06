@@ -270,6 +270,16 @@ def perform_hdbscan_clustering(
     if n_samples == 0:
         raise ValueError("Cannot cluster empty embeddings array")
 
+    from posthog.temporal.llm_analytics.trace_clustering.constants import (
+        MIN_CLUSTER_SIZE_FRACTION_MAX,
+        MIN_CLUSTER_SIZE_FRACTION_MIN,
+    )
+
+    if not MIN_CLUSTER_SIZE_FRACTION_MIN <= min_cluster_size_fraction <= MIN_CLUSTER_SIZE_FRACTION_MAX:
+        raise ValueError(
+            f"min_cluster_size_fraction must be between {MIN_CLUSTER_SIZE_FRACTION_MIN} and {MIN_CLUSTER_SIZE_FRACTION_MAX}"
+        )
+
     # Calculate min_cluster_size from fraction, with minimum of 5 but capped at n_samples
     # HDBSCAN requires min_cluster_size <= n_samples
     min_cluster_size = min(n_samples, max(5, int(n_samples * min_cluster_size_fraction)))

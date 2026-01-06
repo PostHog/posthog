@@ -24,6 +24,8 @@ from posthog.temporal.llm_analytics.trace_clustering.constants import (
     DEFAULT_MAX_SAMPLES,
     DEFAULT_MIN_CLUSTER_SIZE_FRACTION,
     DEFAULT_UMAP_N_COMPONENTS,
+    MIN_CLUSTER_SIZE_FRACTION_MAX,
+    MIN_CLUSTER_SIZE_FRACTION_MIN,
     WORKFLOW_NAME,
 )
 from posthog.temporal.llm_analytics.trace_clustering.models import ClusteringWorkflowInputs
@@ -85,8 +87,8 @@ class ClusteringRunRequestSerializer(serializers.Serializer):
     min_cluster_size_fraction = serializers.FloatField(
         required=False,
         default=DEFAULT_MIN_CLUSTER_SIZE_FRACTION,
-        min_value=0.01,
-        max_value=0.5,
+        min_value=MIN_CLUSTER_SIZE_FRACTION_MIN,
+        max_value=MIN_CLUSTER_SIZE_FRACTION_MAX,
         help_text="Minimum cluster size as fraction of total samples (e.g., 0.05 = 5%)",
     )
     hdbscan_min_samples = serializers.IntegerField(
