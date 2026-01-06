@@ -168,6 +168,8 @@ function CompactConversationCard({
                 active: isActive,
                 fullWidth: true,
             }}
+            tooltip={conversation.title || 'view conversation'}
+            tooltipPlacement="right"
         >
             <span className="flex-1 line-clamp-1 text-primary">{conversation.title}</span>
             {conversation.status === ConversationStatus.InProgress && <Spinner className="h-3 w-3" />}
