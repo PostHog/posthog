@@ -186,7 +186,7 @@ frontend/src/scenes/onboarding/ @PostHog/team-growth
 frontend/src/layout/navigation-3000/sidepanel/panels/SdkDoctor @PostHog/team-growth
 
 # Weekly digest - owned by @PostHog/team-growth
-posthog/temporal/weekly-digest
+posthog/temporal/weekly-digest @PostHog/team-growth
 
 # DevEx-adjacent files - owned by @PostHog/team-devex
 .github/dependabot.yml @PostHog/team-devex
