@@ -40,6 +40,7 @@ import { webAnalyticsFilterPresetsLogic } from './webAnalyticsFilterPresetsLogic
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 
 const CondensedWebAnalyticsFilterBar = ({ tabs }: { tabs: JSX.Element }): JSX.Element => {
+    const { featureFlags } = useValues(featureFlagLogic)
     const {
         dateFilter: { dateTo, dateFrom },
         isPathCleaningEnabled,
@@ -60,7 +61,7 @@ const CondensedWebAnalyticsFilterBar = ({ tabs }: { tabs: JSX.Element }): JSX.El
                 <>
                     <ShareButton />
                     <WebVitalsPercentileToggle />
-                    <FilterPresetsDropdown />
+                    {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTER_PRESETS] && <FilterPresetsDropdown />}
                     <FiltersPopover />
                     <PathCleaningToggle value={isPathCleaningEnabled} onChange={setIsPathCleaningEnabled} />
                     <WebAnalyticsDomainSelector />
