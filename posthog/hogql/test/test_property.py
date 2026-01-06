@@ -80,7 +80,7 @@ class TestProperty(BaseTest):
             self._parse_expr("group_3.properties.a = 'b'"),
         )
         self.assertEqual(
-            self._parse_expr("group_0.properties.a = NULL OR (NOT JSONHas(group_0.properties, 'a'))"),
+            self._parse_expr("group_0.properties.a = NULL"),
             self._property_to_expr(
                 {"type": "group", "group_type_index": 0, "key": "a", "value": "b", "operator": "is_not_set"}
             ),
@@ -144,7 +144,7 @@ class TestProperty(BaseTest):
             self._parse_expr("properties.a != NULL"),
         )
         self.assertEqual(
-            self._parse_expr("properties.a = NULL OR (NOT JSONHas(properties, 'a'))"),
+            self._parse_expr("properties.a = NULL"),
             self._property_to_expr({"type": "event", "key": "a", "value": "b", "operator": "is_not_set"}),
         )
         self.assertEqual(
