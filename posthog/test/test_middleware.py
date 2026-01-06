@@ -6,9 +6,11 @@ from unittest.mock import patch
 
 from django.conf import settings
 from django.core.cache import cache
+from django.test import Client as DjangoClient
 from django.urls import reverse
 
 from rest_framework import status
+from social_core.exceptions import AuthCanceled
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
@@ -508,12 +510,19 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
         self.user.is_staff = True
         self.user.save()
 
+        # Use Django's standard Client instead of APIClient for these tests.
+        # The loginas admin view expects form-encoded POST data, which is
+        # Django Client's default (APIClient defaults to JSON).
+        self.client = DjangoClient()
+        self.client.force_login(self.user)
+
     def get_csrf_token_payload(self):
         return {}
 
     def login_as_other_user(self):
         return self.client.post(
             reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
+            data={"read_only": "false"},
             follow=True,
         )
 
@@ -593,7 +602,8 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
             res = self.client.get("/api/users/@me")
             assert res.status_code == 401
 
-    def test_after_timeout_redirects_to_logout_then_admin(self):
+    def test_after_timeout_non_admin_page_redirects_to_admin(self):
+        """When session times out on a non-admin page, redirect to /admin/."""
         now = datetime.now()
         with freeze_time(now):
             self.login_as_other_user()
@@ -601,12 +611,45 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
         with freeze_time(now + timedelta(seconds=35)):
             res = self.client.get("/dashboards")
             assert res.status_code == 302
-            assert res.headers["Location"] == "/logout/"
+            assert res.headers["Location"] == "/admin/"
 
-            res = self.client.get("/logout/")
+            # Verify we're back to original user
+            res = self.client.get("/api/users/@me")
+            assert res.status_code == 200
+            assert res.json()["email"] == "user1@posthog.com"
+
+    def test_after_timeout_admin_page_redirects_to_intended_admin_page(self):
+        """When session times out navigating to an admin page, redirect to that page."""
+        third_user = User.objects.create_and_join(self.organization, email="third-user@posthog.com", password="123456")
+
+        now = datetime.now()
+        with freeze_time(now):
+            self.login_as_other_user()
+
+        with freeze_time(now + timedelta(seconds=35)):
+            # Navigate to a different user's admin page
+            res = self.client.get(f"/admin/posthog/user/{third_user.id}/change/")
+            assert res.status_code == 302
+            # Should redirect to the intended admin page, not the impersonated user's page
+            assert res.headers["Location"] == f"/admin/posthog/user/{third_user.id}/change/"
+
+            # Verify we're back to original user
+            res = self.client.get("/api/users/@me")
+            assert res.status_code == 200
+            assert res.json()["email"] == "user1@posthog.com"
+
+    def test_explicit_logout_redirects_to_impersonated_user_admin(self):
+        """When explicitly logging out via /logout, redirect to impersonated user's admin page."""
+        now = datetime.now()
+        with freeze_time(now):
+            self.login_as_other_user()
+
+            # Explicit logout via the main logout endpoint
+            res = self.client.get("/logout")
             assert res.status_code == 302
             assert res.headers["Location"] == f"/admin/posthog/user/{self.other_user.id}/change/"
 
+            # Verify we're back to original user
             res = self.client.get("/api/users/@me")
             assert res.status_code == 200
             assert res.json()["email"] == "user1@posthog.com"
@@ -628,15 +671,23 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         self.user.is_staff = True
         self.user.save()
 
+        # Use Django's standard Client instead of APIClient for these tests.
+        # The loginas admin view expects form-encoded POST data, which is
+        # Django Client's default (APIClient defaults to JSON).
+        self.client = DjangoClient()
+        self.client.force_login(self.user)
+
     def login_as_other_user(self):
         return self.client.post(
             reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
+            data={"read_only": "false"},
             follow=True,
         )
 
     def login_as_other_user_read_only(self):
         return self.client.post(
-            reverse("loginas-user-login-read-only", kwargs={"user_id": self.other_user.id}),
+            reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
+            data={"read_only": "true"},
             follow=True,
         )
 
@@ -732,23 +783,20 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         self.other_user.allow_impersonation = False
         self.other_user.save()
 
-        self.client.post(
-            reverse("loginas-user-login-read-only", kwargs={"user_id": self.other_user.id}),
-            follow=True,
-        )
+        self.login_as_other_user_read_only()
 
         # Should still be logged in as original user
         assert self.client.get("/api/users/@me").json()["email"] == self.user.email
 
     def test_read_only_impersonation_logout_redirects_to_user_admin(self):
-        """Verify logout from read-only impersonation redirects to user's admin page."""
+        """Verify explicit logout from read-only impersonation redirects to user's admin page."""
         self.login_as_other_user_read_only()
 
         # Verify we're logged in as the other user
         assert self.client.get("/api/users/@me").json()["email"] == "other-user@posthog.com"
 
-        # Logout
-        response = self.client.get("/logout/")
+        # Explicit logout via main logout endpoint
+        response = self.client.get("/logout")
 
         assert response.status_code == 302
         assert response.headers["Location"] == f"/admin/posthog/user/{self.other_user.id}/change/"
@@ -927,3 +975,24 @@ class TestActiveOrganizationMiddleware(APIBaseTest):
         response = self.client.get("/dashboard")
         # Should redirect to login or show appropriate response
         self.assertIn(response.status_code, [status.HTTP_302_FOUND, status.HTTP_200_OK])
+
+
+class TestSocialAuthExceptionMiddleware(APIBaseTest):
+    CONFIG_AUTO_LOGIN = False
+
+    def test_oauth_cancelled_redirects_to_login(self):
+        """Test that AuthCanceled exception on OAuth callback redirects to login with error code"""
+        from django.test import RequestFactory
+
+        from posthog.middleware import SocialAuthExceptionMiddleware
+
+        middleware = SocialAuthExceptionMiddleware(lambda request: None)
+        factory = RequestFactory()
+        request = factory.get("/complete/google-oauth2/")
+        exception = AuthCanceled("google-oauth2", "User cancelled")
+
+        response = middleware.process_exception(request, exception)
+
+        self.assertIsNotNone(response)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(response.url, "/login?error_code=oauth_cancelled")

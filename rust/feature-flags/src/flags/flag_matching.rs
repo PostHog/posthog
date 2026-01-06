@@ -9,7 +9,8 @@ use crate::flags::flag_match_reason::FeatureFlagMatchReason;
 use crate::flags::flag_matching_utils::{
     all_flag_condition_properties_match, all_properties_match, calculate_hash,
     fetch_and_locally_cache_all_relevant_properties, get_feature_flag_hash_key_overrides,
-    set_feature_flag_hash_key_overrides, should_write_hash_key_override,
+    populate_missing_initial_properties, set_feature_flag_hash_key_overrides,
+    should_write_hash_key_override,
 };
 use crate::flags::flag_models::{
     BucketingIdentifier, FeatureFlag, FeatureFlagId, FeatureFlagList, FlagPropertyGroup,
@@ -1075,7 +1076,11 @@ impl FeatureFlagMatcher {
             merged_properties.extend(overrides);
         }
 
-        // Return all merged properties
+        // Populate missing $initial_ properties from their non-initial counterparts.
+        // DB $initial_ values are preserved; this only fills in missing ones from
+        // the merged properties (which may come from DB or request overrides).
+        populate_missing_initial_properties(&mut merged_properties);
+
         Ok(merged_properties)
     }
 
