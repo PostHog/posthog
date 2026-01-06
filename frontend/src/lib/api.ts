@@ -4849,6 +4849,7 @@ const api = {
                 conversation?: string | null
                 trace_id: string
                 agent_mode?: AgentMode | null
+                resume_payload?: { action: 'approve' | 'reject'; proposal_id: string; feedback?: string } | null
             },
             options?: ApiMethodOptions
         ): Promise<Response> {
@@ -4872,14 +4873,6 @@ const api = {
                 .conversation(conversationId)
                 .withAction('append_message')
                 .create({ data: { content } })
-        },
-
-        approveOperation(conversationId: string, proposalId: string): Promise<{ status: string; result?: string }> {
-            return new ApiRequest().conversation(conversationId).withAction(`operations/${proposalId}/approve`).create()
-        },
-
-        rejectOperation(conversationId: string, proposalId: string): Promise<{ status: string }> {
-            return new ApiRequest().conversation(conversationId).withAction(`operations/${proposalId}/reject`).create()
         },
     },
 

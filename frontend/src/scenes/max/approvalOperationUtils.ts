@@ -1,4 +1,4 @@
-import { DangerousOperationResponse } from '~/queries/schema/schema-assistant-messages'
+import { DangerousOperationResponse, PENDING_APPROVAL_STATUS } from '~/queries/schema/schema-assistant-messages'
 
 /**
  * Type guard to check if a tool result is a dangerous operation requiring approval.
@@ -10,7 +10,7 @@ export function isDangerousOperationResponse(result: unknown): result is Dangero
     }
     const r = result as Record<string, unknown>
     return (
-        r.status === 'pending_approval' &&
+        r.status === PENDING_APPROVAL_STATUS &&
         (typeof r.proposalId === 'string' || typeof r.proposal_id === 'string') &&
         (typeof r.toolName === 'string' || typeof r.tool_name === 'string') &&
         typeof r.preview === 'string' &&
@@ -29,32 +29,16 @@ type DangerousOperationResponseLike = {
     payload?: Record<string, unknown>
 }
 
-/**
- * Normalize a dangerous operation response to consistent camelCase format.
- * Accepts both snake_case backend responses and already-normalized responses.
- * Should only be called after isDangerousOperationResponse validates the input.
- */
 export function normalizeDangerousOperationResponse(
     result: DangerousOperationResponseLike | DangerousOperationResponse
 ): DangerousOperationResponse {
-    // Handle both camelCase and snake_case field names from backend
-    // Fallback values are defensive - isDangerousOperationResponse should validate all fields first
+    // Fallback values are defensive
     const r = result as DangerousOperationResponseLike
     return {
-        status: 'pending_approval',
+        status: PENDING_APPROVAL_STATUS,
         proposalId: r.proposalId ?? r.proposal_id ?? '',
         toolName: r.toolName ?? r.tool_name ?? '',
         preview: r.preview ?? '',
         payload: r.payload ?? {},
     }
 }
-
-export type ApprovalStatus = 'approved' | 'rejected'
-
-/**
- * Messages sent when user clicks approve/reject buttons.
- */
-export const APPROVAL_MESSAGES = {
-    approved: 'Yes, proceed with this change.',
-    rejected: "I don't want to make this change.",
-} as const

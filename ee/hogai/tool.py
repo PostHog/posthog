@@ -10,6 +10,7 @@ import structlog
 from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
+from langgraph.types import interrupt
 from pydantic import BaseModel
 
 from posthog.schema import AssistantTool
@@ -22,11 +23,6 @@ from posthog.sync import database_sync_to_async
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.core.context import get_node_path, set_node_path
 from ee.hogai.core.mixins import AssistantContextMixin, AssistantDispatcherMixin
-from ee.hogai.pending_operations import (
-    delete_pending_operation,
-    get_approved_operation_for_conversation,
-    store_pending_operation,
-)
 from ee.hogai.registry import CONTEXTUAL_TOOL_NAME_TO_TOOL
 from ee.hogai.tool_errors import MaxToolAccessDeniedError
 from ee.hogai.utils.types.base import AssistantMessageUnion, AssistantState, NodePath
@@ -40,10 +36,16 @@ class ToolMessagesArtifact(BaseModel):
     messages: Sequence[AssistantMessageUnion]
 
 
-class DangerousOperationResponse(BaseModel):
-    """Response returned when a tool operation requires user approval."""
+PENDING_APPROVAL_STATUS: Literal["pending_approval"] = "pending_approval"
 
-    status: Literal["pending_approval"] = "pending_approval"
+
+class ApprovalRequest(BaseModel):
+    """
+    Interrupt payload when a tool operation requires user approval.
+    This is passed to interrupt() and surfaced to the FE. When the user approves or rejects,
+    """
+
+    status: Literal["pending_approval"] = PENDING_APPROVAL_STATUS
     proposal_id: str
     tool_name: str
     preview: str
@@ -88,18 +90,32 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
         """
         return False
 
-    def format_dangerous_operation_preview(self, **kwargs) -> str:
+    async def format_dangerous_operation_preview(self, **kwargs) -> str:
         """
         Override to provide a human-readable preview of the dangerous operation.
         This is shown to the user when asking for approval. Should clearly
         describe what will happen if the operation is approved.
+
+        This method can make async calls (e.g., database queries) to build a rich preview.
         """
         return f"Execute {self.name} operation"
 
     def _get_conversation_id(self) -> str | None:
         """Extract conversation_id from the config."""
         configurable = self._config.get("configurable", {})
-        return configurable.get("thread_id")
+        thread_id = configurable.get("thread_id")
+        # Ensure we return a string for consistent cache key matching
+        return str(thread_id) if thread_id is not None else None
+
+    @property
+    def _original_tool_call_id(self) -> str | None:
+        """Get the original tool_call_id from the AssistantMessage that invoked this tool."""
+        if self._node_path:
+            # Find the first NodePath with a tool_call_id
+            for path in reversed(self._node_path):
+                if path.tool_call_id:
+                    return path.tool_call_id
+        return None
 
     def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
         """
@@ -223,37 +239,76 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
     async def _arun_with_context(self, *args, **kwargs):
         """Sets the context for the tool. Checks for approved/dangerous operations before executing."""
         with set_node_path(self.node_path):
+            is_dangerous = self.is_dangerous_operation(**kwargs)
+
             # Handle dangerous operation approval flow
-            dangerous_result = await self._handle_dangerous_operation(**kwargs)
+            # Pre-compute preview before calling _handle_dangerous_operation
+            preview = await self.format_dangerous_operation_preview(**kwargs) if is_dangerous else None
+            dangerous_result = self._handle_dangerous_operation(preview=preview, **kwargs)
             if dangerous_result is not None:
                 return dangerous_result
 
             # Normal execution
             return await self._arun_impl(*args, **kwargs)
 
-    async def _handle_dangerous_operation(self, **kwargs) -> tuple[str, Any] | None:
+    def _handle_dangerous_operation(self, preview: str | None = None, **kwargs) -> tuple[str, Any] | None:
         """
-        Handle dangerous operation approval flow.
+        Handle dangerous operation approval flow using LangGraph's interrupt().
 
-        Returns:
-            - tuple[str, Any]: Result if an approved operation was executed or approval is needed
-            - None: If normal execution should proceed
+        If the operation is dangerous, this method calls interrupt() which pauses execution
+        and returns an ApprovalRequest to the frontend. When the user approves or rejects,
+        the graph is resumed with a Command(resume=payload) and interrupt() returns that payload.
+
+        Args:
+            preview: Human-readable preview of the operation. Must be provided when the operation
+                     is dangerous (pre-computed async by the caller).
         """
-        conversation_id = self._get_conversation_id()
+        if not self.is_dangerous_operation(**kwargs):
+            return None
 
-        # Check for approved operation - execute with stored payload
-        if conversation_id:
-            approved_op = get_approved_operation_for_conversation(conversation_id, self.name)
-            if approved_op:
-                delete_pending_operation(conversation_id, approved_op["proposal_id"])
-                stored_kwargs = self._reconstruct_kwargs_from_payload(approved_op["payload"])
-                return await self._arun_impl(**stored_kwargs)
+        if preview is None:
+            raise ValueError("preview must be provided for dangerous operations")
 
-        # Check if this operation requires approval
-        if self.is_dangerous_operation(**kwargs):
-            return await self._create_dangerous_operation_response(**kwargs)
+        proposal_id = str(uuid.uuid4())
+        serialized_payload = self._serialize_kwargs_for_storage(kwargs)
 
-        return None
+        approval_request = ApprovalRequest(
+            proposal_id=proposal_id,
+            tool_name=self.name,
+            preview=preview,
+            payload=serialized_payload,
+        )
+
+        # Call interrupt() - execution pauses here and ApprovalRequest is sent to frontend
+        # When resumed with Command(resume=response), interrupt() returns the response
+        response = interrupt(
+            {
+                **approval_request.model_dump(),
+                # Include original tool_call_id for proper card positioning on reload
+                "original_tool_call_id": self._original_tool_call_id,
+            }
+        )
+
+        # Handle the response from the user
+        if isinstance(response, dict) and response.get("action") == "approve":
+            # User approved - update kwargs with any modifications and proceed
+            updated_payload = response.get("payload", serialized_payload)
+            kwargs.update(self._reconstruct_kwargs_from_payload(updated_payload))
+            return None  # Continue with _arun_impl
+        else:
+            # User rejected
+            feedback = response.get("feedback", "") if isinstance(response, dict) else ""
+            if feedback:
+                return (
+                    f"The user rejected this operation with the following feedback: {feedback}. "
+                    "Please acknowledge their feedback and adjust your approach accordingly.",
+                    None,
+                )
+            return (
+                "The user rejected this operation. "
+                "Please acknowledge their decision and ask if they would like to proceed differently.",
+                None,
+            )
 
     def _reconstruct_kwargs_from_payload(self, payload: dict) -> dict:
         """Reconstruct kwargs from stored payload (Pydantic deserialization)."""
@@ -275,46 +330,6 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
             else:
                 serialized[key] = value
         return serialized
-
-    async def _create_dangerous_operation_response(self, **kwargs) -> tuple[str, Any] | None:
-        """Create a dangerous operation response requiring user approval."""
-        conversation_id = self._get_conversation_id()
-
-        # Without conversation_id, we can't track approvals - fall through to normal execution
-        if not conversation_id:
-            logger.warning(
-                "Cannot create dangerous operation response without conversation_id, executing without approval",
-                tool_name=self.name,
-            )
-            return None
-
-        proposal_id = str(uuid.uuid4())
-        preview = self.format_dangerous_operation_preview(**kwargs)
-
-        # Serialize kwargs for storage (Pydantic models -> dicts)
-        serialized_payload = self._serialize_kwargs_for_storage(kwargs)
-
-        await store_pending_operation(
-            conversation_id=conversation_id,
-            proposal_id=proposal_id,
-            tool_name=self.name,
-            payload=serialized_payload,
-        )
-
-        response = DangerousOperationResponse(
-            proposal_id=proposal_id,
-            tool_name=self.name,
-            preview=preview,
-            payload=serialized_payload,
-        )
-        # LLM content and response dict as artifact for ui_payload
-        return (
-            "STOP. This operation requires explicit user approval before proceeding. "
-            "The user is now seeing an approval dialog. Do NOT continue, do NOT summarize, do NOT say 'Done'. "
-            "Wait silently for the user's response. "
-            "When the user approves, call this tool again with the same arguments - it will execute normally.",
-            response.model_dump(),
-        )
 
     @property
     def node_name(self) -> str:

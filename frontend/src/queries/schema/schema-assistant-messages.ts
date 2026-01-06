@@ -354,24 +354,21 @@ export interface AssistantToolCallMessage extends BaseAssistantMessage {
     tool_call_id: string
 }
 
+/** Status value indicating an operation requires user approval before execution */
+export const PENDING_APPROVAL_STATUS = 'pending_approval' as const
+
 /** Response returned when a tool operation requires user approval */
 export interface DangerousOperationResponse {
-    status: 'pending_approval'
+    status: typeof PENDING_APPROVAL_STATUS
     proposalId: string
     toolName: string
     preview: string
     payload: Record<string, any>
 }
 
-/** Status of an approval card in the UI */
-export type ApprovalCardStatus =
-    | 'pending'
-    | 'approving'
-    | 'approved'
-    | 'rejecting'
-    | 'rejected'
-    | 'auto_rejected'
-    | 'expired'
+export type ApprovalDecisionStatus = 'pending' | 'approved' | 'rejected' | 'auto_rejected'
+
+export type ApprovalCardUIStatus = ApprovalDecisionStatus | 'approving' | 'rejecting'
 
 export type AssistantTool =
     | 'search_session_recordings'

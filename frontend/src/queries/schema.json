@@ -749,9 +749,23 @@
                 }
             ]
         },
-        "ApprovalCardStatus": {
-            "description": "Status of an approval card in the UI",
-            "enum": ["pending", "approving", "approved", "rejecting", "rejected", "auto_rejected", "expired"],
+        "ApprovalCardUIStatus": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/ApprovalDecisionStatus"
+                },
+                {
+                    "const": "approving",
+                    "type": "string"
+                },
+                {
+                    "const": "rejecting",
+                    "type": "string"
+                }
+            ]
+        },
+        "ApprovalDecisionStatus": {
+            "enum": ["pending", "approved", "rejected", "auto_rejected"],
             "type": "string"
         },
         "ArtifactContent": {

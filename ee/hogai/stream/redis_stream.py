@@ -9,6 +9,7 @@ from django.conf import settings
 
 import structlog
 import redis.exceptions as redis_exceptions
+from langgraph.errors import GraphInterrupt
 from prometheus_client import Histogram
 from pydantic import BaseModel, Field
 
@@ -374,6 +375,22 @@ class ConversationRedisStream:
                 approximate=True,
             )
 
+        except GraphInterrupt as e:
+            # GraphInterrupt should be caught in runner.astream(), not here.
+            # If we get here, it means the runner didn't catch it properly.
+            logger.warning(
+                "GraphInterrupt escaped runner.astream() - this shouldn't happen",
+                interrupt_value=str(e),
+            )
+            # Mark as complete anyway since the interrupt is a valid state
+            status_message = StatusPayload(status="complete")
+            completion_message = self._serializer.dumps(status_message)
+            await self._redis_client.xadd(
+                self._stream_key,
+                completion_message,
+                maxlen=self._max_length,
+                approximate=True,
+            )
         except Exception as e:
             # Mark the stream as failed
             error_message = StatusPayload(status="error", error=str(e))
