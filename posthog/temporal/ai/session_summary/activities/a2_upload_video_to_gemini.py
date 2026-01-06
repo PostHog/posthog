@@ -46,6 +46,7 @@ async def upload_video_to_gemini_activity(inputs: VideoSummarySingleSessionInput
         # Write video to temporary file for upload
         with tempfile.NamedTemporaryFile() as tmp_file:
             tmp_file.write(video_bytes)
+            tmp_file.flush()  # Ensure data is flushed to disk before reading by path
             # Upload to Gemini
             logger.info(
                 f"Uploading full video to Gemini for session {inputs.session_id}",
