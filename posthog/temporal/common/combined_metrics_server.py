@@ -31,7 +31,7 @@ def create_handler(temporal_metrics_url: str, registry: CollectorRegistry) -> ty
                     with urllib.request.urlopen(temporal_metrics_url, timeout=5) as response:
                         temporal_output = response.read()
                         content_type = response.getheader("Content-Type", content_type)
-                except urllib.error.URLError as e:
+                except (urllib.error.URLError, TimeoutError) as e:
                     logger.warning("combined_metrics_server.temporal_fetch_failed", error=str(e))
 
                 # Get prometheus_client metrics
