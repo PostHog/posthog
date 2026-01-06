@@ -396,6 +396,66 @@
             [data-collapsed-by] {
                 display: none; // Node hidden as the heading it's under is collapsed
             }
+
+            // Toggle blocks styling
+            > div[data-type='toggle-block'] {
+                position: relative;
+                padding-left: 1.25rem; // Align with list items
+                margin: 0.8rem 0;
+
+                > .ProseMirror-widget {
+                    position: absolute;
+                    top: -0.125rem; // Move up slightly to align with text
+                    left: -0.125rem; // Position to align with list bullets
+                    display: flex;
+                    align-items: center;
+                    height: 1.7rem; // Match line height of paragraph text
+                    opacity: 0.7;
+                    transition: opacity 0.2s ease;
+
+                    &:hover {
+                        opacity: 1;
+                    }
+
+                    .LemonButton {
+                        height: auto !important;
+                        min-height: unset !important;
+                        padding: 0 !important; // Remove all padding
+                    }
+                }
+
+                &:hover > .ProseMirror-widget {
+                    opacity: 1;
+                }
+
+                // First paragraph is the toggle title
+                > p:first-of-type {
+                    display: inline-block; // Keep inline with toggle icon
+                    margin-top: 0;
+                    margin-bottom: 0.5rem;
+                }
+
+                // When collapsed, hide everything except first paragraph
+                &[data-collapsed='true'] {
+                    > *:not(p:first-of-type, .ProseMirror-widget) {
+                        display: none !important;
+                    }
+
+                    > p:first-of-type {
+                        margin-bottom: 0; // Remove bottom margin when collapsed
+                    }
+                }
+
+                // Nested content (everything after first paragraph)
+                > *:not(p:first-of-type, .ProseMirror-widget) {
+                    margin-left: 0; // No additional indentation
+                }
+
+                // Spacing between consecutive toggle blocks
+                & + div[data-type='toggle-block'] {
+                    margin-top: 1.2rem;
+                }
+            }
         }
 
         .Backlink {

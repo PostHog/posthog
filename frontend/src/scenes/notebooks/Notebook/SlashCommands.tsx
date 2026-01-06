@@ -17,6 +17,7 @@ import {
     IconSquareRoot,
     IconStickiness,
     IconTrends,
+    IconTriangleRightFilled,
     IconUpload,
     IconUserPaths,
 } from '@posthog/icons'
@@ -357,6 +358,12 @@ order by count() desc
                 type: NotebookNodeType.Latex,
                 attrs: { content: '' }, // Default empty content
             }),
+    },
+    {
+        title: 'Toggle',
+        search: 'toggle collapsible expandable accordion fold',
+        icon: <IconTriangleRightFilled color="currentColor" />,
+        command: (chain) => (chain as any).insertToggleBlock(),
     },
 ]
 

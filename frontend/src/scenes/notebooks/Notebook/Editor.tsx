@@ -44,6 +44,7 @@ import { NotebookNodeRelatedGroups } from '../Nodes/NotebookNodeRelatedGroups'
 import { NotebookNodeReplayTimestamp } from '../Nodes/NotebookNodeReplayTimestamp'
 import { NotebookNodeSurvey } from '../Nodes/NotebookNodeSurvey'
 import { NotebookNodeTaskCreate } from '../Nodes/NotebookNodeTaskCreate'
+import { NotebookNodeToggleBlock } from '../Nodes/NotebookNodeToggleBlock'
 import { NotebookNodeUsageMetrics } from '../Nodes/NotebookNodeUsageMetrics'
 import { NotebookNodeZendeskTickets } from '../Nodes/NotebookNodeZendeskTickets'
 import { FloatingSuggestions } from '../Suggestions/FloatingSuggestions'
@@ -144,6 +145,7 @@ export function Editor(): JSX.Element {
         NotebookNodeUsageMetrics,
         NotebookNodeZendeskTickets,
         NotebookNodeRelatedGroups,
+        NotebookNodeToggleBlock,
     ]
 
     if (hasCollapsibleSections) {
