@@ -32,6 +32,7 @@ export function PlayerSidebar(): JSX.Element {
         logicKey,
         containerRef: ref,
         persistent: true,
+        persistPrefix: '2025-12-29',
         closeThreshold: 100,
         placement: isVerticallyStacked ? 'top' : 'left',
         onToggleClosed: (shouldBeClosed) => setSidebarOpen(!shouldBeClosed),

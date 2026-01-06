@@ -6,7 +6,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { BuiltLogic, useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconCopy, IconEllipsis, IconFilter, IconPencil, IconTrash, IconWarning } from '@posthog/icons'
+import { IconCopy, IconEllipsis, IconFilter, IconPencil, IconStack, IconTrash, IconWarning } from '@posthog/icons'
 import {
     LemonBadge,
     LemonCheckbox,
@@ -29,7 +29,7 @@ import {
     TaxonomicPopoverProps,
     TaxonomicStringPopover,
 } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconWithCount, SortableDragIcon } from 'lib/lemon-ui/icons'
@@ -122,6 +122,7 @@ export interface ActionFilterRowProps {
     hideRename?: boolean // Hides the rename option
     hideDuplicate?: boolean // Hides the duplicate option
     hideDeleteBtn?: boolean // Choose to hide delete btn. You can use the onClose function passed into customRow{Pre|Suf}fix to render the delete btn anywhere
+    showCombine?: boolean // Show the combine inline events option
     propertyFiltersPopover?: boolean
     onRenameClick?: () => void // Used to open rename modal
     showSeriesIndicator?: boolean // Show series badge
@@ -176,6 +177,7 @@ export function ActionFilterRow({
     hideRename,
     hideDuplicate = false,
     hideDeleteBtn = false,
+    showCombine = false,
     propertyFiltersPopover = false,
     onRenameClick = () => {},
     showSeriesIndicator,
@@ -209,6 +211,7 @@ export function ActionFilterRow({
         updateFilterProperty,
         setEntityFilterVisibility,
         duplicateFilter,
+        convertFilterToGroup,
     } = useActions(logic)
     const { actions } = useValues(actionsModel)
     const { mathDefinitions } = useValues(mathsLogic)
@@ -218,6 +221,7 @@ export function ActionFilterRow({
     const query = mountedInsightDataLogic?.values?.query
 
     const isFunnelContext = mathAvailability === MathAvailability.FunnelsOnly
+    const isTrendsContext = trendsDisplayCategory != null
 
     // Always call hooks for React compliance - provide safe defaults for non-funnel contexts
     const { insightProps: funnelInsightProps } = useValues(
@@ -385,7 +389,7 @@ export function ActionFilterRow({
         </IconWithCount>
     )
 
-    const enablePopup = mathAvailability === MathAvailability.FunnelsOnly
+    const enablePopup = mathAvailability === MathAvailability.FunnelsOnly || isTrendsContext
 
     const renameRowButton = (
         <LemonButton
@@ -422,6 +426,24 @@ export function ActionFilterRow({
         </LemonButton>
     )
 
+    const combineRowButton = (
+        <Tooltip title="Count multiple events as a single event">
+            <LemonButton
+                key="combine"
+                icon={<IconStack />}
+                data-attr={`show-prop-combine-${index}`}
+                noPadding={!enablePopup}
+                onClick={() => {
+                    setIsMenuVisible(false)
+                    convertFilterToGroup(index)
+                }}
+                fullWidth={enablePopup}
+            >
+                {enablePopup ? 'Combine' : undefined}
+            </LemonButton>
+        </Tooltip>
+    )
+
     const deleteButton = (
         <LemonButton
             key="delete"
@@ -449,6 +471,7 @@ export function ActionFilterRow({
               !hideFilter && !enablePopup && propertyFiltersButton,
               !hideRename && renameRowButton,
               !hideDuplicate && !singleFilter && duplicateRowButton,
+              showCombine && combineRowButton,
               !hideDeleteBtn && !singleFilter && deleteButton,
           ].filter(Boolean)
         : []
@@ -605,65 +628,84 @@ export function ActionFilterRow({
                         {/* right section fixed */}
                         {rowEndElements.length ? (
                             <div className="ActionFilterRow__end">
-                                {mathAvailability === MathAvailability.FunnelsOnly ? (
+                                {mathAvailability === MathAvailability.FunnelsOnly || isTrendsContext ? (
                                     <>
                                         {!hideFilter && propertyFiltersButton}
                                         <div className="relative">
                                             <LemonMenu
+                                                placement={isTrendsContext ? 'bottom-end' : 'bottom-start'}
                                                 visible={isMenuVisible}
                                                 closeOnClickInside={false}
                                                 onVisibilityChange={setIsMenuVisible}
                                                 items={[
-                                                    {
-                                                        label: () => (
-                                                            <>
-                                                                <MathSelector
-                                                                    math={math}
-                                                                    mathGroupTypeIndex={mathGroupTypeIndex}
-                                                                    index={index}
-                                                                    onMathSelect={onMathSelect}
-                                                                    disabled={readOnly}
-                                                                    style={{ maxWidth: '100%', width: 'initial' }}
-                                                                    mathAvailability={mathAvailability}
-                                                                    trendsDisplayCategory={trendsDisplayCategory}
-                                                                    query={query || {}}
-                                                                />
-                                                                <LemonDivider />
-                                                            </>
-                                                        ),
-                                                    },
-                                                    {
-                                                        label: () => (
-                                                            <>
-                                                                {index > 0 && (
-                                                                    <>
-                                                                        <Tooltip title="Optional steps show conversion rates from the last mandatory step, but are not necessary to move to the next step in the funnel">
-                                                                            <div className="px-2 py-1">
-                                                                                <LemonCheckbox
-                                                                                    checked={!!filter.optionalInFunnel}
-                                                                                    onChange={(checked) => {
-                                                                                        updateFilterOptional({
-                                                                                            ...filter,
-                                                                                            optionalInFunnel: checked,
-                                                                                            index,
-                                                                                        })
-                                                                                    }}
-                                                                                    label="Optional step"
-                                                                                />
-                                                                            </div>
-                                                                        </Tooltip>
-                                                                        <LemonDivider />
-                                                                    </>
-                                                                )}
-                                                            </>
-                                                        ),
-                                                    },
+                                                    ...(mathAvailability === MathAvailability.FunnelsOnly
+                                                        ? [
+                                                              {
+                                                                  label: () => (
+                                                                      <>
+                                                                          <MathSelector
+                                                                              math={math}
+                                                                              mathGroupTypeIndex={mathGroupTypeIndex}
+                                                                              index={index}
+                                                                              onMathSelect={onMathSelect}
+                                                                              disabled={readOnly}
+                                                                              style={{
+                                                                                  maxWidth: '100%',
+                                                                                  width: 'initial',
+                                                                              }}
+                                                                              mathAvailability={mathAvailability}
+                                                                              trendsDisplayCategory={
+                                                                                  trendsDisplayCategory
+                                                                              }
+                                                                              query={query || {}}
+                                                                          />
+                                                                          <LemonDivider />
+                                                                      </>
+                                                                  ),
+                                                              },
+                                                          ]
+                                                        : []),
+                                                    ...(mathAvailability === MathAvailability.FunnelsOnly && index > 0
+                                                        ? [
+                                                              {
+                                                                  label: () => (
+                                                                      <>
+                                                                          <Tooltip title="Optional steps show conversion rates from the last mandatory step, but are not necessary to move to the next step in the funnel">
+                                                                              <div className="px-2 py-1">
+                                                                                  <LemonCheckbox
+                                                                                      checked={
+                                                                                          !!filter.optionalInFunnel
+                                                                                      }
+                                                                                      onChange={(checked) => {
+                                                                                          updateFilterOptional({
+                                                                                              ...filter,
+                                                                                              optionalInFunnel: checked,
+                                                                                              index,
+                                                                                          })
+                                                                                      }}
+                                                                                      label="Optional step"
+                                                                                  />
+                                                                              </div>
+                                                                          </Tooltip>
+                                                                          <LemonDivider />
+                                                                      </>
+                                                                  ),
+                                                              },
+                                                          ]
+                                                        : []),
                                                     {
                                                         label: () => renameRowButton,
                                                     },
                                                     {
                                                         label: () => duplicateRowButton,
                                                     },
+                                                    ...(showCombine
+                                                        ? [
+                                                              {
+                                                                  label: () => combineRowButton,
+                                                              },
+                                                          ]
+                                                        : []),
                                                     {
                                                         label: () => deleteButton,
                                                     },
@@ -680,7 +722,9 @@ export function ActionFilterRow({
                                             <LemonBadge
                                                 position="top-right"
                                                 size="small"
-                                                visible={math != null || isStepOptional(index + 1)}
+                                                visible={
+                                                    !isTrendsContext && (math != null || isStepOptional(index + 1))
+                                                }
                                             />
                                         </div>
                                     </>
@@ -738,7 +782,7 @@ export function ActionFilterRow({
     )
 }
 
-interface MathSelectorProps {
+export interface MathSelectorProps {
     math?: string
     mathGroupTypeIndex?: number | null
     mathAvailability: MathAvailability
@@ -748,6 +792,7 @@ interface MathSelectorProps {
     onMathSelect: (index: number, value: any) => any
     trendsDisplayCategory: ChartDisplayCategory | null
     style?: React.CSSProperties
+    size?: LemonButtonProps['size']
     /** Only allow these math types in the selector */
     allowedMathTypes?: readonly string[]
     query?: Record<string, any>
@@ -1150,9 +1195,9 @@ function useMathSelectorOptions({
     ]
 }
 
-function MathSelector(props: MathSelectorProps): JSX.Element {
+export function MathSelector(props: MathSelectorProps): JSX.Element {
     const options = useMathSelectorOptions(props)
-    const { math, mathGroupTypeIndex, index, onMathSelect, disabled, disabledReason } = props
+    const { math, mathGroupTypeIndex, index, onMathSelect, disabled, disabledReason, size } = props
 
     const mathType = apiValueToMathType(math, mathGroupTypeIndex)
 
@@ -1167,6 +1212,7 @@ function MathSelector(props: MathSelectorProps): JSX.Element {
             optionTooltipPlacement="right"
             dropdownMatchSelectWidth={false}
             dropdownPlacement="bottom-start"
+            size={size}
         />
     )
 }

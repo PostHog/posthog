@@ -61,38 +61,7 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.headers["Content-Type"] == "application/json"
-        assert response.json() == {
-            "token": "token123",
-            "supportedCompression": ["gzip", "gzip-js"],
-            "hasFeatureFlags": False,
-            "captureDeadClicks": False,
-            "capturePerformance": {"network_timing": True, "web_vitals": False, "web_vitals_allowed_metrics": None},
-            "autocapture_opt_out": False,
-            "autocaptureExceptions": False,
-            "analytics": {"endpoint": "/i/v0/e/"},
-            "elementsChainAsString": True,
-            "sessionRecording": {
-                "endpoint": "/s/",
-                "consoleLogRecordingEnabled": True,
-                "recorderVersion": "v2",
-                "sampleRate": None,
-                "minimumDurationMilliseconds": None,
-                "linkedFlag": None,
-                "networkPayloadCapture": None,
-                "masking": None,
-                "urlTriggers": [],
-                "urlBlocklist": [],
-                "eventTriggers": [],
-                "scriptConfig": {"script": "posthog-recorder"},
-                "triggerMatchType": None,
-            },
-            "errorTracking": {"autocaptureExceptions": False, "suppressionRules": []},
-            "surveys": False,
-            "heatmaps": False,
-            "productTours": False,
-            "defaultIdentifiedOnly": True,
-            "siteApps": [],
-        }
+        assert response.json() == self.snapshot
 
     def test_vary_header_response(self):
         response = self.client.get(
@@ -138,11 +107,7 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.headers["Content-Type"] == "application/javascript"
-
-        assert (
-            response.content
-            == b'(function() {\n  window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};\n  window._POSTHOG_REMOTE_CONFIG[\'token123\'] = {\n    config: {"token": "token123", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "errorTracking": {"autocaptureExceptions": false, "suppressionRules": []}, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "sampleRate": null, "minimumDurationMilliseconds": null, "linkedFlag": null, "networkPayloadCapture": null, "masking": null, "urlTriggers": [], "urlBlocklist": [], "eventTriggers": [], "triggerMatchType": null, "scriptConfig": {"script": "posthog-recorder"}}, "heatmaps": false, "surveys": false, "productTours": false, "defaultIdentifiedOnly": true},\n    siteApps: []\n  }\n})();'
-        )
+        assert response.content == self.snapshot
 
     @patch("posthog.models.remote_config.get_array_js_content", return_value="[MOCKED_ARRAY_JS_CONTENT]")
     def test_valid_array_js(self, mock_get_array_js_content):
@@ -158,11 +123,7 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.headers["Content-Type"] == "application/javascript"
         assert response.content
-
-        assert (
-            response.content
-            == b'[MOCKED_ARRAY_JS_CONTENT]\n\n(function() {\n  window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};\n  window._POSTHOG_REMOTE_CONFIG[\'token123\'] = {\n    config: {"token": "token123", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "errorTracking": {"autocaptureExceptions": false, "suppressionRules": []}, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "sampleRate": null, "minimumDurationMilliseconds": null, "linkedFlag": null, "networkPayloadCapture": null, "masking": null, "urlTriggers": [], "urlBlocklist": [], "eventTriggers": [], "triggerMatchType": null, "scriptConfig": {"script": "posthog-recorder"}}, "heatmaps": false, "surveys": false, "productTours": false, "defaultIdentifiedOnly": true},\n    siteApps: []\n  }\n})();'
-        )
+        assert response.content == self.snapshot
 
         # NOT actually testing the content here as it will change dynamically
 

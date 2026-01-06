@@ -1,4 +1,4 @@
-name: Migration & Plugin Server Separation Check
+name: Migration & Nodejs Services Separation Check
 
 on:
     pull_request:
@@ -8,8 +8,8 @@ permissions:
     contents: read
 
 jobs:
-    check-migration-plugin-server-separation:
-        name: Check migrations and plugin-server changes are not in same PR
+    check-migration-nodejs-separation:
+        name: Check migrations and nodejs changes are not in same PR
         runs-on: ubuntu-latest
         timeout-minutes: 5
         steps:
@@ -25,15 +25,15 @@ jobs:
                           - 'products/*/backend/migrations/*.py'
                           - 'ee/migrations/*.py'
                           - 'rust/persons_migrations/*.sql'
-                      plugin_server:
-                          - 'plugin-server/**'
+                      nodejs:
+                          - 'nodejs/**'
 
             - name: Check for conflicting changes
               id: check
               run: |
-                  if [ "${{ steps.filter.outputs.migrations }}" == "true" ] && [ "${{ steps.filter.outputs.plugin_server }}" == "true" ]; then
+                  if [ "${{ steps.filter.outputs.migrations }}" == "true" ] && [ "${{ steps.filter.outputs.nodejs }}" == "true" ]; then
                       echo "error=true" >> $GITHUB_OUTPUT
-                      echo "❌ Found both migration and plugin-server changes"
+                      echo "❌ Found both migration and nodejs changes"
                   else
                       echo "error=false" >> $GITHUB_OUTPUT
                       echo "✅ No conflicting changes detected"
@@ -42,5 +42,5 @@ jobs:
             - name: Fail if conflicting changes detected
               if: steps.check.outputs.error == 'true'
               run: |
-                  echo "::error::This PR contains both migration files and plugin-server changes. These must be separated into different PRs."
+                  echo "::error::This PR contains both migration files and nodejs changes. These must be separated into different PRs."
                   exit 1
