@@ -35,6 +35,7 @@ import { userLogic } from 'scenes/userLogic'
 import { openNotebook } from '~/models/notebooksModel'
 import {
     AgentMode,
+    ApprovalDecisionStatus,
     AssistantEventType,
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
@@ -44,6 +45,7 @@ import {
     AssistantUpdateEvent,
     FailureMessage,
     HumanMessage,
+    PENDING_APPROVAL_STATUS,
     RootAssistantMessage,
     SubagentUpdateEvent,
     TaskExecutionStatus,
@@ -51,7 +53,6 @@ import {
 import { Conversation, ConversationDetail, ConversationStatus, ConversationType } from '~/types'
 
 import { EnhancedToolCall, getToolCallDescriptionAndWidget } from './Thread'
-import { APPROVAL_MESSAGES } from './approvalOperationUtils'
 import { ToolRegistration } from './max-constants'
 import { MaxBillingContext, MaxBillingContextSubscriptionLevel, maxBillingContextLogic } from './maxBillingContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
@@ -164,6 +165,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 conversation?: string
                 contextual_tools?: Record<string, any>
                 ui_context?: any
+                resume_payload?: { action: 'approve' | 'reject'; proposal_id: string; feedback?: string } | null
             },
             generationAttempt: number,
             addToThread: boolean = true
@@ -201,7 +203,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         setPendingApproval: (proposalId: string) => ({ proposalId }),
         clearPendingApproval: true,
         continueAfterApproval: (proposalId: string) => ({ proposalId }),
-        continueAfterRejection: (proposalId: string) => ({ proposalId }),
+        continueAfterRejection: (proposalId: string, feedback?: string) => ({ proposalId, feedback }),
         setResolvedApprovalStatus: (proposalId: string, status: 'approved' | 'rejected' | 'auto_rejected') => ({
             proposalId,
             status,
@@ -373,6 +375,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         ],
 
         // Track resolved approval statuses by proposalId (persists across re-renders)
+        // Note: Only resolved statuses are stored here, not 'pending' (cards start in pending state)
         resolvedApprovalStatuses: [
             {} as Record<string, 'approved' | 'rejected' | 'auto_rejected'>,
             {
@@ -611,13 +614,14 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 // sessionStorage might be unavailable
             }
 
-            // Auto-reject any pending approval when user sends a new message
-            if (values.pendingApprovalProposalId && values.conversationId) {
+            // Build auto-rejection payload if there's a pending approval
+            let autoRejectPayload: { action: 'reject'; proposal_id: string; feedback?: string } | undefined = undefined
+            if (values.pendingApprovalProposalId) {
                 const proposalIdToReject = values.pendingApprovalProposalId
-                try {
-                    await api.conversations.rejectOperation(values.conversationId, proposalIdToReject)
-                } catch {
-                    // Ignore errors - operation may have already been resolved
+                autoRejectPayload = {
+                    action: 'reject',
+                    proposal_id: proposalIdToReject,
+                    feedback: prompt ?? undefined,
                 }
                 actions.clearPendingApproval()
                 actions.setResolvedApprovalStatus(proposalIdToReject, 'auto_rejected')
@@ -654,6 +658,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     contextual_tools: Object.fromEntries(values.tools.map((tool) => [tool.identifier, tool.context])),
                     ui_context: mergedUiContext,
                     conversation: values.conversation?.id || values.conversationId,
+                    // Include auto-rejection payload if there was a pending approval
+                    resume_payload: autoRejectPayload,
                 },
                 0,
                 addToThread
@@ -787,18 +793,36 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             actions.clearPendingApproval()
             // Persist the approved status for the card to display
             actions.setResolvedApprovalStatus(proposalId, 'approved')
-            // Continue the conversation with a visible approval message
-            // The agent will receive this and call the tool again,
-            // which will find the approved operation and execute it
-            actions.askMax(APPROVAL_MESSAGES.approved)
+            // Resume the conversation with the approval payload
+            actions.streamConversation(
+                {
+                    agent_mode: values.agentMode,
+                    content: null,
+                    conversation: values.conversationId,
+                    contextual_tools: Object.fromEntries(values.tools.map((tool) => [tool.identifier, tool.context])),
+                    resume_payload: { action: 'approve', proposal_id: proposalId },
+                },
+                0,
+                false // Don't add to thread - no human message to show
+            )
         },
-        continueAfterRejection: ({ proposalId }) => {
+        continueAfterRejection: ({ proposalId, feedback }) => {
             // Clear the pending approval state
             actions.clearPendingApproval()
             // Persist the rejected status for the card to display
             actions.setResolvedApprovalStatus(proposalId, 'rejected')
-            // Continue the conversation with a visible rejection message
-            actions.askMax(APPROVAL_MESSAGES.rejected)
+            // Resume the conversation with the rejection payload
+            actions.streamConversation(
+                {
+                    agent_mode: values.agentMode,
+                    content: null,
+                    conversation: values.conversationId,
+                    contextual_tools: Object.fromEntries(values.tools.map((tool) => [tool.identifier, tool.context])),
+                    resume_payload: { action: 'reject', proposal_id: proposalId, feedback },
+                },
+                0,
+                false // Don't add to thread - no human message to show
+            )
         },
     })),
 
@@ -810,11 +834,19 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
         effectiveApprovalStatuses: [
             (s) => [s.resolvedApprovalStatuses, s.conversation],
-            (resolved, conversation): Record<string, 'approved' | 'rejected' | 'auto_rejected'> => {
-                const backendDecisions =
-                    typeof conversation?.approval_decisions === 'object' && conversation.approval_decisions !== null
-                        ? conversation.approval_decisions
-                        : {}
+            (resolved, conversation): Record<string, ApprovalDecisionStatus> => {
+                const rawDecisions = conversation?.approval_decisions ?? {}
+
+                // Normalize backend decisions - extract decision_status from object format
+                const backendDecisions: Record<string, ApprovalDecisionStatus> = {}
+                for (const [proposalId, decision] of Object.entries(rawDecisions)) {
+                    // decision is ConversationApprovalDecision - use decision_status field
+                    const decisionStatus = decision.decision_status
+                    if (['pending', 'approved', 'rejected', 'auto_rejected'].includes(decisionStatus)) {
+                        backendDecisions[proposalId] = decisionStatus
+                    }
+                }
+
                 return {
                     ...backendDecisions,
                     ...resolved,
@@ -1266,7 +1298,7 @@ export async function onEventImplementation(
                 }
                 // Track pending approval proposals for auto-rejection
                 const proposalId = toolResult?.proposalId || toolResult?.proposal_id
-                if (toolResult?.status === 'pending_approval' && proposalId) {
+                if (toolResult?.status === PENDING_APPROVAL_STATUS && proposalId) {
                     actions.setPendingApproval(proposalId)
                 }
                 await values.toolMap[toolName]?.callback?.(toolResult, props.conversationId)

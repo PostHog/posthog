@@ -1,77 +1,52 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconCheck, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-
-import { ApprovalCardStatus, DangerousOperationResponse } from '~/queries/schema/schema-assistant-messages'
+import { ApprovalCardUIStatus, DangerousOperationResponse } from '~/queries/schema/schema-assistant-messages'
 
 import { maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 import { MessageTemplate } from './messages/MessageTemplate'
 
-export { isDangerousOperationResponse, normalizeDangerousOperationResponse } from './approvalOperationUtils'
-
 interface DangerousOperationApprovalCardProps {
     operation: DangerousOperationResponse
     conversationId: string
-    initialStatus?: 'approved' | 'rejected' | 'auto_rejected'
     onResolved?: (approved: boolean) => void
 }
 
 export function DangerousOperationApprovalCard({
     operation,
     conversationId,
-    initialStatus,
     onResolved,
 }: DangerousOperationApprovalCardProps): JSX.Element {
-    const [status, setStatus] = useState<ApprovalCardStatus>(initialStatus ?? 'pending')
+    const [localStatus, setLocalStatus] = useState<ApprovalCardUIStatus>('pending')
+
     const { tabId } = useValues(maxLogic)
+    const { effectiveApprovalStatuses } = useValues(maxThreadLogic({ conversationId, tabId }))
     const { continueAfterApproval, continueAfterRejection } = useActions(maxThreadLogic({ conversationId, tabId }))
 
-    const handleApprove = async (): Promise<void> => {
-        setStatus('approving')
-        try {
-            // 1. Mark operation as approved in backend
-            await api.conversations.approveOperation(conversationId, operation.proposalId)
-            // 2. Update card status
-            setStatus('approved')
-            // 3. Continue conversation - agent will execute the approved operation
-            continueAfterApproval(operation.proposalId)
-            onResolved?.(true)
-        } catch (e: any) {
-            if (e.status === 404) {
-                setStatus('expired')
-                lemonToast.error('This operation has expired')
-            } else {
-                setStatus('pending')
-                lemonToast.error('Failed to approve operation')
-            }
+    const resolvedStatus = effectiveApprovalStatuses[operation.proposalId]
+    useEffect(() => {
+        if (resolvedStatus) {
+            // Clears loading states
+            setLocalStatus(resolvedStatus)
         }
+    }, [resolvedStatus])
+
+    const handleApprove = (): void => {
+        setLocalStatus('approving')
+        // Resume conversation with approval
+        continueAfterApproval(operation.proposalId)
+        onResolved?.(true)
     }
 
-    const handleReject = async (): Promise<void> => {
-        setStatus('rejecting')
-        try {
-            // 1. Delete the pending operation from backend
-            await api.conversations.rejectOperation(conversationId, operation.proposalId)
-            // 2. Update card status
-            setStatus('rejected')
-            // 3. Continue conversation with rejection message
-            continueAfterRejection(operation.proposalId)
-            onResolved?.(false)
-        } catch (e: any) {
-            if (e.status === 404) {
-                setStatus('expired')
-                lemonToast.error('This operation has expired')
-            } else {
-                setStatus('pending')
-                lemonToast.error('Failed to reject operation')
-            }
-        }
+    const handleReject = (): void => {
+        setLocalStatus('rejecting')
+        // Resume conversation with rejection
+        continueAfterRejection(operation.proposalId)
+        onResolved?.(false)
     }
 
     return (
@@ -89,7 +64,7 @@ export function DangerousOperationApprovalCard({
             </div>
 
             <div className="px-4 py-3 bg-bg-light border-t flex items-center justify-between">
-                {status === 'pending' && (
+                {localStatus === 'pending' && (
                     <>
                         <span className="text-xs text-muted">Review the changes above before approving</span>
                         <div className="flex gap-2">
@@ -109,7 +84,7 @@ export function DangerousOperationApprovalCard({
                     </>
                 )}
 
-                {status === 'approving' && (
+                {localStatus === 'approving' && (
                     <div className="flex items-center gap-2 text-muted ml-auto">
                         <LemonButton size="small" type="primary" loading>
                             Applying...
@@ -117,14 +92,14 @@ export function DangerousOperationApprovalCard({
                     </div>
                 )}
 
-                {status === 'approved' && (
+                {localStatus === 'approved' && (
                     <div className="flex items-center gap-2 text-success ml-auto">
                         <IconCheck className="size-4" />
                         <span className="text-sm font-medium">Changes applied</span>
                     </div>
                 )}
 
-                {status === 'rejecting' && (
+                {localStatus === 'rejecting' && (
                     <div className="flex items-center gap-2 text-muted ml-auto">
                         <LemonButton size="small" type="secondary" loading>
                             Rejecting...
@@ -132,24 +107,17 @@ export function DangerousOperationApprovalCard({
                     </div>
                 )}
 
-                {status === 'rejected' && (
+                {localStatus === 'rejected' && (
                     <div className="flex items-center gap-2 text-muted ml-auto">
                         <IconX className="size-4" />
                         <span className="text-sm">Rejected</span>
                     </div>
                 )}
 
-                {status === 'auto_rejected' && (
+                {localStatus === 'auto_rejected' && (
                     <div className="flex items-center gap-2 text-muted ml-auto">
                         <IconX className="size-4" />
-                        <span className="text-sm">Skipped (new message sent)</span>
-                    </div>
-                )}
-
-                {status === 'expired' && (
-                    <div className="flex items-center gap-2 text-danger ml-auto">
-                        <IconWarning className="size-4" />
-                        <span className="text-sm">Expired</span>
+                        <span className="text-sm">Rejected (with feedback)</span>
                     </div>
                 )}
             </div>

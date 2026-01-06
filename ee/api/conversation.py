@@ -4,7 +4,6 @@ from collections.abc import AsyncGenerator
 from typing import cast
 
 from django.conf import settings
-from django.db import transaction
 from django.http import StreamingHttpResponse
 
 import pydantic
@@ -40,7 +39,6 @@ from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_tea
 from ee.hogai.api.serializers import ConversationSerializer
 from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.core.executor import AgentExecutor
-from ee.hogai.pending_operations import approve_pending_operation, delete_pending_operation, get_pending_operation
 from ee.hogai.stream.redis_stream import get_conversation_stream_key
 from ee.hogai.utils.aio import async_to_sync
 from ee.hogai.utils.sse import AssistantSSESerializer
@@ -99,6 +97,7 @@ class MessageSerializer(MessageMinimalSerializer):
     session_id = serializers.CharField(required=False)
     deep_research_mode = serializers.BooleanField(required=False, default=False)
     agent_mode = serializers.ChoiceField(required=False, choices=[mode.value for mode in AgentMode])
+    resume_payload = serializers.JSONField(required=False, allow_null=True)
 
     def validate(self, data):
         if data["content"] is not None:
@@ -238,11 +237,12 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
 
         is_idle = conversation.status == Conversation.Status.IDLE
         has_message = serializer.validated_data.get("message") is not None
+        has_resume_payload = serializer.validated_data.get("resume_payload") is not None
 
         if has_message and not is_idle:
             raise Conflict("Cannot resume streaming with a new message")
         # If the frontend is trying to resume streaming for a finished conversation, return a conflict error
-        if not has_message and conversation.status == Conversation.Status.IDLE:
+        if not has_message and conversation.status == Conversation.Status.IDLE and not has_resume_payload:
             raise exceptions.ValidationError("Cannot continue streaming from an idle conversation")
 
         # Skip billing for impersonated sessions (support agents) and mark conversations as internal
@@ -262,6 +262,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             agent_mode=serializer.validated_data.get("agent_mode"),
             use_checkpointer=True,
             is_agent_billable=is_agent_billable,
+            resume_payload=serializer.validated_data.get("resume_payload"),
         )
         workflow_class = ChatAgentWorkflow
 
@@ -341,65 +342,3 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             return Response({"error": "Failed to append message"}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
 
         return Response({"id": message.id}, status=status.HTTP_201_CREATED)
-
-    @action(detail=True, methods=["POST"], url_path="operations/(?P<proposal_id>[^/.]+)/approve")
-    def approve_operation(self, request: Request, proposal_id: str, *args, **kwargs):
-        """
-        Mark a pending dangerous operation as approved.
-        The tool will execute when the agent continues the conversation.
-        """
-        conversation = self.get_object()
-        pending = get_pending_operation(str(conversation.id), proposal_id)
-
-        if not pending:
-            return Response(
-                {"error": "Operation not found or expired"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        # Cache operation first, then DB operation
-        # If DB fails, we clean up the cache to maintain consistency
-        success = approve_pending_operation(str(conversation.id), proposal_id)
-        if not success:
-            return Response(
-                {"error": "Failed to approve operation"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-        try:
-            with transaction.atomic():
-                # Lock the row to prevent concurrent JSONField updates from overwriting each other
-                locked_conversation = Conversation.objects.select_for_update().get(pk=conversation.pk)
-                locked_conversation.approval_decisions[proposal_id] = "approved"
-                locked_conversation.save(update_fields=["approval_decisions"])
-        except Exception:
-            # Clean up cache if DB operation fails
-            delete_pending_operation(str(conversation.id), proposal_id)
-            raise
-
-        return Response(
-            {
-                "status": "approved",
-                "proposal_id": proposal_id,
-            }
-        )
-
-    @action(detail=True, methods=["POST"], url_path="operations/(?P<proposal_id>[^/.]+)/reject")
-    def reject_operation(self, request: Request, proposal_id: str, *args, **kwargs):
-        """Reject and discard a pending dangerous operation."""
-        conversation = self.get_object()
-        pending = get_pending_operation(str(conversation.id), proposal_id)
-
-        # For rejection, DB operation is authoritative
-        # If DB succeeds, we then clean up cache (cache cleanup failure is acceptable)
-        with transaction.atomic():
-            # Lock the row to prevent concurrent JSONField updates from overwriting each other
-            locked_conversation = Conversation.objects.select_for_update().get(pk=conversation.pk)
-            locked_conversation.approval_decisions[proposal_id] = "rejected"
-            locked_conversation.save(update_fields=["approval_decisions"])
-
-        # Cache cleanup after DB success - if this fails, cache will expire naturally
-        if pending:
-            delete_pending_operation(str(conversation.id), proposal_id)
-
-        return Response({"status": "rejected"})

@@ -13,13 +13,9 @@ import {
 import { AssistantTool } from '~/queries/schema/schema-assistant-messages'
 import { RecordingUniversalFilters } from '~/types'
 
-import {
-    DangerousOperationApprovalCard,
-    isDangerousOperationResponse,
-    normalizeDangerousOperationResponse,
-} from '../DangerousOperationApprovalCard'
+import { DangerousOperationApprovalCard } from '../DangerousOperationApprovalCard'
+import { isDangerousOperationResponse, normalizeDangerousOperationResponse } from '../approvalOperationUtils'
 import { maxLogic } from '../maxLogic'
-import { maxThreadLogic } from '../maxThreadLogic'
 import { MessageTemplate } from './MessageTemplate'
 import { RecordingsFiltersSummary } from './RecordingsFiltersSummary'
 
@@ -38,8 +34,7 @@ export function UIPayloadAnswer({
     toolName: string
     toolPayload: any
 }): JSX.Element | null {
-    const { conversationId, tabId } = useValues(maxLogic)
-    const { effectiveApprovalStatuses } = useValues(maxThreadLogic({ conversationId: conversationId ?? '', tabId }))
+    const { conversationId } = useValues(maxLogic)
 
     if (toolName === 'search_session_recordings') {
         const filters = toolPayload as RecordingUniversalFilters
@@ -52,14 +47,7 @@ export function UIPayloadAnswer({
             return null
         }
         const normalizedOperation = normalizeDangerousOperationResponse(toolPayload)
-        const resolvedStatus = effectiveApprovalStatuses[normalizedOperation.proposalId]
-        return (
-            <DangerousOperationApprovalCard
-                operation={normalizedOperation}
-                conversationId={conversationId}
-                initialStatus={resolvedStatus}
-            />
-        )
+        return <DangerousOperationApprovalCard operation={normalizedOperation} conversationId={conversationId} />
     }
 
     // It's not expected to hit the null branch below, because such a case SHOULD have already been filtered out

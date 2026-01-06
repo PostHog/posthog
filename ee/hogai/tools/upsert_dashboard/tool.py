@@ -96,18 +96,13 @@ class UpsertDashboardTool(MaxTool):
             return action.replace_insights is True or bool(action.update_insight_ids)
         return False
 
-    async def _create_dangerous_operation_response(self, **kwargs) -> tuple[str, dict] | None:
-        """Override to fetch dashboard details for a richer preview."""
-        import uuid
-
-        from ee.hogai.pending_operations import store_pending_operation
-
+    async def format_dangerous_operation_preview(self, **kwargs) -> str:
+        """
+        Build a rich preview showing dashboard details and what will be modified.
+        """
         action: UpsertDashboardAction | None = kwargs.get("action")
         if not isinstance(action, UpdateDashboardToolArgs):
-            return await super()._create_dangerous_operation_response(**kwargs)
-
-        proposal_id = str(uuid.uuid4())
-        conversation_id = self._get_conversation_id()
+            return f"Execute {self.name} operation"
 
         # Fetch dashboard details for richer preview
         dashboard_name = f"Dashboard #{action.dashboard_id}"
@@ -122,14 +117,6 @@ class UpsertDashboardTool(MaxTool):
             # TRICKY: All conditions on `dashboard_tiles__*` must be in a single .filter() call.
             # Chaining separate .filter() calls that span multi-valued relationships causes Django
             # to create separate JOINs, which can match different tiles for each condition.
-            #
-            # e.g. of the bug: if insight A has a soft-deleted tile on dashboard 8 AND an active
-            # tile on dashboard 5, chained filters would still match it because:
-            #   - First filter matches the tile on dashboard 8 (satisfies dashboard condition)
-            #   - Second filter matches the tile on dashboard 5 (satisfies deleted condition)
-            #
-            # By combining conditions with Q objects in a single filter, we ensure they apply to
-            # the SAME tile row.
             existing_insights = [
                 i
                 async for i in Insight.objects.filter(
@@ -194,35 +181,7 @@ class UpsertDashboardTool(MaxTool):
                 if existing_insight_count > 5:
                     lines.append(f"  • ... and {existing_insight_count - 5} more")
 
-        preview = "\n".join(lines)
-
-        # Store pending operation
-        if conversation_id:
-            await store_pending_operation(
-                conversation_id=conversation_id,
-                proposal_id=proposal_id,
-                tool_name=self.name,
-                payload={"action": action.model_dump()},
-            )
-
-        from ee.hogai.tool import DangerousOperationResponse
-
-        response = DangerousOperationResponse(
-            proposal_id=proposal_id,
-            tool_name=self.name,
-            preview=preview,
-            payload={"action": action.model_dump()},
-        )
-
-        # Stop and wait
-        stop_message = (
-            "STOP. This operation requires explicit user approval before proceeding. "
-            "The user is now seeing an approval dialog. Do NOT continue, do NOT summarize, do NOT say 'Done'. "
-            "Wait silently for the user's response. "
-            "When the user approves, call this tool again with the same arguments - it will execute normally."
-        )
-
-        return stop_message, response.model_dump()
+        return "\n".join(lines)
 
     async def _arun_impl(self, action: UpsertDashboardAction) -> tuple[str, ToolMessagesArtifact | None]:
         if isinstance(action, CreateDashboardToolArgs):
@@ -419,7 +378,6 @@ class UpsertDashboardTool(MaxTool):
                 if old_short_id in existing_tiles_by_short_id:
                     old_tile = existing_tiles_by_short_id[old_short_id]
                     if not old_tile.deleted:
-                        # Update the tile in place
                         old_tile.insight = new_insight
                         old_tile.save(update_fields=["insight"])
 

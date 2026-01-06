@@ -15,7 +15,7 @@ class Migration(migrations.Migration):
             field=models.JSONField(
                 blank=True,
                 default=dict,
-                help_text="Stores approval decisions for dangerous operations. Format: {proposal_id: 'approved' | 'rejected'}",
+                help_text="Stores approval decisions for dangerous operations. Format: {proposal_id: {decision_status: 'pending' | 'approved' | 'rejected' | 'auto_rejected', tool_name: str, preview: str, payload: dict, ...}}",
             ),
         ),
     ]
