@@ -4658,6 +4658,14 @@ const api = {
         }> {
             return await new ApiRequest().hogFlows().withAction('user_blast_radius').create({ data: { filters } })
         },
+        async createHogFlowBatchJob(
+            hogFlowId: HogFlow['id'],
+            data: {
+                variables: Record<string, HogQLVariable>
+            }
+        ): Promise<void> {
+            return await new ApiRequest().hogFlow(hogFlowId).withAction('batch_jobs').create({ data })
+        },
     },
     hogFlowTemplates: {
         async getHogFlowTemplates(): Promise<PaginatedResponse<HogFlowTemplate>> {

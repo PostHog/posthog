@@ -53,6 +53,7 @@ PRODUCTS_APPS = [
     "products.conversations.backend.apps.ConversationsConfig",
     "products.slack_app.backend.apps.SlackAppConfig",
     "products.product_tours.backend.apps.ProductToursConfig",
+    "products.workflows.backend.apps.WorkflowsConfig",
 ]
 
 INSTALLED_APPS = [
