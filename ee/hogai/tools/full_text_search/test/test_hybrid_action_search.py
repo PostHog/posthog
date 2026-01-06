@@ -124,7 +124,12 @@ class TestHybridActionSearchTool(NonAtomicBaseTest):
             results=[
                 VectorSearchResponseItem(id="1", distance=0.1),
                 VectorSearchResponseItem(id="2", distance=0.2),
-            ]
+            ],
+            cache_key="test_cache_key",
+            is_cached=False,
+            last_refresh="2024-01-01T00:00:00Z",
+            next_allowed_client_refresh="2024-01-01T00:01:00Z",
+            timezone="UTC",
         )
 
         # Mock database_sync_to_async to return an async function that returns mock_response
