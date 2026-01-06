@@ -664,7 +664,9 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                         placeholders={
                             "max": ast.Array(
                                 exprs=[
-                                    ast.Call(name="max", args=[ast.Field(chain=[histogram_breakdown["alias"]])])
+                                    ast.Call(
+                                        name="max", args=[ast.Field(chain=[cast(str, histogram_breakdown["alias"])])]
+                                    )
                                     for histogram_breakdown in breakdown_aliases_with_histograms
                                 ]
                             )
@@ -675,7 +677,9 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                         placeholders={
                             "min": ast.Array(
                                 exprs=[
-                                    ast.Call(name="min", args=[ast.Field(chain=[histogram_breakdown["alias"]])])
+                                    ast.Call(
+                                        name="min", args=[ast.Field(chain=[cast(str, histogram_breakdown["alias"])])]
+                                    )
                                     for histogram_breakdown in breakdown_aliases_with_histograms
                                 ]
                             )
@@ -715,13 +719,14 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             bucketed_breakdowns: list[ast.Expr] = []
             for breakdown_alias in breakdown_aliases:
                 if not isinstance(breakdown_alias.get("histogram_bin_count"), int):
-                    bucketed_breakdowns.append(ast.Field(chain=[breakdown_alias["alias"]]))
+                    bucketed_breakdowns.append(ast.Field(chain=[cast(str, breakdown_alias["alias"])]))
                 else:
                     alias_to_index = {
                         breakdown_alias["alias"]: idx
                         for idx, breakdown_alias in enumerate(breakdown_aliases_with_histograms)
                     }
 
+                    alias_str = cast(str, breakdown_alias["alias"])
                     filter_expr = parse_expr(
                         """
                             arrayFilter(
@@ -730,8 +735,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                             )[1]
                         """,
                         placeholders={
-                            "alias": ast.Field(chain=[breakdown_alias["alias"]]),
-                            "bucket_index": ast.Constant(value=alias_to_index[breakdown_alias["alias"]] + 1),
+                            "alias": ast.Field(chain=[alias_str]),
+                            "bucket_index": ast.Constant(value=alias_to_index[alias_str] + 1),
                         },
                     )
 

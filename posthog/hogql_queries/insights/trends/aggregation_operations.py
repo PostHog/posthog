@@ -169,6 +169,10 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         This ensures each session contributes exactly once - critical for metrics like bounce rate
         where avg($is_bounce) must average across sessions, not events.
         """
+        # Backwards compatibility: $session_duration works without explicit math_property_type
+        if self.series.math_property == "$session_duration":
+            return True
+
         return (
             self.series.math_property_type == "session_properties"
             and self.series.math_property in ALLOWED_SESSION_MATH_PROPERTIES
