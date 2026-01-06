@@ -30,14 +30,20 @@ def create_handler(temporal_metrics_url: str, registry: CollectorRegistry) -> ty
                 try:
                     with urllib.request.urlopen(temporal_metrics_url, timeout=5) as response:
                         temporal_output = response.read()
-                        content_type = response.getheader("Content-Type")
+                        content_type = response.getheader("Content-Type", content_type)
                 except urllib.error.URLError as e:
                     logger.warning("combined_metrics_server.temporal_fetch_failed", error=str(e))
 
                 # Get prometheus_client metrics
                 client_output = generate_latest(registry)
 
-                # Combine both outputs
+                # Combine both outputs, ensuring proper newline separation.
+                # Prometheus text format requires metrics to be separated by newlines.
+                # If Temporal output doesn't end with a newline, we add one to prevent
+                # malformed output like "temporal_metric 5prometheus_metric 10".
+                if temporal_output and not temporal_output.endswith(b"\n"):
+                    temporal_output += b"\n"
+
                 output = temporal_output + client_output
 
                 self.send_response(200)
