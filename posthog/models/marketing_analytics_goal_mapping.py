@@ -64,10 +64,8 @@ class MarketingAnalyticsGoalMapping(UUIDModel):
 
         # For DataWarehouseNode, schema_map is required with UTM fields
         if self.core_event_id:
-            # Access via core_event to check filter kind
             try:
-                core_event = self.core_event
-                if core_event.filter.get("kind") == "DataWarehouseNode":
+                if self.core_event.filter.get("kind") == "DataWarehouseNode":
                     if not self.schema_map:
                         raise ValidationError(
                             "schema_map is required for DataWarehouseNode goals. "

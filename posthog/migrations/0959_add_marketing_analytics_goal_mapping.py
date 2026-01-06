@@ -22,28 +22,9 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 (
-                    "core_event_id",
-                    models.CharField(
-                        help_text="Reference to the CoreEvent.id from TeamCoreEventsConfig", max_length=36
-                    ),
-                ),
-                (
-                    "kind",
-                    models.CharField(
-                        choices=[
-                            ("EventsNode", "Event"),
-                            ("ActionsNode", "Action"),
-                            ("DataWarehouseNode", "Data Warehouse"),
-                        ],
-                        help_text="The kind of goal (EventsNode, ActionsNode, DataWarehouseNode)",
-                        max_length=20,
-                    ),
-                ),
-                (
-                    "_schema_map",
+                    "schema_map",
                     models.JSONField(
                         blank=True,
-                        db_column="schema_map",
                         default=dict,
                         help_text="UTM field mappings for data warehouse goals",
                         null=True,
@@ -51,6 +32,14 @@ class Migration(migrations.Migration):
                 ),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
+                (
+                    "core_event",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="marketing_goal_mappings",
+                        to="posthog.coreevent",
+                    ),
+                ),
                 (
                     "team",
                     models.ForeignKey(
@@ -64,7 +53,7 @@ class Migration(migrations.Migration):
                 "verbose_name": "Marketing Analytics Goal Mapping",
                 "verbose_name_plural": "Marketing Analytics Goal Mappings",
                 "ordering": ["created_at"],
-                "unique_together": {("team", "core_event_id")},
+                "unique_together": {("team", "core_event")},
             },
         ),
     ]
