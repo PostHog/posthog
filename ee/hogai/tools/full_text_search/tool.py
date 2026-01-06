@@ -1,5 +1,6 @@
 from enum import StrEnum
 from functools import cached_property
+from typing import Literal
 
 from posthoganalytics import capture_exception
 
@@ -45,6 +46,7 @@ class EntitySearchTool(MaxSubtool):
             if not query:
                 return "No search query was provided"
 
+            entity_types: set[str] | Literal["all"]
             if search_kind == FTSKind.ALL:
                 entity_types = "all"
             elif search_kind in SEARCH_KIND_TO_DATABASE_ENTITY_TYPE:
