@@ -72,6 +72,7 @@ jobs:
               with:
                   enable-cache: true
                   version: 0.9.21
+                  python-version: '3.12'
 
             - name: Install bin script dependencies
               run: uv sync --project bin --frozen
