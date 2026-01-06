@@ -1,0 +1,116 @@
+.LemonSegmentedButtonWithSelect {
+    position: relative;
+    flex-shrink: 0;
+    width: fit-content;
+    border-radius: var(--radius);
+
+    > ul {
+        z-index: 1; // Place above slider
+        display: flex;
+        align-items: stretch;
+        list-style: none;
+    }
+
+    &.LemonSegmentedButtonWithSelect--full-width {
+        width: 100%;
+    }
+
+    .LemonSegmentedButtonWithSelect__slider {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        z-index: 0;
+        width: var(--lemon-segmented-button-slider-width);
+        pointer-events: none;
+        border-radius: var(--radius);
+        transform: translateX(var(--lemon-segmented-button-slider-offset));
+
+        &--first {
+            border-top-left-radius: var(--radius);
+            border-bottom-left-radius: var(--radius);
+        }
+
+        &--last {
+            border-top-right-radius: var(--radius);
+            border-bottom-right-radius: var(--radius);
+        }
+    }
+
+    &.LemonSegmentedButtonWithSelect--transitioning .LemonSegmentedButtonWithSelect__slider {
+        transition:
+            transform 200ms ease,
+            width 200ms ease;
+    }
+
+    .LemonSegmentedButtonWithSelect__option {
+        display: flex;
+        flex: 1;
+
+        .LemonButton__content {
+            white-space: nowrap;
+        }
+
+        & .LemonButton,
+        & .LemonButton > .LemonButton__chrome::after,
+        & .LemonButton > .LemonButton__chrome::before {
+            border-radius: 0 !important;
+        }
+
+        .LemonButton:not(:hover) {
+            .LemonButton__content {
+                opacity: var(--lemon-button-icon-opacity);
+            }
+        }
+
+        .LemonButton.LemonButton--secondary:not([aria-disabled='true']):hover {
+            > .LemonButton__chrome::after {
+                border-color: var(--secondary-3000-button-border);
+            }
+        }
+
+        &:first-child,
+        &:first-child .LemonButton,
+        &:first-child .LemonButton > .LemonButton__chrome::after,
+        &:first-child .LemonButton > .LemonButton__chrome::before {
+            border-top-left-radius: var(--radius) !important;
+            border-bottom-left-radius: var(--radius) !important;
+        }
+
+        &:last-child,
+        &:last-child .LemonButton,
+        &:last-child .LemonButton > .LemonButton__chrome::after,
+        &:last-child .LemonButton > .LemonButton__chrome::before {
+            border-top-right-radius: var(--radius) !important;
+            border-bottom-right-radius: var(--radius) !important;
+        }
+
+        &:not(:first-child) {
+            .LemonButton__chrome {
+                margin-left: -1px;
+            }
+        }
+
+        &.LemonSegmentedButtonWithSelect__option--selected {
+            z-index: 2;
+
+            .LemonButton {
+                --lemon-button-icon-opacity: 1;
+            }
+        }
+
+        &--disabled {
+            > div {
+                width: 100%;
+            }
+        }
+
+        &--dropdown {
+            // Ensure dropdown button integrates visually with segmented buttons
+            .LemonButton {
+                // Match the styling of segmented buttons
+                height: 100%;
+            }
+        }
+    }
+}
