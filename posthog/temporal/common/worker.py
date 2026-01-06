@@ -1,12 +1,12 @@
 import datetime as dt
-import itertools
 import collections.abc
 from concurrent.futures import ThreadPoolExecutor
 
-from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
+from temporalio.runtime import MetricBuffer, Runtime, TelemetryConfig
 from temporalio.worker import ResourceBasedSlotConfig, UnsandboxedWorkflowRunner, Worker, WorkerTuner
 
 from posthog.temporal.common.client import connect
+from posthog.temporal.common.combined_metrics_server import start_combined_metrics_server
 from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
 
@@ -14,24 +14,8 @@ from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsI
 
 logger = get_write_only_logger()
 
-
-BATCH_EXPORTS_LATENCY_HISTOGRAM_METRICS = (
-    "batch_exports_activity_execution_latency",
-    "batch_exports_activity_interval_execution_latency",
-    "batch_exports_workflow_interval_execution_latency",
-)
-BATCH_EXPORTS_LATENCY_HISTOGRAM_BUCKETS = [
-    1_000.0,
-    30_000.0,  # 30 seconds
-    60_000.0,  # 1 minute
-    300_000.0,  # 5 minutes
-    900_000.0,  # 15 minutes
-    1_800_000.0,  # 30 minutes
-    3_600_000.0,  # 1 hour
-    21_600_000.0,  # 6 hours
-    43_200_000.0,  # 12 hours
-    86_400_000.0,  # 24 hours
-]
+# Buffer size for Temporal metrics - should be large enough to hold all metrics between scrapes
+METRIC_BUFFER_SIZE = 10000
 
 
 async def create_worker(
@@ -82,24 +66,22 @@ async def create_worker(
             Defaults to 1.0. Only takes effect if target_memory_usage is set.
     """
 
+    # Use MetricBuffer to collect Temporal SDK metrics directly (no HTTP needed).
+    # The combined metrics server reads from this buffer and serves all metrics
+    # (both Temporal and prometheus_client) on a single endpoint.
+    metric_buffer = MetricBuffer(buffer_size=METRIC_BUFFER_SIZE)
+
     runtime = Runtime(
         telemetry=TelemetryConfig(
             metric_prefix=metric_prefix,
-            metrics=PrometheusConfig(
-                bind_address=f"0.0.0.0:{metrics_port:d}",
-                durations_as_seconds=False,
-                # Units are u64 milliseconds in sdk-core,
-                # given that the `duration_as_seconds` is `False`.
-                # But in Python we still need to pass floats due to type hints.
-                histogram_bucket_overrides=dict(
-                    zip(
-                        BATCH_EXPORTS_LATENCY_HISTOGRAM_METRICS,
-                        itertools.repeat(BATCH_EXPORTS_LATENCY_HISTOGRAM_BUCKETS),
-                    )
-                )
-                | {"batch_exports_activity_attempt": [1.0, 5.0, 10.0, 100.0]},
-            ),
+            metrics=metric_buffer,
         )
+    )
+
+    start_combined_metrics_server(
+        port=metrics_port,
+        metric_buffer=metric_buffer,
+        metric_prefix=metric_prefix or "",
     )
     client = await connect(
         host,
