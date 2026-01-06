@@ -8,6 +8,7 @@ import {
     IconDatabase,
     IconFeatures,
     IconGraph,
+    IconLlmAnalytics,
     IconMessage,
     IconPieChart,
     IconRewindPlay,
@@ -17,6 +18,7 @@ import {
 
 import api from 'lib/api'
 import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
+import { isDefinitionStale } from 'lib/utils/definitions'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { availableOnboardingProducts } from 'scenes/onboarding/utils'
 import { membersLogic } from 'scenes/organization/membersLogic'
@@ -152,6 +154,23 @@ export const activationLogic = kea<activationLogicType>([
                 },
             },
         ],
+        hasSentAIEvent: {
+            __default: undefined as boolean | undefined,
+            loadAIEventDefinitions: async (): Promise<boolean> => {
+                const AI_EVENT_NAMES = ['$ai_generation', '$ai_trace', '$ai_span', '$ai_embedding']
+
+                const aiEventDefinitions = await api.eventDefinitions.list({
+                    event_type: EventDefinitionType.Event,
+                    search: '$ai_',
+                })
+
+                const validAIEvent = aiEventDefinitions.results.find(
+                    (r) => AI_EVENT_NAMES.includes(r.name) && !isDefinitionStale(r)
+                )
+
+                return !!validAIEvent
+            },
+        },
     })),
     selectors({
         savedOnboardingTasks: [
@@ -311,6 +330,15 @@ export const activationLogic = kea<activationLogicType>([
                 case ActivationTask.CollectSurveyResponses:
                     router.actions.push(urls.surveys())
                     break
+
+                // LLM Analytics
+                case ActivationTask.IngestFirstLLMEvent:
+                    router.actions.push(urls.onboarding(ProductKey.LLM_ANALYTICS, OnboardingStepKey.INSTALL))
+                    break
+                case ActivationTask.ViewFirstTrace:
+                    router.actions.push(urls.llmAnalyticsTraces())
+                    break
+
                 default:
                     // For tasks with just a URL or no direct route
                     break
@@ -406,10 +434,19 @@ export const activationLogic = kea<activationLogicType>([
             if (!values.currentTeam?.onboarding_tasks?.[ActivationTask.TrackCustomEvents]) {
                 actions.loadCustomEvents({})
             }
+
+            if (!values.currentTeam?.onboarding_tasks?.[ActivationTask.IngestFirstLLMEvent]) {
+                actions.loadAIEventDefinitions()
+            }
         },
         loadCustomEventsSuccess: () => {
             if (values.customEventsCount > 0) {
                 actions.markTaskAsCompleted(ActivationTask.TrackCustomEvents)
+            }
+        },
+        loadAIEventDefinitionsSuccess: () => {
+            if (values.hasSentAIEvent) {
+                actions.markTaskAsCompleted(ActivationTask.IngestFirstLLMEvent)
             }
         },
         onTeamLoad: ({ team }) => {
@@ -444,6 +481,11 @@ export const activationLogic = kea<activationLogicType>([
 
         if (values.currentTeam) {
             actions.onTeamLoad(values.currentTeam)
+        }
+
+        // Load AI events on mount (handles page load with sidebar already open)
+        if (!values.currentTeam?.onboarding_tasks?.[ActivationTask.IngestFirstLLMEvent]) {
+            actions.loadAIEventDefinitions()
         }
 
         // Auto-expand first available task with content
@@ -491,6 +533,10 @@ export enum ActivationTask {
     // Surveys
     LaunchSurvey = 'launch_survey',
     CollectSurveyResponses = 'collect_survey_responses',
+
+    // LLM Analytics
+    IngestFirstLLMEvent = 'ingest_first_llm_event',
+    ViewFirstTrace = 'view_first_trace',
 }
 
 export enum ActivationSection {
@@ -502,6 +548,7 @@ export enum ActivationSection {
     Experiments = 'experiments',
     DataWarehouse = 'data_warehouse',
     Surveys = 'surveys',
+    LlmAnalytics = 'llm_analytics',
 }
 
 export const ACTIVATION_SECTIONS: Record<ActivationSection, { title: string; icon: ReactNode }> = {
@@ -547,6 +594,10 @@ export const ACTIVATION_SECTIONS: Record<ActivationSection, { title: string; ico
     [ActivationSection.Surveys]: {
         title: 'Surveys',
         icon: <IconMessage className="w-5 h-5 text-salmon" color={availableOnboardingProducts.surveys.iconColor} />,
+    },
+    [ActivationSection.LlmAnalytics]: {
+        title: 'LLM analytics',
+        icon: <IconLlmAnalytics className="w-5 h-5" color={availableOnboardingProducts.llm_analytics.iconColor} />,
     },
 }
 
@@ -697,5 +748,28 @@ export const ACTIVATION_TASKS: ActivationTaskDefinition[] = [
             },
         ],
         buttonText: 'View responses',
+    },
+
+    // LLM Analytics
+    {
+        id: ActivationTask.IngestFirstLLMEvent,
+        title: 'Send your first LLM event',
+        canSkip: false,
+        section: ActivationSection.LlmAnalytics,
+        url: 'https://posthog.com/docs/llm-analytics/installation',
+        buttonText: 'Install SDK',
+    },
+    {
+        id: ActivationTask.ViewFirstTrace,
+        title: 'View your first trace',
+        canSkip: false,
+        section: ActivationSection.LlmAnalytics,
+        dependsOn: [
+            {
+                task: ActivationTask.IngestFirstLLMEvent,
+                reason: 'Send an LLM event first',
+            },
+        ],
+        buttonText: 'View traces',
     },
 ]
