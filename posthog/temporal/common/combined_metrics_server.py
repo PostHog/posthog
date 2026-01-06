@@ -39,13 +39,15 @@ def create_handler(temporal_metrics_url: str, registry: CollectorRegistry) -> ty
                 output = temporal_output + client_output
 
                 self.send_response(200)
-                self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+                self.send_header(
+                    "Content-Type", response.getheader("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+                )
                 self.end_headers()
                 self.wfile.write(output)
 
             except Exception as e:
-                logger.exception("combined_metrics_server.error", error=str(e))
                 capture_exception(e)
+                logger.exception("combined_metrics_server.error", error=str(e))
                 self.send_response(500)
                 self.end_headers()
                 self.wfile.write(f"Error: {e}".encode())

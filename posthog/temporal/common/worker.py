@@ -10,7 +10,7 @@ from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
 from temporalio.worker import ResourceBasedSlotConfig, UnsandboxedWorkflowRunner, Worker, WorkerTuner
 
 from posthog.temporal.common.client import connect
-from posthog.temporal.common.combined_metrics_server import CombinedMetricsServer, get_free_port
+from posthog.temporal.common.combined_metrics_server import CombinedMetricsServer
 from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
 
@@ -19,13 +19,12 @@ from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsI
 logger = get_write_only_logger()
 
 
-# Custom histogram bucket overrides for specific metrics
 BATCH_EXPORTS_LATENCY_HISTOGRAM_METRICS = (
     "batch_exports_activity_execution_latency",
     "batch_exports_activity_interval_execution_latency",
     "batch_exports_workflow_interval_execution_latency",
 )
-BATCH_EXPORTS_LATENCY_HISTOGRAM_BUCKETS = (
+BATCH_EXPORTS_LATENCY_HISTOGRAM_BUCKETS = [
     1_000.0,
     30_000.0,  # 30 seconds
     60_000.0,  # 1 minute
@@ -36,7 +35,7 @@ BATCH_EXPORTS_LATENCY_HISTOGRAM_BUCKETS = (
     21_600_000.0,  # 6 hours
     43_200_000.0,  # 12 hours
     86_400_000.0,  # 24 hours
-)
+]
 
 
 @dataclass
@@ -106,7 +105,7 @@ async def create_worker(
             Defaults to 1.0. Only takes effect if target_memory_usage is set.
     """
 
-    temporal_metrics_port = get_free_port()
+    temporal_metrics_port = _get_free_port()
     temporal_metrics_bind_address = f"127.0.0.1:{temporal_metrics_port}"
 
     # Use PrometheusConfig to expose Temporal SDK metrics on an internal port.
@@ -127,7 +126,7 @@ async def create_worker(
                         itertools.repeat(BATCH_EXPORTS_LATENCY_HISTOGRAM_BUCKETS),
                     )
                 )
-                | {"batch_exports_activity_attempt": (1.0, 5.0, 10.0, 100.0)},
+                | {"batch_exports_activity_attempt": [1.0, 5.0, 10.0, 100.0]},
             ),
         )
     )
