@@ -366,13 +366,15 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
                     .first()
                 )
                 self.context["activity_log"] = latest_activity_log
-            # update the temporal schedule if the view is materialized
-            if view.is_materialized:
+            # update the temporal schedule if it exists
+            view_id = str(view.id)
+            temporal_schedule_exists = saved_query_workflow_exists(view_id)
+            if temporal_schedule_exists:
                 try:
                     if sync_frequency == "never":
-                        pause_saved_query_schedule(str(locked_instance.id))
+                        pause_saved_query_schedule(view_id)
                     elif sync_frequency:
-                        sync_saved_query_workflow(view, create=not saved_query_workflow_exists(str(view.id)))
+                        sync_saved_query_workflow(view, create=not temporal_schedule_exists)
                 except Exception as e:
                     capture_exception(e)
                     logger.exception(
