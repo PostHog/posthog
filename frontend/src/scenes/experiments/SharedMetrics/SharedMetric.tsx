@@ -125,9 +125,9 @@ export function SharedMetric(): JSX.Element {
                 <ScenePanelActionsSection>
                     {action === 'update' && (
                         <AccessControlAction
-                            resourceType={AccessControlResourceType.Experiment}
+                            resourceType={AccessControlResourceType.ExperimentSavedMetric}
                             minAccessLevel={AccessControlLevel.Editor}
-                            userAccessLevel={AccessControlLevel.Editor}
+                            userAccessLevel={sharedMetric.user_access_level}
                         >
                             <ButtonPrimitive
                                 variant="danger"
@@ -182,9 +182,9 @@ export function SharedMetric(): JSX.Element {
                 }}
                 actions={
                     <AccessControlAction
-                        resourceType={AccessControlResourceType.Experiment}
+                        resourceType={AccessControlResourceType.ExperimentSavedMetric}
                         minAccessLevel={AccessControlLevel.Editor}
-                        userAccessLevel={AccessControlLevel.Editor}
+                        userAccessLevel={sharedMetric.user_access_level}
                     >
                         <LemonButton
                             disabledReason={sharedMetric.name ? undefined : 'You must give your metric a name'}
@@ -250,9 +250,9 @@ export function SharedMetric(): JSX.Element {
                     </LemonButton>
                 )} */}
                 <AccessControlAction
-                    resourceType={AccessControlResourceType.Experiment}
+                    resourceType={AccessControlResourceType.ExperimentSavedMetric}
                     minAccessLevel={AccessControlLevel.Editor}
-                    userAccessLevel={AccessControlLevel.Editor}
+                    userAccessLevel={sharedMetric.user_access_level}
                 >
                     <LemonButton
                         disabledReason={sharedMetric.name ? undefined : 'You must give your metric a name'}
