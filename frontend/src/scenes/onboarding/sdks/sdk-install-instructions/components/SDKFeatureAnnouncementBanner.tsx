@@ -68,7 +68,7 @@ export function SDKFeatureAnnouncementBanner({
                 </h3>
                 <div>
                     {description || defaultDescription}{' '}
-                    <Link to={urls.onboarding(productKey, stepKey, sdkKey)} data-attr={dataAttr}>
+                    <Link to={urls.onboarding({ productKey, stepKey, sdk: sdkKey })} data-attr={dataAttr}>
                         {linkText}
                     </Link>
                 </div>

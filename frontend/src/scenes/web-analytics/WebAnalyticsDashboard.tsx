@@ -663,7 +663,10 @@ const getEmptyOnboardingContent = (
                         <div className="flex items-center gap-2">
                             <LemonButton
                                 type="primary"
-                                to={urls.onboarding(ProductKey.WEB_ANALYTICS, OnboardingStepKey.INSTALL)}
+                                to={urls.onboarding({
+                                    productKey: ProductKey.WEB_ANALYTICS,
+                                    stepKey: OnboardingStepKey.INSTALL,
+                                })}
                                 data-attr="web-analytics-onboarding"
                             >
                                 Open installation guide
