@@ -26,11 +26,13 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePythonAttribute
     }
 
     return (
-        <div data-attr="notebook-node-python" className="flex flex-col gap-2 p-3">
-            <pre className="text-xs font-mono whitespace-pre-wrap">{attributes.code}</pre>
+        <div data-attr="notebook-node-python" className="flex h-full flex-col gap-2">
+            <div className="p-3 overflow-y-auto h-full">
+                <pre className="text-xs font-mono whitespace-pre-wrap">{attributes.code}</pre>
+            </div>
             {exportedGlobals.length > 0 ? (
-                <div className="flex items-start flex-wrap gap-2 text-xs text-muted">
-                    <span className="font-mono">
+                <div className="flex items-start flex-wrap gap-2 text-xs text-muted border-t p-2">
+                    <span className="font-mono mt-1">
                         <IconCornerDownRight />
                     </span>
                     <div className="flex flex-wrap gap-1">
