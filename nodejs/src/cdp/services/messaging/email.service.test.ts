@@ -146,7 +146,8 @@ describe('EmailService', () => {
                 expect(result.error).toBeUndefined()
                 expect(sendEmailSpy).toHaveBeenCalled()
                 expect(sendEmailSpy.mock.calls[0][0]).toMatchObject({
-                    Source: '"Test User" <test@posthog.com>',
+                    Source: 'test@posthog.com',
+                    ReturnPath: 'test@posthog.com',
                     Destination: {
                         ToAddresses: ['"Test User" <test@example.com>'],
                     },
@@ -257,7 +258,7 @@ describe('EmailService', () => {
         it('should error if not verified', async () => {
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toEqual(
-                'Failed to send email via SES: Email address not verified "Test User" <test@posthog-test.com>'
+                'Failed to send email via SES: Email address not verified test@posthog-test.com'
             )
         })
 
@@ -290,7 +291,8 @@ describe('EmailService', () => {
                       "Data": "Test Subject",
                     },
                   },
-                  "Source": ""Test User" <test@posthog-test.com>",
+                  "ReturnPath": "test@posthog-test.com",
+                  "Source": "test@posthog-test.com",
                   "Tags": [
                     {
                       "Name": "ph_id",
