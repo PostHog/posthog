@@ -4,7 +4,6 @@ import posthog from 'posthog-js'
 
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
-import { INSIGHT_ALERT_FIRING_EVENT_ID } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { humanFriendlyDuration, objectClean, toParams } from 'lib/utils'
@@ -158,8 +157,6 @@ import {
     ProjectType,
     PropertyDefinition,
     PropertyDefinitionType,
-    PropertyFilterType,
-    PropertyOperator,
     QueryBasedInsightModel,
     QueryTabState,
     QuickFilter,
@@ -470,6 +467,12 @@ export class ApiRequest {
 
     public cspReportingExplanation(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('csp-reporting').addPathComponent('explain')
+    }
+
+    // # Onboarding
+
+    public onboardingRecommendProducts(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('onboarding').addPathComponent('recommend_products')
     }
 
     // # LLM Analytics
@@ -1430,13 +1433,22 @@ export class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('managed_viewsets').addPathComponent(kind)
     }
 
-    // Conversations
+    // Conversations (Max AI)
     public conversations(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('conversations')
     }
 
     public conversation(id: string, teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('conversations').addPathComponent(id)
+    }
+
+    // Conversations (Support product)
+    public conversationsTickets(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('conversations').addPathComponent('tickets')
+    }
+
+    public conversationsTicket(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.conversationsTickets(teamId).addPathComponent(id)
     }
 
     // Notebooks
@@ -1775,6 +1787,22 @@ const api = {
     cspReporting: {
         explain(properties: Record<string, any>): Promise<{ response: string }> {
             return new ApiRequest().cspReportingExplanation().create({ data: { properties } })
+        },
+    },
+    onboarding: {
+        recommendProducts(
+            params: {
+                description?: string
+                browsingHistory?: string[]
+            },
+            teamId?: TeamType['id']
+        ): Promise<{ products: string[]; reasoning: string }> {
+            return new ApiRequest().onboardingRecommendProducts(teamId).create({
+                data: {
+                    description: params.description,
+                    browsing_history: params.browsingHistory,
+                },
+            })
         },
     },
     llmAnalytics: {
@@ -3051,11 +3079,13 @@ const api = {
             search,
             types,
             limit,
+            full,
         }: {
             filter_groups?: CyclotronJobFiltersType[]
             search?: string
             types?: HogFunctionTypeType[]
             limit?: number
+            full?: boolean
         }): Promise<CountedPaginatedResponse<HogFunctionType>> {
             return await new ApiRequest()
                 .hogFunctions()
@@ -3065,6 +3095,7 @@ const api = {
                     ...(types ? { type: types.join(',') } : {}),
                     ...(search ? { search } : {}),
                     ...(limit ? { limit } : {}),
+                    ...(full ? { full: 'true' } : {}),
                 })
                 .get()
         },
@@ -3132,33 +3163,6 @@ const api = {
         },
         async rearrange(orders: Record<string, number>): Promise<HogFunctionType[]> {
             return await new ApiRequest().hogFunctions().withAction('rearrange').update({ data: { orders } })
-        },
-        async listForAlert(alertId: string): Promise<CountedPaginatedResponse<HogFunctionType>> {
-            return await new ApiRequest()
-                .hogFunctions()
-                .withQueryString({
-                    filter_groups: [
-                        {
-                            properties: [
-                                {
-                                    key: 'alert_id',
-                                    value: alertId,
-                                    operator: PropertyOperator.Exact,
-                                    type: PropertyFilterType.Event,
-                                },
-                            ],
-                            events: [
-                                {
-                                    id: INSIGHT_ALERT_FIRING_EVENT_ID,
-                                    type: 'events',
-                                },
-                            ],
-                        },
-                    ],
-                    type: 'internal_destination',
-                    full: 'true',
-                })
-                .get()
         },
         async enableBackfills(id: HogFunctionType['id']): Promise<{ batch_export_id: string }> {
             return await new ApiRequest().hogFunction(id).withAction('enable_backfills').create()
@@ -3917,8 +3921,15 @@ const api = {
         async summarize_responses(
             surveyId: Survey['id'],
             questionIndex: number | undefined,
-            questionId: string | undefined
-        ): Promise<any> {
+            questionId: string | undefined,
+            forceRefresh: boolean = false
+        ): Promise<{
+            content: string
+            response_count: number
+            generated_at: string
+            cached: boolean
+            trace_id: string
+        }> {
             const apiRequest = new ApiRequest().survey(surveyId).withAction('summarize_responses')
             const queryParams: Record<string, string> = {}
 
@@ -3928,7 +3939,7 @@ const api = {
             if (questionId !== undefined) {
                 queryParams['question_id'] = questionId
             }
-            return await apiRequest.withQueryString(queryParams).create()
+            return await apiRequest.withQueryString(queryParams).create({ data: { force_refresh: forceRefresh } })
         },
         async getSummaryHeadline(
             surveyId: Survey['id'],
@@ -4649,6 +4660,14 @@ const api = {
         }> {
             return await new ApiRequest().hogFlows().withAction('user_blast_radius').create({ data: { filters } })
         },
+        async createHogFlowBatchJob(
+            hogFlowId: HogFlow['id'],
+            data: {
+                variables: Record<string, HogQLVariable>
+            }
+        ): Promise<void> {
+            return await new ApiRequest().hogFlow(hogFlowId).withAction('batch_jobs').create({ data })
+        },
     },
     hogFlowTemplates: {
         async getHogFlowTemplates(): Promise<PaginatedResponse<HogFlowTemplate>> {
@@ -4841,6 +4860,46 @@ const api = {
 
         async update(datasetItemId: string, data: Partial<DatasetItem>): Promise<DatasetItem> {
             return await new ApiRequest().datasetItem(datasetItemId).update({ data })
+        },
+    },
+
+    conversationsTickets: {
+        async list(
+            params: {
+                status?: string
+                distinct_id?: string
+                search?: string
+                limit?: number
+                offset?: number
+            } = {}
+        ): Promise<CountedPaginatedResponse<any>> {
+            return await new ApiRequest().conversationsTickets().withQueryString(params).get()
+        },
+
+        async get(ticketId: string): Promise<any> {
+            return await new ApiRequest().conversationsTicket(ticketId).get()
+        },
+
+        async create(data: {
+            distinct_id: string
+            anonymous_traits?: Record<string, any>
+            channel_source?: string
+        }): Promise<any> {
+            return await new ApiRequest().conversationsTickets().create({ data })
+        },
+
+        async update(
+            ticketId: string,
+            data: Partial<{
+                status: string
+                escalation_reason: string
+            }>
+        ): Promise<any> {
+            return await new ApiRequest().conversationsTicket(ticketId).update({ data })
+        },
+
+        async delete(ticketId: string): Promise<void> {
+            return await new ApiRequest().conversationsTicket(ticketId).delete()
         },
     },
 
@@ -5118,6 +5177,15 @@ const api = {
             kind: DataWarehouseManagedViewsetKind
         ): Promise<{ views: DataWarehouseManagedViewsetSavedQuery[]; count: number }> {
             return await new ApiRequest().dataWarehouseManagedViewset(kind).get()
+        },
+    },
+
+    projects: {
+        async generateConversationsPublicToken(teamId?: TeamType['id']): Promise<TeamType> {
+            return await new ApiRequest()
+                .environmentsDetail(teamId)
+                .withAction('generate_conversations_public_token')
+                .create()
         },
     },
 }

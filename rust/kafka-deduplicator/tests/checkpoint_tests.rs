@@ -212,7 +212,7 @@ async fn test_unavailable_uploader() {
         local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
         s3_bucket: "test-bucket".to_string(),
         s3_key_prefix: "test-prefix".to_string(),
-        aws_region: "us-east-1".to_string(),
+        aws_region: Some("us-east-1".to_string()),
         ..Default::default()
     };
 
@@ -271,7 +271,7 @@ async fn test_unpopulated_exporter() {
         local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
         s3_bucket: "test-bucket".to_string(),
         s3_key_prefix: "test-prefix".to_string(),
-        aws_region: "us-east-1".to_string(),
+        aws_region: Some("us-east-1".to_string()),
         ..Default::default()
     };
 
@@ -322,7 +322,7 @@ async fn test_checkpoint_from_plan_with_no_previous_metadata() {
         local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
         s3_bucket: "test-bucket".to_string(),
         s3_key_prefix: "test-prefix".to_string(),
-        aws_region: "us-east-1".to_string(),
+        aws_region: Some("us-east-1".to_string()),
         ..Default::default()
     };
 
@@ -408,7 +408,7 @@ async fn test_checkpoint_from_plan_with_previous_metadata() {
         local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
         s3_bucket: "test-bucket".to_string(),
         s3_key_prefix: "test-prefix".to_string(),
-        aws_region: "us-east-1".to_string(),
+        aws_region: Some("us-east-1".to_string()),
         ..Default::default()
     };
 

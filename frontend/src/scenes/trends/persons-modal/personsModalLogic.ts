@@ -31,10 +31,15 @@ import {
     BreakdownType,
     ChartDisplayType,
     CommonActorType,
+    FilterLogicalOperator,
     GroupActorType,
     IntervalType,
     PersonActorType,
     PropertiesTimelineFilterType,
+    PropertyFilterType,
+    PropertyOperator,
+    RecordingUniversalFilters,
+    UniversalFilterValue,
 } from '~/types'
 
 import type { personsModalLogicType } from './personsModalLogicType'
@@ -408,6 +413,92 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 }
 
                 return urls.insightNew({ query })
+            },
+        ],
+        recordingFilters: [
+            (s) => [s.actorsQuery, s.propertiesTimelineFilterFromUrl],
+            (actorsQuery, propertiesTimelineFilter): Partial<RecordingUniversalFilters> => {
+                if (!actorsQuery || !actorsQuery.source) {
+                    return {}
+                }
+
+                const filters: UniversalFilterValue[] = []
+                const source = actorsQuery.source
+
+                // For FunnelsActorsQuery, the actual query is nested at source.source
+                let insightQuery = source
+                if (source.kind === 'FunnelsActorsQuery' && 'source' in source && source.source) {
+                    insightQuery = source.source as any
+                }
+
+                // Extract events from the insight query series
+                if ('series' in insightQuery && Array.isArray(insightQuery.series)) {
+                    insightQuery.series.forEach((series) => {
+                        if ('event' in series && series.event) {
+                            const eventFilter: any = {
+                                id: series.event,
+                                name: series.event,
+                                type: 'events',
+                            }
+                            // Add properties from the series if they exist
+                            if (
+                                'properties' in series &&
+                                Array.isArray(series.properties) &&
+                                series.properties.length > 0
+                            ) {
+                                eventFilter.properties = series.properties
+                            }
+                            filters.push(eventFilter)
+                        }
+                    })
+                }
+
+                // Add breakdown filters if present
+                if ('breakdown' in source && source.breakdown && propertiesTimelineFilter?.breakdown) {
+                    const breakdownFilter = {
+                        key: propertiesTimelineFilter.breakdown,
+                        value: source.breakdown,
+                        operator: PropertyOperator.Exact,
+                        type: PropertyFilterType.Event,
+                    }
+                    filters.push(breakdownFilter as UniversalFilterValue)
+                }
+
+                // Add global properties from the insight query
+                if (
+                    'properties' in insightQuery &&
+                    Array.isArray(insightQuery.properties) &&
+                    insightQuery.properties.length > 0
+                ) {
+                    filters.push(...insightQuery.properties)
+                }
+
+                // Extract date range from insight query
+                let date_from = propertiesTimelineFilter?.date_from
+                let date_to = propertiesTimelineFilter?.date_to
+
+                if ('dateRange' in insightQuery && insightQuery.dateRange) {
+                    const dateRange = insightQuery.dateRange as any
+                    date_from = dateRange.date_from || date_from
+                    date_to = dateRange.date_to || date_to
+                }
+
+                // Build the nested AND structure required by RecordingUniversalFilters
+                const result = {
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: filters,
+                            },
+                        ],
+                    },
+                    date_from,
+                    date_to,
+                }
+
+                return result
             },
         ],
     }),

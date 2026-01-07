@@ -295,7 +295,6 @@ class AssistantTool(StrEnum):
     FILTER_ERROR_TRACKING_ISSUES = "filter_error_tracking_issues"
     SEARCH_ERROR_TRACKING_ISSUES = "search_error_tracking_issues"
     FIND_ERROR_TRACKING_IMPACTFUL_ISSUE_EVENT_LIST = "find_error_tracking_impactful_issue_event_list"
-    ERROR_TRACKING_EXPLAIN_ISSUE = "error_tracking_explain_issue"
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
     CREATE_SURVEY = "create_survey"
     ANALYZE_SURVEY_RESPONSES = "analyze_survey_responses"
@@ -1221,6 +1220,7 @@ class EntityType(StrEnum):
     EVENTS = "events"
     DATA_WAREHOUSE = "data_warehouse"
     NEW_ENTITY = "new_entity"
+    GROUPS = "groups"
 
 
 class ErrorBlock(BaseModel):
@@ -1242,14 +1242,6 @@ class Population(BaseModel):
     exception_only: float
     neither: float
     success_only: float
-
-
-class ErrorTrackingExplainIssueToolContext(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    issue_name: str
-    stacktrace: str
 
 
 class FirstEvent(BaseModel):
@@ -1662,6 +1654,7 @@ class FileSystemIconType(StrEnum):
     SEARCH = "search"
     FOLDER = "folder"
     FOLDER_OPEN = "folder_open"
+    CONVERSATIONS = "conversations"
 
 
 class FileSystemViewLogEntry(BaseModel):
@@ -2081,6 +2074,11 @@ class OrderBy3(StrEnum):
     EARLIEST = "earliest"
 
 
+class LogsSparklineBreakdownBy(StrEnum):
+    SEVERITY = "severity"
+    SERVICE = "service"
+
+
 class MarkdownBlock(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2345,6 +2343,15 @@ class MaxBillingContextTrial(BaseModel):
     target: str | None = None
 
 
+class MaxErrorTrackingIssueContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str
+    name: str | None = None
+    type: Literal["error_tracking_issue"] = "error_tracking_issue"
+
+
 class MaxEventContext(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2461,6 +2468,7 @@ class NativeMarketingSource(StrEnum):
 
 class NodeKind(StrEnum):
     EVENTS_NODE = "EventsNode"
+    GROUP_NODE = "GroupNode"
     ACTIONS_NODE = "ActionsNode"
     DATA_WAREHOUSE_NODE = "DataWarehouseNode"
     EVENTS_QUERY = "EventsQuery"
@@ -2726,6 +2734,7 @@ class ProductKey(StrEnum):
     ANNOTATIONS = "annotations"
     COHORTS = "cohorts"
     COMMENTS = "comments"
+    CONVERSATIONS = "conversations"
     CUSTOMER_ANALYTICS = "customer_analytics"
     DATA_WAREHOUSE = "data_warehouse"
     DATA_WAREHOUSE_SAVED_QUERIES = "data_warehouse_saved_queries"
@@ -3782,6 +3791,22 @@ class WebVitalsPercentile(StrEnum):
     P75 = "p75"
     P90 = "p90"
     P99 = "p99"
+
+
+class WebsiteBrowsingHistoryProdInterest(StrEnum):
+    PRODUCT_ANALYTICS = "product-analytics"
+    WEB_ANALYTICS = "web-analytics"
+    SESSION_REPLAY = "session-replay"
+    FEATURE_FLAGS = "feature-flags"
+    EXPERIMENTS = "experiments"
+    ERROR_TRACKING = "error-tracking"
+    SURVEYS = "surveys"
+    DATA_WAREHOUSE = "data-warehouse"
+    LLM_ANALYTICS = "llm-analytics"
+    REVENUE_ANALYTICS = "revenue-analytics"
+    WORKFLOWS = "workflows"
+    LOGS = "logs"
+    ENDPOINTS = "endpoints"
 
 
 class Scale(StrEnum):
@@ -13980,6 +14005,90 @@ class FunnelsFilter(BaseModel):
     useUdf: bool | None = None
 
 
+class GroupNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: str | None = None
+    fixedProperties: (
+        list[
+            EventPropertyFilter
+            | PersonPropertyFilter
+            | ElementPropertyFilter
+            | EventMetadataPropertyFilter
+            | SessionPropertyFilter
+            | CohortPropertyFilter
+            | RecordingPropertyFilter
+            | LogEntryPropertyFilter
+            | GroupPropertyFilter
+            | FeaturePropertyFilter
+            | FlagPropertyFilter
+            | HogQLPropertyFilter
+            | EmptyPropertyFilter
+            | DataWarehousePropertyFilter
+            | DataWarehousePersonPropertyFilter
+            | ErrorTrackingIssueFilter
+            | LogPropertyFilter
+            | RevenueAnalyticsPropertyFilter
+        ]
+        | None
+    ) = Field(
+        default=None,
+        description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+    )
+    kind: Literal["GroupNode"] = "GroupNode"
+    limit: int | None = None
+    math: (
+        BaseMathType
+        | FunnelMathType
+        | PropertyMathType
+        | CountPerActorMathType
+        | ExperimentMetricMathType
+        | CalendarHeatmapMathType
+        | Literal["unique_group"]
+        | Literal["hogql"]
+        | None
+    ) = None
+    math_group_type_index: MathGroupTypeIndex | None = None
+    math_hogql: str | None = None
+    math_multiplier: float | None = None
+    math_property: str | None = None
+    math_property_revenue_currency: RevenueCurrencyPropertyConfig | None = None
+    math_property_type: str | None = None
+    name: str | None = None
+    nodes: list[EventsNode | ActionsNode | DataWarehouseNode] = Field(
+        ..., description="Entities to combine in this group"
+    )
+    operator: FilterLogicalOperator = Field(..., description="Group of entities combined with AND/OR operator")
+    optionalInFunnel: bool | None = None
+    orderBy: list[str] | None = Field(default=None, description="Columns to order by")
+    properties: (
+        list[
+            EventPropertyFilter
+            | PersonPropertyFilter
+            | ElementPropertyFilter
+            | EventMetadataPropertyFilter
+            | SessionPropertyFilter
+            | CohortPropertyFilter
+            | RecordingPropertyFilter
+            | LogEntryPropertyFilter
+            | GroupPropertyFilter
+            | FeaturePropertyFilter
+            | FlagPropertyFilter
+            | HogQLPropertyFilter
+            | EmptyPropertyFilter
+            | DataWarehousePropertyFilter
+            | DataWarehousePersonPropertyFilter
+            | ErrorTrackingIssueFilter
+            | LogPropertyFilter
+            | RevenueAnalyticsPropertyFilter
+        ]
+        | None
+    ) = Field(default=None, description="Properties configurable in the interface")
+    response: dict[str, Any] | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class GroupsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -14551,7 +14660,9 @@ class TrendsQuery(BaseModel):
     ) = Field(default=[], description="Property filters for all series")
     response: TrendsQueryResponse | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
-    series: list[EventsNode | ActionsNode | DataWarehouseNode] = Field(..., description="Events and actions to include")
+    series: list[GroupNode | EventsNode | ActionsNode | DataWarehouseNode] = Field(
+        ..., description="Events and actions to include"
+    )
     tags: QueryLogTags | None = Field(default=None, description="Tags that will be added to the Query log comment")
     trendsFilter: TrendsFilter | None = Field(default=None, description="Properties specific to the trends insight")
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -15477,6 +15588,9 @@ class LogsQuery(BaseModel):
     searchTerm: str | None = None
     serviceNames: list[str]
     severityLevels: list[LogSeverityLevel]
+    sparklineBreakdownBy: LogsSparklineBreakdownBy | None = Field(
+        default=None, description="Field to break down sparkline data by (used only by sparkline endpoint)"
+    )
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -17173,6 +17287,7 @@ class MaxUIContext(BaseModel):
     )
     actions: list[MaxActionContext] | None = None
     dashboards: list[MaxDashboardContext] | None = None
+    error_tracking_issues: list[MaxErrorTrackingIssueContext] | None = None
     events: list[MaxEventContext] | None = None
     form_answers: dict[str, str] | None = None
     insights: list[MaxInsightContext] | None = None

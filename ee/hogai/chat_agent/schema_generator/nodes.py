@@ -150,8 +150,8 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         artifact = await self.context_manager.artifacts.create(
             content=VisualizationArtifactContent(
                 query=result.query,
-                name=result.name,
-                description=result.description,
+                name=state.visualization_title,
+                description=state.visualization_description,
                 plan=generated_plan,
             ),
             name=state.visualization_title or "Visualization",
