@@ -2113,6 +2113,9 @@ importers:
       papaparse:
         specifier: '*'
         version: 5.4.1
+      posthog-js:
+        specifier: 1.314.0
+        version: 1.314.0
       prettier:
         specifier: '*'
         version: 3.4.2

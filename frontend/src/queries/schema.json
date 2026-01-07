@@ -22085,6 +22085,7 @@
                 "llm_analytics_viewed",
                 "llm_analytics_docs_viewed",
                 "logs_docs_viewed",
+                "logs_set_filters",
                 "taxonomic filter empty state",
                 "create_experiment_from_funnel_button",
                 "web_analytics_insight",
