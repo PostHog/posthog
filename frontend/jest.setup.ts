@@ -40,3 +40,23 @@ jest.mock('posthog-js/dist/surveys-preview', () => ({
     renderSurveysPreview: jest.fn(),
     getNextSurveyStep: jest.fn(),
 }))
+
+// Mock maplibre-gl to avoid WebGL/canvas API issues in tests
+jest.mock('maplibre-gl', () => ({
+    Map: jest.fn(() => ({
+        on: jest.fn(),
+        remove: jest.fn(),
+        resize: jest.fn(),
+        addSource: jest.fn(),
+        addLayer: jest.fn(),
+        getSource: jest.fn(),
+        getCanvas: jest.fn(() => ({ style: {} })),
+    })),
+    Popup: jest.fn(() => ({
+        setLngLat: jest.fn().mockReturnThis(),
+        setDOMContent: jest.fn().mockReturnThis(),
+        addTo: jest.fn().mockReturnThis(),
+        remove: jest.fn(),
+    })),
+    addProtocol: jest.fn(),
+}))

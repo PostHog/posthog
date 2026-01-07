@@ -7,6 +7,8 @@ import { BoldNumber } from 'scenes/insights/views/BoldNumber'
 import { TrendsCalendarHeatMap } from 'scenes/insights/views/CalendarHeatMap'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
 import { WorldMap } from 'scenes/insights/views/WorldMap'
+import { InteractiveWorldMap } from 'scenes/web-analytics/InteractiveWorldMap'
+import { isPointsMapBreakdown, isSubdivisionsMapBreakdown } from 'scenes/web-analytics/common'
 
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
@@ -93,6 +95,19 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
             )
         }
         if (display === ChartDisplayType.WorldMap) {
+            const breakdowns = breakdownFilter?.breakdowns
+
+            if (isPointsMapBreakdown(breakdowns) || isSubdivisionsMapBreakdown(breakdowns)) {
+                return (
+                    <InteractiveWorldMap
+                        showPersonsModal={showPersonsModal}
+                        context={context}
+                        inCardView={embedded}
+                        inSharedMode={inSharedMode}
+                    />
+                )
+            }
+
             return (
                 <WorldMap
                     showPersonsModal={showPersonsModal}

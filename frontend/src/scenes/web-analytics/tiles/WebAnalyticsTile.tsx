@@ -27,7 +27,13 @@ import {
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
-import { GeographyTab, ProductTab, TileId, webStatsBreakdownToPropertyName } from 'scenes/web-analytics/common'
+import {
+    GeographyTab,
+    ProductTab,
+    TileId,
+    isSubdivisionsMapBreakdown,
+    webStatsBreakdownToPropertyName,
+} from 'scenes/web-analytics/common'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
@@ -41,12 +47,13 @@ import {
     ProductIntentContext,
     ProductKey,
     QuerySchema,
+    TrendsQuery,
     WebAnalyticsOrderByFields,
     WebStatsBreakdown,
     WebVitalsPathBreakdownQuery,
 } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
-import { ChartDisplayType, InsightLogicProps, PropertyFilterType } from '~/types'
+import { ChartDisplayType, InsightLogicProps, PropertyFilterType, TrendResult } from '~/types'
 
 import { NewActionButton } from 'products/actions/frontend/components/NewActionButton'
 
@@ -514,6 +521,18 @@ export const WebStatsTrendTile = ({
         [togglePropertyFilter, worldMapPropertyName, hasCountryFilter]
     )
 
+    const onSubdivisionMapClick = useCallback(
+        (countryCode: string, subdivisionCode: string) => {
+            togglePropertyFilter(PropertyFilterType.Event, '$geoip_country_code', countryCode)
+            togglePropertyFilter(PropertyFilterType.Event, '$geoip_subdivision_1_code', subdivisionCode)
+        },
+        [togglePropertyFilter]
+    )
+
+    const regionHasData = (data: TrendResult): boolean => {
+        return data && (data.count > 0 || data.aggregated_value > 0)
+    }
+
     const context = useMemo((): QueryContext => {
         const baseContext: QueryContext = {
             ...webAnalyticsDataTableQueryContext,
@@ -530,10 +549,24 @@ export const WebStatsTrendTile = ({
             query.source.trendsFilter?.display === ChartDisplayType.WorldMap
 
         if (isWorldMap) {
+            const breakdowns = (query.source as TrendsQuery).breakdownFilter?.breakdowns
+
+            if (isSubdivisionsMapBreakdown(breakdowns)) {
+                return {
+                    ...baseContext,
+                    onDataPointClick({ breakdown }, data) {
+                        if (Array.isArray(breakdown) && breakdown.length >= 2 && regionHasData(data)) {
+                            const [countryCode, subdivisionCode] = breakdown
+                            onSubdivisionMapClick(countryCode, subdivisionCode)
+                        }
+                    },
+                }
+            }
+
             return {
                 ...baseContext,
                 onDataPointClick({ breakdown }, data) {
-                    if (typeof breakdown === 'string' && data && (data.count > 0 || data.aggregated_value > 0)) {
+                    if (typeof breakdown === 'string' && regionHasData(data)) {
                         onWorldMapClick(breakdown)
                     }
                 },
@@ -541,7 +574,7 @@ export const WebStatsTrendTile = ({
         }
 
         return baseContext
-    }, [onWorldMapClick, insightProps, query])
+    }, [onWorldMapClick, onSubdivisionMapClick, insightProps, query])
 
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">
