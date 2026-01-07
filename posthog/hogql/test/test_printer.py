@@ -2652,7 +2652,7 @@ class TestMaterializedColumnOptimization(BaseTest):
             (distinct_id_with_null, None, 1, 1),
             (distinct_id_without, None, 1, 1),
         }
-        self.assertEqual(set(result.results), expected_results)
+        assert set(result.results) == expected_results
 
         # The query should never touch the json properties object if we are using the materialized column, these asserts protect against regression of the performance the bug fixed in
         # https://posthog.slack.com/archives/C09B0SSQEDA/p1767698123669229?thread_ts=1767672165.250289&cid=C09B0SSQEDA

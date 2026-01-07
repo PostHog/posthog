@@ -21,29 +21,29 @@ class TestCustomerProfileConfigViewSet(APIBaseTest):
 
     def assertActivityLog(self, config_id, activity):
         logs = ActivityLog.objects.filter(team_id=self.team.id, scope="CustomerProfileConfig", activity=activity)
-        self.assertEqual(logs.count(), 1)
+        assert logs.count() == 1
         log = logs.latest("created_at")
-        self.assertEqual(log.item_id, str(config_id))
+        assert log.item_id == str(config_id)
 
     def test_create_customer_profile_config_success(self):
         response = self.client.post(self.endpoint_base, self.valid_data, format="json")
 
-        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        assert status.HTTP_201_CREATED == response.status_code, response.json()
         response_data = response.json()
 
-        self.assertIn("id", response_data)
-        self.assertEqual("person", response_data["scope"])
-        self.assertEqual(self.valid_data["content"], response_data["content"])
-        self.assertEqual(self.valid_data["sidebar"], response_data["sidebar"])
-        self.assertIn("created_at", response_data)
-        self.assertIn("updated_at", response_data)
+        assert "id" in response_data
+        assert "person" == response_data["scope"]
+        assert self.valid_data["content"] == response_data["content"]
+        assert self.valid_data["sidebar"] == response_data["sidebar"]
+        assert "created_at" in response_data
+        assert "updated_at" in response_data
 
         config = CustomerProfileConfig.objects.get(id=response_data["id"])
-        self.assertEqual(config.scope, "person", "Should persist data")
-        self.assertEqual(config.team, self.team)
-        self.assertEqual(config.content, self.valid_data["content"])
-        self.assertEqual(config.sidebar, self.valid_data["sidebar"])
-        self.assertEqual(config.created_by, self.user)
+        assert config.scope == "person", "Should persist data"
+        assert config.team == self.team
+        assert config.content == self.valid_data["content"]
+        assert config.sidebar == self.valid_data["sidebar"]
+        assert config.created_by == self.user
         self.assertActivityLog(config.id, "created")
 
     def test_list_customer_profile_configs(self):
@@ -54,12 +54,12 @@ class TestCustomerProfileConfigViewSet(APIBaseTest):
 
         response = self.client.get(self.endpoint_base)
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        assert status.HTTP_200_OK == response.status_code
         response_data = response.json()
-        self.assertEqual(response_data["count"], 2, "Should only return configs for current team")
+        assert response_data["count"] == 2, "Should only return configs for current team"
         config_ids = [config["id"] for config in response_data["results"]]
-        self.assertIn(str(config1.id), config_ids)
-        self.assertIn(str(config2.id), config_ids)
+        assert str(config1.id) in config_ids
+        assert str(config2.id) in config_ids
 
     def test_retrieve_customer_profile_config(self):
         config = CustomerProfileConfig.objects.create(
@@ -68,12 +68,12 @@ class TestCustomerProfileConfigViewSet(APIBaseTest):
 
         response = self.client.get(f"{self.endpoint_base}{config.id}/")
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        assert status.HTTP_200_OK == response.status_code
         response_data = response.json()
-        self.assertEqual(str(config.id), response_data["id"])
-        self.assertEqual("person", response_data["scope"])
-        self.assertEqual(self.valid_data["content"], response_data["content"])
-        self.assertEqual(self.valid_data["sidebar"], response_data["sidebar"])
+        assert str(config.id) == response_data["id"]
+        assert "person" == response_data["scope"]
+        assert self.valid_data["content"] == response_data["content"]
+        assert self.valid_data["sidebar"] == response_data["sidebar"]
 
     def test_update_customer_profile_config(self):
         config = CustomerProfileConfig.objects.create(team=self.team, scope="person", content={"old": "data"})
@@ -81,16 +81,16 @@ class TestCustomerProfileConfigViewSet(APIBaseTest):
 
         response = self.client.patch(f"{self.endpoint_base}{config.id}/", update_data, format="json")
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        assert status.HTTP_200_OK == response.status_code
         response_data = response.json()
 
-        self.assertEqual("group_0", response_data["scope"])
-        self.assertEqual(update_data["content"], response_data["content"])
-        self.assertEqual(update_data["sidebar"], response_data["sidebar"])
+        assert "group_0" == response_data["scope"]
+        assert update_data["content"] == response_data["content"]
+        assert update_data["sidebar"] == response_data["sidebar"]
 
         config.refresh_from_db()
-        self.assertEqual("group_0", config.scope)
-        self.assertEqual(update_data["content"], config.content, "Should update database")
+        assert "group_0" == config.scope
+        assert update_data["content"] == config.content, "Should update database"
         self.assertActivityLog(config.id, "updated")
 
     def test_delete_customer_profile_config(self):
@@ -99,8 +99,8 @@ class TestCustomerProfileConfigViewSet(APIBaseTest):
 
         response = self.client.delete(f"{self.endpoint_base}{config.id}/")
 
-        self.assertEqual(status.HTTP_204_NO_CONTENT, response.status_code)
-        self.assertFalse(CustomerProfileConfig.objects.filter(id=config.id).exists())
+        assert status.HTTP_204_NO_CONTENT == response.status_code
+        assert not CustomerProfileConfig.objects.filter(id=config.id).exists()
         self.assertActivityLog(config_id, "deleted")
 
     @parameterized.expand(
@@ -145,22 +145,22 @@ class TestCustomerProfileConfigViewSet(APIBaseTest):
     def test_validation_errors(self, name, invalid_data, expected_response):
         response = self.client.post(self.endpoint_base, invalid_data, format="json")
 
-        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+        assert status.HTTP_400_BAD_REQUEST == response.status_code
         response_data = response.json()
-        self.assertEqual(response_data, expected_response)
+        assert response_data == expected_response
 
     def test_team_isolation(self):
         other_team = Team.objects.create(organization=self.organization)
         other_config = CustomerProfileConfig.objects.create(team=other_team, scope="person", content={"other": "team"})
 
         response = self.client.get(f"{self.endpoint_base}{other_config.id}/")
-        self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
+        assert status.HTTP_404_NOT_FOUND == response.status_code
 
         response = self.client.patch(f"{self.endpoint_base}{other_config.id}/", {"scope": "group_0"}, format="json")
-        self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
+        assert status.HTTP_404_NOT_FOUND == response.status_code
 
         response = self.client.delete(f"{self.endpoint_base}{other_config.id}/")
-        self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
+        assert status.HTTP_404_NOT_FOUND == response.status_code
 
     def test_scope_choices_validation(self):
         valid_scopes = ["person", "group_0", "group_1", "group_2", "group_3", "group_4"]
@@ -168,17 +168,17 @@ class TestCustomerProfileConfigViewSet(APIBaseTest):
         for scope in valid_scopes:
             data = {"scope": scope, "content": {}}
             response = self.client.post(self.endpoint_base, data, format="json")
-            self.assertEqual(status.HTTP_201_CREATED, response.status_code, f"Failed for scope: {scope}")
+            assert status.HTTP_201_CREATED == response.status_code, f"Failed for scope: {scope}"
 
     def test_json_fields_defaults(self):
         data = {"scope": "person", "content": None, "sidebar": None}
 
         response = self.client.post(self.endpoint_base, data, format="json")
 
-        self.assertEqual(status.HTTP_201_CREATED, response.status_code)
+        assert status.HTTP_201_CREATED == response.status_code
         response_data = response.json()
-        self.assertEqual({}, response_data["content"], "Should default to empty dict")
-        self.assertEqual({}, response_data["sidebar"], "Should default to empty dict")
+        assert {} == response_data["content"], "Should default to empty dict"
+        assert {} == response_data["sidebar"], "Should default to empty dict"
 
     def test_permissions_authentication_required(self):
         self.client.logout()
@@ -193,4 +193,4 @@ class TestCustomerProfileConfigViewSet(APIBaseTest):
 
         for method, url in endpoints:
             response = getattr(self.client, method.lower())(url, format="json")
-            self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
+            assert response.status_code in [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN]
