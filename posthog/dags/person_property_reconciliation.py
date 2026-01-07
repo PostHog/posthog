@@ -15,6 +15,7 @@ from typing import Any
 
 import dagster
 import psycopg2
+from dagster_k8s import k8s_job_executor
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.cluster import ClickhouseCluster
@@ -31,10 +32,6 @@ class PersonPropertyReconciliationConfig(dagster.Config):
     bug_window_end: str  # ISO format: "2024-12-15T00:00:00Z"
     team_ids: list[int] | None = None  # Optional: filter to specific teams
     dry_run: bool = False  # Log changes without applying
-
-
-# Max concurrent team processing - controls parallelism of the dynamic mapping
-MAX_CONCURRENT_TEAMS = 4
 
 
 @dataclass
@@ -667,12 +664,21 @@ def reconcile_team_chunk(
 
 @dagster.job(
     tags={"owner": JobOwners.TEAM_INGESTION.value},
-    executor_def=dagster.multiprocess_executor.configured({"max_concurrent": MAX_CONCURRENT_TEAMS}),
+    executor_def=k8s_job_executor,
 )
 def person_property_reconciliation_job():
     """
     One-time job to reconcile person properties that were missed due to the
-    ASSERT_VERSION bug. Processes teams in parallel with capped concurrency.
+    ASSERT_VERSION bug.
+
+    IMPORTANT: This job uses k8s_job_executor which spawns a separate Kubernetes pod
+    for each team. Without concurrency limits, this could spin up thousands of pods
+    simultaneously. Before running:
+
+    1. Set step concurrency limits in the Dagster UI (Deployment > Configuration)
+       or via the run coordinator's concurrency settings
+    2. Consider using the `team_ids` config to process a subset of teams first
+    3. Monitor cluster resources during execution
     """
     team_ids = get_team_ids_to_reconcile()
     chunks = create_team_chunks(team_ids)
