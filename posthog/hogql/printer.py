@@ -166,6 +166,10 @@ def prepare_ast_for_printing(
         with context.timings.measure("projection_pushdown"):
             node = pushdown_projections(node, context)
 
+    if dialect == "postgres":
+        with context.timings.measure("resolve_lazy_tables"):
+            resolve_lazy_tables(node, dialect, stack, context)
+
     if dialect == "clickhouse":
         with context.timings.measure("resolve_property_types"):
             build_property_swapper(node, context)
