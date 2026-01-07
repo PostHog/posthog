@@ -130,7 +130,7 @@ export const MaxInstance = React.memo(function MaxInstance({
                             !sidePanel && 'min-h-[calc(100vh-var(--scene-layout-header-height)-120px)]'
                         )}
                     >
-                        <div className="flex-1 items-center justify-center flex flex-col gap-3">
+                        <div className="flex-1 items-center justify-center flex flex-col gap-3 relative z-50">
                             <Intro />
                             <SidebarQuestionInputWithSuggestions />
                         </div>
