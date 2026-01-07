@@ -12,7 +12,7 @@ jobs:
         runs-on: ubuntu-latest
         name: shellcheck
         steps:
-            - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+            - uses: actions/checkout@v6
             - name: Install shellcheck
               run: sudo apt update && sudo apt install -y shellcheck
             - name: Check secrets scripts

@@ -32,7 +32,7 @@ jobs:
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
-            - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+            - uses: actions/checkout@v6
               with:
                   clean: false
 
@@ -58,7 +58,7 @@ jobs:
         needs: changes
         runs-on: depot-ubuntu-24.04-4
         steps:
-            - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+            - uses: actions/checkout@v6
               with:
                   clean: false
 
@@ -88,7 +88,7 @@ jobs:
         needs: changes
         runs-on: depot-ubuntu-24.04-4
         steps:
-            - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+            - uses: actions/checkout@v6
               with:
                   clean: false
 
@@ -140,7 +140,7 @@ jobs:
 
         steps:
             - name: Code check out
-              uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+              uses: actions/checkout@v6
               with:
                   clean: false
             - name: Clean up data directories with container permissions

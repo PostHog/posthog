@@ -28,7 +28,7 @@ jobs:
             matrix_data: ${{ steps.changes.outputs.matrix_data }}
         steps:
             - name: Checkout
-              uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+              uses: actions/checkout@v6
               with:
                   fetch-depth: 0
 
@@ -86,7 +86,7 @@ jobs:
             POSTHOG_PROVIDER_TF_STATE_REGION: ${{ secrets.POSTHOG_PROVIDER_TF_STATE_REGION }}
         steps:
             - name: Checkout
-              uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+              uses: actions/checkout@v6
 
             - name: Configure AWS Credentials
               uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708

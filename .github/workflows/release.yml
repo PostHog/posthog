@@ -56,7 +56,7 @@ jobs:
         env:
             GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         steps:
-            - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+            - uses: actions/checkout@v6
               with:
                   submodules: recursive
             - name: Install dist
@@ -116,7 +116,7 @@ jobs:
             - name: enable windows longpaths
               run: |
                   git config --global core.longpaths true
-            - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+            - uses: actions/checkout@v6
               with:
                   submodules: recursive
             - name: Install Rust non-interactively if not already installed
@@ -175,7 +175,7 @@ jobs:
             BUILD_MANIFEST_NAME: target/distrib/global-dist-manifest.json
             POSTHOG_API_TOKEN: ${{ secrets.POSTHOG_API_TOKEN }}
         steps:
-            - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+            - uses: actions/checkout@v6
               with:
                   submodules: recursive
             - name: Install cached dist
@@ -229,7 +229,7 @@ jobs:
                   app-id: ${{ secrets.GH_APP_POSTHOG_RELEASER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_RELEASER_PRIVATE_KEY }}
 
-            - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+            - uses: actions/checkout@v6
               with:
                   submodules: recursive
                   token: ${{ steps.app-token.outputs.token }}
@@ -326,6 +326,6 @@ jobs:
         if: ${{ always() && needs.host.result == 'success' && (needs.publish-npm.result == 'skipped' || needs.publish-npm.result == 'success') }}
         runs-on: 'ubuntu-22.04'
         steps:
-            - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+            - uses: actions/checkout@v6
               with:
                   submodules: recursive

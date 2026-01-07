@@ -87,7 +87,7 @@ jobs:
               # Checkout project code
               # Use sparse checkout to only select files in rust directory
               # Turning off cone mode ensures that files in the project root are not included during checkout
-              uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+              uses: actions/checkout@v6
               with:
                   sparse-checkout: 'rust/'
                   sparse-checkout-cone-mode: false

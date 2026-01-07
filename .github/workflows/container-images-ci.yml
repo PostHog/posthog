@@ -44,7 +44,7 @@ jobs:
 
         steps:
             - name: Check out
-              uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+              uses: actions/checkout@v6
 
             - name: Build and cache Docker image in Depot
               id: build
@@ -87,7 +87,7 @@ jobs:
         runs-on: ubuntu-24.04
         steps:
             - name: Check out
-              uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+              uses: actions/checkout@v6
               with:
                   fetch-depth: 0
                   filter: blob:none

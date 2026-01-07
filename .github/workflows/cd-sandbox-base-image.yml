@@ -18,7 +18,7 @@ jobs:
         outputs:
             sandbox_image: ${{ steps.filter.outputs.sandbox_image }}
         steps:
-            - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+            - uses: actions/checkout@v6
 
             - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
               id: filter
@@ -44,7 +44,7 @@ jobs:
 
         steps:
             - name: Check out
-              uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+              uses: actions/checkout@v6
               with:
                   fetch-depth: 2
 

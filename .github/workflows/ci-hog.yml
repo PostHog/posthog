@@ -29,7 +29,7 @@ jobs:
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
-            - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+            - uses: actions/checkout@v6
 
             - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
               id: filter
@@ -55,7 +55,7 @@ jobs:
         if: needs.changes.outputs.hog == 'true'
 
         steps:
-            - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+            - uses: actions/checkout@v6
               with:
                   fetch-depth: 1
 
@@ -145,7 +145,7 @@ jobs:
             is-new-version: ${{ steps.check-package-version.outputs.is-new-version }}
         steps:
             - name: Checkout the repository
-              uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+              uses: actions/checkout@v6
             - name: Check package version and detect an update
               id: check-package-version
               uses: PostHog/check-package-version@138438a8fed9213fa112f841b1c89f9bd68f5cca # v2.1.0
@@ -165,7 +165,7 @@ jobs:
             PUBLISHED_VERSION: ${{ needs.check-package-version.outputs.published-version }}
         steps:
             - name: Checkout the repository
-              uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+              uses: actions/checkout@v6
               with:
                   fetch-depth: 1
             - name: Set up Python

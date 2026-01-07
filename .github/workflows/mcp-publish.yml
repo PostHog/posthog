@@ -17,7 +17,7 @@ jobs:
         outputs:
             mcp: ${{ steps.filter.outputs.mcp }}
         steps:
-            - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+            - uses: actions/checkout@v6
 
             - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
               id: filter
@@ -41,7 +41,7 @@ jobs:
             is-new-version: ${{ steps.check-package-version.outputs.is-new-version }}
         steps:
             - name: Checkout the repository
-              uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+              uses: actions/checkout@v6
 
             - name: Check package version and detect an update
               id: check-package-version
@@ -62,7 +62,7 @@ jobs:
             PUBLISHED_VERSION: ${{ needs.check-package-version.outputs.published-version }}
         steps:
             - name: Checkout the repository
-              uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+              uses: actions/checkout@v6
               with:
                   fetch-depth: 0
                   filter: blob:none
