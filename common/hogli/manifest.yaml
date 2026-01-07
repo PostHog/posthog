@@ -537,7 +537,8 @@ tools:
         hidden: true
     posthog:hobby:
         bin_script: posthog-hobby
-        description: Run the posthog-hobby installation script for Linux, don't use it on your MacOS development environment
+        description: Run the posthog-hobby installation script for Linux, don't use it
+            on your MacOS development environment
         hidden: true
     posthog:hobby:darwin:
         bin_script: posthog-hobby-darwin
@@ -545,7 +546,12 @@ tools:
         hidden: true
     posthog:hobby:demo:
         bin_script: posthog-hobby-demo
-        description: Run a demo check for the PostHog hobby installation, useful while developing the installation script
+        description: Run a demo check for the PostHog hobby installation, useful while
+            developing the installation script
+        hidden: true
+    posthog:hobby:development:
+        bin_script: posthog-hobby-development
+        description: Run the development version for the posthog-hobby deployment
         hidden: true
 utilities:
     nuke:
