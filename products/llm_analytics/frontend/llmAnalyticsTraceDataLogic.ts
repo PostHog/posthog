@@ -420,6 +420,17 @@ export function getEffectiveEventId(eventId: string | null, initialFocusEventId:
     return initialFocusEventId
 }
 
+function findOrphanedRoots(idMap: Map<string, LLMTraceEvent>, traceId: string): string[] {
+    const orphanedRoots: string[] = []
+    for (const [eventId, event] of idMap) {
+        const parentId = event.properties.$ai_parent_id ?? event.properties.$ai_trace_id
+        if (parentId !== traceId && parentId && !idMap.has(parentId)) {
+            orphanedRoots.push(eventId)
+        }
+    }
+    return orphanedRoots
+}
+
 export function restoreTree(events: LLMTraceEvent[], traceId: string): TraceTreeNode[] {
     const childrenMap = new Map<any, any[]>()
     const idMap = new Map<any, LLMTraceEvent>()
@@ -472,5 +483,6 @@ export function restoreTree(events: LLMTraceEvent[], traceId: string): TraceTree
     }
 
     const directChildren = childrenMap.get(traceId) || []
-    return directChildren.map((childId) => traverse(childId)).filter((node): node is TraceTreeNode => node !== null)
+    const rootIds = [...directChildren, ...findOrphanedRoots(idMap, traceId)]
+    return rootIds.map((childId) => traverse(childId)).filter((node): node is TraceTreeNode => node !== null)
 }
