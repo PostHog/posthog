@@ -1,3 +1,4 @@
+# nosemgrep: python.lang.security.use-defused-xml.use-defused-xml (XML generation only, no parsing - no XXE risk)
 import xml.etree.ElementTree as ET
 from collections.abc import Sequence
 from typing import Generic, Optional, cast
