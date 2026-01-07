@@ -192,7 +192,7 @@ export const TARGET_AREA_TO_NAME = [
             },        
             {
                 value: 'warehouse_pipelines',
-                'data-attr': `support-form-target-area-data_warehouse`,
+                'data-attr': `support-form-target-area-warehouse_pipelines`,
                 label: 'Data pipelines sources',
             },
             {
@@ -267,7 +267,7 @@ export const TARGET_AREA_TO_NAME = [
             },
             {
                 value: 'sql_editor',
-                'data-attr': `support-form-target-area-data_warehouse`,
+                'data-attr': `support-form-target-area-sql_editor`,
                 label: 'SQL Editor',
             },
             {
