@@ -8,7 +8,8 @@ from posthog.hogql import ast
 from posthog.hogql.ast import AST
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import DatabaseField
+from posthog.hogql.database.models import DANGEROUS_NoTeamIdCheckTable, DatabaseField, SavedQuery
+from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError
 from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string
 from posthog.hogql.printer.base import _Printer, resolve_field_type
@@ -16,6 +17,19 @@ from posthog.hogql.printer.types import PrintableMaterializedPropertyGroupItem
 
 from posthog.clickhouse.property_groups import property_groups
 from posthog.models.utils import UUIDT
+
+
+def team_id_guard_for_table(table_type: ast.TableOrSelectType, context: HogQLContext) -> ast.Expr:
+    """Add a mandatory "and(team_id, ...)" filter around the expression."""
+    if not context.team_id:
+        raise InternalHogQLError("context.team_id not found")
+
+    return ast.CompareOperation(
+        op=ast.CompareOperationOp.Eq,
+        left=ast.Field(chain=["team_id"], type=ast.FieldType(name="team_id", table_type=table_type)),
+        right=ast.Constant(value=context.team_id),
+        type=ast.BooleanType(),
+    )
 
 
 class ClickHousePrinter(_Printer):
@@ -136,7 +150,7 @@ class ClickHousePrinter(_Printer):
             raise ImpossibleASTError(f"Field {field} has no type")
 
         if isinstance(node.type, ast.LazyJoinType) or isinstance(node.type, ast.VirtualTableType):
-            raise QueryError(f"Can't select a table when a column is expected: {'.'.join(node.chain)}")
+            raise QueryError(f"Can't select a table when a column is expected: {'.'.join(map(str, node.chain))}")
 
         return self.visit(node.type)
 
@@ -428,3 +442,25 @@ class ClickHousePrinter(_Printer):
         self, name: float | int | str | list | tuple | datetime | date | UUID | UUIDT | None
     ) -> str:
         return escape_clickhouse_string(name, timezone=self._get_timezone())
+
+    def _ensure_team_id_where_clause(self, table_type: ast.TableType, node_type: ast.TableOrSelectType | None):
+        # :IMPORTANT: This assures a "team_id" where clause is present on every selected table.
+        # Skip warehouse tables and tables with an explicit skip.
+        if (
+            not isinstance(table_type.table, DataWarehouseTable)
+            and not isinstance(table_type.table, SavedQuery)
+            and not isinstance(table_type.table, DANGEROUS_NoTeamIdCheckTable)
+            and node_type is not None
+        ):
+            return team_id_guard_for_table(node_type, self.context)
+
+    def _print_table_ref(self, table_type: ast.TableType, node: ast.JoinExpr) -> str:
+        sql = table_type.table.to_printed_clickhouse(self.context)
+
+        # Edge case. If we are joining an s3 table, we must wrap it in a subquery for the join to work
+        if isinstance(table_type.table, S3Table) and (
+            node.next_join or node.join_type == "JOIN" or (node.join_type and node.join_type.startswith("GLOBAL "))
+        ):
+            sql = f"(SELECT * FROM {sql})"
+
+        return sql

@@ -180,6 +180,9 @@ class Table(FieldOrTable):
     def to_printed_hogql(self) -> str:
         raise NotImplementedError("Table.to_printed_hogql not overridden")
 
+    def to_printed_postgres(self) -> str:
+        raise NotImplementedError("Table.to_printed_postgres not overridden")
+
     def avoid_asterisk_fields(self) -> list[str]:
         return []
 

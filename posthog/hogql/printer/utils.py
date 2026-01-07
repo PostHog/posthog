@@ -1,3 +1,5 @@
+from typing import cast
+
 from posthog.schema import HogQLQueryModifiers, InCohortVia
 
 from posthog.hogql import ast
@@ -80,8 +82,14 @@ def prepare_ast_for_printing(
     if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED:
         with context.timings.measure("resolve_in_cohorts_conjoined"):
             resolve_in_cohorts_conjoined(node, dialect, context, stack)
+
     with context.timings.measure("resolve_types"):
-        node = resolve_types(node, context, dialect=dialect, scopes=[node.type for node in stack] if stack else None)
+        node = resolve_types(
+            node,
+            context,
+            dialect=dialect,
+            scopes=[node.type for node in stack if node.type is not None] if stack else None,
+        )
 
     if context.modifiers.optimizeProjections:
         with context.timings.measure("projection_pushdown"):
@@ -149,6 +157,8 @@ def print_prepared_ast(
     pretty: bool = False,
 ) -> str:
     with context.timings.measure("printer"):
+        printer_class: type[_Printer]
+
         match dialect:
             case "clickhouse":
                 printer_class = ClickHousePrinter
@@ -162,7 +172,7 @@ def print_prepared_ast(
         return printer_class(
             context=context,
             dialect=dialect,
-            stack=stack or [],
+            stack=cast(list[ast.AST], stack or []),
             settings=settings,
             pretty=pretty,
         ).visit(node)

@@ -19,8 +19,7 @@ from posthog.hogql.ast import Constant, StringType
 from posthog.hogql.base import AST
 from posthog.hogql.constants import HogQLDialect, HogQLGlobalSettings, LimitContext, get_max_limit_for_context
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import DANGEROUS_NoTeamIdCheckTable, FunctionCallTable, SavedQuery, Table
-from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
+from posthog.hogql.database.models import FunctionCallTable, Table
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import (
     escape_hogql_identifier,
@@ -70,19 +69,6 @@ def get_channel_definition_dict():
     """Get the channel definition dictionary name with the correct database.
     Evaluated at call time to work with test databases in Python 3.12."""
     return f"{django_settings.CLICKHOUSE_DATABASE}.channel_definition_dict"
-
-
-def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType], context: HogQLContext) -> ast.Expr:
-    """Add a mandatory "and(team_id, ...)" filter around the expression."""
-    if not context.team_id:
-        raise InternalHogQLError("context.team_id not found")
-
-    return ast.CompareOperation(
-        op=ast.CompareOperationOp.Eq,
-        left=ast.Field(chain=["team_id"], type=ast.FieldType(name="team_id", table_type=table_type)),
-        right=ast.Constant(value=context.team_id),
-        type=ast.BooleanType(),
-    )
 
 
 def resolve_field_type(expr: ast.Expr) -> ast.Type | None:
@@ -192,7 +178,7 @@ class _Printer(Visitor[str]):
         if node.select:
             if self.dialect == "clickhouse":
                 # Gather all visible aliases, and/or the last hidden alias for each unique alias name.
-                found_aliases = {}
+                found_aliases: dict[str, ast.Alias] = {}
                 for alias in reversed(node.select):
                     if isinstance(alias, ast.Alias):
                         if not found_aliases.get(alias.alias, None) or not alias.hidden:
@@ -249,7 +235,7 @@ class _Printer(Visitor[str]):
             ):
                 raise ImpossibleASTError(f"Invalid ARRAY JOIN operation: {node.array_join_op}")
             array_join = node.array_join_op
-            if len(node.array_join_list) == 0:
+            if node.array_join_list is None or len(node.array_join_list or []) == 0:
                 raise ImpossibleASTError(f"Invalid ARRAY JOIN without an array")
             array_join += f" {', '.join(self.visit(expr) for expr in node.array_join_list)}"
 
@@ -323,6 +309,15 @@ class _Printer(Visitor[str]):
 
         return response
 
+    def _ensure_team_id_where_clause(self, table_type: ast.TableType, node_type: ast.TableOrSelectType):
+        if self.dialect != "hogql":
+            raise NotImplementedError("HogQLPrinter._ensure_team_id_where_clause not overridden")
+
+    def _print_table_ref(self, table_type: ast.TableType, node: ast.JoinExpr) -> str:
+        if self.dialect == "hogql":
+            return table_type.table.to_printed_hogql()
+        raise ImpossibleASTError(f"Unsupported dialect {self.dialect}")
+
     def visit_join_expr(self, node: ast.JoinExpr) -> JoinExprResponse:
         # return constraints we must place on the select query
         extra_where: ast.Expr | None = None
@@ -333,38 +328,17 @@ class _Printer(Visitor[str]):
             join_strings.append(node.join_type)
 
         if isinstance(node.type, ast.TableAliasType) or isinstance(node.type, ast.TableType):
-            table_type = node.type
+            table_type: Union[ast.TableType | ast.TableAliasType] = node.type
             while isinstance(table_type, ast.TableAliasType):
-                table_type = table_type.table_type
+                table_type = cast(Union[ast.TableType | ast.TableAliasType], table_type.table_type)
 
-            if not isinstance(table_type, ast.TableType) and not isinstance(table_type, ast.LazyTableType):
+            if not isinstance(table_type, ast.TableType):
                 raise ImpossibleASTError(f"Invalid table type {type(table_type).__name__} in join_expr")
+            assert isinstance(table_type, ast.TableType)
 
-            if self.dialect == "clickhouse":
-                # :IMPORTANT: This assures a "team_id" where clause is present on every selected table.
-                # Skip warehouse tables and tables with an explicit skip.
-                if (
-                    not isinstance(table_type.table, DataWarehouseTable)
-                    and not isinstance(table_type.table, SavedQuery)
-                    and not isinstance(table_type.table, DANGEROUS_NoTeamIdCheckTable)
-                ):
-                    extra_where = team_id_guard_for_table(node.type, self.context)
+            extra_where = self._ensure_team_id_where_clause(table_type, node.type)
 
-                sql = table_type.table.to_printed_clickhouse(self.context)
-
-                # Edge case. If we are joining an s3 table, we must wrap it in a subquery for the join to work
-                if isinstance(table_type.table, S3Table) and (
-                    node.next_join
-                    or node.join_type == "JOIN"
-                    or (node.join_type and node.join_type.startswith("GLOBAL "))
-                ):
-                    sql = f"(SELECT * FROM {sql})"
-            elif self.dialect == "hogql":
-                sql = table_type.table.to_printed_hogql()
-            elif self.dialect == "postgres":
-                sql = table_type.table.to_printed_postgres()
-            else:
-                raise ImpossibleASTError(f"Unsupported dialect {self.dialect}")
+            sql = self._print_table_ref(table_type, node)
 
             if isinstance(table_type.table, FunctionCallTable) and table_type.table.requires_args:
                 if node.table_args is None:
@@ -1151,7 +1125,9 @@ class _Printer(Visitor[str]):
         try:
             last_select = self._last_select()
             type_with_name_in_scope = (
-                lookup_field_by_name(last_select.type, type.name, self.context) if last_select else None
+                lookup_field_by_name(last_select.type, type.name, self.context)
+                if last_select and last_select.type
+                else None
             )
         except ResolutionError:
             type_with_name_in_scope = None
@@ -1164,10 +1140,12 @@ class _Printer(Visitor[str]):
             resolved_field = type.resolve_database_field(self.context)
             if resolved_field is None:
                 raise QueryError(f'Can\'t resolve field "{type.name}" on table.')
+
             if isinstance(resolved_field, Table):
                 if isinstance(type.table_type, ast.VirtualTableType):
                     return self.visit(ast.AsteriskType(table_type=ast.TableType(table=resolved_field)))
                 else:
+                    assert isinstance(type.table_type, ast.TableAliasType)
                     return self.visit(
                         ast.AsteriskType(
                             table_type=ast.TableAliasType(
@@ -1334,10 +1312,12 @@ class _Printer(Visitor[str]):
             else:
                 return self._unsafe_json_extract_trim_quotes(
                     materialized_property_sql,
-                    self._json_property_args(type.chain[1:]),
+                    self._json_property_args(map(str, type.chain[1:])),
                 )
 
-        return self._unsafe_json_extract_trim_quotes(self.visit(type.field_type), self._json_property_args(type.chain))
+        return self._unsafe_json_extract_trim_quotes(
+            self.visit(type.field_type), self._json_property_args(map(str, type.chain))
+        )
 
     def visit_sample_expr(self, node: ast.SampleExpr) -> Optional[str]:
         # SAMPLE 1 means no sampling, skip it entirely
@@ -1462,12 +1442,10 @@ class _Printer(Visitor[str]):
         # Handle any additional function arguments
         args = f"({', '.join(self.visit(arg) for arg in cloned_node.args)})" if cloned_node.args else ""
 
-        if cloned_node.over_expr or cloned_node.over_identifier:
-            over = (
-                f"({self.visit(cloned_node.over_expr)})"
-                if cloned_node.over_expr
-                else self._print_identifier(cloned_node.over_identifier)
-            )
+        if cloned_node.over_expr:
+            over = f"({self.visit(cloned_node.over_expr)})"
+        elif cloned_node.over_identifier:
+            over = self._print_identifier(cloned_node.over_identifier)
         else:
             over = "()"
 
@@ -1541,9 +1519,7 @@ class _Printer(Visitor[str]):
             return str(name)
         return escape_hogql_identifier(name)
 
-    def _print_escaped_string(
-        self, name: float | int | str | list | tuple | datetime | date | UUID | UUIDT | None
-    ) -> str:
+    def _print_escaped_string(self, name: float | int | str | list | tuple | datetime | date | UUID | UUIDT) -> str:
         return escape_hogql_string(name, timezone=self._get_timezone())
 
     def _unsafe_json_extract_trim_quotes(self, unsafe_field: str, unsafe_args: list[str]) -> str:
@@ -1559,7 +1535,7 @@ class _Printer(Visitor[str]):
 
         return f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw({', '.join([unsafe_field, *unsafe_args])}), ''), 'null'), '^\"|\"$', '')"
 
-    def _json_property_args(self, chain: list[str]) -> list[str]:
+    def _json_property_args(self, chain: Iterable[str]) -> list[str]:
         if self.dialect == "postgres":
             return [self._print_escaped_string(name) for name in chain]
 

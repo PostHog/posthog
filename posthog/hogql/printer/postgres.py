@@ -25,7 +25,7 @@ class PostgresPrinter(_Printer):
             raise ImpossibleASTError(f"Field {field} has no type")
 
         if isinstance(node.type, ast.LazyJoinType) or isinstance(node.type, ast.VirtualTableType):
-            raise QueryError(f"Can't select a table when a column is expected: {'.'.join(node.chain)}")
+            raise QueryError(f"Can't select a table when a column is expected: {'.'.join(map(str, node.chain))}")
 
         return self.visit(node.type)
 
@@ -99,3 +99,8 @@ class PostgresPrinter(_Printer):
             return f"({left} <= {right})"
         else:
             raise ImpossibleASTError(f"Unknown CompareOperationOp: {op.name}")
+
+    def _print_table_ref(self, table_type: ast.TableType, node: ast.JoinExpr) -> str:
+        return table_type.table.to_printed_postgres()
+
+    def _ensure_team_id_where_clause(self, table_type: ast.TableType, node_type: ast.TableOrSelectType): ...
