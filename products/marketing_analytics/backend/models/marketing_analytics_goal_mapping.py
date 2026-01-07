@@ -39,6 +39,7 @@ class MarketingAnalyticsGoalMapping(UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        db_table = "posthog_marketinganalyticsgoalmapping"
         verbose_name = "Marketing Analytics Goal Mapping"
         verbose_name_plural = "Marketing Analytics Goal Mappings"
         unique_together = [["team", "core_event"]]

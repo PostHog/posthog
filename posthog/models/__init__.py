@@ -22,7 +22,6 @@ from .cohort import Cohort, CohortPeople, CohortCalculationHistory
 from .column_configuration import ColumnConfiguration
 from .comment import Comment
 from .core_event import CoreEvent
-from .marketing_analytics_goal_mapping import MarketingAnalyticsGoalMapping
 from .dashboard import Dashboard
 from .dashboard_templates import DashboardTemplate
 from .data_color_theme import DataColorTheme
@@ -119,7 +118,6 @@ __all__ = [
     "CohortCalculationHistory",
     "ColumnConfiguration",
     "CoreEvent",
-    "MarketingAnalyticsGoalMapping",
     "Dashboard",
     "DashboardTile",
     "DashboardTemplate",

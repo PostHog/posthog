@@ -2,7 +2,8 @@ from rest_framework import serializers, viewsets
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.core_event import CoreEvent
-from posthog.models.marketing_analytics_goal_mapping import MarketingAnalyticsGoalMapping
+
+from products.marketing_analytics.backend.models import MarketingAnalyticsGoalMapping
 
 
 class MarketingAnalyticsGoalMappingSerializer(serializers.ModelSerializer):
