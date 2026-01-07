@@ -10,7 +10,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { ActivityScope } from '~/types'
+import { AccessControlLevel, ActivityScope } from '~/types'
 import type { UserBasicType } from '~/types'
 
 import { getDefaultFunnelMetric } from '../utils'
@@ -32,6 +32,7 @@ export interface SharedMetric {
     updated_at: string | null
     tags: string[]
     metadata?: Record<string, any>
+    user_access_level: AccessControlLevel
 }
 
 export const NEW_SHARED_METRIC: Partial<SharedMetric> = {
@@ -39,6 +40,7 @@ export const NEW_SHARED_METRIC: Partial<SharedMetric> = {
     description: '',
     query: undefined,
     tags: [],
+    user_access_level: AccessControlLevel.Editor,
 }
 
 export const sharedMetricLogic = kea<sharedMetricLogicType>([
