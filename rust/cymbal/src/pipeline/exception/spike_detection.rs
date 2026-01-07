@@ -238,9 +238,7 @@ async fn emit_spiking_events(context: &AppContext, spiking: Vec<SpikingIssue>) {
         .filter_map(|spike| {
             let mut event =
                 InternalEventEvent::new(ISSUE_SPIKING_EVENT, spike.issue_id, Utc::now(), None);
-            event
-                .insert_prop("name", spike.name.clone())
-                .ok()?;
+            event.insert_prop("name", spike.name.clone()).ok()?;
             event
                 .insert_prop("description", spike.description.clone())
                 .ok()?;
