@@ -302,15 +302,13 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
     ).to_query()
 
     uses_distinct_id = False
+    uses_actor_id = False
 
     for select_query in extract_select_queries(query):
         columns: dict[str, ast.Expr] = {}
-        has_asterisk = False
 
         for expr in select_query.select:
-            if isinstance(expr, ast.Field) and expr.chain == ["*"]:
-                has_asterisk = True
-            elif isinstance(expr, ast.Alias):
+            if isinstance(expr, ast.Alias):
                 columns[expr.alias] = expr.expr
             elif isinstance(expr, ast.Field):
                 columns[str(expr.chain[-1])] = expr
@@ -318,15 +316,19 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
         column: ast.Expr | None = columns.get("person_id") or columns.get("actor_id") or columns.get("id")
         if isinstance(column, ast.Alias):
             select_query.select = [ast.Alias(expr=column.expr, alias="actor_id")]
+            uses_actor_id = True
         elif isinstance(column, ast.Field):
             select_query.select = [ast.Alias(expr=column, alias="actor_id")]
+            uses_actor_id = True
         else:
             # Support the most common use cases
             table = select_query.select_from.table if select_query.select_from else None
             if isinstance(table, ast.Field) and table.chain[-1] == "events":
                 select_query.select = [ast.Alias(expr=ast.Field(chain=["person", "id"]), alias="actor_id")]
+                uses_actor_id = True
             elif isinstance(table, ast.Field) and table.chain[-1] == "persons":
                 select_query.select = [ast.Alias(expr=ast.Field(chain=["id"]), alias="actor_id")]
+                uses_actor_id = True
             else:
                 # Check if we have a distinct_id column
                 distinct_id_column = columns.get("distinct_id")
@@ -334,12 +336,15 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
                     # Use distinct_id and mark that we need to resolve it to person_id
                     select_query.select = [ast.Alias(expr=distinct_id_column, alias="distinct_id")]
                     uses_distinct_id = True
-                elif has_asterisk:
-                    # For SELECT *, assume distinct_id is available
-                    select_query.select = [ast.Alias(expr=ast.Field(chain=["distinct_id"]), alias="distinct_id")]
-                    uses_distinct_id = True
                 else:
                     raise ValueError("Could not find a person_id, actor_id, id, or distinct_id column in the query")
+
+    # Check for mixed ID types in UNION queries
+    if uses_distinct_id and uses_actor_id:
+        raise ValueError(
+            "UNION queries with mixed ID types are not currently supported. "
+            "All SELECT queries in the UNION must use the same ID type (either person_id/actor_id or distinct_id)."
+        )
 
     hogql_context.enable_select_queries = True
     hogql_context.limit_top_select = False
@@ -350,13 +355,15 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
 
     # If we're using distinct_id, wrap the query to resolve to person_id
     if uses_distinct_id:
-        base_query = prepare_and_print_ast(query, context=hogql_context, dialect="clickhouse", settings=settings)[0]
+        # Print the inner query without settings - we'll add them to the wrapper
+        base_query = prepare_and_print_ast(query, context=hogql_context, dialect="clickhouse")[0]
 
-        # Extract SETTINGS clause from base query to apply to wrapper
+        # Format settings as key=value pairs
+        settings_pairs = {k: str(v) for k, v in settings.model_dump().items() if v is not None}
         settings_clause = ""
-        if " SETTINGS " in base_query:
-            base_query, settings_clause = base_query.rsplit(" SETTINGS ", 1)
-            settings_clause = " SETTINGS " + settings_clause
+        if settings_pairs:
+            settings_str = ", ".join([f"{key}={value}" for key, value in settings_pairs.items()])
+            settings_clause = f" SETTINGS {settings_str}"
 
         # Wrap with person_distinct_id2 lookup using raw SQL since it's not a HogQL table
         wrapped_query = f"""
@@ -367,9 +374,9 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
         ) AND team_id = %(team_id)s
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0
-        {settings_clause}
         """.strip()
-        return wrapped_query
+
+        return f"{wrapped_query}{settings_clause}"
 
     return prepare_and_print_ast(query, context=hogql_context, dialect="clickhouse", settings=settings)[0]
 
