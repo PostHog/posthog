@@ -367,8 +367,12 @@ async fn get_spiking_issues(
         fetch_bucket_data(redis, &issue_ids, &unique_team_ids, &bucket_timestamps).await?;
 
     let buckets_count = bucket_timestamps.len();
-    let team_baselines: HashMap<i32, f64> =
-        compute_team_baselines(&unique_team_ids, &team_values, &team_issue_counts, buckets_count);
+    let team_baselines: HashMap<i32, f64> = compute_team_baselines(
+        &unique_team_ids,
+        &team_values,
+        &team_issue_counts,
+        buckets_count,
+    );
 
     let spiking = issue_ids
         .iter()
