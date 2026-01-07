@@ -1,34 +1,26 @@
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { useValues } from 'kea'
 
-import { SDKKey } from '~/types'
+import { LemonDivider } from '@posthog/lemon-ui'
+import { ReactNativeInstallation } from '@posthog/shared-onboarding/product-analytics/react-native'
 
-import { SDKInstallRNInstructions } from '../sdk-install-instructions'
-import { AdvertiseMobileReplay } from '../session-replay/SessionReplaySDKInstructions'
-
-function RNCaptureSnippet(): JSX.Element {
-    return (
-        <CodeSnippet language={Language.JSX}>{`// With hooks
-import { usePostHog } from 'posthog-react-native'
-
-const MyComponent = () => {
-    const posthog = usePostHog()
-
-    useEffect(() => {
-        posthog.capture("MyComponent loaded", { foo: "bar" })
-    }, [])
-}
-`}</CodeSnippet>
-    )
-}
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { OnboardingDocsContentWrapper } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import SetupWizardBanner from 'scenes/onboarding/sdks/sdk-install-instructions/components/SetupWizardBanner'
 
 export function ProductAnalyticsRNInstructions(): JSX.Element {
+    const { isCloudOrDev } = useValues(preflightLogic)
+
     return (
-        <>
-            <SDKInstallRNInstructions />
-            <h3 className="mt-4">Optional: Send a manual event</h3>
-            <p>Our package will autocapture events for you, but you can manually define events, too!</p>
-            <RNCaptureSnippet />
-            <AdvertiseMobileReplay context="product-analytics-onboarding" sdkKey={SDKKey.REACT_NATIVE} />
-        </>
+        <OnboardingDocsContentWrapper>
+            {isCloudOrDev && (
+                <>
+                    <h2>Automated installation</h2>
+                    <SetupWizardBanner integrationName="React Native" />
+                    <LemonDivider label="OR" />
+                    <h2>Manual installation</h2>
+                </>
+            )}
+            <ReactNativeInstallation />
+        </OnboardingDocsContentWrapper>
     )
 }

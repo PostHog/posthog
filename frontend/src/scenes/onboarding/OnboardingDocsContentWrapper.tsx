@@ -112,7 +112,7 @@ function Step({
                 )}
             </div>
             {subtitle && <p className="text-muted text-sm m-0">{subtitle}</p>}
-            <div>{children}</div>
+            <div className="space-y-4">{children}</div>
         </div>
     )
 }
