@@ -47,7 +47,7 @@ export const processAiEvent = (event: PluginEvent): PluginEvent | EventWithPrope
     const normalized: EventWithProperties = AI_EVENT_TYPES.has(event.event) ? normalizeTraceProperties(event) : event
 
     // Normalize error messages for all AI events with errors.
-    const withErrorNormalization = processAiErrorNormalization(normalized) as EventWithProperties
+    const withErrorNormalization = processAiErrorNormalization(normalized)
 
     // Only generation/embedding events get cost processing and model param extraction.
     const isCosted =
