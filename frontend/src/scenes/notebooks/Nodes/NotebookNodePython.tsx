@@ -8,6 +8,8 @@ import { notebookNodeLogic } from './notebookNodeLogic'
 
 type NotebookNodePythonAttributes = {
     code: string
+    globalsUsed?: string[]
+    globalsExported?: string[]
 }
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodePythonAttributes>): JSX.Element | null => {
@@ -19,8 +21,10 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePythonAttribute
     }
 
     return (
-        <div className="flex flex-1" data-attr="notebook-node-python">
+        <div data-attr="notebook-node-python">
             <pre>We should run this code: {attributes.code}</pre>
+            <pre>Globals used: {JSON.stringify(attributes.globalsUsed)}</pre>
+            <pre>Globals exported: {JSON.stringify(attributes.globalsExported)}</pre>
         </div>
     )
 }
