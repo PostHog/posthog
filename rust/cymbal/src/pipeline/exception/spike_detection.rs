@@ -213,29 +213,33 @@ async fn emit_spiking_events(context: &AppContext, spiking: Vec<SpikingIssue>) {
         return;
     }
 
-    let mut acquired_locks: Vec<SpikingIssue> = Vec::new();
-    for spike in spiking {
-        let key = cooldown_key(&spike.issue_id);
-        match context
-            .issue_buckets_redis_client
-            .set_nx_ex(key, "1".to_string(), SPIKE_ALERT_COOLDOWN_SECONDS as u64)
-            .await
-        {
-            Ok(true) => {
-                acquired_locks.push(spike);
-            }
-            Ok(false) => {}
-            Err(e) => {
-                warn!("Failed to set spike cooldown: {e}");
-            }
+    let cooldown_items: Vec<(String, String)> = spiking
+        .iter()
+        .map(|s| (cooldown_key(&s.issue_id), "1".to_string()))
+        .collect();
+    let lock_results = match context
+        .issue_buckets_redis_client
+        .batch_set_nx_ex(cooldown_items, SPIKE_ALERT_COOLDOWN_SECONDS)
+        .await
+    {
+        Ok(results) => results,
+        Err(e) => {
+            warn!("Failed to acquire spike cooldown locks: {e}");
+            return;
         }
-    }
+    };
+
+    let acquired_locks: Vec<SpikingIssue> = spiking
+        .into_iter()
+        .zip(lock_results)
+        .filter_map(|(spike, acquired)| if acquired { Some(spike) } else { None })
+        .collect();
 
     if acquired_locks.is_empty() {
         return;
     }
 
-    let events: Vec<InternalEvent> = acquired_locks
+    let events: Vec<(Uuid, InternalEvent)> = acquired_locks
         .iter()
         .filter_map(|spike| {
             let mut event =
@@ -250,11 +254,14 @@ async fn emit_spiking_events(context: &AppContext, spiking: Vec<SpikingIssue>) {
             event
                 .insert_prop("current_bucket_value", spike.current_bucket_value)
                 .ok()?;
-            Some(InternalEvent {
-                team_id: spike.team_id,
-                event,
-                person: None,
-            })
+            Some((
+                spike.issue_id,
+                InternalEvent {
+                    team_id: spike.team_id,
+                    event,
+                    person: None,
+                },
+            ))
         })
         .collect();
 
@@ -262,7 +269,7 @@ async fn emit_spiking_events(context: &AppContext, spiking: Vec<SpikingIssue>) {
         return;
     }
 
-    let kafka_events: Vec<&InternalEvent> = events.iter().collect();
+    let kafka_events: Vec<&InternalEvent> = events.iter().map(|(_, e)| e).collect();
     let results = send_iter_to_kafka(
         &context.immediate_producer,
         &context.config.internal_events_topic,
@@ -270,9 +277,26 @@ async fn emit_spiking_events(context: &AppContext, spiking: Vec<SpikingIssue>) {
     )
     .await;
 
-    for result in results {
-        if let Err(e) = result {
-            warn!("Failed to emit spiking event: {e}");
+    let failed_keys: Vec<String> = results
+        .into_iter()
+        .enumerate()
+        .filter_map(|(i, result)| {
+            if let Err(e) = result {
+                warn!("Failed to emit spiking event: {e}");
+                Some(cooldown_key(&events[i].0))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if !failed_keys.is_empty() {
+        if let Err(e) = context
+            .issue_buckets_redis_client
+            .batch_del(failed_keys)
+            .await
+        {
+            warn!("Failed to release cooldown locks after Kafka failure: {e}");
         }
     }
 }
@@ -818,8 +842,8 @@ mod tests {
     //
     // Issue A (team 1): no history -> team baseline 50, current=600 -> spikes (600 > 500)
     // Issue B (team 1): history [20, 20] -> own baseline 20, current=550 -> spikes (550 > 200)
-    // Issue C (team 2): no history -> team baseline 200, current=100 -> NOT spiking
-    // Issue D (team 2): history [100] -> own baseline 100, current=50 -> NOT spiking
+    // Issue C (team 2): no history -> team baseline 200, current=600 -> NOT spiking (600 < 2000)
+    // Issue D (team 2): history [100] -> own baseline 100, current=700 -> NOT spiking (700 < 1000)
     // Issue E (team 2): no history -> team baseline 200, current=2500 -> spikes (2500 > 2000)
     #[tokio::test]
     async fn test_multi_team_multi_issue() {
@@ -874,17 +898,17 @@ mod tests {
             redis.mget_ret(&issue_bucket_key(&issue_b, ts), None);
         }
 
-        // Issue C: current=100, no history
+        // Issue C: current=600, no history (600 < 200*10=2000, not spiking)
         redis.mget_ret(
             &issue_bucket_key(&issue_c, &timestamps[0]),
-            Some(bytes(100)),
+            Some(bytes(600)),
         );
         for ts in &timestamps[1..] {
             redis.mget_ret(&issue_bucket_key(&issue_c, ts), None);
         }
 
-        // Issue D: current=50, history=[100]
-        redis.mget_ret(&issue_bucket_key(&issue_d, &timestamps[0]), Some(bytes(50)));
+        // Issue D: current=700, history=[100] (700 < 100*10=1000, not spiking)
+        redis.mget_ret(&issue_bucket_key(&issue_d, &timestamps[0]), Some(bytes(700)));
         redis.mget_ret(&issue_bucket_key(&issue_d, &timestamps[1]), Some(bytes(100)));
         for ts in &timestamps[2..] {
             redis.mget_ret(&issue_bucket_key(&issue_d, ts), None);
@@ -953,10 +977,10 @@ mod tests {
         assert_eq!(spike_b.computed_baseline, 20.0);
         assert_eq!(spike_b.current_bucket_value, 550);
 
-        // Issue C should NOT be in results
+        // Issue C should NOT be in results (600 < 200*10=2000)
         assert!(!result_map.contains_key(&issue_c));
 
-        // Issue D should NOT be in results
+        // Issue D should NOT be in results (700 < 100*10=1000)
         assert!(!result_map.contains_key(&issue_d));
 
         // Issue E: team baseline 200, current 2500

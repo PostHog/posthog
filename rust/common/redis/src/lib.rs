@@ -256,6 +256,12 @@ pub trait Client {
         items: Vec<(String, String)>,
         ttl_seconds: usize,
     ) -> Result<(), CustomRedisError>;
+    async fn batch_set_nx_ex(
+        &self,
+        items: Vec<(String, String)>,
+        ttl_seconds: usize,
+    ) -> Result<Vec<bool>, CustomRedisError>;
+    async fn batch_del(&self, keys: Vec<String>) -> Result<(), CustomRedisError>;
 }
 
 // Module declarations

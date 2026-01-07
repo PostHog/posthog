@@ -459,6 +459,40 @@ impl Client for RedisClient {
         pipe.query_async::<()>(&mut conn).await?;
         Ok(())
     }
+
+    async fn batch_set_nx_ex(
+        &self,
+        items: Vec<(String, String)>,
+        ttl_seconds: usize,
+    ) -> Result<Vec<bool>, CustomRedisError> {
+        if items.is_empty() {
+            return Ok(vec![]);
+        }
+        let mut pipe = redis::pipe();
+        for (k, v) in &items {
+            pipe.cmd("SET")
+                .arg(k)
+                .arg(v)
+                .arg("NX")
+                .arg("EX")
+                .arg(ttl_seconds);
+        }
+        let mut conn = self.connection.clone();
+        let results: Vec<Option<String>> = pipe.query_async(&mut conn).await?;
+        Ok(results.into_iter().map(|r| r.is_some()).collect())
+    }
+
+    async fn batch_del(&self, keys: Vec<String>) -> Result<(), CustomRedisError> {
+        if keys.is_empty() {
+            return Ok(());
+        }
+        let mut conn = self.connection.clone();
+        redis::cmd("DEL")
+            .arg(&keys)
+            .query_async::<()>(&mut conn)
+            .await?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
