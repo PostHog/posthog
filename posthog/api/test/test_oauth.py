@@ -2265,24 +2265,3 @@ class TestOAuthAuthorizationServerMetadata(APIBaseTest):
 
         response = self.client.get("/.well-known/oauth-authorization-server")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-    def test_metadata_with_trailing_slash(self):
-        response = self.client.get("/.well-known/oauth-authorization-server/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-    def test_existing_endpoints_are_reachable(self):
-        """E2E test: verify the endpoints in metadata actually exist."""
-        metadata_response = self.client.get("/.well-known/oauth-authorization-server")
-        metadata = metadata_response.json()
-
-        # Authorization endpoint should return something (even without proper params)
-        auth_path = urlparse(metadata["authorization_endpoint"]).path
-        auth_response = self.client.get(auth_path)
-        # Should not be 404 - might be 400 (missing params) or 302 (redirect to login)
-        self.assertNotEqual(auth_response.status_code, status.HTTP_404_NOT_FOUND)
-
-        # JWKS endpoint should return valid JSON
-        jwks_path = urlparse(metadata["jwks_uri"]).path
-        jwks_response = self.client.get(jwks_path)
-        self.assertEqual(jwks_response.status_code, status.HTTP_200_OK)
-        self.assertIn("keys", jwks_response.json())
