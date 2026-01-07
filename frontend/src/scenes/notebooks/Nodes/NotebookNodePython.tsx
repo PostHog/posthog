@@ -58,6 +58,12 @@ export const NotebookNodePython = createPostHogWidgetNode<NotebookNodePythonAttr
         code: {
             default: '',
         },
+        globalsUsed: {
+            default: [],
+        },
+        globalsExported: {
+            default: [],
+        },
     },
     Settings,
     settingsPlacement: 'inline',
