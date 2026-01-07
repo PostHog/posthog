@@ -31,6 +31,11 @@ def use_gateway_api() -> bool:
     return settings.PROXY_USE_GATEWAY_API
 
 
+def use_cloudflare_proxy() -> bool:
+    """Returns whether to use Cloudflare for SaaS for proxy provisioning."""
+    return settings.CLOUDFLARE_PROXY_ENABLED
+
+
 class NonRetriableException(Exception):
     pass
 

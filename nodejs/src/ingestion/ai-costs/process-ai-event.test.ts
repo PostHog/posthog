@@ -489,6 +489,42 @@ describe('processAiEvent()', () => {
             const result = processAiEvent(event)
             expect(result.properties!.$ai_total_cost_usd).toBe(10)
         })
+
+        it('preserves user-provided web_search_cost when model-based calculation happens', () => {
+            event.properties!.$ai_model = 'gpt-4'
+            event.properties!.$ai_provider = 'openai'
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+            event.properties!.$ai_web_search_cost_usd = 0.035
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_web_search_cost_usd).toBe(0.035)
+        })
+
+        it('preserves user-provided total_cost when model-based calculation happens', () => {
+            event.properties!.$ai_model = 'gpt-4'
+            event.properties!.$ai_provider = 'openai'
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+            event.properties!.$ai_total_cost_usd = 0.5
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_total_cost_usd).toBe(0.5)
+        })
+
+        it('preserves user-provided request_cost when model-based calculation happens', () => {
+            event.properties!.$ai_model = 'gpt-4'
+            event.properties!.$ai_provider = 'openai'
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+            event.properties!.$ai_request_cost_usd = 0.02
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_request_cost_usd).toBe(0.02)
+        })
     })
 
     describe('custom token pricing', () => {

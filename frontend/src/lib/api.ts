@@ -170,6 +170,7 @@ import {
     SchemaIncrementalFieldsResponse,
     SearchListParams,
     SearchResponse,
+    SessionRecordingExternalReference,
     SessionRecordingPlaylistType,
     SessionRecordingSnapshotParams,
     SessionRecordingSnapshotResponse,
@@ -193,6 +194,7 @@ import {
     ErrorTrackingRuleType,
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/types'
 import { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/symbolSetLogic'
+import { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
 import type {
     SessionGroupSummaryListItemType,
     SessionGroupSummaryType,
@@ -681,6 +683,10 @@ export class ApiRequest {
         return this.logs(projectId).addPathComponent('has_logs')
     }
 
+    public logsExplainWithAI(projectId?: ProjectType['id']): ApiRequest {
+        return this.logs(projectId).addPathComponent('explainLogWithAI')
+    }
+
     // # Data management
     public eventDefinitions(projectId?: ProjectType['id']): ApiRequest {
         return this.projectsDetail(projectId).addPathComponent('event_definitions')
@@ -776,6 +782,10 @@ export class ApiRequest {
 
     public recording(recordingId: SessionRecordingType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.recordings(teamId).addPathComponent(recordingId)
+    }
+
+    public sessionRecordingsExternalReferences(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('session_recording_external_references')
     }
 
     public recordingMatchingEvents(teamId?: TeamType['id']): ApiRequest {
@@ -2333,6 +2343,9 @@ const api = {
                 .get()
                 .then((response) => Boolean(response.hasLogs))
         },
+        async explain(uuid: string, timestamp: string): Promise<LogExplanation> {
+            return new ApiRequest().logsExplainWithAI().create({ data: { uuid, timestamp } })
+        },
     },
 
     exports: {
@@ -3470,6 +3483,16 @@ const api = {
 
         async delete(recordingId: SessionRecordingType['id']): Promise<{ success: boolean }> {
             return await new ApiRequest().recording(recordingId).delete()
+        },
+
+        async createExternalReference(
+            sessionRecordingId: SessionRecordingType['id'],
+            integrationId: number,
+            config: Record<string, any>
+        ): Promise<SessionRecordingExternalReference> {
+            return await new ApiRequest()
+                .sessionRecordingsExternalReferences()
+                .create({ data: { session_recording_id: sessionRecordingId, integration_id: integrationId, config } })
         },
 
         async listSnapshotSources(
