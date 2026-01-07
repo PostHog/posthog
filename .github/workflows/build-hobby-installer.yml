@@ -1,0 +1,71 @@
+name: Build Hobby Installer
+
+on:
+    push:
+        branches:
+            - master
+        paths:
+            - 'bin/hobby-installer/**'
+            - '!bin/hobby-installer/README.md'
+            - '.github/workflows/build-hobby-installer.yml'
+
+permissions:
+    contents: read
+
+jobs:
+    build:
+        runs-on: ubuntu-24.04
+
+        steps:
+            - name: Get app token
+              id: app-token
+              uses: actions/create-github-app-token@v2
+              with:
+                  app-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+
+            - name: Checkout repository
+              uses: actions/checkout@v4
+              with:
+                  token: ${{ steps.app-token.outputs.token }}
+
+            - name: Set up Go
+              uses: actions/setup-go@v6
+              with:
+                  go-version: '1.24'
+
+            - name: Build production binary
+              run: cd bin/hobby-installer && make build-linux
+
+            - name: Check for changes
+              id: check-changes
+              run: |
+                  if git diff --quiet bin/posthog-hobby; then
+                    echo "changes=false" >> $GITHUB_OUTPUT
+                    echo "No changes detected in hobby installer binary"
+                  else
+                    echo "changes=true" >> $GITHUB_OUTPUT
+                    echo "Changes detected in hobby installer binary"
+                    git diff --stat bin/posthog-hobby
+                  fi
+
+            - name: Create pull request
+              if: steps.check-changes.outputs.changes == 'true'
+              uses: peter-evans/create-pull-request@271a8d0340265f705b14b6d32b9829c1cb33d45e # v5
+              with:
+                  token: ${{ steps.app-token.outputs.token }}
+                  commit-message: 'chore(hobby): rebuild hobby installer binary'
+                  title: 'chore(hobby): Rebuild hobby installer binary'
+                  body: |
+                      This is an automated PR to rebuild the hobby installer binary after source changes.
+
+                      The `bin/posthog-hobby` binary was out of sync with the source code in `bin/hobby-installer/`.
+                  branch: chore/hobby-rebuild-installer
+                  base: master
+                  delete-branch: true
+                  labels: |
+                      automated
+                      hobby
+                  reviewers: |
+                      pauldambra
+                      rafaeelaudibert
