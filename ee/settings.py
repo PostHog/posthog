@@ -49,7 +49,7 @@ ADMIN_AUTH_GOOGLE_OAUTH2_KEY = os.getenv("ADMIN_AUTH_GOOGLE_OAUTH2_KEY")
 ADMIN_AUTH_GOOGLE_OAUTH2_SECRET = os.getenv("ADMIN_AUTH_GOOGLE_OAUTH2_SECRET")
 # Restrict admin OAuth to specific Google Workspace domains (comma-separated list)
 ADMIN_AUTH_GOOGLE_ALLOWED_DOMAINS = [
-    d for d in os.environ.get("ADMIN_AUTH_GOOGLE_ALLOWED_DOMAINS", "posthog.com").split(",") if d
+    d.strip() for d in os.environ.get("ADMIN_AUTH_GOOGLE_ALLOWED_DOMAINS", "posthog.com").split(",") if d.strip()
 ]
 ENFORCE_ADMIN_OAUTH2 = str_to_bool(get_from_env("ENFORCE_ADMIN_OAUTH2", "True", type_cast=str))
 if ENFORCE_ADMIN_OAUTH2 and ADMIN_AUTH_GOOGLE_OAUTH2_KEY and ADMIN_AUTH_GOOGLE_OAUTH2_SECRET:

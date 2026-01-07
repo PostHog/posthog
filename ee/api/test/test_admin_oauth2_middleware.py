@@ -208,6 +208,10 @@ class TestNonceValidation(BaseTest):
         self.assertEqual(response.url, "/admin/")
         # Nonce should be cleared from session
         self.assertNotIn(AdminOAuth2Middleware.SESSION_NONCE_KEY, request.session)
+        # Verify success: verification secret should be set
+        self.assertIn(AdminOAuth2Middleware.SESSION_VERIFICATION_SECRET_KEY, request.session)
+        # Verify success: verification cookie should be set
+        self.assertIn(AdminOAuth2Middleware.COOKIE_NAME, response.cookies)
 
     def test_nonce_mismatch_rejected(self):
         state = secrets.token_urlsafe(32)
@@ -224,6 +228,10 @@ class TestNonceValidation(BaseTest):
 
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.url, "/admin/")
+        # Verify rejection: no verification secret should be set
+        self.assertNotIn(AdminOAuth2Middleware.SESSION_VERIFICATION_SECRET_KEY, request.session)
+        # Verify rejection: no verification cookie should be set
+        self.assertNotIn(AdminOAuth2Middleware.COOKIE_NAME, response.cookies)
 
     def test_missing_nonce_in_token_rejected(self):
         state = secrets.token_urlsafe(32)
@@ -240,6 +248,10 @@ class TestNonceValidation(BaseTest):
 
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.url, "/admin/")
+        # Verify rejection: no verification secret should be set
+        self.assertNotIn(AdminOAuth2Middleware.SESSION_VERIFICATION_SECRET_KEY, request.session)
+        # Verify rejection: no verification cookie should be set
+        self.assertNotIn(AdminOAuth2Middleware.COOKIE_NAME, response.cookies)
 
 
 class TestRedirectIncludesNonce(BaseTest):
@@ -291,7 +303,7 @@ class TestAllowedDomainsSettings:
         ],
     )
     def test_allowed_domains_parsing(self, env_value, expected):
-        result = [d for d in env_value.split(",") if d]
+        result = [d.strip() for d in env_value.split(",") if d.strip()]
         assert result == expected
 
     @pytest.mark.parametrize(
@@ -304,7 +316,19 @@ class TestAllowedDomainsSettings:
         ],
     )
     def test_empty_entries_filtered(self, env_value, expected):
-        result = [d for d in env_value.split(",") if d]
+        result = [d.strip() for d in env_value.split(",") if d.strip()]
+        assert result == expected
+
+    @pytest.mark.parametrize(
+        "env_value,expected",
+        [
+            ("posthog.com, example.com", ["posthog.com", "example.com"]),
+            (" posthog.com , example.com ", ["posthog.com", "example.com"]),
+            ("  a.com  ,  b.com  ", ["a.com", "b.com"]),
+        ],
+    )
+    def test_whitespace_stripped(self, env_value, expected):
+        result = [d.strip() for d in env_value.split(",") if d.strip()]
         assert result == expected
 
 
