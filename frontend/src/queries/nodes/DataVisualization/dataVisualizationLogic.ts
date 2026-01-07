@@ -384,14 +384,22 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     ySeries[index] = {
                         name: columnName,
                         settings: {
-                            formatting: {
-                                ...existingSettings?.formatting,
-                                ...settings?.formatting,
-                            },
-                            display: {
-                                ...existingSettings?.display,
-                                ...settings?.display,
-                            },
+                            ...(existingSettings?.formatting || settings?.formatting
+                                ? {
+                                      formatting: {
+                                          ...existingSettings?.formatting,
+                                          ...settings?.formatting,
+                                      },
+                                  }
+                                : {}),
+                            ...(existingSettings?.display || settings?.display
+                                ? {
+                                      display: {
+                                          ...existingSettings?.display,
+                                          ...settings?.display,
+                                      },
+                                  }
+                                : {}),
                         },
                     }
                     return ySeries
