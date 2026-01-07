@@ -2654,7 +2654,7 @@ email@example.org,
         new_cohort.refresh_from_db()
         self.assertEqual(new_cohort.count, 2)
 
-    @patch("posthog.tasks.calculate_cohort.insert_cohort_from_insight_filter.delay")
+    @patch("posthog.tasks.calculate_cohort.insert_cohort_from_existing_cohort.delay")
     def test_duplicating_static_cohort_sets_is_calculating(self, mock_insert_cohort):
         """Test that is_calculating is set to True when duplicating static cohort via async task"""
         p1 = _create_person(distinct_ids=["p1"], team_id=self.team.pk)
@@ -2686,7 +2686,7 @@ email@example.org,
         mock_insert_cohort.assert_called_once()
         call_args = mock_insert_cohort.call_args
         self.assertEqual(call_args[0][0], new_cohort_id)  # cohort_id
-        self.assertEqual(call_args[0][1]["from_cohort_id"], cohort.pk)  # filter_data contains source cohort
+        self.assertEqual(call_args[0][1], cohort.pk)  # filter_data contains source cohort
         self.assertEqual(call_args[0][2], self.team.pk)  # team_id
 
     def test_duplicating_dynamic_cohort_as_dynamic(self):

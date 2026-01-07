@@ -1,6 +1,6 @@
 import time
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Optional
 
 from django.conf import settings
 from django.db.models import Case, DurationField, ExpressionWrapper, F, Q, QuerySet, When
@@ -336,21 +336,13 @@ def calculate_cohort_from_list(
 
 
 @shared_task(ignore_result=True, max_retries=1)
-def insert_cohort_from_insight_filter(
-    cohort_id: int, filter_data: dict[str, Any], team_id: Optional[int] = None
-) -> None:
-    """
-    team_id is only optional for backwards compatibility with the old celery task signature.
-    All new tasks should pass team_id explicitly.
-    """
+def insert_cohort_from_existing_cohort(cohort_id: int, existing_cohort_id: int, team_id: int) -> None:
     from posthog.api.cohort import insert_cohort_actors_into_ch, insert_cohort_people_into_pg
 
     cohort = Cohort.objects.get(pk=cohort_id)
-    if team_id is None:
-        team_id = cohort.team_id
 
-    insert_cohort_actors_into_ch(cohort, filter_data, team_id=team_id)
-    insert_cohort_people_into_pg(cohort, team_id=team_id)
+    insert_cohort_actors_into_ch(cohort, existing_cohort_id, team_id=cohort.team_id)
+    insert_cohort_people_into_pg(cohort, team_id=cohort.team_id)
 
 
 @shared_task(ignore_result=True, max_retries=1)
