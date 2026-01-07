@@ -6975,7 +6975,7 @@
                 "completion_token": 0.0000021
             },
             "siliconflow-fp8": {
-                "prompt_token": 6e-7,
+                "prompt_token": 4.2e-7,
                 "completion_token": 0.0000022
             },
             "z-ai": {

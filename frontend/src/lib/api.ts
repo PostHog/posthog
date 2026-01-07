@@ -193,6 +193,7 @@ import {
     ErrorTrackingRuleType,
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/types'
 import { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/symbolSetLogic'
+import { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
 import type {
     SessionGroupSummaryListItemType,
     SessionGroupSummaryType,
@@ -679,6 +680,10 @@ export class ApiRequest {
 
     public logsHasLogs(projectId?: ProjectType['id']): ApiRequest {
         return this.logs(projectId).addPathComponent('has_logs')
+    }
+
+    public logsExplainWithAI(projectId?: ProjectType['id']): ApiRequest {
+        return this.logs(projectId).addPathComponent('explainLogWithAI')
     }
 
     // # Data management
@@ -2332,6 +2337,9 @@ const api = {
                 .logsHasLogs()
                 .get()
                 .then((response) => Boolean(response.hasLogs))
+        },
+        async explain(uuid: string, timestamp: string): Promise<LogExplanation> {
+            return new ApiRequest().logsExplainWithAI().create({ data: { uuid, timestamp } })
         },
     },
 

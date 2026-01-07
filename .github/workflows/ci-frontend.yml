@@ -144,7 +144,7 @@ jobs:
         if: needs.changes.outputs.frontend == 'true' && github.event_name == 'pull_request'
         runs-on: depot-ubuntu-24.04
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
             - name: Install pnpm
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
