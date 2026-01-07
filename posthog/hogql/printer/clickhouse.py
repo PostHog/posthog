@@ -14,7 +14,7 @@ from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickh
 from posthog.hogql.printer.base import _Printer, resolve_field_type
 from posthog.hogql.printer.types import PrintableMaterializedPropertyGroupItem
 
-from posthog.clickhouse import property_groups
+from posthog.clickhouse.property_groups import property_groups
 from posthog.models.utils import UUIDT
 
 
