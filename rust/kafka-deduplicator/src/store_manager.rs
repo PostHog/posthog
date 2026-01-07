@@ -846,66 +846,23 @@ impl StoreManager {
         Ok(size)
     }
 
-    /// Check if any timestamp subdirectory within a partition directory has a RocksDB LOCK file.
+    /// Check if a timestamp directory has a RocksDB LOCK file.
     /// If LOCK exists, the database is open and the directory must NOT be deleted.
-    fn has_active_lock_file(partition_dir: &Path) -> bool {
-        if let Ok(entries) = std::fs::read_dir(partition_dir) {
-            for entry in entries.flatten() {
-                if let Ok(metadata) = entry.metadata() {
-                    if metadata.is_dir() {
-                        let lock_path = entry.path().join("LOCK");
-                        if lock_path.exists() {
-                            return true;
-                        }
-                    }
-                }
-            }
-        }
-        false
+    fn has_lock_file(timestamp_dir: &Path) -> bool {
+        timestamp_dir.join("LOCK").exists()
     }
 
-    /// Get the newest WAL (*.log) file modification time across all timestamp subdirectories
-    /// within a partition directory. Returns None if no WAL files are found.
-    fn get_newest_wal_mtime(partition_dir: &Path) -> Option<SystemTime> {
+    /// Get the newest WAL (*.log) file modification time within a single timestamp directory.
+    /// Returns None if no WAL files are found.
+    fn get_wal_mtime(timestamp_dir: &Path) -> Option<SystemTime> {
         let mut newest: Option<SystemTime> = None;
 
-        if let Ok(ts_dirs) = std::fs::read_dir(partition_dir) {
-            for ts_dir_entry in ts_dirs.flatten() {
-                if let Ok(ts_metadata) = ts_dir_entry.metadata() {
-                    if ts_metadata.is_dir() {
-                        // Check for *.log files in timestamp subdirectory
-                        if let Ok(files) = std::fs::read_dir(ts_dir_entry.path()) {
-                            for file_entry in files.flatten() {
-                                let file_path = file_entry.path();
-                                if file_path.extension().is_some_and(|e| e == "log") {
-                                    if let Ok(file_meta) = file_entry.metadata() {
-                                        if let Ok(mtime) = file_meta.modified() {
-                                            newest = Some(
-                                                newest.map_or(mtime, |n: SystemTime| n.max(mtime)),
-                                            );
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        newest
-    }
-
-    /// Get the newest timestamp subdirectory modification time within a partition directory.
-    /// This catches checkpoint imports in progress (directory created/modified but no LOCK/WAL yet).
-    fn get_newest_ts_dir_mtime(partition_dir: &Path) -> Option<SystemTime> {
-        let mut newest: Option<SystemTime> = None;
-
-        if let Ok(ts_dirs) = std::fs::read_dir(partition_dir) {
-            for ts_dir_entry in ts_dirs.flatten() {
-                if let Ok(ts_metadata) = ts_dir_entry.metadata() {
-                    if ts_metadata.is_dir() {
-                        if let Ok(mtime) = ts_metadata.modified() {
+        if let Ok(files) = std::fs::read_dir(timestamp_dir) {
+            for file_entry in files.flatten() {
+                let file_path = file_entry.path();
+                if file_path.extension().is_some_and(|e| e == "log") {
+                    if let Ok(file_meta) = file_entry.metadata() {
+                        if let Ok(mtime) = file_meta.modified() {
                             newest = Some(newest.map_or(mtime, |n: SystemTime| n.max(mtime)));
                         }
                     }
@@ -916,22 +873,94 @@ impl StoreManager {
         newest
     }
 
-    /// Check if a partition directory is safe to delete as an orphan.
+    /// Get the modification time of a timestamp directory.
+    /// This catches checkpoint imports in progress (directory created/modified but no LOCK/WAL yet).
+    fn get_dir_mtime(timestamp_dir: &Path) -> Option<SystemTime> {
+        std::fs::metadata(timestamp_dir)
+            .ok()
+            .and_then(|m| m.modified().ok())
+    }
+
+    /// Collect all timestamp subdirectories as cleanup candidates.
+    /// Returns Vec of (topic_partition_name, full_timestamp_dir_path).
+    /// Does NOT filter by safety checks - that happens during the deletion loop.
+    fn collect_orphan_candidates(&self) -> Vec<(String, PathBuf)> {
+        let mut candidates = Vec::new();
+
+        // Build a set of currently assigned partition directories
+        let mut assigned_dirs = std::collections::HashSet::new();
+        for entry in self.stores.iter() {
+            let partition = entry.key();
+            let dir_name = format_partition_dir(partition.topic(), partition.partition_number());
+            assigned_dirs.insert(dir_name);
+        }
+
+        info!(
+            "Collecting orphan candidates. Currently assigned partitions: {:?}",
+            assigned_dirs
+        );
+
+        // Scan the store directory for all partition directories
+        let Ok(partition_entries) = std::fs::read_dir(&self.store_config.path) else {
+            return candidates;
+        };
+
+        for partition_entry in partition_entries.flatten() {
+            let Ok(metadata) = partition_entry.metadata() else {
+                continue;
+            };
+            if !metadata.is_dir() {
+                continue;
+            }
+
+            let partition_dir_name = partition_entry.file_name().to_string_lossy().to_string();
+
+            // Skip if doesn't match topic_partition pattern or is assigned
+            if !partition_dir_name.contains('_') || assigned_dirs.contains(&partition_dir_name) {
+                continue;
+            }
+
+            // Enumerate all timestamp subdirectories under this orphan partition
+            let partition_path = partition_entry.path();
+            let Ok(timestamp_entries) = std::fs::read_dir(&partition_path) else {
+                continue;
+            };
+
+            for ts_entry in timestamp_entries.flatten() {
+                let Ok(ts_metadata) = ts_entry.metadata() else {
+                    continue;
+                };
+                if ts_metadata.is_dir() {
+                    candidates.push((partition_dir_name.clone(), ts_entry.path()));
+                }
+            }
+        }
+
+        debug!(
+            "Found {} orphan timestamp directory candidates",
+            candidates.len()
+        );
+        candidates
+    }
+
+    /// Check if a specific timestamp directory is safe to delete as an orphan.
     /// Returns false (NOT safe) if:
     /// - A LOCK file exists (DB is open)
     /// - WAL files have been modified within the staleness threshold
-    /// - Timestamp subdirectory modified within staleness threshold (checkpoint import)
-    /// - The directory is now in the stores map (re-assigned)
-    fn is_safe_to_delete_orphan(
+    /// - Directory modified within staleness threshold (checkpoint import)
+    /// - The parent partition is now in the stores map (re-assigned)
+    fn is_safe_to_delete_timestamp_dir(
         &self,
-        partition_dir: &Path,
-        dir_name: &str,
+        timestamp_dir: &Path,
+        parent_dir_name: &str,
         orphan_min_staleness: Duration,
     ) -> bool {
+        let ts_dir_display = timestamp_dir.display();
+
         // Check 1: LOCK file exists - DB is open, never delete
-        if Self::has_active_lock_file(partition_dir) {
+        if Self::has_lock_file(timestamp_dir) {
             info!(
-                dir_name,
+                path = %ts_dir_display,
                 "Orphan safety check: LOCK file found, skipping deletion"
             );
             return false;
@@ -939,11 +968,11 @@ impl StoreManager {
 
         // Check 2: WAL files modified recently - store may still be active
         // Use Duration::ZERO on elapsed() failure to be conservative (treat as just modified)
-        if let Some(newest_wal_mtime) = Self::get_newest_wal_mtime(partition_dir) {
-            let elapsed = newest_wal_mtime.elapsed().unwrap_or(Duration::ZERO);
+        if let Some(wal_mtime) = Self::get_wal_mtime(timestamp_dir) {
+            let elapsed = wal_mtime.elapsed().unwrap_or(Duration::ZERO);
             if elapsed < orphan_min_staleness {
                 info!(
-                    dir_name,
+                    path = %ts_dir_display,
                     wal_age_secs = elapsed.as_secs(),
                     min_staleness_secs = orphan_min_staleness.as_secs(),
                     "Orphan safety check: WAL file too recent, skipping deletion"
@@ -952,16 +981,16 @@ impl StoreManager {
             }
         }
 
-        // Check 3: Timestamp subdirectory modified recently - checkpoint import in progress
+        // Check 3: Directory modified recently - checkpoint import in progress
         // Use Duration::ZERO on elapsed() failure to be conservative (treat as just modified)
-        if let Some(newest_ts_mtime) = Self::get_newest_ts_dir_mtime(partition_dir) {
-            let elapsed = newest_ts_mtime.elapsed().unwrap_or(Duration::ZERO);
+        if let Some(dir_mtime) = Self::get_dir_mtime(timestamp_dir) {
+            let elapsed = dir_mtime.elapsed().unwrap_or(Duration::ZERO);
             if elapsed < orphan_min_staleness {
                 info!(
-                    dir_name,
-                    ts_dir_age_secs = elapsed.as_secs(),
+                    path = %ts_dir_display,
+                    dir_age_secs = elapsed.as_secs(),
                     min_staleness_secs = orphan_min_staleness.as_secs(),
-                    "Orphan safety check: timestamp directory too recent, skipping deletion"
+                    "Orphan safety check: directory too recent, skipping deletion"
                 );
                 return false;
             }
@@ -972,10 +1001,10 @@ impl StoreManager {
             let partition = entry.key();
             let assigned_dir =
                 format_partition_dir(partition.topic(), partition.partition_number());
-            if assigned_dir == dir_name {
+            if assigned_dir == parent_dir_name {
                 info!(
-                    dir_name,
-                    "Orphan safety check: directory now in stores map, skipping deletion"
+                    path = %ts_dir_display,
+                    "Orphan safety check: parent partition now in stores map, skipping deletion"
                 );
                 return false;
             }
@@ -985,12 +1014,12 @@ impl StoreManager {
         true
     }
 
-    /// Clean up orphaned directories that don't belong to any assigned partition.
+    /// Clean up orphaned timestamp directories that don't belong to any assigned partition.
     ///
     /// Safety checks before deletion:
     /// 1. Skip if stores map is empty (startup race)
     /// 2. Skip if rebalancing is in progress
-    /// 3. For each candidate: check LOCK file, WAL mtime, and re-verify stores map
+    /// 3. For each candidate timestamp dir: check LOCK file, WAL mtime, dir mtime, and re-verify stores map
     pub fn cleanup_orphaned_directories(&self, orphan_min_staleness: Duration) -> Result<u64> {
         // Guard: skip cleanup if no stores are registered yet (startup race) or
         // all stores were just unregistered (rebalance). This prevents deleting
@@ -1007,88 +1036,66 @@ impl StoreManager {
             return Ok(0);
         }
 
-        let mut total_freed = 0u64;
+        // Collect all timestamp subdirectories under orphan partitions
+        let candidates = self.collect_orphan_candidates();
 
-        // Build a set of currently assigned partition directories
-        let mut assigned_dirs = std::collections::HashSet::new();
-        for entry in self.stores.iter() {
-            let partition = entry.key();
-            let dir_name = format_partition_dir(partition.topic(), partition.partition_number());
-            assigned_dirs.insert(dir_name);
+        if candidates.is_empty() {
+            debug!("No orphaned timestamp directories found");
+            return Ok(0);
         }
 
-        info!(
-            "Checking for orphaned directories. Currently assigned: {:?}",
-            assigned_dirs
-        );
+        let mut total_freed = 0u64;
 
-        // Scan the store directory for all partition directories
-        if let Ok(entries) = std::fs::read_dir(&self.store_config.path) {
-            for entry in entries.flatten() {
-                if let Ok(metadata) = entry.metadata() {
-                    if metadata.is_dir() {
-                        let dir_name = entry.file_name().to_string_lossy().to_string();
+        for (parent_dir_name, timestamp_path) in candidates {
+            // Re-check rebalance mid-loop - abort to avoid deleting directories
+            // that may be about to be assigned
+            if self.is_rebalancing() {
+                info!(
+                    "Aborting orphan cleanup - rebalance started. Freed {} bytes so far",
+                    total_freed
+                );
+                return Ok(total_freed);
+            }
 
-                        // Check if this directory matches the pattern topic_partition
-                        // and is not in our assigned set
-                        if dir_name.contains('_') && !assigned_dirs.contains(&dir_name) {
-                            // Check if rebalance started mid-cleanup - abort to avoid
-                            // deleting directories that may be about to be assigned
-                            if self.is_rebalancing() {
-                                info!(
-                                    "Aborting orphan cleanup - rebalance started. Freed {} bytes so far",
-                                    total_freed
-                                );
-                                return Ok(total_freed);
-                            }
+            // Safety checks: LOCK file, WAL mtime, dir mtime, double-check stores map
+            if !self.is_safe_to_delete_timestamp_dir(
+                &timestamp_path,
+                &parent_dir_name,
+                orphan_min_staleness,
+            ) {
+                debug!(
+                    path = %timestamp_path.display(),
+                    "Skipping orphan candidate - failed safety checks"
+                );
+                continue;
+            }
 
-                            // This is a candidate orphan directory - perform safety checks
-                            let dir_path = entry.path();
+            let dir_size = Self::get_directory_size(&timestamp_path).unwrap_or(0);
 
-                            // Safety checks: LOCK file, WAL mtime, double-check stores map
-                            if !self.is_safe_to_delete_orphan(
-                                &dir_path,
-                                &dir_name,
-                                orphan_min_staleness,
-                            ) {
-                                debug!(
-                                    dir_name,
-                                    "Skipping orphan candidate - failed safety checks"
-                                );
-                                continue;
-                            }
-
-                            let dir_size = Self::get_directory_size(&dir_path).unwrap_or(0);
-
-                            match std::fs::remove_dir_all(&dir_path) {
-                                Ok(_) => {
-                                    info!(
-                                        "Removed orphaned directory {} ({:.2} MB)",
-                                        dir_name,
-                                        dir_size as f64 / (1024.0 * 1024.0)
-                                    );
-                                    total_freed += dir_size;
-                                }
-                                Err(e) => {
-                                    warn!(
-                                        "Failed to remove orphaned directory {}: {}",
-                                        dir_name, e
-                                    );
-                                }
-                            }
-                        }
-                    }
+            match std::fs::remove_dir_all(&timestamp_path) {
+                Ok(_) => {
+                    info!(
+                        "Removed orphaned timestamp directory {} ({:.2} MB)",
+                        timestamp_path.display(),
+                        dir_size as f64 / (1024.0 * 1024.0)
+                    );
+                    total_freed += dir_size;
+                }
+                Err(e) => {
+                    warn!(
+                        "Failed to remove orphaned timestamp directory {}: {}",
+                        timestamp_path.display(),
+                        e
+                    );
                 }
             }
         }
 
         if total_freed > 0 {
             info!(
-                "Cleaned up {:.2} MB of orphaned directories",
+                "Cleaned up {:.2} MB of orphaned timestamp directories",
                 total_freed as f64 / (1024.0 * 1024.0)
             );
-        } else {
-            debug!("No orphaned directories found");
         }
 
         Ok(total_freed)
@@ -1634,26 +1641,28 @@ mod tests {
         assert_eq!(manager.get_active_store_count(), 1);
 
         // Create an "orphaned" directory manually (not in stores map)
+        // Must have timestamp subdir structure: topic_partition/timestamp/files
         let orphan_dir = temp_dir.path().join("other-topic_1");
-        std::fs::create_dir_all(&orphan_dir).unwrap();
-        std::fs::write(orphan_dir.join("dummy.txt"), b"test data").unwrap();
-        assert!(orphan_dir.exists());
+        let timestamp_subdir = orphan_dir.join("1234567890");
+        std::fs::create_dir_all(&timestamp_subdir).unwrap();
+        std::fs::write(timestamp_subdir.join("dummy.txt"), b"test data").unwrap();
+        assert!(timestamp_subdir.exists());
 
-        // When NOT rebalancing, cleanup should remove the orphan
+        // When NOT rebalancing, cleanup should remove the orphan timestamp dir
         assert!(!manager.is_rebalancing());
         let freed = manager
             .cleanup_orphaned_directories(Duration::from_secs(0))
             .unwrap();
         assert!(freed > 0);
         assert!(
-            !orphan_dir.exists(),
-            "Orphan should be removed when not rebalancing"
+            !timestamp_subdir.exists(),
+            "Orphan timestamp dir should be removed when not rebalancing"
         );
 
-        // Recreate the orphan directory
-        std::fs::create_dir_all(&orphan_dir).unwrap();
-        std::fs::write(orphan_dir.join("dummy.txt"), b"test data").unwrap();
-        assert!(orphan_dir.exists());
+        // Recreate the orphan directory structure
+        std::fs::create_dir_all(&timestamp_subdir).unwrap();
+        std::fs::write(timestamp_subdir.join("dummy.txt"), b"test data").unwrap();
+        assert!(timestamp_subdir.exists());
 
         // Set rebalancing flag
         manager.set_rebalancing(true);
@@ -1665,7 +1674,7 @@ mod tests {
             .unwrap();
         assert_eq!(freed, 0);
         assert!(
-            orphan_dir.exists(),
+            timestamp_subdir.exists(),
             "Orphan should NOT be removed during rebalance"
         );
 
@@ -1679,8 +1688,8 @@ mod tests {
             .unwrap();
         assert!(freed > 0);
         assert!(
-            !orphan_dir.exists(),
-            "Orphan should be removed after rebalance ends"
+            !timestamp_subdir.exists(),
+            "Orphan timestamp dir should be removed after rebalance ends"
         );
     }
 
@@ -1747,29 +1756,29 @@ mod tests {
         std::fs::create_dir_all(&timestamp_subdir).unwrap();
         std::fs::write(timestamp_subdir.join("LOCK"), b"").unwrap();
         std::fs::write(timestamp_subdir.join("dummy.sst"), b"test data").unwrap();
-        assert!(orphan_dir.exists());
+        assert!(timestamp_subdir.exists());
 
-        // Cleanup should NOT remove the directory because LOCK file exists
+        // Cleanup should NOT remove the timestamp dir because LOCK file exists
         let freed = manager
             .cleanup_orphaned_directories(Duration::from_secs(0))
             .unwrap();
         assert_eq!(freed, 0, "Should not delete directory with LOCK file");
         assert!(
-            orphan_dir.exists(),
-            "Orphan with LOCK file should NOT be removed"
+            timestamp_subdir.exists(),
+            "Timestamp dir with LOCK file should NOT be removed"
         );
 
         // Remove the LOCK file
         std::fs::remove_file(timestamp_subdir.join("LOCK")).unwrap();
 
-        // Now cleanup should remove it
+        // Now cleanup should remove the timestamp dir
         let freed = manager
             .cleanup_orphaned_directories(Duration::from_secs(0))
             .unwrap();
         assert!(freed > 0, "Should delete directory without LOCK file");
         assert!(
-            !orphan_dir.exists(),
-            "Orphan without LOCK file should be removed"
+            !timestamp_subdir.exists(),
+            "Timestamp dir without LOCK file should be removed"
         );
     }
 
@@ -1792,16 +1801,16 @@ mod tests {
         std::fs::create_dir_all(&timestamp_subdir).unwrap();
         std::fs::write(timestamp_subdir.join("000001.log"), b"wal data").unwrap();
         std::fs::write(timestamp_subdir.join("dummy.sst"), b"test data").unwrap();
-        assert!(orphan_dir.exists());
+        assert!(timestamp_subdir.exists());
 
-        // Cleanup should NOT remove the directory because WAL file is too recent (staleness=15min)
+        // Cleanup should NOT remove the timestamp dir because WAL file is too recent (staleness=15min)
         let freed = manager
             .cleanup_orphaned_directories(Duration::from_secs(900))
             .unwrap();
         assert_eq!(freed, 0, "Should not delete directory with recent WAL");
         assert!(
-            orphan_dir.exists(),
-            "Orphan with recent WAL should NOT be removed"
+            timestamp_subdir.exists(),
+            "Timestamp dir with recent WAL should NOT be removed"
         );
     }
 
@@ -1824,16 +1833,16 @@ mod tests {
         std::fs::create_dir_all(&timestamp_subdir).unwrap();
         std::fs::write(timestamp_subdir.join("000001.log"), b"wal data").unwrap();
         std::fs::write(timestamp_subdir.join("dummy.sst"), b"test data").unwrap();
-        assert!(orphan_dir.exists());
+        assert!(timestamp_subdir.exists());
 
-        // With zero staleness, cleanup should remove it
+        // With zero staleness, cleanup should remove the timestamp dir
         let freed = manager
             .cleanup_orphaned_directories(Duration::from_secs(0))
             .unwrap();
         assert!(freed > 0, "Should delete directory with stale WAL");
         assert!(
-            !orphan_dir.exists(),
-            "Orphan with stale WAL should be removed"
+            !timestamp_subdir.exists(),
+            "Timestamp dir with stale WAL should be removed"
         );
     }
 
@@ -1874,6 +1883,9 @@ mod tests {
             .cleanup_orphaned_directories(Duration::from_secs(0))
             .unwrap();
         assert!(freed > 0, "True orphan should be deleted");
-        assert!(!orphan_dir.exists(), "Orphan directory should be removed");
+        assert!(
+            !timestamp_subdir.exists(),
+            "Orphan timestamp directory should be removed"
+        );
     }
 }
