@@ -8,7 +8,6 @@ import {
     LemonButton,
     LemonDivider,
     LemonInput,
-    LemonSelect,
     LemonSkeleton,
     LemonSwitch,
     LemonTag,
@@ -40,7 +39,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
         setEvaluationName,
         setEvaluationDescription,
         setEvaluationEnabled,
-        setEvaluationOutputType,
+        setAllowsNA,
         saveEvaluation,
         resetEvaluation,
     } = useActions(llmEvaluationLogic)
@@ -153,38 +152,18 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                 </div>
                             </Field>
 
-                            <Field name="output_type" label="Output type">
-                                <LemonSelect
-                                    value={evaluation.output_type}
-                                    onChange={(value) => value && setEvaluationOutputType(value)}
-                                    options={[
-                                        {
-                                            value: 'boolean',
-                                            label: 'True/False',
-                                            labelInMenu: (
-                                                <div>
-                                                    <div className="font-medium">True/False</div>
-                                                    <div className="text-muted text-xs">
-                                                        Evaluation returns true or false
-                                                    </div>
-                                                </div>
-                                            ),
-                                        },
-                                        {
-                                            value: 'boolean_with_na',
-                                            label: 'True/False/NA',
-                                            labelInMenu: (
-                                                <div>
-                                                    <div className="font-medium">True/False/NA</div>
-                                                    <div className="text-muted text-xs">
-                                                        Evaluation can also return "Not Applicable" when criteria
-                                                        doesn't apply
-                                                    </div>
-                                                </div>
-                                            ),
-                                        },
-                                    ]}
-                                />
+                            <Field name="allows_na" label="Allow N/A responses">
+                                <div className="flex items-center gap-2">
+                                    <LemonSwitch
+                                        checked={evaluation.output_config.allows_na ?? false}
+                                        onChange={setAllowsNA}
+                                    />
+                                    <span className="text-muted text-sm">
+                                        {evaluation.output_config.allows_na
+                                            ? 'Evaluation can return "Not Applicable" when criteria doesn\'t apply'
+                                            : 'Evaluation returns true or false'}
+                                    </span>
+                                </div>
                             </Field>
                         </div>
                     </div>
@@ -228,7 +207,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                         </div>
                                         <div className="text-muted">Success Rate</div>
                                     </div>
-                                    {evaluation.output_type === 'boolean_with_na' && (
+                                    {evaluation.output_config.allows_na && (
                                         <div className="text-center">
                                             <div className="font-semibold text-lg">
                                                 {runsSummary.applicabilityRate}%

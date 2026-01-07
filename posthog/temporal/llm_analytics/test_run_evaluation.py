@@ -170,8 +170,8 @@ class TestRunEvaluationWorkflow:
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
-    async def test_execute_llm_judge_activity_boolean_with_na_applicable(self, setup_data):
-        """Test LLM judge execution with boolean_with_na output type when applicable"""
+    async def test_execute_llm_judge_activity_allows_na_applicable(self, setup_data):
+        """Test LLM judge execution with allows_na=True when applicable"""
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]
 
@@ -180,8 +180,8 @@ class TestRunEvaluationWorkflow:
             "name": "Test Evaluation",
             "evaluation_type": "llm_judge",
             "evaluation_config": {"prompt": "Is this response factually accurate?"},
-            "output_type": "boolean_with_na",
-            "output_config": {},
+            "output_type": "boolean",
+            "output_config": {"allows_na": True},
             "team_id": team.id,
         }
 
@@ -209,12 +209,12 @@ class TestRunEvaluationWorkflow:
             assert result["verdict"] is True
             assert result["applicable"] is True
             assert result["reasoning"] == "The answer is correct"
-            assert result["output_type"] == "boolean_with_na"
+            assert result["allows_na"] is True
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
-    async def test_execute_llm_judge_activity_boolean_with_na_not_applicable(self, setup_data):
-        """Test LLM judge execution with boolean_with_na output type when not applicable"""
+    async def test_execute_llm_judge_activity_allows_na_not_applicable(self, setup_data):
+        """Test LLM judge execution with allows_na=True when not applicable"""
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]
 
@@ -223,8 +223,8 @@ class TestRunEvaluationWorkflow:
             "name": "Test Evaluation",
             "evaluation_type": "llm_judge",
             "evaluation_config": {"prompt": "Check mathematical accuracy"},
-            "output_type": "boolean_with_na",
-            "output_config": {},
+            "output_type": "boolean",
+            "output_config": {"allows_na": True},
             "team_id": team.id,
         }
 
@@ -254,12 +254,12 @@ class TestRunEvaluationWorkflow:
             assert result["verdict"] is None
             assert result["applicable"] is False
             assert result["reasoning"] == "This is a greeting, not a math problem"
-            assert result["output_type"] == "boolean_with_na"
+            assert result["allows_na"] is True
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
-    async def test_emit_evaluation_event_activity_boolean_with_na_applicable(self, setup_data):
-        """Test emitting evaluation event for applicable boolean_with_na result"""
+    async def test_emit_evaluation_event_activity_allows_na_applicable(self, setup_data):
+        """Test emitting evaluation event for applicable allows_na result"""
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]
 
@@ -278,7 +278,7 @@ class TestRunEvaluationWorkflow:
             "verdict": True,
             "reasoning": "Test passed",
             "applicable": True,
-            "output_type": "boolean_with_na",
+            "allows_na": True,
         }
 
         with patch("posthog.temporal.llm_analytics.run_evaluation.Team.objects.get") as mock_team_get:
@@ -292,12 +292,12 @@ class TestRunEvaluationWorkflow:
                 assert call_kwargs["event"] == "$ai_evaluation"
                 assert call_kwargs["properties"]["$ai_evaluation_result"] is True
                 assert call_kwargs["properties"]["$ai_evaluation_applicable"] is True
-                assert call_kwargs["properties"]["$ai_evaluation_output_type"] == "boolean_with_na"
+                assert call_kwargs["properties"]["$ai_evaluation_allows_na"] is True
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
-    async def test_emit_evaluation_event_activity_boolean_with_na_not_applicable(self, setup_data):
-        """Test emitting evaluation event for not applicable boolean_with_na result"""
+    async def test_emit_evaluation_event_activity_allows_na_not_applicable(self, setup_data):
+        """Test emitting evaluation event for not applicable allows_na result"""
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]
 
@@ -316,7 +316,7 @@ class TestRunEvaluationWorkflow:
             "verdict": None,
             "reasoning": "Not applicable",
             "applicable": False,
-            "output_type": "boolean_with_na",
+            "allows_na": True,
         }
 
         with patch("posthog.temporal.llm_analytics.run_evaluation.Team.objects.get") as mock_team_get:
@@ -331,7 +331,7 @@ class TestRunEvaluationWorkflow:
                 # Result should not be set when not applicable
                 assert "$ai_evaluation_result" not in call_kwargs["properties"]
                 assert call_kwargs["properties"]["$ai_evaluation_applicable"] is False
-                assert call_kwargs["properties"]["$ai_evaluation_output_type"] == "boolean_with_na"
+                assert call_kwargs["properties"]["$ai_evaluation_allows_na"] is True
 
 
 class TestEvalResultModels:

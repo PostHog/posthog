@@ -63,14 +63,12 @@ class OutputTypeConfig:
     instructions: str
 
 
-OUTPUT_TYPE_CONFIGS: dict[str, OutputTypeConfig] = {
-    "boolean": OutputTypeConfig(
-        response_format=BooleanEvalResult,
-        instructions="Provide a brief reasoning (1 sentence) and a boolean verdict (true/false).",
-    ),
-    "boolean_with_na": OutputTypeConfig(
-        response_format=BooleanWithNAEvalResult,
-        instructions="""First, determine if this evaluation criteria is applicable to the given input/output. If the criteria doesn't apply to this case mark it as not applicable.
+def get_output_type_config(allows_na: bool) -> OutputTypeConfig:
+    """Get the output type configuration based on whether N/A is allowed."""
+    if allows_na:
+        return OutputTypeConfig(
+            response_format=BooleanWithNAEvalResult,
+            instructions="""First, determine if this evaluation criteria is applicable to the given input/output. If the criteria doesn't apply to this case mark it as not applicable.
 
 Note: If the criteria above instructs you to return "N/A", "not applicable", or similar, treat that as applicable=false with verdict=null.
 
@@ -78,13 +76,16 @@ Return:
 - applicable: true if the criteria applies to this input/output, false if it doesn't apply
 - verdict: true if it passes, false if it fails, or null if not applicable
 - reasoning: a brief explanation (1 sentence)""",
-    ),
-}
+        )
+    return OutputTypeConfig(
+        response_format=BooleanEvalResult,
+        instructions="Provide a brief reasoning (1 sentence) and a boolean verdict (true/false).",
+    )
 
 
-def build_system_prompt(prompt: str, output_type: str) -> str:
+def build_system_prompt(prompt: str, allows_na: bool) -> str:
     """Build the system prompt for the LLM judge."""
-    config = OUTPUT_TYPE_CONFIGS.get(output_type, OUTPUT_TYPE_CONFIGS["boolean"])
+    config = get_output_type_config(allows_na)
     return f"""You are an evaluator. Evaluate the following generation according to this criteria:
 
 {prompt}
@@ -170,11 +171,14 @@ async def execute_llm_judge_activity(evaluation: dict[str, Any], event_data: dic
         raise ApplicationError("Missing prompt in evaluation_config", non_retryable=True)
 
     output_type = evaluation["output_type"]
-    if output_type not in ("boolean", "boolean_with_na"):
+    if output_type != "boolean":
         raise ApplicationError(
-            f"Unsupported output type: {output_type}. Supported types: 'boolean', 'boolean_with_na'.",
+            f"Unsupported output type: {output_type}. Supported types: 'boolean'.",
             non_retryable=True,
         )
+
+    output_config = evaluation.get("output_config", {})
+    allows_na = output_config.get("allows_na", False)
 
     # Fetch API key configuration (BYOK or trial)
     team_id = evaluation["team_id"]
@@ -259,10 +263,10 @@ async def execute_llm_judge_activity(evaluation: dict[str, Any], event_data: dic
     input_data = extract_text_from_messages(input_raw)
     output_data = extract_text_from_messages(output_raw)
 
-    # Build judge prompt based on output type
-    output_config = OUTPUT_TYPE_CONFIGS.get(output_type, OUTPUT_TYPE_CONFIGS["boolean"])
-    system_prompt = build_system_prompt(prompt, output_type)
-    response_format = output_config.response_format
+    # Build judge prompt based on allows_na config
+    type_config = get_output_type_config(allows_na)
+    system_prompt = build_system_prompt(prompt, allows_na)
+    response_format = type_config.response_format
 
     user_prompt = f"""Input: {input_data}
 
@@ -333,8 +337,8 @@ Output: {output_data}"""
     # Extract token usage from response
     usage = response.usage
 
-    # Build result dict based on output type
-    if output_type == "boolean_with_na" and isinstance(result, BooleanWithNAEvalResult):
+    # Build result dict based on allows_na config
+    if allows_na and isinstance(result, BooleanWithNAEvalResult):
         result_dict: dict[str, Any] = {
             "verdict": result.verdict,
             "reasoning": result.reasoning,
@@ -344,7 +348,7 @@ Output: {output_data}"""
             "total_tokens": usage.total_tokens if usage else 0,
             "is_byok": is_byok,
             "key_id": key_id,
-            "output_type": output_type,
+            "allows_na": allows_na,
         }
     elif isinstance(result, BooleanEvalResult):
         result_dict = {
@@ -355,7 +359,7 @@ Output: {output_data}"""
             "total_tokens": usage.total_tokens if usage else 0,
             "is_byok": is_byok,
             "key_id": key_id,
-            "output_type": output_type,
+            "allows_na": allows_na,
         }
     else:
         raise ValueError(f"Unexpected result type: {type(result)}")
@@ -380,14 +384,14 @@ async def emit_evaluation_event_activity(
             raise ValueError(f"Team {event_data['team_id']} not found")
 
         event_uuid = uuid.uuid4()
-        output_type = result.get("output_type", "boolean")
+        allows_na = result.get("allows_na", False)
 
         properties: dict[str, Any] = {
             "$ai_evaluation_id": evaluation["id"],
             "$ai_evaluation_name": evaluation["name"],
             "$ai_evaluation_model": DEFAULT_JUDGE_MODEL,
             "$ai_evaluation_start_time": start_time.isoformat(),
-            "$ai_evaluation_output_type": output_type,
+            "$ai_evaluation_allows_na": allows_na,
             "$ai_evaluation_reasoning": result["reasoning"],
             "$ai_target_event_id": event_data["uuid"],
             "$ai_target_event_type": event_data["event"],
@@ -396,8 +400,8 @@ async def emit_evaluation_event_activity(
             "$ai_evaluation_key_id": result.get("key_id"),
         }
 
-        # Handle result based on output type
-        if output_type == "boolean_with_na":
+        # Handle result based on allows_na config
+        if allows_na:
             applicable = result.get("applicable", True)
             properties["$ai_evaluation_applicable"] = applicable
             # Only set result when applicable

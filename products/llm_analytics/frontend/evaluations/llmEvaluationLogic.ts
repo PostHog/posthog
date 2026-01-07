@@ -11,7 +11,7 @@ import { Breadcrumb } from '~/types'
 import { queryEvaluationRuns } from '../utils'
 import type { llmEvaluationLogicType } from './llmEvaluationLogicType'
 import { EvaluationTemplateKey, defaultEvaluationTemplates } from './templates'
-import { EvaluationConditionSet, EvaluationConfig, EvaluationOutputType, EvaluationRun } from './types'
+import { EvaluationConditionSet, EvaluationConfig, EvaluationRun } from './types'
 
 export interface LLMEvaluationLogicProps {
     evaluationId: string
@@ -29,7 +29,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         setEvaluationDescription: (description: string) => ({ description }),
         setEvaluationPrompt: (prompt: string) => ({ prompt }),
         setEvaluationEnabled: (enabled: boolean) => ({ enabled }),
-        setEvaluationOutputType: (outputType: EvaluationOutputType) => ({ outputType }),
+        setAllowsNA: (allowsNA: boolean) => ({ allowsNA }),
         setTriggerConditions: (conditions: EvaluationConditionSet[]) => ({ conditions }),
 
         // Evaluation management actions
@@ -77,8 +77,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 setEvaluationPrompt: (state, { prompt }) =>
                     state ? { ...state, evaluation_config: { ...state.evaluation_config, prompt } } : null,
                 setEvaluationEnabled: (state, { enabled }) => (state ? { ...state, enabled } : null),
-                setEvaluationOutputType: (state, { outputType }) =>
-                    state ? { ...state, output_type: outputType } : null,
+                setAllowsNA: (state, { allowsNA }) =>
+                    state ? { ...state, output_config: { ...state.output_config, allows_na: allowsNA } } : null,
                 setTriggerConditions: (state, { conditions }) => (state ? { ...state, conditions } : null),
                 loadEvaluationSuccess: (_, { evaluation }) => evaluation,
                 saveEvaluationSuccess: (_, { evaluation }) => evaluation,
@@ -113,7 +113,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 setEvaluationDescription: () => true,
                 setEvaluationPrompt: () => true,
                 setEvaluationEnabled: () => true,
-                setEvaluationOutputType: () => true,
+                setAllowsNA: () => true,
                 setTriggerConditions: () => true,
                 saveEvaluationSuccess: () => false,
                 loadEvaluationSuccess: () => false,

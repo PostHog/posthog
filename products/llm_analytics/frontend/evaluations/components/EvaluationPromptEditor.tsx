@@ -14,8 +14,7 @@ export function EvaluationPromptEditor(): JSX.Element {
     }
 
     const prompt = evaluation.evaluation_config.prompt
-    const outputType = evaluation.output_type
-    const isBooleanWithNA = outputType === 'boolean_with_na'
+    const allowsNA = evaluation.output_config.allows_na ?? false
 
     return (
         <div className="space-y-4">
@@ -25,7 +24,7 @@ export function EvaluationPromptEditor(): JSX.Element {
                         value={prompt}
                         onChange={setEvaluationPrompt}
                         placeholder={
-                            isBooleanWithNA
+                            allowsNA
                                 ? `Write a prompt that evaluates the LLM generation and returns true, false, or N/A if the criteria doesn't apply.
 
 Example: Is this response mathematically accurate? Return true if correct, false if incorrect, or N/A if no math is involved.`
@@ -42,7 +41,7 @@ Example: Is this response helpful and accurate? Return true if yes, false if no.
                         <div className="flex items-center gap-2">
                             <span>Expected output:</span>
                             <LemonTag type="completion">
-                                {isBooleanWithNA ? 'Boolean (true/false/NA)' : 'Boolean (true/false)'}
+                                {allowsNA ? 'Boolean (true/false/NA)' : 'Boolean (true/false)'}
                             </LemonTag>
                         </div>
                     </div>
@@ -55,7 +54,7 @@ Example: Is this response helpful and accurate? Return true if yes, false if no.
                     <ul className="text-sm text-muted space-y-1 list-disc list-inside">
                         <li>Be specific about what you want to evaluate</li>
                         <li>
-                            {isBooleanWithNA ? (
+                            {allowsNA ? (
                                 <>
                                     Clearly instruct to return <code>true</code>, <code>false</code>, or{' '}
                                     <code>N/A</code> when criteria doesn't apply

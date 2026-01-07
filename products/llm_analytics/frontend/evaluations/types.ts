@@ -1,6 +1,10 @@
 import { AnyPropertyFilter } from '~/types'
 
-export type EvaluationOutputType = 'boolean' | 'boolean_with_na'
+export type EvaluationOutputType = 'boolean'
+
+export interface EvaluationOutputConfig {
+    allows_na?: boolean
+}
 
 export interface EvaluationConfig {
     id: string
@@ -12,7 +16,7 @@ export interface EvaluationConfig {
         prompt: string
     }
     output_type: EvaluationOutputType
-    output_config: Record<string, never>
+    output_config: EvaluationOutputConfig
     conditions: EvaluationConditionSet[]
     total_runs: number
     last_run_at?: string
