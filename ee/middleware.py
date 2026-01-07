@@ -34,6 +34,7 @@ class AdminOAuth2Middleware:
     SESSION_VERIFICATION_SECRET_KEY = "admin_verification_secret"
     SESSION_VERIFICATION_HASH_KEY = "admin_verification_hash"
     SESSION_STATE_KEY = "admin_oauth2_state"
+    SESSION_NONCE_KEY = "admin_oauth2_nonce"
     SESSION_ORIGINAL_PATH_KEY = "admin_oauth2_original_path"
 
     def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]):
@@ -108,7 +109,9 @@ class AdminOAuth2Middleware:
         self._clear_verification(request)
 
         state = secrets.token_urlsafe(32)
+        nonce = secrets.token_urlsafe(32)
         request.session[self.SESSION_STATE_KEY] = state
+        request.session[self.SESSION_NONCE_KEY] = nonce
 
         params = {
             "client_id": settings.ADMIN_AUTH_GOOGLE_OAUTH2_KEY,
@@ -116,6 +119,7 @@ class AdminOAuth2Middleware:
             "response_type": "code",
             "scope": "openid email",
             "state": state,
+            "nonce": nonce,
             "access_type": "online",
             "login_hint": cast(User, request.user).email,
         }
@@ -151,7 +155,7 @@ def admin_oauth2_callback(request: HttpRequest) -> HttpResponse:
     try:
         token_data = _exchange_code_for_token(request, code)
         id_token = token_data.get("id_token", "")
-        oauth_email = _get_email_from_id_token(id_token)
+        oauth_email, token_payload = _get_email_from_id_token(id_token)
         user_email = cast(User, request.user).email.lower()
 
         if not oauth_email or not user_email:
@@ -172,6 +176,13 @@ def admin_oauth2_callback(request: HttpRequest) -> HttpResponse:
             )
             return redirect("/")
 
+        # Validate nonce to prevent ID token replay attacks
+        saved_nonce = request.session.get(AdminOAuth2Middleware.SESSION_NONCE_KEY)
+        token_nonce = token_payload.get("nonce")
+        if not token_nonce or token_nonce != saved_nonce:
+            logger.error("admin_oauth2_invalid_nonce", user=request.user.email)
+            return redirect("/admin/")
+
         verification_secret = secrets.token_urlsafe(32)
 
         request.session[AdminOAuth2Middleware.SESSION_VERIFICATION_SECRET_KEY] = verification_secret
@@ -180,6 +191,7 @@ def admin_oauth2_callback(request: HttpRequest) -> HttpResponse:
             request
         )
         request.session.pop(AdminOAuth2Middleware.SESSION_STATE_KEY, None)
+        request.session.pop(AdminOAuth2Middleware.SESSION_NONCE_KEY, None)
 
         original_path = request.session.pop(AdminOAuth2Middleware.SESSION_ORIGINAL_PATH_KEY, "/admin/")
 
@@ -214,7 +226,8 @@ def _exchange_code_for_token(request: HttpRequest, code: str) -> dict:
     return response.json()
 
 
-def _get_email_from_id_token(id_token: str) -> str:
+def _get_email_from_id_token(id_token: str) -> tuple[str, dict]:
+    """Returns (email, payload) tuple. Empty email and empty dict on failure."""
     try:
         from jwt import PyJWKClient
 
@@ -235,8 +248,8 @@ def _get_email_from_id_token(id_token: str) -> str:
 
         # email should always be verified, but simple sanity check doesn't hurt
         if payload.get("email_verified"):
-            return payload.get("email", "").lower()
-        return ""
+            return payload.get("email", "").lower(), payload
+        return "", {}
     except Exception as e:
         logger.exception("admin_oauth2_id_token_decode_error", error=str(e))
-        return ""
+        return "", {}
