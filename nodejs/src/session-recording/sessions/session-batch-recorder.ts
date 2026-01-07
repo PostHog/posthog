@@ -66,6 +66,7 @@ export class SessionBatchRecorder {
     private _size: number = 0
     private readonly batchId: string
     private readonly rateLimiter: SessionRateLimiter
+    private readonly sessionRateLimitEnabled: boolean
 
     constructor(
         private readonly offsetManager: KafkaOffsetManager,
@@ -73,11 +74,13 @@ export class SessionBatchRecorder {
         private readonly metadataStore: SessionMetadataStore,
         private readonly consoleLogStore: SessionConsoleLogStore,
         private readonly sessionTracker: SessionTracker,
-        maxEventsPerSessionPerBatch: number = Number.MAX_SAFE_INTEGER
+        maxEventsPerSessionPerBatch: number = Number.MAX_SAFE_INTEGER,
+        sessionRateLimitEnabled: boolean = false
     ) {
         this.batchId = uuidv7()
         this.rateLimiter = new SessionRateLimiter(maxEventsPerSessionPerBatch)
-        logger.debug('🔁', 'session_batch_recorder_created', { batchId: this.batchId })
+        this.sessionRateLimitEnabled = sessionRateLimitEnabled
+        logger.debug('🔁', 'session_batch_recorder_created', { batchId: this.batchId, sessionRateLimitEnabled })
     }
 
     /**
@@ -102,13 +105,18 @@ export class SessionBatchRecorder {
                 sessionId,
                 teamId,
                 batchId: this.batchId,
+                sessionRateLimitEnabled: this.sessionRateLimitEnabled,
             })
             SessionBatchMetrics.incrementNewSessionsRateLimited()
-            this.offsetManager.trackOffset({
-                partition: message.message.metadata.partition,
-                offset: message.message.metadata.offset,
-            })
-            return 0
+
+            // Only drop messages if rate limiting is enabled
+            if (this.sessionRateLimitEnabled) {
+                this.offsetManager.trackOffset({
+                    partition: message.message.metadata.partition,
+                    offset: message.message.metadata.offset,
+                })
+                return 0
+            }
         }
 
         const isEventAllowed = this.rateLimiter.handleMessage(teamSessionKey, partition, message.message)

@@ -23,6 +23,8 @@ export interface SessionBatchManagerConfig {
     consoleLogStore: SessionConsoleLogStore
     /** Session tracker for new session detection */
     sessionTracker: SessionTracker
+    /** When true, rate limiting will drop messages that exceed the limit */
+    sessionRateLimitEnabled: boolean
 }
 
 /**
@@ -70,6 +72,7 @@ export class SessionBatchManager {
     private readonly consoleLogStore: SessionConsoleLogStore
     private lastFlushTime: number
     private readonly sessionTracker: SessionTracker
+    private readonly sessionRateLimitEnabled: boolean
 
     constructor(config: SessionBatchManagerConfig) {
         this.maxBatchSizeBytes = config.maxBatchSizeBytes
@@ -80,6 +83,7 @@ export class SessionBatchManager {
         this.metadataStore = config.metadataStore
         this.consoleLogStore = config.consoleLogStore
         this.sessionTracker = config.sessionTracker
+        this.sessionRateLimitEnabled = config.sessionRateLimitEnabled
 
         this.currentBatch = new SessionBatchRecorder(
             this.offsetManager,
@@ -87,7 +91,8 @@ export class SessionBatchManager {
             this.metadataStore,
             this.consoleLogStore,
             this.sessionTracker,
-            this.maxEventsPerSessionPerBatch
+            this.maxEventsPerSessionPerBatch,
+            this.sessionRateLimitEnabled
         )
         this.lastFlushTime = Date.now()
     }
@@ -111,7 +116,8 @@ export class SessionBatchManager {
             this.metadataStore,
             this.consoleLogStore,
             this.sessionTracker,
-            this.maxEventsPerSessionPerBatch
+            this.maxEventsPerSessionPerBatch,
+            this.sessionRateLimitEnabled
         )
         this.lastFlushTime = Date.now()
     }

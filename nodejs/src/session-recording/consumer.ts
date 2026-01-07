@@ -218,6 +218,7 @@ export class SessionRecordingIngester {
             metadataStore,
             consoleLogStore,
             sessionTracker,
+            sessionRateLimitEnabled: this.hub.SESSION_RECORDING_NEW_SESSION_RATE_LIMIT_ENABLED,
         })
     }
 

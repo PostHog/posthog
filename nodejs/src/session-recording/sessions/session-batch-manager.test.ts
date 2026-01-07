@@ -71,6 +71,7 @@ describe('SessionBatchManager', () => {
             metadataStore: mockMetadataStore,
             consoleLogStore: mockConsoleLogStore,
             sessionTracker: mockSessionTracker,
+            sessionRateLimitEnabled: false,
         })
     })
 
@@ -89,7 +90,8 @@ describe('SessionBatchManager', () => {
             mockMetadataStore,
             mockConsoleLogStore,
             mockSessionTracker,
-            Number.MAX_SAFE_INTEGER
+            Number.MAX_SAFE_INTEGER,
+            false
         )
 
         const secondBatch = manager.getCurrentBatch()
@@ -168,6 +170,7 @@ describe('SessionBatchManager', () => {
                 metadataStore: mockMetadataStore,
                 consoleLogStore: mockConsoleLogStore,
                 sessionTracker: mockSessionTracker,
+                sessionRateLimitEnabled: false,
             })
 
             expect(SessionBatchRecorder).toHaveBeenCalledWith(
@@ -176,7 +179,8 @@ describe('SessionBatchManager', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockSessionTracker,
-                500
+                500,
+                false
             )
         })
 
@@ -190,6 +194,7 @@ describe('SessionBatchManager', () => {
                 metadataStore: mockMetadataStore,
                 consoleLogStore: mockConsoleLogStore,
                 sessionTracker: mockSessionTracker,
+                sessionRateLimitEnabled: false,
             })
 
             await manager.flush()
@@ -200,7 +205,8 @@ describe('SessionBatchManager', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockSessionTracker,
-                250
+                250,
+                false
             )
         })
 
@@ -214,6 +220,7 @@ describe('SessionBatchManager', () => {
                 metadataStore: mockMetadataStore,
                 consoleLogStore: mockConsoleLogStore,
                 sessionTracker: mockSessionTracker,
+                sessionRateLimitEnabled: false,
             })
 
             expect(SessionBatchRecorder).toHaveBeenCalledWith(
@@ -222,7 +229,8 @@ describe('SessionBatchManager', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockSessionTracker,
-                0
+                0,
+                false
             )
         })
 
@@ -236,6 +244,7 @@ describe('SessionBatchManager', () => {
                 metadataStore: mockMetadataStore,
                 consoleLogStore: mockConsoleLogStore,
                 sessionTracker: mockSessionTracker,
+                sessionRateLimitEnabled: false,
             })
 
             expect(SessionBatchRecorder).toHaveBeenCalledWith(
@@ -244,7 +253,8 @@ describe('SessionBatchManager', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockSessionTracker,
-                Number.MAX_SAFE_INTEGER
+                Number.MAX_SAFE_INTEGER,
+                false
             )
         })
     })
