@@ -107,7 +107,8 @@ class TestDynamicClientRegistration(APIBaseTest):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["error"], "invalid_client_metadata")
+        # Model validation returns invalid_redirect_uri
+        self.assertEqual(response.json()["error"], "invalid_redirect_uri")
 
     def test_register_missing_redirect_uris(self):
         response = self.client.post(
