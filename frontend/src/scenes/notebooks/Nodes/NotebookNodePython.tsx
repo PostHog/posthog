@@ -9,7 +9,7 @@ import { notebookNodeLogic } from './notebookNodeLogic'
 type NotebookNodePythonAttributes = {
     code: string
     globalsUsed?: string[]
-    globalsExported?: string[]
+    globalsExportedWithTypes?: { name: string; type: string }[]
 }
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodePythonAttributes>): JSX.Element | null => {
@@ -24,7 +24,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePythonAttribute
         <div data-attr="notebook-node-python">
             <pre>We should run this code: {attributes.code}</pre>
             <pre>Globals used: {JSON.stringify(attributes.globalsUsed)}</pre>
-            <pre>Globals exported: {JSON.stringify(attributes.globalsExported)}</pre>
+            <pre>Globals exported with types: {JSON.stringify(attributes.globalsExportedWithTypes)}</pre>
         </div>
     )
 }
@@ -61,7 +61,7 @@ export const NotebookNodePython = createPostHogWidgetNode<NotebookNodePythonAttr
         globalsUsed: {
             default: [],
         },
-        globalsExported: {
+        globalsExportedWithTypes: {
             default: [],
         },
     },

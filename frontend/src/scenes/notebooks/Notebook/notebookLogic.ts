@@ -314,6 +314,17 @@ export const notebookLogic = kea<notebookLogicType>([
                             title: notebook.title,
                         })
 
+                        if (
+                            response.content &&
+                            values.editor &&
+                            values.localContent &&
+                            notebook.content === values.localContent
+                        ) {
+                            const currentPosition = values.editor.getCurrentPosition()
+                            values.editor.setContent(response.content)
+                            values.editor.setTextSelection(currentPosition)
+                        }
+
                         // If the object is identical then no edits were made, so we can safely clear the local changes
                         if (notebook.content === values.localContent) {
                             actions.clearLocalContent()

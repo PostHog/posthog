@@ -207,7 +207,10 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_201_CREATED
         attrs = response.json()["content"]["content"][0]["attrs"]
         assert attrs["globalsUsed"] == ["count"]
-        assert attrs["globalsExported"] == ["result", "value"]
+        assert attrs["globalsExportedWithTypes"] == [
+            {"name": "result", "type": "unknown"},
+            {"name": "value", "type": "unknown"},
+        ]
 
     def test_listing_does_not_leak_between_teams(self) -> None:
         another_team = Team.objects.create(organization=self.organization)

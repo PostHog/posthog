@@ -7,6 +7,7 @@ from typing import Any
 class PythonGlobalsAnalysis:
     used: list[str]
     exported: list[str]
+    exported_with_types: list[dict[str, str]]
 
 
 class LocalAssignmentCollector(ast.NodeVisitor):
@@ -208,24 +209,97 @@ def extract_target_names(target: ast.AST) -> set[str]:
     return names
 
 
+def annotation_to_string(annotation: ast.AST) -> str:
+    if hasattr(ast, "unparse"):
+        return ast.unparse(annotation)
+    return "unknown"
+
+
+def dotted_name(value: ast.AST) -> str | None:
+    if isinstance(value, ast.Name):
+        return value.id
+    if isinstance(value, ast.Attribute):
+        base = dotted_name(value.value)
+        if base:
+            return f"{base}.{value.attr}"
+        return value.attr
+    return None
+
+
+def infer_value_type(value: ast.AST) -> str:
+    if isinstance(value, ast.Constant):
+        if value.value is None:
+            return "None"
+        return type(value.value).__name__
+    if isinstance(value, ast.List | ast.ListComp):
+        return "list"
+    if isinstance(value, ast.Tuple):
+        return "tuple"
+    if isinstance(value, ast.Dict | ast.DictComp):
+        return "dict"
+    if isinstance(value, ast.Set | ast.SetComp):
+        return "set"
+    if isinstance(value, ast.GeneratorExp):
+        return "generator"
+    if isinstance(value, ast.Call):
+        call_name = dotted_name(value.func)
+        if call_name in {"list", "dict", "set", "tuple", "int", "float", "str", "bool"}:
+            return call_name
+    return "unknown"
+
+
+def collect_exported_types(body: list[ast.stmt]) -> dict[str, str]:
+    exported_types: dict[str, str] = {}
+
+    for statement in body:
+        if isinstance(statement, ast.Assign):
+            type_name = infer_value_type(statement.value)
+            for target in statement.targets:
+                for name in extract_target_names(target):
+                    exported_types[name] = type_name
+        elif isinstance(statement, ast.AnnAssign):
+            type_name = annotation_to_string(statement.annotation)
+            if type_name == "unknown" and statement.value:
+                type_name = infer_value_type(statement.value)
+            for name in extract_target_names(statement.target):
+                exported_types[name] = type_name
+        elif isinstance(statement, ast.AugAssign):
+            for name in extract_target_names(statement.target):
+                exported_types.setdefault(name, "unknown")
+        elif isinstance(statement, ast.Import):
+            for alias in statement.names:
+                name = alias.asname or alias.name.split(".")[0]
+                exported_types.setdefault(name, "module")
+        elif isinstance(statement, ast.ImportFrom):
+            for alias in statement.names:
+                name = alias.asname or alias.name
+                exported_types.setdefault(name, "module")
+
+    return exported_types
+
+
 def analyze_python_globals(code: str) -> PythonGlobalsAnalysis:
     if not code or not code.strip():
-        return PythonGlobalsAnalysis(used=[], exported=[])
+        return PythonGlobalsAnalysis(used=[], exported=[], exported_with_types=[])
 
     try:
         tree = ast.parse(code)
     except SyntaxError:
-        return PythonGlobalsAnalysis(used=[], exported=[])
+        return PythonGlobalsAnalysis(used=[], exported=[], exported_with_types=[])
 
     module_locals = collect_scope_locals(tree.body)
     builtins_obj = __builtins__
     builtins = set(builtins_obj.keys()) if isinstance(builtins_obj, dict) else set(dir(builtins_obj))
     analyzer = GlobalAnalyzer(module_locals, builtins)
     analyzer.visit(tree)
+    exported_types = collect_exported_types(tree.body)
+    exported_with_types = [
+        {"name": name, "type": exported_types.get(name, "unknown")} for name in sorted(module_locals)
+    ]
 
     return PythonGlobalsAnalysis(
         used=sorted(analyzer.used),
-        exported=sorted(module_locals),
+        exported_with_types=exported_with_types,
     )
 
 
@@ -247,7 +321,7 @@ def annotate_python_nodes(content: dict[str, Any]) -> dict[str, Any]:
                     attrs = {
                         **attrs,
                         "globalsUsed": analysis.used,
-                        "globalsExported": analysis.exported,
+                        "globalsExportedWithTypes": analysis.exported_with_types,
                     }
                     node = {**node, "attrs": attrs}
 
