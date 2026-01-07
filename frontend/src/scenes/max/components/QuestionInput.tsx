@@ -81,14 +81,12 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         setShowAutocomplete(isSlashCommand)
     }, [question, showAutocomplete])
 
-    let disabledReason = !threadLoading
-        ? !dataProcessingAccepted
-            ? 'Pending approval'
-            : submissionDisabledReason
-        : undefined
+    const pendingApproval = !dataProcessingAccepted && !threadLoading
+    let disabledReason = !threadLoading ? submissionDisabledReason : undefined
     if (cancelLoading) {
         disabledReason = 'Cancelling...'
     }
+    const tooltipReason = pendingApproval ? 'Pending approval' : disabledReason
 
     useEffect(() => {
         if (!streamingActive && textAreaRef?.current) {
@@ -223,8 +221,8 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                     askMax(question)
                                 }}
                                 tooltip={
-                                    disabledReason ? (
-                                        disabledReason
+                                    tooltipReason ? (
+                                        tooltipReason
                                     ) : threadLoading ? (
                                         <>
                                             Let's bail <KeyboardShortcut enter />
@@ -237,7 +235,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                 }
                                 loading={threadLoading && !dataProcessingAccepted}
                                 disabledReason={disabledReason}
-                                className={disabledReason ? 'opacity-[0.5]' : ''}
+                                className={tooltipReason ? 'opacity-[0.5]' : ''}
                                 size="small"
                                 icon={
                                     threadLoading ? (
@@ -270,6 +268,9 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                     </div>
                 )}
             </div>
+            <p className="w-full flex text-xs text-muted mt-1">
+                <span className="mx-auto">PostHog AI can make mistakes. Please double-check responses.</span>
+            </p>
         </div>
     )
 })

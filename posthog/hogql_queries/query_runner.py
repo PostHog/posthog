@@ -17,6 +17,9 @@ from posthog.schema import (
     ChartDisplayType,
     DashboardFilter,
     DateRange,
+    EndpointsUsageOverviewQuery,
+    EndpointsUsageTableQuery,
+    EndpointsUsageTrendsQuery,
     EventsQuery,
     EventTaxonomyQuery,
     ExperimentExposureQuery,
@@ -181,6 +184,9 @@ RunnableQueryNode = Union[
     MarketingAnalyticsAggregatedQuery,
     ActorsPropertyTaxonomyQuery,
     UsageMetricsQuery,
+    EndpointsUsageOverviewQuery,
+    EndpointsUsageTableQuery,
+    EndpointsUsageTrendsQuery,
 ]
 
 
@@ -780,6 +786,39 @@ def get_query_runner(
         from products.customer_analytics.backend.hogql_queries.usage_metrics_query_runner import UsageMetricsQueryRunner
 
         return UsageMetricsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "EndpointsUsageOverviewQuery":
+        from .endpoints.endpoints_usage_overview import EndpointsUsageOverviewQueryRunner
+
+        return EndpointsUsageOverviewQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "EndpointsUsageTableQuery":
+        from .endpoints.endpoints_usage_table import EndpointsUsageTableQueryRunner
+
+        return EndpointsUsageTableQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "EndpointsUsageTrendsQuery":
+        from .endpoints.endpoints_usage_trends import EndpointsUsageTrendsQueryRunner
+
+        return EndpointsUsageTrendsQueryRunner(
             query=query,
             team=team,
             timings=timings,

@@ -295,6 +295,20 @@ impl Client for RedisClient {
         Ok(Self::try_decompress(raw_bytes))
     }
 
+    async fn set_bytes(
+        &self,
+        k: String,
+        v: Vec<u8>,
+        ttl_seconds: Option<u64>,
+    ) -> Result<(), CustomRedisError> {
+        let mut conn = self.connection.clone();
+        match ttl_seconds {
+            Some(ttl) => conn.set_ex::<_, _, ()>(k, v, ttl).await?,
+            None => conn.set::<_, _, ()>(k, v).await?,
+        }
+        Ok(())
+    }
+
     async fn set(&self, k: String, v: String) -> Result<(), CustomRedisError> {
         self.set_with_format(k, v, self.format).await
     }
@@ -416,12 +430,12 @@ impl Client for RedisClient {
         Ok(result)
     }
 
-    async fn mget(&self, keys: Vec<String>) -> Result<Vec<Option<i64>>, CustomRedisError> {
+    async fn mget(&self, keys: Vec<String>) -> Result<Vec<Option<Vec<u8>>>, CustomRedisError> {
         if keys.is_empty() {
             return Ok(vec![]);
         }
         let mut conn = self.connection.clone();
-        let results: Vec<Option<i64>> = conn.mget(&keys).await?;
+        let results: Vec<Option<Vec<u8>>> = conn.mget(&keys).await?;
         Ok(results)
     }
 }

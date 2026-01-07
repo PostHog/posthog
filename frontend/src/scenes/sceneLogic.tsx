@@ -269,9 +269,7 @@ export const productUrlMapping: Partial<Record<ProductKey, string[]>> = {
 const productsNotDependingOnEventIngestion: ProductKey[] = [ProductKey.DATA_WAREHOUSE]
 
 const pathPrefixesOnboardingNotRequiredFor = [
-    urls.onboarding(''),
-    urls.useCaseSelection(),
-    urls.products(),
+    urls.onboarding(),
     '/settings',
     urls.organizationBilling(),
     urls.billingAuthorizationStatus(),
@@ -1039,7 +1037,8 @@ export const sceneLogic = kea<sceneLogicType>([
                 !equal(lastParams.params, params.params) ||
                 JSON.stringify(lastParams.searchParams) !== JSON.stringify(params.searchParams) // `equal` crashes here
             ) {
-                posthog.capture('$pageview')
+                const productKey = values.productFromUrl
+                posthog.capture('$pageview', productKey ? { product_key: productKey } : undefined)
             }
 
             if (tabId !== lastTabId) {
@@ -1167,11 +1166,11 @@ export const sceneLogic = kea<sceneLogicType>([
                                 // Check if user is coming from a coupon campaign link
                                 const campaign = nextUrl ? parseCouponCampaign(nextUrl) : null
                                 if (campaign) {
-                                    router.actions.replace(urls.onboardingCoupon(campaign), { next: nextUrl })
+                                    router.actions.replace(urls.onboarding({ campaign }), { next: nextUrl })
                                     return
                                 }
 
-                                router.actions.replace(urls.useCaseSelection(), nextUrl ? { next: nextUrl } : undefined)
+                                router.actions.replace(urls.onboarding(), nextUrl ? { next: nextUrl } : undefined)
                                 return
                             }
 
@@ -1190,7 +1189,10 @@ export const sceneLogic = kea<sceneLogicType>([
                                     )
 
                                     router.actions.replace(
-                                        urls.onboarding(productKeyFromUrl, OnboardingStepKey.INSTALL)
+                                        urls.onboarding({
+                                            productKey: productKeyFromUrl,
+                                            stepKey: OnboardingStepKey.INSTALL,
+                                        })
                                     )
                                     return
                                 }

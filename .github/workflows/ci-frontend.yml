@@ -24,9 +24,9 @@ jobs:
         steps:
             # For pull requests it's not necessary to check out the code, but we
             # also want this to run on master, so we need to check out
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
 
-            - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
+            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
               id: filter
               if: github.event_name != 'push' # Run all tests on master push
               with:
@@ -66,10 +66,10 @@ jobs:
         if: needs.changes.outputs.frontend == 'true'
         runs-on: depot-ubuntu-24.04
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
 
             - name: Install pnpm
-              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
 
             - name: Set up Node.js
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
@@ -106,7 +106,45 @@ jobs:
         if: needs.changes.outputs.frontend == 'true' && github.event_name != 'merge_group'
         runs-on: depot-ubuntu-24.04
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
+            - name: Install pnpm
+              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+
+            - name: Set up Node.js
+              uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
+              with:
+                  node-version: 22.17.1
+                  cache: 'pnpm'
+
+            - name: Install package.json dependencies with pnpm
+              run: |
+                  pnpm --filter=@posthog/playwright... install --frozen-lockfile
+                  bin/turbo --filter=@posthog/frontend prepare
+
+            - name: Build products
+              run: pnpm --filter=@posthog/frontend build:products
+
+            - name: Check toolbar bundle size
+              uses: preactjs/compressed-size-action@8518045ed95e94e971b83333085e1cb99aa18aa8 # 2.9.0
+              if: github.event_name != 'merge_group'
+              with:
+                  build-script: '--filter=@posthog/frontend build'
+                  install-script: 'pnpm --filter=@posthog/frontend... install'
+                  compression: 'none'
+                  pattern: 'frontend/dist/toolbar.js'
+                  # we only care if the toolbar will increase a lot
+                  minimum-change-threshold: 1000
+
+            - name: Check toolbar for CSP eval violations
+              run: pnpm --filter=@posthog/frontend check-toolbar-csp-eval
+
+    frontend-bundle-size:
+        name: Frontend bundle size
+        needs: [changes]
+        if: needs.changes.outputs.frontend == 'true' && github.event_name == 'pull_request'
+        runs-on: depot-ubuntu-24.04
+        steps:
+            - uses: actions/checkout@v6
             - name: Install pnpm
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
@@ -124,19 +162,18 @@ jobs:
             - name: Build products
               run: pnpm --filter=@posthog/frontend build:products
 
-            - name: Check toolbar bundle size
+            - name: Check frontend bundle size
               uses: preactjs/compressed-size-action@946a292cd35bd1088e0d7eb92b69d1a8d5b5d76a # v2
-              if: github.event_name != 'merge_group'
               with:
                   build-script: '--filter=@posthog/frontend build'
                   install-script: 'pnpm --filter=@posthog/frontend... install'
                   compression: 'none'
-                  pattern: 'frontend/dist/toolbar.js'
-                  # we only care if the toolbar will increase a lot
+                  # Check all JS bundles in the dist folder
+                  pattern: 'frontend/dist/*.js'
+                  # Exclude source maps
+                  exclude: 'frontend/dist/*.js.map'
+                  # Only show large changes
                   minimum-change-threshold: 1000
-
-            - name: Check toolbar for CSP eval violations
-              run: pnpm --filter=@posthog/frontend check-toolbar-csp-eval
 
     frontend-typescript-checks:
         name: Frontend typechecking
@@ -144,10 +181,10 @@ jobs:
         if: needs.changes.outputs.frontend == 'true'
         runs-on: depot-ubuntu-24.04-4
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
 
             - name: Install pnpm
-              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
 
             - name: Set up Node.js
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
@@ -161,7 +198,7 @@ jobs:
                   bin/turbo --filter=@posthog/frontend prepare
 
             - name: Cache .typegen
-              uses: actions/cache@v4
+              uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
               with:
                   path: .typegen
                   key: ${{ runner.os }}-typegen-${{ hashFiles('pnpm-lock.yaml') }}
@@ -201,14 +238,14 @@ jobs:
                 chunk: [1, 2, 3]
 
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
 
             - name: Remove ee
               if: matrix.segment == 'FOSS'
               run: rm -rf ee
 
             - name: Install pnpm
-              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
 
             - name: Set up Node.js
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
@@ -260,7 +297,7 @@ jobs:
 
             - name: Capture running time to PostHog
               if: needs.changes.outputs.frontend == 'true'
-              uses: PostHog/posthog-github-action@v0.1
+              uses: PostHog/posthog-github-action@8c42e50f2c52e002eabb9bee3f69b152ee8fc1dd # v1.0.1
               with:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
                   event: 'posthog-ci-running-time'

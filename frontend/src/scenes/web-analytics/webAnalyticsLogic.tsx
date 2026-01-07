@@ -1045,6 +1045,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         layout: {
                             colSpanClassName: 'md:col-span-full',
                             orderWhenLargeClassName: 'xxl:order-0',
+                            className: '-mt-2',
                         },
                         query: {
                             kind: NodeKind.WebOverviewQuery,
@@ -2003,6 +2004,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             // These tabs don't support any filters, so we can just return the base path to keep the url clean
             if (productTab === ProductTab.HEALTH) {
                 return '/web/health'
+            } else if (productTab === ProductTab.LIVE) {
+                return '/web/live'
             }
 
             // Make sure we're storing the raw filters only, or else we'll have issues with the domain/device type filters
@@ -2125,9 +2128,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }: Record<string, any>
         ): void => {
             if (
-                ![ProductTab.ANALYTICS, ProductTab.WEB_VITALS, ProductTab.PAGE_REPORTS, ProductTab.HEALTH].includes(
-                    productTab
-                )
+                ![
+                    ProductTab.ANALYTICS,
+                    ProductTab.WEB_VITALS,
+                    ProductTab.PAGE_REPORTS,
+                    ProductTab.HEALTH,
+                    ProductTab.LIVE,
+                ].includes(productTab)
             ) {
                 return
             }

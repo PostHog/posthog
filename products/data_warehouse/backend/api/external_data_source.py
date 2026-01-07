@@ -139,6 +139,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "source_type",
             "latest_error",
             "prefix",
+            "description",
             "last_run_at",
             "schemas",
             "job_inputs",
@@ -218,13 +219,15 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             # Reconstruct ssh_tunnel (if needed) structure for UI handling
             if "ssh_tunnel" in job_inputs and isinstance(job_inputs["ssh_tunnel"], dict):
                 existing_ssh_tunnel: dict = job_inputs["ssh_tunnel"]
-                existing_auth: dict = existing_ssh_tunnel.get("auth", {})
+                # Check both 'auth' (new format) and 'auth_type' (legacy format from migration 0807)
+                existing_auth: dict = existing_ssh_tunnel.get("auth") or existing_ssh_tunnel.get("auth_type") or {}
                 ssh_tunnel = {
                     "enabled": existing_ssh_tunnel.get("enabled", False),
                     "host": existing_ssh_tunnel.get("host", None),
                     "port": existing_ssh_tunnel.get("port", None),
                     "auth": {
-                        "selection": existing_auth.get("type", None),
+                        # Check both 'type' (new format) and 'selection' (legacy format)
+                        "selection": existing_auth.get("type") or existing_auth.get("selection"),
                         "username": existing_auth.get("username", None),
                         # Note: password, passphrase, private_key intentionally omitted
                         # to prevent them being sent back as null and overwriting stored values
@@ -295,20 +298,27 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
 
         # Preserve sensitive credentials not explicitly provided (API response omits them for security)
         for key in password_fields:
-            if existing_job_inputs.get(key) and (key not in incoming_job_inputs or incoming_job_inputs[key] is None):
+            if existing_job_inputs.get(key) and not incoming_job_inputs.get(key):
                 new_job_inputs[key] = existing_job_inputs[key]
 
         # SSH tunnel auth is a special config not exposed in source fields - preserve its credentials too
-        if "ssh_tunnel" in existing_job_inputs and "ssh_tunnel" in incoming_job_inputs:
-            existing_auth = (existing_job_inputs.get("ssh_tunnel") or {}).get("auth") or {}
-            incoming_ssh_tunnel = incoming_job_inputs.get("ssh_tunnel") or {}
-            incoming_auth = incoming_ssh_tunnel.get("auth") or incoming_ssh_tunnel.get("auth_type") or {}
+        existing_ssh_tunnel = existing_job_inputs.get("ssh_tunnel")
+        incoming_ssh_tunnel = incoming_job_inputs.get("ssh_tunnel")
+        if existing_ssh_tunnel and incoming_ssh_tunnel is not None:
+            # Check both 'auth' (new format) and 'auth_type' (legacy format from migration 0807)
+            existing_auth = (
+                (existing_ssh_tunnel or {}).get("auth") or (existing_ssh_tunnel or {}).get("auth_type") or {}
+            )
+            incoming_auth = (
+                (incoming_ssh_tunnel or {}).get("auth") or (incoming_ssh_tunnel or {}).get("auth_type") or {}
+            )
 
-            new_ssh_tunnel = new_job_inputs.setdefault("ssh_tunnel", {})
+            new_ssh_tunnel = new_job_inputs.get("ssh_tunnel") or {}
+            new_job_inputs["ssh_tunnel"] = new_ssh_tunnel
             new_auth = new_ssh_tunnel.setdefault("auth", {})
 
             for key in ("password", "passphrase", "private_key"):
-                if existing_auth.get(key) and (key not in incoming_auth or incoming_auth[key] is None):
+                if existing_auth.get(key) and not incoming_auth.get(key):
                     new_auth[key] = existing_auth[key]
 
         is_valid, errors = source.validate_config(new_job_inputs)
@@ -389,6 +399,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         prefix = request.data.get("prefix", None)
+        description = request.data.get("description", None)
         source_type = request.data["source_type"]
 
         # Validate prefix characters
@@ -438,6 +449,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             source_type=source_type_model,
             job_inputs=source_config.to_dict(),
             prefix=prefix,
+            description=description,
         )
 
         source_schemas = source.get_schemas(source_config, self.team_id)
@@ -733,6 +745,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 class ExternalDataSourceContext(ActivityContextBase):
     source_type: str
     prefix: str | None
+    description: str | None
     created_by_user_id: str | None
     created_by_user_email: str | None
     created_by_user_name: str | None
@@ -756,6 +769,7 @@ def handle_external_data_source_change(
     context = ExternalDataSourceContext(
         source_type=external_data_source.source_type or "",
         prefix=external_data_source.prefix,
+        description=external_data_source.description,
         created_by_user_id=created_by_user_id,
         created_by_user_email=created_by_user_email,
         created_by_user_name=created_by_user_name,
