@@ -6,7 +6,7 @@ import { PersonModeEventPropertyInstructions } from '../shared-snippets'
 function LaravelCaptureSnippet(): JSX.Element {
     return (
         <CodeSnippet language={Language.PHP}>
-            {"PostHog::capture(array(\n    'distinctId' => 'test-user',\n    'event' => 'test-event'\n));"}
+            {"PostHog::capture([\n    'distinctId' => 'test-user',\n    'event' => 'test-event'\n]);"}
         </CodeSnippet>
     )
 }
