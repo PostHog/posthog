@@ -108,7 +108,10 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                         <>
                             Go to the{' '}
                             <Link
-                                to={urls.onboarding(ProductKey.PRODUCT_ANALYTICS, OnboardingStepKey.INSTALL)}
+                                to={urls.onboarding({
+                                    productKey: ProductKey.PRODUCT_ANALYTICS,
+                                    stepKey: OnboardingStepKey.INSTALL,
+                                })}
                                 data-attr="real_project_with_no_events-ingestion_link"
                             >
                                 onboarding wizard

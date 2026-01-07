@@ -13,6 +13,7 @@ from posthog.api import (
 )
 from posthog.api.batch_imports import BatchImportViewSet
 from posthog.api.csp_reporting import CSPReportingViewSet
+from posthog.api.onboarding import OnboardingViewSet
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.api.wizard import http as wizard
 from posthog.approvals import api as approval_api
@@ -79,6 +80,7 @@ from ee.api.vercel import vercel_installation, vercel_product, vercel_proxy, ver
 
 from ..heatmaps.heatmaps_api import HeatmapScreenshotViewSet, HeatmapViewSet, LegacyHeatmapViewSet, SavedHeatmapViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
+from ..session_recordings.session_recording_external_reference_api import SessionRecordingExternalReferenceViewSet
 from ..session_recordings.session_recording_playlist_api import SessionRecordingPlaylistViewSet
 from ..taxonomy import property_definition_api
 from . import (
@@ -629,6 +631,13 @@ environment_sessions_recordings_router, legacy_project_session_recordings_router
     )
 )
 
+environments_router.register(
+    r"session_recording_external_references",
+    SessionRecordingExternalReferenceViewSet,
+    "environment_session_recording_external_references",
+    ["team_id"],
+)
+
 register_grandfathered_environment_nested_viewset(
     r"session_recording_playlists",
     SessionRecordingPlaylistViewSet,
@@ -1023,6 +1032,13 @@ environments_router.register(
     r"csp-reporting",
     CSPReportingViewSet,
     "environment_csp_reporting",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"onboarding",
+    OnboardingViewSet,
+    "environment_onboarding",
     ["team_id"],
 )
 

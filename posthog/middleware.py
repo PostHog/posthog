@@ -1,4 +1,5 @@
 import re
+import json
 import time
 import uuid
 from collections.abc import Callable
@@ -875,10 +876,10 @@ def is_read_only_impersonation(request: HttpRequest) -> bool:
 # HTTP methods that are considered idempotent/safe and allowed during impersonation
 IMPERSONATION_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})
 
-# Paths that are allowed for non-idempotent requests during impersonation.
+# Paths that are allowed for non-idempotent requests during read-only impersonation.
 # These should be paths that are safe or necessary for the impersonated session to function.
 # Supports both prefix strings and compiled regex patterns.
-IMPERSONATION_ALLOWLISTED_PATHS: list[str | re.Pattern] = [
+READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[str | re.Pattern] = [
     # These endpoints use POST but are read-only
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/query/?$"),
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/insights/viewed/?$"),
@@ -897,7 +898,7 @@ class ImpersonationReadOnlyMiddleware:
     to prevent unintended modifications to the impersonated user's data.
 
     Safe methods (GET, HEAD, OPTIONS, TRACE) are always allowed.
-    Specific paths can be allowlisted via IMPERSONATION_ALLOWLISTED_PATHS.
+    Specific paths can be allowlisted via READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS.
     """
 
     def __init__(self, get_response):
@@ -923,13 +924,74 @@ class ImpersonationReadOnlyMiddleware:
         )
 
     def _is_path_allowlisted(self, path: str) -> bool:
-        for allowed_path in IMPERSONATION_ALLOWLISTED_PATHS:
+        for allowed_path in READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS:
             if isinstance(allowed_path, re.Pattern):
                 if allowed_path.match(path):
                     return True
             elif path.startswith(allowed_path):
                 return True
         return False
+
+
+IMPERSONATION_BLOCKED_PATHS: list[str] = [
+    "/api/users/",
+    "/api/personal_api_keys/",
+]
+
+
+class ImpersonationBlockedPathsMiddleware:
+    """
+    Blocks non-idempotent requests to specific paths during any impersonation session.
+
+    Paths in IMPERSONATION_BLOCKED_PATHS are restricted to read-only access
+    when a staff user is impersonating another user.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest):
+        if not is_impersonated_session(request):
+            return self.get_response(request)
+
+        if request.method in IMPERSONATION_SAFE_METHODS:
+            return self.get_response(request)
+
+        if not self._is_path_blocked(request.path):
+            return self.get_response(request)
+
+        if self._is_allowed_users_request(request):
+            return self.get_response(request)
+
+        return JsonResponse(
+            {
+                "type": "authentication_error",
+                "code": "impersonation_path_blocked",
+                "detail": "This action is not allowed during impersonation.",
+            },
+            status=403,
+        )
+
+    def _is_path_blocked(self, path: str) -> bool:
+        return any(path.startswith(blocked_path) for blocked_path in IMPERSONATION_BLOCKED_PATHS)
+
+    def _is_allowed_users_request(self, request: HttpRequest) -> bool:
+        """
+        Allow switching organizations.
+
+        Switching occurs via a PATCH to /api/users/@me/ that only contains `set_current_organization`.
+        """
+        if request.method != "PATCH":
+            return False
+
+        if request.path not in ("/api/users/@me/", "/api/users/@me"):
+            return False
+
+        try:
+            body = json.loads(request.body)
+            return isinstance(body, dict) and set(body.keys()) == {"set_current_organization"}
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return False
 
 
 def impersonated_session_logout(request: HttpRequest) -> HttpResponse:
