@@ -5,15 +5,17 @@ import { LemonButton, LemonMenu, LemonMenuSection, LemonSwitch } from '@posthog/
 
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 
+import { CustomerProfileScope } from '~/types'
+
 import { DEFAULT_PERSON_PROFILE_CONTENT, personProfileLogic } from '../personProfileLogic'
 
 interface CustomerProfileMenuProps {
-    scope: string
+    scope: CustomerProfileScope
     content: JSONContent[]
 }
 
 export function CustomerProfileMenu({ scope, content }: CustomerProfileMenuProps): JSX.Element | null {
-    const defaultContent = scope === 'person' ? DEFAULT_PERSON_PROFILE_CONTENT : []
+    const defaultContent = scope === CustomerProfileScope.PERSON ? DEFAULT_PERSON_PROFILE_CONTENT : []
     const { changed, isProfileConfigEnabled } = useValues(personProfileLogic)
     const { removeNode, addNode, resetToDefaults, saveChanges } = useActions(personProfileLogic)
 

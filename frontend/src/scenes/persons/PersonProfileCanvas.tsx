@@ -5,7 +5,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Notebook } from 'scenes/notebooks/Notebook/Notebook'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 
-import { AnyPropertyFilter, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, CustomerProfileScope, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { CustomerProfileMenu } from 'products/customer_analytics/frontend/components/CustomerProfileMenu'
 import { personProfileLogic } from 'products/customer_analytics/frontend/personProfileLogic'
@@ -39,7 +39,7 @@ const PersonProfileCanvas = ({ person }: PersonProfileCanvasProps): JSX.Element 
         <BindLogic logic={notebookLogic} props={{ shortId, mode, canvasFiltersOverride: personFilter }}>
             <BindLogic logic={personProfileLogic} props={{ personId: id, distinctId }}>
                 <div className="flex items-start">
-                    <CustomerProfileMenu scope="person" content={content} />
+                    <CustomerProfileMenu scope={CustomerProfileScope.PERSON} content={content} />
                 </div>
                 <Notebook
                     editable={false}

@@ -6,6 +6,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 
+import { CustomerProfileScope } from '~/types'
+
 import { customerProfileConfigLogic } from './customerProfileConfigLogic'
 import type { personProfileLogicType } from './personProfileLogicType'
 
@@ -37,13 +39,13 @@ export const personProfileLogic = kea<personProfileLogicType>([
 
     connect((props: PersonProfileLogicProps) => ({
         values: [
-            customerProfileConfigLogic({ scope: 'person' }),
+            customerProfileConfigLogic({ scope: CustomerProfileScope.PERSON }),
             ['personProfileConfig'],
             featureFlagLogic,
             ['featureFlags'],
         ],
         actions: [
-            customerProfileConfigLogic({ scope: 'person' }),
+            customerProfileConfigLogic({ scope: CustomerProfileScope.PERSON }),
             ['createConfig', 'updateConfig', 'loadConfigsSuccess', 'updateConfigSuccess', 'createConfigSuccess'],
             notebookLogic({ shortId: `canvas-${props.personId}`, mode: 'canvas' }),
             ['setLocalContent'],

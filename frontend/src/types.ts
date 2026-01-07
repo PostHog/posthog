@@ -6431,12 +6431,21 @@ export interface ChangeRequest {
     user_decision: string | null
 }
 
+export enum CustomerProfileScope {
+    PERSON = 'person',
+    GROUP_0 = 'group_0',
+    GROUP_1 = 'group_1',
+    GROUP_2 = 'group_2',
+    GROUP_3 = 'group_3',
+    GROUP_4 = 'group_4',
+}
+
 export interface CustomerProfileConfigType {
     id: string
     team: number
     content: Record<string, any>
     sidebar: Record<string, any>
-    scope: 'person' | 'group_0' | 'group_1' | 'group_2' | 'group_3' | 'group_4'
+    scope: CustomerProfileScope
     created_at: string
     updated_at: string
 }

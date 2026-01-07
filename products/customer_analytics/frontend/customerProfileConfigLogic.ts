@@ -5,12 +5,12 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { CustomerProfileConfigType } from '~/types'
+import { CustomerProfileConfigType, CustomerProfileScope } from '~/types'
 
 import type { customerProfileConfigLogicType } from './customerProfileConfigLogicType'
 
 export interface CustomerProfileConfigLogicProps {
-    scope?: CustomerProfileConfigType['scope']
+    scope?: CustomerProfileScope
 }
 
 export const customerProfileConfigLogic = kea<customerProfileConfigLogicType>([
