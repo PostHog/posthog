@@ -1,5 +1,5 @@
 import { useMountedLogic, useValues } from 'kea'
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 
 import { IconCornerDownRight } from '@posthog/icons'
 
@@ -63,10 +63,12 @@ const VariableUsageOverlay = ({
     name,
     type,
     usages,
+    onNavigateToNode,
 }: {
     name: string
     type: string
     usages: VariableUsage[]
+    onNavigateToNode?: (nodeId: string) => void
 }): JSX.Element => {
     const groupedUsageEntries = usages.reduce<Record<string, VariableUsage>>((acc, usage) => {
         if (!acc[usage.nodeId]) {
@@ -87,8 +89,18 @@ const VariableUsageOverlay = ({
                     <div className="text-muted text-[10px] uppercase tracking-wide">Used in</div>
                     <div className="mt-1 space-y-1 max-h-48 overflow-y-auto">
                         {sortedUsageEntries.map((usage) => (
-                            <div key={`usage-${usage.pythonIndex}`} className="text-muted">
-                                Python cell {usage.pythonIndex}
+                            <div key={`usage-${usage.pythonIndex}`}>
+                                {onNavigateToNode ? (
+                                    <button
+                                        type="button"
+                                        className="text-muted hover:text-default underline underline-offset-2"
+                                        onClick={() => onNavigateToNode(usage.nodeId)}
+                                    >
+                                        Python cell {usage.pythonIndex}
+                                    </button>
+                                ) : (
+                                    <div className="text-muted">Python cell {usage.pythonIndex}</div>
+                                )}
                             </div>
                         ))}
                     </div>
@@ -104,10 +116,12 @@ const VariableDependencyBadge = ({
     name,
     type,
     usages,
+    onNavigateToNode,
 }: {
     name: string
     type: string
     usages: VariableUsage[]
+    onNavigateToNode?: (nodeId: string) => void
 }): JSX.Element => {
     const [popoverVisible, setPopoverVisible] = useState(false)
     const isUsedDownstream = usages.length > 0
@@ -117,7 +131,17 @@ const VariableDependencyBadge = ({
             onClickOutside={() => setPopoverVisible(false)}
             visible={popoverVisible}
             placement="bottom-start"
-            overlay={<VariableUsageOverlay name={name} type={type} usages={usages} />}
+            overlay={
+                <VariableUsageOverlay
+                    name={name}
+                    type={type}
+                    usages={usages}
+                    onNavigateToNode={(nodeId) => {
+                        onNavigateToNode?.(nodeId)
+                        setPopoverVisible(false)
+                    }}
+                />
+            }
         >
             <button
                 type="button"
@@ -135,6 +159,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePythonAttribute
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { expanded, notebookLogic } = useValues(nodeLogic)
     const { content } = useValues(notebookLogic)
+    const { findNodeLogicById } = useValues(notebookLogic)
     const exportedGlobals = attributes.globalsExportedWithTypes ?? []
 
     const pythonNodes = useMemo(() => collectPythonNodes(content), [content])
@@ -162,6 +187,14 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePythonAttribute
         return usageMap
     }, [downstreamNodes, exportedGlobals])
 
+    const navigateToNode = useCallback(
+        (nodeId: string) => {
+            const targetLogic = findNodeLogicById(nodeId)
+            targetLogic?.actions.selectNode()
+        },
+        [findNodeLogicById]
+    )
+
     if (!expanded) {
         return null
     }
@@ -185,6 +218,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePythonAttribute
                                 name={name}
                                 type={type}
                                 usages={usageByVariable[name] ?? []}
+                                onNavigateToNode={navigateToNode}
                             />
                         ))}
                     </div>
