@@ -7,7 +7,6 @@ from typing import Any
 @dataclass(frozen=True)
 class PythonGlobalsAnalysis:
     used: list[str]
-    exported: list[str]
     exported_with_types: list[dict[str, str]]
 
 
@@ -281,12 +280,12 @@ def collect_exported_types(body: list[ast.stmt]) -> dict[str, str]:
 
 def analyze_python_globals(code: str) -> PythonGlobalsAnalysis:
     if not code or not code.strip():
-        return PythonGlobalsAnalysis(used=[], exported=[], exported_with_types=[])
+        return PythonGlobalsAnalysis(used=[], exported_with_types=[])
 
     try:
         tree = ast.parse(code)
     except SyntaxError:
-        return PythonGlobalsAnalysis(used=[], exported=[], exported_with_types=[])
+        return PythonGlobalsAnalysis(used=[], exported_with_types=[])
 
     module_locals = collect_scope_locals(tree.body)
     builtins_obj = __builtins__
