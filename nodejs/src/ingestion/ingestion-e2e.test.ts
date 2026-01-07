@@ -2763,5 +2763,387 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 })
             })
         })
+
+        testWithTeamIngester(
+            'ASSERT_VERSION mode should correctly apply properties_to_set when updating person',
+            { pluginServerConfig: { PERSON_BATCH_WRITING_DB_WRITE_MODE: 'ASSERT_VERSION' } },
+            async (ingester, hub, team) => {
+                const distinctId = new UUIDT().toString()
+                const timestamp = DateTime.now().toMillis()
+
+                // First event: Create a person with initial properties
+                await ingester.handleKafkaBatch(
+                    createKafkaMessages([
+                        new EventBuilder(team, distinctId)
+                            .withEvent('$identify')
+                            .withProperties({
+                                $set: { initial_prop: 'initial_value' },
+                            })
+                            .withTimestamp(timestamp)
+                            .build(),
+                    ])
+                )
+
+                // Wait for person to be created
+                await waitForExpect(async () => {
+                    const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                    expect(person).toBeDefined()
+                    expect(person!.properties).toEqual(
+                        expect.objectContaining({
+                            initial_prop: 'initial_value',
+                        })
+                    )
+                })
+
+                // Second event: Update the person with new properties via $identify
+                // This is where the bug manifests - properties_to_set is not applied in ASSERT_VERSION mode
+                await ingester.handleKafkaBatch(
+                    createKafkaMessages([
+                        new EventBuilder(team, distinctId)
+                            .withEvent('$identify')
+                            .withProperties({
+                                $set: { email: 'test@example.com', name: 'Test User' },
+                            })
+                            .withTimestamp(timestamp + 1)
+                            .build(),
+                    ])
+                )
+
+                // Verify the properties were updated in the database
+                // BUG: With ASSERT_VERSION mode, properties_to_set is not merged into properties
+                // before writing to database, so only the original properties are written
+                await waitForExpect(async () => {
+                    const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                    expect(person).toBeDefined()
+                    // This assertion will FAIL with the bug - email and name won't be set
+                    expect(person!.properties).toEqual(
+                        expect.objectContaining({
+                            initial_prop: 'initial_value',
+                            email: 'test@example.com',
+                            name: 'Test User',
+                        })
+                    )
+                })
+
+                // Also verify the event has the correct person properties attached
+                await waitForExpect(async () => {
+                    const events = await fetchEvents(hub, team.id)
+                    expect(events.length).toEqual(2)
+                    // The second event should have accumulated properties
+                    expect(events[1].person_properties).toEqual(
+                        expect.objectContaining({
+                            initial_prop: 'initial_value',
+                            email: 'test@example.com',
+                            name: 'Test User',
+                        })
+                    )
+                })
+            }
+        )
+
+        testWithTeamIngester(
+            'ASSERT_VERSION mode should correctly apply $set_once for new properties',
+            { pluginServerConfig: { PERSON_BATCH_WRITING_DB_WRITE_MODE: 'ASSERT_VERSION' } },
+            async (ingester, hub, team) => {
+                const distinctId = new UUIDT().toString()
+                const timestamp = DateTime.now().toMillis()
+
+                // First event: Create a person
+                await ingester.handleKafkaBatch(
+                    createKafkaMessages([
+                        new EventBuilder(team, distinctId)
+                            .withEvent('$identify')
+                            .withProperties({
+                                $set: { name: 'Test User' },
+                            })
+                            .withTimestamp(timestamp)
+                            .build(),
+                    ])
+                )
+
+                await waitForExpect(async () => {
+                    const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                    expect(person).toBeDefined()
+                    expect(person!.properties).toEqual(
+                        expect.objectContaining({
+                            name: 'Test User',
+                        })
+                    )
+                })
+
+                // Second event: Use $set_once for a new property
+                await ingester.handleKafkaBatch(
+                    createKafkaMessages([
+                        new EventBuilder(team, distinctId)
+                            .withEvent('$identify')
+                            .withProperties({
+                                $set_once: { first_seen: '2024-01-01' },
+                            })
+                            .withTimestamp(timestamp + 1)
+                            .build(),
+                    ])
+                )
+
+                // Verify the $set_once property was added
+                await waitForExpect(async () => {
+                    const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                    expect(person).toBeDefined()
+                    expect(person!.properties).toEqual(
+                        expect.objectContaining({
+                            name: 'Test User',
+                            first_seen: '2024-01-01',
+                        })
+                    )
+                })
+            }
+        )
+
+        testWithTeamIngester(
+            'ASSERT_VERSION mode should correctly apply $unset operations',
+            { pluginServerConfig: { PERSON_BATCH_WRITING_DB_WRITE_MODE: 'ASSERT_VERSION' } },
+            async (ingester, hub, team) => {
+                const distinctId = new UUIDT().toString()
+                const timestamp = DateTime.now().toMillis()
+
+                // First event: Create a person with properties
+                await ingester.handleKafkaBatch(
+                    createKafkaMessages([
+                        new EventBuilder(team, distinctId)
+                            .withEvent('$identify')
+                            .withProperties({
+                                $set: { name: 'Test User', email: 'test@example.com', to_remove: 'will be removed' },
+                            })
+                            .withTimestamp(timestamp)
+                            .build(),
+                    ])
+                )
+
+                await waitForExpect(async () => {
+                    const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                    expect(person).toBeDefined()
+                    expect(person!.properties).toEqual(
+                        expect.objectContaining({
+                            name: 'Test User',
+                            email: 'test@example.com',
+                            to_remove: 'will be removed',
+                        })
+                    )
+                })
+
+                // Second event: Unset a property
+                await ingester.handleKafkaBatch(
+                    createKafkaMessages([
+                        new EventBuilder(team, distinctId)
+                            .withEvent('$identify')
+                            .withProperties({
+                                $unset: ['to_remove'],
+                            })
+                            .withTimestamp(timestamp + 1)
+                            .build(),
+                    ])
+                )
+
+                // Verify the property was removed
+                await waitForExpect(async () => {
+                    const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                    expect(person).toBeDefined()
+                    expect(person!.properties).toEqual(
+                        expect.objectContaining({
+                            name: 'Test User',
+                            email: 'test@example.com',
+                        })
+                    )
+                    expect(person!.properties).not.toHaveProperty('to_remove')
+                })
+            }
+        )
+
+        testWithTeamIngester(
+            'ASSERT_VERSION mode should correctly apply properties after person merge',
+            { pluginServerConfig: { PERSON_BATCH_WRITING_DB_WRITE_MODE: 'ASSERT_VERSION' } },
+            async (ingester, hub, team) => {
+                const anonDistinctId = new UUIDT().toString()
+                const identifiedDistinctId = new UUIDT().toString()
+                const timestamp = DateTime.now().toMillis()
+
+                // First event: Create anonymous person with properties
+                await ingester.handleKafkaBatch(
+                    createKafkaMessages([
+                        new EventBuilder(team, anonDistinctId)
+                            .withEvent('pageview')
+                            .withProperties({
+                                $set: { anon_prop: 'anon_value' },
+                            })
+                            .withTimestamp(timestamp)
+                            .build(),
+                    ])
+                )
+
+                await waitForExpect(async () => {
+                    const person = await hub.personRepository.fetchPerson(team.id, anonDistinctId)
+                    expect(person).toBeDefined()
+                    expect(person!.properties).toEqual(
+                        expect.objectContaining({
+                            anon_prop: 'anon_value',
+                        })
+                    )
+                })
+
+                // Second event: Identify with merge and set new properties
+                await ingester.handleKafkaBatch(
+                    createKafkaMessages([
+                        new EventBuilder(team, identifiedDistinctId)
+                            .withEvent('$identify')
+                            .withProperties({
+                                $anon_distinct_id: anonDistinctId,
+                                $set: { email: 'user@example.com', name: 'Identified User' },
+                            })
+                            .withTimestamp(timestamp + 1)
+                            .build(),
+                    ])
+                )
+
+                // Verify merged person has all properties
+                await waitForExpect(async () => {
+                    const person = await hub.personRepository.fetchPerson(team.id, identifiedDistinctId)
+                    expect(person).toBeDefined()
+                    expect(person!.properties).toEqual(
+                        expect.objectContaining({
+                            anon_prop: 'anon_value',
+                            email: 'user@example.com',
+                            name: 'Identified User',
+                        })
+                    )
+                })
+            }
+        )
+
+        testWithTeamIngester(
+            'ASSERT_VERSION mode should correctly apply properties from multiple events in same batch',
+            { pluginServerConfig: { PERSON_BATCH_WRITING_DB_WRITE_MODE: 'ASSERT_VERSION' } },
+            async (ingester, hub, team) => {
+                const distinctId = new UUIDT().toString()
+                const timestamp = DateTime.now().toMillis()
+
+                // First: Create person
+                await ingester.handleKafkaBatch(
+                    createKafkaMessages([
+                        new EventBuilder(team, distinctId)
+                            .withEvent('$identify')
+                            .withProperties({
+                                $set: { initial: 'value' },
+                            })
+                            .withTimestamp(timestamp)
+                            .build(),
+                    ])
+                )
+
+                await waitForExpect(async () => {
+                    const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                    expect(person).toBeDefined()
+                })
+
+                // Send multiple events in same batch that each set different properties
+                await ingester.handleKafkaBatch(
+                    createKafkaMessages([
+                        new EventBuilder(team, distinctId)
+                            .withEvent('$identify')
+                            .withProperties({
+                                $set: { prop1: 'value1' },
+                            })
+                            .withTimestamp(timestamp + 1)
+                            .build(),
+                        new EventBuilder(team, distinctId)
+                            .withEvent('$identify')
+                            .withProperties({
+                                $set: { prop2: 'value2' },
+                            })
+                            .withTimestamp(timestamp + 2)
+                            .build(),
+                        new EventBuilder(team, distinctId)
+                            .withEvent('$identify')
+                            .withProperties({
+                                $set: { prop3: 'value3' },
+                            })
+                            .withTimestamp(timestamp + 3)
+                            .build(),
+                    ])
+                )
+
+                // Verify all properties from the batch were applied
+                await waitForExpect(async () => {
+                    const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                    expect(person).toBeDefined()
+                    expect(person!.properties).toEqual(
+                        expect.objectContaining({
+                            initial: 'value',
+                            prop1: 'value1',
+                            prop2: 'value2',
+                            prop3: 'value3',
+                        })
+                    )
+                })
+            }
+        )
+
+        testWithTeamIngester(
+            'ASSERT_VERSION mode should handle combined $set and $unset in same event',
+            { pluginServerConfig: { PERSON_BATCH_WRITING_DB_WRITE_MODE: 'ASSERT_VERSION' } },
+            async (ingester, hub, team) => {
+                const distinctId = new UUIDT().toString()
+                const timestamp = DateTime.now().toMillis()
+
+                // First event: Create a person with properties
+                await ingester.handleKafkaBatch(
+                    createKafkaMessages([
+                        new EventBuilder(team, distinctId)
+                            .withEvent('$identify')
+                            .withProperties({
+                                $set: { keep_prop: 'keep', remove_prop: 'remove' },
+                            })
+                            .withTimestamp(timestamp)
+                            .build(),
+                    ])
+                )
+
+                await waitForExpect(async () => {
+                    const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                    expect(person).toBeDefined()
+                    expect(person!.properties).toEqual(
+                        expect.objectContaining({
+                            keep_prop: 'keep',
+                            remove_prop: 'remove',
+                        })
+                    )
+                })
+
+                // Second event: Set new property AND unset existing property in same event
+                await ingester.handleKafkaBatch(
+                    createKafkaMessages([
+                        new EventBuilder(team, distinctId)
+                            .withEvent('$identify')
+                            .withProperties({
+                                $set: { new_prop: 'new_value' },
+                                $unset: ['remove_prop'],
+                            })
+                            .withTimestamp(timestamp + 1)
+                            .build(),
+                    ])
+                )
+
+                // Verify the new property was added and the old one was removed
+                await waitForExpect(async () => {
+                    const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                    expect(person).toBeDefined()
+                    expect(person!.properties).toEqual(
+                        expect.objectContaining({
+                            keep_prop: 'keep',
+                            new_prop: 'new_value',
+                        })
+                    )
+                    expect(person!.properties).not.toHaveProperty('remove_prop')
+                })
+            }
+        )
     }
 )
