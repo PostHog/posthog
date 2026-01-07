@@ -406,7 +406,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                 searchParams['tab'] = values.tab
             }
 
-            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: false }]
+            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
         }
 
         const changeFeatureFlagModalUrl = ():
@@ -433,7 +433,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                 searchParams['ff_page'] = modalPage
             }
 
-            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: false }]
+            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
         }
 
         return {
