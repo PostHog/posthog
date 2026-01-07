@@ -65,12 +65,11 @@ function BatchRunInfo({ job }: { job: any }): JSX.Element {
     const isFutureJob = dayjs(job.scheduled_at).isAfter(dayjs())
 
     const logsSection = isFutureJob ? (
-        <div className="flex flex-col bg-surface-primary rounded px-4 py-8 items-center text-center mx-auto">
-            <WarningHog width="100" height="100" className="mb-4" />
-            <h2 className="text-xl leading-tight">No logs available for this batch workflow job</h2>
+        <div className="flex flex-col w-full bg-surface-primary rounded py-8 items-center text-center">
+            <WarningHog width="w-full" height="80" className="mb-4" />
+            <h2 className="text-xl leading-tight">This job hasn't started yet</h2>
             <p className="text-sm text-balance text-tertiary">
-                This job was {job.scheduled_at ? 'scheduled' : 'triggered'} by {job.created_by?.email || 'unknown user'}
-                . Once the job starts executing, logs will appear here.
+                Once the job starts executing, logs will start to appear here.
             </p>
         </div>
     ) : (

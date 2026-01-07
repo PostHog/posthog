@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 
+import { IconClock } from '@posthog/icons'
 import { SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -16,6 +17,7 @@ import { Workflow } from './Workflow'
 import { WorkflowLogs } from './WorkflowLogs'
 import { WorkflowMetrics } from './WorkflowMetrics'
 import { WorkflowSceneHeader } from './WorkflowSceneHeader'
+import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { workflowLogic } from './workflowLogic'
 import { WorkflowSceneLogicProps, WorkflowTab, workflowSceneLogic } from './workflowSceneLogic'
 
@@ -33,6 +35,8 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const { searchParams } = useValues(router)
     const templateId = searchParams.templateId as string | undefined
     const editTemplateId = searchParams.editTemplateId as string | undefined
+
+    const { futureJobs } = useValues(batchWorkflowJobsLogic({ id: props.id }))
 
     const logic = workflowLogic({ id: props.id, templateId, editTemplateId })
     const { workflowLoading, originalWorkflow } = useValues(logic)
@@ -53,7 +57,18 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         },
 
         {
-            label: 'Logs',
+            label: (
+                <div className="flex gap-2">
+                    Invocations
+                    {futureJobs.length > 0 ? (
+                        <span className="font-bold">
+                            <IconClock /> {futureJobs.length}
+                        </span>
+                    ) : (
+                        ''
+                    )}
+                </div>
+            ),
             key: 'logs',
             content: <WorkflowLogs id={props.id!} />,
         },
