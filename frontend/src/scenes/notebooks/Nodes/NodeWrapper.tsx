@@ -68,7 +68,14 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
 
     // nodeId can start null, but should then immediately be generated
     const nodeLogic = useMountedLogic(notebookNodeLogic(logicProps))
-    const { resizeable, expanded, actions, nodeId, sourceComment } = useValues(nodeLogic)
+    const {
+        resizeable,
+        expanded,
+        actions,
+        nodeId,
+        settingsPlacement: resolvedSettingsPlacement,
+        sourceComment,
+    } = useValues(nodeLogic)
     const {
         setRef,
         setExpanded,
@@ -248,7 +255,9 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                             </div>
                                         </div>
 
-                                        {Settings && editingNodeId === nodeId && containerSize === 'small' ? (
+                                        {Settings &&
+                                        editingNodeId === nodeId &&
+                                        (containerSize === 'small' || resolvedSettingsPlacement === 'inline') ? (
                                             <div className="NotebookNode__settings">
                                                 <ErrorBoundary>
                                                     <Settings

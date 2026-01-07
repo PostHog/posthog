@@ -12,6 +12,7 @@ import {
     IconHogQL,
     IconLifecycle,
     IconPeople,
+    IconPython,
     IconRetention,
     IconRewindPlay,
     IconSquareRoot,
@@ -269,6 +270,12 @@ order by count() desc
                     },
                 })
             ),
+    },
+    {
+        title: 'Python',
+        search: 'python',
+        icon: <IconPython color="currentColor" />,
+        command: (chain, pos) => chain.insertContentAt(pos, { type: NotebookNodeType.Python, attrs: { code: '' } }),
     },
     {
         title: 'Events',

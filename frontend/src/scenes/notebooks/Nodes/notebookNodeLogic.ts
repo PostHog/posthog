@@ -24,6 +24,7 @@ import {
     NotebookNodeAttributes,
     NotebookNodeResource,
     NotebookNodeSettings,
+    NotebookNodeSettingsPlacement,
     NotebookNodeType,
 } from '../types'
 import { NotebookNodeMessages, NotebookNodeMessagesListeners } from './messaging/notebook-node-messages'
@@ -38,6 +39,7 @@ export type NotebookNodeLogicProps = {
     messageListeners?: NotebookNodeMessagesListeners
     startExpanded?: boolean
     titlePlaceholder: string
+    settingsPlacement?: NotebookNodeSettingsPlacement
 } & NotebookNodeAttributeProperties<any>
 
 export const notebookNodeLogic = kea<notebookNodeLogicType>([
@@ -136,6 +138,10 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         nodeId: [(_, p) => [p.attributes], (nodeAttributes): string => nodeAttributes.nodeId],
         nodeType: [(_, p) => [p.nodeType], (nodeType) => nodeType],
         Settings: [() => [(_, props) => props], (props): NotebookNodeSettings | null => props.Settings ?? null],
+        settingsPlacement: [
+            () => [(_, props) => props],
+            (props): NotebookNodeSettingsPlacement => props.settingsPlacement ?? 'left',
+        ],
 
         title: [
             (s) => [s.titlePlaceholder, s.nodeAttributes],
