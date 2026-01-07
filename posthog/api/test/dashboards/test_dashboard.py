@@ -1,5 +1,6 @@
 import json
 import datetime
+import re
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries
@@ -281,7 +282,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         # Now the dashboard has data without having to refresh
         response = self.dashboard_api.get_dashboard(dashboard.pk, query_params={"refresh": False, "use_cache": True})
-        assert Dashboard.objects.get().last_accessed_at == pytest.approx(now(), abs=datetime.timedelta(seconds=5))
+        assert abs(Dashboard.objects.get().last_accessed_at - now()) < datetime.timedelta(seconds=5)
         assert response["tiles"][0]["insight"]["result"][0]["count"] == 0
 
     # :KLUDGE: avoid making extra queries that are explicitly not cached in tests. Avoids false N+1-s.
@@ -464,8 +465,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             assert isoparse(response_data["tiles"][0]["last_refresh"]) == item_default.caching_state.last_refresh
             assert isoparse(response_data["tiles"][1]["last_refresh"]) == item_default.caching_state.last_refresh
 
-            assert item_default.caching_state.last_refresh == pytest.approx(now(), abs=datetime.timedelta(seconds=5))
-            assert item_trends.caching_state.last_refresh == pytest.approx(now(), abs=datetime.timedelta(seconds=5))
+            assert abs(item_default.caching_state.last_refresh - now()) < datetime.timedelta(seconds=5)
+            assert abs(item_trends.caching_state.last_refresh - now()) < datetime.timedelta(seconds=5)
 
     def test_dashboard_endpoints(self):
         # create
