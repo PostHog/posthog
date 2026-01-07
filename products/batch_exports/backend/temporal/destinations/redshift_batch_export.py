@@ -117,6 +117,8 @@ NON_RETRYABLE_ERROR_TYPES = (
     "ClientError",
     # An S3 bucket doesn't exist when using `copy_into_redshift_activity_from_stage`.
     "NoSuchBucket",
+    # S3 parameter validation failed.
+    "ParamValidationError",
 )
 
 
