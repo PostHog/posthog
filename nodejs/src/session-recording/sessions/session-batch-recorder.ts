@@ -112,11 +112,7 @@ export class SessionBatchRecorder {
 
             // Only drop messages if rate limiting is enabled
             if (this.sessionRateLimitEnabled) {
-                this.offsetManager.trackOffset({
-                    partition: message.message.metadata.partition,
-                    offset: message.message.metadata.offset,
-                })
-                return 0
+                return this.ignoreMessage(message)
             }
         }
 
@@ -132,11 +128,7 @@ export class SessionBatchRecorder {
             })
 
             if (!this.partitionSessions.has(partition)) {
-                this.offsetManager.trackOffset({
-                    partition: message.message.metadata.partition,
-                    offset: message.message.metadata.offset,
-                })
-                return 0
+                return this.ignoreMessage(message)
             }
 
             const sessions = this.partitionSessions.get(partition)!
@@ -152,12 +144,7 @@ export class SessionBatchRecorder {
                 })
             }
 
-            this.offsetManager.trackOffset({
-                partition: message.message.metadata.partition,
-                offset: message.message.metadata.offset,
-            })
-
-            return 0
+            return this.ignoreMessage(message)
         }
 
         if (!this.partitionSessions.has(partition)) {
@@ -194,6 +181,20 @@ export class SessionBatchRecorder {
         this.partitionSizes.set(partition, currentPartitionSize + bytesWritten)
         this._size += bytesWritten
 
+        return this.ackMessage(message, bytesWritten)
+    }
+
+    private ignoreMessage(message: MessageWithTeam): 0 {
+        this.offsetManager.trackOffset({
+            partition: message.message.metadata.partition,
+            offset: message.message.metadata.offset,
+        })
+        return 0
+    }
+
+    private ackMessage(message: MessageWithTeam, bytesWritten: number): number {
+        const { partition } = message.message.metadata
+
         this.offsetManager.trackOffset({
             partition: message.message.metadata.partition,
             offset: message.message.metadata.offset,
@@ -201,8 +202,8 @@ export class SessionBatchRecorder {
 
         logger.debug('🔁', 'session_batch_recorder_recorded_message', {
             partition,
-            sessionId,
-            teamId,
+            sessionId: message.message.session_id,
+            teamId: message.team.teamId,
             bytesWritten,
             totalSize: this._size,
         })
