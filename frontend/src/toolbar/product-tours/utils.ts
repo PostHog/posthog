@@ -2,7 +2,6 @@ import { domToJpeg } from 'modern-screenshot'
 
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { TOOLBAR_ID, elementToQuery } from '~/toolbar/utils'
-import { SurveyMatchType } from '~/types'
 
 export interface ElementInfo {
     selector: string
@@ -139,32 +138,5 @@ export function getPageContext(): { url: string; title: string } {
     return {
         url: window.location.href,
         title: document.title,
-    }
-}
-
-/**
- * Get smart URL defaults for a new product tour based on the current page URL.
- *
- * Logic:
- * - If on root domain (path is "/" or empty), use "exact" match with the full URL
- * - If on a path, use "contains" match with just the pathname
- */
-export function getSmartUrlDefaults(): { url: string; urlMatchType: SurveyMatchType } {
-    const { pathname, origin } = window.location
-
-    // Check if we're on the root path
-    const isRootPath = pathname === '/' || pathname === ''
-
-    if (isRootPath) {
-        // For root domain, use exact match with full URL (without trailing slash for consistency)
-        return {
-            url: origin,
-            urlMatchType: SurveyMatchType.Exact,
-        }
-    }
-    // For paths, use contains match with the pathname
-    return {
-        url: pathname,
-        urlMatchType: SurveyMatchType.Contains,
     }
 }

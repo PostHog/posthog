@@ -19,6 +19,15 @@ import {
 } from '../../types'
 import { fixLogDeduplication } from '../../utils'
 
+export type HogFunctionMonitoringServiceHub = Pick<
+    Hub,
+    | 'kafkaProducer'
+    | 'internalCaptureService'
+    | 'teamManager'
+    | 'HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC'
+    | 'HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC'
+>
+
 const counterHogFunctionMetric = new Counter({
     name: 'cdp_hog_function_metric',
     help: 'A function invocation was evaluated with an outcome',
@@ -59,7 +68,7 @@ export class HogFunctionMonitoringService {
     messagesToProduce: HogFunctionMonitoringMessage[] = []
     eventsToCapture: InternalCaptureEvent[] = []
 
-    constructor(private hub: Hub) {}
+    constructor(private hub: HogFunctionMonitoringServiceHub) {}
 
     async flush() {
         const messages = [...this.messagesToProduce]

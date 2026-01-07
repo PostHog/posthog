@@ -12,7 +12,7 @@ from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.tools.full_text_search.tool import EntitySearchTool, FTSKind
 
 SEARCH_TOOL_PROMPT = """
-Use this tool to search docs, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, error tracking issues, and surveys in PostHog.
+Use this tool to search docs, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, and surveys in PostHog.
 If the user's question mentions multiple topics, search for each topic separately and combine the results.
 
 # Documentation search
@@ -104,7 +104,7 @@ class InkeepResponse(BaseModel):
 class SearchTool(MaxTool):
     name: Literal["search"] = "search"
     description: str = SEARCH_TOOL_PROMPT
-    context_prompt_template: str = "Searches documentation, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, error tracking issues, and surveys in PostHog"
+    context_prompt_template: str = "Searches documentation, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, and surveys in PostHog"
     args_schema: type[BaseModel] = SearchToolArgs
 
     async def _arun_impl(self, kind: str, query: str) -> tuple[str, ToolMessagesArtifact | None]:

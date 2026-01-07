@@ -5,7 +5,7 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { MessageSizeTooLarge } from '~/utils/db/error'
 import { captureIngestionWarning } from '~/worker/ingestion/utils'
 
-import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
+import { HogTransformerHub, HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import {
@@ -15,6 +15,7 @@ import {
     Hub,
     IncomingEvent,
     IncomingEventWithTeam,
+    IngestionConsumerConfig,
     PipelineEvent,
     PluginServerService,
     PluginsServerConfig,
@@ -42,6 +43,35 @@ import { newBatchPipelineBuilder } from './pipelines/builders'
 import { createBatch, createContext, createUnwrapper } from './pipelines/helpers'
 import { ok } from './pipelines/results'
 import { MemoryRateLimiter } from './utils/overflow-detector'
+
+/**
+ * Narrowed Hub type for IngestionConsumer.
+ * This includes all fields needed by IngestionConsumer and its dependencies:
+ * - HogTransformerService (via HogTransformerHub)
+ * - BatchWritingGroupStore (via GroupHub)
+ * - EventIngestionRestrictionManager
+ * - KafkaProducerWrapper
+ * - BatchWritingPersonsStore
+ * - Preprocessing and ingestion pipelines
+ */
+export type IngestionConsumerHub = HogTransformerHub &
+    IngestionConsumerConfig &
+    Pick<
+        Hub,
+        // EventIngestionRestrictionManager
+        | 'redisPool'
+        // GroupHub (BatchWritingGroupStore)
+        | 'groupRepository'
+        | 'clickhouseGroupRepository'
+        // KafkaProducerWrapper.create
+        | 'KAFKA_CLIENT_RACK'
+        // PreprocessingHub (additional fields not in HogTransformerHub)
+        | 'cookielessManager'
+        // BatchWritingPersonsStore
+        | 'personRepository'
+        // GroupTypeManager
+        | 'groupTypeManager'
+    >
 
 type EventWithHeaders = IncomingEventWithTeam & { headers: EventHeaders }
 
@@ -129,7 +159,7 @@ export class IngestionConsumer {
     >
 
     constructor(
-        private hub: Hub,
+        private hub: IngestionConsumerHub,
         overrides: Partial<
             Pick<
                 PluginsServerConfig,
@@ -197,11 +227,11 @@ export class IngestionConsumer {
     public async start(): Promise<void> {
         await Promise.all([
             this.hogTransformer.start(),
-            KafkaProducerWrapper.create(this.hub).then((producer) => {
+            KafkaProducerWrapper.create(this.hub.KAFKA_CLIENT_RACK).then((producer) => {
                 this.kafkaProducer = producer
             }),
             // TRICKY: When we produce overflow events they are back to the kafka we are consuming from
-            KafkaProducerWrapper.create(this.hub, 'CONSUMER').then((producer) => {
+            KafkaProducerWrapper.create(this.hub.KAFKA_CLIENT_RACK, 'CONSUMER').then((producer) => {
                 this.kafkaOverflowProducer = producer
             }),
         ])

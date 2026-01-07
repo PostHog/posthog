@@ -28,6 +28,9 @@ if [ "${USE_GRANIAN:-false}" = "true" ]; then
         KEEPALIVE_FLAG="--no-http1-keep-alive"
     fi
 
+    # Configurable log-level for Granian
+    export GRANIAN_LOG_LEVEL=${GRANIAN_LOG_LEVEL:-warning}
+
     # Start metrics HTTP server in background on port 8001
     python ./bin/granian_metrics.py &
     METRICS_PID=$!
@@ -44,7 +47,7 @@ if [ "${USE_GRANIAN:-false}" = "true" ]; then
         --loop uvloop \
         --host 0.0.0.0 \
         --port 8000 \
-        --log-level warning \
+        --log-level $GRANIAN_LOG_LEVEL \
         --access-log \
         --respawn-failed-workers
 else

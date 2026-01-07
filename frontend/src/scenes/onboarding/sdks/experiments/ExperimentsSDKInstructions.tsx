@@ -43,9 +43,11 @@ export const ExperimentsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.PYTHON]: ExperimentsPythonInstructions,
     [SDKKey.REACT]: ExperimentsReactInstructions,
     [SDKKey.REACT_NATIVE]: ExperimentsReactNativeInstructions,
+    [SDKKey.TANSTACK_START]: ExperimentsReactInstructions,
     [SDKKey.REMIX]: ExperimentsRemixInstructions,
     [SDKKey.RUBY]: ExperimentsRubyInstructions,
     [SDKKey.SVELTE]: ExperimentsSvelteInstructions,
     [SDKKey.WEBFLOW]: ExperimentsWebflowInstructions,
+    [SDKKey.VITE]: ExperimentsReactInstructions,
     [SDKKey.VUE_JS]: ExperimentsVueInstructions,
 }
