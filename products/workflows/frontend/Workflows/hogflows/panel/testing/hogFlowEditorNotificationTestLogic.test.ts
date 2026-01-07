@@ -21,6 +21,9 @@ describe('hogFlowEditorNotificationTestLogic', () => {
     let workflowLogicInstance: ReturnType<typeof workflowLogic.build>
 
     beforeEach(() => {
+        // Clear localStorage to prevent state leakage between tests
+        localStorage.clear()
+
         resetContext({
             plugins: [testUtilsPlugin],
         })
