@@ -1165,7 +1165,7 @@ class TestPropertyIsSetIsNotSetWithData(APIBaseTest):
             for prop_name, _, _, _ in self.test_cases:
                 materialize("events", prop_name)
 
-        select_exprs = [
+        select_exprs: list[ast.Expr] = [
             ast.Alias(
                 alias=prop_name,
                 expr=property_to_expr(
@@ -1188,7 +1188,9 @@ class TestPropertyIsSetIsNotSetWithData(APIBaseTest):
         )
 
         result = execute_hogql_query(team=self.team, query=query_ast)
-        results = dict(zip(result.columns, result.results[0]))
+        row = result.results[0]
+        assert row
+        results = dict(zip(result.columns, row))
 
         assert results == self._expected_is_set_values(is_materialized)
 
@@ -1199,7 +1201,7 @@ class TestPropertyIsSetIsNotSetWithData(APIBaseTest):
             for prop_name, _, _, _ in self.test_cases:
                 materialize("events", prop_name)
 
-        select_exprs = [
+        select_exprs: list[ast.Expr] = [
             ast.Alias(
                 alias=prop_name,
                 expr=property_to_expr(
@@ -1222,6 +1224,8 @@ class TestPropertyIsSetIsNotSetWithData(APIBaseTest):
         )
 
         result = execute_hogql_query(team=self.team, query=query_ast)
-        results = dict(zip(result.columns, result.results[0]))
+        row = result.results[0]
+        assert row
+        results = dict(zip(result.columns, row))
 
         assert results == self._expected_is_not_set_values(is_materialized)
