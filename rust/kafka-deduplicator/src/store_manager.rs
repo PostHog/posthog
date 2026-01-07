@@ -877,7 +877,7 @@ impl StoreManager {
                         if let Ok(files) = std::fs::read_dir(ts_dir_entry.path()) {
                             for file_entry in files.flatten() {
                                 let file_path = file_entry.path();
-                                if file_path.extension().map_or(false, |e| e == "log") {
+                                if file_path.extension().is_some_and(|e| e == "log") {
                                     if let Ok(file_meta) = file_entry.metadata() {
                                         if let Ok(mtime) = file_meta.modified() {
                                             newest = Some(
@@ -938,32 +938,32 @@ impl StoreManager {
         }
 
         // Check 2: WAL files modified recently - store may still be active
+        // Use Duration::ZERO on elapsed() failure to be conservative (treat as just modified)
         if let Some(newest_wal_mtime) = Self::get_newest_wal_mtime(partition_dir) {
-            if let Ok(elapsed) = newest_wal_mtime.elapsed() {
-                if elapsed < orphan_min_staleness {
-                    info!(
-                        dir_name,
-                        wal_age_secs = elapsed.as_secs(),
-                        min_staleness_secs = orphan_min_staleness.as_secs(),
-                        "Orphan safety check: WAL file too recent, skipping deletion"
-                    );
-                    return false;
-                }
+            let elapsed = newest_wal_mtime.elapsed().unwrap_or(Duration::ZERO);
+            if elapsed < orphan_min_staleness {
+                info!(
+                    dir_name,
+                    wal_age_secs = elapsed.as_secs(),
+                    min_staleness_secs = orphan_min_staleness.as_secs(),
+                    "Orphan safety check: WAL file too recent, skipping deletion"
+                );
+                return false;
             }
         }
 
         // Check 3: Timestamp subdirectory modified recently - checkpoint import in progress
+        // Use Duration::ZERO on elapsed() failure to be conservative (treat as just modified)
         if let Some(newest_ts_mtime) = Self::get_newest_ts_dir_mtime(partition_dir) {
-            if let Ok(elapsed) = newest_ts_mtime.elapsed() {
-                if elapsed < orphan_min_staleness {
-                    info!(
-                        dir_name,
-                        ts_dir_age_secs = elapsed.as_secs(),
-                        min_staleness_secs = orphan_min_staleness.as_secs(),
-                        "Orphan safety check: timestamp directory too recent, skipping deletion"
-                    );
-                    return false;
-                }
+            let elapsed = newest_ts_mtime.elapsed().unwrap_or(Duration::ZERO);
+            if elapsed < orphan_min_staleness {
+                info!(
+                    dir_name,
+                    ts_dir_age_secs = elapsed.as_secs(),
+                    min_staleness_secs = orphan_min_staleness.as_secs(),
+                    "Orphan safety check: timestamp directory too recent, skipping deletion"
+                );
+                return false;
             }
         }
 
