@@ -9,6 +9,7 @@ use tracing::warn;
 use uuid::Uuid;
 
 use crate::app_context::AppContext;
+use crate::issue_resolution::Issue;
 
 const ISSUE_BUCKET_TTL_SECONDS: usize = 60 * 60;
 const ISSUE_BUCKET_INTERVAL_MINUTES: i64 = 5;
@@ -39,6 +40,8 @@ fn cooldown_key(issue_id: &Uuid) -> String {
 pub struct SpikingIssue {
     pub issue_id: Uuid,
     pub team_id: i32,
+    pub name: Option<String>,
+    pub description: Option<String>,
     pub computed_baseline: f64,
     pub current_bucket_value: i64,
 }
@@ -88,7 +91,7 @@ async fn try_increment_issue_buckets(
 
 async fn try_increment_team_buckets(
     redis: &(dyn Client + Send + Sync),
-    issue_team_ids: &HashMap<Uuid, i32>,
+    issues_by_id: &HashMap<Uuid, Issue>,
     issue_counts: &HashMap<Uuid, u32>,
 ) {
     if issue_counts.is_empty() {
@@ -102,8 +105,8 @@ async fn try_increment_team_buckets(
         issue_counts
             .iter()
             .fold(HashMap::new(), |mut acc, (issue_id, count)| {
-                if let Some(&team_id) = issue_team_ids.get(issue_id) {
-                    *acc.entry(team_id).or_insert(0) += count;
+                if let Some(issue) = issues_by_id.get(issue_id) {
+                    *acc.entry(issue.team_id).or_insert(0) += count;
                 }
                 acc
             });
@@ -129,9 +132,9 @@ async fn try_increment_team_buckets(
     let issue_set_items: Vec<(String, String)> = issue_counts
         .keys()
         .filter_map(|issue_id| {
-            let team_id = issue_team_ids.get(issue_id)?;
+            let issue = issues_by_id.get(issue_id)?;
             Some((
-                team_issue_set_key(*team_id, &now_rounded_to_minutes),
+                team_issue_set_key(issue.team_id, &now_rounded_to_minutes),
                 issue_id.to_string(),
             ))
         })
@@ -147,7 +150,7 @@ async fn try_increment_team_buckets(
 
 pub async fn do_spike_detection(
     context: Arc<AppContext>,
-    issue_team_ids: HashMap<Uuid, i32>,
+    issues_by_id: HashMap<Uuid, Issue>,
     issue_counts: HashMap<Uuid, u32>,
 ) {
     if issue_counts.is_empty() {
@@ -157,7 +160,7 @@ pub async fn do_spike_detection(
     try_increment_issue_buckets(&*context.issue_buckets_redis_client, &issue_counts).await;
     try_increment_team_buckets(
         &*context.issue_buckets_redis_client,
-        &issue_team_ids,
+        &issues_by_id,
         &issue_counts,
     )
     .await;
@@ -165,7 +168,7 @@ pub async fn do_spike_detection(
     let issue_ids: Vec<Uuid> = issue_counts.keys().copied().collect();
     match get_spiking_issues(
         &*context.issue_buckets_redis_client,
-        &issue_team_ids,
+        &issues_by_id,
         issue_ids,
     )
     .await
@@ -235,6 +238,12 @@ async fn emit_spiking_events(context: &AppContext, spiking: Vec<SpikingIssue>) {
         .filter_map(|spike| {
             let mut event =
                 InternalEventEvent::new(ISSUE_SPIKING_EVENT, spike.issue_id, Utc::now(), None);
+            event
+                .insert_prop("name", spike.name.clone())
+                .ok()?;
+            event
+                .insert_prop("description", spike.description.clone())
+                .ok()?;
             event
                 .insert_prop("computed_baseline", spike.computed_baseline)
                 .ok()?;
@@ -340,7 +349,7 @@ fn is_spiking(current_value: i64, baseline: f64) -> bool {
 
 async fn get_spiking_issues(
     redis: &(dyn Client + Send + Sync),
-    issue_team_ids: &HashMap<Uuid, i32>,
+    issues_by_id: &HashMap<Uuid, Issue>,
     issue_ids: Vec<Uuid>,
 ) -> Result<Vec<SpikingIssue>, common_redis::CustomRedisError> {
     if issue_ids.is_empty() {
@@ -348,9 +357,9 @@ async fn get_spiking_issues(
     }
 
     let bucket_timestamps = get_bucket_timestamps();
-    let unique_team_ids: Vec<i32> = issue_team_ids
+    let unique_team_ids: Vec<i32> = issues_by_id
         .values()
-        .copied()
+        .map(|i| i.team_id)
         .collect::<std::collections::HashSet<_>>()
         .into_iter()
         .collect();
@@ -364,19 +373,21 @@ async fn get_spiking_issues(
         .iter()
         .enumerate()
         .filter_map(|(issue_idx, issue_id)| {
-            let team_id = *issue_team_ids.get(issue_id)?;
+            let issue = issues_by_id.get(issue_id)?;
             let start_idx = issue_idx * NUM_BUCKETS;
             let buckets = &issue_values[start_idx..start_idx + NUM_BUCKETS];
 
             let current_value = buckets[0].unwrap_or(0);
             let historical = &buckets[1..];
-            let team_baseline = *team_baselines.get(&team_id).unwrap_or(&0.0);
+            let team_baseline = *team_baselines.get(&issue.team_id).unwrap_or(&0.0);
             let baseline = compute_issue_baseline(historical, team_baseline);
 
             if is_spiking(current_value, baseline) {
                 Some(SpikingIssue {
                     issue_id: *issue_id,
-                    team_id,
+                    team_id: issue.team_id,
+                    name: issue.name.clone(),
+                    description: issue.description.clone(),
                     computed_baseline: baseline,
                     current_bucket_value: current_value,
                 })
@@ -510,12 +521,23 @@ mod tests {
             }
         }
 
-        fn issue_team_ids(&self) -> HashMap<Uuid, i32> {
-            HashMap::from([(self.issue_id, self.team_id)])
+        fn issues_by_id(&self) -> HashMap<Uuid, Issue> {
+            HashMap::from([(self.issue_id, self.make_issue())])
+        }
+
+        fn make_issue(&self) -> Issue {
+            Issue {
+                id: self.issue_id,
+                team_id: self.team_id,
+                status: crate::issue_resolution::IssueStatus::Active,
+                name: Some("Test Issue".to_string()),
+                description: Some("Test Description".to_string()),
+                created_at: Utc::now(),
+            }
         }
 
         async fn get_spiking(&self) -> Vec<SpikingIssue> {
-            get_spiking_issues(&self.redis, &self.issue_team_ids(), vec![self.issue_id])
+            get_spiking_issues(&self.redis, &self.issues_by_id(), vec![self.issue_id])
                 .await
                 .unwrap()
         }
@@ -833,12 +855,21 @@ mod tests {
         let issue_d = Uuid::new_v4(); // team 2, has history, should NOT spike
         let issue_e = Uuid::new_v4(); // team 2, no history, should spike
 
-        let issue_team_ids = HashMap::from([
-            (issue_a, team_1),
-            (issue_b, team_1),
-            (issue_c, team_2),
-            (issue_d, team_2),
-            (issue_e, team_2),
+        let make_issue = |id: Uuid, team_id: i32| Issue {
+            id,
+            team_id,
+            status: crate::issue_resolution::IssueStatus::Active,
+            name: Some("Test".to_string()),
+            description: Some("Test".to_string()),
+            created_at: Utc::now(),
+        };
+
+        let issues_by_id = HashMap::from([
+            (issue_a, make_issue(issue_a, team_1)),
+            (issue_b, make_issue(issue_b, team_1)),
+            (issue_c, make_issue(issue_c, team_2)),
+            (issue_d, make_issue(issue_d, team_2)),
+            (issue_e, make_issue(issue_e, team_2)),
         ]);
 
         let now = Utc::now();
@@ -919,7 +950,7 @@ mod tests {
 
         let result = get_spiking_issues(
             &redis,
-            &issue_team_ids,
+            &issues_by_id,
             vec![issue_a, issue_b, issue_c, issue_d, issue_e],
         )
         .await

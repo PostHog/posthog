@@ -15,7 +15,7 @@ pub mod stack_processing;
 use crate::{
     app_context::AppContext,
     error::{EventError, PipelineFailure, PipelineResult, UnhandledError},
-    issue_resolution::IssueStatus,
+    issue_resolution::{Issue, IssueStatus},
     metric_consts::{
         ISSUE_PROCESSING_TIME, STACK_PROCESSING_TIME, SUPPRESSED_ISSUE_DROPPED_EVENTS,
     },
@@ -66,7 +66,7 @@ pub async fn do_exception_handling(
     // Unfreeze, as we're about to replace the event properties.
     let mut events = events;
     let mut issue_counts: std::collections::HashMap<Uuid, u32> = std::collections::HashMap::new();
-    let mut issue_team_ids: std::collections::HashMap<Uuid, i32> = std::collections::HashMap::new();
+    let mut issues_by_id: std::collections::HashMap<Uuid, Issue> = std::collections::HashMap::new();
     for (index, fingerprinted) in fingerprinted.into_iter() {
         let issue = issues
             .get(&fingerprinted.fingerprint.value)
@@ -86,10 +86,10 @@ pub async fn do_exception_handling(
         let output = fingerprinted.to_output(issue.id);
         event.properties = Some(serde_json::to_string(&output).map_err(|e| (index, e.into()))?);
         *issue_counts.entry(issue.id).or_insert(0) += 1;
-        issue_team_ids.entry(issue.id).or_insert(issue.team_id);
+        issues_by_id.entry(issue.id).or_insert(issue);
     }
 
-    spike_detection::do_spike_detection(context, issue_team_ids, issue_counts).await;
+    spike_detection::do_spike_detection(context, issues_by_id, issue_counts).await;
 
     Ok(events)
 }
