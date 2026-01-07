@@ -1,5 +1,7 @@
 import { useValues } from 'kea'
+import { useState } from 'react'
 
+import { IconCollapse, IconExpand } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -24,6 +26,7 @@ type ExposureCriteriaPanelProps = {
 export function ExposureCriteriaPanel({ experiment, onChange, onNext }: ExposureCriteriaPanelProps): JSX.Element {
     // Derive exposure type from experiment state
     const selectedExposureType = experiment.exposure_criteria?.exposure_config ? 'custom' : 'default'
+    const [advancedSettingsExpanded, setAdvancedSettingsExpanded] = useState(false)
 
     const { currentTeam } = useValues(teamLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
@@ -106,55 +109,72 @@ export function ExposureCriteriaPanel({ experiment, onChange, onNext }: Exposure
                 </div>
             )}
 
-            {/* Multiple Variant Handling */}
-            <div className="max-w-120">
-                <label className="block text-sm font-medium text-default mb-2">Multiple variant handling</label>
-                <LemonSelect
-                    value={experiment.exposure_criteria?.multiple_variant_handling || 'exclude'}
-                    onChange={(value) => {
-                        onChange({
-                            multiple_variant_handling: value as 'exclude' | 'first_seen',
-                        })
-                    }}
-                    options={[
-                        {
-                            value: 'exclude',
-                            label: 'Exclude from analysis',
-                            'data-attr': 'multiple-handling-exclude',
-                        },
-                        {
-                            value: 'first_seen',
-                            label: 'Use first seen variant',
-                            'data-attr': 'multiple-handling-first-seen',
-                        },
-                    ]}
-                    placeholder="Select handling method"
+            {/* Advanced Settings */}
+            <div>
+                <LemonButton
                     fullWidth
-                />
-                <div className="text-xs text-muted mt-1">
-                    {experiment.exposure_criteria?.multiple_variant_handling === 'first_seen' &&
-                        'Users exposed to multiple variants will be analyzed using their first seen variant.'}
-                    {(!experiment.exposure_criteria?.multiple_variant_handling ||
-                        experiment.exposure_criteria?.multiple_variant_handling === 'exclude') &&
-                        'Users exposed to multiple variants will be excluded from the analysis (recommended).'}
-                </div>
+                    onClick={() => setAdvancedSettingsExpanded(!advancedSettingsExpanded)}
+                    sideIcon={advancedSettingsExpanded ? <IconCollapse /> : <IconExpand />}
+                >
+                    <div>
+                        <h3 className="l4 mt-2">Advanced settings</h3>
+                        <div className="text-secondary mb-2 font-medium">Configure additional exposure options.</div>
+                    </div>
+                </LemonButton>
             </div>
 
-            {/* Test Account Filtering */}
-            <div className="max-w-120">
-                <TestAccountFilterSwitch
-                    checked={(() => {
-                        const val = experiment.exposure_criteria?.filterTestAccounts
-                        return hasFilters ? !!val : false
-                    })()}
-                    onChange={(checked: boolean) => {
-                        onChange({
-                            filterTestAccounts: checked,
-                        })
-                    }}
-                    fullWidth
-                />
-            </div>
+            {advancedSettingsExpanded && (
+                <div className="max-w-120 border rounded bg-surface-primary p-3 space-y-4">
+                    {/* Multiple Variant Handling */}
+                    <div>
+                        <label className="block text-sm font-medium text-default mb-2">Multiple variant handling</label>
+                        <LemonSelect
+                            value={experiment.exposure_criteria?.multiple_variant_handling || 'exclude'}
+                            onChange={(value) => {
+                                onChange({
+                                    multiple_variant_handling: value as 'exclude' | 'first_seen',
+                                })
+                            }}
+                            options={[
+                                {
+                                    value: 'exclude',
+                                    label: 'Exclude from analysis',
+                                    'data-attr': 'multiple-handling-exclude',
+                                },
+                                {
+                                    value: 'first_seen',
+                                    label: 'Use first seen variant',
+                                    'data-attr': 'multiple-handling-first-seen',
+                                },
+                            ]}
+                            placeholder="Select handling method"
+                            fullWidth
+                        />
+                        <div className="text-xs text-muted mt-1">
+                            {experiment.exposure_criteria?.multiple_variant_handling === 'first_seen' &&
+                                'Users exposed to multiple variants will be analyzed using their first seen variant.'}
+                            {(!experiment.exposure_criteria?.multiple_variant_handling ||
+                                experiment.exposure_criteria?.multiple_variant_handling === 'exclude') &&
+                                'Users exposed to multiple variants will be excluded from the analysis (recommended).'}
+                        </div>
+                    </div>
+                    {/* Test Account Filtering */}
+                    <div>
+                        <TestAccountFilterSwitch
+                            checked={(() => {
+                                const val = experiment.exposure_criteria?.filterTestAccounts
+                                return hasFilters ? !!val : false
+                            })()}
+                            onChange={(checked: boolean) => {
+                                onChange({
+                                    filterTestAccounts: checked,
+                                })
+                            }}
+                            fullWidth
+                        />
+                    </div>
+                </div>
+            )}
 
             <LemonDivider />
             <div className="flex justify-end pt-2">
