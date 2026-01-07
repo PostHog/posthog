@@ -1,5 +1,6 @@
 import ast
 import hashlib
+import builtins
 from dataclasses import dataclass
 from typing import Any
 
@@ -121,9 +122,9 @@ class GlobalAnalyzer(ast.NodeVisitor):
                 self.visit(decorator)
             for default in node.args.defaults:
                 self.visit(default)
-            for default in node.args.kw_defaults:
-                if default is not None:
-                    self.visit(default)
+            for kw_default in node.args.kw_defaults:
+                if kw_default is not None:
+                    self.visit(kw_default)
             for arg in node.args.args + node.args.posonlyargs + node.args.kwonlyargs:
                 if arg.annotation:
                     self.visit(arg.annotation)
@@ -288,9 +289,8 @@ def analyze_python_globals(code: str) -> PythonGlobalsAnalysis:
         return PythonGlobalsAnalysis(used=[], exported_with_types=[])
 
     module_locals = collect_scope_locals(tree.body)
-    builtins_obj = __builtins__
-    builtins = set(builtins_obj.keys()) if isinstance(builtins_obj, dict) else set(dir(builtins_obj))
-    analyzer = GlobalAnalyzer(module_locals, builtins)
+    builtins_names = set(dir(builtins))
+    analyzer = GlobalAnalyzer(module_locals, builtins_names)
     analyzer.visit(tree)
     exported_types = collect_exported_types(tree.body)
     exported_with_types = [
@@ -307,7 +307,7 @@ def compute_globals_analysis_hash(code: str) -> str:
     return hashlib.sha256(code.encode("utf-8")).hexdigest()
 
 
-def annotate_python_nodes(content: dict[str, Any]) -> dict[str, Any]:
+def annotate_python_nodes(content: Any) -> Any:
     if not isinstance(content, dict):
         return content
 

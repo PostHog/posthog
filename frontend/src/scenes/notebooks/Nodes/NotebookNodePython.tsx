@@ -268,6 +268,5 @@ export const NotebookNodePython = createPostHogWidgetNode<NotebookNodePythonAttr
     },
     Settings,
     settingsPlacement: 'inline',
-    settingsIcon: 'pencil',
     serializedText: (attrs) => attrs.code,
 })
