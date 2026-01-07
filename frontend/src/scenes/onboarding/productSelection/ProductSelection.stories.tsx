@@ -1,4 +1,7 @@
-import { Meta, StoryFn } from '@storybook/react'
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import { DecoratorFunction } from '@storybook/types'
 import { useActions, useMountedLogic } from 'kea'
 import { router } from 'kea-router'
 
@@ -12,13 +15,31 @@ import { mswDecorator } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { ProductKey } from '~/queries/schema/schema-general'
+import { UserRole } from '~/types'
+
+const createDecoratorsForRole = (role: UserRole): DecoratorFunction<any>[] => [
+    mswDecorator({
+        get: {
+            '/api/users/@me/': () => [
+                200,
+                {
+                    ...MOCK_DEFAULT_USER,
+                    role_at_organization: role,
+                },
+            ],
+        },
+    }),
+]
 
 const meta: Meta = {
+    component: App,
     title: 'Scenes-Other/Onboarding/Product Selection',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-05-25',
+        pageUrl: urls.onboarding(),
+        featureFlags: [FEATURE_FLAGS.ONBOARDING_GREAT_FOR_ROLE],
     },
     decorators: [
         mswDecorator({
@@ -45,27 +66,11 @@ const meta: Meta = {
 }
 export default meta
 
-export const ChoosePath: StoryFn = () => {
-    useDelayedOnMountEffect(() => {
-        router.actions.push(urls.onboarding())
-    })
+type Story = StoryObj<typeof meta>
+export const Base: Story = {}
 
-    return <App />
-}
-ChoosePath.parameters = {
-    testOptions: { waitForSelector: '[data-attr="use-case-see_user_behavior"]' },
-}
-
-export const ChoosePathWithAIFeatureFlag: StoryFn = () => {
-    useDelayedOnMountEffect(() => {
-        router.actions.push(urls.onboarding())
-    })
-
-    return <App />
-}
-ChoosePathWithAIFeatureFlag.parameters = {
-    featureFlags: [FEATURE_FLAGS.ONBOARDING_AI_PRODUCT_RECOMMENDATIONS],
-    testOptions: { waitForSelector: '[data-attr="use-case-see_user_behavior"]' },
+export const WithAIFeatureFlag: Story = {
+    parameters: { featureFlags: [FEATURE_FLAGS.ONBOARDING_AI_PRODUCT_RECOMMENDATIONS] },
 }
 
 export const AfterAIRecommendation: StoryFn = () => {
@@ -75,6 +80,7 @@ export const AfterAIRecommendation: StoryFn = () => {
 
     useDelayedOnMountEffect(() => {
         router.actions.push(urls.onboarding())
+
         // Simulate AI recommendation result
         setAiRecommendation({
             products: ['product_analytics', 'session_replay', 'experiments'],
@@ -91,3 +97,12 @@ export const AfterAIRecommendation: StoryFn = () => {
 AfterAIRecommendation.parameters = {
     testOptions: { waitForSelector: '[data-attr="product_analytics-onboarding-card"]' },
 }
+
+// Stories for each role showing "Great for..." badges
+export const DataRole: Story = { decorators: createDecoratorsForRole(UserRole.Data) }
+export const EngineeringRole: Story = { decorators: createDecoratorsForRole(UserRole.Engineering) }
+export const FounderRole: Story = { decorators: createDecoratorsForRole(UserRole.Founder) }
+export const LeadershipRole: Story = { decorators: createDecoratorsForRole(UserRole.Leadership) }
+export const MarketingRole: Story = { decorators: createDecoratorsForRole(UserRole.Marketing) }
+export const ProductRole: Story = { decorators: createDecoratorsForRole(UserRole.Product) }
+export const SalesRole: Story = { decorators: createDecoratorsForRole(UserRole.Sales) }

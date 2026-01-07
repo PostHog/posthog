@@ -338,7 +338,9 @@ export const activationLogic = kea<activationLogicType>([
 
                 // LLM Analytics
                 case ActivationTask.IngestFirstLLMEvent:
-                    router.actions.push(urls.onboarding(ProductKey.LLM_ANALYTICS, OnboardingStepKey.INSTALL))
+                    router.actions.push(
+                        urls.onboarding({ productKey: ProductKey.LLM_ANALYTICS, stepKey: OnboardingStepKey.INSTALL })
+                    )
                     break
                 case ActivationTask.ViewFirstTrace:
                     router.actions.push(urls.llmAnalyticsTraces())

@@ -3,16 +3,25 @@ import { useActions, useValues } from 'kea'
 
 import * as Icons from '@posthog/icons'
 import { IconArrowRight, IconChevronDown, IconSparkles } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCard, LemonLabel, LemonSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCard,
+    LemonLabel,
+    LemonSelect,
+    LemonTag,
+    LemonTextArea,
+    Link,
+} from '@posthog/lemon-ui'
 
 import { Logomark } from 'lib/brand/Logomark'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
-import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { UseCaseDefinition } from '../productRecommendations'
+import { UseCaseDefinition, getRecommendedBanner } from '../productRecommendations'
 import { availableOnboardingProducts } from '../utils'
 import { productSelectionLogic } from './productSelectionLogic'
 
@@ -60,8 +69,10 @@ function ChoosePathStep(): JSX.Element {
     } = useValues(productSelectionLogic)
     const { selectUseCase, setAiDescription, submitAiRecommendation, selectPickMyself } =
         useActions(productSelectionLogic)
+    const { user } = useValues(userLogic)
 
     const aiRecommendationsEnabled = useFeatureFlag('ONBOARDING_AI_PRODUCT_RECOMMENDATIONS', 'test')
+    const greatForRoleEnabled = useFeatureFlag('ONBOARDING_GREAT_FOR_ROLE')
 
     return (
         <div className="max-w-4xl w-full">
@@ -128,31 +139,42 @@ function ChoosePathStep(): JSX.Element {
 
             {/* Use cases grid - 2 rows x 3 columns */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {useCases.map((useCase: UseCaseDefinition) => (
-                    <LemonCard
-                        key={useCase.key}
-                        className={clsx(
-                            'p-4',
-                            aiRecommendationLoading ? 'opacity-50 pointer-events-none' : 'cursor-pointer'
-                        )}
-                        onClick={() => !aiRecommendationLoading && selectUseCase(useCase.key)}
-                        hoverEffect={!aiRecommendationLoading}
-                        data-attr={`use-case-${useCase.key}`}
-                    >
-                        <div className="flex flex-col items-center text-center gap-3">
-                            <div className="text-3xl">
-                                {getProductIcon(useCase.iconKey, {
-                                    iconColor: useCase.iconColor,
-                                    className: 'text-3xl',
-                                })}
+                {useCases.map((useCase: UseCaseDefinition) => {
+                    const roleBanner = greatForRoleEnabled
+                        ? getRecommendedBanner(useCase, user?.role_at_organization)
+                        : null
+
+                    return (
+                        <LemonCard
+                            key={useCase.key}
+                            className={clsx(
+                                'p-4 relative',
+                                aiRecommendationLoading ? 'opacity-50 pointer-events-none' : 'cursor-pointer'
+                            )}
+                            onClick={() => !aiRecommendationLoading && selectUseCase(useCase.key)}
+                            hoverEffect={!aiRecommendationLoading}
+                            data-attr={`use-case-${useCase.key}`}
+                        >
+                            {roleBanner && (
+                                <LemonTag type="highlight" size="small" className="absolute top-2 right-2">
+                                    {roleBanner}
+                                </LemonTag>
+                            )}
+                            <div className="flex flex-col items-center text-center gap-3">
+                                <div className="text-3xl">
+                                    {getProductIcon(useCase.iconKey, {
+                                        iconColor: useCase.iconColor,
+                                        className: 'text-3xl',
+                                    })}
+                                </div>
+                                <div>
+                                    <div className="font-semibold mb-1">{useCase.title}</div>
+                                    <p className="text-muted text-sm mb-0">{useCase.description}</p>
+                                </div>
                             </div>
-                            <div>
-                                <div className="font-semibold mb-1">{useCase.title}</div>
-                                <p className="text-muted text-sm mb-0">{useCase.description}</p>
-                            </div>
-                        </div>
-                    </LemonCard>
-                ))}
+                        </LemonCard>
+                    )
+                })}
 
                 {/* Pick myself option */}
                 <LemonCard
@@ -189,8 +211,6 @@ function ProductCard({
     onToggle: () => void
 }): JSX.Element {
     const product = availableOnboardingProducts[productKey]
-    const { currentTeam } = useValues(teamLogic)
-    const onboardingCompleted = currentTeam?.has_completed_onboarding_for?.[productKey]
 
     return (
         <LemonCard
@@ -208,10 +228,7 @@ function ProductCard({
                     })}
                 </div>
                 <div>
-                    <h3 className="font-semibold mb-1 text-sm">
-                        {product.name}
-                        {onboardingCompleted && <span className="ml-1 text-xs text-muted font-normal">(set up)</span>}
-                    </h3>
+                    <h3 className="font-semibold mb-1 text-sm">{product.name}</h3>
                     <p className="text-muted text-xs mb-0">{product.description}</p>
                 </div>
             </div>
