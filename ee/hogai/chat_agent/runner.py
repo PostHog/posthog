@@ -121,6 +121,7 @@ class ChatAgentRunner(BaseAgentRunner):
         new_state = PartialAssistantState(
             messages=[self._latest_message], graph_status="resumed", query_generation_retry_count=0
         )
+
         # Only set the agent mode if it was explicitly set.
         if self._selected_agent_mode:
             new_state.agent_mode = self._selected_agent_mode

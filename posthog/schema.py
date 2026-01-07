@@ -211,6 +211,7 @@ class AssistantMessageType(StrEnum):
     AI_NOTEBOOK = "ai/notebook"
     AI_PLANNING = "ai/planning"
     AI_TASK_EXECUTION = "ai/task_execution"
+    AI_PERMISSION_REQUEST = "ai/permission_request"
 
 
 class AssistantNavigateUrl(StrEnum):
@@ -326,6 +327,11 @@ class AssistantTool(StrEnum):
     UPSERT_DASHBOARD = "upsert_dashboard"
 
 
+class PermissionStatus(StrEnum):
+    GRANTED = "granted"
+    DENIED = "denied"
+
+
 class AssistantToolCall(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -333,6 +339,7 @@ class AssistantToolCall(BaseModel):
     args: dict[str, Any]
     id: str
     name: str
+    permission_status: PermissionStatus | None = None
     type: Literal["tool_call"] = Field(
         default="tool_call", description="`type` needed to conform to the OpenAI shape, which is expected by LangChain"
     )
@@ -2607,6 +2614,16 @@ class PathsLink(BaseModel):
     source: str
     target: str
     value: float
+
+
+class PermissionRequestMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    id: str | None = None
+    parent_tool_call_id: str | None = None
+    type: Literal["ai/permission_request"] = "ai/permission_request"
 
 
 class PersistedFolder(BaseModel):

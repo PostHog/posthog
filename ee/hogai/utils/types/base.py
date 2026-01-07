@@ -34,6 +34,7 @@ from posthog.schema import (
     HumanMessage,
     MultiVisualizationMessage,
     NotebookUpdateMessage,
+    PermissionRequestMessage,
     PlanningMessage,
     ReasoningMessage,
     SubagentUpdateEvent,
@@ -64,8 +65,11 @@ AIMessageUnion = Union[
     ReasoningMessage,
     PlanningMessage,
     TaskExecutionMessage,
+    PermissionRequestMessage,
 ]
-AssistantMessageUnion = Union[HumanMessage, AIMessageUnion, NotebookUpdateMessage, ContextMessage]
+AssistantMessageUnion = Union[
+    HumanMessage, AIMessageUnion, NotebookUpdateMessage, ContextMessage, PermissionRequestMessage
+]
 AssistantStreamedMessageUnion = Union[AssistantMessageUnion, ArtifactMessage]
 AssistantResultUnion = Union[
     AssistantStreamedMessageUnion, AssistantUpdateEvent, AssistantGenerationStatusEvent, SubagentUpdateEvent

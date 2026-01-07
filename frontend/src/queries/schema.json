@@ -1618,7 +1618,8 @@
                 "ai/failure",
                 "ai/notebook",
                 "ai/planning",
-                "ai/task_execution"
+                "ai/task_execution",
+                "ai/permission_request"
             ],
             "type": "string"
         },
@@ -1948,6 +1949,10 @@
                     "type": "string"
                 },
                 "name": {
+                    "type": "string"
+                },
+                "permission_status": {
+                    "enum": ["granted", "denied"],
                     "type": "string"
                 },
                 "type": {
@@ -21819,6 +21824,26 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "PermissionRequestMessage": {
+            "additionalProperties": false,
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "parent_tool_call_id": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "ai/permission_request",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "content"],
             "type": "object"
         },
         "PersistedFolder": {

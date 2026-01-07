@@ -58,6 +58,7 @@ export enum AssistantMessageType {
     Notebook = 'ai/notebook',
     Planning = 'ai/planning',
     TaskExecution = 'ai/task_execution',
+    PermissionRequest = 'ai/permission_request',
 }
 
 /** Source of artifact - determines which model to fetch from */
@@ -139,6 +140,7 @@ export interface AssistantToolCall {
      * @default "tool_call"
      */
     type: 'tool_call'
+    permission_status?: 'granted' | 'denied'
 }
 
 export interface AssistantMessage extends BaseAssistantMessage {
@@ -299,6 +301,11 @@ export interface ArtifactMessage extends BaseAssistantMessage {
     source: ArtifactSource
     /** Content of artifact */
     content: ArtifactContent
+}
+
+export interface PermissionRequestMessage extends BaseAssistantMessage {
+    type: AssistantMessageType.PermissionRequest
+    content: string
 }
 
 export type RootAssistantMessage =

@@ -4,14 +4,22 @@ from collections.abc import Sequence
 from functools import cached_property
 from string import Formatter
 from typing import Any, Literal, Self
+from uuid import uuid4
 
 import structlog
 from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
+from langgraph.errors import NodeInterrupt
 from pydantic import BaseModel
 
-from posthog.schema import AssistantTool
+from posthog.schema import (
+    AssistantMessage,
+    AssistantTool,
+    AssistantToolCall,
+    PermissionRequestMessage,
+    PermissionStatus,
+)
 
 from posthog.models import Team, User
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
@@ -113,6 +121,9 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
             if not self.user_access_control.check_access_level_for_resource(resource, required_level):
                 raise MaxToolAccessDeniedError(resource, required_level, action="use")
 
+    def is_dangerous_operation(self, **kwargs) -> bool:
+        return False
+
     def __init__(
         self,
         *,
@@ -161,6 +172,8 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
     def _run(self, *args, config: RunnableConfig, **kwargs):
         """LangChain default runner."""
         self._check_access_control()
+        if permission_res := self._check_tool_call_permission(**kwargs):
+            return permission_res
         try:
             return self._run_with_context(*args, **kwargs)
         except NotImplementedError:
@@ -171,6 +184,8 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
         """LangChain default runner."""
         # using database_sync_to_async because UserAccessControl is fully sync
         await database_sync_to_async(self._check_access_control)()
+        if permission_res := self._check_tool_call_permission(**kwargs):
+            return permission_res
         try:
             return await self._arun_with_context(*args, **kwargs)
         except NotImplementedError:
@@ -241,6 +256,37 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
         return cls(
             team=team, user=user, node_path=node_path, state=state, config=config, context_manager=context_manager
         )
+
+    @property
+    def tool_call(self) -> AssistantToolCall:
+        path = next((path for path in reversed(self.node_path) if path.tool_call_id), None)
+        if not path or not path.message_id:
+            raise ValueError("No tool call path found")
+        message = next((message for message in reversed(self._state.messages) if message.id == path.message_id), None)
+        assert isinstance(message, AssistantMessage)
+        tool_call = next(
+            (tool_call for tool_call in message.tool_calls or [] if tool_call.id == path.tool_call_id), None
+        )
+        if not tool_call:
+            raise ValueError("No tool call found")
+        return tool_call
+
+    def _check_tool_call_permission(self, **kwargs) -> tuple[str, Any] | None:
+        if not self.is_dangerous_operation(**kwargs):
+            return None
+
+        # Status is unknown, request permission
+        if self.tool_call.permission_status is None:
+            raise NodeInterrupt(
+                PermissionRequestMessage(content="Approve this operation to continue.", id=str(uuid4()))
+            )
+
+        # Status is denied, return error to the tool
+        if self.tool_call.permission_status == PermissionStatus.DENIED:
+            return "User denied the execution.", None
+
+        # Status is granted, continue with the execution
+        return None
 
 
 class MaxSubtool(AssistantDispatcherMixin, ABC):

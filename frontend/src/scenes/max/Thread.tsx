@@ -57,6 +57,7 @@ import { Query } from '~/queries/Query/Query'
 import {
     AssistantForm,
     AssistantMessage,
+    AssistantMessageType,
     AssistantToolCall,
     AssistantToolCallMessage,
     TaskExecutionStatus as ExecutionStatus,
@@ -525,7 +526,11 @@ function Message({ message, nextMessage, isLastInGroup, isFinal, isSlashCommandR
                                 toolPayload={toolPayload}
                             />
                         )
-                    } else if (isAssistantToolCallMessage(message) || isFailureMessage(message)) {
+                    } else if (
+                        isAssistantToolCallMessage(message) ||
+                        isFailureMessage(message) ||
+                        message.type === AssistantMessageType.PermissionRequest
+                    ) {
                         return (
                             <TextAnswer
                                 key={key}

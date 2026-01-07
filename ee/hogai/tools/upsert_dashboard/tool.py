@@ -84,6 +84,9 @@ class UpsertDashboardTool(MaxTool):
     def get_required_resource_access(self):
         return [("dashboard", "editor")]
 
+    def is_dangerous_operation(self, **kwargs) -> bool:
+        return True
+
     async def _arun_impl(self, action: UpsertDashboardAction) -> tuple[str, ToolMessagesArtifact | None]:
         if isinstance(action, CreateDashboardToolArgs):
             return await self._handle_create(action)

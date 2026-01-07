@@ -27,6 +27,7 @@ from posthog.schema import (
     FailureMessage,
     HumanMessage,
     MaxBillingContext,
+    PermissionStatus,
     SubagentUpdateEvent,
 )
 
@@ -50,6 +51,7 @@ from ee.hogai.utils.types.base import (
     AssistantResultUnion,
     AssistantStreamedMessageUnion,
     LangGraphUpdateEvent,
+    ReplaceMessages,
 )
 from ee.hogai.utils.types.composed import AssistantMaxGraphState, AssistantMaxPartialGraphState
 from ee.models import Conversation
@@ -393,6 +395,21 @@ class BaseAgentRunner(ABC):
                 )
                 # Return None to indicate that we want to continue the execution from the interrupted point.
                 return None
+
+            if saved_state.graph_status == "interrupted":
+                # Find messages that requested approval
+                # Pseudcode, requires more robust logic
+                new_messages = [*saved_state.messages]
+                last_assistant_message = find_last_message_of_type(new_messages, AssistantMessage)
+                assert last_assistant_message
+                for tool_call in last_assistant_message.tool_calls or []:
+                    # For demo, we deny
+                    tool_call.permission_status = PermissionStatus.DENIED
+                # Replace the messages with the updated ones
+                await self._graph.aupdate_state(
+                    config,
+                    self._partial_state_type(messages=ReplaceMessages(new_messages)),
+                )
 
         # Add the latest message id to streamed messages, so we don't send it multiple times.
         if self._latest_message and self._latest_message.id is not None:

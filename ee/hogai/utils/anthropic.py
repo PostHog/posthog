@@ -54,8 +54,13 @@ def convert_assistant_message_to_anthropic_message(
         content.append({"type": "text", "text": message.content})
 
     # Filter out tool calls without a tool response, so the completion doesn't fail.
-    tool_calls = [tool for tool in (message.model_dump()["tool_calls"] or []) if tool["id"] in tool_result_map]
-
+    tool_calls = [
+        tool
+        for tool in (message.model_dump(exclude={"permission_status"})["tool_calls"] or [])
+        if tool["id"] in tool_result_map
+    ]
+    for tool in tool_calls:
+        tool.pop("permission_status", None)
     if content or tool_calls:
         history.append(
             messages.AIMessage(
