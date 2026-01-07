@@ -21,6 +21,9 @@ describe('hogFlowEditorNotificationTestLogic', () => {
     let workflowLogicInstance: ReturnType<typeof workflowLogic.build>
 
     beforeEach(() => {
+        localStorage.clear()
+        sessionStorage.clear()
+
         resetContext({
             plugins: [testUtilsPlugin],
         })
@@ -356,7 +359,9 @@ describe('hogFlowEditorNotificationTestLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.loadSamplePersons()
-            }).toDispatchActions(['loadSamplePersons', 'loadSamplePersonsSuccess', 'loadSamplePersonByDistinctId'])
+            })
+                .toDispatchActions(['loadSamplePersons', 'loadSamplePersonsSuccess', 'loadSamplePersonByDistinctId'])
+                .toFinishAllListeners()
         })
 
         it('should not reload person if sampleGlobals matches selectedPersonDistinctId', async () => {
@@ -390,6 +395,7 @@ describe('hogFlowEditorNotificationTestLogic', () => {
             })
                 .toDispatchActions(['loadSamplePersons', 'loadSamplePersonsSuccess'])
                 .toNotHaveDispatchedActions(['loadSamplePersonByDistinctId'])
+                .toFinishAllListeners()
                 .toMatchValues({
                     selectedPersonDistinctId: distinctId,
                     sampleGlobals: globalsForPerson1,
