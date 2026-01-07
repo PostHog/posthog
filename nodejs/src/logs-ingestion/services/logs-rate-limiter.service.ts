@@ -3,6 +3,18 @@ import { Hub } from '~/types'
 
 import { LogsIngestionMessage } from '../types'
 
+/** Narrowed Hub type for LogsRateLimiterService */
+export type LogsRateLimiterServiceHub = Pick<
+    Hub,
+    | 'LOGS_LIMITER_TEAM_BUCKET_SIZE_KB'
+    | 'LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND'
+    | 'LOGS_LIMITER_DISABLED_FOR_TEAMS'
+    | 'LOGS_LIMITER_ENABLED_TEAMS'
+    | 'LOGS_LIMITER_BUCKET_SIZE_KB'
+    | 'LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND'
+    | 'LOGS_LIMITER_TTL_SECONDS'
+>
+
 export const BASE_REDIS_KEY =
     process.env.NODE_ENV == 'test' ? '@posthog-test/logs-rate-limiter' : '@posthog/logs-rate-limiter'
 const REDIS_KEY_TOKENS = `${BASE_REDIS_KEY}/tokens`
@@ -30,7 +42,7 @@ export class LogsRateLimiterService {
     private enabledTeamIds: Set<number> | '*' | null
 
     constructor(
-        private hub: Hub,
+        private hub: LogsRateLimiterServiceHub,
         private redis: RedisV2
     ) {
         this.teamBucketSizes = this.parseTeamConfig(hub.LOGS_LIMITER_TEAM_BUCKET_SIZE_KB)

@@ -10,6 +10,7 @@ from django.db.models.functions import Cast
 import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync
+from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -17,7 +18,7 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from temporalio.client import ScheduleActionExecutionStartWorkflow
 
-from posthog.schema import DataWarehouseManagedViewsetKind
+from posthog.schema import DataWarehouseManagedViewsetKind, ProductKey
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database, SerializedField, serialize_fields
@@ -43,6 +44,8 @@ from posthog.temporal.common.client import sync_connect
 
 from products.data_warehouse.backend.data_load.saved_query_service import (
     pause_saved_query_schedule,
+    saved_query_workflow_exists,
+    sync_saved_query_workflow,
     trigger_saved_query_schedule,
 )
 from products.data_warehouse.backend.models import (
@@ -371,6 +374,16 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
                     posthoganalytics.capture_exception(e)
                     logger.exception("Failed to update model path when updating view %s", view.name)
 
+                # update the temporal schedule if the view is materialized
+                if view.is_materialized:
+                    try:
+                        sync_saved_query_workflow(view, create=not saved_query_workflow_exists(str(view.id)))
+                    except Exception as e:
+                        capture_exception(e)
+                        logger.exception(
+                            "Failed to update schedule when updating sync frequency for view %s", view.name
+                        )
+
         return view
 
     def validate_query(self, query):
@@ -425,6 +438,7 @@ class DataWarehouseSavedQueryPagination(PageNumberPagination):
     page_size = 1000
 
 
+@extend_schema(tags=[ProductKey.DATA_WAREHOUSE])
 class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete Warehouse Tables.

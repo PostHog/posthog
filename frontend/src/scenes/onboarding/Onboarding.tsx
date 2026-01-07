@@ -8,9 +8,10 @@ import { OrganizationMembershipLevel, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
+import { ProductSelection } from 'scenes/onboarding/productSelection/ProductSelection'
+import { productSelectionLogic } from 'scenes/onboarding/productSelection/productSelectionLogic'
 import { WebAnalyticsSDKInstructions } from 'scenes/onboarding/sdks/web-analytics/WebAnalyticsSDKInstructions'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { productsLogic } from 'scenes/products/productsLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { getMaskingConfigFromLevel, getMaskingLevelFromConfig } from 'scenes/session-recordings/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -180,7 +181,7 @@ const sessionReplayOnboardingToggle = (
 }
 const ProductAnalyticsOnboarding = (): JSX.Element => {
     const { currentTeam } = useValues(teamLogic)
-    const { selectedProducts } = useValues(productsLogic)
+    const { selectedProducts } = useValues(productSelectionLogic)
 
     // mount the logic here so that it stays mounted for the entire onboarding flow
     // not sure if there is a better way to do this
@@ -256,7 +257,7 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
 
 const WebAnalyticsOnboarding = (): JSX.Element => {
     const { currentTeam } = useValues(teamLogic)
-    const { selectedProducts } = useValues(productsLogic)
+    const { selectedProducts } = useValues(productSelectionLogic)
 
     const options: ProductConfigOption[] = [
         {
@@ -486,9 +487,15 @@ export const onboardingViews = {
 export function Onboarding(): JSX.Element | null {
     const { product, productKey } = useValues(onboardingLogic)
 
-    if (!product || !productKey) {
+    // Show product selection when no product is selected
+    if (!productKey) {
+        return <ProductSelection />
+    }
+
+    if (!product) {
         return <></>
     }
+
     const OnboardingView = onboardingViews[productKey as keyof typeof onboardingViews]
 
     return (

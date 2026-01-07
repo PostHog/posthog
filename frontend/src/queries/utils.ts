@@ -14,6 +14,9 @@ import {
     DataWarehouseNode,
     DatabaseSchemaQuery,
     DateRange,
+    EndpointsUsageOverviewQuery,
+    EndpointsUsageTableQuery,
+    EndpointsUsageTrendsQuery,
     ErrorTrackingIssueCorrelationQuery,
     ErrorTrackingQuery,
     EventsNode,
@@ -23,6 +26,7 @@ import {
     ExperimentTrendsQuery,
     FunnelsQuery,
     GoalLine,
+    GroupNode,
     GroupsQuery,
     HogQLASTQuery,
     HogQLMetadata,
@@ -97,6 +101,10 @@ export function isNodeWithSource(node?: Record<string, any> | null): node is Dat
 
 export function isEventsNode(node?: Record<string, any> | null): node is EventsNode {
     return node?.kind === NodeKind.EventsNode
+}
+
+export function isGroupNode(node?: Record<string, any> | null): node is GroupNode {
+    return node?.kind === NodeKind.GroupNode
 }
 
 export function isEventsQuery(node?: Record<string, any> | null): node is EventsQuery {
@@ -193,6 +201,24 @@ export function isRevenueAnalyticsTopCustomersQuery(
     node?: Record<string, any> | null
 ): node is RevenueAnalyticsTopCustomersQuery {
     return node?.kind === NodeKind.RevenueAnalyticsTopCustomersQuery
+}
+
+export function isEndpointsUsageOverviewQuery(node?: Record<string, any> | null): node is EndpointsUsageOverviewQuery {
+    return node?.kind === NodeKind.EndpointsUsageOverviewQuery
+}
+
+export function isEndpointsUsageTableQuery(node?: Record<string, any> | null): node is EndpointsUsageTableQuery {
+    return node?.kind === NodeKind.EndpointsUsageTableQuery
+}
+
+export function isEndpointsUsageTrendsQuery(node?: Record<string, any> | null): node is EndpointsUsageTrendsQuery {
+    return node?.kind === NodeKind.EndpointsUsageTrendsQuery
+}
+
+export function isEndpointsUsageQuery(
+    node?: Record<string, any> | null
+): node is EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery {
+    return isEndpointsUsageOverviewQuery(node) || isEndpointsUsageTableQuery(node) || isEndpointsUsageTrendsQuery(node)
 }
 
 export function isWebOverviewQuery(node?: Record<string, any> | null): node is WebOverviewQuery {
@@ -447,7 +473,9 @@ export const getFormulaNodes = (query: InsightQueryNode | null): TrendsFormulaNo
     return undefined
 }
 
-export const getSeries = (query: InsightQueryNode): (EventsNode | ActionsNode | DataWarehouseNode)[] | undefined => {
+export const getSeries = (
+    query: InsightQueryNode
+): (EventsNode | ActionsNode | DataWarehouseNode | GroupNode)[] | undefined => {
     if (isInsightQueryWithSeries(query)) {
         return query.series
     }

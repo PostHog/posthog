@@ -92,13 +92,15 @@ class TestSchemaGeneratorNode(BaseTest):
         with patch.object(DummyGeneratorNode, "_model") as generator_model_mock:
             generator_model_mock.return_value = RunnableLambda(
                 lambda _: DummySchema(
-                    query=self.basic_trends, name="Test Query Name", description="Test Query Description"
+                    query=self.basic_trends,
                 ).model_dump()
             )
             new_state = await node(
                 AssistantState(
                     messages=[HumanMessage(content="Text", id="0")],
                     plan="Test Plan Content",
+                    visualization_title="Test Query Name",
+                    visualization_description="Test Query Description",
                     start_id="0",
                 ),
                 config,
@@ -120,13 +122,15 @@ class TestSchemaGeneratorNode(BaseTest):
         with patch.object(DummyGeneratorNode, "_model") as generator_model_mock:
             generator_model_mock.return_value = RunnableLambda(
                 lambda _: DummySchema(
-                    query=self.basic_trends, name="Query Name", description="Description"
+                    query=self.basic_trends,
                 ).model_dump()
             )
             new_state = await node(
                 AssistantState(
                     messages=[HumanMessage(content="Text", id="0")],
                     plan=None,
+                    visualization_title="Query Name",
+                    visualization_description="Description",
                     start_id="0",
                 ),
                 config,

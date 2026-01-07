@@ -13,6 +13,7 @@ from posthog.api import (
 )
 from posthog.api.batch_imports import BatchImportViewSet
 from posthog.api.csp_reporting import CSPReportingViewSet
+from posthog.api.onboarding import OnboardingViewSet
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.api.wizard import http as wizard
 from posthog.approvals import api as approval_api
@@ -23,9 +24,11 @@ import products.logs.backend.api as logs
 import products.links.backend.api as link
 import products.tasks.backend.api as tasks
 import products.endpoints.backend.api as endpoints
+import products.conversations.backend.api as conversations
 import products.live_debugger.backend.api as live_debugger
 import products.revenue_analytics.backend.api as revenue_analytics
 import products.early_access_features.backend.api as early_access_feature
+import products.customer_analytics.backend.api.views as customer_analytics
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 from products.data_warehouse.backend.api import (
     data_modeling_job,
@@ -77,6 +80,7 @@ from ee.api.vercel import vercel_installation, vercel_product, vercel_proxy, ver
 
 from ..heatmaps.heatmaps_api import HeatmapScreenshotViewSet, HeatmapViewSet, LegacyHeatmapViewSet, SavedHeatmapViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
+from ..session_recordings.session_recording_external_reference_api import SessionRecordingExternalReferenceViewSet
 from ..session_recordings.session_recording_playlist_api import SessionRecordingPlaylistViewSet
 from ..taxonomy import property_definition_api
 from . import (
@@ -128,6 +132,7 @@ from . import (
     web_vitals,
 )
 from .column_configuration import ColumnConfigurationViewSet
+from .core_event import CoreEventViewSet
 from .dashboards import dashboard, dashboard_templates
 from .data_management import DataManagementViewSet
 from .external_web_analytics import http as external_web_analytics
@@ -135,6 +140,7 @@ from .file_system import file_system, file_system_shortcut, persisted_folder, us
 from .llm_prompt import LLMPromptViewSet
 from .oauth_application import OAuthApplicationPublicMetadataViewSet
 from .session import SessionViewSet
+from .web_analytics_filter_preset import WebAnalyticsFilterPresetViewSet
 
 
 @decorators.api_view(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"])
@@ -298,6 +304,13 @@ register_grandfathered_environment_nested_viewset(
     r"ingestion_warnings",
     ingestion_warnings.IngestionWarningsViewSet,
     "environment_ingestion_warnings",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"customer_profile_configs",
+    customer_analytics.CustomerProfileConfigViewSet,
+    "environment_customer_profile_configs",
     ["team_id"],
 )
 
@@ -619,6 +632,13 @@ environment_sessions_recordings_router, legacy_project_session_recordings_router
     )
 )
 
+environments_router.register(
+    r"session_recording_external_references",
+    SessionRecordingExternalReferenceViewSet,
+    "environment_session_recording_external_references",
+    ["team_id"],
+)
+
 register_grandfathered_environment_nested_viewset(
     r"session_recording_playlists",
     SessionRecordingPlaylistViewSet,
@@ -886,6 +906,13 @@ register_grandfathered_environment_nested_viewset(
 projects_router.register(r"links", link.LinkViewSet, "environment_links", ["team_id"])
 
 projects_router.register(
+    r"conversations/tickets",
+    conversations.TicketViewSet,
+    "environment_conversations_tickets",
+    ["team_id"],
+)
+
+projects_router.register(
     r"hog_function_templates",
     hog_function_template.PublicHogFunctionTemplateViewSet,
     "project_hog_function_templates",
@@ -941,6 +968,12 @@ environments_router.register(
     "environment_web_vitals",
     ["team_id"],
 )
+environments_router.register(
+    r"web_analytics_filter_presets",
+    WebAnalyticsFilterPresetViewSet,
+    "environment_web_analytics_filter_preset",
+    ["team_id"],
+)
 
 router.register(r"wizard", wizard.SetupWizardViewSet, "wizard")
 
@@ -977,6 +1010,13 @@ environments_router.register(
 # Logs endpoints
 register_grandfathered_environment_nested_viewset(r"logs", logs.LogsViewSet, "environment_logs", ["team_id"])
 
+environments_router.register(
+    r"logs/explainLogWithAI",
+    logs.LogExplainViewSet,
+    "environment_logs_explain_with_ai",
+    ["team_id"],
+)
+
 register_grandfathered_environment_nested_viewset(
     r"endpoints", endpoints.EndpointViewSet, "environment_endpoints", ["team_id"]
 )
@@ -999,6 +1039,13 @@ environments_router.register(
     r"csp-reporting",
     CSPReportingViewSet,
     "environment_csp_reporting",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"onboarding",
+    OnboardingViewSet,
+    "environment_onboarding",
     ["team_id"],
 )
 
@@ -1097,5 +1144,12 @@ environments_router.register(
     r"approval_policies",
     approval_api.ApprovalPolicyViewSet,
     "environment_approval_policies",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"core_events",
+    CoreEventViewSet,
+    "environment_core_events",
     ["team_id"],
 )

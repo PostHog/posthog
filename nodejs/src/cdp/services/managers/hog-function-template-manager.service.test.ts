@@ -15,7 +15,7 @@ describe('HogFunctionTemplateManager', () => {
     beforeEach(async () => {
         hub = await createHub()
         await resetTestDatabase()
-        manager = new HogFunctionTemplateManagerService(hub)
+        manager = new HogFunctionTemplateManagerService(hub.postgres)
 
         hogFunctionsTemplates = []
 

@@ -3,8 +3,10 @@ import Hls from 'hls.js'
 import { ReplayPlugin, playerConfig } from '@posthog/rrweb'
 import { EventType, IncrementalSource, eventWithTime } from '@posthog/rrweb-types'
 
-export const PLACEHOLDER_SVG_DATA_IMAGE_URL =
+export const PLACEHOLDER_SVG_PATTERN_DATA_URL =
     'url("data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjE2IiBoZWlnaHQ9IjE2IiBmaWxsPSJibGFjayIvPgo8cGF0aCBkPSJNOCAwSDE2TDAgMTZWOEw4IDBaIiBmaWxsPSIjMkQyRDJEIi8+CjxwYXRoIGQ9Ik0xNiA4VjE2SDhMMTYgOFoiIGZpbGw9IiMyRDJEMkQiLz4KPC9zdmc+Cg==")'
+
+export const PLACEHOLDER_SVG_DATA_IMAGE_URL = PLACEHOLDER_SVG_PATTERN_DATA_URL
 
 const PROXY_URL = 'https://replay.ph-proxy.com' as const
 

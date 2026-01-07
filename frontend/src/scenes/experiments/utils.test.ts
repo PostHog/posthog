@@ -16,6 +16,7 @@ import {
     AccessControlLevel,
     Experiment,
     ExperimentMetricMathType,
+    FeatureFlagBucketingIdentifier,
     FeatureFlagEvaluationRuntime,
     FeatureFlagFilters,
     FeatureFlagType,
@@ -652,6 +653,7 @@ describe('checkFeatureFlagEligibility', () => {
         last_modified_by: null,
         evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
         evaluation_tags: [],
+        bucketing_identifier: FeatureFlagBucketingIdentifier.DISTINCT_ID,
     }
     it('throws an error for a remote configuration feature flag', () => {
         const featureFlag = { ...baseFeatureFlag, is_remote_configuration: true }

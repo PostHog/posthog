@@ -213,9 +213,9 @@ class TaskTool(MaxTool):
         config: RunnableConfig | None = None,
         context_manager: AssistantContextManager | None = None,
     ) -> Self:
-        from ee.hogai.chat_agent.mode_manager import CHAT_AGENT_MODE_REGISTRY
+        from ee.hogai.chat_agent.mode_manager import DEFAULT_CHAT_AGENT_MODE_REGISTRY
 
-        modes_list = list(CHAT_AGENT_MODE_REGISTRY.keys())
+        modes_list = list(DEFAULT_CHAT_AGENT_MODE_REGISTRY.keys())
         # Fix the mode types to the chat agent modes, as there might be other unsupported modes in the AgentMode enum
         SubAgentArgsWithModes = create_model(
             "SubAgentArgsWithModes",
@@ -227,7 +227,7 @@ class TaskTool(MaxTool):
         )
 
         modes_prompt = ""
-        for mode_definition in CHAT_AGENT_MODE_REGISTRY.values():
+        for mode_definition in DEFAULT_CHAT_AGENT_MODE_REGISTRY.values():
             modes_prompt += f"- {mode_definition.mode.value}: {mode_definition.mode_description}\n"
 
         description = format_prompt_string(TASK_TOOL_PROMPT, available_modes=modes_prompt)
