@@ -3,7 +3,6 @@ import json
 from posthog.test.base import QueryMatchingTest
 from unittest.mock import Mock, patch
 
-from django.core.management import call_command
 from django.test import TestCase
 
 from posthog.models.action.action import Action
@@ -307,8 +306,6 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
             }
         ]
         mock_get_templates.return_value = mock_response
-        # Run the command to sync templates
-        call_command("sync_hog_function_templates")
 
         with self.settings(DISABLE_MMDB=False):
             team = Team.objects.create_with_data(organization=self.org, name="Test Team", initiating_user=self.user)
