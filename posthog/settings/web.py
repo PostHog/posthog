@@ -50,8 +50,10 @@ PRODUCTS_APPS = [
     "products.experiments.backend.apps.ExperimentsConfig",
     "products.feature_flags.backend.apps.FeatureFlagsConfig",
     "products.customer_analytics.backend.apps.CustomerAnalyticsConfig",
+    "products.conversations.backend.apps.ConversationsConfig",
     "products.slack_app.backend.apps.SlackAppConfig",
     "products.product_tours.backend.apps.ProductToursConfig",
+    "products.workflows.backend.apps.WorkflowsConfig",
 ]
 
 INSTALLED_APPS = [
@@ -115,6 +117,7 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "posthog.middleware.AutoLogoutImpersonateMiddleware",
     "posthog.middleware.ImpersonationReadOnlyMiddleware",
+    "posthog.middleware.ImpersonationBlockedPathsMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "posthog.middleware.ActiveOrganizationMiddleware",
     "posthog.middleware.CsvNeverCacheMiddleware",

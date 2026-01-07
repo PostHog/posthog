@@ -40,6 +40,7 @@ from ee.hogai.chat_agent.prompts import (
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.core.agent_modes.factory import AgentModeDefinition
 from ee.hogai.core.agent_modes.mode_manager import AgentModeManager
+from ee.hogai.core.agent_modes.presets.error_tracking import error_tracking_agent
 from ee.hogai.core.agent_modes.presets.product_analytics import product_analytics_agent
 from ee.hogai.core.agent_modes.presets.session_replay import session_replay_agent
 from ee.hogai.core.agent_modes.presets.sql import sql_agent
@@ -60,6 +61,7 @@ from ee.hogai.tools import (
 )
 from ee.hogai.utils.feature_flags import (
     has_create_form_tool_feature_flag,
+    has_error_tracking_mode_feature_flag,
     has_phai_tasks_feature_flag,
     has_task_tool_feature_flag,
     has_web_search_feature_flag,
@@ -84,7 +86,7 @@ TASK_TOOLS: list[type["MaxTool"]] = [
     ListTaskRunsTool,
     ListRepositoriesTool,
 ]
-CHAT_AGENT_MODE_REGISTRY: dict[AgentMode, AgentModeDefinition] = {
+DEFAULT_CHAT_AGENT_MODE_REGISTRY: dict[AgentMode, AgentModeDefinition] = {
     AgentMode.PRODUCT_ANALYTICS: product_analytics_agent,
     AgentMode.SQL: sql_agent,
     AgentMode.SESSION_REPLAY: session_replay_agent,
@@ -203,11 +205,17 @@ class ChatAgentModeManager(AgentModeManager):
         mode: AgentMode | None = None,
     ):
         super().__init__(team=team, user=user, node_path=node_path, context_manager=context_manager, mode=mode)
+        # Validate mode is in registry, fall back to default mode if not
+        if mode and mode not in self.mode_registry:
+            mode = AgentMode.PRODUCT_ANALYTICS
         self._mode = mode or AgentMode.PRODUCT_ANALYTICS
 
     @property
     def mode_registry(self) -> dict[AgentMode, AgentModeDefinition]:
-        return CHAT_AGENT_MODE_REGISTRY
+        registry = dict(DEFAULT_CHAT_AGENT_MODE_REGISTRY)
+        if has_error_tracking_mode_feature_flag(self._team, self._user):
+            registry[AgentMode.ERROR_TRACKING] = error_tracking_agent
+        return registry
 
     @property
     def prompt_builder_class(self) -> type[AgentPromptBuilder]:

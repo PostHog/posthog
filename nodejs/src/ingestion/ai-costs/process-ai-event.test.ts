@@ -594,6 +594,21 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_cost_model_provider).toBeUndefined()
         })
 
+        it('treats object cost values as unset and falls through to model calculation', () => {
+            event.properties!.$ai_model = 'gpt-4'
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+            event.properties!.$ai_input_cost_usd = { value: 5.5 } as any
+            event.properties!.$ai_output_cost_usd = { value: 3.5 } as any
+
+            const result = processAiEvent(event)
+
+            // Should fall through to model-based calculation, not crash or use 0
+            expect(result.properties!.$ai_cost_model_source).toBe(CostModelSource.OpenRouter)
+            expect(result.properties!.$ai_input_cost_usd).toBeGreaterThan(0)
+            expect(result.properties!.$ai_output_cost_usd).toBeGreaterThan(0)
+        })
+
         it('handles custom pricing with cache read tokens for OpenAI', () => {
             event.properties!.$ai_provider = 'openai'
             event.properties!.$ai_input_token_price = 0.001

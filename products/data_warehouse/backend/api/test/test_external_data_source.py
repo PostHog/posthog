@@ -551,6 +551,7 @@ class TestExternalDataSource(APIBaseTest):
                 "source_type",
                 "latest_error",
                 "prefix",
+                "description",
                 "last_run_at",
                 "schemas",
                 "job_inputs",

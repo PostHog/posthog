@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2025-12-18 20:01:54 UTC
+// Generated at: 2026-01-07 10:03:36 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -15,7 +15,6 @@ export type CanonicalProvider =
     | 'atlas-cloud-fp16'
     | 'atlas-cloud-fp8'
     | 'atlas-cloud-int4'
-    | 'avian-fp8'
     | 'azure'
     | 'baseten-fp4'
     | 'baseten-fp8'
@@ -63,12 +62,11 @@ export type CanonicalProvider =
     | 'infermatic-bf16'
     | 'inflection'
     | 'liquid'
-    | 'mancer-fp16'
     | 'mancer-fp8'
     | 'mancer-int4'
-    | 'mara'
     | 'minimax'
     | 'minimax-fp8'
+    | 'minimax-lightning'
     | 'mistral'
     | 'modelrun'
     | 'modelrun-fp4'
@@ -112,6 +110,7 @@ export type CanonicalProvider =
     | 'sambanova-fp8'
     | 'sambanova-high-throughput'
     | 'sambanova-turbo'
+    | 'seed'
     | 'siliconflow-fp8'
     | 'streamlake-fp16'
     | 'switchpoint'
