@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from typing import Any, Literal, Optional, Union, cast
 
 from posthog.test.base import APIBaseTest, BaseTest, _create_event, cleanup_materialized_columns
@@ -1188,7 +1189,8 @@ class TestPropertyIsSetIsNotSetWithData(APIBaseTest):
         )
 
         result = execute_hogql_query(team=self.team, query=query_ast)
-        row = result.results[0]
+        assert result.columns
+        row: Iterable[Any] = result.results[0]
         assert row
         results = dict(zip(result.columns, row))
 
@@ -1224,7 +1226,8 @@ class TestPropertyIsSetIsNotSetWithData(APIBaseTest):
         )
 
         result = execute_hogql_query(team=self.team, query=query_ast)
-        row = result.results[0]
+        assert result.columns
+        row: Iterable[Any] = result.results[0]
         assert row
         results = dict(zip(result.columns, row))
 
