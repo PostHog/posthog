@@ -885,13 +885,19 @@ mod tests {
 
         // Setup issue buckets
         // Issue A: current=600, no history
-        redis.mget_ret(&issue_bucket_key(&issue_a, &timestamps[0]), Some(bytes(600)));
+        redis.mget_ret(
+            &issue_bucket_key(&issue_a, &timestamps[0]),
+            Some(bytes(600)),
+        );
         for ts in &timestamps[1..] {
             redis.mget_ret(&issue_bucket_key(&issue_a, ts), None);
         }
 
         // Issue B: current=550, history=[20, 20]
-        redis.mget_ret(&issue_bucket_key(&issue_b, &timestamps[0]), Some(bytes(550)));
+        redis.mget_ret(
+            &issue_bucket_key(&issue_b, &timestamps[0]),
+            Some(bytes(550)),
+        );
         redis.mget_ret(&issue_bucket_key(&issue_b, &timestamps[1]), Some(bytes(20)));
         redis.mget_ret(&issue_bucket_key(&issue_b, &timestamps[2]), Some(bytes(20)));
         for ts in &timestamps[3..] {
@@ -908,8 +914,14 @@ mod tests {
         }
 
         // Issue D: current=700, history=[100] (700 < 100*10=1000, not spiking)
-        redis.mget_ret(&issue_bucket_key(&issue_d, &timestamps[0]), Some(bytes(700)));
-        redis.mget_ret(&issue_bucket_key(&issue_d, &timestamps[1]), Some(bytes(100)));
+        redis.mget_ret(
+            &issue_bucket_key(&issue_d, &timestamps[0]),
+            Some(bytes(700)),
+        );
+        redis.mget_ret(
+            &issue_bucket_key(&issue_d, &timestamps[1]),
+            Some(bytes(100)),
+        );
         for ts in &timestamps[2..] {
             redis.mget_ret(&issue_bucket_key(&issue_d, ts), None);
         }
