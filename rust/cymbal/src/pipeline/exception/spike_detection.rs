@@ -212,28 +212,29 @@ async fn emit_spiking_events(context: &AppContext, spiking: Vec<SpikingIssue>) {
         return;
     }
 
-    let cooldown_keys: Vec<String> = spiking.iter().map(|s| cooldown_key(&s.issue_id)).collect();
-    let cooldowns = context
-        .issue_buckets_redis_client
-        .mget(cooldown_keys)
-        .await
-        .unwrap_or_else(|e| {
-            warn!("Failed to check spike cooldowns: {e}");
-            vec![None; spiking.len()]
-        });
+    let mut acquired_locks: Vec<SpikingIssue> = Vec::new();
+    for spike in spiking {
+        let key = cooldown_key(&spike.issue_id);
+        match context
+            .issue_buckets_redis_client
+            .set_nx_ex(key, "1".to_string(), SPIKE_ALERT_COOLDOWN_SECONDS as u64)
+            .await
+        {
+            Ok(true) => {
+                acquired_locks.push(spike);
+            }
+            Ok(false) => {}
+            Err(e) => {
+                warn!("Failed to set spike cooldown: {e}");
+            }
+        }
+    }
 
-    let not_on_cooldown: Vec<SpikingIssue> = spiking
-        .into_iter()
-        .zip(cooldowns.iter())
-        .filter(|(_, cooldown)| cooldown.is_none())
-        .map(|(spike, _)| spike)
-        .collect();
-
-    if not_on_cooldown.is_empty() {
+    if acquired_locks.is_empty() {
         return;
     }
 
-    let events: Vec<(Uuid, InternalEvent)> = not_on_cooldown
+    let events: Vec<InternalEvent> = acquired_locks
         .iter()
         .filter_map(|spike| {
             let mut event =
@@ -248,14 +249,11 @@ async fn emit_spiking_events(context: &AppContext, spiking: Vec<SpikingIssue>) {
             event
                 .insert_prop("current_bucket_value", spike.current_bucket_value)
                 .ok()?;
-            Some((
-                spike.issue_id,
-                InternalEvent {
-                    team_id: spike.team_id,
-                    event,
-                    person: None,
-                },
-            ))
+            Some(InternalEvent {
+                team_id: spike.team_id,
+                event,
+                person: None,
+            })
         })
         .collect();
 
@@ -263,7 +261,7 @@ async fn emit_spiking_events(context: &AppContext, spiking: Vec<SpikingIssue>) {
         return;
     }
 
-    let kafka_events: Vec<&InternalEvent> = events.iter().map(|(_, e)| e).collect();
+    let kafka_events: Vec<&InternalEvent> = events.iter().collect();
     let results = send_iter_to_kafka(
         &context.immediate_producer,
         &context.config.internal_events_topic,
@@ -271,26 +269,9 @@ async fn emit_spiking_events(context: &AppContext, spiking: Vec<SpikingIssue>) {
     )
     .await;
 
-    let mut cooldowns_to_set: Vec<(String, i64)> = Vec::new();
-    for (i, result) in results.into_iter().enumerate() {
-        match result {
-            Ok(_) => {
-                let issue_id = events[i].0;
-                cooldowns_to_set.push((cooldown_key(&issue_id), 1));
-            }
-            Err(e) => {
-                warn!("Failed to emit spiking event: {e}");
-            }
-        }
-    }
-
-    if !cooldowns_to_set.is_empty() {
-        if let Err(e) = context
-            .issue_buckets_redis_client
-            .batch_incr_by_expire_nx(cooldowns_to_set, SPIKE_ALERT_COOLDOWN_SECONDS)
-            .await
-        {
-            warn!("Failed to set spike cooldowns: {e}");
+    for result in results {
+        if let Err(e) = result {
+            warn!("Failed to emit spiking event: {e}");
         }
     }
 }
