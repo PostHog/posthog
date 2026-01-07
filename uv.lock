@@ -445,13 +445,13 @@ wheels = [
 
 [[package]]
 name = "bingads"
-version = "13.0.25.3"
+version = "13.0.26"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "requests" },
     { name = "suds-community" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f3/66/b3752bab9a139edb4dd90f6a2987e71494c02c2b280e2b62f67c748db226/bingads-13.0.25.3.tar.gz", hash = "sha256:13a404eef6b1b13dcce1ac70ade56595582cfe8a162056fdd612f80f62549857", size = 399262, upload-time = "2025-09-12T14:06:03.77Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f8/69/0e46f0def4b349e19c45c2b1547bb42591b6c71956e6f35d3bd2526f1ecd/bingads-13.0.26.tar.gz", hash = "sha256:a7e60e160ccf246b7a5626a71fd7bc463cec81c3c30cda22df8367894bbbf245", size = 404334, upload-time = "2025-12-09T15:16:07.701Z" }
 
 [[package]]
 name = "black"
@@ -4617,7 +4617,7 @@ requires-dist = [
     { name = "azure-ai-inference", specifier = ">=1.0.0b9" },
     { name = "azure-ai-projects", specifier = ">=1.0.0b11" },
     { name = "beautifulsoup4", specifier = "==4.12.3" },
-    { name = "bingads", specifier = ">=13.0.25.3" },
+    { name = "bingads", specifier = "~=13.0.26" },
     { name = "boto3", specifier = "==1.40.49" },
     { name = "brotli", specifier = "==1.1.0" },
     { name = "cachetools", specifier = ">=5.5.2" },
