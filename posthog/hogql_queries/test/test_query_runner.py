@@ -8,12 +8,14 @@ from unittest import mock
 
 from django.core.cache import cache
 
+from parameterized import parameterized
 from pydantic import BaseModel
 
 from posthog.schema import (
     BounceRatePageViewMode,
     CacheMissResponse,
     CurrencyCode,
+    EventsNode,
     HogQLQuery,
     HogQLQueryModifiers,
     InCohortVia,
@@ -25,10 +27,12 @@ from posthog.schema import (
     SessionTableVersion,
     TestBasicQueryResponse as TheTestBasicQueryResponse,
     TestCachedBasicQueryResponse as TheTestCachedBasicQueryResponse,
+    TrendsQuery,
 )
 
 from posthog.hogql.constants import LimitContext
 
+from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode, QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team, WeekStartDay
@@ -390,3 +394,255 @@ class TestQueryRunner(BaseTest):
             self.assertEqual(response.last_refresh.isoformat(), "2023-02-04T13:37:42+00:00")
             mock_cache_manager.get_cache_data.assert_called_once()
             mock_cache_manager.set_cache_data.assert_called_once()
+
+
+class TestSeriesCustomNameCaching(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "renames_series_with_custom_name",
+                TrendsQuery(series=[EventsNode(event="$pageview", custom_name="Original Name")]),
+                TrendsQuery(series=[EventsNode(event="$pageview", custom_name="Renamed Series")]),
+                True,
+            ),
+            (
+                "adds_custom_name_to_series",
+                TrendsQuery(series=[EventsNode(event="$pageview")]),
+                TrendsQuery(series=[EventsNode(event="$pageview", custom_name="New Name")]),
+                True,
+            ),
+            (
+                "removes_custom_name_from_series",
+                TrendsQuery(series=[EventsNode(event="$pageview", custom_name="Had Name")]),
+                TrendsQuery(series=[EventsNode(event="$pageview")]),
+                True,
+            ),
+            (
+                "different_events_produce_different_keys",
+                TrendsQuery(series=[EventsNode(event="$pageview")]),
+                TrendsQuery(series=[EventsNode(event="$autocapture")]),
+                False,
+            ),
+            (
+                "multiple_series_with_different_custom_names",
+                TrendsQuery(
+                    series=[
+                        EventsNode(event="$pageview", custom_name="Series A"),
+                        EventsNode(event="$autocapture", custom_name="Series B"),
+                    ]
+                ),
+                TrendsQuery(
+                    series=[
+                        EventsNode(event="$pageview", custom_name="Renamed A"),
+                        EventsNode(event="$autocapture", custom_name="Renamed B"),
+                    ]
+                ),
+                True,
+            ),
+        ]
+    )
+    def test_cache_key_for_series_custom_name_changes(
+        self,
+        _name: str,
+        query_a: TrendsQuery,
+        query_b: TrendsQuery,
+        expect_same_cache_key: bool,
+    ):
+        runner_a = TrendsQueryRunner(query=query_a, team=self.team)
+        runner_b = TrendsQueryRunner(query=query_b, team=self.team)
+
+        cache_key_a = runner_a.get_cache_key()
+        cache_key_b = runner_b.get_cache_key()
+
+        if expect_same_cache_key:
+            self.assertEqual(cache_key_a, cache_key_b)
+        else:
+            self.assertNotEqual(cache_key_a, cache_key_b)
+
+
+class TestApplySeriesCustomNames(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "applies_custom_name_to_single_series",
+                TrendsQuery(series=[EventsNode(event="$pageview", custom_name="My Custom Name")]),
+                [{"action": {"order": 0, "custom_name": None}, "data": [1, 2, 3]}],
+                [{"action": {"order": 0, "custom_name": "My Custom Name"}, "data": [1, 2, 3]}],
+            ),
+            (
+                "applies_custom_names_to_multiple_series",
+                TrendsQuery(
+                    series=[
+                        EventsNode(event="$pageview", custom_name="Series A"),
+                        EventsNode(event="$autocapture", custom_name="Series B"),
+                    ]
+                ),
+                [
+                    {"action": {"order": 0, "custom_name": "Old A"}, "data": [1]},
+                    {"action": {"order": 1, "custom_name": "Old B"}, "data": [2]},
+                ],
+                [
+                    {"action": {"order": 0, "custom_name": "Series A"}, "data": [1]},
+                    {"action": {"order": 1, "custom_name": "Series B"}, "data": [2]},
+                ],
+            ),
+            (
+                "handles_breakdown_results_sharing_same_order",
+                TrendsQuery(series=[EventsNode(event="$pageview", custom_name="Renamed")]),
+                [
+                    {"action": {"order": 0, "custom_name": None}, "breakdown_value": "Chrome"},
+                    {"action": {"order": 0, "custom_name": None}, "breakdown_value": "Firefox"},
+                ],
+                [
+                    {"action": {"order": 0, "custom_name": "Renamed"}, "breakdown_value": "Chrome"},
+                    {"action": {"order": 0, "custom_name": "Renamed"}, "breakdown_value": "Firefox"},
+                ],
+            ),
+            (
+                "sets_none_when_custom_name_removed",
+                TrendsQuery(series=[EventsNode(event="$pageview")]),
+                [{"action": {"order": 0, "custom_name": "Had Name"}, "data": [1]}],
+                [{"action": {"order": 0, "custom_name": None}, "data": [1]}],
+            ),
+            (
+                "skips_results_without_action",
+                TrendsQuery(series=[EventsNode(event="$pageview", custom_name="Name")]),
+                [{"action": None, "data": [1]}, {"data": [2]}],
+                [{"action": None, "data": [1]}, {"data": [2]}],
+            ),
+            (
+                "skips_results_with_unknown_order",
+                TrendsQuery(series=[EventsNode(event="$pageview", custom_name="Name")]),
+                [{"action": {"order": 99, "custom_name": "Unknown"}, "data": [1]}],
+                [{"action": {"order": 99, "custom_name": "Unknown"}, "data": [1]}],
+            ),
+        ]
+    )
+    def test_apply_series_custom_names(
+        self,
+        _name: str,
+        query: TrendsQuery,
+        cached_results: list[dict],
+        expected_results: list[dict],
+    ):
+        from datetime import UTC
+
+        from posthog.schema import CachedTrendsQueryResponse
+
+        runner = TrendsQueryRunner(query=query, team=self.team)
+
+        cached_response = CachedTrendsQueryResponse(
+            results=cached_results,
+            is_cached=True,
+            last_refresh=datetime.now(UTC),
+            next_allowed_client_refresh=datetime.now(UTC),
+            cache_key="test_key",
+            timezone="UTC",
+        )
+
+        patched_response, was_modified = runner.apply_series_custom_names(cached_response)
+
+        self.assertEqual(patched_response.results, expected_results)
+
+    def test_does_not_patch_funnels_query(self):
+        """FunnelsQuery stores custom_name at top level of step, not nested under action.
+        Patching should be skipped for non-TrendsQuery types."""
+        from datetime import UTC
+
+        from posthog.schema import CachedFunnelsQueryResponse, FunnelsQuery
+
+        from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
+
+        query = FunnelsQuery(
+            series=[
+                EventsNode(event="step1", custom_name="Step 1 Renamed"),
+                EventsNode(event="step2", custom_name="Step 2 Renamed"),
+            ]
+        )
+
+        runner = FunnelsQueryRunner(query=query, team=self.team)
+
+        original_results = [
+            {"name": "step1", "custom_name": "Original Step 1", "order": 0, "count": 100},
+            {"name": "step2", "custom_name": "Original Step 2", "order": 1, "count": 50},
+        ]
+
+        cached_response = CachedFunnelsQueryResponse(
+            results=[original_results],
+            is_cached=True,
+            last_refresh=datetime.now(UTC),
+            next_allowed_client_refresh=datetime.now(UTC),
+            cache_key="test_key",
+            timezone="UTC",
+        )
+
+        patched_response, was_modified = runner.apply_series_custom_names(cached_response)
+
+        self.assertEqual(patched_response.results, [original_results])
+        self.assertFalse(was_modified)
+
+    @parameterized.expand(
+        [
+            (
+                "modified_when_name_changes",
+                TrendsQuery(series=[EventsNode(event="$pageview", custom_name="New Name")]),
+                [{"action": {"order": 0, "custom_name": "Old Name"}, "data": [1]}],
+                True,
+            ),
+            (
+                "modified_when_name_added",
+                TrendsQuery(series=[EventsNode(event="$pageview", custom_name="New Name")]),
+                [{"action": {"order": 0, "custom_name": None}, "data": [1]}],
+                True,
+            ),
+            (
+                "modified_when_name_removed",
+                TrendsQuery(series=[EventsNode(event="$pageview")]),
+                [{"action": {"order": 0, "custom_name": "Had Name"}, "data": [1]}],
+                True,
+            ),
+            (
+                "not_modified_when_names_match",
+                TrendsQuery(series=[EventsNode(event="$pageview", custom_name="Same Name")]),
+                [{"action": {"order": 0, "custom_name": "Same Name"}, "data": [1]}],
+                False,
+            ),
+            (
+                "not_modified_when_both_none",
+                TrendsQuery(series=[EventsNode(event="$pageview")]),
+                [{"action": {"order": 0, "custom_name": None}, "data": [1]}],
+                False,
+            ),
+            (
+                "not_modified_when_no_matching_orders",
+                TrendsQuery(series=[EventsNode(event="$pageview", custom_name="Name")]),
+                [{"action": {"order": 99, "custom_name": "Other"}, "data": [1]}],
+                False,
+            ),
+        ]
+    )
+    def test_was_modified_flag(
+        self,
+        _name: str,
+        query: TrendsQuery,
+        cached_results: list[dict],
+        expect_modified: bool,
+    ):
+        from datetime import UTC
+
+        from posthog.schema import CachedTrendsQueryResponse
+
+        runner = TrendsQueryRunner(query=query, team=self.team)
+
+        cached_response = CachedTrendsQueryResponse(
+            results=cached_results,
+            is_cached=True,
+            last_refresh=datetime.now(UTC),
+            next_allowed_client_refresh=datetime.now(UTC),
+            cache_key="test_key",
+            timezone="UTC",
+        )
+
+        _, was_modified = runner.apply_series_custom_names(cached_response)
+
+        self.assertEqual(was_modified, expect_modified)
