@@ -15,6 +15,11 @@ urlpatterns = [
         oauth.OAuthConnectDiscoveryInfoView.as_view(),
         name="oidc-connect-discovery-info",
     ),
+    re_path(
+        r"^\.well-known/oauth-authorization-server/?$",
+        oauth.OAuthAuthorizationServerMetadataView.as_view(),
+        name="oauth-authorization-server-metadata",
+    ),
     path(".well-known/jwks.json", oauth.OAuthJwksInfoView.as_view(), name="jwks-info"),
     opt_slash_path("oauth/userinfo", oauth.OAuthUserInfoView.as_view(), name="user-info"),
 ]
