@@ -10,7 +10,6 @@ from posthog.schema import DateRange, HogQLFilters, HogQLQuery
 
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.models.utils import uuid7
-import pytest
 
 
 @dataclass
@@ -201,8 +200,8 @@ ORDER BY period""",
             response = self._run_avg_time_query("/a", "all", "2025-12-15")
 
         assert len(response.results) == 1
-        assert response.results[0][1] == pytest.approx(stats["/a"]["avg_duration"], abs=1e-2)
-        assert stats["/a"]["avg_duration"] == pytest.approx(29.166666, abs=1e-2)
+        self.assertAlmostEqual(response.results[0][1], stats["/a"]["avg_duration"], places=2)
+        self.assertAlmostEqual(stats["/a"]["avg_duration"], 29.166666, places=2)
 
     def test_only_sessions_visiting_path_affect_average(self):
         p1_page_views = [
@@ -264,8 +263,8 @@ ORDER BY period""",
             response = self._run_avg_time_query("/a", "all", "2025-12-15")
 
         assert len(response.results) == 1
-        assert response.results[0][1] == pytest.approx(stats["/a"]["avg_duration"], abs=1e-2)
-        assert stats["/a"]["avg_duration"] == pytest.approx(23.33, abs=1e-2)
+        self.assertAlmostEqual(response.results[0][1], stats["/a"]["avg_duration"], places=2)
+        self.assertAlmostEqual(stats["/a"]["avg_duration"], 23.33, places=2)
 
     def test_no_results_for_nonexistent_pathname(self):
         page_views = [
@@ -304,8 +303,8 @@ ORDER BY period""",
             response = self._run_avg_time_query("/a", "all", "2025-12-15")
 
         assert len(response.results) == 2
-        assert response.results[0][1] == pytest.approx(day1_stats["/a"]["avg_duration"], abs=1e-2)
-        assert response.results[1][1] == pytest.approx(day2_stats["/a"]["avg_duration"], abs=1e-2)
+        self.assertAlmostEqual(response.results[0][1], day1_stats["/a"]["avg_duration"], places=2)
+        self.assertAlmostEqual(response.results[1][1], day2_stats["/a"]["avg_duration"], places=2)
 
     @parameterized.expand(["day", "week", "month"])
     def test_interval_grouping(self, interval: str):

@@ -318,7 +318,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
                 timestamp=datetime(2025, 1, 15, i),
             )
         response = TracesQueryRunner(team=self.team, query=TracesQuery(limit=4, offset=0)).calculate()
-        assert response.hasMore
+        assert response.hasMore == True
         assert len(response.results) == 5
         assert response.results[0].id == "trace_10"
         assert response.results[1].id == "trace_9"
@@ -327,7 +327,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         assert response.results[4].id == "trace_6"
 
         response = TracesQueryRunner(team=self.team, query=TracesQuery(limit=4, offset=5)).calculate()
-        assert response.hasMore
+        assert response.hasMore == True
         assert len(response.results) == 5
         assert response.results[0].id == "trace_5"
         assert response.results[1].id == "trace_4"
@@ -336,7 +336,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         assert response.results[4].id == "trace_1"
 
         response = TracesQueryRunner(team=self.team, query=TracesQuery(limit=4, offset=10)).calculate()
-        assert not response.hasMore
+        assert response.hasMore == False
         assert len(response.results) == 1
         assert response.results[0].id == "trace_0"
 

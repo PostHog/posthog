@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
 import { Spinner } from '@posthog/lemon-ui'
 
@@ -18,7 +18,13 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
-import { AvailableFeature, type SessionRecordingMaskingLevel, TeamPublicType, TeamType } from '~/types'
+import {
+    AvailableFeature,
+    OnboardingStepKey,
+    type SessionRecordingMaskingLevel,
+    TeamPublicType,
+    TeamType,
+} from '~/types'
 
 import { OnboardingAIConsent } from './OnboardingAIConsent'
 import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
@@ -30,7 +36,7 @@ import { OnboardingUpgradeStep } from './billing/OnboardingUpgradeStep'
 import { OnboardingDataWarehouseSourcesStep } from './data-warehouse/OnboardingDataWarehouseSourcesStep'
 import { OnboardingErrorTrackingAlertsStep } from './error-tracking/OnboardingErrorTrackingAlertsStep'
 import { OnboardingErrorTrackingSourceMapsStep } from './error-tracking/OnboardingErrorTrackingSourceMapsStep'
-import { OnboardingLogicProps, OnboardingStepElement, onboardingLogic } from './onboardingLogic'
+import { OnboardingLogicProps, onboardingLogic } from './onboardingLogic'
 import { ProductConfigOption } from './onboardingProductConfigurationLogic'
 import { OnboardingInstallStep } from './sdks/OnboardingInstallStep'
 import { ErrorTrackingSDKInstructions } from './sdks/error-tracking/ErrorTrackingSDKInstructions'
@@ -67,6 +73,7 @@ const OnboardingWrapper = ({
     const { setAllOnboardingSteps } = useActions(logic)
     const { billing, billingLoading } = useValues(billingLogic)
     const { currentOrganization } = useValues(organizationLogic)
+    const [allSteps, setAllSteps] = useState<JSX.Element[]>([])
 
     const minAdminRestrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
@@ -77,60 +84,65 @@ const OnboardingWrapper = ({
     const shouldShowTellUsMoreStep = useFeatureFlag('ONBOARDING_TELL_US_MORE_STEP', 'test')
 
     useEffect(() => {
-        if (billingLoading && waitForBilling) {
-            return
-        }
-
-        let steps: OnboardingStepElement[] = []
+        let steps = []
         if (Array.isArray(children)) {
             steps = [...children]
         } else {
-            steps = [children as OnboardingStepElement]
+            steps = [children as JSX.Element]
         }
 
         if (shouldShowDataWarehouseStep) {
-            const DataWarehouseStep = <OnboardingDataWarehouseSourcesStep />
+            const DataWarehouseStep = <OnboardingDataWarehouseSourcesStep stepKey={OnboardingStepKey.LINK_DATA} />
             steps = [...steps, DataWarehouseStep]
         }
 
         if (shouldShowReverseProxyStep) {
-            const ReverseProxyStep = <OnboardingReverseProxy />
+            const ReverseProxyStep = <OnboardingReverseProxy stepKey={OnboardingStepKey.REVERSE_PROXY} />
             steps = [...steps, ReverseProxyStep]
         }
 
         const billingProduct = billing?.products.find((p) => p.type === productKey)
         if (shouldShowBillingStep && billingProduct) {
-            const BillingStep = <OnboardingUpgradeStep product={billingProduct} />
+            const BillingStep = <OnboardingUpgradeStep product={billingProduct} stepKey={OnboardingStepKey.PLANS} />
 
             steps = [...steps, BillingStep]
         }
 
         if (shouldShowAIConsentStep) {
-            const aiConsentStep = <OnboardingAIConsent />
+            const aiConsentStep = <OnboardingAIConsent stepKey={OnboardingStepKey.AI_CONSENT} />
             steps = [...steps, aiConsentStep]
         }
 
         const userCannotInvite = minAdminRestrictionReason && !currentOrganization?.members_can_invite
         if (!userCannotInvite) {
-            const inviteTeammatesStep = <OnboardingInviteTeammates />
+            const inviteTeammatesStep = <OnboardingInviteTeammates stepKey={OnboardingStepKey.INVITE_TEAMMATES} />
             steps = [...steps, inviteTeammatesStep]
         }
 
         if (shouldShowTellUsMoreStep) {
-            const tellUsMoreStep = <OnboardingProjectData />
+            const tellUsMoreStep = <OnboardingProjectData stepKey={OnboardingStepKey.TELL_US_MORE} />
             steps = [...steps, tellUsMoreStep]
         }
 
-        setAllOnboardingSteps(steps.filter(Boolean))
+        steps = steps.filter(Boolean)
+
+        setAllSteps(steps)
     }, [
         children,
         billingLoading,
-        waitForBilling,
         minAdminRestrictionReason,
         currentOrganization,
         shouldShowAIConsentStep,
         shouldShowTellUsMoreStep,
     ]) // oxlint-disable-line react-hooks/exhaustive-deps
+
+    useEffect(() => {
+        if (!allSteps.length || (billingLoading && waitForBilling)) {
+            return
+        }
+
+        setAllOnboardingSteps(allSteps)
+    }, [allSteps]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     if (!product || !children) {
         return <></>
@@ -228,10 +240,17 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
 
     return (
         <OnboardingWrapper>
-            <OnboardingInstallStep sdkInstructionMap={ProductAnalyticsSDKInstructions} />
-            <OnboardingProductConfiguration options={filteredOptions} />
+            <OnboardingInstallStep
+                sdkInstructionMap={ProductAnalyticsSDKInstructions}
+                productKey={ProductKey.PRODUCT_ANALYTICS}
+                stepKey={OnboardingStepKey.INSTALL}
+            />
+            <OnboardingProductConfiguration
+                stepKey={OnboardingStepKey.PRODUCT_CONFIGURATION}
+                options={filteredOptions}
+            />
 
-            <OnboardingSessionReplayConfiguration />
+            <OnboardingSessionReplayConfiguration stepKey={OnboardingStepKey.SESSION_REPLAY} />
         </OnboardingWrapper>
     )
 }
@@ -283,9 +302,13 @@ const WebAnalyticsOnboarding = (): JSX.Element => {
 
     return (
         <OnboardingWrapper>
-            <OnboardingInstallStep sdkInstructionMap={WebAnalyticsSDKInstructions} />
-            <OnboardingWebAnalyticsAuthorizedDomainsStep />
-            <OnboardingProductConfiguration options={options} />
+            <OnboardingInstallStep
+                sdkInstructionMap={WebAnalyticsSDKInstructions}
+                productKey={ProductKey.WEB_ANALYTICS}
+                stepKey={OnboardingStepKey.INSTALL}
+            />
+            <OnboardingWebAnalyticsAuthorizedDomainsStep stepKey={OnboardingStepKey.AUTHORIZED_DOMAINS} />
+            <OnboardingProductConfiguration stepKey={OnboardingStepKey.PRODUCT_CONFIGURATION} options={options} />
         </OnboardingWrapper>
     )
 }
@@ -356,8 +379,16 @@ const SessionReplayOnboarding = (): JSX.Element => {
 
     return (
         <OnboardingWrapper>
-            <OnboardingInstallStep sdkInstructionMap={SessionReplaySDKInstructions} />
-            <OnboardingProductConfiguration options={configOptions} />
+            <OnboardingInstallStep
+                sdkInstructionMap={SessionReplaySDKInstructions}
+                productKey={ProductKey.SESSION_REPLAY}
+                stepKey={OnboardingStepKey.INSTALL}
+            />
+            <OnboardingProductConfiguration
+                stepKey={OnboardingStepKey.PRODUCT_CONFIGURATION}
+                options={configOptions}
+                product={ProductKey.SESSION_REPLAY}
+            />
         </OnboardingWrapper>
     )
 }
@@ -365,7 +396,11 @@ const SessionReplayOnboarding = (): JSX.Element => {
 const FeatureFlagsOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
-            <OnboardingInstallStep sdkInstructionMap={FeatureFlagsSDKInstructions} />
+            <OnboardingInstallStep
+                sdkInstructionMap={FeatureFlagsSDKInstructions}
+                productKey={ProductKey.FEATURE_FLAGS}
+                stepKey={OnboardingStepKey.INSTALL}
+            />
         </OnboardingWrapper>
     )
 }
@@ -373,7 +408,11 @@ const FeatureFlagsOnboarding = (): JSX.Element => {
 const ExperimentsOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
-            <OnboardingInstallStep sdkInstructionMap={ExperimentsSDKInstructions} />
+            <OnboardingInstallStep
+                sdkInstructionMap={ExperimentsSDKInstructions}
+                productKey={ProductKey.EXPERIMENTS}
+                stepKey={OnboardingStepKey.INSTALL}
+            />
         </OnboardingWrapper>
     )
 }
@@ -381,7 +420,11 @@ const ExperimentsOnboarding = (): JSX.Element => {
 const SurveysOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
-            <OnboardingInstallStep sdkInstructionMap={SurveysSDKInstructions} />
+            <OnboardingInstallStep
+                sdkInstructionMap={SurveysSDKInstructions}
+                productKey={ProductKey.SURVEYS}
+                stepKey={OnboardingStepKey.INSTALL}
+            />
         </OnboardingWrapper>
     )
 }
@@ -389,7 +432,7 @@ const SurveysOnboarding = (): JSX.Element => {
 const DataWarehouseOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
-            <OnboardingDataWarehouseSourcesStep />
+            <OnboardingDataWarehouseSourcesStep stepKey={OnboardingStepKey.LINK_DATA} />
         </OnboardingWrapper>
     )
 }
@@ -405,9 +448,13 @@ const ErrorTrackingOnboarding = (): JSX.Element => {
                 }
             }}
         >
-            <OnboardingInstallStep sdkInstructionMap={ErrorTrackingSDKInstructions} />
-            <OnboardingErrorTrackingSourceMapsStep />
-            <OnboardingErrorTrackingAlertsStep />
+            <OnboardingInstallStep
+                sdkInstructionMap={ErrorTrackingSDKInstructions}
+                productKey={ProductKey.ERROR_TRACKING}
+                stepKey={OnboardingStepKey.INSTALL}
+            />
+            <OnboardingErrorTrackingSourceMapsStep stepKey={OnboardingStepKey.SOURCE_MAPS} />
+            <OnboardingErrorTrackingAlertsStep stepKey={OnboardingStepKey.ALERTS} />
         </OnboardingWrapper>
     )
 }
@@ -415,7 +462,12 @@ const ErrorTrackingOnboarding = (): JSX.Element => {
 const LLMAnalyticsOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
-            <OnboardingInstallStep sdkInstructionMap={LLMAnalyticsSDKInstructions} listeningForName="LLM generation" />
+            <OnboardingInstallStep
+                sdkInstructionMap={LLMAnalyticsSDKInstructions}
+                productKey={ProductKey.LLM_ANALYTICS}
+                stepKey={OnboardingStepKey.INSTALL}
+                listeningForName="LLM generation"
+            />
         </OnboardingWrapper>
     )
 }

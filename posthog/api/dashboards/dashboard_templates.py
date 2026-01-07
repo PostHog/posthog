@@ -8,7 +8,6 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_page
 
 import structlog
-from drf_spectacular.utils import extend_schema
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import SAFE_METHODS, BasePermission
@@ -88,7 +87,6 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
             self._handle_integrity_error(exc)
 
 
-@extend_schema(tags=["core"])
 class DashboardTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "dashboard_template"
     permission_classes = [OnlyStaffCanEditDashboardTemplate]

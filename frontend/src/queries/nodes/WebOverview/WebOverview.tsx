@@ -56,10 +56,8 @@ export function WebOverview(props: {
     const showWarning = hasReverseProxy === false && !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_EMPTY_ONBOARDING]
 
     // Convert WebOverviewItem to OverviewItem
-    // Handle both `results` (from direct query response) and `result` (from cached insight)
-    const resultsArray = webOverviewQueryResponse?.results ?? (response as any)?.result
     const overviewItems: OverviewItem[] =
-        resultsArray?.map((item: any) => ({
+        webOverviewQueryResponse?.results?.map((item) => ({
             key: item.key,
             value: item.value,
             previous: item.previous,

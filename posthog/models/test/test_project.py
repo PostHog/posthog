@@ -18,7 +18,10 @@ class TestProject(BaseTest):
         assert project.name == "Test project"
         assert project.organization == self.organization
 
-        assert team.name == "Test project"
+        self.assertEqual(
+            team.name,
+            "Test project",  # TODO: When Environments are rolled out, ensure this says "Default environment"
+        )
         assert team.organization == self.organization
         assert team.project == project
 

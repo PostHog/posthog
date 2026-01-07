@@ -102,7 +102,7 @@ nodejs/src/ @PostHog/team-ingestion @PostHog/team-workflows
 nodejs/tests/ @PostHog/team-ingestion
 nodejs/src/ingestion/ @PostHog/team-ingestion
 nodejs/src/cdp/ @PostHog/team-workflows
-nodejs/src/ingestion/ai/ @PostHog/team-llm-analytics
+nodejs/src/ingestion/ai-costs/ @PostHog/team-llm-analytics
 
 # Web Analytics - owned by @PostHog/team-web-analytics
 products/web_analytics/** @PostHog/team-web-analytics

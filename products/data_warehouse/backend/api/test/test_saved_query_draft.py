@@ -47,7 +47,7 @@ class TestDataWarehouseSavedQueryDraft(APIBaseTest):
         draft.refresh_from_db()
         assert draft.query == {"kind": "HogQLQuery", "query": "select event as updated from events LIMIT 100"}
         # no attached view
-        assert draft.name is None
+        assert draft.name == None
 
     def test_delete_draft(self):
         draft = DataWarehouseSavedQueryDraft.objects.create(

@@ -276,22 +276,6 @@ build:
             - build:schema-python
             - build:schema-latest-versions
         description: Generate all schema definitions (frontend JSON, Python, latest versions)
-    build:openapi-schema:
-        cmd: |
-            mkdir -p frontend/tmp && DEBUG=1 OPENAPI_INCLUDE_INTERNAL=1 python manage.py spectacular --file frontend/tmp/openapi.json --format openapi-json && echo "OpenAPI schema written to frontend/tmp/openapi.json"
-        description: Generate OpenAPI schema from Django backend (writes to gitignored temp location)
-        services:
-            - postgresql
-            - clickhouse
-            - django
-    build:openapi-types:
-        cmd: pnpm --filter=@posthog/frontend run openapi:types
-        description: Generate TypeScript API types from the backend OpenAPI schema
-    build:openapi:
-        steps:
-            - build:openapi-schema
-            - build:openapi-types
-        description: Generate OpenAPI schema and TypeScript types from the backend
     build:grammar:
         cmd: pnpm grammar:build
         description: Generate HogQL grammar definitions (Python and C++)
@@ -462,7 +446,7 @@ quality:
         cmd: ./bin/ruff.sh check --fix
         description: Fix Python code quality issues
     format:markdown:
-        cmd: pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc --fix "$@" && pnpm exec prettier --write "$@"
+        cmd: pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc --fix
         description: Format Markdown files
 tools:
     tool:temporal-django-worker:

@@ -7,7 +7,7 @@ class TestEntity(TestCase):
     def test_can_init_without_id(self):
         entity = Entity({"type": TREND_FILTER_TYPE_EVENTS})  # This is an "All events" entity
 
-        assert entity.id is None
+        assert entity.id == None
 
     def test_inclusion(self):
         entity1 = Entity(

@@ -321,7 +321,7 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             },
         ).json()
         all_people_ids = [str(person["id"]) for person in hour_grouped_action_response["results"][0]["people"]]
-        assert sorted(all_people_ids) == sorted([str(person2.uuid), str(person3.uuid)])
+        self.assertListEqual(sorted(all_people_ids), sorted([str(person2.uuid), str(person3.uuid)]))
         assert len(all_people_ids) == 2
         self.assertEntityResponseEqual(
             hour_grouped_action_response["results"],
@@ -493,7 +493,7 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
         self.maxDiff = None
         all_people_ids = [str(person["id"]) for person in week_grouped_action_response["results"][0]["people"]]
         assert len(all_people_ids) == 2
-        assert sorted(all_people_ids) == sorted([str(person6.uuid), str(person7.uuid)])
+        self.assertListEqual(sorted(all_people_ids), sorted([str(person6.uuid), str(person7.uuid)]))
 
         self.assertEntityResponseEqual(
             week_grouped_action_response["results"],
@@ -551,7 +551,10 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
 
         all_people_ids = [str(person["id"]) for person in month_group_action_response["results"][0]["people"]]
         assert len(all_people_ids) == 3
-        assert sorted(all_people_ids) == sorted([str(person6.uuid), str(person7.uuid), str(person1.uuid)])
+        self.assertListEqual(
+            sorted(all_people_ids),
+            sorted([str(person6.uuid), str(person7.uuid), str(person1.uuid)]),
+        )
 
         self.assertEntityResponseEqual(
             month_group_action_response["results"],

@@ -440,7 +440,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         assert response.json()["results"][0]["item_id"] == str(group.pk)
         assert response.json()["results"][0]["detail"]["changes"][0]["type"] == "Group"
         assert response.json()["results"][0]["detail"]["changes"][0]["action"] == "created"
-        assert response.json()["results"][0]["detail"]["changes"][0]["before"] is None
+        assert response.json()["results"][0]["detail"]["changes"][0]["before"] == None
         assert response.json()["results"][0]["detail"]["changes"][0]["after"] == "technology"
 
     @freeze_time("2021-05-02")
@@ -628,7 +628,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         assert response.json()["results"][0]["detail"]["changes"][0]["type"] == "Group"
         assert response.json()["results"][0]["detail"]["changes"][0]["action"] == "deleted"
         assert response.json()["results"][0]["detail"]["changes"][0]["before"] == "finance"
-        assert response.json()["results"][0]["detail"]["changes"][0]["after"] is None
+        assert response.json()["results"][0]["detail"]["changes"][0]["after"] == None
 
     @freeze_time("2021-05-02")
     def test_group_property_crud_delete_missing_key(self):

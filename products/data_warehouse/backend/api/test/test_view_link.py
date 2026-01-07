@@ -445,7 +445,7 @@ class TestViewLinkValidation(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         data = response.json()
-        assert data["attr"] is None
+        assert data["attr"] == None
         assert data["code"] == "QueryError"
         assert data["detail"] == "Field not found: nonexistent_field"
         assert data["type"] == "query_error"
@@ -464,7 +464,7 @@ class TestViewLinkValidation(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         data = response.json()
-        assert data["attr"] is None
+        assert data["attr"] == None
         assert data["code"] == "invalid_input"
         assert data["detail"] == "Invalid table: nonexistent_table_xyz"
         assert data["type"] == "validation_error"
@@ -482,7 +482,7 @@ class TestViewLinkValidation(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         data = response.json()
-        assert data["attr"] is None
+        assert data["attr"] == None
         assert data["code"] == "invalid_input"
         assert data["detail"] == "Invalid table: nonexistent_table_xyz"
         assert data["type"] == "validation_error"
@@ -500,7 +500,7 @@ class TestViewLinkValidation(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         data = response.json()
-        assert data["attr"] is None
+        assert data["attr"] == None
         assert data["code"] == "invalid_input"
         assert data["detail"] == "mismatched input 'syntax' expecting <EOF>"
         assert data["type"] == "validation_error"
@@ -586,7 +586,7 @@ class TestViewLinkValidation(APIBaseTest):
 
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         data = response.json()
-        assert data["attr"] is None
+        assert data["attr"] == None
         assert data["code"] == "CHQueryErrorIllegalTypeOfArgument"
         assert data["detail"].startswith("Illegal types of arguments (DateTime64(6, 'UTC'), UUID)")
         assert data["type"] == "query_error"

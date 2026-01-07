@@ -478,7 +478,7 @@ class TestEdgeCases(APIBaseTest):
         data = response.data
         # Should be truncated to approximately max_length via uniform sampling
         assert data["metadata"]["char_count"] <= 55000  # Allow some overhead
-        assert data["metadata"]["truncated"]
+        assert data["metadata"]["truncated"] == True
 
     def test_default_max_length(self):
         """Should use 2MB default max_length when not specified."""
@@ -507,7 +507,7 @@ class TestEdgeCases(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         data = response.data
-        assert not data["metadata"]["truncated"]
+        assert data["metadata"]["truncated"] == False
         assert data["metadata"]["char_count"] > 1500000
 
         # Test content over 2MB - should truncate at max_length level
@@ -526,7 +526,7 @@ class TestEdgeCases(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         data = response.data
-        assert data["metadata"]["truncated"]
+        assert data["metadata"]["truncated"] == True
         assert data["metadata"]["char_count"] <= 2100000  # Allow some overhead for sampling
 
     def test_unicode_content(self):

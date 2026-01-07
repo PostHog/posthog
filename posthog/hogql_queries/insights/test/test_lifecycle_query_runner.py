@@ -134,7 +134,8 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
         statuses = [res["status"] for res in response.results]
         assert ["new", "returning", "resurrecting", "dormant"] == statuses
 
-        assert [
+        self.assertEqual(
+            [
                 {
                     "count": 1.0,
                     "data": [
@@ -339,7 +340,9 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                         "type": "events",
                     },
                 },
-            ] == response.results
+            ],
+            response.results,
+        )
 
     def test_lifecycle_query_group_1(self):
         # Create group type mapping for group_1
@@ -405,7 +408,8 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
         statuses = [res["status"] for res in response.results]
         assert ["new", "returning", "resurrecting", "dormant"] == statuses
 
-        assert [
+        self.assertEqual(
+            [
                 {
                     "count": 2.0,
                     "data": [
@@ -610,7 +614,9 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                         "type": "events",
                     },
                 },
-            ] == response.results
+            ],
+            response.results,
+        )
 
     def test_lifecycle_query_group_with_different_created_at(self):
         """Test that lifecycle query uses group's created_at, not person's created_at when aggregating by groups."""
@@ -802,7 +808,8 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
         statuses = [res["status"] for res in response.results]
         assert ["new", "returning", "resurrecting", "dormant"] == statuses
 
-        assert [
+        self.assertEqual(
+            [
                 {
                     "count": 4.0,
                     "data": [
@@ -1007,7 +1014,9 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "type": "events",
                     },
                 },
-            ] == response.results
+            ],
+            response.results,
+        )
 
     def test_events_query_whole_range(self):
         self._create_test_events()
@@ -1017,7 +1026,8 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response = self._run_events_query(date_from, date_to, IntervalType.DAY)
 
-        assert {
+        self.assertEqual(
+            {
                 (datetime(2020, 1, 9, 0, 0), 1, "new"),  # p2
                 (datetime(2020, 1, 10, 0, 0), 1, "dormant"),  # p2
                 (datetime(2020, 1, 11, 0, 0), 1, "new"),  # p1
@@ -1034,7 +1044,9 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 (datetime(2020, 1, 18, 0, 0), 1, "dormant"),  # p1
                 (datetime(2020, 1, 19, 0, 0), 1, "resurrecting"),  # p1
                 (datetime(2020, 1, 20, 0, 0), 1, "dormant"),  # p1
-            } == set(response.results)
+            },
+            set(response.results),
+        )
 
     def test_events_query_partial_range(self):
         self._create_test_events()
@@ -1042,7 +1054,8 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
         date_to = "2020-01-14"
         response = self._run_events_query(date_from, date_to, IntervalType.DAY)
 
-        assert {
+        self.assertEqual(
+            {
                 (datetime(2020, 1, 11, 0, 0), 1, "new"),  # p1
                 (datetime(2020, 1, 12, 0, 0), 1, "new"),  # p3
                 (datetime(2020, 1, 12, 0, 0), 1, "resurrecting"),  # p2
@@ -1050,7 +1063,9 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 (datetime(2020, 1, 13, 0, 0), 1, "returning"),  # p1
                 (datetime(2020, 1, 13, 0, 0), 2, "dormant"),  # p2, p3
                 (datetime(2020, 1, 14, 0, 0), 1, "dormant"),  # p1
-            } == set(response.results)
+            },
+            set(response.results),
+        )
 
     def test_lifecycle_trend(self):
         self._create_events(

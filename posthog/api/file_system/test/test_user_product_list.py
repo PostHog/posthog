@@ -24,7 +24,7 @@ class TestUserProductListAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         product_list.refresh_from_db()
-        assert product_list.enabled
+        assert product_list.enabled == True
         assert product_list.reason == UserProductList.Reason.PRODUCT_INTENT
         assert product_list.reason_text == ""
 
@@ -45,7 +45,7 @@ class TestUserProductListAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         product_list.refresh_from_db()
-        assert product_list.enabled
+        assert product_list.enabled == True
         assert product_list.reason == UserProductList.Reason.PRODUCT_INTENT
         assert product_list.reason_text == ""
 
@@ -66,7 +66,7 @@ class TestUserProductListAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         product_list.refresh_from_db()
-        assert not product_list.enabled
+        assert product_list.enabled == False
         assert product_list.reason == UserProductList.Reason.USED_BY_COLLEAGUES
         assert product_list.reason_text == "Some reason text"
 

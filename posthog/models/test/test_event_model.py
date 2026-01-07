@@ -125,7 +125,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
         def assertActionEventsMatch(self, action, expected_events):
             events = _get_events_for_action(action)
 
-            assert sorted([e.uuid for e in events]) == sorted(list(expected_events))
+            self.assertCountEqual([e.uuid for e in events], list(expected_events))
 
         def test_with_normal_filters(self):
             # this test also specifically tests the back to back receipt of
@@ -689,106 +689,106 @@ class TestSelectors(BaseTest):
     def test_selector_child(self):
         selector1 = Selector("div span")
         assert selector1.parts[0].data == {"tag_name": "span"}
-        assert not selector1.parts[0].direct_descendant
+        assert selector1.parts[0].direct_descendant == False
         assert selector1.parts[0].unique_order == 0
 
         assert selector1.parts[1].data == {"tag_name": "div"}
-        assert not selector1.parts[1].direct_descendant
+        assert selector1.parts[1].direct_descendant == False
         assert selector1.parts[1].unique_order == 0
 
     def test_selector_child_direct_descendant(self):
         selector1 = Selector("div > span")
         assert selector1.parts[0].data == {"tag_name": "span"}
-        assert not selector1.parts[0].direct_descendant
+        assert selector1.parts[0].direct_descendant == False
         assert selector1.parts[0].unique_order == 0
 
         assert selector1.parts[1].data == {"tag_name": "div"}
-        assert selector1.parts[1].direct_descendant
+        assert selector1.parts[1].direct_descendant == True
         assert selector1.parts[1].unique_order == 0
 
     def test_selector_attribute(self):
         selector1 = Selector('div[data-id="5"] > span')
 
         assert selector1.parts[0].data == {"tag_name": "span"}
-        assert not selector1.parts[0].direct_descendant
+        assert selector1.parts[0].direct_descendant == False
         assert selector1.parts[0].unique_order == 0
 
         assert selector1.parts[1].data == {"tag_name": "div", "attributes__attr__data-id": "5"}
-        assert selector1.parts[1].direct_descendant
+        assert selector1.parts[1].direct_descendant == True
         assert selector1.parts[1].unique_order == 0
 
     def test_selector_id(self):
         selector1 = Selector('[id="5"] > span')
 
         assert selector1.parts[0].data == {"tag_name": "span"}
-        assert not selector1.parts[0].direct_descendant
+        assert selector1.parts[0].direct_descendant == False
         assert selector1.parts[0].unique_order == 0
 
         assert selector1.parts[1].data == {"attr_id": "5"}
-        assert selector1.parts[1].direct_descendant
+        assert selector1.parts[1].direct_descendant == True
         assert selector1.parts[1].unique_order == 0
 
     def test_selector_attribute_with_spaces(self):
         selector1 = Selector('  [data-id="foo bar]"]  ')
 
         assert selector1.parts[0].data == {"attributes__attr__data-id": "foo bar]"}
-        assert not selector1.parts[0].direct_descendant
+        assert selector1.parts[0].direct_descendant == False
         assert selector1.parts[0].unique_order == 0
 
     def test_selector_with_spaces(self):
         selector1 = Selector("span    ")
 
         assert selector1.parts[0].data == {"tag_name": "span"}
-        assert not selector1.parts[0].direct_descendant
+        assert selector1.parts[0].direct_descendant == False
         assert selector1.parts[0].unique_order == 0
 
     def test_class(self):
         selector1 = Selector("div.classone.classtwo > span")
 
         assert selector1.parts[0].data == {"tag_name": "span"}
-        assert not selector1.parts[0].direct_descendant
+        assert selector1.parts[0].direct_descendant == False
         assert selector1.parts[0].unique_order == 0
 
         assert selector1.parts[1].data == {"tag_name": "div", "attr_class__contains": ["classone", "classtwo"]}
-        assert selector1.parts[1].direct_descendant
+        assert selector1.parts[1].direct_descendant == True
         assert selector1.parts[1].unique_order == 0
 
     def test_nth_child(self):
         selector1 = Selector("div > span:nth-child(3)")
         assert selector1.parts[0].data == {"tag_name": "span", "nth_child": "3"}
-        assert not selector1.parts[0].direct_descendant
+        assert selector1.parts[0].direct_descendant == False
         assert selector1.parts[0].unique_order == 0
 
         assert selector1.parts[1].data == {"tag_name": "div"}
-        assert selector1.parts[1].direct_descendant
+        assert selector1.parts[1].direct_descendant == True
         assert selector1.parts[1].unique_order == 0
 
     def test_unique_order(self):
         selector1 = Selector("div > div")
         assert selector1.parts[0].data == {"tag_name": "div"}
-        assert not selector1.parts[0].direct_descendant
+        assert selector1.parts[0].direct_descendant == False
         assert selector1.parts[0].unique_order == 0
 
         assert selector1.parts[1].data == {"tag_name": "div"}
-        assert selector1.parts[1].direct_descendant
+        assert selector1.parts[1].direct_descendant == True
         assert selector1.parts[1].unique_order == 1
 
     def test_asterisk_in_query(self):
         # Sometimes people randomly add * but they don't do very much, so just remove them
         selector1 = Selector("div > *")
         assert selector1.parts[0].data == {"tag_name": "div"}
-        assert not selector1.parts[0].direct_descendant
+        assert selector1.parts[0].direct_descendant == False
         assert selector1.parts[0].unique_order == 0
         assert len(selector1.parts) == 1
 
     def test_asterisk_in_middle_of_query(self):
         selector1 = Selector("div > * > div")
         assert selector1.parts[0].data == {"tag_name": "div"}
-        assert not selector1.parts[0].direct_descendant
+        assert selector1.parts[0].direct_descendant == False
         assert selector1.parts[0].unique_order == 0
 
         assert selector1.parts[1].data == {"tag_name": "div"}
-        assert not selector1.parts[1].direct_descendant
+        assert selector1.parts[1].direct_descendant == False
         assert selector1.parts[1].unique_order == 1
 
     def test_slash_colon(self):

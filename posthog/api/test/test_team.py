@@ -86,9 +86,9 @@ def team_api_test_factory():
             response_data = response.json()
             assert response_data["name"] == self.team.name
             assert response_data["timezone"] == "UTC"
-            assert not response_data["is_demo"]
+            assert response_data["is_demo"] == False
             assert response_data["slack_incoming_webhook"] == self.team.slack_incoming_webhook
-            assert not response_data["has_group_types"]
+            assert response_data["has_group_types"] == False
             assert response_data["person_on_events_querying_enabled"] == (get_instance_setting("PERSON_ON_EVENTS_ENABLED") or get_instance_setting("PERSON_ON_EVENTS_V2_ENABLED"))
 
             # TODO: These assertions will no longer make sense when we fully remove these attributes from the model
@@ -105,7 +105,7 @@ def team_api_test_factory():
             response_data = response.json()
 
             assert response.status_code == status.HTTP_200_OK, response_data
-            assert not response_data["has_group_types"]
+            assert response_data["has_group_types"] == False
             assert response_data["group_types"] == []
 
             create_group_type_mapping_without_created_at(
@@ -122,7 +122,7 @@ def team_api_test_factory():
             response_data = response.json()
 
             assert response.status_code == status.HTTP_200_OK, response_data
-            assert response_data["has_group_types"]
+            assert response_data["has_group_types"] == True
             assert response_data["group_types"] == [{"group_type": "person", "group_type_index": 0, "name_singular": None, "name_plural": None, "default_columns": None, "detail_dashboard": None, "created_at": None}, {"group_type": "place", "group_type_index": 1, "name_singular": None, "name_plural": None, "default_columns": None, "detail_dashboard": None, "created_at": None}, {"group_type": "thing", "group_type_index": 2, "name_singular": None, "name_plural": None, "default_columns": None, "detail_dashboard": None, "created_at": None}]
 
         def test_cant_retrieve_team_from_another_org(self):
@@ -250,17 +250,17 @@ def team_api_test_factory():
             assert response.status_code == status.HTTP_200_OK
 
             response_data = response.json()
-            assert response_data["test_account_filters_default_checked"]
+            assert response_data["test_account_filters_default_checked"] == True
 
             self.team.refresh_from_db()
-            assert self.team.test_account_filters_default_checked
+            assert self.team.test_account_filters_default_checked == True
 
         def test_retrieve_receive_org_level_activity_logs(self):
             response = self.client.get("/api/environments/@current/")
             assert response.status_code == status.HTTP_200_OK
 
             response_data = response.json()
-            assert not response_data["receive_org_level_activity_logs"]
+            assert response_data["receive_org_level_activity_logs"] == False
 
         def test_update_receive_org_level_activity_logs(self):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -270,10 +270,10 @@ def team_api_test_factory():
             assert response.status_code == status.HTTP_200_OK
 
             response_data = response.json()
-            assert response_data["receive_org_level_activity_logs"]
+            assert response_data["receive_org_level_activity_logs"] == True
 
             self.team.refresh_from_db()
-            assert self.team.receive_org_level_activity_logs
+            assert self.team.receive_org_level_activity_logs == True
 
         def test_update_receive_org_level_activity_logs_requires_admin(self):
             member_user = User.objects.create_user(email="member@posthog.com", password="password", first_name="Member")
@@ -289,7 +289,7 @@ def team_api_test_factory():
             assert response.json() == {"type": "authentication_error", "code": "permission_denied", "detail": "Only organization owners and admins can modify the receive_org_level_activity_logs setting.", "attr": None}
 
             self.team.refresh_from_db()
-            assert not self.team.receive_org_level_activity_logs
+            assert self.team.receive_org_level_activity_logs == False
 
         def test_update_receive_org_level_activity_logs_allows_admin(self):
             admin_user = User.objects.create_user(email="admin@posthog.com", password="password", first_name="Admin")
@@ -304,10 +304,10 @@ def team_api_test_factory():
             assert response.status_code == status.HTTP_200_OK
 
             response_data = response.json()
-            assert response_data["receive_org_level_activity_logs"]
+            assert response_data["receive_org_level_activity_logs"] == True
 
             self.team.refresh_from_db()
-            assert self.team.receive_org_level_activity_logs
+            assert self.team.receive_org_level_activity_logs == True
 
         def test_cannot_set_invalid_timezone_for_team(self):
             response = self.client.patch("/api/environments/@current/", {"timezone": "America/I_Dont_Exist"})
@@ -2248,12 +2248,12 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
 
         response_data = response.json()
         assert response_data["timezone"] == "Europe/Lisbon"
-        assert response_data["session_recording_opt_in"]
+        assert response_data["session_recording_opt_in"] == True
 
         # Verify changes were made
         self.team.refresh_from_db()
         assert self.team.timezone == "Europe/Lisbon"
-        assert self.team.session_recording_opt_in
+        assert self.team.session_recording_opt_in == True
 
     def test_team_member_cannot_write_to_team_config_with_no_access_access_control(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -2284,7 +2284,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         # Verify changes were made
         self.team.refresh_from_db()
         assert self.team.timezone == "UTC"
-        assert not self.team.session_recording_opt_in
+        assert self.team.session_recording_opt_in == False
 
     def test_team_member_can_write_to_team_config_without_access_control(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -2306,12 +2306,12 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
 
         response_data = response.json()
         assert response_data["timezone"] == "Europe/Lisbon"
-        assert response_data["session_recording_opt_in"]
+        assert response_data["session_recording_opt_in"] == True
 
         # Verify changes were made
         self.team.refresh_from_db()
         assert self.team.timezone == "Europe/Lisbon"
-        assert self.team.session_recording_opt_in
+        assert self.team.session_recording_opt_in == True
 
     def test_team_admin_can_write_to_team_patch_with_access_control(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -2340,12 +2340,12 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
 
         response_data = response.json()
         assert response_data["timezone"] == "Europe/Lisbon"
-        assert response_data["session_recording_opt_in"]
+        assert response_data["session_recording_opt_in"] == True
 
         # Verify changes were made
         self.team.refresh_from_db()
         assert self.team.timezone == "Europe/Lisbon"
-        assert self.team.session_recording_opt_in
+        assert self.team.session_recording_opt_in == True
 
     def test_team_member_cannot_write_to_team_patch_with_access_control(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -2375,7 +2375,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         # Verify no changes were made
         self.team.refresh_from_db()
         assert self.team.timezone == "UTC"
-        assert not self.team.session_recording_opt_in
+        assert self.team.session_recording_opt_in == False
 
     def test_team_member_can_write_to_team_patch_without_access_control(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -2398,7 +2398,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         # Verify changes were made
         self.team.refresh_from_db()
         assert self.team.timezone == "Europe/Lisbon"
-        assert self.team.session_recording_opt_in
+        assert self.team.session_recording_opt_in == True
 
     @freeze_time("2025-01-01T00:00:00Z")
     def test_settings_as_of_requires_at_param(self):

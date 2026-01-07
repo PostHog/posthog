@@ -27,7 +27,6 @@
         "start": "concurrently -n ESBUILD,TAILWIND -c yellow,blue \"pnpm start-http\" \"pnpm watch:tailwind\"",
         "start-http": "pnpm clean && pnpm copy-scripts && pnpm build:esbuild --dev",
         "start-docker": "pnpm start-http --host 0.0.0.0",
-        "openapi:types": "node ./bin/generate-openapi-types.mjs",
         "typegen:check": "cd .. && NODE_OPTIONS=\"--max-old-space-size=16384\" kea-typegen check",
         "typegen:clean": "cd .. && find frontend/src products common -type f -name '*Type.ts' -delete",
         "typegen:watch": "cd .. && NODE_OPTIONS=\"--max-old-space-size=16384\" kea-typegen watch --delete --show-ts-errors --use-cache",

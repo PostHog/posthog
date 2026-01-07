@@ -284,7 +284,7 @@ class TestInsightEnterpriseAPI(APILicensedTest):
             {"tags": ["a", "b", "a"]},
         )
 
-        assert sorted(response.json()["tags"]) == ["a", "b"]
+        self.assertListEqual(sorted(response.json()["tags"]), ["a", "b"])
 
     def test_searching_insights_includes_tags_and_description(self) -> None:
         insight_one_id, _ = self.dashboard_api.create_insight(

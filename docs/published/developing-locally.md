@@ -448,16 +448,6 @@ If you need to start fresh with a clean database (for example, if your local dat
 
 > **Note:** This process will completely wipe your local database. Make sure you don't have any important local data before proceeding.
 
-## Extra: API types
-
-When modifying Django serializers or views, you may need to regenerate TypeScript types:
-
-```bash
-hogli build:openapi
-```
-
-See the [Type system guide](type-system) for details on how type generation works and best practices for documenting your API.
-
 ## Extra: Working with the data warehouse
 
 [See here for working with data warehouse](/handbook/engineering/data-warehouse)

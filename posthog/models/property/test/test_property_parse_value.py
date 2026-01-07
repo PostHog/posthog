@@ -205,4 +205,4 @@ class TestPropertyParseValue(BaseTest):
         # Already parsed values
         assert Property._parse_value(123) == 123
         assert Property._parse_value(3.14) == 3.14
-        assert Property._parse_value(True)
+        assert Property._parse_value(True) == True

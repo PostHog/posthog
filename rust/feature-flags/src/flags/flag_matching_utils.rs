@@ -97,7 +97,6 @@ static INITIAL_PROPERTY_MAP: Lazy<HashMap<&'static str, &'static str>> = Lazy::n
 #[cfg(test)]
 thread_local! {
     static FETCH_CALLS: RefCell<u64> = const { RefCell::new(0) };
-    static HASH_KEY_OVERRIDE_LOOKUPS: RefCell<u64> = const { RefCell::new(0) };
 }
 
 /// Calculates a deterministic hash value between 0 and 1 for a given identifier and salt.
@@ -587,10 +586,6 @@ pub async fn get_feature_flag_hash_key_overrides(
     team_id: TeamId,
     distinct_id_and_hash_key_override: Vec<String>,
 ) -> Result<HashMap<String, String>, FlagError> {
-    // Track hash key override lookups for testing
-    #[cfg(test)]
-    increment_hash_key_override_lookup_count();
-
     let retry_strategy = ExponentialBackoff::from_millis(50)
         .max_delay(Duration::from_millis(300))
         .take(3)
@@ -1352,21 +1347,6 @@ pub fn reset_fetch_calls_count() {
 #[cfg(test)]
 pub fn increment_fetch_calls_count() {
     FETCH_CALLS.with(|counter| *counter.borrow_mut() += 1);
-}
-
-#[cfg(test)]
-pub fn get_hash_key_override_lookup_count() -> u64 {
-    HASH_KEY_OVERRIDE_LOOKUPS.with(|counter| *counter.borrow())
-}
-
-#[cfg(test)]
-pub fn reset_hash_key_override_lookup_count() {
-    HASH_KEY_OVERRIDE_LOOKUPS.with(|counter| *counter.borrow_mut() = 0);
-}
-
-#[cfg(test)]
-fn increment_hash_key_override_lookup_count() {
-    HASH_KEY_OVERRIDE_LOOKUPS.with(|counter| *counter.borrow_mut() += 1);
 }
 
 #[cfg(test)]

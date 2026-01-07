@@ -308,7 +308,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_200_OK
 
         assert len(response.json()["results"]) == 1
-        assert response.json()["results"][0]["favorited"]
+        assert response.json()["results"][0]["favorited"] == True
 
     def test_hide_feature_flag_insights_filter(self) -> None:
         from posthog.helpers.dashboard_templates import (
@@ -603,7 +603,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_201_CREATED
         response_data = response.json()
-        assert response_data["description"] is None
+        assert response_data["description"] == None
         assert response_data["tags"] == []
 
         objects = Insight.objects.all()
@@ -646,8 +646,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_201_CREATED
         response_data = response.json()
-        assert response_data["name"] is None
-        assert response_data["derived_name"] is None
+        assert response_data["name"] == None
+        assert response_data["derived_name"] == None
 
         self.assert_insight_activity(response_data["id"], [])
 
@@ -1200,7 +1200,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "dashboards": [dashboard_id],
                 },
             ).json()
-            assert response["last_refresh"] is None
+            assert response["last_refresh"] == None
 
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{response['id']}/?refresh=true").json()
             assert response["result"][0]["data"] == [0, 0, 0, 0, 0, 0, 2, 0]
@@ -1225,7 +1225,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         with freeze_time("2012-01-25T05:01:34.000Z"):
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{response['id']}/").json()
-            assert response["last_refresh"] is None
+            assert response["last_refresh"] == None
             assert response["last_modified_at"] == "2012-01-15T04:01:34Z"  # did not change
 
         #  Test property filter
@@ -1302,7 +1302,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 },
             ).json()
             assert "code" not in response  # Watching out for an error code
-            assert response["last_refresh"] is None
+            assert response["last_refresh"] == None
             insight_id = response["id"]
 
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true").json()
@@ -1415,7 +1415,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 },
             ).json()
             assert "code" not in response  # Watching out for an error code
-            assert response["last_refresh"] is None
+            assert response["last_refresh"] == None
             insight_id = response["id"]
 
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true").json()
@@ -1497,7 +1497,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         with freeze_time("2012-01-15T04:01:34.000Z"):
             response = self.client.post(f"/api/projects/{self.team.id}/insights", data={"query": query_dict}).json()
             assert "code" not in response  # Watching out for an error code
-            assert response["last_refresh"] is None
+            assert response["last_refresh"] == None
             insight_id = response["id"]
 
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true").json()
@@ -1583,7 +1583,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 },
             ).json()
             assert "code" not in response  # Watching out for an error code
-            assert response["last_refresh"] is None
+            assert response["last_refresh"] == None
             insight_id = response["id"]
 
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=blocking").json()
@@ -1640,8 +1640,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # Check that cache miss contains query status
         response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=async").json()
         assert "code" not in response
-        assert response["result"] is None
-        assert response["query_status"]["query_async"]
+        assert response["result"] == None
+        assert response["query_status"]["query_async"] == True
 
     def test_dashboard_filters_applied_to_sql_data_table_node(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard(
@@ -2339,7 +2339,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         ids_in_response = [r["id"] for r in response_data["results"]]
         # insight 3 is not included in response
-        assert sorted(ids_in_response) == sorted([insight.id, insight2.id])
+        self.assertCountEqual(ids_in_response, [insight.id, insight2.id])
 
     def test_cannot_create_insight_with_dashboards_relation_from_another_team(
         self,
@@ -3099,7 +3099,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         ).json()
 
         assert "code" not in response  # Watching out for an error code
-        assert response["results"][0]["last_refresh"] is None
+        assert response["results"][0]["last_refresh"] == None
         assert response["results"][0]["hogql"] is None
 
         response = self.client.get(
@@ -3135,7 +3135,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         ).json()
 
         assert "code" not in response
-        assert response["results"][0]["last_refresh"] is None
+        assert response["results"][0]["last_refresh"] == None
         assert response["results"][0]["types"] is None
 
         response = self.client.get(

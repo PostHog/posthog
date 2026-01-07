@@ -30,8 +30,8 @@ class TestPluginsUtils(BaseTest):
         assert parsed_url["type"] == "github"
         assert parsed_url["user"] == "PostHog"
         assert parsed_url["repo"] == "posthog"
-        assert parsed_url.get("tag", None) is None
-        assert parsed_url.get("path", None) is None
+        assert parsed_url.get("tag", None) == None
+        assert parsed_url.get("path", None) == None
         assert mock_get.call_count == 0
         mock_get.reset_mock()
 
@@ -40,7 +40,7 @@ class TestPluginsUtils(BaseTest):
         assert parsed_url["user"] == "PostHog"
         assert parsed_url["repo"] == "posthog"
         assert parsed_url["tag"] == "MOCKLATESTCOMMIT"
-        assert parsed_url.get("path", None) is None
+        assert parsed_url.get("path", None) == None
         assert mock_get.call_count == 1
         mock_get.assert_called_with(
             "https://api.github.com/repos/PostHog/posthog/commits?sha=&path=",
@@ -53,7 +53,7 @@ class TestPluginsUtils(BaseTest):
         assert parsed_url["user"] == "PostHog"
         assert parsed_url["repo"] == "posthog"
         assert parsed_url["tag"] == "82c9218ee40f561b7f37a22d6b6a0ca82887ee3e"
-        assert parsed_url.get("path", None) is None
+        assert parsed_url.get("path", None) == None
         assert mock_get.call_count == 0
         mock_get.reset_mock()
 
@@ -65,7 +65,7 @@ class TestPluginsUtils(BaseTest):
         assert parsed_url["user"] == "PostHog"
         assert parsed_url["repo"] == "posthog"
         assert parsed_url["tag"] == "82c9218ee40f561b7f37a22d6b6a0ca82887ee3e"
-        assert parsed_url.get("path", None) is None
+        assert parsed_url.get("path", None) == None
         assert mock_get.call_count == 0
         mock_get.reset_mock()
 
@@ -86,7 +86,7 @@ class TestPluginsUtils(BaseTest):
         assert parsed_url["user"] == "PostHog"
         assert parsed_url["repo"] == "posthog"
         assert parsed_url["tag"] == "MOCKLATESTCOMMIT"
-        assert parsed_url.get("path", None) is None
+        assert parsed_url.get("path", None) == None
         assert mock_get.call_count == 1
         mock_get.assert_called_with(
             "https://api.github.com/repos/PostHog/posthog/commits?sha=main&path=",
@@ -115,7 +115,7 @@ class TestPluginsUtils(BaseTest):
         assert parsed_url["user"] == "PostHog"
         assert parsed_url["repo"] == "posthog"
         assert parsed_url["tag"] == "82c9218ee40f561b7f37a22d6b6a0ca82887ee3e"
-        assert parsed_url.get("path", None) is None
+        assert parsed_url.get("path", None) == None
         assert mock_get.call_count == 0
         mock_get.reset_mock()
 
@@ -127,7 +127,7 @@ class TestPluginsUtils(BaseTest):
         assert parsed_url["user"] == "PostHog"
         assert parsed_url["repo"] == "posthog"
         assert parsed_url["tag"] == "82c9218ee40f561b7f37a22d6b6a0ca82887ee3e"
-        assert parsed_url.get("path", None) is None
+        assert parsed_url.get("path", None) == None
         assert mock_get.call_count == 0
         mock_get.reset_mock()
 
@@ -138,7 +138,7 @@ class TestPluginsUtils(BaseTest):
         assert parsed_url["user"] == "PostHog"
         assert parsed_url["repo"] == "posthog"
         assert parsed_url["tag"] == "82c9218ee40f561b7f37a22d6b6a0ca82887ee3e"
-        assert parsed_url.get("path", None) is None
+        assert parsed_url.get("path", None) == None
         assert mock_get.call_count == 0
         mock_get.reset_mock()
 
@@ -149,7 +149,7 @@ class TestPluginsUtils(BaseTest):
         assert parsed_url["user"] == "PostHog"
         assert parsed_url["repo"] == "posthog"
         assert parsed_url["tag"] == "82c9218ee40f561b7f37a22d6b6a0ca82887ee3e"
-        assert parsed_url.get("path", None) is None
+        assert parsed_url.get("path", None) == None
         assert mock_get.call_count == 0
         mock_get.reset_mock()
 
@@ -160,7 +160,7 @@ class TestPluginsUtils(BaseTest):
         assert parsed_url["user"] == "PostHog"
         assert parsed_url["repo"] == "posthog"
         assert parsed_url["tag"] == "82c9218ee40f561b7f37a22d6b6a0ca82887ee3e"
-        assert parsed_url.get("path", None) is None
+        assert parsed_url.get("path", None) == None
         assert mock_get.call_count == 0
         mock_get.reset_mock()
 
@@ -169,8 +169,8 @@ class TestPluginsUtils(BaseTest):
         assert parsed_url["type"] == "github"
         assert parsed_url["user"] == "PostHog"
         assert parsed_url["repo"] == "posthog"
-        assert parsed_url.get("tag", None) is None
-        assert parsed_url.get("path", None) is None
+        assert parsed_url.get("tag", None) == None
+        assert parsed_url.get("path", None) == None
         assert parsed_url["private_token"] == "TOKEN"
         assert mock_get.call_count == 0
         mock_get.reset_mock()
@@ -183,7 +183,7 @@ class TestPluginsUtils(BaseTest):
         assert parsed_url["user"] == "PostHog"
         assert parsed_url["repo"] == "posthog"
         assert parsed_url["tag"] == "MOCKLATESTCOMMIT"
-        assert parsed_url.get("path", None) is None
+        assert parsed_url.get("path", None) == None
         mock_get.assert_called_with(
             "https://api.github.com/repos/PostHog/posthog/commits?sha=&path=",
             headers={"Authorization": "Bearer TOKEN"},
@@ -198,7 +198,7 @@ class TestPluginsUtils(BaseTest):
         assert parsed_url["user"] == "PostHog"
         assert parsed_url["repo"] == "posthog"
         assert parsed_url["tag"] == "82c9218ee40f561b7f37a22d6b6a0ca82887ee3e"
-        assert parsed_url.get("path", None) is None
+        assert parsed_url.get("path", None) == None
         assert parsed_url["private_token"] == "TOKEN"
         assert mock_get.call_count == 0
         mock_get.reset_mock()
@@ -210,8 +210,8 @@ class TestPluginsUtils(BaseTest):
             assert parsed_url["user"] == "PostHog"
             assert parsed_url["repo"] == "posthog"
             assert parsed_url["tag"] == "MOCKLATESTCOMMIT"
-            assert parsed_url.get("path", None) is None
-            assert parsed_url.get("private_token", None) is None
+            assert parsed_url.get("path", None) == None
+            assert parsed_url.get("private_token", None) == None
             mock_get.assert_called_with(
                 "https://api.github.com/repos/PostHog/posthog/commits?sha=&path=",
                 headers={"Authorization": "Bearer MY_GITHUB_TOKEN"},
@@ -227,7 +227,7 @@ class TestPluginsUtils(BaseTest):
             assert parsed_url["user"] == "PostHog"
             assert parsed_url["repo"] == "posthog"
             assert parsed_url["tag"] == "MOCKLATESTCOMMIT"
-            assert parsed_url.get("path", None) is None
+            assert parsed_url.get("path", None) == None
             assert parsed_url["private_token"] == "TOKEN"
             mock_get.assert_called_with(
                 "https://api.github.com/repos/PostHog/posthog/commits?sha=&path=",
@@ -240,14 +240,14 @@ class TestPluginsUtils(BaseTest):
         parsed_url = parse_url("https://gitlab.com/mariusandra/helloworldplugin")
         assert parsed_url["type"] == "gitlab"
         assert parsed_url["project"] == "mariusandra/helloworldplugin"
-        assert parsed_url.get("tag", None) is None
+        assert parsed_url.get("tag", None) == None
         assert mock_get.call_count == 0
 
         parsed_url = parse_url("https://gitlab.com/mariusandra/helloworldplugin", get_latest_if_none=True)
         assert parsed_url["type"] == "gitlab"
         assert parsed_url["project"] == "mariusandra/helloworldplugin"
         assert parsed_url["tag"] == "ff78cbe1d70316055c610a962a8355a4616d874b"
-        assert parsed_url.get("private_token", None) is None
+        assert parsed_url.get("private_token", None) == None
         assert mock_get.call_count == 1
         mock_get.assert_called_with(
             "https://gitlab.com/api/v4/projects/mariusandra%2Fhelloworldplugin/repository/commits",
@@ -286,7 +286,7 @@ class TestPluginsUtils(BaseTest):
         parsed_url = parse_url("https://gitlab.com/mariusandra/helloworldplugin?private_token=PRIVATE")
         assert parsed_url["type"] == "gitlab"
         assert parsed_url["project"] == "mariusandra/helloworldplugin"
-        assert parsed_url.get("tag", None) is None
+        assert parsed_url.get("tag", None) == None
         assert parsed_url["private_token"] == "PRIVATE"
         assert mock_get.call_count == 1
 
@@ -335,7 +335,7 @@ class TestPluginsUtils(BaseTest):
             assert parsed_url["type"] == "gitlab"
             assert parsed_url["project"] == "mariusandra/helloworldplugin"
             assert parsed_url["tag"] == "ff78cbe1d70316055c610a962a8355a4616d874b"
-            assert parsed_url.get("private_token", None) is None
+            assert parsed_url.get("private_token", None) == None
             assert mock_get.call_count == 4
             mock_get.assert_called_with(
                 "https://gitlab.com/api/v4/projects/mariusandra%2Fhelloworldplugin/repository/commits",
@@ -346,13 +346,13 @@ class TestPluginsUtils(BaseTest):
         parsed_url = parse_url("https://www.npmjs.com/package/posthog-helloworld-plugin")
         assert parsed_url["type"] == "npm"
         assert parsed_url["pkg"] == "posthog-helloworld-plugin"
-        assert parsed_url.get("tag", None) is None
+        assert parsed_url.get("tag", None) == None
         assert mock_get.call_count == 0
 
         parsed_url = parse_url("https://www.npmjs.com/package/@posthog/helloworldplugin")
         assert parsed_url["type"] == "npm"
         assert parsed_url["pkg"] == "@posthog/helloworldplugin"
-        assert parsed_url.get("tag", None) is None
+        assert parsed_url.get("tag", None) == None
         assert mock_get.call_count == 0
 
         parsed_url = parse_url(
@@ -448,7 +448,7 @@ class TestPluginsUtils(BaseTest):
             assert parsed_url["type"] == "npm"
             assert parsed_url["pkg"] == "posthog-helloworld-plugin"
             assert parsed_url["tag"] == "MOCK"
-            assert parsed_url.get("private_token", None) is None
+            assert parsed_url.get("private_token", None) == None
             assert mock_get.call_count == 5
             mock_get.assert_called_with(
                 "https://registry.npmjs.org/posthog-helloworld-plugin/latest",

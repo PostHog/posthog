@@ -1363,7 +1363,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         response = result.results
 
         assert response == [PathsLink(source="1_/5", target="2_/about", value=2, average_conversion_time=60000.0)]
-        assert sorted(self._get_people_at_path(paths_query.copy(), "1_/5", "2_/about")) == sorted([p1.uuid, p2.uuid])
+        self.assertCountEqual(self._get_people_at_path(paths_query.copy(), "1_/5", "2_/about"), [p1.uuid, p2.uuid])
 
         # test aggregation for long paths
         paths_query["pathsFilter"]["startPoint"] = "/2"
@@ -1377,7 +1377,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         response = result.results
 
         assert response == [PathsLink(source="1_/2", target="2_/3", value=1, average_conversion_time=ONE_MINUTE), PathsLink(source="2_/3", target="3_...", value=1, average_conversion_time=ONE_MINUTE), PathsLink(source="3_...", target="4_/5", value=1, average_conversion_time=ONE_MINUTE), PathsLink(source="4_/5", target="5_/about", value=1, average_conversion_time=ONE_MINUTE)]
-        assert sorted(self._get_people_at_path(paths_query, "3_...", "4_/5")) == sorted([p1.uuid])
+        self.assertCountEqual(self._get_people_at_path(paths_query, "3_...", "4_/5"), [p1.uuid])
 
     @snapshot_clickhouse_queries
     def test_properties_queried_using_path_filter(self):
@@ -1879,7 +1879,9 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(result, CachedPathsQueryResponse)
         response = result.results
 
-        assert response == [
+        self.assertEqual(
+            response,
+            [
                 PathsLink(
                     source="1_/2",
                     target="2_/3",
@@ -1911,7 +1913,8 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
                     value=1,
                     average_conversion_time=30000.0,
                 ),
-            ]
+            ],
+        )
 
     def test_groups_filtering(self):
         self._create_groups()
@@ -2507,10 +2510,11 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             .model_dump()["results"]
         )
 
-        assert sorted([p1.uuid, p2.uuid]) == sorted([row[0]["id"] for row in results])
+        self.assertCountEqual([p1.uuid, p2.uuid], [row[0]["id"] for row in results])
         matched_recordings = [list(row[3]) for row in results]
 
-        assert sorted([
+        self.assertCountEqual(
+            [
                 {
                     "session_id": "s3",
                     "events": [
@@ -2531,7 +2535,9 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
                         }
                     ],
                 },
-            ]) == sorted(matched_recordings[0])
+            ],
+            matched_recordings[0],
+        )
         assert [] == matched_recordings[1]
 
     @snapshot_clickhouse_queries
@@ -2803,21 +2809,21 @@ class TestClickhousePathsEdgeValidation(TestCase):
 
         results = PathsQueryRunner(query={"pathsFilter": {}}, team=MagicMock()).validate_results(edges)
 
-        assert sorted(results) == sorted(self.BASIC_PATH + self.BASIC_PATH_2)
+        self.assertCountEqual(results, self.BASIC_PATH + self.BASIC_PATH_2)
 
     def test_basic_forest_with_dangling_edges(self):
         edges = self.BASIC_PATH + self.BASIC_PATH_2 + [("2_w", "3_z"), ("3_x", "4_d"), ("2_xxx", "3_yyy")]
 
         results = PathsQueryRunner(query={"pathsFilter": {}}, team=MagicMock()).validate_results(edges)
 
-        assert sorted(results) == sorted(self.BASIC_PATH + self.BASIC_PATH_2)
+        self.assertCountEqual(results, self.BASIC_PATH + self.BASIC_PATH_2)
 
     def test_basic_forest_with_dangling_and_cross_edges(self):
         edges = self.BASIC_PATH + self.BASIC_PATH_2 + [("2_w", "3_z"), ("3_x", "4_d"), ("2_y", "3_c")]
 
         results = PathsQueryRunner(query={"pathsFilter": {}}, team=MagicMock()).validate_results(edges)
 
-        assert sorted(results) == sorted(self.BASIC_PATH + self.BASIC_PATH_2 + [("2_y", "3_c")])
+        self.assertCountEqual(results, self.BASIC_PATH + self.BASIC_PATH_2 + [("2_y", "3_c")])
 
     def test_no_start_point(self):
         edges = set(self.BASIC_PATH + self.BASIC_PATH_2 + [("2_w", "3_z"), ("3_x", "4_d")])
@@ -2826,4 +2832,4 @@ class TestClickhousePathsEdgeValidation(TestCase):
 
         results = PathsQueryRunner(query={"pathsFilter": {}}, team=MagicMock()).validate_results(edges)
 
-        assert sorted(results) == sorted(self.BASIC_PATH_2)
+        self.assertCountEqual(results, self.BASIC_PATH_2)

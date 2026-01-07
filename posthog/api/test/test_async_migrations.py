@@ -60,7 +60,7 @@ class TestAsyncMigration(APIBaseTest):
         sm1.refresh_from_db()
 
         mock_run_async_migration.assert_called_once()
-        assert response["success"]
+        assert response["success"] == True
         assert sm1.status == MigrationStatus.Starting
         assert sm1.parameters == {"SOME_KEY": 1234}
 
@@ -71,7 +71,7 @@ class TestAsyncMigration(APIBaseTest):
 
         response = self.client.post(f"/api/async_migrations/{sm1.id}/trigger").json()
         mock_run_async_migration.assert_not_called()
-        assert not response["success"]
+        assert response["success"] == False
         assert response["error"] == "No more than 1 async migration can run at once."
 
     @patch("posthog.celery.app.control.revoke")
@@ -82,7 +82,7 @@ class TestAsyncMigration(APIBaseTest):
         sm1.refresh_from_db()
 
         mock_run_async_migration.assert_called_once()
-        assert response["success"]
+        assert response["success"] == True
         assert sm1.status == MigrationStatus.Errored
         errors = AsyncMigrationError.objects.filter(async_migration=sm1)
         assert errors.count() == 1
@@ -96,7 +96,7 @@ class TestAsyncMigration(APIBaseTest):
         sm1.refresh_from_db()
 
         mock_run_async_migration.assert_not_called()
-        assert not response["success"]
+        assert response["success"] == False
         assert response["error"] == "Can't stop a migration that isn't running."
 
         # didn't change
@@ -110,12 +110,12 @@ class TestAsyncMigration(APIBaseTest):
         response = self.client.post(f"/api/async_migrations/{sm1.id}/force_rollback").json()
 
         mock_get_migration_definition.assert_called_once()
-        assert response["success"]
+        assert response["success"] == True
 
     def test_force_rollback_endpoint_migration_not_complete(self):
         sm1 = create_async_migration(status=MigrationStatus.Running)
 
         response = self.client.post(f"/api/async_migrations/{sm1.id}/force_rollback").json()
 
-        assert not response["success"]
+        assert response["success"] == False
         assert response["error"] == "Can't force rollback a migration that did not complete successfully."

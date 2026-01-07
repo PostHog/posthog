@@ -52,7 +52,10 @@ class TestFileSystemViewLog(TestCase):
             team=self.team, user=self.user, type="dashboard", ref=str(dashboard.id)
         )
         assert dashboard_logs.count() == 1
-        assert dashboard_logs.first().viewed_at if dashboard_logs.first() else None is datetime(2024, 1, 3, 10, 0, 0, tzinfo=UTC)
+        self.assertEqual(
+            dashboard_logs.first().viewed_at if dashboard_logs.first() else None,  # type: ignore
+            datetime(2024, 1, 3, 10, 0, 0, tzinfo=UTC),
+        )
 
         insight_logs = FileSystemViewLog.objects.filter(
             team=self.team, user=self.user, type="insight", ref=insight.short_id
@@ -87,4 +90,7 @@ class TestFileSystemViewLog(TestCase):
 
         logs = FileSystemViewLog.objects.filter(team=self.team, user=self.user, type="insight", ref=insight.short_id)
         assert logs.count() == 1
-        assert logs.first().viewed_at if logs.first() else None is datetime(2024, 2, 1, 10, 0, 10, tzinfo=UTC)
+        self.assertEqual(
+            logs.first().viewed_at if logs.first() else None,  # type: ignore
+            datetime(2024, 2, 1, 10, 0, 10, tzinfo=UTC),
+        )

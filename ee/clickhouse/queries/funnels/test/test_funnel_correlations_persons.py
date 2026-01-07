@@ -126,7 +126,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         )
         _, serialized_actors, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
-        assert sorted([str(val["id"]) for val in serialized_actors]) == sorted(success_target_persons)
+        self.assertCountEqual([str(val["id"]) for val in serialized_actors], success_target_persons)
 
         # test negatively_related failures
         filter = filter.shallow_clone(
@@ -141,7 +141,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
 
         _, serialized_actors, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
-        assert sorted([str(val["id"]) for val in serialized_actors]) == sorted(failure_target_persons)
+        self.assertCountEqual([str(val["id"]) for val in serialized_actors], failure_target_persons)
 
         # test positively_related failures
         filter = filter.shallow_clone(
@@ -155,7 +155,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         )
         _, serialized_actors, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
-        assert sorted([str(val["id"]) for val in serialized_actors]) == sorted([str(person_fail.uuid)])
+        self.assertCountEqual([str(val["id"]) for val in serialized_actors], [str(person_fail.uuid)])
 
         # test negatively_related successes
         filter = filter.shallow_clone(
@@ -169,7 +169,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         )
         _, serialized_actors, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
-        assert sorted([str(val["id"]) for val in serialized_actors]) == sorted([str(person_succ.uuid)])
+        self.assertCountEqual([str(val["id"]) for val in serialized_actors], [str(person_succ.uuid)])
 
         # test all positively_related
         filter = filter.shallow_clone(
@@ -183,7 +183,10 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         )
         _, serialized_actors, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
-        assert sorted([str(val["id"]) for val in serialized_actors]) == sorted([*success_target_persons, str(person_fail.uuid)])
+        self.assertCountEqual(
+            [str(val["id"]) for val in serialized_actors],
+            [*success_target_persons, str(person_fail.uuid)],
+        )
 
         # test all negatively_related
         filter = filter.shallow_clone(
@@ -197,7 +200,10 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         )
         _, serialized_actors, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
-        assert sorted([str(val["id"]) for val in serialized_actors]) == sorted([*failure_target_persons, str(person_succ.uuid)])
+        self.assertCountEqual(
+            [str(val["id"]) for val in serialized_actors],
+            [*failure_target_persons, str(person_succ.uuid)],
+        )
 
     @patch("posthog.tasks.calculate_cohort.insert_cohort_from_insight_filter.delay")
     def test_create_funnel_correlation_cohort(self, _insert_cohort_from_insight_filter):
@@ -293,7 +299,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         )
         _, serialized_actors, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
-        assert sorted([str(val["id"]) for val in serialized_actors]) == sorted([str(people["user_1"].uuid)])
+        self.assertCountEqual([str(val["id"]) for val in serialized_actors], [str(people["user_1"].uuid)])
 
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-02 00:00:00.000Z")

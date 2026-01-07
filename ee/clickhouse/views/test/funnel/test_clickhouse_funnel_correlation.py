@@ -466,9 +466,11 @@ class FunnelCorrelationTest(BaseTest):
         expected_odds_ratios = [121, 1 / 121]
 
         for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
-            assert odds == pytest.approx(expected_odds)
+            self.assertAlmostEqual(odds, expected_odds)
 
-        assert result == [
+        self.assertEqual(
+            result,
+            [
                 {
                     "event": {
                         "event": "$browser::Positive",
@@ -495,7 +497,8 @@ class FunnelCorrelationTest(BaseTest):
                     # "odds_ratio": 1 / 121,
                     "correlation_type": "failure",
                 },
-            ]
+            ],
+        )
 
     def test_properties_correlation_endpoint_provides_people_drill_down_urls(self):
         """

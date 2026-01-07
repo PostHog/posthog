@@ -96,11 +96,11 @@ class TestExperimentHoldoutCRUD(APILicensedTest):
 
         # make sure flag for experiment in question was updated as well
         created_ff = FeatureFlag.objects.get(key=ff_key)
-        assert created_ff.filters["holdout_groups"] is None
+        assert created_ff.filters["holdout_groups"] == None
 
         # and same for experiment
         exp = Experiment.objects.get(pk=exp_id)
-        assert exp.holdout is None
+        assert exp.holdout == None
 
     def test_invalid_create(self):
         response = self.client.post(

@@ -415,38 +415,6 @@ jobs:
                   # Same as above, except now for CH looking at files that were added in posthog/clickhouse/migrations/
                   git diff --name-status origin/master..HEAD | grep "A\sposthog/clickhouse/migrations/" | grep -v README | awk '{print $2}' | python manage.py test_ch_migrations_are_safe
 
-            - name: Install pnpm
-              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
-
-            - name: Set up Node.js
-              uses: actions/setup-node@v4
-              with:
-                  node-version: 22.17.1
-                  cache: pnpm
-
-            - name: Install package.json dependencies with pnpm
-              run: pnpm install --frozen-lockfile
-
-            - name: Check if OpenAPI types are up to date
-              run: |
-                  ./bin/hogli build:openapi
-                  if ! git diff --exit-code; then
-                      echo ""
-                      echo "::error::OpenAPI types are out of date!"
-                      echo ""
-                      echo "The TypeScript API types in products/*/frontend/generated/ are auto-generated"
-                      echo "from Django serializers and views. When you modify the backend API, you need"
-                      echo "to regenerate these types."
-                      echo ""
-                      echo "To fix, run locally:  hogli build:openapi"
-                      echo "Then commit the updated generated files."
-                      echo ""
-                      echo "More info: https://posthog.com/handbook/engineering/type-system"
-                      echo ""
-                      echo "Questions? #team-devex on Slack"
-                      exit 1
-                  fi
-
     django:
         needs: [changes, detect-snapshot-mode]
         if: needs.changes.outputs.backend == 'true'

@@ -8,14 +8,13 @@ import { OnboardingStepKey } from '~/types'
 
 import { EditKeyModal } from '../../settings/user/PersonalAPIKeys'
 import { OnboardingStep } from '../OnboardingStep'
-import { OnboardingStepComponentType } from '../onboardingLogic'
 import { SourceMapsInstructionsModal } from './OnboardingErrorTrackingSourceMapsModal'
 import { SourceMapOptionCard } from './source-maps/SourceMapOptionCard'
 import { SourceMapStatus } from './source-maps/SourceMapStatus'
 import { automatedSourceMapsTechnologies } from './source-maps/SourceMapsSDKInstructionsMap'
 import { sourceMapsStepLogic } from './source-maps/sourceMapsStepLogic'
 
-export const OnboardingErrorTrackingSourceMapsStep: OnboardingStepComponentType = () => {
+export function OnboardingErrorTrackingSourceMapsStep({ stepKey }: { stepKey: OnboardingStepKey }): JSX.Element {
     const { selectedOption, instructionsModalOpen, shouldShowContinue, shouldShowSourceMapStatus } =
         useValues(sourceMapsStepLogic)
     const { setSelectedOption, setInstructionsModalOpen } = useActions(sourceMapsStepLogic)
@@ -27,7 +26,7 @@ export const OnboardingErrorTrackingSourceMapsStep: OnboardingStepComponentType 
     return (
         <OnboardingStep
             title="Link source maps"
-            stepKey={OnboardingStepKey.SOURCE_MAPS}
+            stepKey={stepKey}
             showContinue={shouldShowContinue}
             showSkip={!shouldShowContinue}
         >
@@ -133,5 +132,3 @@ export const OnboardingErrorTrackingSourceMapsStep: OnboardingStepComponentType 
         </OnboardingStep>
     )
 }
-
-OnboardingErrorTrackingSourceMapsStep.stepKey = OnboardingStepKey.SOURCE_MAPS

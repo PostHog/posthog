@@ -79,7 +79,7 @@ class TestExternalDataSchemaActivityLogging(ActivityLogTestHelper):
         deleted_change = next((change for change in detail_changes if change.get("field") == "deleted"), None)
         assert deleted_change is not None
         assert deleted_change is not None
-        assert deleted_change["after"]
+        assert deleted_change["after"] == True
 
     def test_external_data_schema_relationship_logging(self):
         external_data_source = self.create_external_data_source()

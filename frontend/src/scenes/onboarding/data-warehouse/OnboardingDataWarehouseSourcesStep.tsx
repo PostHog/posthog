@@ -6,16 +6,20 @@ import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSo
 import { OnboardingStepKey } from '~/types'
 
 import { OnboardingStep } from '../OnboardingStep'
-import { OnboardingStepComponentType, onboardingLogic } from '../onboardingLogic'
+import { onboardingLogic } from '../onboardingLogic'
 
-export const OnboardingDataWarehouseSourcesStep: OnboardingStepComponentType = () => {
+export function OnboardingDataWarehouseSourcesStep({
+    stepKey = OnboardingStepKey.INSTALL,
+}: {
+    stepKey?: OnboardingStepKey
+}): JSX.Element {
     const { goToNextStep } = useActions(onboardingLogic)
     const { availableSourcesLoading } = useValues(availableSourcesDataLogic)
 
     return (
         <OnboardingStep
             title="Connect your data for better insights"
-            stepKey={OnboardingStepKey.LINK_DATA}
+            stepKey={stepKey}
             showContinue={false}
             showSkip={!availableSourcesLoading}
             subtitle="Link sources like Stripe and Hubspot so you can query them alongside product data to find correlations."
@@ -29,5 +33,3 @@ export const OnboardingDataWarehouseSourcesStep: OnboardingStepComponentType = (
         </OnboardingStep>
     )
 }
-
-OnboardingDataWarehouseSourcesStep.stepKey = OnboardingStepKey.LINK_DATA

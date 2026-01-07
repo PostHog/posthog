@@ -81,16 +81,16 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
 
     def test_metadata_table(self):
         metadata = self._expr("timestamp", "events")
-        assert metadata.isValid
+        assert metadata.isValid == True
 
         metadata = self._expr("timestamp", "persons")
-        assert not metadata.isValid
+        assert metadata.isValid == False
 
         metadata = self._expr("is_identified", "events")
-        assert not metadata.isValid
+        assert metadata.isValid == False
 
         metadata = self._expr("is_identified", "persons")
-        assert metadata.isValid
+        assert metadata.isValid == True
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_metadata_in_cohort(self):
@@ -208,7 +208,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         metadata = self._select(
             "SELECT events.event, persons.properties.name FROM events JOIN persons ON events.person_id = persons.id"
         )
-        assert metadata.isValid
+        assert metadata.isValid == True
         assert sorted(metadata.table_names or []) == sorted(["events", "persons"])
 
     def test_table_collector_with_cte(self):
@@ -228,12 +228,12 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 SELECT id FROM persons
             )
         """)
-        assert metadata.isValid
+        assert metadata.isValid == True
         assert sorted(metadata.table_names or []) == sorted(["events", "persons"])
 
     def test_table_in_filter(self):
         metadata = self._select("SELECT * FROM events WHERE events.person_id IN (SELECT id FROM persons)")
-        assert metadata.isValid
+        assert metadata.isValid == True
         assert sorted(metadata.table_names or []) == sorted(["events", "persons"])
 
     def test_table_collector_complex_query(self):
@@ -250,7 +250,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             LEFT JOIN user_counts uc ON p.id = uc.person_id
             LEFT JOIN cohort_people c ON p.id = c.person_id
         """)
-        assert metadata.isValid
+        assert metadata.isValid == True
         assert sorted(metadata.table_names or []) == sorted(["events", "persons", "cohort_people"])
 
     def test_experimental_join_condition(self):
@@ -263,7 +263,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         ON t1.a = t2.key
         WHERE t1.b > 0 AND t2.c < t2.d
         """)
-        assert metadata.isValid
+        assert metadata.isValid == True
         assert sorted(metadata.table_names or []) == sorted(["numbers"])
 
     def test_table_collector_lazy_join(self):
@@ -273,7 +273,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         """,
             modifiers=HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V3),
         )
-        assert metadata.isValid
+        assert metadata.isValid == True
         assert sorted(metadata.table_names or []) == sorted(["events"])
         assert sorted(metadata.ch_table_names or []) == sorted(["events", "raw_sessions_v3"])
 
@@ -288,7 +288,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         )
 
         metadata = self._select("SELECT metadata, metadata.name AS name FROM stripe.prefix.customer_revenue_view")
-        assert metadata.isValid
+        assert metadata.isValid == True
         assert sorted(metadata.table_names or []) == sorted(["stripe.prefix.customer_revenue_view"])
 
         # Doesn't include `name` because it's a property access and not a field

@@ -38,7 +38,7 @@ class TestModelCache(TestCase):
 
         cached_team = get_team_in_cache(api_token)
         assert cached_team is not None
-        assert not cached_team.session_recording_opt_in
+        assert cached_team.session_recording_opt_in == False
         assert cached_team.api_token == api_token
         assert cached_team.uuid == str(team.uuid)
         assert cached_team.id == team.id
@@ -50,7 +50,7 @@ class TestModelCache(TestCase):
 
         cached_team = get_team_in_cache(api_token)
         assert cached_team is not None
-        assert cached_team.session_recording_opt_in
+        assert cached_team.session_recording_opt_in == True
         assert cached_team.api_token == api_token
         assert cached_team.uuid == str(team.uuid)
         assert cached_team.id == team.id
@@ -66,10 +66,10 @@ class TestTeam(BaseTest):
         team: Team = Team.objects.create(name="New Team", organization=self.organization)
         assert team.timezone == "UTC"
         assert team.data_attributes == ["data-attr"]
-        assert team.autocapture_exceptions_opt_in is None
-        assert team.autocapture_web_vitals_opt_in is None
-        assert team.autocapture_web_vitals_allowed_metrics is None
-        assert team.autocapture_exceptions_errors_to_ignore is None
+        assert team.autocapture_exceptions_opt_in == None
+        assert team.autocapture_web_vitals_opt_in == None
+        assert team.autocapture_web_vitals_allowed_metrics == None
+        assert team.autocapture_exceptions_errors_to_ignore == None
 
     def test_create_team_with_test_account_filters(self):
         team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)

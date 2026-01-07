@@ -7,9 +7,9 @@ import { FilmCameraHog } from 'lib/components/hedgehogs'
 import { OnboardingStepKey } from '~/types'
 
 import { OnboardingStep } from './OnboardingStep'
-import { OnboardingStepComponentType, onboardingLogic } from './onboardingLogic'
+import { onboardingLogic } from './onboardingLogic'
 
-export const OnboardingSessionReplayConfiguration: OnboardingStepComponentType = () => {
+export function OnboardingSessionReplayConfiguration({ stepKey }: { stepKey: OnboardingStepKey }): JSX.Element {
     const { goToNextStep, updateCurrentTeam } = useActions(onboardingLogic)
 
     const handleNext = (enabled: boolean): void => {
@@ -18,7 +18,7 @@ export const OnboardingSessionReplayConfiguration: OnboardingStepComponentType =
     }
 
     return (
-        <OnboardingStep title="Record user sessions" stepKey={OnboardingStepKey.SESSION_REPLAY} showContinue={false}>
+        <OnboardingStep title="Record user sessions" stepKey={stepKey} showContinue={false}>
             <div className="mb-4">
                 <p className="text-secondary">
                     Session Replay records user sessions to help you understand their actions and uncover opportunities
@@ -58,5 +58,3 @@ export const OnboardingSessionReplayConfiguration: OnboardingStepComponentType =
         </OnboardingStep>
     )
 }
-
-OnboardingSessionReplayConfiguration.stepKey = OnboardingStepKey.SESSION_REPLAY

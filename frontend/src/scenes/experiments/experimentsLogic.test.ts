@@ -185,23 +185,23 @@ describe('experimentsLogic', () => {
         })
 
         it('removes ff_page URL parameter when page is reset to 1 via filters', () => {
-            // Mock router to capture URL changes (uses replace, not push, to avoid polluting browser history)
-            const mockReplace = jest.fn()
-            router.actions.replace = mockReplace
+            // Mock router to capture URL changes
+            const mockPush = jest.fn()
+            router.actions.push = mockPush
 
             // User navigates to page 2 first
             logic.actions.setFeatureFlagModalFilters({ page: 2 })
 
             // This should add ff_page=2 to URL
-            expect(mockReplace).toHaveBeenLastCalledWith(expect.stringContaining('ff_page=2'))
+            expect(mockPush).toHaveBeenLastCalledWith(expect.stringContaining('ff_page=2'))
 
-            mockReplace.mockClear()
+            mockPush.mockClear()
 
             // User applies a search filter which includes page: 1
             logic.actions.setFeatureFlagModalFilters({ search: 'test', page: 1 })
 
             // This should remove ff_page from URL (since page is 1)
-            expect(mockReplace).toHaveBeenLastCalledWith(expect.not.stringContaining('ff_page'))
+            expect(mockPush).toHaveBeenLastCalledWith(expect.not.stringContaining('ff_page'))
         })
 
         it('constructs API params correctly', async () => {

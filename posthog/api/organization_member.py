@@ -4,7 +4,6 @@ from django.db.models import F, Model, Prefetch, QuerySet
 from django.shortcuts import get_object_or_404
 
 from django_otp.plugins.otp_totp.models import TOTPDevice
-from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, mixins, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import SAFE_METHODS, BasePermission
@@ -90,7 +89,6 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
         return updated_membership
 
 
-@extend_schema(tags=["core"])
 class OrganizationMemberViewSet(
     TeamAndOrgViewSetMixin,
     mixins.DestroyModelMixin,

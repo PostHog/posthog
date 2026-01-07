@@ -12,7 +12,6 @@ import {
     IconHogQL,
     IconLifecycle,
     IconPeople,
-    IconPython,
     IconRetention,
     IconRewindPlay,
     IconSquareRoot,
@@ -25,10 +24,8 @@ import { IconCode } from '@posthog/icons'
 import { LemonButton, LemonDivider, lemonToast } from '@posthog/lemon-ui'
 
 import { EditorCommands, EditorRange } from 'lib/components/RichContentEditor/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { IconBold, IconItalic } from 'lib/lemon-ui/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { selectFiles } from 'lib/utils/file-utils'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
@@ -75,7 +72,6 @@ type SlashCommandsItem = {
     search?: string
     icon?: JSX.Element
     command: (chain: EditorCommands, pos: number | EditorRange) => EditorCommands | Promise<EditorCommands>
-    featureFlag?: string
 }
 
 const TEXT_CONTROLS: SlashCommandsItem[] = [
@@ -275,13 +271,6 @@ order by count() desc
             ),
     },
     {
-        title: 'Python',
-        search: 'python',
-        icon: <IconPython color="currentColor" />,
-        command: (chain, pos) => chain.insertContentAt(pos, { type: NotebookNodeType.Python, attrs: { code: '' } }),
-        featureFlag: FEATURE_FLAGS.NOTEBOOK_PYTHON,
-    },
-    {
         title: 'Events',
         search: 'data explore',
         icon: <IconCursor />,
@@ -376,16 +365,11 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
     ref
 ): JSX.Element | null {
     const { editor } = useValues(notebookLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     // We start with 1 because the first item is the text controls
     const [selectedIndex, setSelectedIndex] = useState(0)
     const [selectedHorizontalIndex, setSelectedHorizontalIndex] = useState(0)
 
-    const availableSlashCommands = useMemo(
-        () => SLASH_COMMANDS.filter((item) => !item.featureFlag || featureFlags[item.featureFlag]),
-        [featureFlags]
-    )
-    const allCommmands = [...TEXT_CONTROLS, ...availableSlashCommands]
+    const allCommmands = [...TEXT_CONTROLS, ...SLASH_COMMANDS]
 
     const fuse = useMemo(() => {
         return new Fuse(allCommmands, {
@@ -404,8 +388,8 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
     }, [query, fuse])
 
     const filteredSlashCommands = useMemo(
-        () => filteredCommands.filter((item) => availableSlashCommands.includes(item)),
-        [filteredCommands, availableSlashCommands]
+        () => filteredCommands.filter((item) => SLASH_COMMANDS.includes(item)),
+        [filteredCommands]
     )
 
     useEffect(() => {
@@ -443,7 +427,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
         setSelectedIndex(Math.max(selectedIndex - 1, -1))
     }
     const onPressDown = (): void => {
-        setSelectedIndex(Math.min(selectedIndex + 1, availableSlashCommands.length - 1))
+        setSelectedIndex(Math.min(selectedIndex + 1, SLASH_COMMANDS.length - 1))
     }
 
     const onPressLeft = (): void => {

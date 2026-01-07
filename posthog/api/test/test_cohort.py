@@ -2570,7 +2570,7 @@ email@example.org,
 
         new_cohort_id = response.json()["id"]
         new_cohort = Cohort.objects.get(pk=new_cohort_id)
-        assert new_cohort.is_static
+        assert new_cohort.is_static == True
 
         while new_cohort.is_calculating:
             new_cohort.refresh_from_db()
@@ -2578,7 +2578,7 @@ email@example.org,
 
             time.sleep(0.1)
         assert new_cohort.name == "cohort A (static copy)"
-        assert not new_cohort.is_calculating
+        assert new_cohort.is_calculating == False
         assert new_cohort.errors_calculating == 0
         assert new_cohort.count == 2
 
@@ -2609,7 +2609,7 @@ email@example.org,
 
         # Verify the duplicated cohort
         assert new_cohort.name == "static cohort A (static copy)"
-        assert new_cohort.is_static
+        assert new_cohort.is_static == True
         new_cohort.refresh_from_db()
         assert new_cohort.count == 2
 
@@ -2772,7 +2772,7 @@ email@example.org,
 
         new_cohort_id = response.json()["id"]
         new_cohort = Cohort.objects.get(pk=new_cohort_id)
-        assert not new_cohort.is_static
+        assert new_cohort.is_static == False
         assert new_cohort.name == "cohort A (dynamic copy)"
 
     def test_deletion_of_cohort_cancels_async_deletion(self):
@@ -2918,7 +2918,7 @@ email@example.org,
             },
         )
         assert response.status_code == 201
-        assert response.json()["id"] is not None
+        assert response.json()["id"] != None
 
     @patch("posthog.api.cohort.report_user_action")
     def test_cohort_property_validation_cohort_filter(self, patch_capture):

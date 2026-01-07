@@ -26,7 +26,7 @@ class TestCohort(BaseTest):
         cohort.insert_users_by_list(["a header or something", "123", "000", "email@example.org"])
         cohort.refresh_from_db()
         assert cohort.people.count() == 2
-        assert not cohort.is_calculating
+        assert cohort.is_calculating == False
 
         #  If we accidentally call calculate_people it shouldn't erase people
         cohort.calculate_people_ch(pending_version=0)
@@ -36,7 +36,7 @@ class TestCohort(BaseTest):
         cohort.insert_users_by_list(["123"])
         cohort.refresh_from_db()
         assert cohort.people.count() == 2
-        assert not cohort.is_calculating
+        assert cohort.is_calculating == False
 
     def test_insert_by_distinct_id_in_batches(self):
         Person.objects.create(team=self.team, distinct_ids=["000"])
@@ -58,7 +58,7 @@ class TestCohort(BaseTest):
         assert batch_count == 5
         cohort.refresh_from_db()
         assert cohort.people.count() == 11
-        assert not cohort.is_calculating
+        assert cohort.is_calculating == False
 
     @pytest.mark.ee
     def test_calculating_cohort_clickhouse(self):
@@ -91,7 +91,7 @@ class TestCohort(BaseTest):
                 },
             )
         ]
-        assert sorted(uuids) == sorted([person1.uuid, person3.uuid])
+        self.assertCountEqual(uuids, [person1.uuid, person3.uuid])
 
     def test_empty_query(self):
         cohort2 = Cohort.objects.create(
@@ -307,7 +307,7 @@ class TestCohort(BaseTest):
             )
         ]
 
-        assert sorted(uuids) == sorted([p.uuid for p in expected_people])
+        self.assertCountEqual(uuids, [p.uuid for p in expected_people])
 
     def test_get_static_cohort_size(self):
         """Test that get_static_cohort_size works with db_constraint=False on the person foreign key."""

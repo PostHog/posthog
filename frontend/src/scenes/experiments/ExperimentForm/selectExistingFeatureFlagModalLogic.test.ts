@@ -2,12 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import {
-    AccessControlLevel,
-    FeatureFlagBucketingIdentifier,
-    FeatureFlagEvaluationRuntime,
-    FeatureFlagType,
-} from '~/types'
+import { AccessControlLevel, FeatureFlagEvaluationRuntime, FeatureFlagType } from '~/types'
 
 import { FeatureFlagModalFilters, selectExistingFeatureFlagModalLogic } from './selectExistingFeatureFlagModalLogic'
 
@@ -50,7 +45,6 @@ describe('selectExistingFeatureFlagModalLogic', () => {
             last_modified_by: null,
             evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
             evaluation_tags: [],
-            bucketing_identifier: FeatureFlagBucketingIdentifier.DISTINCT_ID,
         },
         {
             id: 2,
@@ -88,7 +82,6 @@ describe('selectExistingFeatureFlagModalLogic', () => {
             last_modified_by: null,
             evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
             evaluation_tags: [],
-            bucketing_identifier: FeatureFlagBucketingIdentifier.DISTINCT_ID,
         },
     ]
 

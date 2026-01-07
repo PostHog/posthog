@@ -150,7 +150,7 @@ class TestExperimentCRUD(APILicensedTest):
 
         # Check that the feature flag was created with ensure_experience_continuity
         created_ff = FeatureFlag.objects.get(key=ff_key)
-        assert created_ff.ensure_experience_continuity
+        assert created_ff.ensure_experience_continuity == True
 
         # Test with ensure_experience_continuity set to False
         ff_key_false = "test-no-continuity-flag"
@@ -172,7 +172,7 @@ class TestExperimentCRUD(APILicensedTest):
 
         assert response.status_code == status.HTTP_201_CREATED
         created_ff_false = FeatureFlag.objects.get(key=ff_key_false)
-        assert not created_ff_false.ensure_experience_continuity
+        assert created_ff_false.ensure_experience_continuity == False
 
         # Test without specifying ensure_experience_continuity (should default to False)
         ff_key_default = "test-default-continuity-flag"
@@ -194,7 +194,7 @@ class TestExperimentCRUD(APILicensedTest):
 
         assert response.status_code == status.HTTP_201_CREATED
         created_ff_default = FeatureFlag.objects.get(key=ff_key_default)
-        assert not created_ff_default.ensure_experience_continuity
+        assert created_ff_default.ensure_experience_continuity == False
 
     def test_creating_updating_web_experiment(self):
         ff_key = "a-b-tests"
@@ -372,10 +372,10 @@ class TestExperimentCRUD(APILicensedTest):
         assert response.status_code == status.HTTP_200_OK
 
         experiment = Experiment.objects.get(pk=exp_id)
-        assert experiment.holdout_id is None
+        assert experiment.holdout_id == None
 
         created_ff = FeatureFlag.objects.get(key=ff_key)
-        assert created_ff.filters["holdout_groups"] is None
+        assert created_ff.filters["holdout_groups"] == None
 
         # try adding invalid holdout
         response = self.client.patch(
@@ -1166,7 +1166,7 @@ class TestExperimentCRUD(APILicensedTest):
         created_ff = FeatureFlag.objects.get(key=ff_key)
 
         assert created_ff.key == ff_key
-        assert not created_ff.active
+        assert created_ff.active == False
         assert created_ff.filters["multivariate"]["variants"][0]["key"] == "control"
         assert created_ff.filters["multivariate"]["variants"][1]["key"] == "test_1"
         assert created_ff.filters["multivariate"]["variants"][2]["key"] == "test_2"
@@ -1211,7 +1211,7 @@ class TestExperimentCRUD(APILicensedTest):
         created_ff = FeatureFlag.objects.get(key=ff_key)
 
         assert created_ff.key == ff_key
-        assert not created_ff.active
+        assert created_ff.active == False
         assert created_ff.filters["multivariate"]["variants"][0]["key"] == "control"
         assert created_ff.filters["multivariate"]["variants"][3]["key"] == "test_3"
 
@@ -1261,7 +1261,7 @@ class TestExperimentCRUD(APILicensedTest):
         created_ff = FeatureFlag.objects.get(key=ff_key)
 
         assert created_ff.key == ff_key
-        assert created_ff.active
+        assert created_ff.active == True
         assert created_ff.filters["multivariate"]["variants"][0]["key"] == "control"
         assert created_ff.filters["multivariate"]["variants"][1]["key"] == "test_1"
         assert created_ff.filters["multivariate"]["variants"][2]["key"] == "test_2"
@@ -1331,7 +1331,7 @@ class TestExperimentCRUD(APILicensedTest):
         created_ff = FeatureFlag.objects.get(key=ff_key)
 
         assert created_ff.key == ff_key
-        assert created_ff.active
+        assert created_ff.active == True
         assert created_ff.filters["multivariate"]["variants"][0]["key"] == "control"
         assert created_ff.filters["multivariate"]["variants"][0]["rollout_percentage"] == 35
         assert created_ff.filters["multivariate"]["variants"][1]["key"] == "test_1"
@@ -1644,7 +1644,10 @@ class TestExperimentCRUD(APILicensedTest):
 
             assert result["count"] == 2
 
-            assert sorted([(res["key"], res["experiment_set"]) for res in result["results"]]) == sorted([("flag_0", []), (ff_key, [created_experiment])])
+            self.assertCountEqual(
+                [(res["key"], res["experiment_set"]) for res in result["results"]],
+                [("flag_0", []), (ff_key, [created_experiment])],
+            )
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_create_experiment_updates_feature_flag_cache(self, mock_on_commit):
@@ -2082,7 +2085,7 @@ class TestExperimentCRUD(APILicensedTest):
         assert response.status_code == status.HTTP_200_OK
 
         experiment = Experiment.objects.get(id=experiment.id)
-        assert experiment.exposure_criteria["filterTestAccounts"]
+        assert experiment.exposure_criteria["filterTestAccounts"] == True
         assert experiment.exposure_criteria["exposure_config"]["event"] == "$pageview"
         assert experiment.exposure_criteria["exposure_config"]["properties"] == [{"key": "plan", "operator": "is_not", "value": "free", "type": "event"}]
 
@@ -2153,7 +2156,7 @@ class TestExperimentCRUD(APILicensedTest):
         assert response.status_code == status.HTTP_200_OK
         experiment = Experiment.objects.get(id=experiment.id)
         assert experiment.exposure_criteria is not None
-        assert not experiment.exposure_criteria["filterTestAccounts"]
+        assert experiment.exposure_criteria["filterTestAccounts"] == False
         assert experiment.exposure_criteria["exposure_config"]["kind"] == "ActionsNode"
         assert experiment.exposure_criteria["exposure_config"]["id"] == action.id
 

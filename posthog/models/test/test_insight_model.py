@@ -1,4 +1,3 @@
-import re
 from posthog.test.base import BaseTest
 
 from django.db.utils import IntegrityError

@@ -255,8 +255,8 @@ class TestBatchImportAPI(APIBaseTest):
         batch_import = BatchImport.objects.get(id=response.json()["id"])
         assert "import_events" in batch_import.import_config
         assert "generate_identify_events" in batch_import.import_config
-        assert batch_import.import_config["import_events"]
-        assert not batch_import.import_config["generate_identify_events"]
+        assert batch_import.import_config["import_events"] == True
+        assert batch_import.import_config["generate_identify_events"] == False
 
     def test_amplitude_migration_with_group_identify_events(self):
         """Test that Amplitude migrations can include generate_group_identify_events in config"""
@@ -282,9 +282,9 @@ class TestBatchImportAPI(APIBaseTest):
         assert "import_events" in batch_import.import_config
         assert "generate_identify_events" in batch_import.import_config
         assert "generate_group_identify_events" in batch_import.import_config
-        assert batch_import.import_config["import_events"]
-        assert batch_import.import_config["generate_identify_events"]
-        assert batch_import.import_config["generate_group_identify_events"]
+        assert batch_import.import_config["import_events"] == True
+        assert batch_import.import_config["generate_identify_events"] == True
+        assert batch_import.import_config["generate_group_identify_events"] == True
 
     def test_amplitude_migration_group_identify_events_defaults_to_false(self):
         """Test that generate_group_identify_events defaults to False when not specified"""
@@ -308,7 +308,7 @@ class TestBatchImportAPI(APIBaseTest):
         # Get the created batch import and check its config
         batch_import = BatchImport.objects.get(id=response.json()["id"])
         assert "generate_group_identify_events" in batch_import.import_config
-        assert not batch_import.import_config["generate_group_identify_events"]
+        assert batch_import.import_config["generate_group_identify_events"] == False
 
     def test_can_create_import_when_no_running_imports(self):
         """Test that creating a new batch import succeeds when there are no running imports"""

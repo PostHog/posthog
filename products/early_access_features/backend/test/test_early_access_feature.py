@@ -730,7 +730,9 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
             assert response.status_code == 200
             assert response.get("access-control-allow-origin") == "http://127.0.0.1:8000"
 
-            assert response.json()["earlyAccessFeatures"] == [
+            self.assertListEqual(
+                response.json()["earlyAccessFeatures"],
+                [
                     {
                         "id": str(feature.id),
                         "name": "Sprocket",
@@ -740,7 +742,8 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
                         "payload": {},
                         "flagKey": "sprocket",
                     }
-                ]
+                ],
+            )
 
     @snapshot_postgres_queries
     def test_early_access_features_with_pre_env_cached_team(self):
@@ -785,7 +788,9 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
             assert response.status_code == 200
             assert response.get("access-control-allow-origin") == "http://127.0.0.1:8000"
 
-            assert response.json()["earlyAccessFeatures"] == [
+            self.assertListEqual(
+                response.json()["earlyAccessFeatures"],
+                [
                     {
                         "id": str(feature.id),
                         "name": "Sprocket",
@@ -795,7 +800,8 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
                         "payload": {},
                         "flagKey": "sprocket",
                     }
-                ]
+                ],
+            )
 
     @snapshot_postgres_queries
     def test_early_access_features_with_cached_team(self):
@@ -829,7 +835,9 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
             assert response.status_code == 200
             assert response.get("access-control-allow-origin") == "http://127.0.0.1:8000"
 
-            assert response.json()["earlyAccessFeatures"] == [
+            self.assertListEqual(
+                response.json()["earlyAccessFeatures"],
+                [
                     {
                         "id": str(feature.id),
                         "name": "Sprocket",
@@ -839,7 +847,8 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
                         "payload": {},
                         "flagKey": "sprocket",
                     }
-                ]
+                ],
+            )
 
     def test_early_access_features_beta_only(self):
         Person.objects.create(
@@ -898,7 +907,9 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
             assert response.status_code == 200
             assert response.get("access-control-allow-origin") == "http://127.0.0.1:8000"
 
-            assert response.json()["earlyAccessFeatures"] == [
+            self.assertListEqual(
+                response.json()["earlyAccessFeatures"],
+                [
                     {
                         "id": str(feature.id),
                         "name": "Sprocket",
@@ -908,7 +919,8 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
                         "payload": {},
                         "flagKey": "sprocket",
                     }
-                ]
+                ],
+            )
 
     def test_early_access_features_errors_out_on_random_token(self):
         self.client.logout()
@@ -958,7 +970,9 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
             assert response.status_code == 200
             assert response.get("access-control-allow-origin") == "http://127.0.0.1:8000"
 
-            assert response.json()["earlyAccessFeatures"] == [
+            self.assertListEqual(
+                response.json()["earlyAccessFeatures"],
+                [
                     {
                         "id": str(feature.id),
                         "name": "Sprocket",
@@ -968,4 +982,5 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
                         "payload": payload,
                         "flagKey": "sprocket",
                     }
-                ]
+                ],
+            )

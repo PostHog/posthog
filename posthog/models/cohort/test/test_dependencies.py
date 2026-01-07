@@ -149,7 +149,7 @@ class TestCohortDependencies(BaseTest):
         # You must filter out deleted cohorts
         self._assert_depends_on(cohort_b, cohort_a)
 
-        assert cache.get(f"cohort:dependencies:{cohort_a.id}") is None
+        assert cache.get(f"cohort:dependencies:{cohort_a.id}") == None
         assert cache.get(f"cohort:dependents:{cohort_a.id}") == [cohort_b.id]
 
     def test_cohort_team_deleted(self) -> None:
@@ -165,10 +165,10 @@ class TestCohortDependencies(BaseTest):
 
         self.team.delete()
 
-        assert cache.get(f"cohort:dependencies:{cohort_a.id}") is None
-        assert cache.get(f"cohort:dependencies:{cohort_b.id}") is None
-        assert cache.get(f"cohort:dependents:{cohort_a.id}") is None
-        assert cache.get(f"cohort:dependents:{cohort_b.id}") is None
+        assert cache.get(f"cohort:dependencies:{cohort_a.id}") == None
+        assert cache.get(f"cohort:dependencies:{cohort_b.id}") == None
+        assert cache.get(f"cohort:dependents:{cohort_a.id}") == None
+        assert cache.get(f"cohort:dependents:{cohort_b.id}") == None
 
     def test_warm_team_cohort_dependency_cache(self) -> None:
         """
@@ -180,10 +180,10 @@ class TestCohortDependencies(BaseTest):
         )
 
         cache.clear()
-        assert cache.get(f"cohort:dependencies:{cohort_a.id}") is None
-        assert cache.get(f"cohort:dependencies:{cohort_b.id}") is None
-        assert cache.get(f"cohort:dependents:{cohort_a.id}") is None
-        assert cache.get(f"cohort:dependents:{cohort_b.id}") is None
+        assert cache.get(f"cohort:dependencies:{cohort_a.id}") == None
+        assert cache.get(f"cohort:dependencies:{cohort_b.id}") == None
+        assert cache.get(f"cohort:dependents:{cohort_a.id}") == None
+        assert cache.get(f"cohort:dependents:{cohort_b.id}") == None
 
         warm_team_cohort_dependency_cache(self.team.id)
 
@@ -212,8 +212,8 @@ class TestCohortDependencies(BaseTest):
         cache.clear()
 
         for cohort in cohorts:
-            assert cache.get(f"cohort:dependencies:{cohort.id}") is None
-            assert cache.get(f"cohort:dependents:{cohort.id}") is None
+            assert cache.get(f"cohort:dependencies:{cohort.id}") == None
+            assert cache.get(f"cohort:dependents:{cohort.id}") == None
 
         warm_team_cohort_dependency_cache(self.team.id, batch_size=batch_size)
 
@@ -267,10 +267,10 @@ class TestCohortDependencies(BaseTest):
         assert get_cohort_dependencies(cohort_b) == [cohort_a.id]
 
         # get_cohort_dependencies is cheap - it doesn't need to warm the entire cache
-        assert cache.get(f"cohort:dependencies:{cohort_a.id}") is None
+        assert cache.get(f"cohort:dependencies:{cohort_a.id}") == None
         assert cache.get(f"cohort:dependencies:{cohort_b.id}") == [cohort_a.id]
-        assert cache.get(f"cohort:dependents:{cohort_a.id}") is None
-        assert cache.get(f"cohort:dependents:{cohort_b.id}") is None
+        assert cache.get(f"cohort:dependents:{cohort_a.id}") == None
+        assert cache.get(f"cohort:dependents:{cohort_b.id}") == None
 
     def test_cache_miss_get_cohort_dependents(self) -> None:
         cohort_a = self._create_cohort(name="Test Cohort A")

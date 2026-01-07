@@ -30,7 +30,6 @@ from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils import relative_date_parse
 
 from products.notebooks.backend.models import Notebook
-from products.notebooks.backend.python_analysis import annotate_python_nodes
 
 logger = structlog.get_logger(__name__)
 
@@ -124,9 +123,6 @@ class NotebookSerializer(NotebookMinimalSerializer):
         team = self.context["get_team"]()
 
         created_by = validated_data.pop("created_by", request.user)
-        content = validated_data.get("content")
-        if isinstance(content, dict):
-            validated_data["content"] = annotate_python_nodes(content)
         notebook = Notebook.objects.create(
             team=team,
             created_by=created_by,
@@ -164,9 +160,6 @@ class NotebookSerializer(NotebookMinimalSerializer):
                         raise Conflict("Someone else edited the Notebook")
 
                     validated_data["version"] = locked_instance.version + 1
-                    content = validated_data.get("content")
-                    if isinstance(content, dict):
-                        validated_data["content"] = annotate_python_nodes(content)
 
                 updated_notebook = super().update(locked_instance, validated_data)
 

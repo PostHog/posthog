@@ -616,7 +616,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # response shape
         assert "Formula (A+2*B)" == response.results[0]["label"]
-        assert response.results[0]["compare"]
+        assert True == response.results[0]["compare"]
 
     def test_formula_with_compare_to_day(self):
         self._create_test_events()
@@ -645,7 +645,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # response shape
         assert "Formula (A+2*B)" == response.results[0]["label"]
-        assert response.results[0]["compare"]
+        assert True == response.results[0]["compare"]
 
     def test_formula_with_compare_to_week(self):
         self._create_test_events()
@@ -674,7 +674,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # response shape
         assert "Formula (A+2*B)" == response.results[0]["label"]
-        assert response.results[0]["compare"]
+        assert True == response.results[0]["compare"]
 
     def test_formula_with_compare_total_value(self):
         self._create_test_events()
@@ -705,7 +705,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # response shape
         assert "Formula (A+2*B)" == response.results[0]["label"]
         assert 0 == response.results[0]["count"]  # it has always been so :shrug:
-        assert None is response.results[0].get("data")
+        assert None == response.results[0].get("data")
 
     def test_formula_with_compare_to_total_value(self):
         self._create_test_events()
@@ -736,7 +736,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # response shape
         assert "Formula (A+2*B)" == response.results[0]["label"]
         assert 0 == response.results[0]["count"]  # it has always been so :shrug:
-        assert None is response.results[0].get("data")
+        assert None == response.results[0].get("data")
 
     def test_formula_with_breakdown(self):
         self._create_test_events()
@@ -1121,10 +1121,10 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response.results.sort(key=lambda r: r["count"])
 
-        assert response.results[0]["compare"]
-        assert response.results[1]["compare"]
-        assert response.results[2]["compare"]
-        assert response.results[3]["compare"]
+        assert True == response.results[0]["compare"]
+        assert True == response.results[1]["compare"]
+        assert True == response.results[2]["compare"]
+        assert True == response.results[3]["compare"]
 
         assert "current" == response.results[0]["compare_label"]
         assert "current" == response.results[1]["compare_label"]
@@ -1211,8 +1211,8 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert 2 == len(response.results)
 
-        assert response.results[0]["compare"]
-        assert response.results[1]["compare"]
+        assert True == response.results[0]["compare"]
+        assert True == response.results[1]["compare"]
 
         assert "current" == response.results[0]["compare_label"]
         assert "previous" == response.results[1]["compare_label"]
@@ -1239,8 +1239,8 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
             assert 2 == len(response.results)
 
-            assert response.results[0]["compare"]
-            assert response.results[1]["compare"]
+            assert True == response.results[0]["compare"]
+            assert True == response.results[1]["compare"]
 
             assert "current" == response.results[0]["compare_label"]
             assert "previous" == response.results[1]["compare_label"]
@@ -1774,7 +1774,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             actual_actor_ids = [row[2][0] for row in result.results]
             expected_actor_ids = expected_actors_by_week[i]
 
-            assert sorted(actual_actor_ids) == sorted(expected_actor_ids)
+            self.assertCountEqual(actual_actor_ids, expected_actor_ids)
 
     def test_trends_aggregation_mau(self):
         self._create_test_events()

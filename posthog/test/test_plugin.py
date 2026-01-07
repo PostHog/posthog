@@ -33,7 +33,7 @@ class TestPlugin(BaseTest):
 
         default_config = some_plugin.get_default_config()
 
-        assert default_config == {"a": 2}
+        self.assertDictEqual(default_config, {"a": 2})
 
     def test_default_config_dict(self):
         some_plugin: Plugin = Plugin.objects.create(
@@ -43,7 +43,7 @@ class TestPlugin(BaseTest):
 
         default_config = some_plugin.get_default_config()
 
-        assert default_config == {"x": "z"}
+        self.assertDictEqual(default_config, {"x": "z"})
 
 
 class TestPluginSourceFile(BaseTest, QueryMatchingTest):

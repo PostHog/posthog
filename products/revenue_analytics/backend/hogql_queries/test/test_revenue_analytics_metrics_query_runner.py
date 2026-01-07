@@ -483,7 +483,9 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ).results
 
         assert len(results) == 8
-        assert [result["data"] for result in results] == [
+        self.assertEqual(
+            [result["data"] for result in results],
+            [
                 [0, 0, 2, 2, 2, 2, 2],  # Subscription Count
                 [0, 0, 2, 0, 0, 0, 0],  # New Subscription Count
                 [0, 0, 0, 0, 0, 0, 0],  # Churned Subscription Count
@@ -500,7 +502,8 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     Decimal("784.7787923619"),
                 ],  # ARPU
                 [0, 0, None, None, None, None, None],  # LTV
-            ]
+            ],
+        )
 
     def test_with_country_filter(self):
         results = self._run_revenue_analytics_metrics_query(
@@ -514,7 +517,9 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ).results
 
         assert len(results) == 8
-        assert [result["data"] for result in results] == [
+        self.assertEqual(
+            [result["data"] for result in results],
+            [
                 [0, 0, 2, 2, 2, 2, 2],  # Subscription Count
                 [0, 0, 2, 0, 0, 0, 0],  # New Subscription Count
                 [0, 0, 0, 0, 0, 0, 0],  # Churned Subscription Count
@@ -531,7 +536,8 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     Decimal("31.8842181952"),
                 ],  # ARPU
                 [0, 0, None, None, None, None, None],  # LTV
-            ]
+            ],
+        )
 
     def test_with_events_data(self):
         s1 = str(uuid7("2024-12-02"))
@@ -591,7 +597,9 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ).results
 
         assert len(results) == 8
-        assert [result["data"] for result in results] == [
+        self.assertEqual(
+            [result["data"] for result in results],
+            [
                 [0, 1, 1, 1, 2, 0, 0],  # Subscription Count
                 [0, 1, 1, 0, 1, 0, 0],  # New Subscription Count
                 [0, 0, 1, 0, 0, 2, 0],  # Churned Subscription Count
@@ -608,7 +616,8 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     0,
                 ],  # ARPU
                 [0, None, Decimal("5.5629321819"), None, None, 0, 0],  # LTV
-            ]
+            ],
+        )
 
         # Assert that `previous_subscription_count` + `new_subscription_count` - `churned_subscription_count` = `subscription_count`
         for subscription_count, prev_subscription_count, new_subscription_count, churned_subscription_count in zip(
@@ -646,7 +655,9 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ).results
 
         assert len(results) == 8
-        assert [result["data"] for result in results] == [
+        self.assertEqual(
+            [result["data"] for result in results],
+            [
                 [0, 1, 2, 1, 2, 2, 0],  # Subscription Count
                 [0, 1, 1, 0, 1, 0, 0],  # New Subscription Count
                 [0, 0, 0, 1, 0, 0, 2],  # Churned Subscription Count
@@ -663,7 +674,8 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     0,
                 ],  # ARPU
                 [0, None, None, Decimal("11.2552348796"), None, None, 0],  # LTV
-            ]
+            ],
+        )
 
     # NOTE: This can be removed once `managed-viewsets` feature flag is rolled out to all teams
     def test_with_events_data_with_managed_viewsets_ff(self):
@@ -728,7 +740,9 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
             assert len(results) == 8
 
-            assert [result["data"] for result in results] == [
+            self.assertEqual(
+                [result["data"] for result in results],
+                [
                     [0, 1, 1, 1, 2, 0, 0],  # Subscription Count
                     [0, 1, 1, 0, 1, 0, 0],  # New Subscription Count
                     [0, 0, 1, 0, 0, 2, 0],  # Churned Subscription Count
@@ -745,7 +759,8 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         0,
                     ],  # ARPU
                     [0, None, Decimal("5.5629321819"), None, None, 0, 0],  # LTV
-                ]
+                ],
+            )
 
             # Assert that `previous_subscription_count` + `new_subscription_count` - `churned_subscription_count` = `subscription_count`
             for subscription_count, prev_subscription_count, new_subscription_count, churned_subscription_count in zip(
@@ -784,7 +799,9 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ).results
 
             assert len(results) == 8
-            assert [result["data"] for result in results] == [
+            self.assertEqual(
+                [result["data"] for result in results],
+                [
                     [0, 1, 2, 1, 2, 2, 0],  # Subscription Count
                     [0, 1, 1, 0, 1, 0, 0],  # New Subscription Count
                     [0, 0, 0, 1, 0, 0, 2],  # Churned Subscription Count
@@ -801,4 +818,5 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         0,
                     ],  # ARPU
                     [0, None, None, Decimal("11.2552348796"), None, None, 0],  # LTV
-                ]
+                ],
+            )

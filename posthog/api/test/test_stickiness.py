@@ -534,7 +534,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             people = stickiness_response["results"][0]["people"]
 
             all_people_ids = [str(person["id"]) for person in people]
-            assert sorted(all_people_ids) == sorted([str(person1.uuid), str(person4.uuid)])
+            self.assertListEqual(sorted(all_people_ids), sorted([str(person1.uuid), str(person4.uuid)]))
 
         def test_stickiness_people_with_entity_filter(self):
             person1, _, _, _ = self._create_multiple_people()

@@ -69,7 +69,11 @@ class TestFunnelTrendsActors(ClickhouseTestMixin, APIBaseTest):
 
         # self.assertEqual([person[0]["id"] for person in results], [persons["user_one"].uuid])
         assert results[0][0] == persons["user_one"].uuid
-        assert [next(iter(results[0][2]))["session_id"]] == ["s1b"]
+        self.assertEqual(
+            # [person["matched_recordings"][0]["session_id"] for person in results],
+            [next(iter(results[0][2]))["session_id"]],
+            ["s1b"],
+        )
 
     @snapshot_clickhouse_queries
     def test_funnel_trend_persons_with_no_to_step(self):
@@ -115,7 +119,11 @@ class TestFunnelTrendsActors(ClickhouseTestMixin, APIBaseTest):
 
         # self.assertEqual([person[0]["id"] for person in results], [persons["user_one"].uuid])
         assert results[0][0] == persons["user_one"].uuid
-        assert [next(iter(results[0][2]))["session_id"]] == ["s1c"]
+        self.assertEqual(
+            # [person["matched_recordings"][0]["session_id"] for person in results],
+            [next(iter(results[0][2]))["session_id"]],
+            ["s1c"],
+        )
 
     @snapshot_clickhouse_queries
     def test_funnel_trend_persons_with_drop_off(self):
@@ -150,4 +158,8 @@ class TestFunnelTrendsActors(ClickhouseTestMixin, APIBaseTest):
 
         # self.assertEqual([person[0]["id"] for person in results], [persons["user_one"].uuid])
         assert results[0][0] == persons["user_one"].uuid
-        assert [next(iter(results[0][2]))["session_id"]] == ["s1a"]
+        self.assertEqual(
+            # [person["matched_recordings"][0].get("session_id") for person in results],
+            [next(iter(results[0][2]))["session_id"]],
+            ["s1a"],
+        )

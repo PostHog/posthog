@@ -18,7 +18,6 @@ from posthog.models.event_definition import EventDefinition
 
 from ee.models.event_definition import EnterpriseEventDefinition
 from ee.models.license import AvailableFeature, License, LicenseManager
-import pytest
 
 
 @freeze_time("2020-01-02")
@@ -99,7 +98,11 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         assert response_data["tags"] == ["deprecated"]
         assert response_data["owner"]["id"] == self.user.id
 
-        assert (timezone.now() - dateutil.parser.isoparse(response_data["created_at"])).total_seconds() == pytest.approx(0, abs=1)
+        self.assertAlmostEqual(
+            (timezone.now() - dateutil.parser.isoparse(response_data["created_at"])).total_seconds(),
+            0,
+            delta=1,
+        )
         assert "last_seen_at" in response_data
 
     def test_retrieve_create_event_definition(self):
@@ -345,7 +348,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
             data={"tags": ["a", "b", "a"]},
         )
 
-        assert sorted(response.json()["tags"]) == ["a", "b"]
+        self.assertListEqual(sorted(response.json()["tags"]), ["a", "b"])
 
     def test_exclude_hidden_events(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(

@@ -32,7 +32,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         process_scheduled_changes()
 
         updated_flag = FeatureFlag.objects.get(key="flag-1")
-        assert updated_flag.active
+        assert updated_flag.active == True
 
     def test_schedule_feature_flag_add_release_condition(self) -> None:
         feature_flag = FeatureFlag.objects.create(
@@ -277,7 +277,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
 
         # Verify the flag was updated
         updated_flag = FeatureFlag.objects.get(key="test-flag")
-        assert updated_flag.active
+        assert updated_flag.active == True
 
         # Verify scheduled change was marked as executed
         updated_scheduled_change = ScheduledChange.objects.get(id=scheduled_change.id)
@@ -320,8 +320,8 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
                 break
 
         assert active_change is not None
-        assert not active_change["before"]  # type: ignore
-        assert active_change["after"]  # type: ignore
+        assert active_change["before"] == False  # type: ignore
+        assert active_change["after"] == True  # type: ignore
 
     @freeze_time("2023-12-21T09:00:00Z")
     def test_updated_at_field_tracks_processing_time(self) -> None:
@@ -1094,7 +1094,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         # Verify the change hasn't been executed yet
         assert scheduled_change.executed_at is None
         updated_flag = FeatureFlag.objects.get(key="past-test-flag")
-        assert not updated_flag.active
+        assert updated_flag.active == False
 
         # Process scheduled changes
         process_scheduled_changes()
@@ -1107,7 +1107,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
 
         # Verify the flag was updated
         updated_flag = FeatureFlag.objects.get(key="past-test-flag")
-        assert updated_flag.active
+        assert updated_flag.active == True
 
     @freeze_time("2024-01-15T09:00:00Z")
     def test_recurring_schedule_computes_next_weekly_run(self) -> None:
@@ -1140,7 +1140,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         assert scheduled_change.scheduled_at == datetime(2024, 1, 22, 9, 0, tzinfo=UTC)
         # Flag should be disabled
         feature_flag.refresh_from_db()
-        assert not feature_flag.active
+        assert feature_flag.active == False
 
     @freeze_time("2024-01-15T09:00:00Z")
     def test_recurring_schedule_computes_next_daily_run(self) -> None:
@@ -1255,7 +1255,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         # Should NOT have executed
         assert scheduled_change.executed_at is None
         assert scheduled_change.last_executed_at is None
-        assert feature_flag.active  # Unchanged
+        assert feature_flag.active == True  # Unchanged
 
     @freeze_time("2024-01-15T09:00:00Z")
     def test_recurring_schedule_executes_multiple_times(self) -> None:
@@ -1283,7 +1283,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         process_scheduled_changes()
         scheduled_change.refresh_from_db()
         feature_flag.refresh_from_db()
-        assert not feature_flag.active
+        assert feature_flag.active == False
         assert scheduled_change.scheduled_at == datetime(2024, 1, 16, 9, 0, tzinfo=UTC)
 
         # Manually enable the flag (simulating manual override)
@@ -1296,5 +1296,5 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
             scheduled_change.refresh_from_db()
             feature_flag.refresh_from_db()
             # Schedule corrects the manual override
-            assert not feature_flag.active
+            assert feature_flag.active == False
             assert scheduled_change.scheduled_at == datetime(2024, 1, 17, 9, 0, tzinfo=UTC)

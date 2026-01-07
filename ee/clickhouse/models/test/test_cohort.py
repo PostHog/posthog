@@ -109,7 +109,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
                     )
 
         # Assert the sets of person_ids are the same
-        assert sorted(results_without_hogql) == sorted(results_with_hogql)
+        self.assertCountEqual(results_without_hogql, results_with_hogql)
 
         # Return the latest version
         return version_with_hogql
@@ -550,7 +550,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort = Cohort.objects.get()
         results = get_person_ids_by_cohort_id(self.team.pk, cohort.id)
         assert len(results) == 2
-        assert not cohort.is_calculating
+        assert cohort.is_calculating == False
 
         # test SQLi
         Person.objects.create(team_id=self.team.pk, distinct_ids=["'); truncate person_static_cohort; --"])
@@ -1099,7 +1099,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )
         assert len(result) == 2  # because we didn't precalculate the cohort, both people are in the cohort
         distinct_ids = [r[1] for r in result]
-        assert sorted(distinct_ids) == sorted(["1", "2"])
+        self.assertCountEqual(distinct_ids, ["1", "2"])
 
     @snapshot_clickhouse_insert_cohortpeople_queries
     def test_cohortpeople_with_not_in_cohort_operator_for_behavioural_cohorts(self):
@@ -1372,7 +1372,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         self.calculate_cohort_hogql_test_harness(cohort1, 0)
 
         result = self._get_cohortpeople(cohort1)
-        assert sorted([p1.uuid, p3.uuid]) == sorted([r[0] for r in result])
+        self.assertCountEqual([p1.uuid, p3.uuid], [r[0] for r in result])
 
     def test_update_cohort(self):
         Person.objects.create(
@@ -1492,8 +1492,8 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         results_team1 = self._get_cohortpeople(shared_cohort, team_id=self.team.pk)
         results_team2 = self._get_cohortpeople(shared_cohort, team_id=team2.pk)
 
-        assert sorted([r[0] for r in results_team1]) == sorted([person2_team1.uuid])
-        assert sorted([r[0] for r in results_team2]) == sorted([person1_team2.uuid])
+        self.assertCountEqual([r[0] for r in results_team1], [person2_team1.uuid])
+        self.assertCountEqual([r[0] for r in results_team2], [person1_team2.uuid])
 
     def test_cohortpeople_action_all_events(self):
         # Create an action that matches all events (no specific event defined)
@@ -1788,4 +1788,4 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         results = self._get_cohortpeople(cohort_3)
         assert len(results) == 2
-        assert sorted([x[0] for x in results]) == sorted([p1.uuid, p2.uuid])
+        self.assertCountEqual([x[0] for x in results], [p1.uuid, p2.uuid])

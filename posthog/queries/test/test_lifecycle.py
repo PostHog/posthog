@@ -31,7 +31,7 @@ class TestLifecycleBase(ClickhouseTestMixin, APIBaseTest):
         ]
         sorted_expected = sorted(expected, key=lambda r: r["status"])
 
-        assert sorted_results == sorted_expected
+        self.assertListEqual(sorted_results, sorted_expected)
 
 
 class TestLifecycle(TestLifecycleBase):

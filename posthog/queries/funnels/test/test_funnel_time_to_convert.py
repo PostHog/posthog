@@ -93,7 +93,9 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
         results = funnel_trends.run()
 
         # Autobinned using the minimum time to convert, maximum time to convert, and sample count
-        assert results == {
+        self.assertEqual(
+            results,
+            {
                 "bins": [
                     (
                         2220.0,
@@ -109,7 +111,8 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
                     ),  # Reached step 1 from step 0 in at least 82_800 s but less than 109_680 s - user C
                 ],
                 "average_conversion_time": 29_540,
-            }
+            },
+        )
 
     def test_auto_bin_count_single_step_duplicate_events(self):
         # Test for CH bug that used to haunt us: https://github.com/ClickHouse/ClickHouse/issues/26580
@@ -187,7 +190,9 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
         results = funnel_trends.run()
 
         # Autobinned using the minimum time to convert, maximum time to convert, and sample count
-        assert results == {
+        self.assertEqual(
+            results,
+            {
                 "bins": [
                     (
                         2220.0,
@@ -203,7 +208,8 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
                     ),  # Reached step 1 from step 0 in at least 82_800 s but less than 109_680 s - user C
                 ],
                 "average_conversion_time": 29_540,
-            }
+            },
+        )
 
     def test_custom_bin_count_single_step(self):
         _create_person(distinct_ids=["user a"], team=self.team)
@@ -280,7 +286,9 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
         results = funnel_trends.run()
 
         # 7 bins, autoscaled to work best with minimum time to convert and maximum time to convert at hand
-        assert results == {
+        self.assertEqual(
+            results,
+            {
                 "bins": [
                     (
                         2220.0,
@@ -301,7 +309,8 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
                     (82804.0, 0),
                 ],
                 "average_conversion_time": 29_540,
-            }
+            },
+        )
 
     @skip("Compatibility issue CH 23.12 (see #21318)")
     @snapshot_clickhouse_queries
@@ -374,7 +383,9 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
         funnel_trends = ClickhouseFunnelTimeToConvert(filter, self.team)
         results = funnel_trends.run()
 
-        assert results == {
+        self.assertEqual(
+            results,
+            {
                 "bins": [
                     (
                         10800.0,
@@ -386,7 +397,8 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
                     ),  # Analogous to above, just an interval (in this case 60 s) up - no users
                 ],
                 "average_conversion_time": 10_800.0,
-            }
+            },
+        )
 
         # Let's verify that behavior with steps unspecified is the same as when first and last steps specified
         funnel_trends_steps_specified = ClickhouseFunnelTimeToConvert(
@@ -474,7 +486,9 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
         results = funnel_trends.run()
 
         # Autobinned using the minimum time to convert, maximum time to convert, and sample count
-        assert results == {
+        self.assertEqual(
+            results,
+            {
                 "bins": [
                     (
                         2220.0,
@@ -490,7 +504,8 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
                     ),  # Reached step 1 from step 0 in at least 82_800 s but less than 109_680 s - user C
                 ],
                 "average_conversion_time": 29540,
-            }
+            },
+        )
 
     @snapshot_clickhouse_queries
     def test_basic_strict(self):
@@ -602,7 +617,9 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
         results = funnel_trends.run()
 
         # Autobinned using the minimum time to convert, maximum time to convert, and sample count
-        assert results == {
+        self.assertEqual(
+            results,
+            {
                 "bins": [
                     (
                         2220.0,
@@ -618,4 +635,5 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
                     ),  # Reached step 1 from step 0 in at least 82_800 s but less than 109_680 s - user C
                 ],
                 "average_conversion_time": 29540,
-            }
+            },
+        )

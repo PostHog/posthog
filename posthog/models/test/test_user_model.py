@@ -47,7 +47,7 @@ class TestUser(BaseTest):
         with self.settings(TEST=False):
             user = User.objects.create_user(first_name="Tim", email="tim@gmail.com", password=None)
         assert user.distinct_id != ""
-        assert user.distinct_id is not None
+        assert user.distinct_id != None
 
     def test_analytics_metadata(self):
         self.maxDiff = None

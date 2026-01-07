@@ -79,8 +79,8 @@ class TestUserAPI(APIBaseTest):
         assert response_data["distinct_id"] == self.user.distinct_id
         assert response_data["first_name"] == self.user.first_name
         assert response_data["email"] == self.user.email
-        assert response_data["has_password"]
-        assert not response_data["is_staff"]
+        assert response_data["has_password"] == True
+        assert response_data["is_staff"] == False
         assert "password" not in response_data
         assert "current_password" not in response_data
         assert "set_current_team" not in response_data
@@ -98,7 +98,9 @@ class TestUserAPI(APIBaseTest):
         assert "test_account_filters" not in response_data["organization"]["teams"][0]  # Ensure we're not returning the full `Team`
         assert "event_names" not in response_data["organization"]["teams"][0]
 
-        assert sorted(response_data["organizations"], key=lambda x: x["id"]) == sorted([
+        self.assertCountEqual(
+            response_data["organizations"],
+            [
                 {
                     "id": str(self.organization.id),
                     "name": self.organization.name,
@@ -119,7 +121,8 @@ class TestUserAPI(APIBaseTest):
                     "is_active": True,
                     "is_not_active_reason": None,
                 },
-            ], key=lambda x: x["id"])
+            ],
+        )
 
     def test_hedgehog_config_is_unset(self):
         self.user.hedgehog_config = None
@@ -242,7 +245,7 @@ class TestUserAPI(APIBaseTest):
 
         assert response_data["uuid"] != 1
         assert response_data["first_name"] == "Cooper"
-        assert response_data["anonymize_data"]
+        assert response_data["anonymize_data"] == True
         assert response_data["events_column_config"] == {"active": ["column_1", "column_2"]}
         assert response_data["organization"]["id"] == str(self.organization.id)
         assert response_data["team"]["id"] == self.team.id
@@ -253,7 +256,7 @@ class TestUserAPI(APIBaseTest):
         assert user.pk != 1
         assert user.uuid != 1
         assert user.first_name == "Cooper"
-        assert user.anonymize_data
+        assert user.anonymize_data == True
         assert {"plugin_disabled": False}.items() <= user.notification_settings.items()
         assert user.has_seen_product_intro_for == {"feature_flags": True}
         assert user.role_at_organization == "engineering"
@@ -532,7 +535,7 @@ class TestUserAPI(APIBaseTest):
         assert response.json() == self.permission_denied_response("You are not a staff user, contact your instance admin.")
 
         self.user.refresh_from_db()
-        assert not self.user.is_staff
+        assert self.user.is_staff == False
 
     @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
@@ -1120,7 +1123,7 @@ class TestUserAPI(APIBaseTest):
         def assert_forbidden_url(url):
             response = self.client.get(f"/api/user/redirect_to_site/?appUrl={quote(url)}")
             assert response.status_code == status.HTTP_403_FORBIDDEN
-            assert response.headers.get("location") is None
+            assert response.headers.get("location") == None
 
         # hostnames
         assert_allowed_url("https://www.example.com")
@@ -1271,13 +1274,16 @@ class TestUserAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
-        assert response_data["notification_settings"] == {
+        self.assertEqual(
+            response_data["notification_settings"],
+            {
                 "plugin_disabled": False,
                 "discussions_mentioned": False,
                 "project_weekly_digest_disabled": {"123": True},  # Note: JSON converts int keys to strings
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": False,
-            }
+            },
+        )
 
         self.user.refresh_from_db()
         assert self.user.partial_notification_settings == {"plugin_disabled": False, "discussions_mentioned": False, "project_weekly_digest_disabled": {"123": True}, "all_weekly_digest_disabled": True, "error_tracking_issue_assigned": False}
@@ -1319,13 +1325,16 @@ class TestUserAPI(APIBaseTest):
         response = self.client.patch("/api/users/@me/", {"notification_settings": {"all_weekly_digest_disabled": True}})
         assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
-        assert response_data["notification_settings"] == {
+        self.assertEqual(
+            response_data["notification_settings"],
+            {
                 "plugin_disabled": True,  # Default value
                 "discussions_mentioned": True,  # Default value
                 "project_weekly_digest_disabled": {},  # Default value
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": True,  # Default value
-            }
+            },
+        )
 
 
 class TestUserSlackWebhook(APIBaseTest):
@@ -1369,7 +1378,7 @@ class TestStaffUserAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
         assert response_data["count"] == 1
-        assert response_data["results"][0]["is_staff"]
+        assert response_data["results"][0]["is_staff"] == True
         assert response_data["results"][0]["email"] == self.CONFIG_EMAIL
 
     def test_only_staff_can_list_other_users(self):
@@ -1383,23 +1392,23 @@ class TestStaffUserAPI(APIBaseTest):
 
     def test_update_staff_user(self):
         user = self._create_user("newuser@posthog.com", password="12345678")
-        assert not user.is_staff
+        assert user.is_staff == False
 
         # User becomes staff
         response = self.client.patch(f"/api/users/{user.uuid}/", {"is_staff": True})
         assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
-        assert response_data["is_staff"]
+        assert response_data["is_staff"] == True
         user.refresh_from_db()
-        assert user.is_staff
+        assert user.is_staff == True
 
         # User is no longer staff
         response = self.client.patch(f"/api/users/{user.uuid}/", {"is_staff": False})
         assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
-        assert not response_data["is_staff"]
+        assert response_data["is_staff"] == False
         user.refresh_from_db()
-        assert not user.is_staff
+        assert user.is_staff == False
 
     def test_only_staff_user_can_update_staff_prop(self):
         user = self._create_user("newuser@posthog.com", password="12345678")
@@ -1412,7 +1421,7 @@ class TestStaffUserAPI(APIBaseTest):
         assert response.json() == {"type": "authentication_error", "code": "permission_denied", "detail": "As a non-staff user you're only allowed to access the `@me` user instance.", "attr": None}
 
         user.refresh_from_db()
-        assert not user.is_staff
+        assert user.is_staff == False
 
 
 class TestEmailVerificationAPI(APIBaseTest):
@@ -1439,7 +1448,7 @@ class TestEmailVerificationAPI(APIBaseTest):
             response = self.client.post(f"/api/users/request_email_verification/", {"uuid": self.user.uuid})
         assert response.status_code == status.HTTP_200_OK
         assert response.content.decode() == '{"success":true}'
-        assert {",".join(outmail.to) for outmail in mail.outbox} == {self.CONFIG_EMAIL}
+        self.assertSetEqual({",".join(outmail.to) for outmail in mail.outbox}, {self.CONFIG_EMAIL})
 
         assert mail.outbox[0].subject == "Verify your email address"
         assert mail.outbox[0].body == ""  # no plain-text version support yet

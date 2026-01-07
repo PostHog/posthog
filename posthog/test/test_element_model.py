@@ -39,12 +39,15 @@ class TestElement(ClickhouseTestMixin, BaseTest):
         assert elements[0].tag_name == "a"
         assert elements[0].href == "/a-url"
         assert elements[0].attr_class == ["small"]
-        assert elements[0].attributes == {
+        self.assertDictEqual(
+            elements[0].attributes,
+            {
                 "prop": "value",
                 "number": "33",
                 "data-attr": r"something \" that; could mess up",
                 "style": "min-height: 100vh;",
-            }
+            },
+        )
         assert elements[0].nth_child == 1
         assert elements[0].nth_of_type == 0
 

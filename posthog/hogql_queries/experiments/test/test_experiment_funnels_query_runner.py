@@ -147,17 +147,17 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert test_variant.success_count == 8
         assert test_variant.failure_count == 2
 
-        assert result.probability["control"] == pytest.approx(0.2, abs=0.1)
-        assert result.probability["test"] == pytest.approx(0.8, abs=0.1)
+        self.assertAlmostEqual(result.probability["control"], 0.2, delta=0.1)
+        self.assertAlmostEqual(result.probability["test"], 0.8, delta=0.1)
 
-        assert not result.significant
+        assert result.significant == False
         assert result.significance_code == ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE
         assert result.expected_loss == 1.0
 
-        assert result.credible_intervals["control"][0] == pytest.approx(0.3, abs=0.1)
-        assert result.credible_intervals["control"][1] == pytest.approx(0.8, abs=0.1)
-        assert result.credible_intervals["test"][0] == pytest.approx(0.5, abs=0.1)
-        assert result.credible_intervals["test"][1] == pytest.approx(0.9, abs=0.1)
+        self.assertAlmostEqual(result.credible_intervals["control"][0], 0.3, delta=0.1)
+        self.assertAlmostEqual(result.credible_intervals["control"][1], 0.8, delta=0.1)
+        self.assertAlmostEqual(result.credible_intervals["test"][0], 0.5, delta=0.1)
+        self.assertAlmostEqual(result.credible_intervals["test"][1], 0.9, delta=0.1)
 
     @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner_v2(self):
@@ -216,17 +216,17 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert test_variant.success_count == 8
         assert test_variant.failure_count == 2
 
-        assert result.probability["control"] == pytest.approx(0.2, abs=0.1)
-        assert result.probability["test"] == pytest.approx(0.8, abs=0.1)
+        self.assertAlmostEqual(result.probability["control"], 0.2, delta=0.1)
+        self.assertAlmostEqual(result.probability["test"], 0.8, delta=0.1)
 
-        assert not result.significant
+        assert result.significant == False
         assert result.significance_code == ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE
         assert result.expected_loss == 1.0
 
-        assert result.credible_intervals["control"][0] == pytest.approx(0.3, abs=0.1)
-        assert result.credible_intervals["control"][1] == pytest.approx(0.8, abs=0.1)
-        assert result.credible_intervals["test"][0] == pytest.approx(0.5, abs=0.1)
-        assert result.credible_intervals["test"][1] == pytest.approx(0.9, abs=0.1)
+        self.assertAlmostEqual(result.credible_intervals["control"][0], 0.3, delta=0.1)
+        self.assertAlmostEqual(result.credible_intervals["control"][1], 0.8, delta=0.1)
+        self.assertAlmostEqual(result.credible_intervals["test"][0], 0.5, delta=0.1)
+        self.assertAlmostEqual(result.credible_intervals["test"][1], 0.9, delta=0.1)
 
     @pytest.mark.flaky(reruns=9)
     @freeze_time("2020-01-01T12:00:00Z")
@@ -299,19 +299,19 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert test_variant.success_count == 3
         assert test_variant.failure_count == 1
 
-        assert result.probability["control"] == pytest.approx(0.407, abs=1e-2)
-        assert result.probability["test"] == pytest.approx(0.593, abs=1e-2)
+        self.assertAlmostEqual(result.probability["control"], 0.407, places=2)
+        self.assertAlmostEqual(result.probability["test"], 0.593, places=2)
 
-        assert result.credible_intervals["control"][0] == pytest.approx(0.1941, abs=1e-3)
-        assert result.credible_intervals["control"][1] == pytest.approx(0.9324, abs=1e-3)
-        assert result.credible_intervals["test"][0] == pytest.approx(0.2836, abs=1e-3)
-        assert result.credible_intervals["test"][1] == pytest.approx(0.9473, abs=1e-3)
+        self.assertAlmostEqual(result.credible_intervals["control"][0], 0.1941, places=3)
+        self.assertAlmostEqual(result.credible_intervals["control"][1], 0.9324, places=3)
+        self.assertAlmostEqual(result.credible_intervals["test"][0], 0.2836, places=3)
+        self.assertAlmostEqual(result.credible_intervals["test"][1], 0.9473, places=3)
 
         assert result.significance_code == ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE
 
         assert not result.significant
         assert len(result.variants) == 2
-        assert result.expected_loss == pytest.approx(1.0, abs=1e-1)
+        self.assertAlmostEqual(result.expected_loss, 1.0, places=1)
 
     @parameterized.expand(
         [

@@ -408,7 +408,7 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
         # Transition to node1
         assert blobs[3].channel == "branch:to:node1"
         assert blobs[3].type == "null"
-        assert checkpointer.serde.loads_typed((blobs[3].type, blobs[3].blob)) is None
+        assert checkpointer.serde.loads_typed((blobs[3].type, blobs[3].blob)) == None
 
         # Set new state for messages
         assert blobs[4].channel == "messages"

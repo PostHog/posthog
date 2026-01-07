@@ -44,10 +44,10 @@ class TestQueryEventsExtractor(TestCase):
     def test_extract_events_empty_query(self):
         """Test that empty query returns empty list"""
         result = self.extractor.extract_events({})
-        assert sorted(result) == sorted([])
+        self.assertCountEqual(result, [])
 
         result = self.extractor.extract_events(None)  # type: ignore
-        assert sorted(result) == sorted([])
+        self.assertCountEqual(result, [])
 
     def test_extract_events_trends_query(self):
         """Test extracting events from TrendsQuery"""
@@ -58,7 +58,7 @@ class TestQueryEventsExtractor(TestCase):
             ]
         )
         result = self.extractor.extract_events(query)
-        assert sorted(result) == sorted(["pageview", "click"])
+        self.assertCountEqual(result, ["pageview", "click"])
 
     @patch("posthog.models.action.Action.objects.get")
     def test_extract_events_with_actions_node(self, mock_action_get):
@@ -74,7 +74,7 @@ class TestQueryEventsExtractor(TestCase):
             ]
         )
         result = self.extractor.extract_events(query)
-        assert sorted(result) == sorted(["pageview", "signup", "purchase"])
+        self.assertCountEqual(result, ["pageview", "signup", "purchase"])
 
     @patch("posthog.models.action.Action.objects.get")
     def test_extract_events_with_actions_node_with_none_steps(self, mock_action_get):
@@ -90,7 +90,7 @@ class TestQueryEventsExtractor(TestCase):
             ]
         )
         result = self.extractor.extract_events(query)
-        assert sorted(result) == sorted(["pageview", "signup"])
+        self.assertCountEqual(result, ["pageview", "signup"])
 
     @patch("posthog.models.action.Action.objects.get")
     def test_extract_events_with_non_existent_action(self, mock_action_get):
@@ -104,7 +104,7 @@ class TestQueryEventsExtractor(TestCase):
 
         # The extractor should handle the missing action gracefully
         result = self.extractor.extract_events(query)
-        assert sorted(result) == sorted([])
+        self.assertCountEqual(result, [])
 
         mock_action_get.assert_called_once_with(pk=999, team__project_id=self.team.project_id)
 
@@ -112,31 +112,31 @@ class TestQueryEventsExtractor(TestCase):
         """Test extracting events from StickinessQuery"""
         query = StickinessQuery(series=[EventsNode(event="login")])
         result = self.extractor.extract_events(query)
-        assert sorted(result) == sorted(["login"])
+        self.assertCountEqual(result, ["login"])
 
     def test_extract_events_lifecycle_query(self):
         """Test extracting events from LifecycleQuery"""
         query = LifecycleQuery(series=[EventsNode(event="signup")])
         result = self.extractor.extract_events(query)
-        assert sorted(result) == sorted(["signup"])
+        self.assertCountEqual(result, ["signup"])
 
     def test_extract_events_calendar_heatmap_query(self):
         """Test extracting events from CalendarHeatmapQuery"""
         query = CalendarHeatmapQuery(series=[EventsNode(event="daily_active")])
         result = self.extractor.extract_events(query)
-        assert sorted(result) == sorted(["daily_active"])
+        self.assertCountEqual(result, ["daily_active"])
 
     def test_extract_events_events_query(self):
         """Test extracting events from EventsQuery"""
         query = EventsQuery(event="pageview", select=["*"])
         result = self.extractor.extract_events(query)
-        assert sorted(result) == sorted(["pageview"])
+        self.assertCountEqual(result, ["pageview"])
 
     def test_extract_events_events_query_no_event(self):
         """Test extracting events from EventsQuery without event specified"""
         query = EventsQuery(select=["*"])
         result = self.extractor.extract_events(query)
-        assert sorted(result) == sorted([])
+        self.assertCountEqual(result, [])
 
     def test_extract_events_events_query_with_source(self):
         """Test extracting events from EventsQuery with source"""
@@ -148,13 +148,13 @@ class TestQueryEventsExtractor(TestCase):
             select=["*"],
         )
         result = self.extractor.extract_events(query)
-        assert sorted(result) == sorted(["click", "signup", "purchase"])
+        self.assertCountEqual(result, ["click", "signup", "purchase"])
 
     def test_extract_events_events_query_with_source_none(self):
         """Test extracting events from EventsQuery with source as None"""
         query = EventsQuery(event="click", source=None, select=["*"])
         result = self.extractor.extract_events(query)
-        assert sorted(result) == sorted(["click"])
+        self.assertCountEqual(result, ["click"])
 
     def test_extract_events_funnels_query(self):
         """Test extracting events from FunnelsQuery"""
@@ -179,7 +179,7 @@ class TestQueryEventsExtractor(TestCase):
             ),
         )
         result = self.extractor.extract_events(query)
-        assert sorted(result) == sorted(["signup", "purchase", "abandon_cart", "logout"])
+        self.assertCountEqual(result, ["signup", "purchase", "abandon_cart", "logout"])
 
     @patch("posthog.models.action.Action.objects.get")
     def test_extract_events_funnels_query_exclusions_actions(self, mock_action_get):
@@ -210,7 +210,7 @@ class TestQueryEventsExtractor(TestCase):
             ),
         )
         result = self.extractor.extract_events(query)
-        assert sorted(result) == sorted(["signup", "purchase", "abandon_cart", "action_event_1", "action_event_2"])
+        self.assertCountEqual(result, ["signup", "purchase", "abandon_cart", "action_event_1", "action_event_2"])
 
     def test_extract_events_funnels_query_no_funnels_filter(self):
         """Test extracting events from FunnelsQuery without funnelsFilter"""
@@ -222,7 +222,7 @@ class TestQueryEventsExtractor(TestCase):
             funnelsFilter=None,
         )
         result = self.extractor.extract_events(query)
-        assert sorted(result) == sorted(["signup", "purchase"])
+        self.assertCountEqual(result, ["signup", "purchase"])
 
     @patch("posthog.models.action.Action.objects.get")
     def test_extract_events_retention_query(self, mock_action_get):
@@ -238,7 +238,7 @@ class TestQueryEventsExtractor(TestCase):
             )
         )
         result = self.extractor.extract_events(query)
-        assert sorted(result) == sorted(["pageview", "signup"])
+        self.assertCountEqual(result, ["pageview", "signup"])
 
     def test_extract_events_paths_query(self):
         """Test extracting events from PathsQuery"""
@@ -249,47 +249,47 @@ class TestQueryEventsExtractor(TestCase):
             )
         )
         result = self.extractor.extract_events(query)
-        assert sorted(result) == sorted([str(PathType.FIELD_PAGEVIEW), str(PathType.FIELD_SCREEN), "logout"])
+        self.assertCountEqual(result, [str(PathType.FIELD_PAGEVIEW), str(PathType.FIELD_SCREEN), "logout"])
 
     def test_extract_events_insight_viz_node(self):
         """Test extracting events from InsightVizNode"""
         source_query = TrendsQuery(series=[EventsNode(event="pageview")])
         query = InsightVizNode(source=source_query)
         result = self.extractor.extract_events(query)
-        assert sorted(result) == sorted(["pageview"])
+        self.assertCountEqual(result, ["pageview"])
 
     def test_extract_events_data_table_node(self):
         """Test extracting events from DataTableNode"""
         source_query = EventsQuery(select=["*"], event="click")
         query = DataTableNode(source=source_query)
         result = self.extractor.extract_events(query)
-        assert sorted(result) == sorted(["click"])
+        self.assertCountEqual(result, ["click"])
 
     def test_extract_events_event_node(self):
         """Test extracting events from DataTableNode"""
         query = EventsNode(event="click")
         result = self.extractor.extract_events(query)
-        assert sorted(result) == sorted(["click"])
+        self.assertCountEqual(result, ["click"])
 
     def test_extract_events_actors_query(self):
         """Test extracting events from ActorsQuery"""
         source_query = InsightActorsQuery(source=TrendsQuery(series=[EventsNode(event="user_action")]))
         query = ActorsQuery(source=source_query)
         result = self.extractor.extract_events(query)
-        assert sorted(result) == sorted(["user_action"])
+        self.assertCountEqual(result, ["user_action"])
 
     def test_extract_events_actors_query_no_source(self):
         """Test extracting events from ActorsQuery with no source"""
         query = ActorsQuery(source=None)
         result = self.extractor.extract_events(query)
-        assert sorted(result) == sorted([])
+        self.assertCountEqual(result, [])
 
     def test_extract_events_insight_actors_query(self):
         """Test extracting events from InsightActorsQuery"""
         source_query = FunnelsQuery(series=[EventsNode(event="step1")], funnelsFilter=FunnelsFilter(exclusions=[]))
         query = InsightActorsQuery(source=source_query)
         result = self.extractor.extract_events(query)
-        assert sorted(result) == sorted(["step1"])
+        self.assertCountEqual(result, ["step1"])
 
     def test_extract_events_funnels_actors_query(self):
         """Test extracting events from FunnelsActorsQuery"""
@@ -298,7 +298,7 @@ class TestQueryEventsExtractor(TestCase):
         )
         query = FunnelsActorsQuery(source=source_query)
         result = self.extractor.extract_events(query)
-        assert sorted(result) == sorted(["funnel_step"])
+        self.assertCountEqual(result, ["funnel_step"])
 
     def test_extract_events_funnel_correlation_actors_query(self):
         """Test extracting events from FunnelCorrelationActorsQuery"""
@@ -315,14 +315,14 @@ class TestQueryEventsExtractor(TestCase):
         )
         query = FunnelCorrelationActorsQuery(source=source_query)
         result = self.extractor.extract_events(query)
-        assert sorted(result) == sorted(["funnel_event", "correlation_event", "exclude_event"])
+        self.assertCountEqual(result, ["funnel_event", "correlation_event", "exclude_event"])
 
     def test_extract_events_stickiness_actors_query(self):
         """Test extracting events from StickinessActorsQuery"""
         source_query = StickinessQuery(series=[EventsNode(event="sticky_event")])
         query = StickinessActorsQuery(source=source_query)
         result = self.extractor.extract_events(query)
-        assert sorted(result) == sorted(["sticky_event"])
+        self.assertCountEqual(result, ["sticky_event"])
 
     def test_extract_events_funnel_correlation_query(self):
         """Test extracting events from FunnelCorrelationQuery"""
@@ -337,7 +337,7 @@ class TestQueryEventsExtractor(TestCase):
             funnelCorrelationType=FunnelCorrelationResultsType.EVENTS,
         )
         result = self.extractor.extract_events(source_query)
-        assert sorted(result) == sorted(["funnel_event", "correlation_event", "exclude_event"])
+        self.assertCountEqual(result, ["funnel_event", "correlation_event", "exclude_event"])
 
     def test_extract_events_from_dict(self):
         """Test extracting events from dictionary input"""
@@ -346,7 +346,7 @@ class TestQueryEventsExtractor(TestCase):
             "series": [{"kind": "EventsNode", "event": "pageview"}, {"kind": "EventsNode", "event": "click"}],
         }
         result = self.extractor.extract_events(query_dict)
-        assert sorted(result) == sorted(["pageview", "click"])
+        self.assertCountEqual(result, ["pageview", "click"])
 
     def test_extract_events_deduplication(self):
         """Test that duplicate events are removed"""
@@ -358,4 +358,4 @@ class TestQueryEventsExtractor(TestCase):
             ]
         )
         result = self.extractor.extract_events(query)
-        assert sorted(result) == sorted(["pageview", "click"])
+        self.assertCountEqual(result, ["pageview", "click"])

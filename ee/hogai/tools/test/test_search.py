@@ -129,4 +129,4 @@ class TestInkeepDocsSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
         assert mock_llm_class.call_args.kwargs["model"] == "inkeep-rag"
         assert mock_llm_class.call_args.kwargs["base_url"] == "https://api.inkeep.com/v1/"
         assert mock_llm_class.call_args.kwargs["api_key"] == "test-inkeep-key"
-        assert not mock_llm_class.call_args.kwargs["streaming"]
+        assert mock_llm_class.call_args.kwargs["streaming"] == False

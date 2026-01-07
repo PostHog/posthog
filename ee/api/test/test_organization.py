@@ -244,7 +244,10 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         response = self.client.get(f"/api/organizations/{self.organization.id}")
 
         assert response.status_code == 200
-        assert [team["name"] for team in response.json()["teams"]] == [self.team.name]
+        self.assertListEqual(
+            [team["name"] for team in response.json()["teams"]],
+            [self.team.name],  # "FORBIDDEN" excluded
+        )
 
     def test_member_cannot_update_members_can_invite_on_org(self):
         """Test that members cannot update members_can_invite when ORGANIZATION_INVITE_SETTINGS is available."""

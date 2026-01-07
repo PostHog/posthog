@@ -19,7 +19,8 @@ class TestPathFilter(BaseTest):
             }
         )
 
-        assert filter.to_dict() == (
+        self.assertEqual(
+            filter.to_dict(),
             filter.to_dict()
             | {
                 "date_from": "-14d",
@@ -33,7 +34,7 @@ class TestPathFilter(BaseTest):
                 "breakdown_normalize_url": False,
                 "interval": "day",
                 "sampling_factor": 0.1,
-            }
+            },
         )
 
     def test_to_dict_hogql(self):
@@ -51,7 +52,8 @@ class TestPathFilter(BaseTest):
             }
         )
 
-        assert filter.to_dict() == (
+        self.assertEqual(
+            filter.to_dict(),
             filter.to_dict()
             | {
                 "date_from": "-14d",
@@ -66,5 +68,5 @@ class TestPathFilter(BaseTest):
                 "interval": "day",
                 "sampling_factor": 0.1,
                 "paths_hogql_expression": "event",
-            }
+            },
         )

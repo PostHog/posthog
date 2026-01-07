@@ -40,14 +40,14 @@ class TestMappings(BaseTest):
 
     def test_find_case_sensitive_function(self):
         assert self._get_hogql_function("toString").clickhouse_name == "toString"
-        assert find_hogql_function("TOString") is None
-        assert find_hogql_function("PlUs") is None
+        assert find_hogql_function("TOString") == None
+        assert find_hogql_function("PlUs") == None
 
         assert self._get_hogql_aggregation("countIf").clickhouse_name == "countIf"
-        assert find_hogql_aggregation("COUNTIF") is None
+        assert find_hogql_aggregation("COUNTIF") == None
 
         assert self._get_hogql_posthog_function("sparkline").clickhouse_name == "sparkline"
-        assert find_hogql_posthog_function("SPARKLINE") is None
+        assert find_hogql_posthog_function("SPARKLINE") == None
 
     def test_find_case_insensitive_function(self):
         assert self._get_hogql_function("CoAlesce").clickhouse_name == "coalesce"
@@ -55,9 +55,9 @@ class TestMappings(BaseTest):
         assert self._get_hogql_aggregation("SuM").clickhouse_name == "sum"
 
     def test_find_non_existent_function(self):
-        assert find_hogql_function("functionThatDoesntExist") is None
-        assert find_hogql_aggregation("functionThatDoesntExist") is None
-        assert find_hogql_posthog_function("functionThatDoesntExist") is None
+        assert find_hogql_function("functionThatDoesntExist") == None
+        assert find_hogql_aggregation("functionThatDoesntExist") == None
+        assert find_hogql_posthog_function("functionThatDoesntExist") == None
 
     def test_compare_types(self):
         res = compare_types([IntegerType()], (IntegerType(),))
@@ -250,9 +250,9 @@ class TestMappings(BaseTest):
         assert result_dict["every_result"]  # All values > 0
 
         # Aggregate function assertions for NULL values
-        assert result_dict["array_agg_null_result"] is None
-        assert result_dict["json_agg_null_result"] is None
-        assert result_dict["string_agg_null_result"] is None
+        assert result_dict["array_agg_null_result"] == None
+        assert result_dict["json_agg_null_result"] == None
+        assert result_dict["string_agg_null_result"] == None
         assert not result_dict["every_null_result"]  # No values > 0
 
     def test_function_mapping(self):

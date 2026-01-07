@@ -50,10 +50,6 @@ interface SparklineProps {
     onSelectionChange?: (selection: { startIndex: number; endIndex: number }) => void
     /** Maximum number of series to show in tooltip. @default 8 */
     tooltipRowCutoff?: number
-    /** Hide series with zero values from tooltip. @default false */
-    hideZerosInTooltip?: boolean
-    /** Sort tooltip items by count (descending). @default false */
-    sortTooltipByCount?: boolean
 }
 
 export function Sparkline({
@@ -72,8 +68,6 @@ export function Sparkline({
     onSelectionChange,
     className,
     tooltipRowCutoff,
-    hideZerosInTooltip = false,
-    sortTooltipByCount = false,
 }: SparklineProps): JSX.Element {
     const tooltipRef = useRef<HTMLDivElement | null>(null)
 
@@ -334,18 +328,15 @@ export function Sparkline({
                                         : toolTipDataPoints[0].label
                                     : ''
                             }
-                            seriesData={toolTipDataPoints
-                                .map((dp, i) => ({
-                                    id: i,
-                                    dataIndex: 0,
-                                    datasetIndex: 0,
-                                    order: i,
-                                    label: dp.dataset.label,
-                                    color: dp.dataset.borderColor as string,
-                                    count: (dp.dataset.data?.[dp.dataIndex] as number) || 0,
-                                }))
-                                .filter((item) => !hideZerosInTooltip || item.count > 0)
-                                .sort((a, b) => (sortTooltipByCount ? b.count - a.count : a.order - b.order))}
+                            seriesData={toolTipDataPoints.map((dp, i) => ({
+                                id: i,
+                                dataIndex: 0,
+                                datasetIndex: 0,
+                                order: i,
+                                label: dp.dataset.label,
+                                color: dp.dataset.borderColor as string,
+                                count: (dp.dataset.data?.[dp.dataIndex] as number) || 0,
+                            }))}
                             renderSeries={(value) => value}
                             renderCount={(count) => humanFriendlyNumber(count)}
                             rowCutoff={tooltipRowCutoff}

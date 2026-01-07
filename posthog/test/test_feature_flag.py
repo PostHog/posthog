@@ -46,7 +46,7 @@ class TestFeatureFlagCohortExpansion(BaseTest):
     )
     def test_calculate_hash(self, identifier, expected_hash):
         result = FeatureFlagMatcher.calculate_hash("holdout-", identifier, "")
-        assert result == pytest.approx(expected_hash)
+        self.assertAlmostEqual(result, expected_hash)
 
     def test_cohort_expansion(self):
         cohort = Cohort.objects.create(
@@ -573,8 +573,8 @@ class TestModelCache(BaseTest):
         assert cached_flags[0].key == key
         assert cached_flags[0].filters == {"groups": [{"properties": [], "rollout_percentage": None}]}
         assert cached_flags[0].name == "Beta feature"
-        assert cached_flags[0].active
-        assert not cached_flags[0].deleted
+        assert cached_flags[0].active == True
+        assert cached_flags[0].deleted == False
 
         flag.name = "New name"
         flag.key = "new-key"
@@ -586,8 +586,8 @@ class TestModelCache(BaseTest):
         assert cached_flags[0].key == "new-key"
         assert cached_flags[0].filters == {"groups": [{"properties": [], "rollout_percentage": None}]}
         assert cached_flags[0].name == "New name"
-        assert cached_flags[0].active
-        assert not cached_flags[0].deleted
+        assert cached_flags[0].active == True
+        assert cached_flags[0].deleted == False
 
         flag.deleted = True
         flag.save()
@@ -2381,7 +2381,9 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FlagsMatcherCache(self.team.id),
             ).get_matches_with_details()
 
-        assert matches == {
+        self.assertEqual(
+            matches,
+            {
                 "one": True,
                 "always_match": True,
                 "group_match": True,
@@ -2392,7 +2394,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 "group_property_different_match": False,
                 # never_match and group_no_match don't match
                 # group_property_different_match doesn't match because we're dealing with a different group key
-            }
+            },
+        )
 
         assert reasons == {"one": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0}, "always_match": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0}, "group_match": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0}, "variant": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0}, "group_property_match": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0}, "never_match": {"reason": FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, "condition_index": 0}, "group_no_match": {"reason": FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, "condition_index": 0}, "group_property_different_match": {"reason": FeatureFlagMatchReason.NO_CONDITION_MATCH, "condition_index": 0}}
 
@@ -2422,7 +2425,9 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
         assert payloads == {"variant": {"color": "blue"}}
 
-        assert matches == {
+        self.assertEqual(
+            matches,
+            {
                 "one": True,
                 "always_match": True,
                 "variant": "first-variant",
@@ -2434,7 +2439,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 # never_match and group_no_match don't match
                 # group_match doesn't match because no project (group type index 1) given.
                 # group_property_match doesn't match because we're dealing with a different group key
-            }
+            },
+        )
 
         assert reasons == {"one": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0}, "always_match": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0}, "group_match": {"reason": FeatureFlagMatchReason.NO_GROUP_TYPE, "condition_index": None}, "variant": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0}, "group_property_different_match": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0}, "never_match": {"reason": FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, "condition_index": 0}, "group_no_match": {"reason": FeatureFlagMatchReason.NO_GROUP_TYPE, "condition_index": None}, "group_property_match": {"reason": FeatureFlagMatchReason.NO_CONDITION_MATCH, "condition_index": 0}}
 
@@ -4275,7 +4281,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
         assert featureFlags == {"random1": True, "random2": True, "random3": False, "random4": True, "random5": False}, {"random1": {"condition_index": 0, "reason": FeatureFlagMatchReason.CONDITION_MATCH}, "random2": {"condition_index": 0, "reason": FeatureFlagMatchReason.CONDITION_MATCH}, "random3": {"condition_index": 0, "reason": FeatureFlagMatchReason.NO_CONDITION_MATCH}, "random4": {"condition_index": 0, "reason": FeatureFlagMatchReason.CONDITION_MATCH}, "random5": {"condition_index": 0, "reason": FeatureFlagMatchReason.NO_CONDITION_MATCH}}
         assert payloads == {}
-        assert not errors
+        assert errors == False
 
         # confirm it works with overrides as well, which are computed locally
         assert self.match_flag(feature_flag1, "307", property_value_overrides={"date_1": "2021-01-04"}) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
@@ -4327,7 +4333,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
         # This should NOT match because 19:17 is NOT after 19:37
         simple_match = self.match_flag(simple_flag, "test_user_123")
-        assert not simple_match.match, f"Flag should NOT match: 19:17:07 is not after 19:37:00. Got: {simple_match}"
+        assert simple_match.match == False, f"Flag should NOT match: 19:17:07 is not after 19:37:00. Got: {simple_match}"
 
         # Now test the full multivariate scenario
         Person.objects.create(
@@ -4382,7 +4388,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         match_result = self.match_flag(feature_flag, "test_user_456")
 
         # The first group (100% rollout, no conditions) should match
-        assert match_result.match
+        assert match_result.match == True
         # But the variant should NOT be "experimental" since the date condition doesn't match
         # (19:17 is before 19:37)
         assert match_result.variant != "experimental"
@@ -4415,7 +4421,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 )
 
                 # First group always matches
-                assert match_result.match
+                assert match_result.match == True
 
                 if should_match_date_condition:
                     # Should get "experimental" variant from the third group

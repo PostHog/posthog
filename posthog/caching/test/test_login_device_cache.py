@@ -16,7 +16,7 @@ class TestLoginDeviceCache(BaseTest):
     def test_new_device_login(self):
         """Test new device login"""
         result = check_and_cache_login_device(11, "192.168.1.1", "Chrome 135.0.0 on Windows 10")
-        assert result
+        assert result == True
 
     def test_same_user_same_device(self):
         """Test login with the same device from the same user"""
@@ -26,19 +26,19 @@ class TestLoginDeviceCache(BaseTest):
 
         # First login - new device
         first_result = check_and_cache_login_device(user_id, ip, user_agent)
-        assert first_result
+        assert first_result == True
 
         # Second login - existing device
         second_result = check_and_cache_login_device(user_id, ip, user_agent)
-        assert not second_result
+        assert second_result == False
 
     def test_same_user_different_device(self):
         """Test login with the same user from different devices"""
         result = check_and_cache_login_device(45, "192.168.1.1", "Chrome 135.0.0 on Windows 10")
-        assert result
+        assert result == True
 
         result = check_and_cache_login_device(45, "192.168.1.2", "Chrome 135.0.0 on Mac OS X 10.15")
-        assert result
+        assert result == True
 
     def test_different_users_same_device(self):
         """Test same device with Firefox on macOS for different users"""
@@ -47,20 +47,20 @@ class TestLoginDeviceCache(BaseTest):
 
         # User 1 - new device
         result1 = check_and_cache_login_device(100, ip, user_agent)
-        assert result1
+        assert result1 == True
 
         # User 2 - same device but different user, so still "new"
         result2 = check_and_cache_login_device(200, ip, user_agent)
-        assert result2
+        assert result2 == True
 
         # User 1 again - now existing
         result3 = check_and_cache_login_device(100, ip, user_agent)
-        assert not result3
+        assert result3 == False
 
     def test_missing_user_agent(self):
         """Test behavior when user agent is empty"""
         result1 = check_and_cache_login_device(111, "192.168.1.200", "")
-        assert result1
+        assert result1 == True
 
         result2 = check_and_cache_login_device(111, "192.168.1.200", "")
-        assert not result2
+        assert result2 == False

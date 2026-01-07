@@ -29,6 +29,7 @@ import {
     AnyEntityNode,
     BreakdownFilter,
     CompareFilter,
+    DataWarehouseNode,
     DatabaseSchemaField,
     DateRange,
     FunnelExclusionSteps,
@@ -335,13 +336,9 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
 
         hasDataWarehouseSeries: [
-            (s) => [s.isTrends, s.isFunnels, s.series],
-            (isTrends, isFunnels, series): boolean => {
-                return (
-                    (isTrends || isFunnels) &&
-                    (series || []).length > 0 &&
-                    !!series?.some((node) => isDataWarehouseNode(node))
-                )
+            (s) => [s.isTrends, s.series],
+            (isTrends, series): boolean => {
+                return isTrends && (series || []).length > 0 && !!series?.some((node) => isDataWarehouseNode(node))
             },
         ],
 
@@ -349,7 +346,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (s) => [
                 s.series,
                 s.isSingleSeries,
-                s.isTrends,
                 s.hasDataWarehouseSeries,
                 s.isBreakdownSeries,
                 s.dataWarehouseTablesMap,
@@ -357,20 +353,20 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (
                 series,
                 isSingleSeries,
-                isTrends,
                 hasDataWarehouseSeries,
                 isBreakdownSeries,
                 dataWarehouseTablesMap
             ): DatabaseSchemaField[] => {
-                if (!hasDataWarehouseSeries || (isTrends && !isSingleSeries && !isBreakdownSeries)) {
+                if (
+                    !series ||
+                    series.length === 0 ||
+                    (!isSingleSeries && !isBreakdownSeries) ||
+                    !hasDataWarehouseSeries
+                ) {
                     return []
                 }
 
-                const dataWarehouseSeries = series!.filter(isDataWarehouseNode)
-                const dataWarehouseTableNames = Array.from(new Set(dataWarehouseSeries.map((node) => node.table_name)))
-                return dataWarehouseTableNames.flatMap((tableName) =>
-                    Object.values(dataWarehouseTablesMap[tableName]?.fields ?? {})
-                )
+                return Object.values(dataWarehouseTablesMap[(series[0] as DataWarehouseNode)?.table_name]?.fields ?? {})
             },
         ],
 

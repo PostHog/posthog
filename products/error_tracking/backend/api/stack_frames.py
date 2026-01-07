@@ -1,11 +1,8 @@
 from django.db.models import Q
 
 import structlog
-from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.response import Response
-
-from posthog.schema import ProductKey
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -31,7 +28,6 @@ class ErrorTrackingStackFrameSerializer(serializers.ModelSerializer):
         return obj.raw_id + "/" + str(obj.part)
 
 
-@extend_schema(tags=[ProductKey.ERROR_TRACKING])
 class ErrorTrackingStackFrameViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ReadOnlyModelViewSet):
     scope_object = "INTERNAL"
     queryset = ErrorTrackingStackFrame.objects.all()

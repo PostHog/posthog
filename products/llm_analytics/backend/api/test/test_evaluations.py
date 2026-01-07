@@ -58,7 +58,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
         assert evaluation_config is not None
         assert evaluation_config.name == "Test Evaluation"
         assert evaluation_config.description == "Test Description"
-        assert evaluation_config.enabled
+        assert evaluation_config.enabled == True
         assert evaluation_config.evaluation_type == "llm_judge"
         assert evaluation_config.evaluation_config == {"prompt": "Test prompt"}
         assert evaluation_config.output_type == "boolean"
@@ -67,7 +67,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
         assert evaluation_config.conditions[0]["id"] == "test-condition"
         assert evaluation_config.team == self.team
         assert evaluation_config.created_by == self.user
-        assert not evaluation_config.deleted
+        assert evaluation_config.deleted == False
 
     def test_can_retrieve_list_of_evaluation_configs(self):
         Evaluation.objects.create(
@@ -115,7 +115,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.data["name"] == "Test Evaluation"
         assert response.data["description"] == "Test Description"
-        assert response.data["enabled"]
+        assert response.data["enabled"] == True
         assert response.data["evaluation_type"] == "llm_judge"
         assert response.data["evaluation_config"] == {"prompt": "Test prompt"}
 
@@ -144,7 +144,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
         evaluation_config.refresh_from_db()
         assert evaluation_config.name == "Updated Name"
         assert evaluation_config.description == "Updated Description"
-        assert not evaluation_config.enabled
+        assert evaluation_config.enabled == False
         assert evaluation_config.evaluation_config == {"prompt": "Updated prompt"}
 
     def test_delete_method_returns_405(self):

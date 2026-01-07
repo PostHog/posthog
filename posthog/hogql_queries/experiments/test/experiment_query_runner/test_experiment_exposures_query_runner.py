@@ -26,7 +26,6 @@ from posthog.models.action.action import Action
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
 from posthog.test.test_journeys import journeys_for
-import pytest
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -1510,11 +1509,11 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # Expected should be calculated from 100 total (excluding disabled)
         # Not 101 total (including disabled)
-        assert result.expected["control"] == pytest.approx(50.0, abs=1e-1)
-        assert result.expected["test"] == pytest.approx(50.0, abs=1e-1)
+        self.assertAlmostEqual(result.expected["control"], 50.0, places=1)
+        self.assertAlmostEqual(result.expected["test"], 50.0, places=1)
 
         # P-value should be 1.0 (perfect match after excluding disabled)
-        assert result.p_value == pytest.approx(1.0, abs=1e-2)
+        self.assertAlmostEqual(result.p_value, 1.0, places=2)
 
     def test_srm_handles_variant_with_zero_exposures_missing_from_total(self):
         """
@@ -1582,9 +1581,9 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert "variant_c" in result.expected
 
         # Expected should be based on 150 total (80+70+0) distributed by rollout %
-        assert result.expected["control"] == pytest.approx(150 * 0.45, abs=1e-1)  # 67.5
-        assert result.expected["test"] == pytest.approx(150 * 0.45, abs=1e-1)  # 67.5
-        assert result.expected["variant_c"] == pytest.approx(150 * 0.10, abs=1e-1)  # 15.0
+        self.assertAlmostEqual(result.expected["control"], 150 * 0.45, places=1)  # 67.5
+        self.assertAlmostEqual(result.expected["test"], 150 * 0.45, places=1)  # 67.5
+        self.assertAlmostEqual(result.expected["variant_c"], 150 * 0.10, places=1)  # 15.0
 
         # Should detect mismatch since variant_c has 0 observed but 15 expected
         assert result.p_value < 0.01

@@ -18,8 +18,8 @@ class TestPerson(BaseTest):
     def test_person_is_identified(self):
         person_identified = Person.objects.create(team=self.team, is_identified=True)
         person_anonymous = Person.objects.create(team=self.team)
-        assert person_identified.is_identified
-        assert not person_anonymous.is_identified
+        assert person_identified.is_identified == True
+        assert person_anonymous.is_identified == False
 
     def test_delete_person(self):
         person = Person.objects.create(

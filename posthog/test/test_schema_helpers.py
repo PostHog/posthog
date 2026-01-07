@@ -117,7 +117,7 @@ class TestSchemaHelpers(TestCase):
     def _assert_filter(self, key: str, num_keys: int, q1: BaseModel, q2: BaseModel):
         assert to_dict(q1) == to_dict(q2)
         if num_keys == 0:
-            assert key not in to_dict(q1)
+            assert (key in to_dict(q1)) == False
         else:
             assert num_keys == len(to_dict(q1)[key].keys())
 

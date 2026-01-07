@@ -1,10 +1,7 @@
-from collections.abc import Iterable
 from typing import Any, Literal, Optional, Union, cast
 
-from posthog.test.base import APIBaseTest, BaseTest, _create_event, cleanup_materialized_columns
+from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
-
-from parameterized import parameterized
 
 from posthog.schema import EmptyPropertyFilter, HogQLPropertyFilter, RetentionEntity
 
@@ -19,7 +16,6 @@ from posthog.hogql.property import (
     selector_to_expr,
     tag_name_to_expr,
 )
-from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.visitor import clear_locations
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, PropertyOperatorType
@@ -29,8 +25,6 @@ from posthog.models.property_definition import PropertyType
 
 from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseJoin, DataWarehouseTable
 import pytest
-
-from ee.clickhouse.materialized_columns.columns import materialize
 
 elements_chain_match = lambda x: parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=str(x))})
 elements_chain_imatch = lambda x: parse_expr("elements_chain =~* {regex}", {"regex": ast.Constant(value=str(x))})
@@ -60,11 +54,11 @@ class TestProperty(BaseTest):
         return clear_locations(parse_expr(expr, placeholders=placeholders))
 
     def test_has_aggregation(self):
-        assert not has_aggregation(self._parse_expr("properties.a = 'b'"))
-        assert not has_aggregation(self._parse_expr("if(1,2,3)"))
-        assert has_aggregation(self._parse_expr("if(1,2,avg(3))"))
-        assert has_aggregation(self._parse_expr("count()"))
-        assert has_aggregation(self._parse_expr("sum(properties.bla)"))
+        assert has_aggregation(self._parse_expr("properties.a = 'b'")) == False
+        assert has_aggregation(self._parse_expr("if(1,2,3)")) == False
+        assert has_aggregation(self._parse_expr("if(1,2,avg(3))")) == True
+        assert has_aggregation(self._parse_expr("count()")) == True
+        assert has_aggregation(self._parse_expr("sum(properties.bla)")) == True
 
     def test_property_to_expr_hogql(self):
         assert self._property_to_expr({"type": "hogql", "key": "1"}) == ast.Constant(value=1)
@@ -74,7 +68,7 @@ class TestProperty(BaseTest):
     def test_property_to_expr_group(self):
         assert self._property_to_expr({"type": "group", "group_type_index": 0, "key": "a", "value": "b"}) == self._parse_expr("group_0.properties.a = 'b'")
         assert self._property_to_expr({"type": "group", "group_type_index": 3, "key": "a", "value": "b"}) == self._parse_expr("group_3.properties.a = 'b'")
-        assert self._parse_expr("group_0.properties.a = NULL") == self._property_to_expr({"type": "group", "group_type_index": 0, "key": "a", "value": "b", "operator": "is_not_set"})
+        assert self._parse_expr("group_0.properties.a = NULL OR (NOT JSONHas(group_0.properties, 'a'))") == self._property_to_expr({"type": "group", "group_type_index": 0, "key": "a", "value": "b", "operator": "is_not_set"})
         assert self._property_to_expr(Property(type="group", group_type_index=0, key="a", value=["b", "c"])) == self._parse_expr("group_0.properties.a in ('b', 'c')")
 
         # Missing group_type_index
@@ -101,7 +95,7 @@ class TestProperty(BaseTest):
         assert self._property_to_expr({"key": "a", "value": "b"}) == self._parse_expr("properties.a = 'b'")
         assert self._property_to_expr({"type": "event", "key": "a", "value": "b"}) == self._parse_expr("properties.a = 'b'")
         assert self._property_to_expr({"type": "event", "key": "a", "value": "b", "operator": "is_set"}) == self._parse_expr("properties.a != NULL")
-        assert self._parse_expr("properties.a = NULL") == self._property_to_expr({"type": "event", "key": "a", "value": "b", "operator": "is_not_set"})
+        assert self._parse_expr("properties.a = NULL OR (NOT JSONHas(properties, 'a'))") == self._property_to_expr({"type": "event", "key": "a", "value": "b", "operator": "is_not_set"})
         assert self._property_to_expr({"type": "event", "key": "a", "value": "b", "operator": "exact"}) == self._parse_expr("properties.a = 'b'")
         assert self._property_to_expr({"type": "event", "key": "a", "value": "b", "operator": "is_not"}) == self._parse_expr("properties.a != 'b'")
         assert self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "gt"}) == self._parse_expr("properties.a > '3'")
@@ -113,9 +107,20 @@ class TestProperty(BaseTest):
         assert self._property_to_expr({"type": "event", "key": "a", "value": ".*", "operator": "regex"}) == self._parse_expr("ifNull(match(toString(properties.a), '.*'), 0)")
         assert self._property_to_expr({"type": "event", "key": "a", "value": ".*", "operator": "not_regex"}) == self._parse_expr("ifNull(not(match(toString(properties.a), '.*')), true)")
         assert self._property_to_expr({"type": "event", "key": "a", "value": [], "operator": "exact"}) == self._parse_expr("true")
-        assert self._parse_expr("1") == self._property_to_expr({"type": "event", "key": "a", "operator": "icontains"}, strict=False)
-        assert self._parse_expr("1") == self._property_to_expr({}, strict=False)
-        assert self._parse_expr("1") == self._property_to_expr(EmptyPropertyFilter())
+        self.assertEqual(
+            self._parse_expr("1"),
+            self._property_to_expr(
+                {"type": "event", "key": "a", "operator": "icontains"}, strict=False
+            ),  # value missing
+        )
+        self.assertEqual(
+            self._parse_expr("1"),
+            self._property_to_expr({}, strict=False),  # incomplete event
+        )
+        self.assertEqual(
+            self._parse_expr("1"),
+            self._property_to_expr(EmptyPropertyFilter()),  # type: ignore
+        )
 
     def test_property_to_expr_boolean(self):
         PropertyDefinition.objects.create(
@@ -133,12 +138,15 @@ class TestProperty(BaseTest):
         assert self._property_to_expr({"type": "event", "key": "boolean_prop", "value": "true"}, team=self.team) == self._parse_expr("properties.boolean_prop = true")
         assert self._property_to_expr({"type": "event", "key": "string_prop", "value": "true"}, team=self.team) == self._parse_expr("properties.string_prop = 'true'")
         assert self._property_to_expr({"type": "event", "key": "boolean_prop", "value": "false"}, team=self.team) == self._parse_expr("properties.boolean_prop = false")
-        assert self._property_to_expr(
+        self.assertEqual(
+            self._property_to_expr(
                 {"type": "event", "key": "unknown_prop", "value": "true"},
                 team=self.team,
-            ) == self._parse_expr(
+            ),
+            self._parse_expr(
                 "properties.unknown_prop = 'true'"  # We don't have a type for unknown_prop, so string comparison it is
-            )
+            ),
+        )
         # Python boolean True (not string "true") should also work
         assert self._property_to_expr({"type": "event", "key": "boolean_prop", "value": True}, team=self.team) == self._parse_expr("properties.boolean_prop = true")
         assert self._property_to_expr({"type": "event", "key": "string_prop", "value": True}, team=self.team) == self._parse_expr("properties.string_prop = 'true'")
@@ -152,7 +160,7 @@ class TestProperty(BaseTest):
         a = self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "regex"})
         assert a == self._parse_expr("ifNull(match(toString(properties.a), 'b'), 0) or ifNull(match(toString(properties.a), 'c'), 0)")
         # Want to make sure this returns 0, not false. Clickhouse uses UInt8s primarily for booleans.
-        assert 0 == a.exprs[1].args[1].value
+        assert 0 is a.exprs[1].args[1].value
         # negative
         assert self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "is_not"}) == self._parse_expr("properties.a not in ('b', 'c')")
         assert self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "not_icontains"}) == self._parse_expr("toString(properties.a) not ilike '%b%' and toString(properties.a) not ilike '%c%'")
@@ -165,7 +173,7 @@ class TestProperty(BaseTest):
             }
         )
         assert a == self._parse_expr("ifNull(not(match(toString(properties.a), 'b')), 1) and ifNull(not(match(toString(properties.a), 'c')), 1)")
-        assert 1 == a.exprs[1].args[1].value
+        assert 1 is a.exprs[1].args[1].value
 
     def test_property_to_expr_feature(self):
         assert self._property_to_expr({"type": "event", "key": "a", "value": "b", "operator": "exact"}) == self._parse_expr("properties.a = 'b'")
@@ -516,155 +524,3 @@ class TestProperty(BaseTest):
 
         # Test MAX with person properties
         assert self._property_to_expr({"type": "person", "key": "score", "operator": "max", "value": 100}) == self._parse_expr("person.properties.score <= 100")
-
-
-class TestPropertyIsSetIsNotSetWithData(APIBaseTest):
-    # Sentinel to indicate a property should not be included in the event
-    NOT_SET: Any = object()
-
-    # Expected is_set value can be True, False, or a callable(is_materialized) -> bool
-    # When materialized, empty string and "null" string become NULL due to nullIf wrapping
-    # (this is a long-standing bug, and it's ok to change these tests if you fix it!)
-    ONLY_WHEN_NOT_MATERIALIZED = staticmethod(lambda m: not m)
-
-    def setUp(self):
-        super().setUp()
-        self.event_name = "test_is_set_event"
-
-        # (property_name, value, property_type, expected_is_set)
-        # expected_is_set: True, False, or callable(is_materialized) -> bool
-        self.test_cases: list[tuple[str, Any, PropertyType, Any]] = [
-            # String type: value, empty, "null" literal, null, not set
-            ("string_value_prop", "hello", PropertyType.String, True),
-            ("string_empty_prop", "", PropertyType.String, self.ONLY_WHEN_NOT_MATERIALIZED),
-            ("string_null_literal_prop", "null", PropertyType.String, self.ONLY_WHEN_NOT_MATERIALIZED),
-            ("string_null_prop", None, PropertyType.String, False),
-            ("string_not_set_prop", self.NOT_SET, PropertyType.String, False),
-            # Numeric type: zero, non-zero int, non-zero float, string values, null, not set
-            # Type coercion converts invalid strings to NULL
-            ("numeric_zero_prop", 0, PropertyType.Numeric, True),
-            ("numeric_int_prop", 42, PropertyType.Numeric, True),
-            ("numeric_float_prop", 3.14, PropertyType.Numeric, True),
-            ("numeric_string_valid_prop", "42", PropertyType.Numeric, True),
-            ("numeric_string_invalid_prop", "invalid_number", PropertyType.Numeric, False),
-            ("numeric_string_empty_prop", "", PropertyType.Numeric, False),
-            ("numeric_null_prop", None, PropertyType.Numeric, False),
-            ("numeric_not_set_prop", self.NOT_SET, PropertyType.Numeric, False),
-            # Boolean type: true, false, string variants, invalid, null, not set
-            # Only lowercase "true"/"false" strings are recognized
-            ("bool_true_prop", True, PropertyType.Boolean, True),
-            ("bool_false_prop", False, PropertyType.Boolean, True),
-            ("bool_string_true_lower_prop", "true", PropertyType.Boolean, True),
-            ("bool_string_true_title_prop", "True", PropertyType.Boolean, False),
-            ("bool_string_true_upper_prop", "TRUE", PropertyType.Boolean, False),
-            ("bool_string_false_lower_prop", "false", PropertyType.Boolean, True),
-            ("bool_string_invalid_prop", "invalid_bool", PropertyType.Boolean, False),
-            ("bool_string_empty_prop", "", PropertyType.Boolean, False),
-            ("bool_null_prop", None, PropertyType.Boolean, False),
-            ("bool_not_set_prop", self.NOT_SET, PropertyType.Boolean, False),
-        ]
-
-        # Create PropertyDefinitions for each property
-        for prop_name, _, prop_type, _ in self.test_cases:
-            PropertyDefinition.objects.create(
-                team=self.team,
-                name=prop_name,
-                type=PropertyDefinition.Type.EVENT,
-                property_type=prop_type,
-            )
-
-        # Create a single event with all properties (except NOT_SET ones)
-        properties = {prop_name: value for prop_name, value, _, _ in self.test_cases if value is not self.NOT_SET}
-
-        _create_event(
-            team=self.team,
-            event=self.event_name,
-            distinct_id="test_user",
-            properties=properties,
-        )
-
-    def _expected_is_set_values(self, is_materialized: bool) -> dict[str, int]:
-        result = {}
-        for prop_name, _, _, expected in self.test_cases:
-            if callable(expected):
-                result[prop_name] = 1 if expected(is_materialized) else 0
-            else:
-                result[prop_name] = 1 if expected else 0
-        return result
-
-    def _expected_is_not_set_values(self, is_materialized: bool) -> dict[str, int]:
-        return {k: 1 - v for k, v in self._expected_is_set_values(is_materialized).items()}
-
-    @parameterized.expand([("not_materialized", False), ("materialized", True)])
-    def test_is_set_operator(self, _name: str, is_materialized: bool):
-        if is_materialized:
-            self.addCleanup(cleanup_materialized_columns)
-            for prop_name, _, _, _ in self.test_cases:
-                materialize("events", prop_name)
-
-        select_exprs: list[ast.Expr] = [
-            ast.Alias(
-                alias=prop_name,
-                expr=property_to_expr(
-                    {"type": "event", "key": prop_name, "operator": "is_set"},
-                    team=self.team,
-                    scope="event",
-                ),
-            )
-            for prop_name, _, _, _ in self.test_cases
-        ]
-
-        query_ast = ast.SelectQuery(
-            select=select_exprs,
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-            where=ast.CompareOperation(
-                op=ast.CompareOperationOp.Eq,
-                left=ast.Field(chain=["event"]),
-                right=ast.Constant(value=self.event_name),
-            ),
-        )
-
-        result = execute_hogql_query(team=self.team, query=query_ast)
-        assert result.columns
-        row: Iterable[Any] = result.results[0]
-        assert row
-        results = dict(zip(result.columns, row))
-
-        assert results == self._expected_is_set_values(is_materialized)
-
-    @parameterized.expand([("not_materialized", False), ("materialized", True)])
-    def test_is_not_set_operator(self, _name: str, is_materialized: bool):
-        if is_materialized:
-            self.addCleanup(cleanup_materialized_columns)
-            for prop_name, _, _, _ in self.test_cases:
-                materialize("events", prop_name)
-
-        select_exprs: list[ast.Expr] = [
-            ast.Alias(
-                alias=prop_name,
-                expr=property_to_expr(
-                    {"type": "event", "key": prop_name, "operator": "is_not_set"},
-                    team=self.team,
-                    scope="event",
-                ),
-            )
-            for prop_name, _, _, _ in self.test_cases
-        ]
-
-        query_ast = ast.SelectQuery(
-            select=select_exprs,
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-            where=ast.CompareOperation(
-                op=ast.CompareOperationOp.Eq,
-                left=ast.Field(chain=["event"]),
-                right=ast.Constant(value=self.event_name),
-            ),
-        )
-
-        result = execute_hogql_query(team=self.team, query=query_ast)
-        assert result.columns
-        row: Iterable[Any] = result.results[0]
-        assert row
-        results = dict(zip(result.columns, row))
-
-        assert results == self._expected_is_not_set_values(is_materialized)

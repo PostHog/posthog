@@ -1,1 +1,1 @@
-0002_customer_profile_config
+0001_team_customer_analytics_config

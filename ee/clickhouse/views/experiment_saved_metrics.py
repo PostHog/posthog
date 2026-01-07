@@ -22,9 +22,6 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.experiment import ExperimentSavedMetric, ExperimentToSavedMetric
 from posthog.models.signals import model_activity_signal, mutable_receiver
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
-
-from ee.api.rbac.access_control import AccessControlViewSetMixin
 
 
 class ExperimentToSavedMetricSerializer(serializers.ModelSerializer):
@@ -48,9 +45,7 @@ class ExperimentToSavedMetricSerializer(serializers.ModelSerializer):
         ]
 
 
-class ExperimentSavedMetricSerializer(
-    UserAccessControlSerializerMixin, TaggedItemSerializerMixin, serializers.ModelSerializer
-):
+class ExperimentSavedMetricSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
@@ -64,14 +59,12 @@ class ExperimentSavedMetricSerializer(
             "created_at",
             "updated_at",
             "tags",
-            "user_access_level",
         ]
         read_only_fields = [
             "id",
             "created_by",
             "created_at",
             "updated_at",
-            "user_access_level",
         ]
 
     def validate_query(self, value):
@@ -118,8 +111,8 @@ class ExperimentSavedMetricSerializer(
         return super().create(validated_data)
 
 
-class ExperimentSavedMetricViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "experiment_saved_metric"
+class ExperimentSavedMetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object = "experiment"
     queryset = ExperimentSavedMetric.objects.prefetch_related("created_by").order_by(Lower("name")).all()
     serializer_class = ExperimentSavedMetricSerializer
 

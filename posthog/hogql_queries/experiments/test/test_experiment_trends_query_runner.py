@@ -2425,7 +2425,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         result = query_runner.calculate()
         trend_result = cast(ExperimentTrendsQueryResponse, result)
 
-        assert not trend_result.significant
+        assert trend_result.significant == False
         assert trend_result.significance_code == ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE
         assert trend_result.p_value == 1.0
 
@@ -2438,7 +2438,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         test_insight = next(variant for variant in trend_result.insight if variant["breakdown_value"] == "test")
 
         assert control_result.count == 100
-        assert test_result.count == pytest.approx(205)
+        self.assertAlmostEqual(test_result.count, 205)
         assert control_result.absolute_exposure == 1
         assert test_result.absolute_exposure == 3
 
@@ -2542,15 +2542,15 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert control_variant.absolute_exposure == 2
         assert test_variant.absolute_exposure == 2
 
-        assert result.credible_intervals["control"][0] == pytest.approx(0.3633, abs=0.1)
-        assert result.credible_intervals["control"][1] == pytest.approx(2.9224, abs=0.1)
-        assert result.credible_intervals["test"][0] == pytest.approx(0.7339, abs=0.1)
-        assert result.credible_intervals["test"][1] == pytest.approx(3.8894, abs=0.1)
+        self.assertAlmostEqual(result.credible_intervals["control"][0], 0.3633, delta=0.1)
+        self.assertAlmostEqual(result.credible_intervals["control"][1], 2.9224, delta=0.1)
+        self.assertAlmostEqual(result.credible_intervals["test"][0], 0.7339, delta=0.1)
+        self.assertAlmostEqual(result.credible_intervals["test"][1], 3.8894, delta=0.1)
 
-        assert result.p_value == pytest.approx(1.0, abs=0.1)
+        self.assertAlmostEqual(result.p_value, 1.0, delta=0.1)
 
-        assert result.probability["control"] == pytest.approx(0.2549, abs=0.1)
-        assert result.probability["test"] == pytest.approx(0.7453, abs=0.1)
+        self.assertAlmostEqual(result.probability["control"], 0.2549, delta=0.1)
+        self.assertAlmostEqual(result.probability["test"], 0.7453, delta=0.1)
 
         assert result.significance_code == ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE
 

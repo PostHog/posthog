@@ -503,7 +503,7 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response = EventTaxonomyQueryRunner(team=self.team, query=EventTaxonomyQuery(actionId=action.id)).calculate()
         assert len(response.results) == 2
-        assert [item.property for item in response.results] == ["ai", "dashboard"]
+        self.assertListEqual([item.property for item in response.results], ["ai", "dashboard"])
 
     @snapshot_clickhouse_queries
     def test_property_taxonomy_handles_numeric_property_values(self):

@@ -1,5 +1,4 @@
 import json
-import re
 import urllib.parse
 from datetime import datetime
 from typing import Any
@@ -718,7 +717,10 @@ class TestBillingAPI(APILicensedTest):
         res = self.client.get("/api/billing")
         assert res.status_code == 200
         self.organization.refresh_from_db()
-        assert self.organization.usage == create_usage_summary(events={"usage": 1000, "limit": None, "todays_usage": 0})
+        TestCase().assertDictEqual(
+            self.organization.usage,
+            create_usage_summary(events={"usage": 1000, "limit": None, "todays_usage": 0}),
+        )
 
         self.organization.usage = {"events": {"limit": None, "usage": 1000, "todays_usage": 1100000}}
         self.organization.save()
@@ -1057,7 +1059,7 @@ class TestCouponClaimBillingAPI(APILicensedTest):
         response = self.client.post(self.url, self.data)
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["success"]
+        assert response.json()["success"] == True
         assert response.json()["code"] == "TEST-CODE-123"
         mock_claim_coupon.assert_called_once_with(self.organization, {"code": "TEST-CODE-123"})
 

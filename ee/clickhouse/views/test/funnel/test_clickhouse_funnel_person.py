@@ -149,7 +149,7 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
         people = j["results"][0]["people"]
         next = j["next"]
         assert 100 == len(people)
-        assert None is not next
+        assert None != next
 
         response = self.client.get(next)
         assert response.status_code == status.HTTP_200_OK
@@ -157,7 +157,7 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
         people = j["results"][0]["people"]
         next = j["next"]
         assert 10 == len(people)
-        assert None is j["next"]
+        assert None == j["next"]
 
     def test_breakdown_basic_pagination(self):
         cache.clear()
@@ -198,7 +198,7 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
         people = j["results"][0]["people"]
         next = j["next"]
         assert 10 == len(people)
-        assert None is j["next"]
+        assert None == j["next"]
 
     @patch("posthog.models.person.util.delete_person")
     def test_basic_pagination_with_deleted(self, delete_person_patch):
@@ -327,7 +327,7 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
 
         people = j["results"][0]["people"]
         assert 1 == len(people)
-        assert None is j["next"]
+        assert None == j["next"]
 
         response = self.client.get(
             "/api/person/funnel/",
@@ -338,7 +338,7 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
 
         people = j["results"][0]["people"]
         assert 2 == len(people)
-        assert None is j["next"]
+        assert None == j["next"]
 
 
 class TestFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
@@ -406,7 +406,7 @@ class TestFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
         people = j["results"][0]["people"]
         next = j["next"]
         assert 4 == len(people)
-        assert None is not next
+        assert None != next
 
         response = self.client.get(next)
         assert response.status_code == status.HTTP_200_OK
@@ -414,4 +414,4 @@ class TestFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
         people = j["results"][0]["people"]
         next = j["next"]
         assert 2 == len(people)
-        assert None is j["next"]
+        assert None == j["next"]

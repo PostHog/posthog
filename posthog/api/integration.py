@@ -9,7 +9,6 @@ from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
 
-from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -170,7 +169,6 @@ class IntegrationSerializer(serializers.ModelSerializer):
         raise ValidationError("Kind not supported")
 
 
-@extend_schema(tags=["core"])
 class IntegrationViewSet(
     TeamAndOrgViewSetMixin,
     mixins.CreateModelMixin,

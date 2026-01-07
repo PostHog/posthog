@@ -417,7 +417,9 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
             assert len(results) == 1
 
-            assert results[0].total == {
+            self.assertEqual(
+                results[0].total,
+                {
                     "label": "stripe.posthog_test",
                     # May 1st because we use end of interval
                     "days": ["2025-02-28", "2025-03-31", "2025-04-30", "2025-05-01"],
@@ -431,7 +433,8 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     "breakdown": {"property": "stripe.posthog_test", "kind": None},
                     "action": {"days": [ANY] * 4, "id": "stripe.posthog_test", "name": "stripe.posthog_test"},
-                }
+                },
+            )
 
     def test_with_data_and_date_range_for_daily_interval(self):
         results = self._run_revenue_analytics_mrr_query(

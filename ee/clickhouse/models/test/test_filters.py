@@ -487,7 +487,7 @@ class TestFiltering(ClickhouseTestMixin, property_to_Q_test_factory(_filter_pers
         )
         filter = Filter(data={"properties": {"$current_url__not_icontains": "whatever.com"}})
         events = _filter_events(filter, self.team)
-        assert sorted([event["id"] for event in events]) == sorted([event1_uuid, event2_uuid, event3_uuid])
+        self.assertCountEqual([event["id"] for event in events], [event1_uuid, event2_uuid, event3_uuid])
         assert len(events) == 3
 
     def test_multiple(self):

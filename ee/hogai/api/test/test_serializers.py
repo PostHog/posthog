@@ -75,7 +75,7 @@ class TestConversationSerializers(APIBaseTest):
             assert filtered_messages[1]["ui_payload"] == {"some": "data"}
 
             # Third message should be the AssistantToolCallMessage without UI payload
-            assert filtered_messages[2]["ui_payload"] is None
+            assert filtered_messages[2]["ui_payload"] == None
 
     def test_get_messages_handles_validation_errors_and_sets_unsupported_content(self):
         """Gracefully fall back to an empty list when the stored state fails validation, and set has_unsupported_content."""

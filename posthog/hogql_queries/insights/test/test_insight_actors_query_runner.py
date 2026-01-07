@@ -356,7 +356,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             modifiers={"personsArgMaxVersion": PersonsArgMaxVersion.V2},
         )
 
-        assert sorted(["p1", "p2", "p3"]) == sorted([x[0] for x in response.results])
+        self.assertCountEqual(["p1", "p2", "p3"], [x[0] for x in response.results])
 
     @snapshot_clickhouse_queries
     def test_insight_persons_trends_groups_query(self):

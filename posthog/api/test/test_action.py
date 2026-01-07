@@ -268,7 +268,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             headers={"origin": "https://somewebsite.com"},
         )
         assert response.status_code == 201
-        assert response.json()["post_to_slack"]
+        assert response.json()["post_to_slack"] == True
 
         list_response = self.client.get(
             f"/api/projects/{self.team.id}/actions/", headers={"origin": "https://evilwebsite.com"}

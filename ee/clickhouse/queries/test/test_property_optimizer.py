@@ -189,7 +189,9 @@ class TestPersonPushdown(unittest.TestCase):
 
         assert inner.to_dict() == {"type": "AND", "values": [{"type": "AND", "values": [{"key": "person_prop", "value": "efg", "type": "person"}]}]}
 
-        assert outer.to_dict() == {
+        self.assertEqual(
+            outer.to_dict(),
+            {
                 "type": "AND",
                 "values": [
                     {
@@ -215,7 +217,8 @@ class TestPersonPushdown(unittest.TestCase):
                         ],
                     },
                 ],
-            }
+            },
+        )
 
     def test_person_properties_with_or_not_mixed_with_event_properties(self):
         filter = BASE_FILTER.shallow_clone(
@@ -267,7 +270,9 @@ class TestPersonPushdown(unittest.TestCase):
 
         assert inner.to_dict() == {"type": "AND", "values": [{"type": "OR", "values": [{"key": "person_prop2", "value": ["foo2", "bar2"], "type": "person"}, {"key": "person_prop2", "value": "efg2", "type": "person"}]}, {"type": "AND", "values": [{"key": "person_prop", "value": "efg", "type": "person"}]}]}
 
-        assert outer.to_dict() == {
+        self.assertEqual(
+            outer.to_dict(),
+            {
                 "type": "AND",
                 "values": [
                     #  OR group was pushed down, so not here anymore
@@ -283,7 +288,8 @@ class TestPersonPushdown(unittest.TestCase):
                         ],
                     }
                 ],
-            }
+            },
+        )
 
     def test_person_properties_mixed_with_event_properties_with_misdirection_using_nested_groups(self):
         filter = BASE_FILTER.shallow_clone(
@@ -380,7 +386,9 @@ class TestPersonPushdown(unittest.TestCase):
 
         assert inner.to_dict() == {"type": "AND", "values": [{"type": "AND", "values": [{"type": "OR", "values": [{"type": "AND", "values": [{"type": "OR", "values": [{"key": "person_prop", "value": "efg", "type": "person"}]}]}]}]}]}
 
-        assert outer.to_dict() == {
+        self.assertEqual(
+            outer.to_dict(),
+            {
                 "type": "AND",
                 "values": [
                     {
@@ -444,7 +452,8 @@ class TestPersonPushdown(unittest.TestCase):
                         ],
                     },
                 ],
-            }
+            },
+        )
 
 
 # TODO: add macobo-groups in mixture to tests as well

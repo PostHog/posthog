@@ -9,9 +9,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 
-import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { AccessControlLevel, ActivityScope } from '~/types'
-import type { UserBasicType } from '~/types'
+import { UserBasicType } from '~/types'
 
 import { getDefaultFunnelMetric } from '../utils'
 import type { sharedMetricLogicType } from './sharedMetricLogicType'
@@ -32,7 +30,6 @@ export interface SharedMetric {
     updated_at: string | null
     tags: string[]
     metadata?: Record<string, any>
-    user_access_level: AccessControlLevel
 }
 
 export const NEW_SHARED_METRIC: Partial<SharedMetric> = {
@@ -40,7 +37,6 @@ export const NEW_SHARED_METRIC: Partial<SharedMetric> = {
     description: '',
     query: undefined,
     tags: [],
-    user_access_level: AccessControlLevel.Editor,
 }
 
 export const sharedMetricLogic = kea<sharedMetricLogicType>([
@@ -153,19 +149,6 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
                 ...NEW_SHARED_METRIC,
                 query: getDefaultFunnelMetric(),
             }),
-        ],
-        [SIDE_PANEL_CONTEXT_KEY]: [
-            (s) => [s.sharedMetric, s.sharedMetricId],
-            (sharedMetric: Partial<SharedMetric>, sharedMetricId: string | number): SidePanelSceneContext | null => {
-                return sharedMetric?.id && sharedMetricId !== 'new'
-                    ? {
-                          activity_scope: ActivityScope.EXPERIMENT,
-                          activity_item_id: `${sharedMetric.id}`,
-                          access_control_resource: 'experiment_saved_metric',
-                          access_control_resource_id: `${sharedMetric.id}`,
-                      }
-                    : null
-            },
         ],
     }),
 

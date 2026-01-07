@@ -30,7 +30,7 @@ class TestFilter(BaseTest):
         assert cast(Property, filter.property_groups.values[0]).value == "IE7"
         assert cast(Property, filter.property_groups.values[0]).type == "event"
         assert cast(Property, filter.property_groups.values[1]).key == "$OS"
-        assert cast(Property, filter.property_groups.values[1]).operator is None
+        assert cast(Property, filter.property_groups.values[1]).operator == None
         assert cast(Property, filter.property_groups.values[1]).value == "Mac"
 
     def test_to_dict(self):
@@ -46,7 +46,9 @@ class TestFilter(BaseTest):
                 "client_query_id": "123",
             }
         )
-        assert sorted(list(filter.to_dict().keys())) == sorted([
+        self.assertCountEqual(
+            list(filter.to_dict().keys()),
+            [
                 "events",
                 "display",
                 "compare",
@@ -58,7 +60,8 @@ class TestFilter(BaseTest):
                 "sampling_factor",
                 "search",
                 "breakdown_normalize_url",
-            ])
+            ],
+        )
 
     def test_simplify_test_accounts(self):
         self.team.test_account_filters = [
@@ -163,7 +166,7 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
                     ]
                 }
             )
-            assert filter.property_groups.values == []
+            self.assertListEqual(filter.property_groups.values, [])
 
         def test_contains_persons(self):
             person_factory(
@@ -216,7 +219,7 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
                 }
             )
             results = filter_persons(filter, self.team)
-            assert sorted(results) == sorted([p1_uuid])
+            self.assertCountEqual(results, [p1_uuid])
 
             filter = Filter(
                 data={
@@ -231,7 +234,7 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
                 }
             )
             results = filter_persons(filter, self.team)
-            assert sorted(results) == sorted([p1_uuid, p2_uuid])
+            self.assertCountEqual(results, [p1_uuid, p2_uuid])
 
         def test_invalid_regex_persons(self):
             person_factory(
@@ -300,7 +303,7 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
                 }
             )
             results = filter_persons(filter, self.team)
-            assert sorted(results) == sorted([p2_uuid])
+            self.assertCountEqual(results, [p2_uuid])
 
         def test_does_not_contain_persons(self):
             person_factory(
@@ -331,7 +334,7 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
                 }
             )
             results = filter_persons(filter, self.team)
-            assert sorted(results) == sorted([p2_uuid, p3_uuid, p4_uuid])
+            self.assertCountEqual(results, [p2_uuid, p3_uuid, p4_uuid])
 
         def test_multiple_persons(self):
             p1_uuid = str(
@@ -361,7 +364,7 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
                 }
             )
             results = filter_persons(filter, self.team)
-            assert sorted(results) == sorted([p1_uuid])
+            self.assertCountEqual(results, [p1_uuid])
 
         def test_boolean_filters_persons(self):
             p1_uuid = str(

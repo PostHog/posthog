@@ -736,7 +736,8 @@ class CSPMiddleware:
 
         is_admin_view = request.path.startswith("/admin/")
         if is_admin_view:
-            django_loginas_inline_script_hash = "sha256-2bSkJXtgXFhxZUhgXzWsEsKImxJEQsqjns0vi3KiSrI="
+            # TODO replace with django-loginas `LOGINAS_CSP_FRIENDLY` setting once 0.3.12 is released (https://github.com/skorokithakis/django-loginas/issues/111)
+            django_loginas_inline_script_hash = "sha256-YS9p0l7SQLkAEtvGFGffDcYHRcUBpPzMcbSQe1lRuLc="
             csp_parts = [
                 "default-src 'self'",
                 "style-src 'self' 'unsafe-inline'",

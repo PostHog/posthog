@@ -14,7 +14,6 @@ from rest_framework.response import Response
 from statshog.defaults.django import statsd
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import TemporaryTokenAuthentication
 from posthog.models import UploadedMedia
 from posthog.models.uploaded_media import ObjectStorageUnavailable
 from posthog.storage import object_storage
@@ -82,7 +81,6 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "INTERNAL"
     queryset = UploadedMedia.objects.all()
     parser_classes = (MultiPartParser, FormParser)
-    authentication_classes = [TemporaryTokenAuthentication]
 
     @extend_schema(
         description="""

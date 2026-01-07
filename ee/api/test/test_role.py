@@ -75,7 +75,7 @@ class TestRoleAPI(APILicensedTest):
         other_org = Organization.objects.create(name="other org")
         Role.objects.create(name="Marketing", organization=other_org)
         assert Role.objects.count() == 2
-        assert Role.objects.filter(organization=other_org).exists()
+        assert Role.objects.filter(organization=other_org).exists() == True
         with pytest.raises(IntegrityError):
             Role.objects.create(name="Marketing", organization=self.organization)
 

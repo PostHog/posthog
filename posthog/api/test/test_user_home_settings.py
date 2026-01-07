@@ -58,12 +58,12 @@ class TestUserHomeSettingsAPI(APIBaseTest):
         assert len(stored.tabs) == 1
         stored_tab = cast(dict[str, Any], stored.tabs[0])
         assert stored_tab["id"] == "tab-1"
-        assert stored_tab["pinned"]
+        assert stored_tab["pinned"] == True
         assert "active" not in stored_tab
         assert stored.homepage is not None
         homepage = cast(dict[str, Any], stored.homepage)
         assert homepage["id"] == "home-1"
-        assert homepage["pinned"]
+        assert homepage["pinned"] == True
 
         assert not UserHomeSettings.objects.filter(user=None, team=self.team).exists()
 

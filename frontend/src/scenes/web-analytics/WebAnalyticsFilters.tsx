@@ -28,7 +28,6 @@ import { PropertyMathType } from '~/types'
 
 import { PathCleaningToggle } from './PathCleaningToggle'
 import { TableSortingIndicator } from './TableSortingIndicator'
-import { FilterPresetsDropdown } from './WebAnalyticsFilterPresets'
 import { WebConversionGoal } from './WebConversionGoal'
 import {
     WEB_ANALYTICS_PROPERTY_ALLOW_LIST,
@@ -36,11 +35,9 @@ import {
     getWebAnalyticsTaxonomicGroupTypes,
 } from './WebPropertyFilters'
 import { ProductTab } from './common'
-import { webAnalyticsFilterPresetsLogic } from './webAnalyticsFilterPresetsLogic'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 
 const CondensedWebAnalyticsFilterBar = ({ tabs }: { tabs: JSX.Element }): JSX.Element => {
-    const { featureFlags } = useValues(featureFlagLogic)
     const {
         dateFilter: { dateTo, dateFrom },
         isPathCleaningEnabled,
@@ -61,7 +58,6 @@ const CondensedWebAnalyticsFilterBar = ({ tabs }: { tabs: JSX.Element }): JSX.El
                 <>
                     <ShareButton />
                     <WebVitalsPercentileToggle />
-                    {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTER_PRESETS] && <FilterPresetsDropdown />}
                     <FiltersPopover />
                     <PathCleaningToggle value={isPathCleaningEnabled} onChange={setIsPathCleaningEnabled} />
                     <WebAnalyticsDomainSelector />
@@ -330,17 +326,8 @@ export const WebAnalyticsCompareFilter = (): JSX.Element | null => {
 }
 
 const ShareButton = (): JSX.Element => {
-    const { activePreset } = useValues(webAnalyticsFilterPresetsLogic)
-
     const handleShare = (): void => {
-        const url = new URL(window.location.href)
-
-        if (activePreset) {
-            url.search = ''
-            url.searchParams.set('presetId', activePreset.short_id)
-        }
-
-        void copyToClipboard(url.toString(), 'link')
+        void copyToClipboard(window.location.href, 'link')
     }
 
     return (

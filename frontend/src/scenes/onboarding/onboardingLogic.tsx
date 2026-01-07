@@ -16,25 +16,12 @@ import { Breadcrumb, OnboardingProduct, OnboardingStepKey, SidePanelTab } from '
 import type { onboardingLogicType } from './onboardingLogicType'
 import { availableOnboardingProducts } from './utils'
 
-/** Interface for onboarding step components that have a static stepKey property */
-export interface OnboardingStepComponentType<P = object> extends React.FC<P> {
-    stepKey: OnboardingStepKey
-}
-
-/** A JSX element whose component type is an OnboardingStepComponentType */
-export type OnboardingStepElement = React.ReactElement<unknown, OnboardingStepComponentType>
-
-/** Helper to extract stepKey from a step element's component type */
-const getStepKey = (step: OnboardingStepElement): OnboardingStepKey => {
-    return step.type.stepKey
-}
-
 export interface OnboardingLogicProps {
     onCompleteOnboarding?: (key: ProductKey) => void
 }
 
 const STEP_KEY_TITLE_OVERRIDES: Partial<Record<OnboardingStepKey, string>> = {
-    [OnboardingStepKey.AI_CONSENT]: 'PostHog AI',
+    [OnboardingStepKey.AI_CONSENT]: 'Activate PostHog AI',
     [OnboardingStepKey.LINK_DATA]: 'Import data',
 }
 
@@ -52,9 +39,10 @@ export const stepKeyToTitle = (stepKey?: OnboardingStepKey): undefined | string 
 }
 
 // These types have to be set like this, so that kea typegen is happy
-export type OnboardingStepType = OnboardingStepElement
+export type AllOnboardingSteps = OnboardingStep[]
+export type OnboardingStep = JSX.Element
 
-export const getOnboardingCompleteRedirectUri = (productKey: ProductKey): string => {
+export const getProductUri = (productKey: ProductKey): string => {
     switch (productKey) {
         case ProductKey.PRODUCT_ANALYTICS:
             return urls.insightNew()
@@ -107,7 +95,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
         completeOnboarding: (options?: { redirectUrlOverride?: string }) => ({
             redirectUrlOverride: options?.redirectUrlOverride,
         }),
-        setAllOnboardingSteps: (allOnboardingSteps: OnboardingStepElement[]) => ({ allOnboardingSteps }),
+        setAllOnboardingSteps: (allOnboardingSteps: AllOnboardingSteps) => ({ allOnboardingSteps }),
         setStepKey: (stepKey: OnboardingStepKey) => ({ stepKey }),
         setSubscribedDuringOnboarding: (subscribedDuringOnboarding: boolean) => ({ subscribedDuringOnboarding }),
         setTeamPropertiesForProduct: (productKey: ProductKey) => ({ productKey }),
@@ -132,7 +120,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             },
         ],
         allOnboardingSteps: [
-            [] as OnboardingStepElement[],
+            [] as AllOnboardingSteps,
             {
                 setAllOnboardingSteps: (_, { allOnboardingSteps }) => allOnboardingSteps,
             },
@@ -191,35 +179,35 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 if (onCompleteOnboardingRedirectUrlOverride) {
                     return onCompleteOnboardingRedirectUrlOverride
                 }
-                return productKey ? getOnboardingCompleteRedirectUri(productKey as ProductKey) : urls.default()
+                return productKey ? getProductUri(productKey as ProductKey) : urls.default()
             },
         ],
         totalOnboardingSteps: [
             (s) => [s.allOnboardingSteps],
-            (allOnboardingSteps: OnboardingStepElement[]) => allOnboardingSteps.length,
+            (allOnboardingSteps: AllOnboardingSteps) => allOnboardingSteps.length,
         ],
         onboardingStepKeys: [
             (s) => [s.allOnboardingSteps],
-            (allOnboardingSteps: OnboardingStepElement[]) => {
-                return allOnboardingSteps.map(getStepKey)
+            (allOnboardingSteps: AllOnboardingSteps) => {
+                return allOnboardingSteps.map((step) => step.props.stepKey)
             },
         ],
         currentOnboardingStep: [
             (s) => [s.allOnboardingSteps, s.stepKey],
-            (allOnboardingSteps: OnboardingStepElement[], stepKey: OnboardingStepKey): OnboardingStepType | null =>
-                allOnboardingSteps.find((step) => getStepKey(step) === stepKey) || null,
+            (allOnboardingSteps: AllOnboardingSteps, stepKey: OnboardingStepKey): OnboardingStep | null =>
+                allOnboardingSteps.find((step) => step.props.stepKey === stepKey) || null,
         ],
         hasNextStep: [
             (s) => [s.allOnboardingSteps, s.stepKey],
-            (allOnboardingSteps: OnboardingStepElement[], stepKey: OnboardingStepKey) => {
-                const currentStepIndex = allOnboardingSteps.findIndex((step) => getStepKey(step) === stepKey)
+            (allOnboardingSteps: AllOnboardingSteps, stepKey: OnboardingStepKey) => {
+                const currentStepIndex = allOnboardingSteps.findIndex((step) => step.props.stepKey === stepKey)
                 return currentStepIndex < allOnboardingSteps.length - 1
             },
         ],
         hasPreviousStep: [
             (s) => [s.allOnboardingSteps, s.stepKey],
-            (allOnboardingSteps: OnboardingStepElement[], stepKey: OnboardingStepKey) => {
-                const currentStepIndex = allOnboardingSteps.findIndex((step) => getStepKey(step) === stepKey)
+            (allOnboardingSteps: AllOnboardingSteps, stepKey: OnboardingStepKey) => {
+                const currentStepIndex = allOnboardingSteps.findIndex((step) => step.props.stepKey === stepKey)
                 return currentStepIndex > 0
             },
         ],
@@ -249,11 +237,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
         ],
         isStepKeyInvalid: [
             (s) => [s.stepKey, s.allOnboardingSteps, s.currentOnboardingStep],
-            (
-                stepKey: string,
-                allOnboardingSteps: OnboardingStepElement[],
-                currentOnboardingStep: React.ReactNode | null
-            ) =>
+            (stepKey: string, allOnboardingSteps: AllOnboardingSteps, currentOnboardingStep: React.ReactNode | null) =>
                 (stepKey && allOnboardingSteps.length > 0 && !currentOnboardingStep) ||
                 (!stepKey && allOnboardingSteps.length > 0),
         ],
@@ -354,9 +338,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             }
         },
         resetStepKey: () => {
-            if (values.allOnboardingSteps.length > 0) {
-                actions.setStepKey(getStepKey(values.allOnboardingSteps[0]))
-            }
+            values.allOnboardingSteps[0] && actions.setStepKey(values.allOnboardingSteps[0]?.props.stepKey)
         },
     })),
     actionToUrl(({ actions, values }) => ({
@@ -367,23 +349,27 @@ export const onboardingLogic = kea<onboardingLogicType>([
             return [`/onboarding/${values.productKey}`, router.values.searchParams]
         },
         goToNextStep: ({ numStepsToAdvance }) => {
-            const currentStepIndex = values.allOnboardingSteps.findIndex((step) => getStepKey(step) === values.stepKey)
+            const currentStepIndex = values.allOnboardingSteps.findIndex(
+                (step) => step.props.stepKey === values.stepKey
+            )
             const nextStep = values.allOnboardingSteps[currentStepIndex + (numStepsToAdvance || 1)]
             if (nextStep) {
                 return [
                     `/onboarding/${values.productKey}`,
-                    { ...router.values.searchParams, step: getStepKey(nextStep) },
+                    { ...router.values.searchParams, step: nextStep.props.stepKey },
                 ]
             }
             return [`/onboarding/${values.productKey}`, router.values.searchParams]
         },
         goToPreviousStep: () => {
-            const currentStepIndex = values.allOnboardingSteps.findIndex((step) => getStepKey(step) === values.stepKey)
+            const currentStepIndex = values.allOnboardingSteps.findIndex(
+                (step) => step.props.stepKey === values.stepKey
+            )
             const previousStep = values.allOnboardingSteps[currentStepIndex - 1]
             if (previousStep) {
                 return [
                     `/onboarding/${values.productKey}`,
-                    { ...router.values.searchParams, step: getStepKey(previousStep) },
+                    { ...router.values.searchParams, step: previousStep.props.stepKey },
                 ]
             }
             return [`/onboarding/${values.productKey}`, router.values.searchParams]

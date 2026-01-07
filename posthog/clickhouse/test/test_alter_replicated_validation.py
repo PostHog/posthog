@@ -26,8 +26,8 @@ class TestAlterReplicatedValidation(unittest.TestCase):
         # Check values
         assert operation._sql == sql
         assert operation._node_roles == node_roles
-        assert not operation._sharded
-        assert operation._is_alter_on_replicated_table
+        assert operation._sharded == False
+        assert operation._is_alter_on_replicated_table == True
 
     def test_metadata_with_default_values(self):
         """Test that run_sql_with_exceptions attaches metadata with default values."""
@@ -38,8 +38,8 @@ class TestAlterReplicatedValidation(unittest.TestCase):
         # Check that metadata is attached with defaults
         assert operation._sql == sql
         assert operation._node_roles == [NodeRole.DATA]  # Default value
-        assert operation._sharded is None
-        assert operation._is_alter_on_replicated_table is None
+        assert operation._sharded == None
+        assert operation._is_alter_on_replicated_table == None
 
     def test_metadata_with_sharded_table(self):
         """Test that run_sql_with_exceptions attaches metadata for sharded tables."""
@@ -52,5 +52,5 @@ class TestAlterReplicatedValidation(unittest.TestCase):
             is_alter_on_replicated_table=False,
         )
 
-        assert operation._sharded
-        assert not operation._is_alter_on_replicated_table
+        assert operation._sharded == True
+        assert operation._is_alter_on_replicated_table == False

@@ -117,12 +117,15 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
             date_to="2020-01-05",
         )
 
-        assert timeline == {
+        self.assertEqual(
+            timeline,
+            {
                 "points": [],  # No relevant events in range
                 "crucial_property_keys": ["bar"],
                 "effective_date_from": "2020-01-01T00:00:00+00:00",
                 "effective_date_to": "2020-01-05T23:59:59.999999+00:00",
-            }
+            },
+        )
 
     @also_test_with_materialized_columns(**MATERIALIZED_COLUMN_KWARGS)
     @snapshot_clickhouse_queries
@@ -497,7 +500,9 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
             date_to="2020-01-05",
         )
 
-        assert timeline == {
+        self.assertEqual(
+            timeline,  # Without filters, NO changes are relevant
+            {
                 "points": [
                     {
                         "properties": {"foo": "abc", "bar": 456},
@@ -508,7 +513,8 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
                 "crucial_property_keys": [],
                 "effective_date_from": "2020-01-01T00:00:00+00:00",
                 "effective_date_to": "2020-01-05T23:59:59.999999+00:00",
-            }
+            },
+        )
 
     @snapshot_clickhouse_queries
     def test_timeline_for_existing_actor_with_six_events_but_only_two_relevant_changes_without_events(self):
@@ -551,7 +557,9 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
             date_to="2020-01-05",
         )
 
-        assert timeline == {
+        self.assertEqual(
+            timeline,
+            {
                 "points": [
                     {
                         "properties": {"foo": "abc", "bar": 456},
@@ -572,4 +580,5 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
                 "crucial_property_keys": ["bar"],
                 "effective_date_from": "2020-01-01T00:00:00+00:00",
                 "effective_date_to": "2020-01-05T23:59:59.999999+00:00",
-            }
+            },
+        )

@@ -39,5 +39,5 @@ class TestAssistantGraph(BaseTest):
             AssistantState(messages=[], graph_status="resumed", start_id=None),
             {"configurable": {"thread_id": conversation.id}},
         )
-        assert state["start_id"] is None
+        assert state["start_id"] == None
         assert state["graph_status"] == "resumed"

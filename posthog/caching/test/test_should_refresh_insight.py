@@ -44,9 +44,9 @@ class TestShouldRefreshInsight(ClickhouseTestMixin, BaseTest):
             insight, None, request=Request(django_request)
         )
 
-        assert not should_refresh_now_none
+        assert should_refresh_now_none == False
         assert refresh_frequency_none == BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL
-        assert not should_refresh_now_false
+        assert should_refresh_now_false == False
         assert refresh_frequency_false == BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL
 
     @freeze_time("2012-01-14T03:21:34.000Z")
@@ -58,7 +58,7 @@ class TestShouldRefreshInsight(ClickhouseTestMixin, BaseTest):
 
         should_refresh_now, refresh_frequency = should_refresh_insight(insight, None, request=self.refresh_request)
 
-        assert should_refresh_now
+        assert should_refresh_now == True
         assert refresh_frequency == BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL
 
     @freeze_time("2012-01-14T03:21:34.000Z")
@@ -66,7 +66,7 @@ class TestShouldRefreshInsight(ClickhouseTestMixin, BaseTest):
         insight, _, _ = _create_insight(self.team, {"events": [{"id": "$pageview"}], "interval": "month"}, {})
 
         should_refresh_now, refresh_frequency = should_refresh_insight(insight, None, request=self.refresh_request)
-        assert should_refresh_now
+        assert should_refresh_now == True
         assert refresh_frequency == BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL
 
     @freeze_time("2012-01-14T03:21:34.000Z")
@@ -80,7 +80,7 @@ class TestShouldRefreshInsight(ClickhouseTestMixin, BaseTest):
             insight, None, request=self.refresh_request, is_shared=True
         )
 
-        assert should_refresh_now
+        assert should_refresh_now == True
         assert refresh_frequency == timedelta(minutes=30)  # This interval is increased
 
     @freeze_time("2012-01-14T03:21:34.000Z")
@@ -89,7 +89,7 @@ class TestShouldRefreshInsight(ClickhouseTestMixin, BaseTest):
 
         should_refresh_now, refresh_frequency = should_refresh_insight(insight, None, request=self.refresh_request)
 
-        assert should_refresh_now
+        assert should_refresh_now == True
         assert refresh_frequency == timedelta(minutes=3)
 
         # TRICKY: Shared insights always have an increased refresh frequency
@@ -97,7 +97,7 @@ class TestShouldRefreshInsight(ClickhouseTestMixin, BaseTest):
             insight, None, request=self.refresh_request, is_shared=True
         )
 
-        assert should_refresh_now
+        assert should_refresh_now == True
         assert refresh_frequency == timedelta(minutes=30)
 
     @freeze_time("2012-01-14T03:21:34.000Z")
@@ -110,7 +110,7 @@ class TestShouldRefreshInsight(ClickhouseTestMixin, BaseTest):
 
         should_refresh_now, refresh_frequency = should_refresh_insight(insight, None, request=self.refresh_request)
 
-        assert should_refresh_now
+        assert should_refresh_now == True
         assert refresh_frequency == timedelta(minutes=3)
 
         # TRICKY: Shared insights always have an increased refresh frequency
@@ -118,7 +118,7 @@ class TestShouldRefreshInsight(ClickhouseTestMixin, BaseTest):
             insight, None, request=self.refresh_request, is_shared=True
         )
 
-        assert should_refresh_now
+        assert should_refresh_now == True
         assert refresh_frequency == timedelta(minutes=30)
 
     @freeze_time("2012-01-14T03:21:34.000Z")
@@ -133,7 +133,7 @@ class TestShouldRefreshInsight(ClickhouseTestMixin, BaseTest):
             insight, dashboard_tile, request=self.refresh_request
         )
 
-        assert should_refresh_now
+        assert should_refresh_now == True
         assert refresh_frequency == timedelta(minutes=3)
 
     @freeze_time("2012-01-14T03:21:34.000Z")
@@ -146,7 +146,7 @@ class TestShouldRefreshInsight(ClickhouseTestMixin, BaseTest):
 
         should_refresh_now, refresh_frequency = should_refresh_insight(insight, None, request=Request(request))
 
-        assert not should_refresh_now
+        assert should_refresh_now == False
         assert refresh_frequency == BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL
 
     @patch("posthog.caching.insights_api.sleep", side_effect=sleep)
@@ -166,7 +166,7 @@ class TestShouldRefreshInsight(ClickhouseTestMixin, BaseTest):
         # We waited for 1 second before the query timed out
         mock_sleep.assert_called_once_with(1)
         # Still need to refresh, because they query didn't finish - it timed out
-        assert should_refresh_now
+        assert should_refresh_now == True
 
     @freeze_time("2012-01-14T03:21:34.000Z")
     def test_should_return_true_if_refresh_timed_out_elsewhere_before(self):
@@ -180,4 +180,4 @@ class TestShouldRefreshInsight(ClickhouseTestMixin, BaseTest):
 
         should_refresh_now, _ = should_refresh_insight(insight, None, request=self.refresh_request)
 
-        assert should_refresh_now
+        assert should_refresh_now == True

@@ -65,8 +65,8 @@ class TestFileSystemAPI(APIBaseTest):
         assert "id" in response_data
         assert response_data["path"] == "MyFolder/Document.txt"
         assert response_data["type"] == "doc-file"
-        assert not response_data["shortcut"]
-        assert response_data["meta"] == {"description": "A test file"}
+        assert response_data["shortcut"] == False
+        self.assertDictEqual(response_data["meta"], {"description": "A test file"})
 
     def test_create_shortcut(self):
         """
@@ -87,8 +87,8 @@ class TestFileSystemAPI(APIBaseTest):
         assert "id" in response_data
         assert response_data["path"] == "MyFolder/Document.txt"
         assert response_data["type"] == "doc-file"
-        assert response_data["shortcut"]
-        assert response_data["meta"] == {"description": "A test file", "created_by": self.user.pk}
+        assert response_data["shortcut"] == True
+        self.assertDictEqual(response_data["meta"], {"description": "A test file", "created_by": self.user.pk})
 
     def test_retrieve_file(self):
         """
@@ -262,7 +262,7 @@ class TestFileSystemAPI(APIBaseTest):
         data = response.json()
         assert data["count"] == 2
         paths = {item["path"] for item in data["results"]}
-        assert paths == {"Analytics/Report 1", "Analytics/Report 2"}
+        self.assertSetEqual(paths, {"Analytics/Report 1", "Analytics/Report 2"})
 
         # Searching for something else
         response2 = self.client.get(f"/api/projects/{self.team.id}/file_system/?search=Random")
@@ -317,28 +317,28 @@ class TestFileSystemAPI(APIBaseTest):
         data = response.json()
         assert data["count"] == 1
         paths = {item["path"] for item in data["results"]}
-        assert paths == {"Analytics/Report 1"}
+        self.assertSetEqual(paths, {"Analytics/Report 1"})
 
         response = self.client.get(f"/api/projects/{self.team.id}/file_system/?search=type:destination")
         assert response.status_code == status.HTTP_200_OK, response.json()
         data = response.json()
         assert data["count"] == 1
         paths = {item["path"] for item in data["results"]}
-        assert paths == {"Analytics/Report 2"}
+        self.assertSetEqual(paths, {"Analytics/Report 2"})
 
         response = self.client.get(f"/api/projects/{self.team.id}/file_system/?search=type:misc")
         assert response.status_code == status.HTTP_200_OK, response.json()
         data = response.json()
         assert data["count"] == 1
         paths = {item["path"] for item in data["results"]}
-        assert paths == {"Random/Other File"}
+        self.assertSetEqual(paths, {"Random/Other File"})
 
         response = self.client.get(f"/api/projects/{self.team.id}/file_system/?search=type:hog_function/")
         assert response.status_code == status.HTTP_200_OK, response.json()
         data = response.json()
         assert data["count"] == 2
         paths = {item["path"] for item in data["results"]}
-        assert paths == {"Analytics/Report 1", "Analytics/Report 2"}
+        self.assertSetEqual(paths, {"Analytics/Report 1", "Analytics/Report 2"})
 
     def test_depth_on_create_single_segment(self):
         """
@@ -601,7 +601,7 @@ class TestFileSystemAPI(APIBaseTest):
         assert data["count"] == 2
         assert len(data["entries"]) == 2
         assert not data["has_more"]
-        assert sorted([entry["path"] for entry in data["entries"]]) == sorted(["OldFolder/File1", "OldFolder/File2"])
+        self.assertCountEqual([entry["path"] for entry in data["entries"]], ["OldFolder/File1", "OldFolder/File2"])
 
         # Count the folder by path
         response = self.client.post(f"/api/projects/{self.team.id}/file_system/count_by_path?path=OldFolder")
@@ -680,7 +680,7 @@ class TestFileSystemAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         result = response.json()
         assert result["path"] == new_path
-        assert result["shortcut"]
+        assert result["shortcut"] == True
         # "NewFolder/NewFile.txt" should have a depth of 2.
         assert result["depth"] == 2
         # Ensure that the parent folder "NewFolder" was auto-created as a folder.
@@ -787,7 +787,10 @@ class TestFileSystemAPI(APIBaseTest):
         assert resp.status_code == status.HTTP_200_OK, resp.json()
 
         paths = [item["path"] for item in resp.json()["results"]]
-        assert paths == ["alpha", "beta", "Afile.txt", "bFile.txt"]
+        self.assertEqual(
+            paths,
+            ["alpha", "beta", "Afile.txt", "bFile.txt"],  # folders first, then files, both A→Z ignoring case
+        )
 
     def test_list_no_depth_case_insensitive_order_only(self):
         """
@@ -930,7 +933,7 @@ class TestFileSystemAPI(APIBaseTest):
         resp = self.client.get(url)
         assert resp.status_code == status.HTTP_200_OK, resp.json()
         paths = {item["path"] for item in resp.json()["results"]}
-        assert paths == {"Doc1", "Doc2"}
+        self.assertSetEqual(paths, {"Doc1", "Doc2"})
 
     def test_meta_sync_create_or_update_file(self):
         """

@@ -35,7 +35,6 @@ from posthog.hogql_queries.web_analytics.web_overview_pre_aggregated import WebO
 from posthog.models import Action, Cohort, Element
 from posthog.models.utils import uuid7
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
-import pytest
 
 
 @snapshot_clickhouse_queries
@@ -210,7 +209,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert "bounce rate" == bounce.key
         assert 100 == bounce.value
         assert 0 == bounce.previous
-        assert None is bounce.changeFromPreviousPct
+        assert None == bounce.changeFromPreviousPct
 
     def test_increase_in_users_using_mobile(self):
         s1a = str(uuid7("2023-12-02"))
@@ -259,7 +258,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert "bounce rate" == bounce.key
         assert 100 == bounce.value
         assert 0 == bounce.previous
-        assert None is bounce.changeFromPreviousPct
+        assert None == bounce.changeFromPreviousPct
 
     def test_all_time(self):
         s1a = str(uuid7("2023-12-02"))
@@ -281,31 +280,31 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         visitors = results[0]
         assert "visitors" == visitors.key
         assert 2 == visitors.value
-        assert None is visitors.previous
-        assert None is visitors.changeFromPreviousPct
+        assert None == visitors.previous
+        assert None == visitors.changeFromPreviousPct
 
         views = results[1]
         assert "views" == views.key
         assert 4 == views.value
-        assert None is views.previous
-        assert None is views.changeFromPreviousPct
+        assert None == views.previous
+        assert None == views.changeFromPreviousPct
 
         sessions = results[2]
         assert "sessions" == sessions.key
         assert 3 == sessions.value
-        assert None is sessions.previous
-        assert None is sessions.changeFromPreviousPct
+        assert None == sessions.previous
+        assert None == sessions.changeFromPreviousPct
 
         duration_s = results[3]
         assert "session duration" == duration_s.key
         assert 60 * 60 * 24 / 3 == duration_s.value
-        assert None is duration_s.previous
-        assert None is duration_s.changeFromPreviousPct
+        assert None == duration_s.previous
+        assert None == duration_s.changeFromPreviousPct
 
         bounce = results[4]
-        assert 100 * 2 / 3 == pytest.approx(bounce.value)
-        assert None is bounce.previous
-        assert None is bounce.changeFromPreviousPct
+        self.assertAlmostEqual(100 * 2 / 3, bounce.value)
+        assert None == bounce.previous
+        assert None == bounce.changeFromPreviousPct
 
     def test_comparison(self):
         s1a = str(uuid7("2023-12-02"))
@@ -349,9 +348,9 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert -100 == duration_s.changeFromPreviousPct
 
         bounce = results[4]
-        assert 100 == pytest.approx(bounce.value)
+        self.assertAlmostEqual(100, bounce.value)
         assert 0 == bounce.previous
-        assert None is bounce.changeFromPreviousPct
+        assert None == bounce.changeFromPreviousPct
 
     def test_filter_test_accounts(self):
         s1 = str(uuid7("2023-12-02"))
@@ -370,11 +369,11 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert 0 == sessions.value
 
         duration_s = results[3]
-        assert None is duration_s.value
+        assert None == duration_s.value
 
         bounce = results[4]
         assert "bounce rate" == bounce.key
-        assert None is bounce.value
+        assert None == bounce.value
 
     def test_filter_cohort(self):
         cohort = Cohort.objects.create(team=self.team, name="test")
@@ -402,11 +401,11 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert 0 == sessions.value
 
         duration_s = results[3]
-        assert None is duration_s.value
+        assert None == duration_s.value
 
         bounce = results[4]
         assert "bounce rate" == bounce.key
-        assert None is bounce.value
+        assert None == bounce.value
 
     def test_dont_filter_test_accounts(self):
         s1 = str(uuid7("2023-12-02"))
@@ -649,7 +648,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert unique_conversions.value == 2
 
         conversion_rate = results[3]
-        assert conversion_rate.value == pytest.approx(100 * 2 / 3)
+        self.assertAlmostEqual(conversion_rate.value, 100 * 2 / 3)
 
     @patch("posthog.hogql.query.sync_execute", wraps=sync_execute)
     def test_limit_is_context_aware(self, mock_sync_execute: MagicMock):
@@ -714,7 +713,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert unique_conversions.changeFromPreviousPct is None
 
         conversion_rate = results[3]
-        assert conversion_rate.value == pytest.approx(100 * 2 / 3)
+        self.assertAlmostEqual(conversion_rate.value, 100 * 2 / 3)
         assert conversion_rate.previous is None
         assert conversion_rate.changeFromPreviousPct is None
 

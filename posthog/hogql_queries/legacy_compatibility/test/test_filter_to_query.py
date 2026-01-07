@@ -982,7 +982,7 @@ class TestFilterToQuery(BaseTest):
         assert isinstance(query.dateRange, DateRange)
         assert query.dateRange.date_from == "-14d"
         assert query.dateRange.date_to == "-7d"
-        assert query.dateRange.explicitDate
+        assert query.dateRange.explicitDate == True
 
     def test_interval(self):
         filter: dict[str, Any] = {"interval": "hour"}
@@ -1288,7 +1288,9 @@ class TestFilterToQuery(BaseTest):
         query = filter_to_query(filter)
 
         assert isinstance(query, FunnelsQuery)
-        assert query.funnelsFilter == FunnelsFilter(
+        self.assertEqual(
+            query.funnelsFilter,
+            FunnelsFilter(
                 funnelVizType=FunnelVizType.STEPS,
                 funnelFromStep=1,
                 funnelToStep=2,
@@ -1314,7 +1316,8 @@ class TestFilterToQuery(BaseTest):
                 binCount=15,
                 funnelAggregateByHogQL="person_id",
                 # funnel_step_reference=FunnelStepReference.previous,
-            )
+            ),
+        )
 
     def test_retention_filter(self):
         filter: dict[str, Any] = {
@@ -1503,7 +1506,7 @@ class TestHiddenLegendKeysToIndexes(BaseTest):
 
         indexes = hidden_legend_keys_to_indexes(hidden_legend_keys)
 
-        assert indexes is None
+        assert indexes == None
 
     def test_converts_invalid_keys(self):
         hidden_legend_keys = {
@@ -1530,7 +1533,7 @@ class TestHiddenLegendKeysToBreakdowns(BaseTest):
 
         breakdowns = hidden_legend_keys_to_breakdowns(hidden_legend_keys)
 
-        assert breakdowns is None
+        assert breakdowns == None
 
     def test_converts_legacy_format(self):
         hidden_legend_keys = {

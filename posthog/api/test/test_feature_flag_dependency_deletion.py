@@ -270,7 +270,7 @@ class TestFeatureFlagDependencyDeletion(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_200_OK
-        assert not response.json()["has_active_dependents"]
+        assert response.json()["has_active_dependents"] == False
         assert len(response.json()["dependent_flags"]) == 0
 
     def test_has_active_dependents_with_active_dependencies(self):
@@ -284,7 +284,7 @@ class TestFeatureFlagDependencyDeletion(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["has_active_dependents"]
+        assert response.json()["has_active_dependents"] == True
         assert len(response.json()["dependent_flags"]) == 1
 
     def test_has_active_dependents_with_inactive_dependencies(self):
@@ -300,5 +300,5 @@ class TestFeatureFlagDependencyDeletion(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_200_OK
-        assert not response.json()["has_active_dependents"]
+        assert response.json()["has_active_dependents"] == False
         assert len(response.json()["dependent_flags"]) == 0

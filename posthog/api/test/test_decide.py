@@ -228,13 +228,13 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.team.app_urls = ["https://example.com"]
         self.team.save()
         response = self.client.get("/decide/", headers={"origin": "https://evilsite.com"}).json()
-        assert not response["isAuthenticated"]
+        assert response["isAuthenticated"] == False
         assert response["toolbarParams"].get("toolbarVersion", None) is None
 
     def test_user_session_recording_opt_in(self, *args):
         # :TRICKY: Test for regression around caching
         response = self._post_decide().json()
-        assert not response["sessionRecording"]
+        assert response["sessionRecording"] == False
 
         self._update_team({"session_recording_opt_in": True})
 
@@ -245,7 +245,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
     def test_user_console_log_opt_in(self, *args):
         # :TRICKY: Test for regression around caching
         response = self._post_decide().json()
-        assert not response["sessionRecording"]
+        assert response["sessionRecording"] == False
 
         self._update_team({"session_recording_opt_in": True, "capture_console_log_opt_in": True})
 
@@ -260,7 +260,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self._update_team({"capture_performance_opt_in": False})
 
         response = self._post_decide().json()
-        assert not response["capturePerformance"]
+        assert response["capturePerformance"] == False
 
     def test_session_recording_sample_rate(self, *args):
         # :TRICKY: Test for regression around caching
@@ -311,7 +311,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self._update_team({"session_recording_sample_rate": 1.0})
 
         response = self._post_decide().json()
-        assert response["sessionRecording"]["sampleRate"] is None
+        assert response["sessionRecording"]["sampleRate"] == None
 
     def test_session_recording_minimum_duration(self, *args):
         # :TRICKY: Test for regression around caching
@@ -345,7 +345,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self._update_team({"session_recording_minimum_duration_milliseconds": 0})
 
         response = self._post_decide().json()
-        assert response["sessionRecording"]["minimumDurationMilliseconds"] is None
+        assert response["sessionRecording"]["minimumDurationMilliseconds"] == None
 
     def test_session_recording_linked_flag(self, *args):
         # :TRICKY: Test for regression around caching
@@ -563,7 +563,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         response = self._post_decide().json()
-        assert response["sessionRecording"]["recordCanvas"]
+        assert response["sessionRecording"]["recordCanvas"] == True
         assert response["sessionRecording"]["canvasFps"] == 3
         assert response["sessionRecording"]["canvasQuality"] == "0.4"
 
@@ -644,12 +644,12 @@ class TestDecide(BaseTest, QueryMatchingTest):
     def test_exception_autocapture_opt_in(self, *args):
         # :TRICKY: Test for regression around caching
         response = self._post_decide().json()
-        assert not response["autocaptureExceptions"]
+        assert response["autocaptureExceptions"] == False
 
         self._update_team({"autocapture_exceptions_opt_in": True})
 
         response = self._post_decide().json()
-        assert response["autocaptureExceptions"]
+        assert response["autocaptureExceptions"] == True
 
     def test_web_vitals_autocapture_opt_in(self, *args):
         response = self._post_decide().json()
@@ -673,7 +673,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
     def test_user_session_recording_domain_opt_in_wildcard(self, *args):
         # :TRICKY: Test for regression around caching
         response = self._post_decide().json()
-        assert not response["sessionRecording"]
+        assert response["sessionRecording"] == False
 
         self._update_team(
             {
@@ -688,7 +688,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         # Make sure the domain matches exactly
         response = self._post_decide(origin="https://random.example.com.evilsite.com").json()
-        assert not response["sessionRecording"]
+        assert response["sessionRecording"] == False
 
     def test_user_session_recording_domain_not_allowed(self, *args):
         self._update_team(
@@ -707,36 +707,36 @@ class TestDecide(BaseTest, QueryMatchingTest):
     def test_user_autocapture_opt_out(self, *args):
         # :TRICKY: Test for regression around caching
         response = self._post_decide().json()
-        assert not response["autocapture_opt_out"]
+        assert response["autocapture_opt_out"] == False
 
         self._update_team({"autocapture_opt_out": True})
 
         response = self._post_decide().json()
-        assert response["autocapture_opt_out"]
+        assert response["autocapture_opt_out"] == True
 
     def test_user_heatmaps_opt_in(self, *args):
         # :TRICKY: Test for regression around caching
         response = self._post_decide().json()
-        assert not response["heatmaps"]
+        assert response["heatmaps"] == False
 
         self._update_team({"heatmaps_opt_in": True})
 
         response = self._post_decide().json()
-        assert response["heatmaps"]
+        assert response["heatmaps"] == True
 
     def test_user_capture_dead_clicks_opt_in(self, *args):
         # :TRICKY: Test for regression around caching
         response = self._post_decide().json()
-        assert not response["captureDeadClicks"]
+        assert response["captureDeadClicks"] == False
 
         self._update_team({"capture_dead_clicks": True})
 
         response = self._post_decide().json()
-        assert response["captureDeadClicks"]
+        assert response["captureDeadClicks"] == True
 
     def test_conversations_disabled_by_default(self, *args):
         response = self._post_decide().json()
-        assert not response.get("conversations")
+        assert response.get("conversations") == False
 
     def test_conversations_enabled_with_defaults(self, *args):
         self.team.conversations_enabled = True
@@ -747,8 +747,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.team.save()
 
         response = self._post_decide().json()
-        assert response["conversations"]["enabled"]
-        assert response["conversations"]["widgetEnabled"]
+        assert response["conversations"]["enabled"] == True
+        assert response["conversations"]["widgetEnabled"] == True
         assert response["conversations"]["greetingText"] == "Hey, how can I help you today?"
         assert response["conversations"]["color"] == "#1d4aff"
         assert response["conversations"]["token"] == "test_public_token_123"
@@ -766,8 +766,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.team.save()
 
         response = self._post_decide().json()
-        assert response["conversations"]["enabled"]
-        assert response["conversations"]["widgetEnabled"]
+        assert response["conversations"]["enabled"] == True
+        assert response["conversations"]["widgetEnabled"] == True
         assert response["conversations"]["greetingText"] == "Welcome! Need assistance?"
         assert response["conversations"]["color"] == "#ff5733"
         assert response["conversations"]["token"] == "custom_token"
@@ -782,7 +782,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.team.save()
 
         response = self._post_decide().json()
-        assert not response["conversations"]
+        assert response["conversations"] == False
 
     def test_conversations_with_empty_greeting_uses_default(self, *args):
         self.team.conversations_enabled = True
@@ -2487,11 +2487,11 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=9)
         assert response.json()["featureFlags"] == {"cohort-flag": True}
-        assert not response.json()["errorsWhileComputingFlags"]
+        assert response.json()["errorsWhileComputingFlags"] == False
 
         response = self._post_decide(api_version=3, distinct_id="another_id", assert_num_queries=8)
         assert response.json()["featureFlags"] == {"cohort-flag": False}
-        assert not response.json()["errorsWhileComputingFlags"]
+        assert response.json()["errorsWhileComputingFlags"] == False
 
     def test_flag_with_invalid_cohort_filter_condition(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -2563,7 +2563,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         response = self._post_decide(api_version=3, distinct_id=person1_distinct_id, assert_num_queries=9)
         assert response.json()["featureFlags"] == {"cohort-flag": False}
-        assert not response.json()["errorsWhileComputingFlags"]
+        assert response.json()["errorsWhileComputingFlags"] == False
 
     def test_flag_with_invalid_but_safe_cohort_filter_condition(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -2633,7 +2633,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         response = self._post_decide(api_version=3, distinct_id=person1_distinct_id, assert_num_queries=9)
         assert response.json()["featureFlags"] == {"cohort-flag": True}
-        assert not response.json()["errorsWhileComputingFlags"]
+        assert response.json()["errorsWhileComputingFlags"] == False
 
     def test_flag_with_unknown_cohort(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -2663,7 +2663,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=10)
         assert response.json()["featureFlags"] == {"cohort-flag": False, "simple-flag": True}
-        assert not response.json()["errorsWhileComputingFlags"]
+        assert response.json()["errorsWhileComputingFlags"] == False
 
     def test_flag_with_multiple_complex_unknown_cohort(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -2814,7 +2814,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         # 4. Select cohort from other team
         response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=12)
         assert response.json()["featureFlags"] == {"cohort-flag": False, "simple-flag": True, "cohort-flag-2": False, "cohort-flag-3": False, "cohort-flag-4": True}
-        assert not response.json()["errorsWhileComputingFlags"]
+        assert response.json()["errorsWhileComputingFlags"] == False
 
     @snapshot_postgres_queries
     def test_flag_with_behavioural_cohorts(self, *args):
@@ -2855,11 +2855,11 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=9)
         assert response.json()["featureFlags"] == {}
-        assert response.json()["errorsWhileComputingFlags"]
+        assert response.json()["errorsWhileComputingFlags"] == True
 
         response = self._post_decide(api_version=3, distinct_id="another_id", assert_num_queries=8)
         assert response.json()["featureFlags"] == {}
-        assert response.json()["errorsWhileComputingFlags"]
+        assert response.json()["errorsWhileComputingFlags"] == True
 
     def test_personal_api_key_without_project_id(self, *args):
         key_value = generate_random_token_personal()
@@ -3108,7 +3108,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         assert response["siteApps"] == []
         assert response["capturePerformance"] == {"network_timing": True, "web_vitals": False, "web_vitals_allowed_metrics": None}
         assert response["featureFlags"] == {}
-        assert response["autocaptureExceptions"]
+        assert response["autocaptureExceptions"] == True
 
         response = self._post_decide(
             api_version=2, origin="https://random.example.com", simulate_database_timeout=True
@@ -3119,7 +3119,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         assert response["supportedCompression"] == ["gzip", "gzip-js"]
         assert response["siteApps"] == []
         assert response["capturePerformance"] == {"network_timing": True, "web_vitals": False, "web_vitals_allowed_metrics": None}
-        assert response["autocaptureExceptions"]
+        assert response["autocaptureExceptions"] == True
         assert response["featureFlags"] == {}
 
     def test_decide_with_json_and_numeric_distinct_ids(self, *args):
@@ -3635,7 +3635,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         with self.settings(NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS={str(self.team.id)}):
             response = self._post_decide(api_version=3)
             assert response.status_code == 200
-            assert "analytics" not in response.json()
+            assert not "analytics" in response.json()
 
     def test_decide_element_chain_as_string(self, *args):
         self.client.logout()
@@ -3653,7 +3653,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         ):
             response = self._post_decide(api_version=3)
             assert response.status_code == 200
-            assert "elementsChainAsString" not in response.json()
+            assert not "elementsChainAsString" in response.json()
 
     def test_decide_default_identified_only(self, *args):
         self.client.logout()

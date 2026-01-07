@@ -153,7 +153,10 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         assert install_response.status_code == 201, "Did not manage to install plugin properly"
         # The plugin is NOT global and should only show up for my org
         list_response_other_org_1 = self.client.get(f"/api/organizations/{other_org.id}/plugins/")
-        assert list_response_other_org_1.json() == {"count": 0, "next": None, "previous": None, "results": []}
+        self.assertDictEqual(
+            list_response_other_org_1.json(),
+            {"count": 0, "next": None, "previous": None, "results": []},
+        )
         assert list_response_other_org_1.status_code == 200
         # Let's make the plugin global
         update_response_my_org = self.client.patch(
@@ -622,11 +625,12 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         plugin_config = PluginConfig.objects.create(plugin=plugin, team=self.team, enabled=True, order=1)
         response = self.client.get(f"/api/plugin_config/{plugin_config.id}/frontend")
         assert response.status_code == 200
-        assert response.content.decode("utf-8") == (
+        self.assertEqual(
+            response.content.decode("utf-8"),
             '"use strict";\nexport function getFrontendApp (require) { let exports = {}; '
             '"use strict";\n\nObject.defineProperty(exports, "__esModule", {\n  value: true\n});\nexports.scene = void 0;\n'
             "var scene = exports.scene = {};"  # this is it
-            "; return exports; }"
+            "; return exports; }",
         )
 
         # Check in the database

@@ -121,7 +121,7 @@ class TestEnterpriseTaggedItemSerializerMixin(APIBaseTest):
             {"tags": ["a", "b", "a"]},
         )
 
-        assert sorted(response.json()["tags"]) == ["a", "b"]
+        self.assertListEqual(sorted(response.json()["tags"]), ["a", "b"])
 
     def test_can_list_tags(self) -> None:
         from ee.models.license import License, LicenseManager

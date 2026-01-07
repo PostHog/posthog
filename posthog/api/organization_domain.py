@@ -2,7 +2,6 @@ import re
 from typing import Any, cast
 
 import posthoganalytics
-from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, request, response, serializers, status
 from rest_framework.request import Request
 from rest_framework.viewsets import ModelViewSet
@@ -155,7 +154,6 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
         return getattr(self, "_scim_plain_token", None)
 
 
-@extend_schema(tags=["core"])
 class OrganizationDomainViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     scope_object = "organization"
     serializer_class = OrganizationDomainSerializer

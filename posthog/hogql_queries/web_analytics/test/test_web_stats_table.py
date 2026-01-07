@@ -35,7 +35,6 @@ from posthog.schema import (
 from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
 from posthog.models import Action, Cohort, Element
 from posthog.models.utils import uuid7
-import pytest
 
 nan_value = float("nan")
 
@@ -60,7 +59,7 @@ class FloatAwareTestCase(unittest.TestCase):
             if math.isnan(a) and math.isnan(b):
                 return None
             else:
-                assert a == pytest.approx(b, abs=1e-7)
+                self.assertAlmostEqual(first=a, second=b, places=7, msg=f"{msg or ''} Float mismatch at {path}")
         elif isinstance(a, list | tuple) and isinstance(b, list | tuple):
             assert len(a) == len(b), f"{msg or ''} Length mismatch at {path}"
             for i, (x, y) in enumerate(zip(a, b)):
@@ -2033,7 +2032,8 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
             include_avg_time_on_page=True,
         ).results
 
-        assert [
+        self.assertEqual(
+            [
                 [
                     "/a",  # breakdown (page / path)
                     (stats["/a"]["user_count"], 0),  # (visitors_this_month, visitors_last_month)
@@ -2043,7 +2043,9 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
                     1 / len(results),  # ui fill fraction
                     "",
                 ],
-            ] == results
+            ],
+            results,
+        )
 
     def test_avg_time_on_page_multiple_users(self):
         p1_page_views = [

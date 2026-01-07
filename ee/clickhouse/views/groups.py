@@ -176,7 +176,6 @@ class CreateGroupSerializer(serializers.ModelSerializer):
         fields = ["group_type_index", "group_key", "group_properties"]
 
 
-@extend_schema(tags=["core"])
 class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
     scope_object = "group"
     queryset = Group.objects.all()

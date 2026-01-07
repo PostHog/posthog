@@ -112,10 +112,6 @@ pub struct FlagsCanonicalLogLine {
     pub flags_errored: usize,
     pub hash_key_override_attempted: bool,
     pub hash_key_override_succeeded: bool,
-    /// True when experience continuity lookup was skipped due to optimization.
-    /// This is set when flags have experience continuity enabled but don't need
-    /// a hash key lookup (100% rollout with no multivariate variants).
-    pub hash_key_override_skipped: bool,
 
     // Rate limiting
     pub rate_limited: bool,
@@ -154,7 +150,6 @@ impl Default for FlagsCanonicalLogLine {
             flags_errored: 0,
             hash_key_override_attempted: false,
             hash_key_override_succeeded: false,
-            hash_key_override_skipped: false,
             rate_limited: false,
             http_status: 200,
             error_code: None,
@@ -206,7 +201,6 @@ impl FlagsCanonicalLogLine {
             flags_errored = self.flags_errored,
             hash_key_override_attempted = self.hash_key_override_attempted,
             hash_key_override_succeeded = self.hash_key_override_succeeded,
-            hash_key_override_skipped = self.hash_key_override_skipped,
             rate_limited = self.rate_limited,
             error_code = ?self.error_code,
             "canonical_log_line"
@@ -261,7 +255,6 @@ mod tests {
         assert_eq!(log.flags_errored, 0);
         assert!(!log.hash_key_override_attempted);
         assert!(!log.hash_key_override_succeeded);
-        assert!(!log.hash_key_override_skipped);
         assert!(!log.rate_limited);
         assert_eq!(log.http_status, 200);
         assert!(log.error_code.is_none());

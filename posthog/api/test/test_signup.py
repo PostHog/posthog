@@ -88,9 +88,9 @@ class TestSignupAPI(APIBaseTest):
         assert user.distinct_id == mock_capture.call_args.kwargs["distinct_id"]
         # Assert that key properties were set properly
         event_props = mock_capture.call_args.kwargs["properties"]
-        assert event_props["is_first_user"]
-        assert event_props["is_organization_first_user"]
-        assert not event_props["new_onboarding_enabled"]
+        assert event_props["is_first_user"] == True
+        assert event_props["is_organization_first_user"] == True
+        assert event_props["new_onboarding_enabled"] == False
         assert event_props["signup_backend_processor"] == "OrganizationSignupSerializer"
         assert event_props["signup_social_provider"] == ""
         assert event_props["realm"] == get_instance_realm()
@@ -334,9 +334,9 @@ class TestSignupAPI(APIBaseTest):
         assert "user signed up" == mock_capture.call_args.kwargs["event"]
         # Assert that key properties were set properly
         event_props = mock_capture.call_args.kwargs["properties"]
-        assert event_props["is_first_user"]
-        assert event_props["is_organization_first_user"]
-        assert not event_props["new_onboarding_enabled"]
+        assert event_props["is_first_user"] == True
+        assert event_props["is_organization_first_user"] == True
+        assert event_props["new_onboarding_enabled"] == False
         assert event_props["signup_backend_processor"] == "OrganizationSignupSerializer"
         assert event_props["signup_social_provider"] == ""
         assert event_props["realm"] == get_instance_realm()
@@ -1134,7 +1134,10 @@ class TestInviteSignupAPI(APIBaseTest):
 
         # User is now a member of the organization
         assert user.organization_memberships.count() == 1
-        assert user.organization_memberships.first().organization == self.organization
+        self.assertEqual(
+            user.organization_memberships.first().organization,  # type: ignore
+            self.organization,
+        )
 
         # Defaults are set correctly
         assert user.organization == self.organization
@@ -1152,9 +1155,9 @@ class TestInviteSignupAPI(APIBaseTest):
         assert "Engineering" == mock_capture.call_args[1]["properties"]["role_at_organization"]
         # Assert that key properties were set properly
         event_props = mock_capture.call_args.kwargs["properties"]
-        assert not event_props["is_first_user"]
-        assert not event_props["is_organization_first_user"]
-        assert not event_props["new_onboarding_enabled"]
+        assert event_props["is_first_user"] == False
+        assert event_props["is_organization_first_user"] == False
+        assert event_props["new_onboarding_enabled"] == False
         assert event_props["signup_backend_processor"] == "OrganizationInviteSignupSerializer"
         assert event_props["signup_social_provider"] == ""
         assert event_props["realm"] == get_instance_realm()
@@ -1195,8 +1198,8 @@ class TestInviteSignupAPI(APIBaseTest):
         assert user.organization_memberships.count() == 1
         assert user.organization == self.organization
         # here
-        assert user.current_team is None  # User is not assigned to a project, as there are no non-private projects
-        assert user.team is None
+        assert user.current_team == None  # User is not assigned to a project, as there are no non-private projects
+        assert user.team == None
 
     def test_api_invite_sign_up_where_default_project_is_private(self):
         self.client.logout()
@@ -1349,9 +1352,9 @@ class TestInviteSignupAPI(APIBaseTest):
 
             assert len(mail.outbox) == 2
             # Someone joined email is sent to the initial user
-            assert mail.outbox[0].to == [initial_user.email]
+            self.assertListEqual(mail.outbox[0].to, [initial_user.email])
             # Verify email is sent to the new user (formatted with name)
-            assert mail.outbox[1].to == ['"Alice" <test+100@posthog.com>']
+            self.assertListEqual(mail.outbox[1].to, ['"Alice" <test+100@posthog.com>'])
 
     def test_api_invite_sign_up_member_joined_email_is_not_sent_if_disabled(self):
         self.organization.is_member_join_email_enabled = False
@@ -1475,7 +1478,9 @@ class TestInviteSignupAPI(APIBaseTest):
             {"first_name": "Bob", "password": VALID_TEST_PASSWORD + "_new"},
         )
         assert response.status_code == status.HTTP_201_CREATED
-        assert response.json() == {
+        self.assertEqual(
+            response.json(),
+            {
                 "id": user.pk,
                 "uuid": str(user.uuid),
                 "distinct_id": user.distinct_id,
@@ -1486,7 +1491,8 @@ class TestInviteSignupAPI(APIBaseTest):
                 "is_email_verified": None,
                 "hedgehog_config": None,
                 "role_at_organization": None,
-            }
+            },  # note the unchanged attributes
+        )
 
         # User is subscribed to the new organization
         user.refresh_from_db()

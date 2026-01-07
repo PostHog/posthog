@@ -169,7 +169,9 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
         data = self._run({"dateRange": {"date_from": "-24h"}, "interval": "hour"}, run_at="2020-01-03T13:05:01Z")[0][
             "data"
         ]
-        assert data == [
+        self.assertEqual(
+            data,
+            [
                 1200.0,  # starting at 2020-01-02 13:00 - 24 h before run_at (rounded to start of interval, i.e. hour)
                 0.0,
                 0.0,
@@ -195,14 +197,17 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                 0.0,
                 0.0,
                 1350.0,
-            ]
+            ],
+        )
 
     @snapshot_clickhouse_queries
     def test_hour_interval_day_level_relative(self):
         data = self._run({"dateRange": {"date_from": "-1d"}, "interval": "hour"}, run_at="2020-01-03T13:05:01Z")[0][
             "data"
         ]
-        assert data == [
+        self.assertEqual(
+            data,
+            [
                 0.0,
                 0.0,
                 0.0,
@@ -241,7 +246,8 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                 0.0,
                 0.0,
                 1350.0,
-            ]
+            ],
+        )
 
     def test_day_interval(self):
         data = self._run({"dateRange": {"date_from": "-3d"}}, run_at="2020-01-03T13:05:01Z")[0]["data"]

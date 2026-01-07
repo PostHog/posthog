@@ -64,12 +64,15 @@ class TestLiveDebuggerBreakpointAPI(APIBaseTest):
             )
             assert response2.status_code != status.HTTP_201_CREATED
 
-        assert LiveDebuggerBreakpoint.objects.filter(
+        self.assertEqual(
+            LiveDebuggerBreakpoint.objects.filter(
                 team=self.team,
                 repository=data["repository"],
                 filename=data["filename"],
                 line_number=data["line_number"],  # type: ignore
-            ).count() == 1
+            ).count(),
+            1,
+        )
 
     def test_create_breakpoint_same_file_different_repo_succeeds(self):
         """Test that same filename/line can exist in different repositories"""
@@ -251,11 +254,11 @@ class TestLiveDebuggerBreakpointAPI(APIBaseTest):
             data=update_data,
         )
         assert response.status_code == status.HTTP_200_OK
-        assert not response.json()["enabled"]
+        assert response.json()["enabled"] == False
         assert response.json()["condition"] == "y < 5"
 
         breakpoint.refresh_from_db()
-        assert not breakpoint.enabled
+        assert breakpoint.enabled == False
         assert breakpoint.condition == "y < 5"
 
     def test_delete_breakpoint(self):
@@ -293,7 +296,7 @@ class TestLiveDebuggerBreakpointAPI(APIBaseTest):
 
         data = response.json()
         assert data["count"] == 1
-        assert not data["has_more"]
+        assert data["has_more"] == False
         breakpoints = data["results"]
         assert len(breakpoints) == 1
         assert breakpoints[0]["filename"] == "enabled.py"
@@ -323,7 +326,7 @@ class TestLiveDebuggerBreakpointAPI(APIBaseTest):
 
         data = response.json()
         assert data["count"] == 1
-        assert not data["has_more"]
+        assert data["has_more"] == False
         breakpoints = data["results"]
         assert len(breakpoints) == 1
         assert breakpoints[0]["filename"] == "file1.py"
@@ -353,7 +356,7 @@ class TestLiveDebuggerBreakpointAPI(APIBaseTest):
 
         data = response.json()
         assert data["count"] == 1
-        assert not data["has_more"]
+        assert data["has_more"] == False
         breakpoints = data["results"]
         assert len(breakpoints) == 1
         assert breakpoints[0]["repository"] == "PostHog/posthog"
@@ -384,7 +387,7 @@ class TestLiveDebuggerBreakpointAPI(APIBaseTest):
         # Should return both enabled and disabled
         data = response.json()
         assert data["count"] == 2
-        assert not data["has_more"]
+        assert data["has_more"] == False
         breakpoints = data["results"]
         assert len(breakpoints) == 2
 
@@ -585,7 +588,7 @@ class TestLiveDebuggerBreakpointAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert data["count"] == 1
-        assert not data["has_more"]
+        assert data["has_more"] == False
         assert len(data["results"]) == 1
 
     def test_active_breakpoints_enabled_boolean_false(self):
@@ -612,7 +615,7 @@ class TestLiveDebuggerBreakpointAPI(APIBaseTest):
         # When enabled=false, should return all breakpoints
         data = response.json()
         assert data["count"] == 2
-        assert not data["has_more"]
+        assert data["has_more"] == False
         assert len(data["results"]) == 2
 
     # ============================================================================
@@ -682,7 +685,7 @@ class TestLiveDebuggerBreakpointAPI(APIBaseTest):
 
         data = response.json()
         assert data["count"] == 1
-        assert not data["has_more"]
+        assert data["has_more"] == False
         breakpoints = data["results"]
 
         # Should only see our team's breakpoint
@@ -716,7 +719,7 @@ class TestLiveDebuggerBreakpointAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
 
         data = response.json()
-        assert not data["has_more"]
+        assert data["has_more"] == False
         breakpoints = data["results"]
 
         # Should see NO breakpoints from other organization

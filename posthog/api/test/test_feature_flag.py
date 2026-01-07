@@ -2130,7 +2130,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         assert [log_item["detail"]["name"] for log_item in first_page_json["results"]] == ["14", "13", "12", "11", "10", "9", "8", "7", "6", "5"]
         assert first_page_json["next"] == f"http://testserver/api/projects/{self.team.id}/feature_flags/activity?page=2&limit=10"
-        assert first_page_json["previous"] is None
+        assert first_page_json["previous"] == None
 
         # check the second page of data
         second_page_response = self.client.get(first_page_json["next"])
@@ -2138,7 +2138,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         second_page_json = second_page_response.json()
 
         assert [log_item["detail"]["name"] for log_item in second_page_json["results"]] == ["4", "3", "2", "1", "0"]
-        assert second_page_json["next"] is None
+        assert second_page_json["next"] == None
         assert second_page_json["previous"] == f"http://testserver/api/projects/{self.team.id}/feature_flags/activity?page=1&limit=10"
 
     def test_paging_specific_feature_flag_activity(self):
@@ -2160,17 +2160,25 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert first_page_response.status_code == status.HTTP_200_OK
         first_page_json = first_page_response.json()
 
-        assert [log_item["detail"]["name"] for log_item in first_page_json["results"]] == ["14", "13", "12", "11", "10", "9", "8", "7", "6", "5"]
+        self.assertEqual(
+            # feature flag activity writes the flag key to the detail name
+            [log_item["detail"]["name"] for log_item in first_page_json["results"]],
+            ["14", "13", "12", "11", "10", "9", "8", "7", "6", "5"],
+        )
         assert first_page_json["next"] == f"http://testserver/api/projects/{self.team.id}/feature_flags/{flag_id}/activity?page=2&limit=10"
-        assert first_page_json["previous"] is None
+        assert first_page_json["previous"] == None
 
         # check the second page of data
         second_page_response = self.client.get(first_page_json["next"])
         assert second_page_response.status_code == status.HTTP_200_OK
         second_page_json = second_page_response.json()
 
-        assert [log_item["detail"]["name"] for log_item in second_page_json["results"]] == ["4", "3", "2", "1", "0"]
-        assert second_page_json["next"] is None
+        self.assertEqual(
+            # feature flag activity writes the flag key to the detail name
+            [log_item["detail"]["name"] for log_item in second_page_json["results"]],
+            ["4", "3", "2", "1", "0"],
+        )
+        assert second_page_json["next"] == None
         assert second_page_json["previous"] == f"http://testserver/api/projects/{self.team.id}/feature_flags/{flag_id}/activity?page=1&limit=10"
 
     def test_get_flags_with_specified_token(self):
@@ -2302,7 +2310,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             assert response.status_code == status.HTTP_200_OK
             assert len(response.json()["results"]) == 2
             sorted_results = sorted(response.json()["results"], key=lambda x: x["key"])
-            assert sorted_results[1]["created_by"] is None
+            assert sorted_results[1]["created_by"] == None
             assert sorted_results[1]["key"] == "flag_role_access"
 
     def test_getting_flags_with_surveys_is_not_nplus1(self) -> None:
@@ -2476,7 +2484,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         second_flag = response_data[1]
         assert second_flag["feature_flag"]["key"] == "red_button"
-        assert second_flag["value"]
+        assert second_flag["value"] == True
 
         # alpha-feature is not set for "distinct_id_0"
         distinct_id_0_user = User.objects.create_and_join(self.organization, "distinct_id_0_user@posthog.com", None)
@@ -2490,7 +2498,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         first_flag = response_data[0]
         assert first_flag["feature_flag"]["key"] == "alpha-feature"
-        assert not first_flag["value"]
+        assert first_flag["value"] == False
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_my_flags_empty_flags(self, mock_capture):
@@ -2525,7 +2533,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert response.status_code == status.HTTP_200_OK
         groups_flag = response.json()[0]
         assert groups_flag["feature_flag"]["key"] == "groups-flag"
-        assert not groups_flag["value"]
+        assert groups_flag["value"] == False
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/feature_flags/my_flags",
@@ -2533,7 +2541,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         groups_flag = response.json()[0]
         assert groups_flag["feature_flag"]["key"] == "groups-flag"
-        assert groups_flag["value"]
+        assert groups_flag["value"] == True
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     @patch("posthog.api.feature_flag.report_user_action")
@@ -4138,7 +4146,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         assert response.status_code == 200
         updated_flag = FeatureFlag.objects.get(pk=another_feature_flag.pk)
-        assert not updated_flag.active
+        assert updated_flag.active == False
         assert updated_flag.name == "replaced"
         assert updated_flag.filters == {"groups": [{"properties": [], "rollout_percentage": 100}], "multivariate": None}
 
@@ -6045,7 +6053,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         cohort.refresh_from_db()
         assert cohort.name == "some cohort"
         # don't even try inserting anything, because invalid flag, so None instead of 0
-        assert cohort.count is None
+        assert cohort.count == None
 
         response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
         assert len(response.json()["results"]) == 0, response
@@ -6083,7 +6091,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         cohort.refresh_from_db()
         assert cohort.name == "some cohort"
         # don't even try inserting anything, because invalid flag, so None instead of 0
-        assert cohort.count is None
+        assert cohort.count == None
 
         response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
         assert len(response.json()["results"]) == 0, response
@@ -6122,7 +6130,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         cohort.refresh_from_db()
         assert cohort.name == "some cohort"
         # don't even try inserting anything, because invalid flag, so None instead of 0
-        assert cohort.count is None
+        assert cohort.count == None
 
         response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
         assert len(response.json()["results"]) == 0, response
@@ -6154,7 +6162,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         cohort.refresh_from_db()
         assert cohort.name == "some cohort"
         # don't even try inserting anything, because invalid flag, so None instead of 0
-        assert cohort.count is None
+        assert cohort.count == None
 
         response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
         assert len(response.json()["results"]) == 0, response
@@ -6172,7 +6180,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         cohort.refresh_from_db()
         assert cohort.name == "some cohort"
         # don't even try inserting anything, because invalid flag, so None instead of 0
-        assert cohort.count is None
+        assert cohort.count == None
 
         response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
         assert len(response.json()["results"]) == 0, response

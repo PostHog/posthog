@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta
 
+import pytest
+
 from posthog.test.base import APIBaseTest
 
 from posthog.schema import IntervalType, RevenueAnalyticsGrossRevenueQuery
@@ -10,7 +12,6 @@ from posthog.rbac.user_access_control import UserAccessControlError
 from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
 from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.revenue_analytics.backend.hogql_queries.revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
-import pytest
 
 try:
     from ee.models.rbac.access_control import AccessControl
@@ -39,7 +40,7 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
     def test_cache_target_age_without_last_refresh(self):
         """Test that when there is no last refresh, we return None"""
         runner = RevenueAnalyticsQueryRunnerImpl(team=self.team, query=self.query)
-        assert runner.cache_target_age(None) is None
+        assert runner.cache_target_age(None) == None
 
     def test_cache_target_age_without_sources(self):
         """Test that when there are no sources, we use our default cache target age"""

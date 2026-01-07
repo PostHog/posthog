@@ -399,22 +399,15 @@ class TestSavedQuery(APIBaseTest):
         assert response.status_code == 201
         saved_query = response.json()
 
-        with (
-            patch(
-                "products.data_warehouse.backend.api.saved_query.saved_query_workflow_exists",
-                return_value=True,
-            ) as mock_workflow_exists,
-            patch(
-                "products.data_warehouse.backend.api.saved_query.pause_saved_query_schedule"
-            ) as mock_pause_saved_query_schedule,
-        ):
+        with patch(
+            "products.data_warehouse.backend.api.saved_query.pause_saved_query_schedule"
+        ) as mock_pause_saved_query_schedule:
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
                 {"sync_frequency": "never"},
             )
 
             assert response.status_code == 200
-            mock_workflow_exists.assert_called_once_with(saved_query["id"])
             mock_pause_saved_query_schedule.assert_called_once_with(saved_query["id"])
 
     def test_update_with_types(self):
@@ -867,7 +860,7 @@ class TestSavedQuery(APIBaseTest):
             assert activity_logs[1].activity == "created"
             query_change = next(change for change in activity_logs[1].detail["changes"] if change["field"] == "query")
             assert query_change["after"] == {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"}
-            assert query_change["before"] is None
+            assert query_change["before"] == None
 
             # this should fail because the activity log has changed
             response = self.client.patch(

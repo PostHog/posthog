@@ -24,7 +24,7 @@ class TestDataWarehouseManagedViewSetAPIBase(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["enabled"]
+        assert response.json()["enabled"] == True
         assert response.json()["kind"] == self.endpoint
 
         assert DataWarehouseManagedViewSet.objects.filter(team=self.team, kind=self.kind).count() == 1
@@ -65,7 +65,7 @@ class TestDataWarehouseManagedViewSetAPIBase(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_200_OK
-        assert not response.json()["enabled"]
+        assert response.json()["enabled"] == False
         assert not DataWarehouseManagedViewSet.objects.filter(id=managed_viewset.id).exists()
 
         saved_query.refresh_from_db()
@@ -79,7 +79,7 @@ class TestDataWarehouseManagedViewSetAPIBase(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_200_OK
-        assert not response.json()["enabled"]
+        assert response.json()["enabled"] == False
 
     def test_retrieve_managed_viewset_with_views(self):
         """Test retrieving a managed viewset that exists with views"""

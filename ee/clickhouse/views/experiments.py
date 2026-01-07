@@ -7,7 +7,6 @@ from zoneinfo import ZoneInfo
 from django.db.models import Case, F, Prefetch, Q, QuerySet, Value, When
 from django.db.models.functions import Now
 
-from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -772,7 +771,6 @@ class ExperimentStatus(str, Enum):
     ALL = "all"
 
 
-@extend_schema(tags=["experiments"])
 class EnterpriseExperimentsViewSet(
     ForbidDestroyModel, TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet
 ):

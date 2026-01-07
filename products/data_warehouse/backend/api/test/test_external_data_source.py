@@ -538,7 +538,9 @@ class TestExternalDataSource(APIBaseTest):
         payload = response.json()
 
         assert response.status_code == 200
-        assert list(payload.keys()) == [
+        self.assertListEqual(
+            list(payload.keys()),
+            [
                 "id",
                 "created_at",
                 "created_by",
@@ -551,7 +553,8 @@ class TestExternalDataSource(APIBaseTest):
                 "schemas",
                 "job_inputs",
                 "revenue_analytics_config",
-            ]
+            ],
+        )
         assert payload["schemas"] == [{"id": str(schema.pk), "incremental": False, "incremental_field": None, "incremental_field_type": None, "last_synced_at": schema.last_synced_at, "name": schema.name, "latest_error": schema.latest_error, "should_sync": schema.should_sync, "status": schema.status, "sync_type": schema.sync_type, "table": schema.table, "sync_frequency": sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval), "sync_time_of_day": schema.sync_time_of_day}]
 
     def test_delete_external_data_source(self):

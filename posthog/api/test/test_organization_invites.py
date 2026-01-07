@@ -65,12 +65,15 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         response = self.client.post("/api/organizations/@current/invites/")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         response_data = response.json()
-        assert response_data == {
+        self.assertDictEqual(
+            response_data,
+            {
                 "type": "validation_error",
                 "code": "required",
                 "detail": "This field is required.",
                 "attr": "target_email",
-            }
+            },
+        )
 
         mock_capture.assert_not_called()
 
@@ -91,7 +94,9 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         invite_id = response_data.pop("id")
         response_data.pop("created_at")
         response_data.pop("updated_at")
-        assert response_data == {
+        self.assertDictEqual(
+            response_data,
+            {
                 "target_email": email,
                 "first_name": "",
                 "created_by": {
@@ -110,7 +115,8 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 "emailing_attempt_made": True,
                 "message": None,
                 "private_project_access": [],
-            }
+            },
+        )
 
         capture_props = {
             "name_provided": False,
@@ -144,7 +150,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         # Assert invite email is sent
         assert len(mail.outbox) == 1
-        assert mail.outbox[0].to == [email]
+        self.assertListEqual(mail.outbox[0].to, [email])
         assert mail.outbox[0].reply_to == [self.user.email]  # Reply-To is set to the inviting user
 
     @patch("posthoganalytics.capture")
@@ -294,12 +300,15 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         response_data = response.json()
-        assert {
+        self.assertDictEqual(
+            {
                 "type": "validation_error",
                 "code": "invalid_input",
                 "detail": "Project does not exist on this organization, or it is private and you do not have access to it.",
                 "attr": "private_project_access",
-            } == response_data
+            },
+            response_data,
+        )
         assert OrganizationInvite.objects.count() == count
 
     def test_invite_fails_if_inviter_does_not_have_access_to_team(self):
@@ -324,12 +333,15 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         response_data = response.json()
-        assert {
+        self.assertDictEqual(
+            {
                 "type": "validation_error",
                 "code": "invalid_input",
                 "detail": "Project does not exist on this organization, or it is private and you do not have access to it.",
                 "attr": "private_project_access",
-            } == response_data
+            },
+            response_data,
+        )
         assert OrganizationInvite.objects.count() == count
 
     def test_invite_fails_if_inviter_level_is_lower_than_requested_level(self):
@@ -365,12 +377,15 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         response_data = response.json()
-        assert {
+        self.assertDictEqual(
+            {
                 "type": "validation_error",
                 "code": "invalid_input",
                 "detail": "You cannot invite to a private project with a higher level than your own.",
                 "attr": "private_project_access",
-            } == response_data
+            },
+            response_data,
+        )
         assert OrganizationInvite.objects.count() == count
 
     def test_cannot_create_invite_for_another_org(self):

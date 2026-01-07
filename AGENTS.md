@@ -82,7 +82,6 @@ See `posthog/clickhouse/migrations/AGENTS.md` for comprehensive patterns, exampl
 - Naming: Use descriptive names, camelCase for JS/TS, snake_case for Python
 - Comments: should not duplicate the code below, don't tell me "this finds the shortest username" tell me _why_ that is important, if it isn't important don't add a comment, almost never add a comment
 - Python tests: do not add doc comments
-- Python tests: use `assert x == y` style assertions, not `self.assertEqual(x, y)` or other unittest-style assertions. Use `pytest.raises` instead of `self.assertRaises`
 - jest tests: when writing jest tests, prefer a single top-level describe block in a file
 - any tests: prefer to use parameterized tests, think carefully about what input and output look like so that the tests exercise the system and explain the code to the future traveller
 - Python tests: in python use the parameterized library for parameterized tests, every time you are tempted to add more than one assertion to a test consider (really carefully) if it should be a parameterized test instead

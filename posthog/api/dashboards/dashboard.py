@@ -13,7 +13,6 @@ import structlog
 import pydantic_core
 import posthoganalytics
 from asgiref.sync import sync_to_async
-from drf_spectacular.utils import extend_schema
 from opentelemetry import trace
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
@@ -612,7 +611,6 @@ class DashboardSerializer(DashboardMetadataSerializer):
         return {**validated_data, "creation_mode": "default"}
 
 
-@extend_schema(tags=["core"])
 class DashboardsViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,

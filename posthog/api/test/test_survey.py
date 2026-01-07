@@ -3350,7 +3350,9 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
             response = self._get_surveys()
             assert response.status_code == status.HTTP_200_OK
             assert response.get("access-control-allow-origin") == "http://127.0.0.1:8000"
-            assert response.json()["surveys"] == [
+            self.assertListEqual(
+                response.json()["surveys"],
+                [
                     {
                         "id": str(survey_with_actions.id),
                         "name": "survey with actions",
@@ -3395,7 +3397,8 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                         "schedule": "once",
                         "enable_partial_responses": False,
                     }
-                ]
+                ],
+            )
 
     @snapshot_postgres_queries
     def test_list_surveys(self):
@@ -3843,8 +3846,8 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
         for event_type in ["survey shown", "survey dismissed", "survey sent"]:
             assert stats[event_type]["total_count"] == 0
             assert stats[event_type]["unique_persons"] == 0
-            assert stats[event_type]["first_seen"] is None
-            assert stats[event_type]["last_seen"] is None
+            assert stats[event_type]["first_seen"] == None
+            assert stats[event_type]["last_seen"] == None
 
         rates = data["rates"]
         assert rates["response_rate"] == 0.0

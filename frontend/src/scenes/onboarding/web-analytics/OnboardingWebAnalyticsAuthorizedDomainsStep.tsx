@@ -6,9 +6,12 @@ import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/Au
 import { OnboardingStepKey } from '~/types'
 
 import { OnboardingStep } from '../OnboardingStep'
-import { OnboardingStepComponentType } from '../onboardingLogic'
 
-export const OnboardingWebAnalyticsAuthorizedDomainsStep: OnboardingStepComponentType = () => {
+export function OnboardingWebAnalyticsAuthorizedDomainsStep({
+    stepKey = OnboardingStepKey.AUTHORIZED_DOMAINS,
+}: {
+    stepKey?: OnboardingStepKey
+}): JSX.Element {
     const { authorizedUrls } = useValues(
         authorizedUrlListLogic({
             actionId: null,
@@ -22,7 +25,7 @@ export const OnboardingWebAnalyticsAuthorizedDomainsStep: OnboardingStepComponen
     return (
         <OnboardingStep
             title="Authorized Domains"
-            stepKey={OnboardingStepKey.AUTHORIZED_DOMAINS}
+            stepKey={stepKey}
             showSkip
             continueDisabledReason={authorizedUrls.length === 0 ? 'Add at least one authorized domain' : undefined}
         >
@@ -43,5 +46,3 @@ export const OnboardingWebAnalyticsAuthorizedDomainsStep: OnboardingStepComponen
         </OnboardingStep>
     )
 }
-
-OnboardingWebAnalyticsAuthorizedDomainsStep.stepKey = OnboardingStepKey.AUTHORIZED_DOMAINS

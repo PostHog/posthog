@@ -21,7 +21,6 @@ def loginas_user(request, user_id):
             event="impersonation_started",
             properties={
                 "mode": "read_only" if is_read_only else "read_write",
-                "reason": request.POST.get("reason", ""),
                 "staff_user_id": staff_user.id,
                 "staff_user_email": staff_user.email,
                 "target_user_id": user_id,

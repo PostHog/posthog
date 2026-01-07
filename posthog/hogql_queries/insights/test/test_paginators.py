@@ -62,7 +62,7 @@ class TestHogQLHasMorePaginator(ClickhouseTestMixin, APIBaseTest):
         )
         response = runner.calculate()
         assert response.results == [[f"jacob9@{self.random_uuid}.posthog.com"]]
-        assert response.hasMore
+        assert response.hasMore == True
 
         runner = self._create_runner(
             ActorsQuery(
@@ -74,7 +74,7 @@ class TestHogQLHasMorePaginator(ClickhouseTestMixin, APIBaseTest):
         )
         response = runner.calculate()
         assert response.results == [[f"jacob7@{self.random_uuid}.posthog.com"]]
-        assert response.hasMore
+        assert response.hasMore == True
 
     def test_zero_limit(self):
         """Test behavior with limit set to zero."""

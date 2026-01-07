@@ -10,7 +10,7 @@ class TestWebVitalsAPI(ClickhouseTestMixin, APIBaseTest):
     def assert_values(self, results, expected_values):
         # Verify that all web vitals metrics are present in the response
         metrics = [result["action"]["custom_name"] for result in results]
-        assert sorted(metrics) == sorted(["INP", "LCP", "CLS", "FCP"])
+        self.assertCountEqual(metrics, ["INP", "LCP", "CLS", "FCP"])
 
         # Verify the p90 values of the metrics
         for result in results:

@@ -64,7 +64,7 @@ class TagsTestCase(TestMigrations):
         assert Team.objects.get(name="t1").primary_dashboard.id == Dashboard.objects.get(name="d2").id
 
         # CASE 2:
-        assert Team.objects.get(name="t2").primary_dashboard is None
+        assert Team.objects.get(name="t2").primary_dashboard == None
 
         # CASE 3:
         assert Team.objects.get(name="t3").primary_dashboard.id == Dashboard.objects.get(name="d4").id

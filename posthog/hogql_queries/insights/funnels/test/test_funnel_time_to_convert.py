@@ -97,7 +97,9 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
         # Autobinned using the minimum time to convert, maximum time to convert, and sample count
-        assert results == FunnelTimeToConvertResults(
+        self.assertEqual(
+            results,
+            FunnelTimeToConvertResults(
                 bins=[
                     [
                         2220,
@@ -113,7 +115,8 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
                     ],  # Reached step 1 from step 0 in at least 82_800 s but less than 109_680 s - user C
                 ],
                 average_conversion_time=29_540,
-            )
+            ),
+        )
 
     def test_auto_bin_count_single_step_duplicate_events(self):
         # Test for CH bug that used to haunt us: https://github.com/ClickHouse/ClickHouse/issues/26580
@@ -190,7 +193,9 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
         # Autobinned using the minimum time to convert, maximum time to convert, and sample count
-        assert results == FunnelTimeToConvertResults(
+        self.assertEqual(
+            results,
+            FunnelTimeToConvertResults(
                 bins=[
                     [
                         2220,
@@ -206,7 +211,8 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
                     ],  # Reached step 1 from step 0 in at least 82_800 s but less than 109_680 s - user C
                 ],
                 average_conversion_time=29_540,
-            )
+            ),
+        )
 
     def test_custom_bin_count_single_step(self):
         _create_person(distinct_ids=["user a"], team=self.team)
@@ -282,7 +288,9 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
         # 7 bins, autoscaled to work best with minimum time to convert and maximum time to convert at hand
-        assert results == FunnelTimeToConvertResults(
+        self.assertEqual(
+            results,
+            FunnelTimeToConvertResults(
                 bins=[
                     [
                         2220,
@@ -303,7 +311,8 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
                     [82804, 0],
                 ],
                 average_conversion_time=29_540,
-            )
+            ),
+        )
 
     @skip("Compatibility issue CH 23.12 (see #21318)")
     def test_auto_bin_count_total(self):
@@ -374,7 +383,9 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        assert results == FunnelTimeToConvertResults(
+        self.assertEqual(
+            results,
+            FunnelTimeToConvertResults(
                 bins=[
                     [
                         10800,
@@ -386,7 +397,8 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
                     ],  # Analogous to above, just an interval (in this case 60 s) up - no users
                 ],
                 average_conversion_time=10_800,
-            )
+            ),
+        )
 
         # Let's verify that behavior with steps unspecified is the same as when first and last steps specified
         query = cast(FunnelsQuery, filter_to_query({**filters, "funnel_from_step": 0, "funnel_to_step": 2}))
@@ -470,7 +482,9 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
         # Autobinned using the minimum time to convert, maximum time to convert, and sample count
-        assert results == FunnelTimeToConvertResults(
+        self.assertEqual(
+            results,
+            FunnelTimeToConvertResults(
                 bins=[
                     [
                         2220,
@@ -486,7 +500,8 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
                     ],  # Reached step 1 from step 0 in at least 82_800 s but less than 109_680 s - user C
                 ],
                 average_conversion_time=29540,
-            )
+            ),
+        )
 
     @snapshot_clickhouse_queries
     def test_basic_strict(self):
@@ -597,7 +612,9 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
         # Autobinned using the minimum time to convert, maximum time to convert, and sample count
-        assert results == FunnelTimeToConvertResults(
+        self.assertEqual(
+            results,
+            FunnelTimeToConvertResults(
                 bins=[
                     [
                         2220,
@@ -613,4 +630,5 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
                     ],  # Reached step 1 from step 0 in at least 82_800 s but less than 109_680 s - user C
                 ],
                 average_conversion_time=29540,
-            )
+            ),
+        )

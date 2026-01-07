@@ -1,7 +1,6 @@
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import Papa from 'papaparse'
-import posthog from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
@@ -387,15 +386,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         addFilter: ({ key, value, operator, type }) => {
             props.onAddFilter?.(key, value, operator, type)
         },
-        togglePinLog: ({ log }) => {
-            if (values.pinnedLogs[log.uuid]) {
-                posthog.capture('logs log pinned')
-            }
-        },
         toggleExpandLog: ({ logId }) => {
-            if (values.expandedLogIds[logId]) {
-                posthog.capture('logs log expanded')
-            }
             // If cursor is at attribute level, check if we just collapsed the row it's in
             if (values.cursor?.attributeIndex !== null) {
                 const cursorLog = values.logs[values.cursor?.logIndex ?? 0]
@@ -521,7 +512,6 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             }
         },
         copyLinkToLog: ({ logId }) => {
-            posthog.capture('logs link copied')
             const url = new URL(window.location.href)
             url.searchParams.set('linkToLogId', logId)
             if (values.visibleLogsTimeRange) {
@@ -541,7 +531,6 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         },
         copySelectedLogs: () => {
             const selectedLogs = values.selectedLogsArray
-            posthog.capture('logs bulk copy', { count: selectedLogs.length })
             const text = selectedLogs.map((log) => log.body).join('\n')
             void copyToClipboard(text, `${selectedLogs.length} log message${selectedLogs.length === 1 ? '' : 's'}`)
         },
@@ -576,7 +565,6 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                 trace_id: log.trace_id,
                 span_id: log.span_id,
             }))
-            posthog.capture('logs exported', { format: 'json', count: selectedLogs.length })
             const json = JSON.stringify(selectedLogs, null, 2)
             const blob = new Blob([json], { type: 'application/json' })
             const url = URL.createObjectURL(blob)
@@ -588,7 +576,6 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         },
         exportSelectedAsCsv: () => {
             const selectedLogs = values.selectedLogsArray
-            posthog.capture('logs exported', { format: 'csv', count: selectedLogs.length })
             const headers = ['timestamp', 'severity', ...values.attributeColumns, 'body']
             const rows = selectedLogs.map((log) => [
                 log.timestamp,
@@ -604,11 +591,6 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             a.download = `logs-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.csv`
             a.click()
             setTimeout(() => URL.revokeObjectURL(url), 0)
-        },
-        toggleAttributeColumn: ({ attributeKey }) => {
-            if (attributeKey in values.attributeColumnsConfig) {
-                posthog.capture('logs column added', { attribute_key: attributeKey })
-            }
         },
     })),
 

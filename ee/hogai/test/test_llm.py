@@ -198,8 +198,8 @@ class TestMaxChatOpenAI(BaseTest):
         llm_openai = MaxChatOpenAI(user=self.user, team=self.team)
         llm_anthropic = MaxChatAnthropic(user=self.user, team=self.team, model="claude")
 
-        assert not llm_openai.billable
-        assert not llm_anthropic.billable
+        assert llm_openai.billable == False
+        assert llm_anthropic.billable == False
 
     def test_billable_metadata_when_false(self):
         """Test that $ai_billable metadata is False when billable=False."""
@@ -213,7 +213,7 @@ class TestMaxChatOpenAI(BaseTest):
             call_kwargs = mock_generate.call_args.kwargs
             assert "metadata" in call_kwargs
             assert "posthog_properties" in call_kwargs["metadata"]
-            assert not call_kwargs["metadata"]["posthog_properties"]["$ai_billable"]
+            assert call_kwargs["metadata"]["posthog_properties"]["$ai_billable"] == False
             assert call_kwargs["metadata"]["posthog_properties"]["team_id"] == self.team.id
 
     def test_billable_metadata_when_true(self):
@@ -228,7 +228,7 @@ class TestMaxChatOpenAI(BaseTest):
             call_kwargs = mock_generate.call_args.kwargs
             assert "metadata" in call_kwargs
             assert "posthog_properties" in call_kwargs["metadata"]
-            assert call_kwargs["metadata"]["posthog_properties"]["$ai_billable"]
+            assert call_kwargs["metadata"]["posthog_properties"]["$ai_billable"] == True
             assert call_kwargs["metadata"]["posthog_properties"]["team_id"] == self.team.id
 
     async def test_billable_metadata_async_when_false(self):
@@ -243,7 +243,7 @@ class TestMaxChatOpenAI(BaseTest):
             call_kwargs = mock_agenerate.call_args.kwargs
             assert "metadata" in call_kwargs
             assert "posthog_properties" in call_kwargs["metadata"]
-            assert not call_kwargs["metadata"]["posthog_properties"]["$ai_billable"]
+            assert call_kwargs["metadata"]["posthog_properties"]["$ai_billable"] == False
             assert call_kwargs["metadata"]["posthog_properties"]["team_id"] == self.team.id
 
     async def test_billable_metadata_async_when_true(self):
@@ -258,7 +258,7 @@ class TestMaxChatOpenAI(BaseTest):
             call_kwargs = mock_agenerate.call_args.kwargs
             assert "metadata" in call_kwargs
             assert "posthog_properties" in call_kwargs["metadata"]
-            assert call_kwargs["metadata"]["posthog_properties"]["$ai_billable"]
+            assert call_kwargs["metadata"]["posthog_properties"]["$ai_billable"] == True
             assert call_kwargs["metadata"]["posthog_properties"]["team_id"] == self.team.id
 
     def test_billable_metadata_anthropic_when_false(self):
@@ -273,7 +273,7 @@ class TestMaxChatOpenAI(BaseTest):
             call_kwargs = mock_generate.call_args.kwargs
             assert "metadata" in call_kwargs
             assert "posthog_properties" in call_kwargs["metadata"]
-            assert not call_kwargs["metadata"]["posthog_properties"]["$ai_billable"]
+            assert call_kwargs["metadata"]["posthog_properties"]["$ai_billable"] == False
             assert call_kwargs["metadata"]["posthog_properties"]["team_id"] == self.team.id
 
     def test_billable_metadata_anthropic_when_true(self):
@@ -288,7 +288,7 @@ class TestMaxChatOpenAI(BaseTest):
             call_kwargs = mock_generate.call_args.kwargs
             assert "metadata" in call_kwargs
             assert "posthog_properties" in call_kwargs["metadata"]
-            assert call_kwargs["metadata"]["posthog_properties"]["$ai_billable"]
+            assert call_kwargs["metadata"]["posthog_properties"]["$ai_billable"] == True
             assert call_kwargs["metadata"]["posthog_properties"]["team_id"] == self.team.id
 
     @parameterized.expand(
@@ -337,7 +337,7 @@ class TestMaxChatOpenAI(BaseTest):
             llm.generate(messages)
 
             call_kwargs = mock_generate.call_args.kwargs
-            assert not call_kwargs["metadata"]["posthog_properties"]["$ai_billable"]
+            assert call_kwargs["metadata"]["posthog_properties"]["$ai_billable"] == False
 
     async def test_workflow_billing_override_in_agenerate(self):
         """Test that workflow-level is_agent_billable=False overrides model billable=True in agenerate."""
@@ -354,7 +354,7 @@ class TestMaxChatOpenAI(BaseTest):
             await llm.agenerate(messages)
 
             call_kwargs = mock_agenerate.call_args.kwargs
-            assert not call_kwargs["metadata"]["posthog_properties"]["$ai_billable"]
+            assert call_kwargs["metadata"]["posthog_properties"]["$ai_billable"] == False
 
     def test_effective_billable_defaults_to_true_when_no_config(self):
         """Test that is_agent_billable defaults to True when not in config."""

@@ -160,7 +160,7 @@ class TestGeneralUtils(TestCase):
     @patch("os.getenv")
     def test_fetching_env_var_parsed_as_int(self, mock_env):
         mock_env.return_value = ""
-        assert get_from_env("test_key", optional=True, type_cast=int) is None
+        assert get_from_env("test_key", optional=True, type_cast=int) == None
 
         mock_env.return_value = "4"
         assert get_from_env("test_key", type_cast=int) == 4
@@ -168,7 +168,7 @@ class TestGeneralUtils(TestCase):
     @patch("os.getenv")
     def test_fetching_env_var_parsed_as_float(self, mock_env):
         mock_env.return_value = ""
-        assert get_from_env("test_key", optional=True, type_cast=float, default=0.0) is None
+        assert get_from_env("test_key", optional=True, type_cast=float, default=0.0) == None
 
         mock_env.return_value = ""
         assert get_from_env("test_key", type_cast=float, default=0.0) == 0.0

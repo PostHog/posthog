@@ -10,32 +10,33 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey, type SDK, SDKInstructionsMap, SDKTag } from '~/types'
 
 import { OnboardingStep } from '../OnboardingStep'
-import { OnboardingStepComponentType, onboardingLogic } from '../onboardingLogic'
+import { onboardingLogic } from '../onboardingLogic'
 import { RealtimeCheckIndicator } from './RealtimeCheckIndicator'
 import { SDKSnippet } from './SDKSnippet'
 import { useInstallationComplete } from './hooks/useInstallationComplete'
 import { sdksLogic } from './sdksLogic'
-
-interface SDKInstructionsModalProps {
-    isOpen: boolean
-    onClose: () => void
-    sdk?: SDK
-    sdkInstructionMap: SDKInstructionsMap
-    verifyingProperty?: string
-    verifyingName?: string
-}
 
 export function SDKInstructionsModal({
     isOpen,
     onClose,
     sdk,
     sdkInstructionMap,
+    productKey,
     verifyingProperty = 'ingested_event',
     verifyingName = 'event',
-}: SDKInstructionsModalProps): JSX.Element {
+}: {
+    isOpen: boolean
+    onClose: () => void
+    sdk?: SDK
+    sdkInstructionMap: SDKInstructionsMap
+    productKey: ProductKey
+    verifyingProperty?: string
+    verifyingName?: string
+}): JSX.Element {
     const installationComplete = useInstallationComplete(verifyingProperty)
 
     const sdkInstructions = sdkInstructionMap[sdk?.key as keyof typeof sdkInstructionMap] as
@@ -54,7 +55,7 @@ export function SDKInstructionsModal({
                         </LemonButton>
                     </header>
                     <div className="flex-grow overflow-y-auto px-4 py-2">
-                        <SDKSnippet sdk={sdk} sdkInstructions={sdkInstructions} />
+                        <SDKSnippet sdk={sdk} sdkInstructions={sdkInstructions} productKey={productKey} />
                     </div>
                     <footer className="sticky bottom-0 w-full bg-bg-light dark:bg-bg-depth rounded-b-sm p-2 flex justify-between items-center gap-2 px-4">
                         <RealtimeCheckIndicator
@@ -69,17 +70,21 @@ export function SDKInstructionsModal({
     )
 }
 
-interface OnboardingInstallStepProps {
+export type SDKsProps = {
     sdkInstructionMap: SDKInstructionsMap
+    productKey: ProductKey
+    stepKey?: OnboardingStepKey
     listeningForName?: string
     teamPropertyToVerify?: string
 }
 
-export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstallStepProps> = ({
+export function OnboardingInstallStep({
     sdkInstructionMap,
+    productKey,
+    stepKey = OnboardingStepKey.INSTALL,
     listeningForName = 'event',
     teamPropertyToVerify = 'ingested_event',
-}) => {
+}: SDKsProps): JSX.Element {
     const { setAvailableSDKInstructionsMap, selectSDK, setSearchTerm, setSelectedTag } = useActions(sdksLogic)
     const { filteredSDKs, selectedSDK, tags, searchTerm, selectedTag } = useValues(sdksLogic)
     const [instructionsModalOpen, setInstructionsModalOpen] = useState(false)
@@ -100,7 +105,7 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
     return (
         <OnboardingStep
             title="Install"
-            stepKey={OnboardingStepKey.INSTALL}
+            stepKey={stepKey}
             continueDisabledReason={!installationComplete ? 'Installation is not complete' : undefined}
             showSkip={showSkipAtBottom}
             actions={
@@ -204,6 +209,7 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
                     onClose={() => setInstructionsModalOpen(false)}
                     sdk={selectedSDK}
                     sdkInstructionMap={sdkInstructionMap}
+                    productKey={productKey}
                     verifyingProperty={teamPropertyToVerify}
                     verifyingName={listeningForName}
                 />
@@ -211,8 +217,6 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
         </OnboardingStep>
     )
 }
-
-OnboardingInstallStep.stepKey = OnboardingStepKey.INSTALL
 
 interface NextButtonProps {
     installationComplete: boolean

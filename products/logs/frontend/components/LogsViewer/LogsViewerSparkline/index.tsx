@@ -140,9 +140,7 @@ export function LogsSparkline({
                         onSelectionChange={onSelectionChange}
                         withXScale={withXScale}
                         renderLabel={renderLabel}
-                        tooltipRowCutoff={100}
-                        hideZerosInTooltip
-                        sortTooltipByCount
+                        tooltipRowCutoff={20}
                     />
                 ) : !sparklineLoading ? (
                     <div className="h-full text-muted flex items-center justify-center">

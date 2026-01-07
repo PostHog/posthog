@@ -4,7 +4,6 @@ from django.db import transaction
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 
-from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -97,7 +96,6 @@ class ExperimentHoldoutSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
-@extend_schema(tags=["experiments"])
 class ExperimentHoldoutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "experiment"
     queryset = ExperimentHoldout.objects.prefetch_related("created_by").all()

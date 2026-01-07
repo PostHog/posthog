@@ -683,7 +683,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             static_cohort_a.refresh_from_db()
             dynamic_cohort.refresh_from_db()
 
-            assert static_cohort_a.pending_version is None
+            assert static_cohort_a.pending_version == None
             assert not static_cohort_a.is_calculating
 
             assert dynamic_cohort.pending_version == 1

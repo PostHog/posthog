@@ -1,5 +1,4 @@
 import datetime
-import re
 from zoneinfo import ZoneInfo
 
 from freezegun import freeze_time
@@ -59,9 +58,9 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         item = response_data["results"][0]
 
         assert item["domain"] == "myposthog.com"
-        assert item["verified_at"] is None
-        assert not item["is_verified"]
-        assert not item["jit_provisioning_enabled"]
+        assert item["verified_at"] == None
+        assert item["is_verified"] == False
+        assert item["jit_provisioning_enabled"] == False
         assert item["sso_enforcement"] == ""
         assert re.search(r"[0-9A-Za-z_-]{32}", item["verification_challenge"])
 
@@ -107,17 +106,17 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED
         response_data = response.json()
         assert response_data["domain"] == "the.posthog.com"
-        assert response_data["verified_at"] is None
-        assert not response_data["jit_provisioning_enabled"]
-        assert not response_data["scim_enabled"]
+        assert response_data["verified_at"] == None
+        assert response_data["jit_provisioning_enabled"] == False
+        assert response_data["scim_enabled"] == False
         assert re.search(r"[0-9A-Za-z_-]{32}", response_data["verification_challenge"])
 
         instance = OrganizationDomain.objects.get(id=response_data["id"])
         assert instance.domain == "the.posthog.com"
-        assert instance.verified_at is None
-        assert instance.last_verification_retry is None
+        assert instance.verified_at == None
+        assert instance.last_verification_retry == None
         assert instance.sso_enforcement == ""
-        assert not instance.scim_enabled
+        assert instance.scim_enabled == False
 
         # Verify the domain creation capture event was called
         mock_capture.assert_any_call(
@@ -203,10 +202,10 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.domain.refresh_from_db()
         assert response_data["domain"] == "myposthog.com"
         assert response_data["verified_at"] == self.domain.verified_at.strftime("%Y-%m-%dT%H:%M:%SZ")
-        assert response_data["is_verified"]
+        assert response_data["is_verified"] == True
 
         assert self.domain.verified_at == datetime.datetime(2021, 8, 8, 20, 20, 8, tzinfo=ZoneInfo("UTC"))
-        assert self.domain.is_verified
+        assert self.domain.is_verified == True
 
     @patch("posthog.models.organization_domain.dns.resolver.resolve")
     def test_domain_is_not_verified_with_missing_challenge(self, mock_dns_query):
@@ -222,8 +221,8 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         response_data = response.json()
         self.domain.refresh_from_db()
         assert response_data["domain"] == "myposthog.com"
-        assert response_data["verified_at"] is None
-        assert self.domain.verified_at is None
+        assert response_data["verified_at"] == None
+        assert self.domain.verified_at == None
         assert self.domain.last_verification_retry == datetime.datetime(2021, 10, 10, 10, 10, 10, tzinfo=ZoneInfo("UTC"))
 
     @patch("posthog.models.organization_domain.dns.resolver.resolve")
@@ -240,8 +239,8 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         response_data = response.json()
         self.domain.refresh_from_db()
         assert response_data["domain"] == "myposthog.com"
-        assert response_data["verified_at"] is None
-        assert self.domain.verified_at is None
+        assert response_data["verified_at"] == None
+        assert self.domain.verified_at == None
         assert self.domain.last_verification_retry == datetime.datetime(2021, 10, 10, 10, 10, 10, tzinfo=ZoneInfo("UTC"))
 
     @patch("posthog.models.organization_domain.dns.resolver.resolve")
@@ -268,8 +267,8 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         response_data = response.json()
         self.domain.refresh_from_db()
         assert response_data["domain"] == "myposthog.com"
-        assert response_data["verified_at"] is None
-        assert self.domain.verified_at is None
+        assert response_data["verified_at"] == None
+        assert self.domain.verified_at == None
         assert self.domain.last_verification_retry == datetime.datetime(2021, 10, 10, 10, 10, 10, tzinfo=ZoneInfo("UTC"))
 
     def test_cannot_request_verification_for_verified_domains(self):
@@ -296,7 +295,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         assert response.json() == self.permission_denied_response("Your organization access level is insufficient.")
 
         self.domain.refresh_from_db()
-        assert self.domain.verified_at is None
+        assert self.domain.verified_at == None
 
     # Update domains
 
@@ -316,11 +315,11 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["sso_enforcement"] == "google-oauth2"
-        assert response.json()["jit_provisioning_enabled"]
+        assert response.json()["jit_provisioning_enabled"] == True
 
         self.domain.refresh_from_db()
         assert self.domain.sso_enforcement == "google-oauth2"
-        assert self.domain.jit_provisioning_enabled
+        assert self.domain.jit_provisioning_enabled == True
 
     def test_cannot_enforce_sso_or_enable_jit_provisioning_on_unverified_domain(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -344,7 +343,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json() == {"type": "validation_error", "code": "verification_required", "detail": "This attribute cannot be updated until the domain is verified.", "attr": "jit_provisioning_enabled"}
         self.domain.refresh_from_db()
-        assert not self.domain.jit_provisioning_enabled
+        assert self.domain.jit_provisioning_enabled == False
 
     def test_only_allowed_parameters_can_be_updated(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -355,7 +354,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
             {"verified_at": "2020-01-01T12:12:12Z", "verification_challenge": "123"},
         )
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["verified_at"] is None
+        assert response.json()["verified_at"] == None
         assert re.search(r"[0-9A-Za-z_-]{32}", response.json()["verification_challenge"])
 
     def test_only_admin_can_update_domain(self):
@@ -369,7 +368,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert response.json() == self.permission_denied_response("Your organization access level is insufficient.")
         self.domain.refresh_from_db()
-        assert not self.domain.jit_provisioning_enabled
+        assert self.domain.jit_provisioning_enabled == False
         assert self.domain.sso_enforcement == ""
 
     def test_cannot_update_domain_for_another_org(self):
@@ -385,7 +384,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert response.json() == self.permission_denied_response()
         self.another_domain.refresh_from_db()
-        assert not self.another_domain.jit_provisioning_enabled
+        assert self.another_domain.jit_provisioning_enabled == False
         assert self.another_domain.sso_enforcement == ""
 
     # Delete domains
@@ -446,12 +445,12 @@ class TestOrganizationDomainsAPI(APIBaseTest):
             {"scim_enabled": True},
         )
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["scim_enabled"]
+        assert response.json()["scim_enabled"] == True
         assert response.json()["scim_bearer_token"] is not None
         assert "scim_base_url" in response.json()
 
         self.domain.refresh_from_db()
-        assert self.domain.scim_enabled
+        assert self.domain.scim_enabled == True
         assert self.domain.scim_bearer_token is not None
 
     def test_cannot_enable_scim_without_available_feature(self):
@@ -501,11 +500,11 @@ class TestOrganizationDomainsAPI(APIBaseTest):
             {"scim_enabled": False},
         )
         assert response.status_code == status.HTTP_200_OK
-        assert not response.json()["scim_enabled"]
+        assert response.json()["scim_enabled"] == False
         assert response.json()["scim_bearer_token"] is None
 
         self.domain.refresh_from_db()
-        assert not self.domain.scim_enabled
+        assert self.domain.scim_enabled == False
         assert self.domain.scim_bearer_token is None
 
     def test_can_regenerate_scim_token(self):
@@ -527,7 +526,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         # Regenerate token
         response = self.client.post(f"/api/organizations/@current/domains/{self.domain.id}/scim/token")
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["scim_enabled"]
+        assert response.json()["scim_enabled"] == True
         new_token = response.json()["scim_bearer_token"]
         assert new_token is not None
         assert original_token != new_token

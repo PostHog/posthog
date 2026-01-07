@@ -658,7 +658,7 @@ class TestMemoryCollectorNode(ClickhouseTestMixin, NonAtomicBaseTest):
 
             new_state = await self.node.arun(state, {})
             assert new_state is not None
-            assert new_state.memory_collection_messages is None
+            assert new_state.memory_collection_messages == None
 
     async def test_appends_new_message(self):
         with patch.object(MemoryCollectorNode, "_model") as model_mock:

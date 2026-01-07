@@ -91,7 +91,7 @@ class TestOrganizationAPI(APIBaseTest):
 
         self.organization.refresh_from_db()
         assert self.organization.name == "QWERTY"
-        assert not self.organization.is_member_join_email_enabled
+        assert self.organization.is_member_join_email_enabled == False
 
     def test_update_organization_if_owner(self):
         self.organization_membership.level = OrganizationMembership.Level.OWNER
@@ -111,7 +111,7 @@ class TestOrganizationAPI(APIBaseTest):
 
         self.organization.refresh_from_db()
         assert self.organization.name == "QWERTY"
-        assert not self.organization.is_member_join_email_enabled
+        assert self.organization.is_member_join_email_enabled == False
 
     def test_cannot_update_organization_if_not_owner_or_admin(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -147,7 +147,7 @@ class TestOrganizationAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert "is_active" in response.json()
         assert "is_not_active_reason" in response.json()
-        assert response.json()["is_active"]
+        assert response.json()["is_active"] == True
         assert response.json()["is_not_active_reason"] is None
 
         # Attempt to update is_active - should be ignored
@@ -159,7 +159,7 @@ class TestOrganizationAPI(APIBaseTest):
 
         # Verify fields were not updated
         self.organization.refresh_from_db()
-        assert self.organization.is_active
+        assert self.organization.is_active == True
         assert self.organization.is_not_active_reason is None
 
     @patch("posthoganalytics.capture")
@@ -178,7 +178,7 @@ class TestOrganizationAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
 
         self.organization.refresh_from_db()
-        assert self.organization.enforce_2fa
+        assert self.organization.enforce_2fa == True
 
         # Verify the capture event was called correctly
         mock_capture.assert_any_call(
@@ -204,7 +204,7 @@ class TestOrganizationAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
 
         self.organization.refresh_from_db()
-        assert self.organization.is_ai_data_processing_approved
+        assert self.organization.is_ai_data_processing_approved == True
 
         mock_capture.assert_any_call(
             "organization ai data processing consent toggled",
@@ -262,7 +262,7 @@ class TestOrganizationAPI(APIBaseTest):
 
         # Verify the value didn't change
         self.organization.refresh_from_db()
-        assert not self.organization.enforce_2fa
+        assert self.organization.enforce_2fa != True
 
     def test_cannot_update_allow_publicly_shared_resources_without_feature(self):
         """Test that allow_publicly_shared_resources cannot be updated without ORGANIZATION_SECURITY_SETTINGS feature."""
@@ -599,7 +599,7 @@ class TestOrganizationRbacMigrations(APIBaseTest):
 
         response = self.client.post(f"/api/organizations/{self.organization.id}/migrate_access_control/")
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["status"]
+        assert response.json()["status"] == True
 
         feature_flag_access = FeatureFlagRoleAccess.objects.first()
         assert feature_flag_access is None
@@ -635,7 +635,7 @@ class TestOrganizationRbacMigrations(APIBaseTest):
 
         response = self.client.post(f"/api/organizations/{self.organization.id}/migrate_access_control/")
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["status"]
+        assert response.json()["status"] == True
 
         # Verify specific role access was migrated
         assert FeatureFlagRoleAccess.objects.count() == 0
@@ -691,7 +691,7 @@ class TestOrganizationRbacMigrations(APIBaseTest):
 
         response = self.client.post(f"/api/organizations/{self.organization.id}/migrate_access_control/")
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["status"]
+        assert response.json()["status"] == True
 
         # Verify that inactive user's access was not migrated
         with pytest.raises(AccessControl.DoesNotExist):
@@ -811,7 +811,7 @@ class TestOrganizationRbacMigrations(APIBaseTest):
         # Perform migration
         response = self.client.post(f"/api/organizations/{self.organization.id}/migrate_access_control/")
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["status"]
+        assert response.json()["status"] == True
 
         # Verify feature flag access controls
         assert FeatureFlagRoleAccess.objects.count() == 0

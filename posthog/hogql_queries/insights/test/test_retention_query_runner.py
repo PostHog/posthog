@@ -674,7 +674,9 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        assert pluck(result, "values", "count") == pad(
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            pad(
                 [
                     # first row, [2, 2, 1, 1, 0, 0], is explained below
                     # day 0 is person 1, 2 -> 2
@@ -690,7 +692,8 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                     [3, 0],
                     [0],
                 ]
-            )
+            ),
+        )
 
     def test_all_events(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
@@ -947,10 +950,10 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         # should be descending order on number of appearances
         assert result[0][0]["id"] == person2.uuid
-        assert sorted(result[0][1]) == sorted([0, 1, 4, 5])
+        self.assertCountEqual(result[0][1], [0, 1, 4, 5])
 
         assert result[1][0]["id"] == person1.uuid
-        assert sorted(result[1][1]) == sorted([0, 3, 4])
+        self.assertCountEqual(result[1][1], [0, 3, 4])
 
     def test_retention_people_search(self):
         _create_person(
@@ -1010,7 +1013,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         )
         assert len(result) == 1
         assert result[0][0]["id"] == p3.uuid
-        assert sorted(result[0][1]) == sorted([0, 1, 3, 4, 5])
+        self.assertCountEqual(result[0][1], [0, 1, 3, 4, 5])
 
     def test_retention_multiple_events(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
@@ -1383,7 +1386,9 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         assert pluck(result, "label") == ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7", "Day 8", "Day 9", "Day 10"]
         assert result[0]["date"] == datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC"))
 
-        assert pluck(result, "values", "count") == pad(
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            pad(
                 [
                     [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],  # only one match, 1 day after for person 1
                     [2, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -1397,7 +1402,8 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                     [0, 0],
                     [0],
                 ]
-            )
+            ),
+        )
 
     def test_retention_with_properties_on_return_event_with_first_time(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
@@ -1444,7 +1450,9 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         assert pluck(result, "label") == ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7", "Day 8", "Day 9", "Day 10"]
         assert result[0]["date"] == datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC"))
 
-        assert pluck(result, "values", "count") == pad(
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            pad(
                 [
                     [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0],  # only one match, 5 days after for person 1
                     [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -1458,7 +1466,8 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                     [0, 0],
                     [0],
                 ]
-            )
+            ),
+        )
 
     def test_retention_with_user_properties(self):
         _create_person(
@@ -1839,7 +1848,9 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         # Person4: first $user_signed_up on day 2, returns on day 3 (interval 1)
         # Person5: first $user_signed_up on day 3, returns on days 4,5 (intervals 1,2)
 
-        assert pluck(result, "values", "count") == [
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            [
                 [0, 0, 0, 0, 0, 0, 0],  # Day 0: no one starts retention here (no one does signup on day 0)
                 [
                     2,
@@ -1856,7 +1867,8 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 [0, 0, 0, 0, 0, 0, 0],  # Day 5: no new users
                 [0, 0, 0, 0, 0, 0, 0],  # Day 6: no new users
                 [0, 0, 0, 0, 0, 0, 0],  # Day 7: no new users
-            ]
+            ],
+        )
 
     def test_retention_first_time_ever_with_person_breakdown(self):
         """Test first time ever retention with person property breakdown"""
@@ -1919,7 +1931,9 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         # Check age 25 group (person1 and person3)
         # Person1: first event ever day 1 (pageview), signup day 2 - should start retention on day 2
         # Person3: first event ever day 2 (signup) - should start retention on day 2
-        assert pluck(age_25_results, "values", "count") == [
+        self.assertEqual(
+            pluck(age_25_results, "values", "count"),
+            [
                 [0, 0, 0, 0, 0, 0, 0],  # Day 0: no one
                 [0, 0, 0, 0, 0, 0, 0],  # Day 1: person1's first event (pageview), but no signup yet
                 [2, 2, 0, 2, 0, 0, 0],  # Day 2: person1 + person3 (both signup), both return day 3,5
@@ -1928,12 +1942,15 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 [0, 0, 0, 0, 0, 0, 0],  # Day 5: no new users
                 [0, 0, 0, 0, 0, 0, 0],  # Day 6: no new users
                 [0, 0, 0, 0, 0, 0, 0],  # Day 7: no new users
-            ]
+            ],
+        )
 
         # Check age 30 group (person2 and person4)
         # Person2: first event ever day 1 (signup) - should start retention on day 1
         # Person4: first event ever day 3 (pageview), signup day 4 - should start retention on day 4
-        assert pluck(age_30_results, "values", "count") == [
+        self.assertEqual(
+            pluck(age_30_results, "values", "count"),
+            [
                 [0, 0, 0, 0, 0, 0, 0],  # Day 0: no one
                 [1, 1, 0, 1, 0, 0, 0],  # Day 1: person2 (signup), returns day 2,4
                 [0, 0, 0, 0, 0, 0, 0],  # Day 2: no new users
@@ -1942,7 +1959,8 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 [0, 0, 0, 0, 0, 0, 0],  # Day 5: no new users
                 [0, 0, 0, 0, 0, 0, 0],  # Day 6: no new users
                 [0, 0, 0, 0, 0, 0, 0],  # Day 7: no new users
-            ]
+            ],
+        )
 
     def test_retention_first_time_ever_with_event_breakdown(self):
         """Test first time ever retention with event property breakdown"""
@@ -2007,7 +2025,9 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         # Check web source (person1 and person3)
         # Person1: first event day 1 (pageview web), signup day 2 (web)
         # Person3: first event day 2 (signup web)
-        assert pluck(web_results, "values", "count") == [
+        self.assertEqual(
+            pluck(web_results, "values", "count"),
+            [
                 [0, 0, 0, 0, 0, 0, 0],  # Day 0: no one
                 [0, 0, 0, 0, 0, 0, 0],  # Day 1: person1's first event (pageview), but no signup yet
                 [2, 2, 0, 2, 0, 0, 0],  # Day 2: person1 + person3 (both signup web), both return day 3,5
@@ -2016,10 +2036,13 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 [0, 0, 0, 0, 0, 0, 0],  # Day 5: no new users
                 [0, 0, 0, 0, 0, 0, 0],  # Day 6: no new users
                 [0, 0, 0, 0, 0, 0, 0],  # Day 7: no new users
-            ]
+            ],
+        )
 
         # Check mobile source (person2)
-        assert pluck(mobile_results, "values", "count") == [
+        self.assertEqual(
+            pluck(mobile_results, "values", "count"),
+            [
                 [0, 0, 0, 0, 0, 0, 0],  # Day 0: no one
                 [1, 1, 0, 1, 0, 0, 0],  # Day 1: person2's first event (signup), returns day 2,4
                 [0, 0, 0, 0, 0, 0, 0],  # Day 2: no new users
@@ -2028,7 +2051,8 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 [0, 0, 0, 0, 0, 0, 0],  # Day 5: no new users
                 [0, 0, 0, 0, 0, 0, 0],  # Day 6: no new users
                 [0, 0, 0, 0, 0, 0, 0],  # Day 7: no new users
-            ]
+            ],
+        )
 
     def test_retention_first_time_ever_with_cohort_breakdown(self):
         """Test first time ever retention with cohort breakdown"""
@@ -2129,7 +2153,9 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         # Check cohort1 (person1 and person3)
         # Person1: first event day 1 (pageview), signup day 2 - should start retention on day 2
         # Person3: first event day 2 (signup) - should start retention on day 2
-        assert pluck(cohort1_results, "values", "count") == [
+        self.assertEqual(
+            pluck(cohort1_results, "values", "count"),
+            [
                 [0, 0, 0, 0, 0, 0, 0],  # Day 0: no one
                 [0, 0, 0, 0, 0, 0, 0],  # Day 1: person1's first event (pageview), but no signup yet
                 [2, 2, 0, 2, 0, 0, 0],  # Day 2: person1 + person3 (both signup), both return day 3,5
@@ -2138,12 +2164,15 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 [0, 0, 0, 0, 0, 0, 0],  # Day 5: no new users
                 [0, 0, 0, 0, 0, 0, 0],  # Day 6: no new users
                 [0, 0, 0, 0, 0, 0, 0],  # Day 7: no new users
-            ]
+            ],
+        )
 
         # Check cohort2 (person2 and person4)
         # Person2: first event day 1 (signup) - should start retention on day 1
         # Person4: first event day 3 (pageview), signup day 4 - should start retention on day 4
-        assert pluck(cohort2_results, "values", "count") == [
+        self.assertEqual(
+            pluck(cohort2_results, "values", "count"),
+            [
                 [0, 0, 0, 0, 0, 0, 0],  # Day 0: no one
                 [1, 1, 0, 1, 0, 0, 0],  # Day 1: person2's first event (signup), returns day 2,4
                 [0, 0, 0, 0, 0, 0, 0],  # Day 2: no new users
@@ -2152,7 +2181,8 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 [0, 0, 0, 0, 0, 0, 0],  # Day 5: no new users
                 [0, 0, 0, 0, 0, 0, 0],  # Day 6: no new users
                 [0, 0, 0, 0, 0, 0, 0],  # Day 7: no new users
-            ]
+            ],
+        )
 
     def test_retention_first_time_ever_with_minimum_occurrences(self):
         """Test first time ever retention with minimum occurrences requirement"""
@@ -2204,7 +2234,9 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         # Person1: first event on day 1 (signup), has 2 pageviews on day 2 (qualifies)
         # Person2: first event on day 2 (signup), has 3 pageviews on day 3 and 2 on day 5 (both qualify)
         # Person3: first event on day 3 (signup), has only 1 pageview on day 4 (doesn't qualify)
-        assert pluck(result, "values", "count") == [
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            [
                 [0, 0, 0, 0, 0, 0, 0],  # Day 0: no one
                 [1, 1, 0, 0, 0, 0, 0],  # Day 1: person1 (signup), returns day 2 with 2+ pageviews
                 [1, 1, 0, 1, 0, 0, 0],  # Day 2: person2 (signup), returns day 3 and 5 with 2+ pageviews
@@ -2213,7 +2245,8 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 [0, 0, 0, 0, 0, 0, 0],  # Day 5: no new users
                 [0, 0, 0, 0, 0, 0, 0],  # Day 6: no new users
                 [0, 0, 0, 0, 0, 0, 0],  # Day 7: no new users
-            ]
+            ],
+        )
 
     def test_retention_first_time_ever_actors_query(self):
         """Test actors query for first time ever retention"""
@@ -2305,7 +2338,9 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         # Person1: first $user_signed_up on day 1 (week 0), returns weeks 1,2 with pageviews
         # Person2: first $user_signed_up on day 14 (week 2), returns week 3 with pageview
         # Person3: first $user_signed_up on day 14 (week 2), returns week 3 with pageview (week 5 is out of range)
-        assert pluck(result, "values", "count") == [
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            [
                 [1, 1, 1, 0, 0],  # Week 0: person1 (signup), returns weeks 1,2
                 [0, 0, 0, 0, 0],  # Week 1: no new users
                 [2, 2, 0, 0, 0],  # Week 2: person2 + person3 (signup), return week 3 (both)
@@ -2314,7 +2349,8 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 [0, 0, 0, 0, 0],  # Week 5: no new users
                 [0, 0, 0, 0, 0],  # Week 6: no new users
                 [0, 0, 0, 0, 0],  # Week 7: no new users
-            ]
+            ],
+        )
 
     def test_retention_first_time_ever_with_properties(self):
         """Test first time ever retention with event properties and filters"""
@@ -2381,7 +2417,9 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         # Person2 is excluded because their events are from "paid" source
         # Person1: first $user_signed_up on day 2 (organic), returns day 3,5
         # Person3: first $user_signed_up on day 2 (organic), returns day 3,5
-        assert pluck(result, "values", "count") == [
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            [
                 [0, 0, 0, 0, 0, 0, 0],  # Day 0: no one
                 [0, 0, 0, 0, 0, 0, 0],  # Day 1: no signups yet
                 [2, 2, 0, 2, 0, 0, 0],  # Day 2: person1 + person3 (first organic signup), return day 3,5
@@ -2390,7 +2428,8 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 [0, 0, 0, 0, 0, 0, 0],  # Day 5: no new users
                 [0, 0, 0, 0, 0, 0, 0],  # Day 6: no new users
                 [0, 0, 0, 0, 0, 0, 0],  # Day 7: no new users
-            ]
+            ],
+        )
 
     def test_retention_first_time_ever_events_query(self):
         """Test events query for first time ever retention"""
@@ -2487,7 +2526,9 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         assert result_pacific[0]["date"] == datetime(2020, 6, 10, tzinfo=ZoneInfo("US/Pacific"))
         assert result_pacific[0]["date"].isoformat() == "2020-06-10T00:00:00-07:00"
 
-        assert pluck(result, "values", "count") == pad(
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            pad(
                 [
                     [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
                     [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -2501,9 +2542,12 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                     [0, 0],
                     [0],
                 ]
-            )
+            ),
+        )
 
-        assert pluck(result_pacific, "values", "count") == pad(
+        self.assertEqual(
+            pluck(result_pacific, "values", "count"),
+            pad(
                 [
                     [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
                     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -2517,7 +2561,8 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                     [0, 0],
                     [0],
                 ]
-            )
+            ),
+        )
 
     @snapshot_clickhouse_queries
     def test_day_interval_sampled(self):
@@ -3599,7 +3644,7 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
             },
             actor="group",
         )
-        assert sorted([actor[0]["id"] for actor in actor_result]) == sorted(["org:5", "org:6"])
+        self.assertCountEqual([actor[0]["id"] for actor in actor_result], ["org:5", "org:6"])
 
         result = self.run_query(
             query={
@@ -3664,7 +3709,7 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
             actor="group",
         )
 
-        assert sorted([actor[0]["id"] for actor in actor_result]) == sorted(["org:5", "org:6"])
+        self.assertCountEqual([actor[0]["id"] for actor in actor_result], ["org:5", "org:6"])
 
         result = self.run_query(
             query={
@@ -3737,7 +3782,9 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
 
         # 2. Check Chrome counts (should be top cohort)
         chrome_cohorts = pluck([c for c in result if c.get("breakdown_value") == "Chrome"], "values", "count")
-        assert chrome_cohorts == pad(
+        self.assertEqual(
+            chrome_cohorts,
+            pad(
                 [
                     [3, 1, 1, 0, 0, 0],  # Day 0: 3 start, Day 1: 1 returns, Day 2: 1 returns
                     [1, 0, 0, 0, 0, 0],  # Day 1: p_chrome_1 event. No returns in subsequent intervals.
@@ -3746,11 +3793,14 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
                     [0, 0, 0, 0, 0, 0],
                     [0, 0, 0, 0, 0, 0],
                 ]
-            )
+            ),
+        )
 
         # 3. Check Safari counts (should be second cohort)
         safari_cohorts = pluck([c for c in result if c.get("breakdown_value") == "Safari"], "values", "count")
-        assert safari_cohorts == pad(
+        self.assertEqual(
+            safari_cohorts,
+            pad(
                 [
                     [2, 1, 0, 0, 0, 0],  # Day 0: 2 start, Day 1: 1 returns
                     [1, 0, 0, 0, 0, 0],  # Day 1: (p_safari_1 started)
@@ -3759,13 +3809,16 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
                     [0, 0, 0, 0, 0, 0],
                     [0, 0, 0, 0, 0, 0],
                 ]
-            )
+            ),
+        )
 
         # 4. Check "Other" counts (should be sum of Firefox + Edge)
         other_cohorts = pluck(
             [c for c in result if c.get("breakdown_value") == BREAKDOWN_OTHER_STRING_LABEL], "values", "count"
         )
-        assert other_cohorts == pad(
+        self.assertEqual(
+            other_cohorts,
+            pad(
                 [
                     [
                         2,
@@ -3781,7 +3834,8 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
                     [1, 0, 0, 0, 0, 0],  # Day 4: (p_edge_1 started)
                     [0, 0, 0, 0, 0, 0],
                 ]
-            )
+            ),
+        )
 
     def test_retention_with_virtual_person_property_breakdown(self):
         with freeze_time("2020-01-12T12:00:00Z"):

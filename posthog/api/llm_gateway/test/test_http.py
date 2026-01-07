@@ -292,7 +292,7 @@ class TestLLMGatewayViewSet(APIBaseTest):
         assert call_kwargs["event"] == "$ai_generation"
 
         properties = call_kwargs["properties"]
-        assert properties["$ai_is_error"]
+        assert properties["$ai_is_error"] == True
         assert properties["$ai_error"] == "API Error"
         assert properties["$ai_http_status"] == 500
 

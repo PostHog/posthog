@@ -55,22 +55,19 @@ class ImportDataActivityInputs:
 
 @contextmanager
 def _get_redis():
-    redis_client = None
     try:
         if not settings.DATA_WAREHOUSE_REDIS_HOST or not settings.DATA_WAREHOUSE_REDIS_PORT:
             raise Exception(
                 "Missing env vars for dwh row tracking: DATA_WAREHOUSE_REDIS_HOST or DATA_WAREHOUSE_REDIS_PORT"
             )
 
-        redis_client = get_client(f"redis://{settings.DATA_WAREHOUSE_REDIS_HOST}:{settings.DATA_WAREHOUSE_REDIS_PORT}/")
-        redis_client.ping()
+        redis = get_client(f"redis://{settings.DATA_WAREHOUSE_REDIS_HOST}:{settings.DATA_WAREHOUSE_REDIS_PORT}/")
+        redis.ping()
+
+        yield redis
     except Exception as e:
         capture_exception(e)
-
-    try:
-        yield redis_client
-    finally:
-        pass
+        yield None
 
 
 def _non_retryable_errors_key(job_inputs: PipelineInputs) -> str:

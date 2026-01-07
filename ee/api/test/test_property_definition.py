@@ -99,7 +99,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         response_data = response.json()
         assert len(response_data["results"]) == 1
         # always True if not scoping by event names
-        assert response_data["results"][0]["is_seen_on_filtered_events"] is None
+        assert response_data["results"][0]["is_seen_on_filtered_events"] == None
 
         # add event_names=['$pageview'] to get properties that have been seen by this event
         response = self.client.get(
@@ -109,9 +109,9 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         response_data = response.json()
         assert len(response_data["results"]) == 2
         assert response_data["results"][0]["name"] == "enterprise property"
-        assert response_data["results"][0]["is_seen_on_filtered_events"]
+        assert response_data["results"][0]["is_seen_on_filtered_events"] == True
         assert response_data["results"][1]["name"] == "other property"
-        assert not response_data["results"][1]["is_seen_on_filtered_events"]
+        assert response_data["results"][1]["is_seen_on_filtered_events"] == False
 
         response = self.client.get(
             f"/api/projects/@current/property_definitions/?search=property&event_names=%5B%22%24pageview%22%5D&filter_by_event_names=true"
@@ -195,7 +195,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
 
         response_data = response.json()
         assert response_data["property_type"] == "Numeric"
-        assert response_data["is_numerical"]
+        assert response_data["is_numerical"] == True
         assert response_data["updated_by"]["first_name"] == self.user.first_name
 
     def test_update_property_definition_non_numeric(self):
@@ -214,7 +214,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
 
         response_data = response.json()
         assert response_data["property_type"] == "DateTime"
-        assert not response_data["is_numerical"]
+        assert response_data["is_numerical"] == False
         assert response_data["updated_by"]["first_name"] == self.user.first_name
 
     def test_update_property_description_without_license(self):
@@ -312,7 +312,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
             data={"tags": ["a", "b", "a"]},
         )
 
-        assert sorted(response.json()["tags"]) == ["a", "b"]
+        self.assertListEqual(sorted(response.json()["tags"]), ["a", "b"])
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_can_get_property_verification_data(self):

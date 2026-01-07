@@ -19,7 +19,7 @@ class TestGzipMiddleware(APIBaseTest):
             assert response.status_code == status.HTTP_200_OK
 
             contentEncoding = response.headers.get("Content-Encoding", None)
-            assert contentEncoding is None
+            assert contentEncoding == None
 
     @skip("fails in CI, but covered by test in test_clickhouse_session_recording")
     def test_compresses_when_on_allow_list(self) -> None:
@@ -36,7 +36,7 @@ class TestGzipMiddleware(APIBaseTest):
             assert response.status_code == status.HTTP_404_NOT_FOUND, response.content.decode("utf-8")
 
             contentEncoding = response.headers.get("Content-Encoding", None)
-            assert contentEncoding is None
+            assert contentEncoding == None
 
     def test_no_compression_when_allow_list_is_empty(self) -> None:
         with self.settings(GZIP_RESPONSE_ALLOW_LIST=[]):
@@ -44,7 +44,7 @@ class TestGzipMiddleware(APIBaseTest):
             assert response.status_code == status.HTTP_200_OK
 
             contentEncoding = response.headers.get("Content-Encoding", None)
-            assert contentEncoding is None
+            assert contentEncoding == None
 
     def test_sensible_error_if_bad_pattern(self) -> None:
         with raises(InvalidGZipAllowList):

@@ -262,14 +262,17 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         ).results
 
-        assert results == [
+        self.assertEqual(
+            results,
+            [
                 RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("0")),
                 # There's a user for this one, but it's not paying anything, so consider it as non-paying
                 RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=0),
                 RevenueAnalyticsOverviewItem(
                     key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("0")
                 ),
-            ]
+            ],
+        )
 
     def test_with_property_filter(self):
         # Product join, usually simple

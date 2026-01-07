@@ -508,4 +508,4 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
         cohort = Cohort.objects.get(pk=response["id"])
         assert cohort.count == 2
         people_result = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id).values_list("id", flat=True)
-        assert sorted([people[1].id, people[2].id]) == sorted(people_result)
+        self.assertCountEqual([people[1].id, people[2].id], people_result)

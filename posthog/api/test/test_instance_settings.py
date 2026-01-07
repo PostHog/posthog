@@ -25,10 +25,10 @@ class TestInstanceSettings(APIBaseTest):
         # Check an editable attribute
         for item in json_response["results"]:
             if item["key"] == "AUTO_START_ASYNC_MIGRATIONS":
-                assert item["editable"]
+                assert item["editable"] == True
 
             if item["key"] == "EMAIL_HOST_PASSWORD":
-                assert item["is_secret"]
+                assert item["is_secret"] == True
                 assert item["value"] == ""
 
     def test_can_retrieve_setting(self):
@@ -37,10 +37,10 @@ class TestInstanceSettings(APIBaseTest):
         json_response = response.json()
 
         assert json_response["key"] == "AUTO_START_ASYNC_MIGRATIONS"
-        assert not json_response["value"]
+        assert json_response["value"] == False
         assert json_response["description"] == "Whether the earliest unapplied async migration should be triggered automatically on server startup."
         assert json_response["value_type"] == "bool"
-        assert json_response["editable"]
+        assert json_response["editable"] == True
 
     def test_retrieve_secret_setting(self):
         response = self.client.get(f"/api/instance_settings/EMAIL_HOST_PASSWORD")
@@ -49,8 +49,8 @@ class TestInstanceSettings(APIBaseTest):
 
         assert json_response["key"] == "EMAIL_HOST_PASSWORD"
         assert json_response["value"] == ""  # empty values are returned
-        assert json_response["editable"]
-        assert json_response["is_secret"]
+        assert json_response["editable"] == True
+        assert json_response["is_secret"] == True
 
         # When a value is set, the value is never exposed again
         with override_instance_config("EMAIL_HOST_PASSWORD", "this_is_a_secret_sssshhh"):
@@ -60,7 +60,7 @@ class TestInstanceSettings(APIBaseTest):
 
         assert json_response["key"] == "EMAIL_HOST_PASSWORD"
         assert json_response["value"] == "*****"  # note redacted value
-        assert json_response["is_secret"]
+        assert json_response["is_secret"] == True
 
     def test_non_staff_user_cant_list_or_retrieve(self):
         self.user.is_staff = False
@@ -77,14 +77,14 @@ class TestInstanceSettings(APIBaseTest):
     def test_update_setting(self):
         response = self.client.get(f"/api/instance_settings/AUTO_START_ASYNC_MIGRATIONS")
         assert response.status_code == status.HTTP_200_OK
-        assert not response.json()["value"]
+        assert response.json()["value"] == False
 
         response = self.client.patch(f"/api/instance_settings/AUTO_START_ASYNC_MIGRATIONS", {"value": True})
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["value"]
+        assert response.json()["value"] == True
 
-        assert get_instance_setting_helper("AUTO_START_ASYNC_MIGRATIONS").value
-        assert get_instance_setting("AUTO_START_ASYNC_MIGRATIONS")
+        assert get_instance_setting_helper("AUTO_START_ASYNC_MIGRATIONS").value == True
+        assert get_instance_setting("AUTO_START_ASYNC_MIGRATIONS") == True
 
     def test_updating_email_settings(self):
         set_instance_setting("EMAIL_HOST", "localhost")
@@ -118,7 +118,7 @@ class TestInstanceSettings(APIBaseTest):
         response = self.client.patch(f"/api/instance_settings/MATERIALIZED_COLUMNS_ENABLED", {"value": False})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json() == {"type": "validation_error", "code": "no_api_override", "detail": "This setting cannot be updated from the API.", "attr": None}
-        assert get_instance_setting("MATERIALIZED_COLUMNS_ENABLED")
+        assert get_instance_setting("MATERIALIZED_COLUMNS_ENABLED") == True
 
     def test_non_staff_user_cant_update(self):
         self.user.is_staff = False
@@ -128,5 +128,5 @@ class TestInstanceSettings(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert response.json() == self.permission_denied_response("You are not a staff user, contact your instance admin.")
 
-        assert not get_instance_setting_helper("AUTO_START_ASYNC_MIGRATIONS").value
-        assert not get_instance_setting("AUTO_START_ASYNC_MIGRATIONS")
+        assert get_instance_setting_helper("AUTO_START_ASYNC_MIGRATIONS").value == False
+        assert get_instance_setting("AUTO_START_ASYNC_MIGRATIONS") == False

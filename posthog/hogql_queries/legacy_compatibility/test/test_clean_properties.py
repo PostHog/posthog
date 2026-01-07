@@ -9,7 +9,7 @@ class TestCleanGlobalProperties(BaseTest):
 
         result = clean_global_properties(properties)
 
-        assert result is None
+        assert result == None
 
     def test_handles_old_style_properties(self):
         properties = {"utm_medium__icontains": "email"}
@@ -67,7 +67,7 @@ class TestCleanEntityProperties(BaseTest):
 
         result = clean_entity_properties(properties)
 
-        assert result is None
+        assert result == None
 
     def test_handles_old_style_properties(self):
         properties = {"utm_medium__icontains": "email"}

@@ -24,7 +24,6 @@ from posthog.schema import (
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
-    ProductKey,
     QueryRequest,
     QueryStatus,
     QueryStatusResponse,
@@ -90,7 +89,7 @@ def _endpoint_refresh_mode_to_refresh_type(mode: EndpointRefreshMode | None) -> 
     return RefreshType.FORCE_BLOCKING
 
 
-@extend_schema(tags=[ProductKey.ENDPOINTS])
+@extend_schema(tags=["endpoints"])
 class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ModelViewSet):
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "endpoint"

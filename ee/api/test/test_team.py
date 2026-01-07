@@ -247,7 +247,7 @@ def team_enterprise_api_test_factory():
 
             assert cached_team.name == "Test"
             assert cached_team.uuid == response.json()["uuid"]
-            assert cached_team.session_recording_opt_in
+            assert cached_team.session_recording_opt_in == True
 
             # only things in CachedTeamSerializer are cached!
             assert cached_team.timezone == "UTC"
@@ -263,7 +263,7 @@ def team_enterprise_api_test_factory():
             assert cached_team is not None
             assert cached_team.name == "Test"
             assert cached_team.uuid == response.json()["uuid"]
-            assert cached_team.session_recording_opt_in
+            assert cached_team.session_recording_opt_in == True
 
     return TestTeamEnterpriseAPI
 

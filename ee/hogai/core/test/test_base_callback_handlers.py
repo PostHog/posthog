@@ -147,7 +147,7 @@ class TestBaseAgentRunnerCallbackHandlers(BaseTest):
             properties = call_args[1]["properties"]
             assert properties["conversation_id"] == str(self.conversation.id)
             assert properties["$ai_session_id"] == str(self.conversation.id)
-            assert properties["is_first_conversation"]
+            assert properties["is_first_conversation"] == True
             assert properties["$session_id"] == session_id
 
     @patch("ee.hogai.core.runner.is_cloud")

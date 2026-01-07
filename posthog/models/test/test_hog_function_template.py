@@ -22,7 +22,7 @@ class TestHogFunctionTemplate(TestCase):
         assert db_template.type == "destination"
         assert db_template.status == "stable"
         assert db_template.category == ["Customer Success"]
-        assert db_template.free
+        assert db_template.free == True
 
         # Verify sha is generated correctly
         assert db_template.sha is not None

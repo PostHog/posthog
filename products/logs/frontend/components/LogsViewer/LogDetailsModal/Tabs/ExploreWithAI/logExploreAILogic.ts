@@ -1,6 +1,5 @@
-import { kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -55,10 +54,4 @@ export const logExploreAILogic = kea<logExploreAILogicType>([
             },
         },
     })),
-
-    listeners({
-        loadExplanation: () => {
-            posthog.capture('logs ai explanation requested')
-        },
-    }),
 ])

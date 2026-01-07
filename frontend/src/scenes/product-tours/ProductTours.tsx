@@ -5,13 +5,10 @@ import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 
-import { Error404 } from '~/layout/Error404'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
@@ -51,13 +48,8 @@ function NewTourButton(): JSX.Element {
 }
 
 function ProductTours(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { tab } = useValues(productToursLogic)
     const { setTab } = useActions(productToursLogic)
-
-    if (!featureFlags[FEATURE_FLAGS.PRODUCT_TOURS]) {
-        return <Error404 />
-    }
 
     return (
         <SceneContent>

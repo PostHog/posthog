@@ -96,7 +96,10 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
         result = sync_execute(full_query, {**params, "team_id": self.team.pk}, team_id=self.team.pk)
 
         assert len(result) == 1
-        assert sorted([str(r[0]) for r in result]) == sorted([event_target_uuid])
+        self.assertCountEqual(
+            [str(r[0]) for r in result],
+            [event_target_uuid],
+        )
 
     def test_filter_event_exact_url_with_query_params(self):
         first_match_uuid = _create_event(
@@ -137,7 +140,10 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
         result = sync_execute(full_query, {**params, "team_id": self.team.pk}, team_id=self.team.pk)
 
         assert len(result) == 2
-        assert sorted([str(r[0]) for r in result]) == sorted([first_match_uuid, second_match_uuid])
+        self.assertCountEqual(
+            [str(r[0]) for r in result],
+            [first_match_uuid, second_match_uuid],
+        )
 
     def test_filter_event_contains_url(self):
         _create_event(
@@ -281,7 +287,9 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
         assert len(events) == 1
 
         assert action1.bytecode == create_bytecode(action_to_expr(action1)).bytecode
-        assert action1.bytecode == [
+        self.assertEqual(
+            action1.bytecode,
+            [
                 _H,
                 HOGQL_BYTECODE_VERSION,
                 # event = 'insight viewed'
@@ -308,4 +316,5 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
                 # and
                 op.AND,
                 2,
-            ]
+            ],
+        )

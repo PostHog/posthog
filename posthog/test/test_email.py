@@ -209,8 +209,8 @@ class TestEmail(BaseTest):
         # Check that numbers and booleans are preserved
         assert sanitized["nested"]["safe_number"] == 123
         assert sanitized["decimal_value"] == 1.23
-        assert sanitized["boolean_value"]
-        assert sanitized["none_value"] is None
+        assert sanitized["boolean_value"] == True
+        assert sanitized["none_value"] == None
 
         # Check that lists are sanitized
         assert sanitized["list_with_html"][0] == "normal text"

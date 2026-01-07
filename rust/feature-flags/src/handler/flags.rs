@@ -254,10 +254,6 @@ pub async fn evaluate_for_request(
         groups,
         hash_key_override,
         flag_keys,
-        optimize_experience_continuity_lookups: state
-            .config
-            .optimize_experience_continuity_lookups
-            .0,
     };
 
     evaluation::evaluate_feature_flags(ctx, request_id).await

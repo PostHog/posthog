@@ -114,7 +114,10 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
-        assert len(response.results or []) == 0
+        self.assertEqual(
+            len(response.results or []),
+            0,  # just making sure the query runs
+        )
 
     def test_channel_type(self):
         session_id = str(uuid7())

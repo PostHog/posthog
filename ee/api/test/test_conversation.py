@@ -123,7 +123,7 @@ class TestConversation(APIBaseTest):
                 call_args = mock_start_workflow_and_stream.call_args
                 workflow_inputs = call_args[0][1]
                 assert workflow_inputs.user_id == self.user.id
-                assert workflow_inputs.is_new_conversation
+                assert workflow_inputs.is_new_conversation == True
                 assert workflow_inputs.conversation_id == conversation.id
                 assert str(workflow_inputs.trace_id) == trace_id
                 assert workflow_inputs.message["content"] == "test query"
@@ -152,7 +152,7 @@ class TestConversation(APIBaseTest):
                 call_args = mock_start_workflow_and_stream.call_args
                 workflow_inputs = call_args[0][1]
                 assert workflow_inputs.user_id == self.user.id
-                assert not workflow_inputs.is_new_conversation
+                assert workflow_inputs.is_new_conversation == False
                 assert workflow_inputs.conversation_id == conversation.id
                 assert str(workflow_inputs.trace_id) == trace_id
                 assert workflow_inputs.message["content"] == "test query"
@@ -671,7 +671,7 @@ class TestConversation(APIBaseTest):
                 assert response.status_code == status.HTTP_200_OK
                 call_args = mock_start_workflow_and_stream.call_args
                 workflow_inputs = call_args[0][1]
-                assert workflow_inputs.billing_context is None
+                assert workflow_inputs.billing_context == None
 
     @patch("ee.api.conversation.is_team_limited")
     def test_quota_limit_exceeded(self, mock_is_team_limited):

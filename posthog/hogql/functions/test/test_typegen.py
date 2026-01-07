@@ -148,4 +148,4 @@ class TestTypegen(BaseTest):
         assert len(signatures) == 4
         for inputs, output in signatures:
             assert len(inputs) == 3  # JSON + 2 paths
-            assert isinstance(output, IntegerType)
+            assert type(output) == IntegerType

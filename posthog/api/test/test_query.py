@@ -992,7 +992,7 @@ class TestQueryRetrieve(APIBaseTest):
         ).encode()
         response = self.client.get(f"/api/environments/{self.team.id}/query/{self.valid_query_id}/")
         assert response.status_code == 200
-        assert response.json()["query_status"]["complete"], response.content
+        assert response.json()["query_status"]["complete"] == True, response.content
 
     def test_with_invalid_query_id(self):
         self.redis_client_mock.get.return_value = None

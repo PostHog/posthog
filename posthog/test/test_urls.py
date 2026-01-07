@@ -18,7 +18,7 @@ class TestUrls(APIBaseTest):
 
         # no more token
         self.user.refresh_from_db()
-        assert self.user.temporary_token is None
+        assert self.user.temporary_token == None
 
     def test_logged_out_user_is_redirected_to_login(self):
         self.client.logout()

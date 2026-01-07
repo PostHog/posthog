@@ -2,7 +2,6 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from posthog.hogql.timings import HogQLTimings
-import pytest
 
 EPSILON = 1e-10
 counter_values: list[float] = [0]
@@ -25,8 +24,8 @@ class TestHogQLTimings(BaseTest):
                 pass
 
             results = timings.to_dict()
-            assert results["./test"] == pytest.approx(0.05)
-            assert results["."] == pytest.approx(0.15)
+            self.assertAlmostEqual(results["./test"], 0.05)
+            self.assertAlmostEqual(results["."], 0.15)
 
     def test_no_timing(self):
         with patch("posthog.hogql.timings.perf_counter", fake_perf_counter):
@@ -44,9 +43,9 @@ class TestHogQLTimings(BaseTest):
                     pass
 
             results = timings.to_dict()
-            assert results["./outer/inner"] == pytest.approx(0.05)
-            assert results["./outer"] == pytest.approx(0.15)
-            assert results["."] == pytest.approx(0.25)
+            self.assertAlmostEqual(results["./outer/inner"], 0.05)
+            self.assertAlmostEqual(results["./outer"], 0.15)
+            self.assertAlmostEqual(results["."], 0.25)
 
     def test_multiple_top_level_timings(self):
         with patch("posthog.hogql.timings.perf_counter", fake_perf_counter):
@@ -58,9 +57,9 @@ class TestHogQLTimings(BaseTest):
                 pass
 
             results = timings.to_dict()
-            assert results["./first"] == pytest.approx(0.05)
-            assert results["./second"] == pytest.approx(0.05)
-            assert results["."] == pytest.approx(0.25)
+            self.assertAlmostEqual(results["./first"], 0.05)
+            self.assertAlmostEqual(results["./second"], 0.05)
+            self.assertAlmostEqual(results["."], 0.25)
 
     def test_deeply_nested_timing(self):
         with patch("posthog.hogql.timings.perf_counter", fake_perf_counter):
@@ -72,10 +71,10 @@ class TestHogQLTimings(BaseTest):
                         pass
 
             results = timings.to_dict()
-            assert results["./a/b/c"] == pytest.approx(0.05)
-            assert results["./a/b"] == pytest.approx(0.15)
-            assert results["./a"] == pytest.approx(0.25)
-            assert results["."] == pytest.approx(0.35)
+            self.assertAlmostEqual(results["./a/b/c"], 0.05)
+            self.assertAlmostEqual(results["./a/b"], 0.15)
+            self.assertAlmostEqual(results["./a"], 0.25)
+            self.assertAlmostEqual(results["."], 0.35)
 
     def test_overlapping_keys(self):
         with patch("posthog.hogql.timings.perf_counter", fake_perf_counter):
@@ -87,5 +86,5 @@ class TestHogQLTimings(BaseTest):
                 pass
 
             results = timings.to_dict()
-            assert results["./a"] == pytest.approx(0.1)
-            assert results["."] == pytest.approx(0.25)
+            self.assertAlmostEqual(results["./a"], 0.1)
+            self.assertAlmostEqual(results["."], 0.25)

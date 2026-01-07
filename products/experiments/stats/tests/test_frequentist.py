@@ -3,7 +3,6 @@ from unittest import TestCase
 from products.experiments.stats.frequentist.method import FrequentistConfig, FrequentistMethod
 from products.experiments.stats.shared.enums import DifferenceType
 from products.experiments.stats.shared.statistics import ProportionStatistic, RatioStatistic, SampleMeanStatistic
-import pytest
 
 
 def create_test_result_dict(result):
@@ -47,12 +46,12 @@ class TestTwoSidedTTest(TestCase):
         }
 
         # Compare the key values
-        assert result_dict["expected"] == pytest.approx(expected_dict["expected"], abs=1e-4)
-        assert result_dict["p_value"] == pytest.approx(expected_dict["p_value"], abs=1e-4)
-        assert result_dict["ci"][0] == pytest.approx(expected_dict["ci"][0], abs=1e-4)
-        assert result_dict["ci"][1] == pytest.approx(expected_dict["ci"][1], abs=1e-4)
-        assert result_dict["uplift"]["mean"] == pytest.approx(expected_dict["uplift"]["mean"], abs=1e-4)
-        assert result_dict["uplift"]["stddev"] == pytest.approx(expected_dict["uplift"]["stddev"], abs=1e-4)
+        self.assertAlmostEqual(result_dict["expected"], expected_dict["expected"], places=4)
+        self.assertAlmostEqual(result_dict["p_value"], expected_dict["p_value"], places=4)
+        self.assertAlmostEqual(result_dict["ci"][0], expected_dict["ci"][0], places=4)
+        self.assertAlmostEqual(result_dict["ci"][1], expected_dict["ci"][1], places=4)
+        self.assertAlmostEqual(result_dict["uplift"]["mean"], expected_dict["uplift"]["mean"], places=4)
+        self.assertAlmostEqual(result_dict["uplift"]["stddev"], expected_dict["uplift"]["stddev"], places=4)
 
     def test_two_sided_ttest_with_sample_proportion(self):
         """Test basic two-sided t-test with sample proportion statistics."""
@@ -77,12 +76,12 @@ class TestTwoSidedTTest(TestCase):
         }
 
         # Compare the key values
-        assert result_dict["expected"] == pytest.approx(expected_dict["expected"], abs=1e-4)
-        assert result_dict["p_value"] == pytest.approx(expected_dict["p_value"], abs=1e-4)
-        assert result_dict["ci"][0] == pytest.approx(expected_dict["ci"][0], abs=1e-4)
-        assert result_dict["ci"][1] == pytest.approx(expected_dict["ci"][1], abs=1e-4)
-        assert result_dict["uplift"]["mean"] == pytest.approx(expected_dict["uplift"]["mean"], abs=1e-4)
-        assert result_dict["uplift"]["stddev"] == pytest.approx(expected_dict["uplift"]["stddev"], abs=1e-4)
+        self.assertAlmostEqual(result_dict["expected"], expected_dict["expected"], places=4)
+        self.assertAlmostEqual(result_dict["p_value"], expected_dict["p_value"], places=4)
+        self.assertAlmostEqual(result_dict["ci"][0], expected_dict["ci"][0], places=4)
+        self.assertAlmostEqual(result_dict["ci"][1], expected_dict["ci"][1], places=4)
+        self.assertAlmostEqual(result_dict["uplift"]["mean"], expected_dict["uplift"]["mean"], places=4)
+        self.assertAlmostEqual(result_dict["uplift"]["stddev"], expected_dict["uplift"]["stddev"], places=4)
 
     def test_two_sided_ttest_with_ratio_statistic(self):
         """Test basic two-sided t-test with ratio statistics."""
@@ -121,9 +120,9 @@ class TestTwoSidedTTest(TestCase):
         }
 
         # Compare the key values
-        assert result_dict["expected"] == pytest.approx(expected_dict["expected"], abs=1e-4)
-        assert result_dict["p_value"] == pytest.approx(expected_dict["p_value"], abs=1e-4)
-        assert result_dict["ci"][0] == pytest.approx(expected_dict["ci"][0], abs=1e-4)
-        assert result_dict["ci"][1] == pytest.approx(expected_dict["ci"][1], abs=1e-4)
-        assert result_dict["uplift"]["mean"] == pytest.approx(expected_dict["uplift"]["mean"], abs=1e-4)
-        assert result_dict["uplift"]["stddev"] == pytest.approx(expected_dict["uplift"]["stddev"], abs=1e-4)
+        self.assertAlmostEqual(result_dict["expected"], expected_dict["expected"], places=4)
+        self.assertAlmostEqual(result_dict["p_value"], expected_dict["p_value"], places=4)
+        self.assertAlmostEqual(result_dict["ci"][0], expected_dict["ci"][0], places=4)
+        self.assertAlmostEqual(result_dict["ci"][1], expected_dict["ci"][1], places=4)
+        self.assertAlmostEqual(result_dict["uplift"]["mean"], expected_dict["uplift"]["mean"], places=4)
+        self.assertAlmostEqual(result_dict["uplift"]["stddev"], expected_dict["uplift"]["stddev"], places=4)

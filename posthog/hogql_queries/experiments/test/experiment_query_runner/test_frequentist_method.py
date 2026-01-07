@@ -64,7 +64,7 @@ class TestFrequentistMethod(ExperimentQueryRunnerBaseTest):
         assert test_variant.sum == 20
         assert control_variant.number_of_samples == 10
         assert test_variant.number_of_samples == 10
-        assert test_variant.confidence_interval is None
+        assert test_variant.confidence_interval == None
         assert not test_variant.significant
-        assert test_variant.p_value is None
+        assert test_variant.p_value == None
         assert test_variant.validation_failures == [ExperimentStatsValidationFailure.NOT_ENOUGH_EXPOSURES]

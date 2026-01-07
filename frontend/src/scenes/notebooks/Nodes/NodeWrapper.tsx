@@ -67,14 +67,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
 
     // nodeId can start null, but should then immediately be generated
     const nodeLogic = useMountedLogic(notebookNodeLogic(logicProps))
-    const {
-        resizeable,
-        expanded,
-        actions,
-        nodeId,
-        settingsPlacement: resolvedSettingsPlacement,
-        sourceComment,
-    } = useValues(nodeLogic)
+    const { resizeable, expanded, actions, nodeId, sourceComment } = useValues(nodeLogic)
     const {
         setRef,
         setExpanded,
@@ -215,6 +208,14 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                     <LemonButton size="small" icon={<IconLink />} to={parsedHref} />
                                                 )}
 
+                                                {expandable && (
+                                                    <LemonButton
+                                                        onClick={() => setExpanded(!expanded)}
+                                                        size="small"
+                                                        icon={expanded ? <IconCollapse /> : <IconExpand />}
+                                                    />
+                                                )}
+
                                                 {isEditable && Settings ? (
                                                     <LemonButton
                                                         onClick={() => toggleEditing()}
@@ -224,14 +225,6 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                     />
                                                 ) : null}
 
-                                                {expandable && (
-                                                    <LemonButton
-                                                        onClick={() => setExpanded(!expanded)}
-                                                        size="small"
-                                                        icon={expanded ? <IconCollapse /> : <IconExpand />}
-                                                    />
-                                                )}
-
                                                 {hasMenu ? (
                                                     <LemonMenu items={menuItems} placement="bottom-end">
                                                         <LemonButton icon={<IconEllipsis />} size="small" />
@@ -240,9 +233,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                             </div>
                                         </div>
 
-                                        {Settings &&
-                                        editingNodeId === nodeId &&
-                                        (containerSize === 'small' || resolvedSettingsPlacement === 'inline') ? (
+                                        {Settings && editingNodeId === nodeId && containerSize === 'small' ? (
                                             <div className="NotebookNode__settings">
                                                 <ErrorBoundary>
                                                     <Settings

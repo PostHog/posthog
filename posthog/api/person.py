@@ -25,8 +25,6 @@ from rest_framework_csv import renderers as csvrenderers
 from statshog.defaults.django import statsd
 from temporalio import common
 
-from posthog.schema import ProductKey
-
 from posthog.hogql.constants import CSV_EXPORT_LIMIT
 
 from posthog.api.capture import capture_internal
@@ -226,7 +224,6 @@ def get_funnel_actor_class(filter: Filter) -> Callable:
     return funnel_actor_class
 
 
-@extend_schema(tags=[ProductKey.PERSONS])
 class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.

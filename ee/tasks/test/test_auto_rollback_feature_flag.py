@@ -36,18 +36,24 @@ class AutoRollbackTest(ClickhouseTestMixin, APIBaseTest):
                     properties={"prop": 1},
                 )
         with freeze_time("2021-08-21T21:00:00.000Z"):
-            assert calculate_rolling_average(
+            self.assertEqual(
+                calculate_rolling_average(
                     threshold_metric=threshold_metric,
                     team=self.team,
                     timezone="UTC",
-                ) == 10
+                ),
+                10,  # because we have 70 events in the last 7 days
+            )
 
         with freeze_time("2021-08-22T21:00:00.000Z"):
-            assert calculate_rolling_average(
+            self.assertEqual(
+                calculate_rolling_average(
                     threshold_metric=threshold_metric,
                     team=self.team,
                     timezone="UTC",
-                ) == 20
+                ),
+                20,  # because we have 140 events in the last 7 days
+            )
 
     def test_check_condition(self):
         rollback_condition = {
@@ -68,7 +74,7 @@ class AutoRollbackTest(ClickhouseTestMixin, APIBaseTest):
             rollback_conditions=[rollback_condition],
         )
 
-        assert check_condition(rollback_condition, flag)
+        assert check_condition(rollback_condition, flag) == True
 
     def test_check_condition_valid(self):
         rollback_condition = {
@@ -107,11 +113,11 @@ class AutoRollbackTest(ClickhouseTestMixin, APIBaseTest):
             )
 
         with freeze_time("2021-08-21T20:00:00.000Z"):
-            assert not check_condition(rollback_condition, flag)
+            assert check_condition(rollback_condition, flag) == False
 
         # Go another day with 0 events
         with freeze_time("2021-08-22T20:00:00.000Z"):
-            assert check_condition(rollback_condition, flag)
+            assert check_condition(rollback_condition, flag) == True
 
     def test_feature_flag_rolledback(self):
         rollback_condition = {
@@ -150,14 +156,14 @@ class AutoRollbackTest(ClickhouseTestMixin, APIBaseTest):
             )
 
         flag = FeatureFlag.objects.get(pk=flag.pk)
-        assert flag.performed_rollback is None
-        assert flag.active
+        assert flag.performed_rollback == None
+        assert flag.active == True
 
         with freeze_time("2021-08-23T20:00:00.000Z"):
             check_feature_flag_rollback_conditions(feature_flag_id=flag.pk)
             flag = FeatureFlag.objects.get(pk=flag.pk)
-            assert flag.performed_rollback
-            assert not flag.active
+            assert flag.performed_rollback == True
+            assert flag.active == False
 
     @patch("ee.tasks.auto_rollback_feature_flag.get_stats_for_timerange")
     def test_check_condition_sentry(self, stats_for_timerange):
@@ -179,7 +185,7 @@ class AutoRollbackTest(ClickhouseTestMixin, APIBaseTest):
 
         stats_for_timerange.return_value = (100, 130)
         with freeze_time("2021-08-23T20:00:00.000Z"):
-            assert check_condition(rollback_condition, flag)
+            assert check_condition(rollback_condition, flag) == True
             stats_for_timerange.assert_called_once_with(
                 "2021-08-21T20:00:00",
                 "2021-08-22T20:00:00",
@@ -190,7 +196,7 @@ class AutoRollbackTest(ClickhouseTestMixin, APIBaseTest):
         stats_for_timerange.reset_mock()
         stats_for_timerange.return_value = (100, 120)
         with freeze_time("2021-08-25T13:00:00.000Z"):
-            assert not check_condition(rollback_condition, flag)
+            assert check_condition(rollback_condition, flag) == False
             stats_for_timerange.assert_called_once_with(
                 "2021-08-21T20:00:00",
                 "2021-08-22T20:00:00",

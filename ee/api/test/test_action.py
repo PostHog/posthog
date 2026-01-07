@@ -100,4 +100,4 @@ class TestActionApi(APIBaseTest):
             data={"name": "user signed up", "tags": ["a", "b", "a"]},
         )
 
-        assert sorted(response.json()["tags"]) == ["a", "b"]
+        self.assertListEqual(sorted(response.json()["tags"]), ["a", "b"])

@@ -62,7 +62,7 @@ class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
             }
             for flag in [self.feature_flag_1, self.feature_flag_2]
         ]
-        assert sorted(response.json(), key=lambda x: x["flag_id"]) == sorted(expected_data, key=lambda x: x["flag_id"])
+        self.assertCountEqual(response.json(), expected_data)
 
     def test_get_feature_flag_not_found(self):
         url = f"/api/organizations/{self.organization.id}/feature_flags/nonexistent-flag"
@@ -692,8 +692,8 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         assert len(response.json()["success"]) == 1
 
         flag_response = response.json()["success"][0]
-        assert flag_response["is_remote_configuration"]
-        assert not flag_response["has_encrypted_payloads"]
+        assert flag_response["is_remote_configuration"] == True
+        assert flag_response["has_encrypted_payloads"] == False
         assert flag_response["key"] == remote_config_flag.key
 
         # Verify the flag in the database
@@ -737,8 +737,8 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         assert len(response.json()["success"]) == 1
 
         flag_response = response.json()["success"][0]
-        assert flag_response["is_remote_configuration"]
-        assert flag_response["has_encrypted_payloads"]
+        assert flag_response["is_remote_configuration"] == True
+        assert flag_response["has_encrypted_payloads"] == True
         assert flag_response["key"] == encrypted_flag.key
 
         # Verify the flag in the database has encrypted payloads

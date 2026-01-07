@@ -188,7 +188,11 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
 
         # self.assertEqual(results[0]["id"], p1.uuid)
         assert results[0][0] == p1.uuid
-        assert list(results[0][2]) == []
+        self.assertEqual(
+            # results[0]["matched_recordings"],
+            list(results[0][2]),
+            [],
+        )
 
         # Second event, with recording
         filters = {
@@ -209,7 +213,10 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
 
         # self.assertEqual(results[0]["id"], p1.uuid)
         assert results[0][0] == p1.uuid
-        assert list(results[0][2]) == [
+        self.assertEqual(
+            # results[0]["matched_recordings"],
+            list(results[0][2]),
+            [
                 {
                     "session_id": "s2",
                     "events": [
@@ -220,7 +227,8 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
                         }
                     ],
                 }
-            ]
+            ],
+        )
 
         # Third event dropoff, with recording
         filters = {
@@ -241,7 +249,10 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
 
         # self.assertEqual(results[0]["id"], p1.uuid)
         assert results[0][0] == p1.uuid
-        assert list(results[0][2]) == [
+        self.assertEqual(
+            # results[0]["matched_recordings"],
+            list(results[0][2]),
+            [
                 {
                     "session_id": "s2",
                     "events": [
@@ -252,4 +263,5 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
                         }
                     ],
                 }
-            ]
+            ],
+        )

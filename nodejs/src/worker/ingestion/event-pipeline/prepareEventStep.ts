@@ -2,7 +2,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { PreIngestionEvent, Team } from '~/types'
 
-import { AI_EVENT_TYPES, processAiEvent } from '../../../ingestion/ai'
+import { AI_EVENT_TYPES, processAiEvent } from '../../../ingestion/ai-costs/process-ai-event'
 import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'

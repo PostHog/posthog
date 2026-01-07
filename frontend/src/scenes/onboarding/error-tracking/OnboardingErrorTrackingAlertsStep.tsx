@@ -11,13 +11,12 @@ import { HogFunctionIcon } from 'scenes/hog-functions/configuration/HogFunctionI
 import { IntegrationType, OnboardingStepKey } from '~/types'
 
 import { OnboardingStep } from '../OnboardingStep'
-import { OnboardingStepComponentType } from '../onboardingLogic'
 import {
     ErrorTrackingAlertIntegrationType,
     onboardingErrorTrackingAlertsLogic,
 } from './onboardingErrorTrackingAlertsLogic'
 
-export const OnboardingErrorTrackingAlertsStep: OnboardingStepComponentType = () => {
+export function OnboardingErrorTrackingAlertsStep({ stepKey }: { stepKey: OnboardingStepKey }): JSX.Element {
     const { integration, slackIntegrations, slackAvailable, connectionConfig, isConnectionConfigSubmitting } =
         useValues(onboardingErrorTrackingAlertsLogic)
     const { setIntegration } = useActions(onboardingErrorTrackingAlertsLogic)
@@ -59,12 +58,7 @@ export const OnboardingErrorTrackingAlertsStep: OnboardingStepComponentType = ()
     }
 
     return (
-        <OnboardingStep
-            title="Configure alerts"
-            stepKey={OnboardingStepKey.ALERTS}
-            showContinue={false}
-            showSkip={!integration}
-        >
+        <OnboardingStep title="Configure alerts" stepKey={stepKey} showContinue={false} showSkip={!integration}>
             <p>Get notified when a new issue occurs. Don't worry this can always be reconfigured later.</p>
             {integration === null ? (
                 <LemonTable
@@ -115,8 +109,6 @@ export const OnboardingErrorTrackingAlertsStep: OnboardingStepComponentType = ()
         </OnboardingStep>
     )
 }
-
-OnboardingErrorTrackingAlertsStep.stepKey = OnboardingStepKey.ALERTS
 
 const FormFields = ({
     integration,

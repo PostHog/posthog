@@ -134,7 +134,7 @@ class TestUserSavedSignalHandler(TestCase):
         assert mock_on_commit.call_count == 1
 
         # Verify the snapshot was updated to current value
-        assert not mock_user._original_is_active
+        assert mock_user._original_is_active == False
 
         # Second save of same instance - should NOT trigger cache update
         user_saved(sender=User, instance=mock_user, created=False)

@@ -18,9 +18,9 @@ class TestServiceVersionRequirement(TestCase):
         assert v2.service == "clickhouse"
         assert v3.service == "redis"
 
-        assert isinstance(v1.supported_version, SimpleSpec)
-        assert isinstance(v2.supported_version, SimpleSpec)
-        assert isinstance(v3.supported_version, SimpleSpec)
+        assert type(v1.supported_version) == SimpleSpec
+        assert type(v2.supported_version) == SimpleSpec
+        assert type(v3.supported_version) == SimpleSpec
 
         assert str(v1.supported_version) == "==14.0.0"
         assert str(v2.supported_version) == "==22.3.0"
@@ -74,21 +74,21 @@ class TestServiceVersionRequirement(TestCase):
     def test_ranges(self):
         v1 = ServiceVersionRequirement(service="postgresql", supported_version="==14.0.0")
         in_range, service_version = v1.is_service_in_accepted_version()
-        assert not in_range
+        assert in_range == False
         assert str(service_version) == "12.1.2"
 
         v2 = ServiceVersionRequirement(service="postgresql", supported_version="==12.1.2")
         in_range, _ = v2.is_service_in_accepted_version()
-        assert in_range
+        assert in_range == True
 
         v3 = ServiceVersionRequirement(service="postgresql", supported_version=">=12.0.0,<12.1.2")
         in_range, _ = v3.is_service_in_accepted_version()
-        assert not in_range
+        assert in_range == False
 
         v4 = ServiceVersionRequirement(service="postgresql", supported_version=">=12.0.0,<=12.1.2")
         in_range, _ = v4.is_service_in_accepted_version()
-        assert in_range
+        assert in_range == True
 
         v5 = ServiceVersionRequirement(service="postgresql", supported_version=">=11.0.0,<=13.0.0")
         in_range, _ = v5.is_service_in_accepted_version()
-        assert in_range
+        assert in_range == True

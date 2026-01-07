@@ -120,7 +120,7 @@ class TestLoginAPI(APIBaseTest):
     ):
         self.user.is_email_verified = False
         self.user.save()
-        assert not self.user.is_email_verified
+        assert self.user.is_email_verified == False
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
@@ -141,7 +141,7 @@ class TestLoginAPI(APIBaseTest):
     ):
         self.user.is_email_verified = False
         self.user.save()
-        assert not self.user.is_email_verified
+        assert self.user.is_email_verified == False
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"success": True}
@@ -162,7 +162,7 @@ class TestLoginAPI(APIBaseTest):
     ):
         """When email verification was added, existing users were set to is_email_verified=null.
         If someone is null they should still be allowed to log in until we explicitly decide to lock them out."""
-        assert self.user.is_email_verified is None
+        assert self.user.is_email_verified == None
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
         assert response.status_code == status.HTTP_200_OK
 
@@ -439,7 +439,7 @@ class TestPasswordResetAPI(APIBaseTest):
         user: User = User.objects.get(email=self.CONFIG_EMAIL)
         assert user.requested_password_reset_at == datetime(2021, 10, 5, 12, 0, 0, tzinfo=UTC)
 
-        assert {",".join(outmail.to) for outmail in mail.outbox} == {self.CONFIG_EMAIL}
+        self.assertSetEqual({",".join(outmail.to) for outmail in mail.outbox}, {self.CONFIG_EMAIL})
 
         assert mail.outbox[0].subject == "Reset your PostHog password"
         assert mail.outbox[0].body == ""  # no plain-text version support yet
@@ -478,7 +478,7 @@ class TestPasswordResetAPI(APIBaseTest):
             response = self.client.post("/api/reset/", {"email": self.CONFIG_EMAIL})
         assert response.status_code == status.HTTP_204_NO_CONTENT
 
-        assert {",".join(outmail.to) for outmail in mail.outbox} == {self.CONFIG_EMAIL}
+        self.assertSetEqual({",".join(outmail.to) for outmail in mail.outbox}, {self.CONFIG_EMAIL})
 
         html_message = mail.outbox[0].alternatives[0][0]  # type: ignore
         self.validate_basic_html(
@@ -595,7 +595,7 @@ class TestPasswordResetAPI(APIBaseTest):
         self.user.refresh_from_db()
         assert self.user.check_password(VALID_TEST_PASSWORD)
         assert not self.user.check_password(self.CONFIG_PASSWORD)  # type: ignore
-        assert self.user.requested_password_reset_at is None
+        assert self.user.requested_password_reset_at == None
 
         # old password is gone
         self.client.logout()

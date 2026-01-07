@@ -51,7 +51,7 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
         changes = log.detail.get("changes", [])
         enforce_2fa_change = next((c for c in changes if c["field"] == "two-factor authentication requirement"), None)
         assert enforce_2fa_change is not None
-        assert enforce_2fa_change["after"]
+        assert enforce_2fa_change["after"] == True
 
     def test_organization_member_invite_permissions_activity_logging(self):
         organization = self.create_organization("Permissions Test Org")
@@ -72,7 +72,7 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
         changes = log.detail.get("changes", [])
         invite_change = next((c for c in changes if c["field"] == "member invitation permissions"), None)
         assert invite_change is not None
-        assert not invite_change["after"]
+        assert invite_change["after"] == False
 
         self.update_organization(organization["id"], {"members_can_use_personal_api_keys": False})
 
@@ -85,7 +85,7 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
         changes = log.detail.get("changes", [])
         api_keys_change = next((c for c in changes if c["field"] == "personal API key permissions"), None)
         assert api_keys_change is not None
-        assert not api_keys_change["after"]
+        assert api_keys_change["after"] == False
 
     def test_organization_sharing_settings_activity_logging(self):
         organization = self.create_organization("Sharing Test Org")
@@ -99,7 +99,7 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
         changes = log.detail.get("changes", [])
         sharing_change = next((c for c in changes if c["field"] == "public sharing permissions"), None)
         assert sharing_change is not None
-        assert not sharing_change["after"]
+        assert sharing_change["after"] == False
 
     def test_organization_multiple_changes_activity_logging(self):
         organization = self.create_organization("Multi Change Test Org")
@@ -123,8 +123,8 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
         assert "two-factor authentication requirement" in field_changes
         assert "member invitation permissions" in field_changes
         assert field_changes["organization name"]["after"] == "New Multi Change Org"
-        assert field_changes["two-factor authentication requirement"]["after"]
-        assert not field_changes["member invitation permissions"]["after"]
+        assert field_changes["two-factor authentication requirement"]["after"] == True
+        assert field_changes["member invitation permissions"]["after"] == False
 
     def test_organization_name_change_logging(self):
         organization = self.create_organization("Name Test Org")
@@ -157,7 +157,7 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
         changes = log.detail.get("changes", [])
         email_change = next((c for c in changes if c["field"] == "member join email notifications"), None)
         assert email_change is not None
-        assert not email_change["after"]
+        assert email_change["after"] == False
 
     def test_organization_2fa_enforcement_logging(self):
         organization = self.create_organization("2FA Test Org")
@@ -171,7 +171,7 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
         changes = log.detail.get("changes", [])
         twofa_change = next((c for c in changes if c["field"] == "two-factor authentication requirement"), None)
         assert twofa_change is not None
-        assert twofa_change["after"]
+        assert twofa_change["after"] == True
 
     def test_organization_membership_creation_activity_logging(self):
         org_response = self.create_organization("Test Membership Org")

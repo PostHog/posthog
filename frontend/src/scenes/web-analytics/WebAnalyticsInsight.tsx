@@ -1,7 +1,6 @@
 import { useValues } from 'kea'
 
 import { Query } from '~/queries/Query/Query'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { DataTableNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { isWebOverviewQuery, isWebStatsTableQuery } from '~/queries/utils'
@@ -18,10 +17,6 @@ export interface WebAnalyticsInsightProps {
 export function WebAnalyticsInsight({ context, editMode }: WebAnalyticsInsightProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { querySource } = useValues(insightVizDataLogic(insightProps))
-
-    // Use the same dataNodeLogic key as InsightViz so we reuse the existing logic
-    // instance with its cached data instead of creating a new one
-    const vizKey = insightVizDataNodeKey(insightProps)
 
     if (isWebStatsTableQuery(querySource)) {
         // Wrap WebStatsTableQuery in DataTableNode with the same structure as Web Analytics uses
@@ -43,9 +38,9 @@ export function WebAnalyticsInsight({ context, editMode }: WebAnalyticsInsightPr
             compareFilter: querySource.compareFilter,
         } as QueryContext
 
-        return <Query query={wrappedQuery} uniqueKey={vizKey} context={webAnalyticsContext} readOnly={!editMode} />
+        return <Query query={wrappedQuery} context={webAnalyticsContext} readOnly={!editMode} />
     } else if (isWebOverviewQuery(querySource)) {
-        return <Query query={querySource} uniqueKey={vizKey} context={context} readOnly={!editMode} />
+        return <Query query={querySource} context={context} readOnly={!editMode} />
     }
 
     return null

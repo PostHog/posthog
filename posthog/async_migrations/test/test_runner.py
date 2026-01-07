@@ -57,7 +57,7 @@ class TestRunner(AsyncMigrationBaseTest):
 
         migration_successful = start_async_migration("test_migration")
 
-        assert migration_successful
+        assert migration_successful == True
 
         sm = AsyncMigration.objects.get(name="test_migration")
 
@@ -83,7 +83,7 @@ class TestRunner(AsyncMigrationBaseTest):
         create_async_migration(name=migration_name)
         self.migration.sec.reset_count()
         migration_successful = start_async_migration(migration_name)
-        assert migration_successful
+        assert migration_successful == True
 
         sm = AsyncMigration.objects.get(name=migration_name)
 

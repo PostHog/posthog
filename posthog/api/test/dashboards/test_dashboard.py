@@ -1,6 +1,5 @@
 import json
 import datetime
-import re
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries
@@ -273,7 +272,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         item2 = Insight.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id="item22")
         DashboardTile.objects.create(dashboard=dashboard, insight=item2)
         response = self.dashboard_api.get_dashboard(dashboard.pk, query_params={"refresh": False, "use_cache": True})
-        assert response["tiles"][0]["insight"]["result"] is None
+        assert response["tiles"][0]["insight"]["result"] == None
 
         # cache results
         response = self.client.get(f"/api/projects/{self.team.id}/insights/{item.pk}?refresh=true").json()
@@ -282,7 +281,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         # Now the dashboard has data without having to refresh
         response = self.dashboard_api.get_dashboard(dashboard.pk, query_params={"refresh": False, "use_cache": True})
-        assert abs(Dashboard.objects.get().last_accessed_at - now()) < datetime.timedelta(seconds=5)
+        self.assertAlmostEqual(
+            Dashboard.objects.get().last_accessed_at,
+            now(),
+            delta=datetime.timedelta(seconds=5),
+        )
         assert response["tiles"][0]["insight"]["result"][0]["count"] == 0
 
     # :KLUDGE: avoid making extra queries that are explicitly not cached in tests. Avoids false N+1-s.
@@ -408,8 +411,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         with freeze_time("2020-01-20T13:00:01Z"):
             response = self.dashboard_api.get_dashboard(dashboard.pk)
 
-        assert response["tiles"][0]["insight"]["result"] is None
-        assert response["tiles"][0]["last_refresh"] is None
+        assert response["tiles"][0]["insight"]["result"] == None
+        assert response["tiles"][0]["last_refresh"] == None
 
     def test_refresh_cache(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
@@ -453,7 +456,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         with freeze_time("2020-01-20T13:00:01Z"):
             response_data = self.dashboard_api.get_dashboard(dashboard.pk, query_params={"refresh": True})
 
-            assert not response_data["tiles"][0]["is_cached"]
+            assert response_data["tiles"][0]["is_cached"] == False
             assert response_data["tiles"][0]["insight"]["result"] is not None
             assert response_data["tiles"][0]["insight"]["last_refresh"] is not None
             assert response_data["tiles"][0]["last_refresh"] is not None
@@ -465,15 +468,23 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             assert isoparse(response_data["tiles"][0]["last_refresh"]) == item_default.caching_state.last_refresh
             assert isoparse(response_data["tiles"][1]["last_refresh"]) == item_default.caching_state.last_refresh
 
-            assert abs(item_default.caching_state.last_refresh - now()) < datetime.timedelta(seconds=5)
-            assert abs(item_trends.caching_state.last_refresh - now()) < datetime.timedelta(seconds=5)
+            self.assertAlmostEqual(
+                item_default.caching_state.last_refresh,
+                now(),
+                delta=datetime.timedelta(seconds=5),
+            )
+            self.assertAlmostEqual(
+                item_trends.caching_state.last_refresh,
+                now(),
+                delta=datetime.timedelta(seconds=5),
+            )
 
     def test_dashboard_endpoints(self):
         # create
         _, response_json = self.dashboard_api.create_dashboard({"name": "Default", "pinned": "true"})
         assert response_json["name"] == "Default"
         assert response_json["creation_mode"] == "default"
-        assert response_json["pinned"]
+        assert response_json["pinned"] == True
 
         # retrieve
         response = self.dashboard_api.list_dashboards()
@@ -1197,7 +1208,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             {"filters": {"date_from": "-24h"}},
         )
 
-        assert patch_response_json["tiles"][0]["insight"]["result"] is None
+        assert patch_response_json["tiles"][0]["insight"]["result"] == None
         dashboard.refresh_from_db()
         assert dashboard.filters == {"date_from": "-24h"}
 
@@ -1220,7 +1231,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/insights/trend/?properties={properties}")
 
         assert response.status_code == 400, response.content
-        assert response.json() == self.validation_error_response("Properties are unparsable!", "invalid_input")
+        self.assertDictEqual(
+            response.json(),
+            self.validation_error_response("Properties are unparsable!", "invalid_input"),
+            response.content,
+        )
 
     def test_insights_with_no_insight_set(self):
         # We were saving some insights on the default dashboard with no insight

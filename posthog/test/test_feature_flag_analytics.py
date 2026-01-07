@@ -644,24 +644,24 @@ class TestEnrichedAnalytics(BaseTest):
         f3.refresh_from_db()
         f4.refresh_from_db()
 
-        assert f1.has_enriched_analytics
-        assert f2.has_enriched_analytics
-        assert not f3.has_enriched_analytics
-        assert not f4.has_enriched_analytics
+        assert f1.has_enriched_analytics == True
+        assert f2.has_enriched_analytics == True
+        assert f3.has_enriched_analytics == False
+        assert f4.has_enriched_analytics == False
 
         # now try deleting a usage dashboard. It should not delete the feature flag
         assert f1.usage_dashboard is not None
         assert f1.usage_dashboard.name == "Generated Dashboard: test_flag Usage"
-        assert f2.usage_dashboard is None
+        assert f2.usage_dashboard == None
         assert f3.usage_dashboard is not None
         assert f3.usage_dashboard.name == "Generated Dashboard: beta-feature2 Usage"
-        assert f4.usage_dashboard is None
+        assert f4.usage_dashboard == None
 
         # 1 should have enriched analytics, but nothing else
-        assert f1.usage_dashboard_has_enriched_insights
-        assert not f2.usage_dashboard_has_enriched_insights
-        assert not f3.usage_dashboard_has_enriched_insights
-        assert not f4.usage_dashboard_has_enriched_insights
+        assert f1.usage_dashboard_has_enriched_insights == True
+        assert f2.usage_dashboard_has_enriched_insights == False
+        assert f3.usage_dashboard_has_enriched_insights == False
+        assert f4.usage_dashboard_has_enriched_insights == False
 
         assert f1.usage_dashboard.tiles.count() == 4
         assert f3.usage_dashboard.tiles.count() == 2
@@ -670,5 +670,5 @@ class TestEnrichedAnalytics(BaseTest):
         f1.usage_dashboard.delete()
 
         f1.refresh_from_db()
-        assert f1.has_enriched_analytics
-        assert f1.usage_dashboard is None
+        assert f1.has_enriched_analytics == True
+        assert f1.usage_dashboard == None

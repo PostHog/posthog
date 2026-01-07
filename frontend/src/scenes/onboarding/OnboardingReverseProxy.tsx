@@ -5,7 +5,6 @@ import { InviteMembersButton } from 'lib/components/Account/InviteMembersButton'
 import { OnboardingStepKey } from '~/types'
 
 import { OnboardingStep } from './OnboardingStep'
-import { OnboardingStepComponentType } from './onboardingLogic'
 
 const proxyDocs = [
     {
@@ -46,9 +45,9 @@ const proxyDocs = [
     },
 ]
 
-export const OnboardingReverseProxy: OnboardingStepComponentType = () => {
+export const OnboardingReverseProxy = ({ stepKey }: { stepKey: OnboardingStepKey }): JSX.Element => {
     return (
-        <OnboardingStep title="Reverse proxy (optional)" stepKey={OnboardingStepKey.REVERSE_PROXY} showSkip>
+        <OnboardingStep title="Reverse proxy (optional)" stepKey={stepKey} showSkip>
             <div className="mb-6 mt-6">
                 <p>A reverse proxy allows you to send events to PostHog Cloud using your own domain.</p>
                 <p>
@@ -82,5 +81,3 @@ export const OnboardingReverseProxy: OnboardingStepComponentType = () => {
         </OnboardingStep>
     )
 }
-
-OnboardingReverseProxy.stepKey = OnboardingStepKey.REVERSE_PROXY

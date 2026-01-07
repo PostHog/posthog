@@ -150,7 +150,7 @@ class TestAssistantContextManager(BaseTest):
         insight_ctx = self.context_manager._build_insight_context(insight, dashboard_filters=None)
         result = await self.context_manager._execute_and_format_insight(insight_ctx)
 
-        assert result is None
+        assert result == None
         mock_capture_exception.assert_called_once()
 
     @patch("ee.hogai.context.insight.context.execute_and_format_query")

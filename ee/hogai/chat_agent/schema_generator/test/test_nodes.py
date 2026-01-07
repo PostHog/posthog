@@ -77,8 +77,8 @@ class TestSchemaGeneratorNode(BaseTest):
                 config,
             )
             assert new_state is not None
-            assert new_state.intermediate_steps is None
-            assert new_state.plan is None
+            assert new_state.intermediate_steps == None
+            assert new_state.plan == None
             assert len(new_state.messages) == 1
             assert isinstance(new_state.messages[0], ArtifactRefMessage)
             assert cast(ArtifactRefMessage, new_state.messages[0]).content_type == ArtifactContentType.VISUALIZATION
@@ -457,7 +457,7 @@ class TestSchemaGeneratorNode(BaseTest):
                 config,
             )
             assert new_state is not None
-            assert new_state.intermediate_steps is None
+            assert new_state.intermediate_steps == None
 
             new_state = await node(
                 AssistantState(
@@ -470,7 +470,7 @@ class TestSchemaGeneratorNode(BaseTest):
                 config,
             )
             assert new_state is not None
-            assert new_state.intermediate_steps is None
+            assert new_state.intermediate_steps == None
 
     async def test_node_leaves_failover_after_second_unsuccessful_attempt(self):
         node = DummyGeneratorNode(self.team, self.user)
@@ -702,6 +702,6 @@ class TestSchemaGeneratorToolsNode(BaseTest):
         action = AgentAction(tool="fix", tool_input="validationerror", log="pydanticexception")
         state = await node(AssistantState(messages=[], intermediate_steps=[(action, None)]), {})
         state = cast(PartialAssistantState, state)
-        assert "validationerror" != None, cast(list[IntermediateStep], state.intermediate_steps)[0][1]
+        assert "validationerror" is not None, cast(list[IntermediateStep], state.intermediate_steps)[0][1]
         assert "validationerror" in cast(Iterable[Any], cast(list[IntermediateStep], state.intermediate_steps)[0][1])
         assert "pydanticexception" in cast(Iterable[Any], cast(list[IntermediateStep], state.intermediate_steps)[0][1])

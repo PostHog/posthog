@@ -58,7 +58,6 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "revenue_analytics",
     "survey",
     "experiment",
-    "experiment_saved_metric",
     "web_analytics",
     "activity_log",
 )
@@ -165,8 +164,6 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "session_recording"
     if name == "sessionrecordingplaylist":
         return "session_recording_playlist"
-    if name == "experimentsavedmetric":
-        return "experiment_saved_metric"
 
     if name not in API_SCOPE_OBJECTS:
         return None

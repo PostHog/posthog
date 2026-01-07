@@ -805,11 +805,17 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response["results"][0]["name"] == "distinct_id2"
         assert response["results"][1]["name"] == "distinct_id1"
 
-        assert sorted(response["results"][0]["distinct_ids"]) == sorted(["17787c327b-0e8f623ea9-336473-1aeaa0-17787c30995b7c", "distinct_id2"])
-        assert sorted(response["results"][1]["distinct_ids"]) == sorted([
+        self.assertCountEqual(
+            response["results"][0]["distinct_ids"],
+            ["17787c327b-0e8f623ea9-336473-1aeaa0-17787c30995b7c", "distinct_id2"],
+        )
+        self.assertCountEqual(
+            response["results"][1]["distinct_ids"],
+            [
                 "distinct_id1",
                 "17787c3099427b-0e8f6c86323ea9-33647309-1aeaa0-17787c30995b7c",
-            ])
+            ],
+        )
 
     def test_person_display_name(self) -> None:
         self.team.person_display_name_properties = ["custom_name", "custom_email"]
@@ -988,7 +994,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "SELECT id FROM person FINAL WHERE team_id = %(team_id)s",
             {"team_id": self.team.pk},
         )
-        assert sorted(clickhouse_people) == sorted([(person.uuid,) for person in people])
+        self.assertCountEqual(clickhouse_people, [(person.uuid,) for person in people])
 
         pdis2 = sync_execute(
             "SELECT person_id, distinct_id, is_deleted FROM person_distinct_id2 FINAL WHERE team_id = %(team_id)s",
@@ -1269,7 +1275,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         activity: list[dict] = activity_response["results"]
         self.maxDiff = None
-        assert sorted(activity) == sorted(expected)
+        self.assertCountEqual(activity, expected)
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_delete_events_only(self):

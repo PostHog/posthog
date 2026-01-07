@@ -366,19 +366,19 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         )
         _, results, _ = ClickhouseFunnelActors(filter, self.team).get_actors()
 
-        assert sorted([val["id"] for val in results]) == sorted([person1.uuid, person2.uuid])
+        self.assertCountEqual([val["id"] for val in results], [person1.uuid, person2.uuid])
 
         _, results, _ = ClickhouseFunnelActors(
             filter.shallow_clone({"funnel_step_breakdown": "Chrome"}), self.team
         ).get_actors()
 
-        assert sorted([val["id"] for val in results]) == sorted([person1.uuid])
+        self.assertCountEqual([val["id"] for val in results], [person1.uuid])
 
         _, results, _ = ClickhouseFunnelActors(
             filter.shallow_clone({"funnel_step_breakdown": "Safari"}), self.team
         ).get_actors()
 
-        assert sorted([val["id"] for val in results]) == sorted([person2.uuid])
+        self.assertCountEqual([val["id"] for val in results], [person2.uuid])
 
     def test_first_step_breakdowns_with_multi_property_breakdown(self):
         person1, person2 = self._create_browser_breakdown_events()
@@ -401,18 +401,18 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         )
         _, results, _ = ClickhouseFunnelActors(filter, self.team).get_actors()
 
-        assert sorted([val["id"] for val in results]) == sorted([person1.uuid, person2.uuid])
+        self.assertCountEqual([val["id"] for val in results], [person1.uuid, person2.uuid])
 
         _, results, _ = ClickhouseFunnelActors(
             filter.shallow_clone({"funnel_step_breakdown": ["Chrome", "95"]}), self.team
         ).get_actors()
 
-        assert sorted([val["id"] for val in results]) == sorted([person1.uuid])
+        self.assertCountEqual([val["id"] for val in results], [person1.uuid])
 
         _, results, _ = ClickhouseFunnelActors(
             filter.shallow_clone({"funnel_step_breakdown": ["Safari", "14"]}), self.team
         ).get_actors()
-        assert sorted([val["id"] for val in results]) == sorted([person2.uuid])
+        self.assertCountEqual([val["id"] for val in results], [person2.uuid])
 
     @also_test_with_materialized_columns(person_properties=["$country"])
     def test_first_step_breakdown_person(self):
@@ -436,12 +436,12 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         _, results, _ = ClickhouseFunnelActors(filter, self.team).get_actors()
-        assert sorted([val["id"] for val in results]) == sorted([person1.uuid, person2.uuid])
+        self.assertCountEqual([val["id"] for val in results], [person1.uuid, person2.uuid])
 
         _, results, _ = ClickhouseFunnelActors(
             filter.shallow_clone({"funnel_step_breakdown": "EE"}), self.team
         ).get_actors()
-        assert sorted([val["id"] for val in results]) == sorted([person2.uuid])
+        self.assertCountEqual([val["id"] for val in results], [person2.uuid])
 
         # Check custom_steps give same answers for breakdowns
         _, custom_step_results, _ = ClickhouseFunnelActors(
@@ -453,7 +453,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         _, results, _ = ClickhouseFunnelActors(
             filter.shallow_clone({"funnel_step_breakdown": "PL"}), self.team
         ).get_actors()
-        assert sorted([val["id"] for val in results]) == sorted([person1.uuid])
+        self.assertCountEqual([val["id"] for val in results], [person1.uuid])
 
         # Check custom_steps give same answers for breakdowns
         _, custom_step_results, _ = ClickhouseFunnelActors(

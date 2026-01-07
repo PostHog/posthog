@@ -64,4 +64,4 @@ class TestExternalDataSourceActivityLogging(ActivityLogTestHelper):
         deleted_change = next((change for change in detail_changes if change.get("field") == "deleted"), None)
         assert deleted_change is not None
         assert deleted_change is not None
-        assert deleted_change["after"]
+        assert deleted_change["after"] == True

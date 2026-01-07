@@ -172,7 +172,9 @@ class TestExports(APIBaseTest):
         )
         assert response.status_code == status.HTTP_201_CREATED
         data = response.json()
-        assert data == {
+        self.assertEqual(
+            data,
+            {
                 "id": data["id"],
                 "created_at": data["created_at"],
                 "insight": self.insight.id,
@@ -187,7 +189,8 @@ class TestExports(APIBaseTest):
                 .replace(hour=0, minute=0, second=0, microsecond=0)
                 .isoformat()
                 .replace("+00:00", "Z"),
-            }
+            },
+        )
 
         self._assert_logs_the_activity(
             insight_id=self.insight.id,

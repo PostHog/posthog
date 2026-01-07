@@ -90,7 +90,6 @@ from .user import User, UserManager
 from .user_group import UserGroup, UserGroupMembership
 from .user_scene_personalisation import UserScenePersonalisation
 from .user_home_settings import UserHomeSettings
-from .web_analytics_filter_preset import WebAnalyticsFilterPreset
 from .web_experiment import WebExperiment
 
 from .oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthIDToken, OAuthRefreshToken
@@ -223,7 +222,6 @@ __all__ = [
     "UserGroupMembership",
     "DataWarehouseTable",
     "ScheduledChange",
-    "WebAnalyticsFilterPreset",
     "WebExperiment",
     "Comment",
     # Deprecated models here for backwards compatibility
