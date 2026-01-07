@@ -886,10 +886,15 @@ class ConcurrentS3Consumer(Consumer):
     ):
         client = await self._get_s3_client()
 
+        optional_kwargs = {}
+        if self.endpoint_url is None:
+            optional_kwargs["ChecksumAlgorithm"] = "CRC64NVME"
+
         await client.put_object(
             Bucket=self.bucket,
             Key=manifest_key,
             Body=json.dumps({"files": files_uploaded}),
+            **optional_kwargs,  # type: ignore
         )
 
         if self._s3_client is not None and self._s3_client_ctx is not None:
