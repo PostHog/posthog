@@ -35,7 +35,7 @@ from urllib.parse import quote
 import click
 from hogli.core.cli import cli
 from hogli.core.manifest import REPO_ROOT
-from hogli.migration_utils import (
+from migration_utils import (
     MIGRATION_CACHE_DIR,
     get_cache_path as _get_cache_path,
     get_cached_migration as _get_cached_migration,
@@ -83,7 +83,7 @@ class MigrationDiff:
 
 def _cache_migration(app: str, name: str, source_path: Path) -> bool:
     """Cache a migration file for later rollback with CLI feedback."""
-    from hogli.migration_utils import cache_migration_file
+    from migration_utils import cache_migration_file
 
     try:
         if not cache_migration_file(app, name, source_path):

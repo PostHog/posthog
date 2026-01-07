@@ -26,7 +26,7 @@ class TestPathTraversalValidation:
     )
     def test_valid_inputs_pass_validation(self, app: str, name: str) -> None:
         """Valid app names and migration names should pass validation."""
-        from hogli.migration_utils import validate_migration_path_components
+        from migration_utils import validate_migration_path_components
 
         # Should not raise
         validate_migration_path_components(app, name)
@@ -48,7 +48,7 @@ class TestPathTraversalValidation:
     )
     def test_path_traversal_rejected(self, app: str, name: str, _field: str) -> None:
         """Path traversal attempts should raise ValueError."""
-        from hogli.migration_utils import validate_migration_path_components
+        from migration_utils import validate_migration_path_components
 
         with pytest.raises(ValueError):
             validate_migration_path_components(app, name)
@@ -70,7 +70,7 @@ class TestPathTraversalValidation:
     )
     def test_shell_injection_rejected(self, app: str, name: str, _field: str) -> None:
         """Shell metacharacters should raise ValueError."""
-        from hogli.migration_utils import validate_migration_path_components
+        from migration_utils import validate_migration_path_components
 
         with pytest.raises(ValueError):
             validate_migration_path_components(app, name)
@@ -97,7 +97,7 @@ class TestPathTraversalValidation:
     )
     def test_invalid_format_rejected(self, app: str, name: str, _description: str) -> None:
         """Invalid format patterns should raise ValueError."""
-        from hogli.migration_utils import validate_migration_path_components
+        from migration_utils import validate_migration_path_components
 
         with pytest.raises(ValueError):
             validate_migration_path_components(app, name)
@@ -126,7 +126,7 @@ class TestIsValidMigrationPath:
     )
     def test_is_valid_migration_path(self, app: str, name: str, expected: bool) -> None:
         """Test the bool-returning validation function."""
-        from hogli.migration_utils import is_valid_migration_path
+        from migration_utils import is_valid_migration_path
 
         result = is_valid_migration_path(app, name)
         assert result is expected
@@ -137,7 +137,7 @@ class TestCachePathSecurity:
 
     def test_get_cache_path_validates_inputs(self) -> None:
         """get_cache_path should validate before constructing path."""
-        from hogli.migration_utils import get_cache_path
+        from migration_utils import get_cache_path
 
         # Valid input should return a path
         path = get_cache_path("posthog", "0001_initial")
@@ -153,7 +153,7 @@ class TestCachePathSecurity:
 
     def test_cache_path_stays_within_cache_dir(self) -> None:
         """Cache path should always be under MIGRATION_CACHE_DIR."""
-        from hogli.migration_utils import MIGRATION_CACHE_DIR, get_cache_path
+        from migration_utils import MIGRATION_CACHE_DIR, get_cache_path
 
         path = get_cache_path("posthog", "0001_initial")
 
@@ -171,21 +171,21 @@ class TestSharedMigrationUtils:
 
     def test_validate_raises_for_invalid_app(self) -> None:
         """validate_migration_path_components should raise for invalid app."""
-        from hogli.migration_utils import validate_migration_path_components
+        from migration_utils import validate_migration_path_components
 
         with pytest.raises(ValueError, match="Invalid app name"):
             validate_migration_path_components("../bad", "0001_test")
 
     def test_validate_raises_for_invalid_migration(self) -> None:
         """validate_migration_path_components should raise for invalid migration."""
-        from hogli.migration_utils import validate_migration_path_components
+        from migration_utils import validate_migration_path_components
 
         with pytest.raises(ValueError, match="Invalid migration name"):
             validate_migration_path_components("posthog", "bad_name")
 
     def test_is_valid_returns_bool(self) -> None:
         """is_valid_migration_path should return bool without raising."""
-        from hogli.migration_utils import is_valid_migration_path
+        from migration_utils import is_valid_migration_path
 
         assert is_valid_migration_path("posthog", "0001_initial") is True
         assert is_valid_migration_path("../etc", "0001_passwd") is False
@@ -193,7 +193,7 @@ class TestSharedMigrationUtils:
 
     def test_get_cached_migration_returns_none_for_invalid(self) -> None:
         """get_cached_migration should return None for invalid inputs."""
-        from hogli.migration_utils import get_cached_migration
+        from migration_utils import get_cached_migration
 
         # Invalid inputs should return None (not raise)
         assert get_cached_migration("../etc", "0001_passwd") is None
@@ -203,7 +203,7 @@ class TestSharedMigrationUtils:
         """cache_migration_file should return False for invalid inputs."""
         from pathlib import Path
 
-        from hogli.migration_utils import cache_migration_file
+        from migration_utils import cache_migration_file
 
         # Invalid inputs should return False (not raise)
         assert cache_migration_file("../etc", "0001_passwd", Path("/fake")) is False
