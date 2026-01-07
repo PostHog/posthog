@@ -32,6 +32,8 @@ function InsightSuggestionRow({
     const [isExpanded, setIsExpanded] = useState(false)
     const InsightIcon = QUERY_TYPES_METADATA[suggestion.targetQuery.source.kind]?.icon
     const { reportSuggestionFeedback } = useActions(insightAIAnalysisLogic({ insightId, query }))
+    const { suggestionFeedbackGiven } = useValues(insightAIAnalysisLogic({ insightId, query }))
+    const feedbackGiven = suggestionFeedbackGiven[index]
 
     return (
         <div className="border border-border rounded bg-surface-primary">
@@ -57,18 +59,26 @@ function InsightSuggestionRow({
                     </div>
                     <div className="flex justify-between items-center p-3 border-t border-border">
                         <div className="flex gap-2 items-center">
-                            <span className="text-muted text-xs">Was this suggestion helpful?</span>
+                            <span className="text-muted text-xs">
+                                {feedbackGiven !== undefined
+                                    ? 'Thanks for your feedback!'
+                                    : 'Was this suggestion helpful?'}
+                            </span>
                             <LemonButton
                                 size="small"
                                 icon={<IconThumbsUp />}
                                 onClick={() => reportSuggestionFeedback(index, suggestion.title, true)}
                                 tooltip="Helpful"
+                                disabled={feedbackGiven !== undefined}
+                                active={feedbackGiven === true}
                             />
                             <LemonButton
                                 size="small"
                                 icon={<IconThumbsDown />}
                                 onClick={() => reportSuggestionFeedback(index, suggestion.title, false)}
                                 tooltip="Not helpful"
+                                disabled={feedbackGiven !== undefined}
+                                active={feedbackGiven === false}
                             />
                         </div>
                         <LemonButton

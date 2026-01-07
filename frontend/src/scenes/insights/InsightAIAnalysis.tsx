@@ -20,7 +20,7 @@ export interface InsightAIAnalysisProps {
 export function InsightAIAnalysis({ query }: InsightAIAnalysisProps): JSX.Element | null {
     const { insight, insightProps } = useValues(insightLogic)
     const { insightDataLoading } = useValues(insightVizDataLogic(insightProps))
-    const { analysis, isAnalyzing, hasClickedAnalyze } = useValues(
+    const { analysis, isAnalyzing, hasClickedAnalyze, analysisFeedbackGiven } = useValues(
         insightAIAnalysisLogic({ insightId: insight.id, query })
     )
     const { startAnalysis, resetAnalysis, reportAnalysisFeedback } = useActions(
@@ -67,18 +67,26 @@ export function InsightAIAnalysis({ query }: InsightAIAnalysisProps): JSX.Elemen
                     <div className="bg-surface-secondary border border-border rounded p-4 mb-4 whitespace-pre-wrap">
                         {analysis}
                         <div className="flex gap-2 justify-end mt-4 border-t border-border pt-2">
-                            <span className="text-muted text-xs flex items-center">Was this analysis helpful?</span>
+                            <span className="text-muted text-xs flex items-center">
+                                {analysisFeedbackGiven !== null
+                                    ? 'Thanks for your feedback!'
+                                    : 'Was this analysis helpful?'}
+                            </span>
                             <LemonButton
                                 size="small"
                                 icon={<IconThumbsUp />}
                                 onClick={() => reportAnalysisFeedback(true)}
                                 tooltip="Helpful"
+                                disabled={analysisFeedbackGiven !== null}
+                                active={analysisFeedbackGiven === true}
                             />
                             <LemonButton
                                 size="small"
                                 icon={<IconThumbsDown />}
                                 onClick={() => reportAnalysisFeedback(false)}
                                 tooltip="Not helpful"
+                                disabled={analysisFeedbackGiven !== null}
+                                active={analysisFeedbackGiven === false}
                             />
                         </div>
                     </div>

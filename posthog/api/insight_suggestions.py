@@ -10,7 +10,6 @@ from posthog.schema import (
     InsightVizNode,
     IntervalType,
     LifecycleQuery,
-    NodeKind,
     RetentionEntityKind,
     RetentionPeriod,
     RetentionQuery,
@@ -61,7 +60,7 @@ def get_retention_suggestions(query: RetentionQuery, parent_query: InsightVizNod
 
         series = [
             EventsNode(
-                kind=NodeKind.EVENTS_NODE,
+                kind="EventsNode",
                 event=str(event_name) if isinstance(event_name, str) else None,
                 name=returning_entity.name,
                 custom_name=returning_entity.custom_name,
@@ -75,7 +74,7 @@ def get_retention_suggestions(query: RetentionQuery, parent_query: InsightVizNod
 
         series = [
             ActionsNode(
-                kind=NodeKind.ACTIONS_NODE,
+                kind="ActionsNode",
                 id=action_id,
                 name=returning_entity.name,
                 custom_name=returning_entity.custom_name,
@@ -102,7 +101,7 @@ def get_retention_suggestions(query: RetentionQuery, parent_query: InsightVizNod
 
     # Stickiness Query
     stickiness_query = StickinessQuery(
-        kind=NodeKind.STICKINESS_QUERY,
+        kind="StickinessQuery",
         series=series,
         interval=interval,
         dateRange=query.dateRange,
@@ -112,13 +111,13 @@ def get_retention_suggestions(query: RetentionQuery, parent_query: InsightVizNod
     )
 
     stickiness_target = InsightVizNode(
-        kind=NodeKind.INSIGHT_VIZ_NODE,
+        kind="InsightVizNode",
         source=stickiness_query,
     )
 
     # Lifecycle Query
     lifecycle_query = LifecycleQuery(
-        kind=NodeKind.LIFECYCLE_QUERY,
+        kind="LifecycleQuery",
         series=series,
         interval=interval,
         dateRange=query.dateRange,
@@ -128,7 +127,7 @@ def get_retention_suggestions(query: RetentionQuery, parent_query: InsightVizNod
     )
 
     lifecycle_target = InsightVizNode(
-        kind=NodeKind.INSIGHT_VIZ_NODE,
+        kind="InsightVizNode",
         source=lifecycle_query,
     )
 
@@ -159,25 +158,25 @@ def summarize_insight_result(result: Any) -> Any:
     return result
 
 
-def get_query_specific_instructions(kind: NodeKind) -> str:
-    if kind == NodeKind.TRENDS_QUERY:
+def get_query_specific_instructions(kind: str) -> str:
+    if kind == "TrendsQuery":
         return (
             "Focus on identifying significant changes in volume, growth trends, and seasonality. "
             "Compare the current period to the start. Identify which breakdown segment (if any) is driving the trend."
         )
-    elif kind == NodeKind.FUNNEL_QUERY:
+    elif kind == "FunnelsQuery":
         return (
             "Focus on conversion rates between steps. Identify the specific step with the largest drop-off (the bottleneck). "
             "Compare conversion performance across breakdown segments if available."
         )
-    elif kind == NodeKind.RETENTION_QUERY:
+    elif kind == "RetentionQuery":
         return (
             "Focus on the retention curve shape. Identify when the drop-off stabilizes. "
             "Compare retention rates between different cohorts or breakdown segments."
         )
-    elif kind == NodeKind.STICKINESS_QUERY:
+    elif kind == "StickinessQuery":
         return "Focus on how frequently users engage. Identify if there is a core group of power users."
-    elif kind == NodeKind.LIFECYCLE_QUERY:
+    elif kind == "LifecycleQuery":
         return "Focus on the balance between new, returning, resurrecting, and dormant users. Identify which group is dominating the total count."
 
     return "Focus on the most significant patterns and anomalies in the data."

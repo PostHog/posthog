@@ -84,6 +84,23 @@ export const insightAIAnalysisLogic = kea<insightAIAnalysisLogicType>([
                 resetAnalysis: () => false,
             },
         ],
+        analysisFeedbackGiven: [
+            null as boolean | null, // true = positive, false = negative, null = no feedback
+            {
+                reportAnalysisFeedback: (_, { isPositive }) => isPositive,
+                resetAnalysis: () => null,
+            },
+        ],
+        suggestionFeedbackGiven: [
+            {} as Record<number, boolean>, // key is suggestion index, value: true = positive, false = negative
+            {
+                reportSuggestionFeedback: (state, { suggestionIndex, isPositive }) => ({
+                    ...state,
+                    [suggestionIndex]: isPositive,
+                }),
+                resetAnalysis: () => ({}),
+            },
+        ],
     }),
     selectors({
         isAnalyzing: [(s) => [s.analysisLoading], (analysisLoading) => analysisLoading],
