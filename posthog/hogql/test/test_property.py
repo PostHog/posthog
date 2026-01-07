@@ -152,7 +152,7 @@ class TestProperty(BaseTest):
         a = self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "regex"})
         assert a == self._parse_expr("ifNull(match(toString(properties.a), 'b'), 0) or ifNull(match(toString(properties.a), 'c'), 0)")
         # Want to make sure this returns 0, not false. Clickhouse uses UInt8s primarily for booleans.
-        assert 0 is a.exprs[1].args[1].value
+        assert 0 == a.exprs[1].args[1].value
         # negative
         assert self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "is_not"}) == self._parse_expr("properties.a not in ('b', 'c')")
         assert self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "not_icontains"}) == self._parse_expr("toString(properties.a) not ilike '%b%' and toString(properties.a) not ilike '%c%'")
@@ -165,7 +165,7 @@ class TestProperty(BaseTest):
             }
         )
         assert a == self._parse_expr("ifNull(not(match(toString(properties.a), 'b')), 1) and ifNull(not(match(toString(properties.a), 'c')), 1)")
-        assert 1 is a.exprs[1].args[1].value
+        assert 1 == a.exprs[1].args[1].value
 
     def test_property_to_expr_feature(self):
         assert self._property_to_expr({"type": "event", "key": "a", "value": "b", "operator": "exact"}) == self._parse_expr("properties.a = 'b'")

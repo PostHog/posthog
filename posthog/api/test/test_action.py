@@ -1,4 +1,3 @@
-import re
 from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,

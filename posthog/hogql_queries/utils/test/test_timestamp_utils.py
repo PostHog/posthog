@@ -1,4 +1,3 @@
-import re
 import datetime
 
 from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, _create_event, flush_persons_and_events

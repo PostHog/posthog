@@ -1,4 +1,3 @@
-import re
 import uuid
 import asyncio
 from collections.abc import Callable

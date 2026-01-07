@@ -1,4 +1,3 @@
-import re
 """
 Sample web analytics queries for HogQL snapshot testing.
 

@@ -1,4 +1,3 @@
-import re
 import os
 import tempfile
 from io import StringIO

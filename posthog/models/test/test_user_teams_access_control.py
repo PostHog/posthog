@@ -1,4 +1,3 @@
-import re
 """
 Tests for User.teams property with the new AccessControl system.
 This ensures that team access filtering works correctly with the RBAC system.

@@ -1,4 +1,3 @@
-import re
 from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest
 from unittest.mock import patch
 

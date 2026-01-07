@@ -1,4 +1,3 @@
-import re
 from random import Random
 from uuid import UUID
 

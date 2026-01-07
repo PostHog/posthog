@@ -1,4 +1,3 @@
-import re
 from typing import Optional, Union
 
 import pytest

@@ -1,4 +1,3 @@
-import re
 from typing import Any
 
 from freezegun import freeze_time

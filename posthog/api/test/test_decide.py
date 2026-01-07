@@ -1,4 +1,3 @@
-import re
 import json
 import time
 import base64
@@ -3636,7 +3635,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         with self.settings(NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS={str(self.team.id)}):
             response = self._post_decide(api_version=3)
             assert response.status_code == 200
-            assert not "analytics" in response.json()
+            assert "analytics" not in response.json()
 
     def test_decide_element_chain_as_string(self, *args):
         self.client.logout()
@@ -3654,7 +3653,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         ):
             response = self._post_decide(api_version=3)
             assert response.status_code == 200
-            assert not "elementsChainAsString" in response.json()
+            assert "elementsChainAsString" not in response.json()
 
     def test_decide_default_identified_only(self, *args):
         self.client.logout()

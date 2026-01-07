@@ -1,4 +1,3 @@
-import re
 import json
 from collections.abc import Mapping
 from typing import Any, Literal, Optional, cast

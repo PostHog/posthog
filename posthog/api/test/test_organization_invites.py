@@ -1,4 +1,3 @@
-import re
 import random
 
 from freezegun import freeze_time

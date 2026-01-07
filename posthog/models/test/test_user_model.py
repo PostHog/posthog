@@ -1,4 +1,3 @@
-import re
 from posthog.test.base import BaseTest
 
 from posthog.constants import AvailableFeature

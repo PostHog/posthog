@@ -1,4 +1,3 @@
-import re
 """
 Tests for team access token cache functionality.
 """

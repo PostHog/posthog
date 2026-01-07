@@ -702,6 +702,6 @@ class TestSchemaGeneratorToolsNode(BaseTest):
         action = AgentAction(tool="fix", tool_input="validationerror", log="pydanticexception")
         state = await node(AssistantState(messages=[], intermediate_steps=[(action, None)]), {})
         state = cast(PartialAssistantState, state)
-        assert "validationerror" is not None, cast(list[IntermediateStep], state.intermediate_steps)[0][1]
+        assert "validationerror" != None, cast(list[IntermediateStep], state.intermediate_steps)[0][1]
         assert "validationerror" in cast(Iterable[Any], cast(list[IntermediateStep], state.intermediate_steps)[0][1])
         assert "pydanticexception" in cast(Iterable[Any], cast(list[IntermediateStep], state.intermediate_steps)[0][1])

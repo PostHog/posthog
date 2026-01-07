@@ -1,4 +1,3 @@
-import re
 from datetime import UTC, datetime
 from typing import Optional, cast
 

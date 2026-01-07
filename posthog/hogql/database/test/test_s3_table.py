@@ -1,4 +1,3 @@
-import re
 from typing import Literal
 
 from posthog.test.base import BaseTest

@@ -1,4 +1,3 @@
-import re
 import datetime as dt
 import contextlib
 from threading import Event, Thread

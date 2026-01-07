@@ -1,4 +1,3 @@
-import re
 from datetime import timedelta
 
 from posthog.test.base import APIBaseTest, QueryMatchingTest

@@ -1,4 +1,3 @@
-import re
 """
 Tests for team metadata HyperCache functionality.
 """

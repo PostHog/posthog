@@ -1,4 +1,3 @@
-import re
 from io import StringIO
 
 from posthog.test.base import BaseTest

@@ -1,4 +1,3 @@
-import re
 import datetime
 
 from posthog.test.base import APIBaseTest

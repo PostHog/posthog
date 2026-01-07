@@ -1,4 +1,3 @@
-import re
 import pytest
 import uuid
 from datetime import datetime

@@ -1,4 +1,3 @@
-import re
 import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch

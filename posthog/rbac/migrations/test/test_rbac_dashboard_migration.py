@@ -1,4 +1,3 @@
-import re
 import pytest
 from posthog.test.base import BaseTest
 

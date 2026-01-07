@@ -1,4 +1,3 @@
-import re
 from datetime import timedelta
 from typing import cast
 

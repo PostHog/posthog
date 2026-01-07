@@ -1,4 +1,3 @@
-import re
 from typing import Any
 
 from posthog.test.base import APIBaseTest

@@ -18,9 +18,9 @@ class TestServiceVersionRequirement(TestCase):
         assert v2.service == "clickhouse"
         assert v3.service == "redis"
 
-        assert type(v1.supported_version) == SimpleSpec
-        assert type(v2.supported_version) == SimpleSpec
-        assert type(v3.supported_version) == SimpleSpec
+        assert isinstance(v1.supported_version, SimpleSpec)
+        assert isinstance(v2.supported_version, SimpleSpec)
+        assert isinstance(v3.supported_version, SimpleSpec)
 
         assert str(v1.supported_version) == "==14.0.0"
         assert str(v2.supported_version) == "==22.3.0"

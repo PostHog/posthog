@@ -1,4 +1,3 @@
-import re
 from typing import cast
 
 from posthog.test.base import BaseTest

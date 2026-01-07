@@ -1,4 +1,3 @@
-import re
 import logging
 import datetime as dt
 
