@@ -362,7 +362,7 @@ def export_image(exported_asset: ExportedAsset, max_height_pixels: Optional[int]
                     dashboard_id=exported_asset.dashboard.id if exported_asset.dashboard else None,
                 )
 
-                # When exporting from a dashboard, apply the tile's filter overrides and dashboard variables
+                # When exporting a single insight from a dashboard, apply the tile's filter overrides and dashboard variables
                 dashboard_variables = None
                 tile_filters_override = None
                 if exported_asset.dashboard:
