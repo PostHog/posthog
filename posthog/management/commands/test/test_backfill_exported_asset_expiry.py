@@ -49,7 +49,7 @@ class TestBackfillExportedAssetExpiry(BaseTest):
 
     @freeze_time("2024-06-15T10:30:00Z")
     def test_does_not_update_assets_with_existing_expiry(self) -> None:
-        custom_expiry = datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC)
+        custom_expiry = datetime(2027, 1, 1, 0, 0, 0, tzinfo=UTC)
         asset = ExportedAsset.objects.create(
             team=self.team,
             export_format=ExportedAsset.ExportFormat.PNG,
