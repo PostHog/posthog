@@ -108,6 +108,8 @@ from posthog.utils import (
 
 logger = structlog.get_logger(__name__)
 
+LEGACY_INSIGHT_ENDPOINTS_BLOCKED_FLAG = "legacy-insight-endpoints-disabled"
+
 INSIGHT_REFRESH_INITIATED_COUNTER = Counter(
     "insight_refresh_initiated",
     "Insight refreshes initiated, based on should_refresh_insight().",
@@ -163,7 +165,30 @@ def log_and_report_insight_activity(
             )
 
 
-def capture_legacy_api_call(request: request.Request, team: Team):
+def is_legacy_insight_endpoint_blocked(user: Any, team: Team) -> bool:
+    distinct_id = getattr(user, "distinct_id", None)
+    if not distinct_id:
+        return False
+
+    return posthoganalytics.feature_enabled(
+        LEGACY_INSIGHT_ENDPOINTS_BLOCKED_FLAG,
+        str(distinct_id),
+        groups={
+            "organization": str(team.organization_id),
+            "project": str(team.id),
+        },
+        group_properties={
+            "organization": {"id": str(team.organization_id)},
+            "project": {"id": str(team.id)},
+        },
+        send_feature_flag_events=False,
+    )
+
+
+def capture_legacy_api_call(request: request.Request, team: Team) -> None:
+    if is_legacy_insight_endpoint_blocked(request.user, team):
+        raise PermissionDenied("Legacy insight endpoints are not available for this user.")
+
     try:
         event = "legacy insight endpoint called"
         distinct_id: str = request.user.distinct_id  # type: ignore
@@ -173,6 +198,7 @@ def capture_legacy_api_call(request: request.Request, team: Team):
             "query_method": get_query_method(request=request, team=team),
             "filter": get_filter(request=request, team=team),
             "was_impersonated": is_impersonated_session(request),
+            "user_agent": request.headers.get("user-agent"),
         }
 
         posthoganalytics.capture(
