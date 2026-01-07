@@ -28,7 +28,7 @@ import { notebookNodeLogicType } from './notebookNodeLogicType'
 import { SlashCommandsPopover } from '../Notebook/SlashCommands'
 import posthog from 'posthog-js'
 import { NotebookNodeContext } from './NotebookNodeContext'
-import { IconCollapse, IconCopy, IconEllipsis, IconExpand, IconFilter, IconGear, IconPlus, IconX } from '@posthog/icons'
+import { IconCollapse, IconCopy, IconEllipsis, IconExpand, IconPencil, IconGear, IconPlus, IconX } from '@posthog/icons'
 import {
     CreatePostHogWidgetNodeOptions,
     CustomNotebookNodeAttributes,
@@ -228,10 +228,10 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                                         settingsIcon === 'gear' ? (
                                                                             <IconGear />
                                                                         ) : (
-                                                                            <IconFilter />
+                                                                            <IconPencil />
                                                                         )
                                                                     ) : (
-                                                                        (settingsIcon ?? <IconFilter />)
+                                                                        (settingsIcon ?? <IconPencil />)
                                                                     )
                                                                 }
                                                                 active={editingNodeId === nodeId}
