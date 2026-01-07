@@ -696,6 +696,7 @@ class ConcurrentS3Consumer(Consumer):
                             PartNumber=part_number,
                             UploadId=self.upload_id,
                             Body=data,
+                            ChecksumAlgorithm="CRC64NVME",  # default
                         )
 
                     except botocore.exceptions.ClientError as err:
@@ -825,6 +826,7 @@ class ConcurrentS3Consumer(Consumer):
         response = await client.create_multipart_upload(
             Bucket=self.bucket,
             Key=current_key,
+            ChecksumAlgorithm="CRC64NVME",  # default
             **optional_kwargs,  # type: ignore
         )
         self.upload_id = response["UploadId"]
