@@ -119,8 +119,14 @@ const OnboardingWrapper = ({
         }
 
         setAllOnboardingSteps(steps.filter(Boolean))
-    }, [children, billingLoading,
-        waitForBilling, minAdminRestrictionReason, currentOrganization, shouldShowTellUsMoreStep]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [
+        children,
+        billingLoading,
+        waitForBilling,
+        minAdminRestrictionReason,
+        currentOrganization,
+        shouldShowTellUsMoreStep,
+    ]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     if (!product || !children) {
         return <></>
