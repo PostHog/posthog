@@ -295,7 +295,6 @@ class AssistantTool(StrEnum):
     FILTER_ERROR_TRACKING_ISSUES = "filter_error_tracking_issues"
     SEARCH_ERROR_TRACKING_ISSUES = "search_error_tracking_issues"
     FIND_ERROR_TRACKING_IMPACTFUL_ISSUE_EVENT_LIST = "find_error_tracking_impactful_issue_event_list"
-    ERROR_TRACKING_EXPLAIN_ISSUE = "error_tracking_explain_issue"
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
     CREATE_SURVEY = "create_survey"
     ANALYZE_SURVEY_RESPONSES = "analyze_survey_responses"
@@ -1245,14 +1244,6 @@ class Population(BaseModel):
     success_only: float
 
 
-class ErrorTrackingExplainIssueToolContext(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    issue_name: str
-    stacktrace: str
-
-
 class FirstEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2083,6 +2074,11 @@ class OrderBy3(StrEnum):
     EARLIEST = "earliest"
 
 
+class LogsSparklineBreakdownBy(StrEnum):
+    SEVERITY = "severity"
+    SERVICE = "service"
+
+
 class MarkdownBlock(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2345,6 +2341,15 @@ class MaxBillingContextTrial(BaseModel):
     expires_at: str | None = None
     is_active: bool
     target: str | None = None
+
+
+class MaxErrorTrackingIssueContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str
+    name: str | None = None
+    type: Literal["error_tracking_issue"] = "error_tracking_issue"
 
 
 class MaxEventContext(BaseModel):
@@ -3786,6 +3791,22 @@ class WebVitalsPercentile(StrEnum):
     P75 = "p75"
     P90 = "p90"
     P99 = "p99"
+
+
+class WebsiteBrowsingHistoryProdInterest(StrEnum):
+    PRODUCT_ANALYTICS = "product-analytics"
+    WEB_ANALYTICS = "web-analytics"
+    SESSION_REPLAY = "session-replay"
+    FEATURE_FLAGS = "feature-flags"
+    EXPERIMENTS = "experiments"
+    ERROR_TRACKING = "error-tracking"
+    SURVEYS = "surveys"
+    DATA_WAREHOUSE = "data-warehouse"
+    LLM_ANALYTICS = "llm-analytics"
+    REVENUE_ANALYTICS = "revenue-analytics"
+    WORKFLOWS = "workflows"
+    LOGS = "logs"
+    ENDPOINTS = "endpoints"
 
 
 class Scale(StrEnum):
@@ -15567,6 +15588,9 @@ class LogsQuery(BaseModel):
     searchTerm: str | None = None
     serviceNames: list[str]
     severityLevels: list[LogSeverityLevel]
+    sparklineBreakdownBy: LogsSparklineBreakdownBy | None = Field(
+        default=None, description="Field to break down sparkline data by (used only by sparkline endpoint)"
+    )
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -17263,6 +17287,7 @@ class MaxUIContext(BaseModel):
     )
     actions: list[MaxActionContext] | None = None
     dashboards: list[MaxDashboardContext] | None = None
+    error_tracking_issues: list[MaxErrorTrackingIssueContext] | None = None
     events: list[MaxEventContext] | None = None
     form_answers: dict[str, str] | None = None
     insights: list[MaxInsightContext] | None = None

@@ -96,10 +96,10 @@ runs:
               sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
         - name: Install pnpm
-          uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+          uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
 
         - name: Set up Node.js
-          uses: actions/setup-node@v4
+          uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
           with:
               node-version: 22.17.1
               cache: pnpm
@@ -108,7 +108,7 @@ runs:
         # with exit code 134 _after passing_ all tests
         # this appears to fix it
         # absolute wild tbh https://stackoverflow.com/a/75503402
-        - uses: tlambert03/setup-qt-libs@19e4ef2d781d81f5f067182e228b54ec90d23b76 # v1
+        - uses: tlambert03/setup-qt-libs@19e4ef2d781d81f5f067182e228b54ec90d23b76 # v1.8
 
         - name: Install plugin_transpiler
           shell: bash
@@ -236,7 +236,7 @@ runs:
           run: docker compose -f docker-compose.dev.yml logs
 
         - name: Upload updated timing data as artifacts
-          uses: actions/upload-artifact@v4
+          uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
           if: ${{ inputs.person-on-events != 'true' && inputs.clickhouse-server-image == 'clickhouse/clickhouse-server:25.8.12.129' }}
           with:
               name: timing_data-${{ inputs.segment }}-${{ inputs.group }}

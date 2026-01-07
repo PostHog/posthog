@@ -2448,11 +2448,6 @@ export interface ErrorTrackingIssueImpactToolOutput {
     events: string[]
 }
 
-export interface ErrorTrackingExplainIssueToolContext {
-    stacktrace: string
-    issue_name: string
-}
-
 export type ErrorTrackingIssueAssigneeType = 'user' | 'role'
 
 export interface ErrorTrackingIssueAssignee {
@@ -2660,6 +2655,9 @@ export interface LogMessage {
     new?: boolean
 }
 
+/** Field to break down sparkline data by */
+export type LogsSparklineBreakdownBy = 'severity' | 'service'
+
 export interface LogsQuery extends DataNode<LogsQueryResponse> {
     kind: NodeKind.LogsQuery
     dateRange: DateRange
@@ -2673,6 +2671,8 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     liveLogsCheckpoint?: string
     /** Cursor for fetching the next page of results */
     after?: string
+    /** Field to break down sparkline data by (used only by sparkline endpoint) */
+    sparklineBreakdownBy?: LogsSparklineBreakdownBy
 }
 
 export interface LogsQueryResponse extends AnalyticsQueryResponseBase {
@@ -5274,3 +5274,19 @@ export enum ProductIntentContext {
     // Used by the backend but defined here for type safety
     VERCEL_INTEGRATION = 'vercel_integration',
 }
+
+// Known prod_interest values from posthog.com
+export type WebsiteBrowsingHistoryProdInterest =
+    | 'product-analytics'
+    | 'web-analytics'
+    | 'session-replay'
+    | 'feature-flags'
+    | 'experiments'
+    | 'error-tracking'
+    | 'surveys'
+    | 'data-warehouse'
+    | 'llm-analytics'
+    | 'revenue-analytics'
+    | 'workflows'
+    | 'logs'
+    | 'endpoints'

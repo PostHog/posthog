@@ -1905,7 +1905,6 @@
                 "filter_error_tracking_issues",
                 "search_error_tracking_issues",
                 "find_error_tracking_impactful_issue_event_list",
-                "error_tracking_explain_issue",
                 "experiment_results_summary",
                 "create_survey",
                 "analyze_survey_responses",
@@ -12403,19 +12402,6 @@
             ],
             "type": "object"
         },
-        "ErrorTrackingExplainIssueToolContext": {
-            "additionalProperties": false,
-            "properties": {
-                "issue_name": {
-                    "type": "string"
-                },
-                "stacktrace": {
-                    "type": "string"
-                }
-            },
-            "required": ["stacktrace", "issue_name"],
-            "type": "object"
-        },
         "ErrorTrackingExternalReference": {
             "additionalProperties": false,
             "properties": {
@@ -19059,6 +19045,10 @@
                     },
                     "type": "array"
                 },
+                "sparklineBreakdownBy": {
+                    "$ref": "#/definitions/LogsSparklineBreakdownBy",
+                    "description": "Field to break down sparkline data by (used only by sparkline endpoint)"
+                },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
                 },
@@ -19123,6 +19113,11 @@
             },
             "required": ["results"],
             "type": "object"
+        },
+        "LogsSparklineBreakdownBy": {
+            "description": "Field to break down sparkline data by",
+            "enum": ["severity", "service"],
+            "type": "string"
         },
         "MarkdownBlock": {
             "additionalProperties": false,
@@ -20547,6 +20542,23 @@
             "required": ["type", "id", "insights", "filters"],
             "type": "object"
         },
+        "MaxErrorTrackingIssueContext": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": ["string", "null"]
+                },
+                "type": {
+                    "const": "error_tracking_issue",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "id"],
+            "type": "object"
+        },
         "MaxEventContext": {
             "additionalProperties": false,
             "properties": {
@@ -20900,6 +20912,12 @@
                 "dashboards": {
                     "items": {
                         "$ref": "#/definitions/MaxDashboardContext"
+                    },
+                    "type": "array"
+                },
+                "error_tracking_issues": {
+                    "items": {
+                        "$ref": "#/definitions/MaxErrorTrackingIssueContext"
                     },
                     "type": "array"
                 },
@@ -33952,6 +33970,24 @@
             },
             "required": ["results"],
             "type": "object"
+        },
+        "WebsiteBrowsingHistoryProdInterest": {
+            "enum": [
+                "product-analytics",
+                "web-analytics",
+                "session-replay",
+                "feature-flags",
+                "experiments",
+                "error-tracking",
+                "surveys",
+                "data-warehouse",
+                "llm-analytics",
+                "revenue-analytics",
+                "workflows",
+                "logs",
+                "endpoints"
+            ],
+            "type": "string"
         },
         "YAxisSettings": {
             "additionalProperties": false,

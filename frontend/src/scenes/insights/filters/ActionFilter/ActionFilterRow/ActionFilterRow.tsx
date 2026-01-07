@@ -626,7 +626,8 @@ export function ActionFilterRow({
                                 )}
                         </div>
                         {/* right section fixed */}
-                        {rowEndElements.length ? (
+                        {rowEndElements.length ||
+                        ((mathAvailability === MathAvailability.FunnelsOnly || isTrendsContext) && !hideFilter) ? (
                             <div className="ActionFilterRow__end">
                                 {mathAvailability === MathAvailability.FunnelsOnly || isTrendsContext ? (
                                     <>
