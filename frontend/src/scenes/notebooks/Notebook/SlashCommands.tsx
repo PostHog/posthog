@@ -26,9 +26,10 @@ import { LemonButton, LemonDivider, lemonToast } from '@posthog/lemon-ui'
 
 import { EditorCommands, EditorRange } from 'lib/components/RichContentEditor/types'
 import type { FeatureFlagLookupKey } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { IconBold, IconItalic } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { selectFiles } from 'lib/utils/file-utils'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
@@ -279,7 +280,7 @@ order by count() desc
         search: 'python',
         icon: <IconPython color="currentColor" />,
         command: (chain, pos) => chain.insertContentAt(pos, { type: NotebookNodeType.Python, attrs: { code: '' } }),
-        featureFlag: 'NOTEBOOK_PYTHON',
+        featureFlag: FEATURE_FLAGS.NOTEBOOK_PYTHON,
     },
     {
         title: 'Events',
@@ -376,20 +377,14 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
     ref
 ): JSX.Element | null {
     const { editor } = useValues(notebookLogic)
-    const hasNotebookPython = useFeatureFlag('NOTEBOOK_PYTHON')
-    const featureFlagsEnabled = useMemo<Partial<Record<FeatureFlagLookupKey, boolean>>>(
-        () => ({
-            NOTEBOOK_PYTHON: hasNotebookPython,
-        }),
-        [hasNotebookPython]
-    )
+    const { featureFlags } = useValues(featureFlagLogic)
     // We start with 1 because the first item is the text controls
     const [selectedIndex, setSelectedIndex] = useState(0)
     const [selectedHorizontalIndex, setSelectedHorizontalIndex] = useState(0)
 
     const availableSlashCommands = useMemo(
-        () => SLASH_COMMANDS.filter((item) => !item.featureFlag || featureFlagsEnabled[item.featureFlag]),
-        [featureFlagsEnabled]
+        () => SLASH_COMMANDS.filter((item) => !item.featureFlag || featureFlags[item.featureFlag]),
+        [featureFlags]
     )
     const allCommmands = [...TEXT_CONTROLS, ...availableSlashCommands]
 
