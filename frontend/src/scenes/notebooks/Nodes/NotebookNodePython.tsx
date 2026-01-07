@@ -28,11 +28,7 @@ type PythonNodeSummary = {
 type VariableUsage = {
     nodeId: string
     pythonIndex: number
-    lineNumber: number
-    lineText: string
 }
-
-const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 const collectPythonNodes = (content?: JSONContent | null): PythonNodeSummary[] => {
     if (!content || typeof content !== 'object') {
@@ -63,20 +59,6 @@ const collectPythonNodes = (content?: JSONContent | null): PythonNodeSummary[] =
     return nodes
 }
 
-const findVariableUsages = (code: string, variableName: string): { lineNumber: number; lineText: string }[] => {
-    if (!code) {
-        return []
-    }
-    const lines = code.split('\n')
-    const regex = new RegExp(`\\b${escapeRegExp(variableName)}\\b`)
-    return lines.flatMap((lineText, index) => {
-        if (regex.test(lineText)) {
-            return [{ lineNumber: index + 1, lineText }]
-        }
-        return []
-    })
-}
-
 const VariableUsageOverlay = ({
     name,
     type,
@@ -86,23 +68,13 @@ const VariableUsageOverlay = ({
     type: string
     usages: VariableUsage[]
 }): JSX.Element => {
-    const groupedUsages = usages.reduce<Record<string, { pythonIndex: number; lines: VariableUsage[] }>>(
-        (acc, usage) => {
-            if (!acc[usage.nodeId]) {
-                acc[usage.nodeId] = { pythonIndex: usage.pythonIndex, lines: [] }
-            }
-            acc[usage.nodeId].lines.push(usage)
-            return acc
-        },
-        {}
-    )
-
-    const groupedUsageEntries = Object.entries(groupedUsages)
-        .map(([, value]) => ({
-            pythonIndex: value.pythonIndex,
-            lines: value.lines.sort((a, b) => a.lineNumber - b.lineNumber),
-        }))
-        .sort((a, b) => a.pythonIndex - b.pythonIndex)
+    const groupedUsageEntries = usages.reduce<Record<string, VariableUsage>>((acc, usage) => {
+        if (!acc[usage.nodeId]) {
+            acc[usage.nodeId] = usage
+        }
+        return acc
+    }, {})
+    const sortedUsageEntries = Object.values(groupedUsageEntries).sort((a, b) => a.pythonIndex - b.pythonIndex)
 
     return (
         <div className="p-2 text-xs max-w-[320px]">
@@ -110,21 +82,13 @@ const VariableUsageOverlay = ({
                 <span className="font-semibold text-default font-mono">{name}</span>
                 <span className="text-muted">Type: {type || 'unknown'}</span>
             </div>
-            {groupedUsageEntries.length > 0 ? (
+            {sortedUsageEntries.length > 0 ? (
                 <div className="mt-2">
                     <div className="text-muted text-[10px] uppercase tracking-wide">Used in</div>
-                    <div className="mt-1 space-y-2 max-h-48 overflow-y-auto">
-                        {groupedUsageEntries.map((usage) => (
-                            <div key={`usage-${usage.pythonIndex}`} className="space-y-1">
-                                <div className="text-muted">Python cell {usage.pythonIndex}</div>
-                                <div className="space-y-1">
-                                    {usage.lines.map((line) => (
-                                        <div key={`line-${usage.pythonIndex}-${line.lineNumber}`} className="font-mono">
-                                            <span className="text-muted mr-2">{line.lineNumber}.</span>
-                                            <code className="whitespace-pre-wrap text-default">{line.lineText}</code>
-                                        </div>
-                                    ))}
-                                </div>
+                    <div className="mt-1 space-y-1 max-h-48 overflow-y-auto">
+                        {sortedUsageEntries.map((usage) => (
+                            <div key={`usage-${usage.pythonIndex}`} className="text-muted">
+                                Python cell {usage.pythonIndex}
                             </div>
                         ))}
                     </div>
@@ -181,17 +145,16 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePythonAttribute
         const usageMap: Record<string, VariableUsage[]> = {}
 
         exportedGlobals.forEach(({ name }) => {
-            const usages = downstreamNodes.flatMap((node) => {
-                if (!node.globalsUsed.includes(name)) {
-                    return []
-                }
-                return findVariableUsages(node.code, name).map((line) => ({
-                    nodeId: node.nodeId,
-                    pythonIndex: node.pythonIndex,
-                    lineNumber: line.lineNumber,
-                    lineText: line.lineText,
-                }))
-            })
+            const usages = downstreamNodes.flatMap((node) =>
+                node.globalsUsed.includes(name)
+                    ? [
+                          {
+                              nodeId: node.nodeId,
+                              pythonIndex: node.pythonIndex,
+                          },
+                      ]
+                    : []
+            )
 
             usageMap[name] = usages
         })
