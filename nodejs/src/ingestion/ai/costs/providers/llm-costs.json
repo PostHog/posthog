@@ -6965,6 +6965,10 @@
                 "prompt_token": 1.6e-7,
                 "completion_token": 8e-7
             },
+            "mancer-fp8": {
+                "prompt_token": 4.5e-7,
+                "completion_token": 0.000002
+            },
             "novita-bf16": {
                 "prompt_token": 5.4e-7,
                 "completion_token": 0.00000198,
