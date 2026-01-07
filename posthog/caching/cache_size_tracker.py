@@ -128,20 +128,31 @@ class TeamCacheSizeTracker:
         """
         limit = get_team_cache_limit(self.team_id)
         evicted: list[str] = []
+        size_before = self.get_total_size()
+        count_before = self.redis_client.zcard(self.entries_key)
 
-        if self.get_total_size() + data_size > limit:
+        if size_before + data_size > limit:
             evicted = self.evict_until_under_limit(limit, data_size)
-            if evicted:
-                logger.info(
-                    "cache_size_limit_eviction",
-                    team_id=self.team_id,
-                    evicted_count=len(evicted),
-                    limit_bytes=limit,
-                )
 
         cache.set(cache_key, data, ttl)
         self.track_cache_write(cache_key, data_size)
-        CACHE_SIZE_HISTOGRAM.observe(self.get_total_size())
+
+        total_size = self.get_total_size()
+        entry_count = self.redis_client.zcard(self.entries_key)
+        CACHE_SIZE_HISTOGRAM.observe(total_size)
+
+        logger.info(
+            "query_cache_write",
+            team_id=self.team_id,
+            entry_size=data_size,
+            size_before=size_before,
+            size_after=total_size,
+            limit=limit,
+            count_before=count_before,
+            count_after=entry_count,
+            evicted_count=len(evicted),
+        )
+
         return evicted
 
     def track_cache_write(self, cache_key: str, size_bytes: int) -> None:
