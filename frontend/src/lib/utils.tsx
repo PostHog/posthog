@@ -259,6 +259,10 @@ export const stringOperatorMap: Record<string, string> = {
     not_icontains: "∌ doesn't contain",
     regex: '∼ matches regex',
     not_regex: "≁ doesn't match regex",
+    semver_gt: '> semver',
+    semver_gte: '>= semver',
+    semver_lt: '< semver',
+    semver_lte: '<= semver',
     is_set: '✓ is set',
     is_not_set: '✕ is not set',
 }
@@ -411,6 +415,15 @@ export function isOperatorDate(operator: PropertyOperator): boolean {
 
 export function isOperatorBetween(operator: PropertyOperator): boolean {
     return [PropertyOperator.Between, PropertyOperator.NotBetween].includes(operator)
+}
+
+export function isOperatorSemver(operator: PropertyOperator): boolean {
+    return [
+        PropertyOperator.SemverGreaterThan,
+        PropertyOperator.SemverGreaterThanOrEqual,
+        PropertyOperator.SemverLessThan,
+        PropertyOperator.SemverLessThanOrEqual,
+    ].includes(operator)
 }
 
 /** Compare objects deeply. */

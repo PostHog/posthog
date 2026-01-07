@@ -13,7 +13,9 @@ import {
     isOperatorMulti,
     isOperatorRange,
     isOperatorRegex,
+    isOperatorSemver,
 } from 'lib/utils'
+import { parseVersion } from 'lib/utils/semver'
 
 import {
     GroupTypeIndex,
@@ -72,10 +74,25 @@ function getRegexValidationError(operator: PropertyOperator, value: any): string
     return null
 }
 
+function getSemverValidationError(operator: PropertyOperator, value: any): string | null {
+    if (isOperatorSemver(operator)) {
+        try {
+            parseVersion(value)
+        } catch {
+            return 'Invalid semantic version format (expected format: 1.2.3)'
+        }
+    }
+    return null
+}
+
 function getValidationError(operator: PropertyOperator, value: any, property?: string): string | null {
     const regexErrorMessage = getRegexValidationError(operator, value)
     if (regexErrorMessage != null) {
         return regexErrorMessage
+    }
+    const semverErrorMessage = getSemverValidationError(operator, value)
+    if (semverErrorMessage != null) {
+        return semverErrorMessage
     }
     if (isOperatorRange(operator) && isNaN(value)) {
         let message = `Range operators only work with numeric values`
@@ -200,7 +217,7 @@ export function OperatorValueSelect({
                         operators={operators}
                         onChange={(newOperator: PropertyOperator) => {
                             const tentativeValidationError =
-                                newOperator && value ? getRegexValidationError(newOperator, value) : null
+                                newOperator && value ? getValidationError(newOperator, value, propertyKey) : null
                             if (tentativeValidationError) {
                                 setValidationError(tentativeValidationError)
                                 return
