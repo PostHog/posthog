@@ -41,8 +41,7 @@ if [ "${USE_UVICORN:-false}" = "true" ]; then
         --log-level $UVICORN_LOG_LEVEL \
         --timeout $GUNICORN_TIMEOUT \
         --access-logfile - \
-        --error-logfile - \
-        --preload
+        --error-logfile -
 
 elif [ "${USE_GRANIAN:-false}" = "true" ]; then
     echo "🚀 Starting with Granian ASGI server (opt-in via USE_GRANIAN=true)..."
