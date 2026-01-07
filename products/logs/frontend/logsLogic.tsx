@@ -15,7 +15,6 @@ import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { humanFriendlyDetailedTime, parseTagsFilter } from 'lib/utils'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { Params } from 'scenes/sceneTypes'
 
 import {
@@ -245,9 +244,6 @@ export const logsLogic = kea<logsLogicType>([
             operator,
             propertyType,
         }),
-        togglePinLog: (logId: string) => ({ logId }),
-        pinLog: (log: LogMessage) => ({ log }),
-        unpinLog: (logId: string) => ({ logId }),
         setHighlightedLogId: (highlightedLogId: string | null) => ({ highlightedLogId }),
         setHasMoreLogsToLoad: (hasMoreLogsToLoad: boolean) => ({ hasMoreLogsToLoad }),
         setLogsPageSize: (logsPageSize: number) => ({ logsPageSize }),
@@ -388,14 +384,6 @@ export const logsLogic = kea<logsLogicType>([
             [] as string[],
             {
                 setExpandedAttributeBreaksdowns: (_, { expandedAttributeBreaksdowns }) => expandedAttributeBreaksdowns,
-            },
-        ],
-        pinnedLogs: [
-            [] as LogMessage[],
-            { persist: true },
-            {
-                pinLog: (state, { log }) => [...state, log],
-                unpinLog: (state, { logId }) => state.filter((log) => log.uuid !== logId),
             },
         ],
         liveTailRunning: [
@@ -613,31 +601,6 @@ export const logsLogic = kea<logsLogicType>([
                 return result
             },
         ],
-        pinnedParsedLogs: [
-            (s) => [s.pinnedLogs],
-            (pinnedLogs: LogMessage[]): ParsedLogMessage[] => {
-                return pinnedLogs.map((log: LogMessage) => {
-                    const cleanBody = colors.unstyle(log.body)
-                    let parsedBody: JsonType | null = null
-                    try {
-                        parsedBody = JSON.parse(cleanBody)
-                    } catch {
-                        // Not JSON, that's fine
-                    }
-                    return {
-                        ...log,
-                        attributes: stringifyLogAttributes(log.attributes),
-                        cleanBody,
-                        parsedBody,
-                        originalLog: log,
-                    }
-                })
-            },
-        ],
-        isPinned: [
-            (s) => [s.pinnedLogs],
-            (pinnedLogs: LogMessage[]) => (logId: string) => pinnedLogs.some((log) => log.uuid === logId),
-        ],
         visibleLogsTimeRange: [
             (s) => [s.parsedLogs, s.orderBy],
             (
@@ -822,17 +785,6 @@ export const logsLogic = kea<logsLogicType>([
 
             actions.setFilterGroup({ ...values.filterGroup, values: [newGroup] }, false)
         },
-        togglePinLog: ({ logId }) => {
-            const isPinned = values.pinnedLogs.some((log) => log.uuid === logId)
-            if (isPinned) {
-                actions.unpinLog(logId)
-            } else {
-                const logToPin = values.logs.find((log) => log.uuid === logId)
-                if (logToPin) {
-                    actions.pinLog(logToPin)
-                }
-            }
-        },
         applyLogsPageSize: ({ logsPageSize }) => {
             const currentCount = values.logs.length
 
@@ -1001,24 +953,6 @@ export const logsLogic = kea<logsLogicType>([
                     .sort((a, b) => dayjs(a.time).diff(dayjs(b.time)) || a.severity.localeCompare(b.severity))
                     .filter((item) => latest_time_bucket.diff(dayjs(item.time), 'seconds') <= sparklineTimeWindow)
             )
-        },
-        copyLinkToLog: ({ logId }: { logId: string }) => {
-            const url = new URL(window.location.href)
-            url.searchParams.set('highlightedLogId', logId)
-            if (values.visibleLogsTimeRange) {
-                url.searchParams.set(
-                    'dateRange',
-                    JSON.stringify({
-                        date_from: values.visibleLogsTimeRange.date_from,
-                        date_to: values.visibleLogsTimeRange.date_to,
-                        explicitDate: true,
-                    })
-                )
-            }
-            if (values.logs.length > 0) {
-                url.searchParams.set('initialLogsLimit', String(values.logs.length))
-            }
-            void copyToClipboard(url.toString(), 'link to log')
         },
     })),
 
