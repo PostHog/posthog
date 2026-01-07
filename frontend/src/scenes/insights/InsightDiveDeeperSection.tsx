@@ -1,21 +1,24 @@
+import { useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconChevronRight, IconExternal } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
 import { InsightQueryNode } from '~/queries/schema/schema-general'
 
 import { QUERY_TYPES_METADATA } from '../saved-insights/SavedInsights'
-import { FollowUpSuggestion, getSuggestedFollowUps } from './utils/diveDeeperSuggestions'
+import { InsightSuggestion, insightAIAnalysisLogic } from './insightAIAnalysisLogic'
 
 export interface InsightDiveDeeperSectionProps {
+    insightId: number
     query: InsightQueryNode
 }
 
-function DiveDeeperRow({ suggestion }: { suggestion: FollowUpSuggestion }): JSX.Element {
+function DiveDeeperRow({ suggestion }: { suggestion: InsightSuggestion }): JSX.Element {
     const [isExpanded, setIsExpanded] = useState(false)
     const InsightIcon = QUERY_TYPES_METADATA[suggestion.targetQuery.source.kind]?.icon
 
@@ -57,8 +60,17 @@ function DiveDeeperRow({ suggestion }: { suggestion: FollowUpSuggestion }): JSX.
     )
 }
 
-export function InsightDiveDeeperSection({ query }: InsightDiveDeeperSectionProps): JSX.Element | null {
-    const suggestions = getSuggestedFollowUps(query)
+export function InsightDiveDeeperSection({ insightId, query }: InsightDiveDeeperSectionProps): JSX.Element | null {
+    const { suggestions, suggestionsLoading } = useValues(insightAIAnalysisLogic({ insightId, query }))
+
+    if (suggestionsLoading) {
+        return (
+            <div className="mt-4 flex items-center gap-2 text-muted">
+                <Spinner className="text-xl" />
+                <span>Generating suggestions...</span>
+            </div>
+        )
+    }
 
     if (suggestions.length === 0) {
         return null
@@ -66,8 +78,8 @@ export function InsightDiveDeeperSection({ query }: InsightDiveDeeperSectionProp
 
     return (
         <div className="mt-4">
-            <h2 className="font-semibold text-lg m-0 mb-2">Dive deeper</h2>
-            <p className="text-muted mb-4">Explore related insights to understand your data better</p>
+            <h3 className="font-semibold text-base m-0 mb-2">Explore related insights</h3>
+            <p className="text-muted mb-4">Suggested follow-up insights to understand your data better</p>
 
             <div className="space-y-2">
                 {suggestions.map((suggestion, index) => (

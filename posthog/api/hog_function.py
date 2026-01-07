@@ -5,11 +5,13 @@ from django.db import transaction
 from django.db.models import QuerySet
 
 import structlog
+import posthoganalytics
 from django_filters import BaseInFilter, CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, filters, serializers, viewsets
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
@@ -32,7 +34,7 @@ from posthog.cdp.validation import (
     generate_template_bytecode,
 )
 from posthog.exceptions_capture import capture_exception
-from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.models import Team
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
 from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.models.hog_functions.hog_function import (
@@ -134,6 +136,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "status",
             "execution_order",
             "_create_in_folder",
+            "batch_export_id",
         ]
         read_only_fields = [
             "id",
@@ -405,7 +408,12 @@ class HogFunctionViewSet(
     app_source = "hog_function"
 
     def get_serializer_class(self) -> type[BaseSerializer]:
-        return HogFunctionMinimalSerializer if self.action == "list" else HogFunctionSerializer
+        if self.action == "list":
+            # Use full serializer (including inputs, mappings, etc.) when ?full=true
+            if self.request.GET.get("full") == "true":
+                return HogFunctionSerializer
+            return HogFunctionMinimalSerializer
+        return HogFunctionSerializer
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         if not (self.action == "partial_update" and self.request.data.get("deleted") is False):
@@ -496,51 +504,6 @@ class HogFunctionViewSet(
             return Response({"status": "error"}, status=res.status_code)
 
         return Response(res.json())
-
-    @action(detail=True, methods=["POST"])
-    def broadcast(self, request: Request, *args, **kwargs):
-        hog_function = self.get_object()
-
-        if not hog_function.enabled:
-            return Response({"error": "Cannot broadcast: function is disabled"}, status=400)
-
-        actors_query = {
-            "kind": "ActorsQuery",
-            "properties": hog_function.filters.get("properties", None),
-            "select": ["id", "any(pdi.distinct_id)", "properties", "created_at"],
-        }
-
-        response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
-
-        if not hasattr(response, "results"):
-            return Response({"error": "No results from actors query"}, status=400)
-
-        for result in response.results:
-            globals = {
-                "event": {
-                    "event": "$broadcast",
-                    "elements_chain": "",
-                    "distinct_id": str(result[1]),
-                    "timestamp": result[3].isoformat(),
-                },
-                "person": {
-                    "id": str(result[0]),
-                    "distinct_id": str(result[1]),
-                    "properties": json.loads(result[2]),
-                    "created_at": result[3].isoformat(),
-                },
-            }
-            create_hog_invocation_test(
-                team_id=hog_function.team_id,
-                hog_function_id=hog_function.id,
-                payload={
-                    "globals": globals,
-                    "configuration": HogFunctionSerializer(hog_function).data,
-                    "mock_async_functions": False,
-                },
-            )
-
-        return Response({"success": True})
 
     def perform_create(self, serializer):
         serializer.save()
@@ -656,3 +619,56 @@ class HogFunctionViewSet(
 
         serializer = self.get_serializer(transformations, many=True)
         return Response(serializer.data)
+
+    @action(detail=True, methods=["POST"])
+    def enable_backfills(self, request: Request, *args, **kwargs):
+        from posthog.batch_exports.http import BatchExportSerializer
+
+        hog_function = self.get_object()
+
+        # Check if backfill is already enabled
+        if hog_function.batch_export_id:
+            return Response({"error": "Backfills already enabled for this function"}, status=400)
+
+        # Check feature flag for backfill-workflows-destination
+        team = Team.objects.get(id=self.team_id)
+        if not posthoganalytics.feature_enabled(
+            "backfill-workflows-destination",
+            str(team.uuid),
+            groups={"organization": str(team.organization.id)},
+            group_properties={
+                "organization": {
+                    "id": str(team.organization.id),
+                    "created_at": team.organization.created_at,
+                }
+            },
+            send_feature_flag_events=False,
+        ):
+            raise PermissionDenied("Backfilling Workflows is not enabled for this team.")
+
+        # Prepare batch export data matching the frontend's structure
+        batch_export_data = {
+            "name": hog_function.name,
+            "paused": True,
+            "interval": "day",
+            "model": "events",
+            "filters": hog_function.filters.get("events", []) if hog_function.filters else [],
+            "destination": {
+                "type": "Workflows",
+                "config": {},
+            },
+        }
+
+        batch_export_serializer = BatchExportSerializer(
+            data=batch_export_data, context={"team_id": self.team_id, "request": request}
+        )
+
+        if not batch_export_serializer.is_valid():
+            return Response(batch_export_serializer.errors, status=400)
+
+        batch_export = batch_export_serializer.save()
+
+        hog_function.batch_export_id = batch_export.id
+        hog_function.save(update_fields=["batch_export_id"])
+
+        return Response({"batch_export_id": str(batch_export.id)})

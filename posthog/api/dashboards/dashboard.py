@@ -308,13 +308,34 @@ class DashboardSerializer(DashboardMetadataSerializer):
         current_url = request.headers.get("Referer")
         session_id = request.headers.get("X-Posthog-Session-Id")
 
+        existing_dashboard: Dashboard | None = None
+        if use_dashboard:
+            try:
+                existing_dashboard = Dashboard.objects.get(
+                    id=use_dashboard, team__project_id=self.context["get_team"]().project_id
+                )
+            except Dashboard.DoesNotExist:
+                raise serializers.ValidationError({"use_dashboard": "Invalid value provided"})
+
         request_filters = request.data.get("filters")
         if request_filters:
             if not isinstance(request_filters, dict):
                 raise serializers.ValidationError("Filters must be a dictionary")
             filters = request_filters
+        elif existing_dashboard:
+            filters = existing_dashboard.filters
         else:
             filters = {}
+
+        if existing_dashboard and existing_dashboard.variables:
+            validated_data["variables"] = existing_dashboard.variables
+
+        if existing_dashboard and existing_dashboard.breakdown_colors:
+            validated_data["breakdown_colors"] = existing_dashboard.breakdown_colors
+
+        if existing_dashboard and existing_dashboard.data_color_theme_id:
+            validated_data["data_color_theme_id"] = existing_dashboard.data_color_theme_id
+
         dashboard = Dashboard.objects.create(team_id=team_id, filters=filters, **validated_data)
 
         if use_template:
@@ -330,24 +351,17 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 )
                 raise serializers.ValidationError({"use_template": f"Invalid template provided: {use_template}"})
 
-        elif use_dashboard:
-            try:
-                existing_dashboard = Dashboard.objects.get(
-                    id=use_dashboard, team__project_id=self.context["get_team"]().project_id
-                )
-                existing_tiles = (
-                    DashboardTile.objects.filter(dashboard=existing_dashboard)
-                    .exclude(deleted=True)
-                    .select_related("insight")
-                )
-                for existing_tile in existing_tiles:
-                    if self.initial_data.get("duplicate_tiles", False):
-                        self._deep_duplicate_tiles(dashboard, existing_tile)
-                    else:
-                        existing_tile.copy_to_dashboard(dashboard)
-
-            except Dashboard.DoesNotExist:
-                raise serializers.ValidationError({"use_dashboard": "Invalid value provided"})
+        elif existing_dashboard:
+            existing_tiles = (
+                DashboardTile.objects.filter(dashboard=existing_dashboard)
+                .exclude(deleted=True)
+                .select_related("insight")
+            )
+            for existing_tile in existing_tiles:
+                if self.initial_data.get("duplicate_tiles", False):
+                    self._deep_duplicate_tiles(dashboard, existing_tile)
+                else:
+                    existing_tile.copy_to_dashboard(dashboard)
 
         # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, dashboard)

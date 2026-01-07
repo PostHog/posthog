@@ -944,7 +944,7 @@ class SnowflakeClient:
             SnowflakeQueryServerTimeoutError: If the COPY INTO query exceeds the timeout set in the user's account.
         """
         select_fields = ", ".join(
-            f'PARSE_JSON($1:"{field.name}")'
+            f"PARSE_JSON($1:\"{field.name}\", 'd')"
             if field.data_type == JsonType() and field.name.lower() != "elements"
             else f'$1:"{field.name}"'
             for field in table
@@ -1269,6 +1269,7 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
             data_interval_start=inputs.data_interval_start,
             data_interval_end=inputs.data_interval_end,
             max_record_batch_size_bytes=1024 * 1024 * 10,  # 10MB
+            stage_folder=inputs.stage_folder,
         )
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)

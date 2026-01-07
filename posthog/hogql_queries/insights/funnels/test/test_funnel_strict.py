@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import cast
 
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_action, _create_event, _create_person
 
 from hogql_parser import parse_expr
 
@@ -19,32 +19,17 @@ from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
     funnel_breakdown_test_factory,
 )
 from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
-from posthog.hogql_queries.insights.funnels.test.test_funnel import PseudoFunnelActors
+from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors_legacy_filters
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.models.action import Action
-from posthog.models.filters import Filter
 from posthog.models.instance_setting import override_instance_config
 from posthog.test.test_journeys import journeys_for
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
 
 
-def _create_action(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
-    properties = kwargs.pop("properties", {})
-    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name, "properties": properties}])
-    return action
-
-
 class TestFunnelStrictStepsBreakdown(
     ClickhouseTestMixin,
-    funnel_breakdown_test_factory(  # type: ignore
-        FunnelOrderType.STRICT,
-        PseudoFunnelActors,
-        _create_action,
-        _create_person,
-    ),
+    funnel_breakdown_test_factory(FunnelOrderType.STRICT),  # type: ignore
 ):
     maxDiff = None
 
@@ -179,17 +164,14 @@ class TestFunnelStrictStepsBreakdown(
 
 class TestStrictFunnelGroupBreakdown(
     ClickhouseTestMixin,
-    funnel_breakdown_group_test_factory(  # type: ignore
-        FunnelOrderType.STRICT,
-        PseudoFunnelActors,
-    ),
+    funnel_breakdown_group_test_factory(FunnelOrderType.STRICT),  # type: ignore
 ):
     maxDiff = None
 
 
 class TestFunnelStrictStepsConversionTime(
     ClickhouseTestMixin,
-    funnel_conversion_time_test_factory(FunnelOrderType.ORDERED, PseudoFunnelActors),  # type: ignore
+    funnel_conversion_time_test_factory(FunnelOrderType.ORDERED),  # type: ignore
 ):
     maxDiff = None
 
@@ -198,11 +180,13 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
     def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
-        filter = Filter(data=filter, team=self.team)
-        person_filter = filter.shallow_clone({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
-        _, serialized_result, _ = PseudoFunnelActors(person_filter, self.team).get_actors()
-
-        return [val["id"] for val in serialized_result]
+        actors = get_actors_legacy_filters(
+            filter,
+            self.team,
+            funnel_step=funnel_step,
+            funnel_step_breakdown=breakdown_value,
+        )
+        return [actor[0] for actor in actors]
 
     def test_basic_strict_funnel(self):
         filters = {
@@ -645,7 +629,7 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
         runner = FunnelsQueryRunner(query=query, team=self.team)
         inner_aggregation_query = runner.funnel_class._inner_aggregation_query()
         inner_aggregation_query.select.append(
-            parse_expr(f"{runner.funnel_class.udf_event_array_filter()} AS filtered_array")
+            parse_expr(f"{runner.funnel_class.event_array_filter()} AS filtered_array")
         )
         inner_aggregation_query.having = None
         response = execute_hogql_query(

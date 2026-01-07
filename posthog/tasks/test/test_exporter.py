@@ -3,12 +3,48 @@ from typing import Optional
 
 import pytest
 from posthog.test.base import APIBaseTest
+from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
+from posthog.hogql.errors import QueryError
+
+from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import ExportedAsset
 from posthog.tasks import exporter
+from posthog.tasks.exporter import EXCEPTIONS_TO_RETRY, _is_final_export_attempt, is_user_query_error_type
 from posthog.tasks.exports.image_exporter import get_driver
+
+
+class TestIsUserQueryErrorType(TestCase):
+    @parameterized.expand(
+        [
+            # User query errors - should return True
+            ("QueryError", True),
+            ("SyntaxError", True),
+            ("CHQueryErrorIllegalAggregation", True),
+            ("CHQueryErrorIllegalTypeOfArgument", True),
+            ("CHQueryErrorNoCommonType", True),
+            ("CHQueryErrorNotAnAggregate", True),
+            ("CHQueryErrorTypeMismatch", True),
+            ("CHQueryErrorUnknownFunction", True),
+            ("ClickHouseQueryTimeOut", True),
+            ("ClickHouseQueryMemoryLimitExceeded", True),
+            # Non-user errors - should return False
+            ("TimeoutError", False),
+            ("ValueError", False),
+            ("CHQueryErrorS3Error", False),
+            ("CHQueryErrorTooManySimultaneousQueries", False),
+            ("ClickHouseAtCapacity", False),
+            ("ConcurrencyLimitExceeded", False),
+            (None, False),
+            ("", False),
+        ]
+    )
+    def test_is_user_query_error_type(self, exception_type: str | None, expected: bool) -> None:
+        assert is_user_query_error_type(exception_type) == expected
 
 
 class MockWebDriver(MagicMock):
@@ -60,3 +96,99 @@ class TestExporterTask(APIBaseTest):
 
         if driver:
             driver.close()
+
+    @patch("posthog.tasks.exports.image_exporter.export_image")
+    def test_export_stores_exception_type_on_failure(self, mock_export: MagicMock, mock_uuid: MagicMock) -> None:
+        mock_export.side_effect = QueryError("Unknown table 'foo'")
+
+        asset = ExportedAsset.objects.create(team=self.team, dashboard=None, export_format="image/png")
+        exporter.export_asset(asset.id)
+
+        asset.refresh_from_db()
+        assert asset.exception == "Unknown table 'foo'"
+        assert asset.exception_type == "QueryError"
+
+
+class TestIsFinalExportAttempt(TestCase):
+    @parameterized.expand(
+        [
+            # Non-retriable exceptions are always final (regardless of retry count)
+            (QueryError("test"), 0, 3, True),
+            (QueryError("test"), 1, 3, True),
+            (QueryError("test"), 3, 3, True),
+            # Retriable exceptions: not final when retries < max_retries
+            (CHQueryErrorTooManySimultaneousQueries("test"), 0, 3, False),
+            (CHQueryErrorTooManySimultaneousQueries("test"), 1, 3, False),
+            (CHQueryErrorTooManySimultaneousQueries("test"), 2, 3, False),
+            # Retriable exceptions: final when retries >= max_retries
+            (CHQueryErrorTooManySimultaneousQueries("test"), 3, 3, True),
+            (CHQueryErrorTooManySimultaneousQueries("test"), 4, 3, True),
+        ]
+    )
+    def test_is_final_export_attempt(
+        self, exception: Exception, current_retries: int, max_retries: int, expected: bool
+    ) -> None:
+        assert _is_final_export_attempt(exception, current_retries, max_retries) == expected
+
+
+class TestExportAssetFailureRecording(APIBaseTest):
+    """Tests for failure recording behavior in export_asset task."""
+
+    @patch("posthog.tasks.exports.image_exporter.export_image")
+    def test_non_retriable_error_records_failure_and_does_not_raise(self, mock_export_direct: MagicMock) -> None:
+        mock_export_direct.side_effect = QueryError("Invalid query syntax")
+
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+        )
+        # Should NOT raise - non-retriable errors are swallowed
+        exporter.export_asset(asset.id)
+
+        asset.refresh_from_db()
+        assert asset.exception == "Invalid query syntax"
+        assert asset.exception_type == "QueryError"
+
+    @patch("posthog.tasks.exporter._is_final_export_attempt", return_value=False)
+    @patch("posthog.tasks.exports.image_exporter.export_image")
+    def test_retriable_error_raises_and_does_not_record_on_non_final_attempt(
+        self, mock_export_direct: MagicMock, mock_is_final: MagicMock
+    ) -> None:
+        e = CHQueryErrorTooManySimultaneousQueries("Too many queries")
+        assert isinstance(e, EXCEPTIONS_TO_RETRY)
+        mock_export_direct.side_effect = e
+
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+        )
+
+        # Should raise - retriable errors are re-raised for Celery retry
+        with pytest.raises(CHQueryErrorTooManySimultaneousQueries):
+            exporter.export_asset(asset.id)
+
+        asset.refresh_from_db()
+        # On non-final attempts, failure should NOT be recorded yet
+        assert asset.exception is None
+        assert asset.exception_type is None
+
+    @patch("posthog.tasks.exporter._is_final_export_attempt", return_value=True)
+    @patch("posthog.tasks.exports.image_exporter.export_image")
+    def test_retriable_error_records_failure_on_final_attempt(
+        self, mock_export_direct: MagicMock, mock_is_final: MagicMock
+    ) -> None:
+        e = CHQueryErrorTooManySimultaneousQueries("Too many queries")
+        assert isinstance(e, EXCEPTIONS_TO_RETRY)
+        mock_export_direct.side_effect = e
+
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+        )
+
+        with pytest.raises(CHQueryErrorTooManySimultaneousQueries):
+            exporter.export_asset(asset.id)
+
+        asset.refresh_from_db()
+        assert asset.exception == "Code: None.\nToo many queries"
+        assert asset.exception_type == "CHQueryErrorTooManySimultaneousQueries"

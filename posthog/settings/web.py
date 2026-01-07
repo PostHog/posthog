@@ -50,8 +50,10 @@ PRODUCTS_APPS = [
     "products.experiments.backend.apps.ExperimentsConfig",
     "products.feature_flags.backend.apps.FeatureFlagsConfig",
     "products.customer_analytics.backend.apps.CustomerAnalyticsConfig",
+    "products.conversations.backend.apps.ConversationsConfig",
     "products.slack_app.backend.apps.SlackAppConfig",
     "products.product_tours.backend.apps.ProductToursConfig",
+    "products.workflows.backend.apps.WorkflowsConfig",
 ]
 
 INSTALLED_APPS = [
@@ -115,6 +117,7 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "posthog.middleware.AutoLogoutImpersonateMiddleware",
     "posthog.middleware.ImpersonationReadOnlyMiddleware",
+    "posthog.middleware.ImpersonationBlockedPathsMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "posthog.middleware.ActiveOrganizationMiddleware",
     "posthog.middleware.CsvNeverCacheMiddleware",
@@ -502,6 +505,13 @@ API_QUERIES_ENABLED = get_from_env("API_QUERIES_ENABLED", False, type_cast=str_t
 LIVESTREAM_HOST = get_from_env("LIVESTREAM_HOST", "")
 
 ####
+# Graceful shutdown
+
+# Marker file created by Kubernetes preStop hook to signal pod is shutting down.
+# When this file exists, the /_readyz endpoint returns 503 to stop receiving new traffic.
+PRESTOP_MARKER_FILE = get_from_env("PRESTOP_MARKER_FILE", "/tmp/posthog_prestop")
+
+####
 # Local dev
 
 # disables frontend side navigation hooks to make hot-reload work seamlessly
@@ -538,9 +548,9 @@ OAUTH2_PROVIDER = {
         "*": "Full access to all scopes",
         **get_scope_descriptions(),
     },
-    # Allow both http and https schemes to support localhost callbacks
+    # Allow http, https, and custom schemes to support localhost callbacks and native mobile apps
     # Security validation in OAuthApplication.clean() ensures http is only allowed for loopback addresses (localhost, 127.0.0.0/8) in production
-    "ALLOWED_REDIRECT_URI_SCHEMES": ["http", "https"],
+    "ALLOWED_REDIRECT_URI_SCHEMES": ["http", "https", "posthog", "array"],
     "AUTHORIZATION_CODE_EXPIRE_SECONDS": 60 * 5,
     # client has 5 minutes to complete the OAuth flow before the authorization code expires
     "DEFAULT_SCOPES": ["openid"],

@@ -1,4 +1,5 @@
 import re
+import json
 import time
 import uuid
 from collections.abc import Callable
@@ -19,14 +20,12 @@ from django.middleware.csrf import CsrfViewMiddleware
 from django.shortcuts import redirect
 from django.urls import resolve
 from django.utils.cache import add_never_cache_headers
-from django.views.decorators.csrf import csrf_protect
-from django.views.decorators.http import require_POST
 
 import structlog
 from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
 from rest_framework import status
-from social_core.exceptions import AuthFailed
+from social_core.exceptions import AuthCanceled, AuthFailed
 from statshog.defaults.django import statsd
 
 from posthog.api.decide import get_decide
@@ -44,6 +43,7 @@ from posthog.rate_limit import DecideRateThrottle
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.user_permissions import UserPermissions
+from posthog.utils import _is_valid_ip_address
 
 from products.notebooks.backend.models import Notebook
 
@@ -91,7 +91,22 @@ class AllowIPMiddleware:
         else:
             return []
 
-    def extract_client_ip(self, request: HttpRequest):
+    def _normalize_ip(self, ip: str) -> str | None:
+        """Strip port from IP and validate format."""
+        # IPv6 with port: [2001:db8::1]:8080 -> 2001:db8::1
+        if ip.startswith("["):
+            bracket_end = ip.find("]")
+            if bracket_end != -1:
+                ip = ip[1:bracket_end]
+        # IPv4 with port: 192.168.1.1:8080 -> 192.168.1.1
+        elif ip.count(":") == 1:
+            ip = ip.split(":")[0]
+
+        if not _is_valid_ip_address(ip):
+            return None
+        return ip
+
+    def extract_client_ip(self, request: HttpRequest) -> str | None:
         client_ip = request.META["REMOTE_ADDR"]
         if getattr(settings, "USE_X_FORWARDED_HOST", False):
             forwarded_for = self.get_forwarded_for(request)
@@ -99,12 +114,13 @@ class AllowIPMiddleware:
                 closest_proxy = client_ip
                 client_ip = forwarded_for.pop(0)
                 if settings.TRUST_ALL_PROXIES:
-                    return client_ip
+                    return self._normalize_ip(client_ip)
                 proxies = [closest_proxy, *forwarded_for]
                 for proxy in proxies:
-                    if proxy not in self.trusted_proxies:
+                    normalized = self._normalize_ip(proxy)
+                    if normalized is None or normalized not in self.trusted_proxies:
                         return None
-        return client_ip
+        return self._normalize_ip(client_ip)
 
     def __call__(self, request: HttpRequest):
         response: HttpResponse = self.get_response(request)
@@ -320,6 +336,7 @@ class CHQueries:
             kind="request",
             id=request.path,
             route_id=route.route,
+            is_impersonated=is_impersonated_session(request) if user.is_authenticated else None,
             client_query_id=self._get_param(request, "client_query_id"),
             session_id=self._get_param(request, "session_id"),
             http_referer=request.headers.get("referer"),
@@ -638,17 +655,11 @@ class AutoLogoutImpersonateMiddleware:
 
         session_is_expired = impersonated_session_expires_at < datetime.now()
 
-        # Handle logout for impersonated sessions (expired or not)
-        # Redirect back to the impersonated user's admin page
-        if request.path.startswith("/logout"):
-            impersonated_user_pk = request.user.pk
-            restore_original_login(request)
-            return redirect(f"/admin/posthog/user/{impersonated_user_pk}/change/")
-
         if session_is_expired:
             # TRICKY: We need to handle different cases here:
             # 1. For /api requests we want to respond with a code that will force the UI to redirect to the logout page (401)
-            # 2. For any other endpoint we want to redirect to the logout page
+            # 2. For /admin requests we want to restore the original login and continue to the intended page
+            # 3. For any other endpoint we want to restore the original login and redirect to /admin/
 
             if request.path.startswith("/static/"):
                 # Skip static files
@@ -659,7 +670,12 @@ class AutoLogoutImpersonateMiddleware:
                     status=401,
                 )
             else:
-                return redirect("/logout/")
+                restore_original_login(request)
+                if request.path.startswith("/admin/"):
+                    # Redirect to the intended admin page
+                    return redirect(request.get_full_path())
+                else:
+                    return redirect("/admin/")
 
         return self.get_response(request)
 
@@ -795,6 +811,11 @@ class SocialAuthExceptionMiddleware:
         if not request.path.startswith("/complete/"):
             return None
 
+        # Handle AuthCanceled (user cancelled OAuth flow)
+        if isinstance(exception, AuthCanceled):
+            return redirect("/login?error_code=oauth_cancelled")
+
+        # Handle AuthFailed with specific error codes
         if isinstance(exception, AuthFailed) and len(exception.args) >= 1:
             error = exception.args[0]
             if error in (
@@ -855,14 +876,16 @@ def is_read_only_impersonation(request: HttpRequest) -> bool:
 # HTTP methods that are considered idempotent/safe and allowed during impersonation
 IMPERSONATION_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})
 
-# Paths that are allowed for non-idempotent requests during impersonation.
+# Paths that are allowed for non-idempotent requests during read-only impersonation.
 # These should be paths that are safe or necessary for the impersonated session to function.
 # Supports both prefix strings and compiled regex patterns.
-IMPERSONATION_ALLOWLISTED_PATHS: list[str | re.Pattern] = [
+READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[str | re.Pattern] = [
     # These endpoints use POST but are read-only
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/query/?$"),
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/insights/viewed/?$"),
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/metalytics/?$"),
+    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/endpoints/[^/]+/run/?$"),
+    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/endpoints/last_execution_times/?$"),
 ]
 
 
@@ -875,7 +898,7 @@ class ImpersonationReadOnlyMiddleware:
     to prevent unintended modifications to the impersonated user's data.
 
     Safe methods (GET, HEAD, OPTIONS, TRACE) are always allowed.
-    Specific paths can be allowlisted via IMPERSONATION_ALLOWLISTED_PATHS.
+    Specific paths can be allowlisted via READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS.
     """
 
     def __init__(self, get_response):
@@ -901,13 +924,74 @@ class ImpersonationReadOnlyMiddleware:
         )
 
     def _is_path_allowlisted(self, path: str) -> bool:
-        for allowed_path in IMPERSONATION_ALLOWLISTED_PATHS:
+        for allowed_path in READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS:
             if isinstance(allowed_path, re.Pattern):
                 if allowed_path.match(path):
                     return True
             elif path.startswith(allowed_path):
                 return True
         return False
+
+
+IMPERSONATION_BLOCKED_PATHS: list[str] = [
+    "/api/users/",
+    "/api/personal_api_keys/",
+]
+
+
+class ImpersonationBlockedPathsMiddleware:
+    """
+    Blocks non-idempotent requests to specific paths during any impersonation session.
+
+    Paths in IMPERSONATION_BLOCKED_PATHS are restricted to read-only access
+    when a staff user is impersonating another user.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest):
+        if not is_impersonated_session(request):
+            return self.get_response(request)
+
+        if request.method in IMPERSONATION_SAFE_METHODS:
+            return self.get_response(request)
+
+        if not self._is_path_blocked(request.path):
+            return self.get_response(request)
+
+        if self._is_allowed_users_request(request):
+            return self.get_response(request)
+
+        return JsonResponse(
+            {
+                "type": "authentication_error",
+                "code": "impersonation_path_blocked",
+                "detail": "This action is not allowed during impersonation.",
+            },
+            status=403,
+        )
+
+    def _is_path_blocked(self, path: str) -> bool:
+        return any(path.startswith(blocked_path) for blocked_path in IMPERSONATION_BLOCKED_PATHS)
+
+    def _is_allowed_users_request(self, request: HttpRequest) -> bool:
+        """
+        Allow switching organizations.
+
+        Switching occurs via a PATCH to /api/users/@me/ that only contains `set_current_organization`.
+        """
+        if request.method != "PATCH":
+            return False
+
+        if request.path not in ("/api/users/@me/", "/api/users/@me"):
+            return False
+
+        try:
+            body = json.loads(request.body)
+            return isinstance(body, dict) and set(body.keys()) == {"set_current_organization"}
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return False
 
 
 def impersonated_session_logout(request: HttpRequest) -> HttpResponse:
@@ -921,44 +1005,3 @@ def impersonated_session_logout(request: HttpRequest) -> HttpResponse:
     impersonated_user_pk = request.user.pk
     restore_original_login(request)
     return redirect(f"/admin/posthog/user/{impersonated_user_pk}/change/")
-
-
-@csrf_protect
-@require_POST
-def login_as_user_read_only(request: HttpRequest, user_id: str) -> HttpResponse:
-    """
-    Log in as another user in read-only mode.
-
-    This view wraps django-loginas functionality but additionally sets
-    a session flag that triggers read-only restrictions via
-    ImpersonationReadOnlyMiddleware.
-    """
-    from django.contrib import messages
-    from django.contrib.admin.utils import unquote
-    from django.contrib.auth import get_user_model
-    from django.core.exceptions import PermissionDenied
-
-    from loginas.utils import login_as
-
-    User = get_user_model()
-
-    can_login_as = settings.CAN_LOGIN_AS
-    target_user = User.objects.get(pk=unquote(user_id))
-
-    error_message = None
-    try:
-        if not can_login_as(request, target_user):
-            error_message = "You do not have permission to do that."
-    except PermissionDenied as e:
-        error_message = str(e)
-
-    if error_message:
-        messages.error(request, error_message)
-        return redirect(f"/admin/posthog/user/{target_user.pk}/change/")
-
-    login_as(target_user, request)
-
-    # Mark this session as read-only
-    request.session[IMPERSONATION_READ_ONLY_SESSION_KEY] = True
-
-    return redirect("/")

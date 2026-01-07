@@ -48,6 +48,8 @@ interface SparklineProps {
     renderLabel?: (label: string) => string
     className?: string
     onSelectionChange?: (selection: { startIndex: number; endIndex: number }) => void
+    /** Maximum number of series to show in tooltip. @default 8 */
+    tooltipRowCutoff?: number
 }
 
 export function Sparkline({
@@ -65,6 +67,7 @@ export function Sparkline({
     renderLabel,
     onSelectionChange,
     className,
+    tooltipRowCutoff,
 }: SparklineProps): JSX.Element {
     const tooltipRef = useRef<HTMLDivElement | null>(null)
 
@@ -336,6 +339,7 @@ export function Sparkline({
                             }))}
                             renderSeries={(value) => value}
                             renderCount={(count) => humanFriendlyNumber(count)}
+                            rowCutoff={tooltipRowCutoff}
                         />
                     }
                     placement="bottom-start"

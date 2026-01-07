@@ -60,7 +60,7 @@ export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPro
                         AND timestamp <= ${dayjs(newestTimestamp).add(1, 'day')}
                         GROUP BY session_id`
 
-                    const response = await api.SHAMEFULLY_UNTAGGED_queryHogQL(query)
+                    const response = await api.queryHogQL(query, { scene: 'Replay', productKey: 'session_replay' })
                     const loadTimeMs = performance.now() - startTime
 
                     actions.reportRecordingsListPropertiesFetched(loadTimeMs)

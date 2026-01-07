@@ -201,7 +201,7 @@ import { Task, TaskRun, TaskUpsertProps } from 'products/tasks/frontend/types'
 import { OptOutEntry } from 'products/workflows/frontend/OptOuts/optOutListLogic'
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/messageTemplatesLogic'
 import { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
-import { HogFlow, HogFlowAction } from 'products/workflows/frontend/Workflows/hogflows/types'
+import { HogFlow, HogFlowAction, HogFlowTemplate } from 'products/workflows/frontend/Workflows/hogflows/types'
 
 import { AgentMode } from '../queries/schema'
 import { MaxUIContext } from '../scenes/max/maxTypes'
@@ -469,6 +469,12 @@ export class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('csp-reporting').addPathComponent('explain')
     }
 
+    // # Onboarding
+
+    public onboardingRecommendProducts(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('onboarding').addPathComponent('recommend_products')
+    }
+
     // # LLM Analytics
 
     public llmAnalyticsTranslate(teamId?: TeamType['id']): ApiRequest {
@@ -669,6 +675,10 @@ export class ApiRequest {
 
     public logsSparkline(projectId?: ProjectType['id']): ApiRequest {
         return this.logs(projectId).addPathComponent('sparkline')
+    }
+
+    public logsHasLogs(projectId?: ProjectType['id']): ApiRequest {
+        return this.logs(projectId).addPathComponent('has_logs')
     }
 
     // # Data management
@@ -1423,13 +1433,22 @@ export class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('managed_viewsets').addPathComponent(kind)
     }
 
-    // Conversations
+    // Conversations (Max AI)
     public conversations(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('conversations')
     }
 
     public conversation(id: string, teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('conversations').addPathComponent(id)
+    }
+
+    // Conversations (Support product)
+    public conversationsTickets(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('conversations').addPathComponent('tickets')
+    }
+
+    public conversationsTicket(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.conversationsTickets(teamId).addPathComponent(id)
     }
 
     // Notebooks
@@ -1634,6 +1653,14 @@ export class ApiRequest {
         return this.hogFlows().addPathComponent(hogFlowId)
     }
 
+    public hogFlowTemplates(): ApiRequest {
+        return this.environments().current().addPathComponent('hog_flow_templates')
+    }
+
+    public hogFlowTemplate(hogFlowTemplateId: HogFlowTemplate['id']): ApiRequest {
+        return this.hogFlowTemplates().addPathComponent(hogFlowTemplateId)
+    }
+
     public wizard(): ApiRequest {
         return this.addPathComponent('wizard')
     }
@@ -1762,6 +1789,22 @@ const api = {
             return new ApiRequest().cspReportingExplanation().create({ data: { properties } })
         },
     },
+    onboarding: {
+        recommendProducts(
+            params: {
+                description?: string
+                browsingHistory?: string[]
+            },
+            teamId?: TeamType['id']
+        ): Promise<{ products: string[]; reasoning: string }> {
+            return new ApiRequest().onboardingRecommendProducts(teamId).create({
+                data: {
+                    description: params.description,
+                    browsing_history: params.browsingHistory,
+                },
+            })
+        },
+    },
     llmAnalytics: {
         translate(params: {
             text: string
@@ -1809,6 +1852,15 @@ const api = {
         },
         async cancelQuery(clientQueryId: string, teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<void> {
             await new ApiRequest().insightsCancel(teamId).create({ data: { client_query_id: clientQueryId } })
+        },
+        async getSuggestions(id: number, context?: string): Promise<any> {
+            if (context) {
+                return await new ApiRequest().insight(id).withAction('suggestions').create({ data: { context } })
+            }
+            return await new ApiRequest().insight(id).withAction('suggestions').get()
+        },
+        async analyze(id: number): Promise<{ result: string }> {
+            return await new ApiRequest().insight(id).withAction('analyze').get()
         },
     },
 
@@ -2274,6 +2326,12 @@ const api = {
         },
         async sparkline({ query, signal }: { query: Omit<LogsQuery, 'kind'>; signal?: AbortSignal }): Promise<any[]> {
             return new ApiRequest().logsSparkline().create({ signal, data: { query } })
+        },
+        async hasLogs(): Promise<boolean> {
+            return new ApiRequest()
+                .logsHasLogs()
+                .get()
+                .then((response) => Boolean(response.hasLogs))
         },
     },
 
@@ -3021,11 +3079,13 @@ const api = {
             search,
             types,
             limit,
+            full,
         }: {
             filter_groups?: CyclotronJobFiltersType[]
             search?: string
             types?: HogFunctionTypeType[]
             limit?: number
+            full?: boolean
         }): Promise<CountedPaginatedResponse<HogFunctionType>> {
             return await new ApiRequest()
                 .hogFunctions()
@@ -3035,6 +3095,7 @@ const api = {
                     ...(types ? { type: types.join(',') } : {}),
                     ...(search ? { search } : {}),
                     ...(limit ? { limit } : {}),
+                    ...(full ? { full: 'true' } : {}),
                 })
                 .get()
         },
@@ -3102,6 +3163,9 @@ const api = {
         },
         async rearrange(orders: Record<string, number>): Promise<HogFunctionType[]> {
             return await new ApiRequest().hogFunctions().withAction('rearrange').update({ data: { orders } })
+        },
+        async enableBackfills(id: HogFunctionType['id']): Promise<{ batch_export_id: string }> {
+            return await new ApiRequest().hogFunction(id).withAction('enable_backfills').create()
         },
     },
 
@@ -3857,8 +3921,15 @@ const api = {
         async summarize_responses(
             surveyId: Survey['id'],
             questionIndex: number | undefined,
-            questionId: string | undefined
-        ): Promise<any> {
+            questionId: string | undefined,
+            forceRefresh: boolean = false
+        ): Promise<{
+            content: string
+            response_count: number
+            generated_at: string
+            cached: boolean
+            trace_id: string
+        }> {
             const apiRequest = new ApiRequest().survey(surveyId).withAction('summarize_responses')
             const queryParams: Record<string, string> = {}
 
@@ -3868,7 +3939,7 @@ const api = {
             if (questionId !== undefined) {
                 queryParams['question_id'] = questionId
             }
-            return await apiRequest.withQueryString(queryParams).create()
+            return await apiRequest.withQueryString(queryParams).create({ data: { force_refresh: forceRefresh } })
         },
         async getSummaryHeadline(
             surveyId: Survey['id'],
@@ -4017,6 +4088,9 @@ const api = {
         },
         async cancel(viewId: DataWarehouseSavedQuery['id']): Promise<void> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).withAction('cancel').create()
+        },
+        async materialize(viewId: DataWarehouseSavedQuery['id']): Promise<void> {
+            return await new ApiRequest().dataWarehouseSavedQuery(viewId).withAction('materialize').create()
         },
         async revertMaterialization(viewId: DataWarehouseSavedQuery['id']): Promise<void> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).withAction('revert_materialization').create()
@@ -4586,6 +4660,34 @@ const api = {
         }> {
             return await new ApiRequest().hogFlows().withAction('user_blast_radius').create({ data: { filters } })
         },
+        async createHogFlowBatchJob(
+            hogFlowId: HogFlow['id'],
+            data: {
+                variables: Record<string, HogQLVariable>
+            }
+        ): Promise<void> {
+            return await new ApiRequest().hogFlow(hogFlowId).withAction('batch_jobs').create({ data })
+        },
+    },
+    hogFlowTemplates: {
+        async getHogFlowTemplates(): Promise<PaginatedResponse<HogFlowTemplate>> {
+            return await new ApiRequest().hogFlowTemplates().get()
+        },
+        async getHogFlowTemplate(hogFlowTemplateId: HogFlowTemplate['id']): Promise<HogFlowTemplate> {
+            return await new ApiRequest().hogFlowTemplate(hogFlowTemplateId).get()
+        },
+        async createHogFlowTemplate(data: Partial<HogFlowTemplate>): Promise<HogFlowTemplate> {
+            return await new ApiRequest().hogFlowTemplates().create({ data })
+        },
+        async updateHogFlowTemplate(
+            hogFlowTemplateId: HogFlowTemplate['id'],
+            data: Partial<HogFlowTemplate>
+        ): Promise<HogFlowTemplate> {
+            return await new ApiRequest().hogFlowTemplate(hogFlowTemplateId).update({ data })
+        },
+        async deleteHogFlowTemplate(hogFlowTemplateId: HogFlowTemplate['id']): Promise<void> {
+            return await new ApiRequest().hogFlowTemplate(hogFlowTemplateId).delete()
+        },
     },
 
     queryURL: (): string => {
@@ -4618,20 +4720,6 @@ const api = {
                 variables_override: queryOptions?.variablesOverride,
             },
         })
-    },
-
-    async SHAMEFULLY_UNTAGGED_queryHogQL<T = any[]>(
-        query: HogQLQueryString,
-        queryOptions?: {
-            requestOptions?: ApiMethodOptions
-            clientQueryId?: string
-            refresh?: RefreshType
-            filtersOverride?: DashboardFilter | null
-            variablesOverride?: Record<string, HogQLVariable> | null
-            queryParams?: Omit<HogQLQuery, 'kind' | 'query' | 'tags'>
-        }
-    ): Promise<HogQLQueryResponse<T>> {
-        return this.queryHogQL(query, {}, queryOptions)
     },
 
     async queryHogQL<T = any[]>(
@@ -4772,6 +4860,46 @@ const api = {
 
         async update(datasetItemId: string, data: Partial<DatasetItem>): Promise<DatasetItem> {
             return await new ApiRequest().datasetItem(datasetItemId).update({ data })
+        },
+    },
+
+    conversationsTickets: {
+        async list(
+            params: {
+                status?: string
+                distinct_id?: string
+                search?: string
+                limit?: number
+                offset?: number
+            } = {}
+        ): Promise<CountedPaginatedResponse<any>> {
+            return await new ApiRequest().conversationsTickets().withQueryString(params).get()
+        },
+
+        async get(ticketId: string): Promise<any> {
+            return await new ApiRequest().conversationsTicket(ticketId).get()
+        },
+
+        async create(data: {
+            distinct_id: string
+            anonymous_traits?: Record<string, any>
+            channel_source?: string
+        }): Promise<any> {
+            return await new ApiRequest().conversationsTickets().create({ data })
+        },
+
+        async update(
+            ticketId: string,
+            data: Partial<{
+                status: string
+                escalation_reason: string
+            }>
+        ): Promise<any> {
+            return await new ApiRequest().conversationsTicket(ticketId).update({ data })
+        },
+
+        async delete(ticketId: string): Promise<void> {
+            return await new ApiRequest().conversationsTicket(ticketId).delete()
         },
     },
 
@@ -5049,6 +5177,15 @@ const api = {
             kind: DataWarehouseManagedViewsetKind
         ): Promise<{ views: DataWarehouseManagedViewsetSavedQuery[]; count: number }> {
             return await new ApiRequest().dataWarehouseManagedViewset(kind).get()
+        },
+    },
+
+    projects: {
+        async generateConversationsPublicToken(teamId?: TeamType['id']): Promise<TeamType> {
+            return await new ApiRequest()
+                .environmentsDetail(teamId)
+                .withAction('generate_conversations_public_token')
+                .create()
         },
     },
 }
