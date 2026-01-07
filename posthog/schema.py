@@ -5882,6 +5882,7 @@ class SessionRecordingType(BaseModel):
     )
     retention_period_days: float | None = Field(default=None, description="retention period for this recording")
     snapshot_source: SnapshotSource
+    snapshot_library: str | None = None
     start_time: str = Field(..., description="When the recording starts in ISO format.")
     start_url: str | None = None
     summary: str | None = None
