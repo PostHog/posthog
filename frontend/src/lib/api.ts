@@ -188,6 +188,7 @@ import {
     UserBasicType,
     UserInterviewType,
     UserType,
+    WebAnalyticsFilterPresetType,
 } from '~/types'
 
 import {
@@ -1203,6 +1204,15 @@ export class ApiRequest {
 
     public quickFilter(id: string, teamId?: TeamType['id']): ApiRequest {
         return this.quickFilters(teamId).addPathComponent(id)
+    }
+
+    // # Web Analytics Filter Presets
+    public webAnalyticsFilterPresets(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('web_analytics_filter_presets')
+    }
+
+    public webAnalyticsFilterPreset(shortId: string, teamId?: TeamType['id']): ApiRequest {
+        return this.webAnalyticsFilterPresets(teamId).addPathComponent(shortId)
     }
 
     // # Warehouse
@@ -4741,6 +4751,29 @@ const api = {
         },
         async deleteHogFlowTemplate(hogFlowTemplateId: HogFlowTemplate['id']): Promise<void> {
             return await new ApiRequest().hogFlowTemplate(hogFlowTemplateId).delete()
+        },
+    },
+
+    webAnalyticsFilterPresets: {
+        async list(params?: string): Promise<PaginatedResponse<WebAnalyticsFilterPresetType>> {
+            return await new ApiRequest().webAnalyticsFilterPresets().withQueryString(params).get()
+        },
+        async get(shortId: string): Promise<WebAnalyticsFilterPresetType> {
+            return await new ApiRequest().webAnalyticsFilterPreset(shortId).get()
+        },
+        async create(
+            data: Pick<WebAnalyticsFilterPresetType, 'name' | 'description' | 'filters'>
+        ): Promise<WebAnalyticsFilterPresetType> {
+            return await new ApiRequest().webAnalyticsFilterPresets().create({ data })
+        },
+        async update(
+            shortId: string,
+            data: Partial<Pick<WebAnalyticsFilterPresetType, 'name' | 'description' | 'filters' | 'pinned' | 'deleted'>>
+        ): Promise<WebAnalyticsFilterPresetType> {
+            return await new ApiRequest().webAnalyticsFilterPreset(shortId).update({ data })
+        },
+        async delete(shortId: string): Promise<void> {
+            await new ApiRequest().webAnalyticsFilterPreset(shortId).update({ data: { deleted: true } })
         },
     },
 

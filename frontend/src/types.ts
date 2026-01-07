@@ -6487,3 +6487,30 @@ export interface ApprovalPolicy {
     created_at: string
     updated_at: string
 }
+
+export interface WebAnalyticsFiltersConfig {
+    properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[]
+    dateFrom?: string | null
+    dateTo?: string | null
+    interval?: IntervalType
+    compareFilter?: { compare?: boolean; compare_to?: string | null }
+    domainFilter?: string | null
+    deviceTypeFilter?: string | null
+    conversionGoal?: { actionId?: number; customEventName?: string } | null
+    isPathCleaningEnabled?: boolean
+    shouldFilterTestAccounts?: boolean
+}
+
+export interface WebAnalyticsFilterPresetType {
+    id: number
+    short_id: string
+    name: string
+    description: string
+    pinned: boolean
+    deleted: boolean
+    filters: WebAnalyticsFiltersConfig
+    created_at: string
+    created_by: UserBasicType | null
+    last_modified_at: string
+    last_modified_by: UserBasicType | null
+}
