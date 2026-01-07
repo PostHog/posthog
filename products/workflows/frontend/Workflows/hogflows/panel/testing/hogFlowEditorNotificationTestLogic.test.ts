@@ -305,7 +305,7 @@ describe('hogFlowEditorNotificationTestLogic', () => {
             const distinctId2 = 'person-2-id'
             const globalsForPerson1 = createGlobals(distinctId1)
 
-            // Test 1: Reload when sampleGlobals is null
+            // Reload when sampleGlobals is null
             await expectLogic(logic, () => {
                 logic.actions.setSelectedPersonDistinctId(distinctId1)
             }).toMatchValues({
@@ -331,7 +331,7 @@ describe('hogFlowEditorNotificationTestLogic', () => {
                 logic.actions.loadSamplePersons()
             }).toDispatchActions(['loadSamplePersons', 'loadSamplePersonsSuccess', 'loadSamplePersonByDistinctId'])
 
-            // Test 2: Reload when sampleGlobals doesn't match selectedPersonDistinctId
+            // Reload when sampleGlobals doesn't match selectedPersonDistinctId
             await expectLogic(logic, () => {
                 logic.actions.setSampleGlobals(JSON.stringify(globalsForPerson1, null, 2))
                 logic.actions.setSelectedPersonDistinctId(distinctId2)

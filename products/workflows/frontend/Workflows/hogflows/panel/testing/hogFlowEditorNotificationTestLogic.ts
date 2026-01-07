@@ -355,8 +355,10 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
             }
         },
     })),
-    afterMount(({ actions }) => {
-        // Load sample persons on mount
+    afterMount(({ actions, values }) => {
+        if (values.sampleGlobals) {
+            actions.setTestInvocationValue('globals', JSON.stringify(values.sampleGlobals, null, 2))
+        }
         actions.loadSamplePersons()
     }),
 ])
