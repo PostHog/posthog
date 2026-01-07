@@ -9,7 +9,7 @@ class TOTPDeviceInline(admin.TabularInline):
     # only include non-sensitive fields
     fields = ("name", "confirmed", "throttling_failure_timestamp", "throttling_failure_count", "last_used_at")
     readonly_fields = ("name", "confirmed", "throttling_failure_timestamp", "throttling_failure_count", "last_used_at")
-    can_delete = False
+    can_delete = True
     show_change_link = False
 
     def has_add_permission(self, request, obj=None):
