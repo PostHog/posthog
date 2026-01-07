@@ -1,3 +1,4 @@
+import re
 """
 Tests for the flags HyperCache for feature-flags service.
 

@@ -1,3 +1,4 @@
+import re
 import gzip
 import json
 import base64

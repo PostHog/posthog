@@ -1,3 +1,4 @@
+import re
 """
 Tests for BaseHyperCacheCommand error handling.
 

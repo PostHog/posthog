@@ -1,3 +1,4 @@
+import re
 from typing import cast
 
 import pytest

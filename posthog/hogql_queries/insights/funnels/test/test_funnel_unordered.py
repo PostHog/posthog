@@ -111,8 +111,8 @@ class TestFunnelUnorderedStepsBreakdown(
                 },
             ],
         )
-        assert sorted(self._get_actor_ids_at_step(filters) == sorted(1, ["Safari"]), [person1.uuid])
-        assert sorted(self._get_actor_ids_at_step(filters) == sorted(2, ["Safari"]), [person1.uuid])
+        self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, ["Safari"]), [person1.uuid])
+        self.assertCountEqual(self._get_actor_ids_at_step(filters, 2, ["Safari"]), [person1.uuid])
         assert_funnel_results_equal(
             results[1],
             [
@@ -144,8 +144,8 @@ class TestFunnelUnorderedStepsBreakdown(
                 },
             ],
         )
-        assert sorted(self._get_actor_ids_at_step(filters) == sorted(1, ["Chrome"]), [person1.uuid])
-        assert sorted(self._get_actor_ids_at_step(filters) == sorted(2, ["Chrome"]), [])
+        self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, ["Chrome"]), [person1.uuid])
+        self.assertCountEqual(self._get_actor_ids_at_step(filters, 2, ["Chrome"]), [])
 
     def test_funnel_step_breakdown_with_step_attribution(self):
         # overridden from factory, since with no order, step one is step zero, and vice versa
@@ -211,7 +211,7 @@ class TestFunnelUnorderedStepsBreakdown(
 
         assert len(results) == 6
 
-        assert sorted(self._get_actor_ids_at_step(filters) == sorted(1, "Mac"), [people["person3"].uuid])
+        self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, "Mac"), [people["person3"].uuid])
 
     def test_funnel_step_breakdown_with_step_one_attribution(self):
         # overridden from factory, since with no order, step one is step zero, and vice versa
@@ -297,10 +297,12 @@ class TestFunnelUnorderedStepsBreakdown(
             ],
         )
 
-        assert sorted(self._get_actor_ids_at_step(filters) == sorted(1, ""),
+        self.assertCountEqual(
+            self._get_actor_ids_at_step(filters, 1, ""),
             [people["person1"].uuid, people["person2"].uuid, people["person3"].uuid],
         )
-        assert sorted(self._get_actor_ids_at_step(filters) == sorted(2, ""),
+        self.assertCountEqual(
+            self._get_actor_ids_at_step(filters, 2, ""),
             [people["person1"].uuid, people["person3"].uuid],
         )
 
@@ -312,7 +314,7 @@ class TestFunnelUnorderedStepsBreakdown(
             ],
         )
 
-        assert sorted(self._get_actor_ids_at_step(filters) == sorted(1, "0"), [people["person4"].uuid])
+        self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, "0"), [people["person4"].uuid])
 
     def test_funnel_step_breakdown_with_step_one_attribution_incomplete_funnel(self):
         # overridden from factory, since with no order, step one is step zero, and vice versa
@@ -514,7 +516,7 @@ class TestFunnelUnorderedStepsBreakdown(
 
         assert len(results) == 3
 
-        assert sorted([res[0]["breakdown"] for res in results]) == sorted([[""], ["Mac"], ["Safari"]])
+        self.assertCountEqual([res[0]["breakdown"] for res in results], [[""], ["Mac"], ["Safari"]])
 
 
 class TestFunnelUnorderedGroupBreakdown(
@@ -644,7 +646,8 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         assert results[2]["name"] == "Completed 3 steps"
         assert results[2]["count"] == 3
 
-        assert sorted(self._get_actor_ids_at_step(filters) == sorted(1),
+        self.assertCountEqual(
+            self._get_actor_ids_at_step(filters, 1),
             [
                 person1_stopped_after_signup.uuid,
                 person2_stopped_after_one_pageview.uuid,
@@ -657,7 +660,8 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        assert sorted(self._get_actor_ids_at_step(filters) == sorted(2),
+        self.assertCountEqual(
+            self._get_actor_ids_at_step(filters, 2),
             [
                 person2_stopped_after_one_pageview.uuid,
                 person3_stopped_after_insight_view.uuid,
@@ -667,7 +671,8 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        assert sorted(self._get_actor_ids_at_step(filters) == sorted(-2),
+        self.assertCountEqual(
+            self._get_actor_ids_at_step(filters, -2),
             [
                 person1_stopped_after_signup.uuid,
                 person6_did_only_insight_view.uuid,
@@ -675,7 +680,8 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        assert sorted(self._get_actor_ids_at_step(filters) == sorted(3),
+        self.assertCountEqual(
+            self._get_actor_ids_at_step(filters, 3),
             [
                 person3_stopped_after_insight_view.uuid,
                 person4_stopped_after_insight_view_reverse_order.uuid,
@@ -683,7 +689,8 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        assert sorted(self._get_actor_ids_at_step(filters) == sorted(-3),
+        self.assertCountEqual(
+            self._get_actor_ids_at_step(filters, -3),
             [person2_stopped_after_one_pageview.uuid, person8_didnot_signup.uuid],
         )
 
@@ -789,7 +796,8 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         assert results[3]["name"] == "Completed 4 steps"
         assert results[3]["count"] == 1
 
-        assert sorted(self._get_actor_ids_at_step(filters) == sorted(1),
+        self.assertCountEqual(
+            self._get_actor_ids_at_step(filters, 1),
             [
                 person1_stopped_after_signup.uuid,
                 person2_stopped_after_one_pageview.uuid,
@@ -802,7 +810,8 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        assert sorted(self._get_actor_ids_at_step(filters) == sorted(2),
+        self.assertCountEqual(
+            self._get_actor_ids_at_step(filters, 2),
             [
                 person2_stopped_after_one_pageview.uuid,
                 person3_stopped_after_insight_view.uuid,
@@ -812,7 +821,8 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        assert sorted(self._get_actor_ids_at_step(filters) == sorted(3),
+        self.assertCountEqual(
+            self._get_actor_ids_at_step(filters, 3),
             [
                 person3_stopped_after_insight_view.uuid,
                 person4_stopped_after_insight_view_reverse_order.uuid,
@@ -820,7 +830,8 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        assert sorted(self._get_actor_ids_at_step(filters) == sorted(4),
+        self.assertCountEqual(
+            self._get_actor_ids_at_step(filters, 4),
             [person5_stopped_after_insight_view_random.uuid],
         )
 
@@ -925,7 +936,8 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
             # (2+3)/2 hours for Person 3 = 2.5 hours
             assert results[2]["average_conversion_time"] == 9000
 
-        assert sorted(self._get_actor_ids_at_step(filters) == sorted(1),
+        self.assertCountEqual(
+            self._get_actor_ids_at_step(filters, 1),
             [
                 person1_stopped_after_signup.uuid,
                 person2_stopped_after_one_pageview.uuid,
@@ -933,14 +945,16 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        assert sorted(self._get_actor_ids_at_step(filters) == sorted(2),
+        self.assertCountEqual(
+            self._get_actor_ids_at_step(filters, 2),
             [
                 person2_stopped_after_one_pageview.uuid,
                 person3_stopped_after_insight_view.uuid,
             ],
         )
 
-        assert sorted(self._get_actor_ids_at_step(filters) == sorted(3),
+        self.assertCountEqual(
+            self._get_actor_ids_at_step(filters, 3),
             [person3_stopped_after_insight_view.uuid],
         )
 
@@ -965,7 +979,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         }
 
         query = cast(FunnelsQuery, filter_to_query(filters))
-        pytest.raises(ValidationError, FunnelsQueryRunner(query=query, team=self.team).calculate())
+        pytest.raises(ValidationError, lambda: FunnelsQueryRunner(query=query, team=self.team).calculate())
 
         # partial windows not allowed for unordered
         filters = {
@@ -981,7 +995,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         }
 
         query = cast(FunnelsQuery, filter_to_query(filters))
-        pytest.raises(ValidationError, FunnelsQueryRunner(query=query, team=self.team).calculate())
+        pytest.raises(ValidationError, lambda: FunnelsQueryRunner(query=query, team=self.team).calculate())
 
     def test_funnel_exclusions_full_window(self):
         filters = {
@@ -1062,13 +1076,14 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         assert len(results) == 2
         assert results[0]["name"] == "Completed 1 step"
         assert results[0]["count"] == 3
-        assert sorted(self._get_actor_ids_at_step(filters) == sorted(1),
+        self.assertCountEqual(
+            self._get_actor_ids_at_step(filters, 1),
             [person1.uuid, person2.uuid, person3.uuid],
         )
         assert results[1]["name"] == "Completed 2 steps"
         assert results[1]["count"] == 2
 
-        assert sorted(self._get_actor_ids_at_step(filters) == sorted(2), [person1.uuid, person3.uuid])
+        self.assertCountEqual(self._get_actor_ids_at_step(filters, 2), [person1.uuid, person3.uuid])
 
     def test_unordered_exclusion_after_completion(self):
         filters = {
@@ -1398,13 +1413,14 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         assert results[3]["count"] == 1
         assert results[4]["count"] == 1
 
-        assert sorted(self._get_actor_ids_at_step(filters) == sorted(1),
+        self.assertCountEqual(
+            self._get_actor_ids_at_step(filters, 1),
             [person1.uuid, person2.uuid, person3.uuid, person4.uuid, person5.uuid],
         )
-        assert sorted(self._get_actor_ids_at_step(filters) == sorted(2), [person1.uuid, person4.uuid])
-        assert sorted(self._get_actor_ids_at_step(filters) == sorted(3), [person4.uuid])
-        assert sorted(self._get_actor_ids_at_step(filters) == sorted(4), [person4.uuid])
-        assert sorted(self._get_actor_ids_at_step(filters) == sorted(5), [person4.uuid])
+        self.assertCountEqual(self._get_actor_ids_at_step(filters, 2), [person1.uuid, person4.uuid])
+        self.assertCountEqual(self._get_actor_ids_at_step(filters, 3), [person4.uuid])
+        self.assertCountEqual(self._get_actor_ids_at_step(filters, 4), [person4.uuid])
+        self.assertCountEqual(self._get_actor_ids_at_step(filters, 5), [person4.uuid])
 
     def test_funnel_unordered_all_events_with_properties(self):
         _create_person(distinct_ids=["user"], team=self.team)

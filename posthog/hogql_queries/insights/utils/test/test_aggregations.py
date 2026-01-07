@@ -1,3 +1,4 @@
+import re
 from typing import cast
 
 from posthog.hogql import ast

@@ -1,3 +1,4 @@
+import re
 """
 Tests for HyperCache verification Celery tasks.
 

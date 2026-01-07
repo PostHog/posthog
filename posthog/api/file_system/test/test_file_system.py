@@ -1,3 +1,4 @@
+import re
 from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC
 from typing import Any, TypedDict, cast

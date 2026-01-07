@@ -1,3 +1,4 @@
+import re
 import uuid
 import datetime
 from datetime import timedelta
@@ -98,7 +99,7 @@ class TestUserAPI(APIBaseTest):
         assert "test_account_filters" not in response_data["organization"]["teams"][0]  # Ensure we're not returning the full `Team`
         assert "event_names" not in response_data["organization"]["teams"][0]
 
-        assert sorted(response_data["organizations"]) == sorted([
+        assert sorted(response_data["organizations"], key=lambda x: x["id"]) == sorted([
                 {
                     "id": str(self.organization.id),
                     "name": self.organization.name,
@@ -119,7 +120,7 @@ class TestUserAPI(APIBaseTest):
                     "is_active": True,
                     "is_not_active_reason": None,
                 },
-            ])
+            ], key=lambda x: x["id"])
 
     def test_hedgehog_config_is_unset(self):
         self.user.hedgehog_config = None

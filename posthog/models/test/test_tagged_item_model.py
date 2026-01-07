@@ -1,3 +1,4 @@
+import re
 from posthog.test.base import BaseTest
 
 from django.core.exceptions import ValidationError

@@ -1,3 +1,4 @@
+import re
 import json
 
 from posthog.test.base import APIBaseTest

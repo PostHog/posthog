@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timedelta
 
 from posthog.test.base import APIBaseTest, BaseTest

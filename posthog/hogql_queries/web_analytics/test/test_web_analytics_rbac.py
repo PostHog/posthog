@@ -1,3 +1,4 @@
+import re
 from posthog.test.base import APIBaseTest
 
 from posthog.schema import DateRange, WebOverviewQuery

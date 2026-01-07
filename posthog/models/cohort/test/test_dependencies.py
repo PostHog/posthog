@@ -1,3 +1,4 @@
+import re
 from posthog.test.base import BaseTest
 from pytest import fixture
 from unittest import mock

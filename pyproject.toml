@@ -320,6 +320,13 @@ select = [
     "W",
 ]
 
+[tool.ruff.lint.per-file-ignores]
+# These files have complex multi-line assertCountEqual that are hard to auto-fix
+"posthog/hogql_queries/insights/funnels/test/test_funnel.py" = ["PT009"]
+"posthog/hogql_queries/insights/funnels/test/test_funnel_unordered.py" = ["PT009"]
+"posthog/queries/funnels/test/test_funnel.py" = ["PT009"]
+"posthog/queries/funnels/test/test_funnel_unordered.py" = ["PT009"]
+
 [tool.ruff.lint.mccabe]
 max-complexity = 10
 

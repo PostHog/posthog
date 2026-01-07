@@ -1,3 +1,4 @@
+import re
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
