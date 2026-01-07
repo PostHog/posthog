@@ -186,9 +186,14 @@ export const TARGET_AREA_TO_NAME = [
         title: 'Individual product',
         options: [
             {
-                value: 'data_warehouse',
+                value: 'customer_analytics',
+                'data-attr': `support-form-target-area-customer-analytics`,
+                label: 'Customer analytics',
+            },        
+            {
+                value: 'warehouse_pipelines',
                 'data-attr': `support-form-target-area-data_warehouse`,
-                label: 'Data warehouse (sources)',
+                label: 'Data pipelines sources',
             },
             {
                 value: 'batch_exports',
@@ -199,6 +204,11 @@ export const TARGET_AREA_TO_NAME = [
                 value: 'cdp_destinations',
                 'data-attr': `support-form-target-area-cdp_destinations`,
                 label: 'Destinations (real-time)',
+            },
+            {
+                value: 'endpoints',
+                'data-attr': `support-form-target-area-endpoints`,
+                label: 'Endpoints',
             },
             {
                 value: 'error_tracking',
@@ -221,11 +231,6 @@ export const TARGET_AREA_TO_NAME = [
                 label: 'Group analytics',
             },
             {
-                value: 'customer_analytics',
-                'data-attr': `support-form-target-area-customer-analytics`,
-                label: 'Customer analytics',
-            },
-            {
                 value: 'llm-analytics',
                 'data-attr': `support-form-target-area-llm-analytics`,
                 label: 'LLM analytics',
@@ -236,19 +241,14 @@ export const TARGET_AREA_TO_NAME = [
                 label: 'Logs',
             },
             {
-                value: 'max-ai',
-                'data-attr': `support-form-target-area-max-ai`,
-                label: 'PostHog AI',
-            },
-            {
                 value: 'mcp-server',
                 'data-attr': `support-form-target-area-mcp-server`,
                 label: 'MCP Server',
             },
             {
-                value: 'workflows',
-                'data-attr': `support-form-target-area-workflows`,
-                label: 'Workflows / Messaging',
+                value: 'max-ai',
+                'data-attr': `support-form-target-area-max-ai`,
+                label: 'PostHog AI',
             },
             {
                 value: 'analytics',
@@ -266,6 +266,11 @@ export const TARGET_AREA_TO_NAME = [
                 label: 'Session replay (incl. recordings)',
             },
             {
+                value: 'sql_editor',
+                'data-attr': `support-form-target-area-data_warehouse`,
+                label: 'SQL Editor',
+            },
+            {
                 value: 'surveys',
                 'data-attr': `support-form-target-area-surveys`,
                 label: 'Surveys',
@@ -281,14 +286,9 @@ export const TARGET_AREA_TO_NAME = [
                 label: 'Web analytics',
             },
             {
-                value: 'logs',
-                'data-attr': `support-form-target-area-logs`,
-                label: 'Logs',
-            },
-            {
-                value: 'endpoints',
-                'data-attr': `support-form-target-area-endpoints`,
-                label: 'Endpoints',
+                value: 'workflows',
+                'data-attr': `support-form-target-area-workflows`,
+                label: 'Workflows / Messaging',
             },
         ],
     },
