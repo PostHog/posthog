@@ -12,7 +12,6 @@ import {
     sharedListeners,
 } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
-import mergeObject from 'lodash.merge'
 
 import { dayjs } from 'lib/dayjs'
 import { RGBToHex, lightenDarkenColor, objectsEqual, uuid } from 'lib/utils'
@@ -381,9 +380,19 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                         return ySeries
                     }
 
+                    const existingSettings = ySeries[index]?.settings
                     ySeries[index] = {
                         name: columnName,
-                        settings: mergeObject(ySeries[index]?.settings ?? {}, settings),
+                        settings: {
+                            formatting: {
+                                ...existingSettings?.formatting,
+                                ...settings?.formatting,
+                            },
+                            display: {
+                                ...existingSettings?.display,
+                                ...settings?.display,
+                            },
+                        },
                     }
                     return ySeries
                 },
@@ -393,10 +402,20 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     }
 
                     const ySeries = [...state]
+                    const existingSettings = ySeries[seriesIndex]?.settings
 
                     ySeries[seriesIndex] = {
                         name: columnName,
-                        settings: mergeObject(ySeries[seriesIndex]?.settings ?? {}, settings),
+                        settings: {
+                            formatting: {
+                                ...existingSettings?.formatting,
+                                ...settings?.formatting,
+                            },
+                            display: {
+                                ...existingSettings?.display,
+                                ...settings?.display,
+                            },
+                        },
                     }
                     return ySeries
                 },
@@ -457,10 +476,20 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     }
 
                     const ySeries = [...state]
+                    const existingSettings = ySeries[seriesIndex]?.settings
 
                     ySeries[seriesIndex] = {
                         name: columnName,
-                        settings: mergeObject(ySeries[seriesIndex]?.settings ?? {}, settings),
+                        settings: {
+                            formatting: {
+                                ...existingSettings?.formatting,
+                                ...settings?.formatting,
+                            },
+                            display: {
+                                ...existingSettings?.display,
+                                ...settings?.display,
+                            },
+                        },
                     }
                     return ySeries
                 },
@@ -476,9 +505,19 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                         return ySeries
                     }
 
+                    const existingSettings = ySeries[index]?.settings
                     ySeries[index] = {
                         name: columnName,
-                        settings: mergeObject(ySeries[index]?.settings ?? {}, settings),
+                        settings: {
+                            formatting: {
+                                ...existingSettings?.formatting,
+                                ...settings?.formatting,
+                            },
+                            display: {
+                                ...existingSettings?.display,
+                                ...settings?.display,
+                            },
+                        },
                     }
                     return ySeries
                 },
