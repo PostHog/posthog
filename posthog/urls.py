@@ -253,7 +253,7 @@ urlpatterns = [
 if settings.DEBUG:
     # If we have DEBUG=1 set, then let's expose the metrics for debugging. Note
     # that in production we expose these metrics on a separate port (8001), to ensure
-    # external clients cannot see them. See bin/granian_metrics.py and bin/unit_metrics.py
+    # external clients cannot see them. See bin/asgi_metrics.py and bin/unit_metrics.py
     # for details on the production metrics setup.
 
     # Use multiprocess mode to collect metrics from all processes (Django + Celery workers)

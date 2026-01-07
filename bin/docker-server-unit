@@ -11,8 +11,40 @@ chmod -R 777 $PROMETHEUS_MULTIPROC_DIR
 export PROMETHEUS_METRICS_EXPORT_PORT=8001
 export STATSD_PORT=${STATSD_PORT:-8125}
 
-# Dual-mode support: USE_GRANIAN env var switches between Granian and Unit (default)
-if [ "${USE_GRANIAN:-false}" = "true" ]; then
+# Multi-webserver support: USE_UVICORN, USE_GRANIAN env vars switch between servers (default: Unit)
+if [ "${USE_UVICORN:-false}" = "true" ]; then
+    echo "🚀 Starting with Gunicorn+Uvicorn ASGI server (opt-in via USE_UVICORN=true)..."
+
+    # Gunicorn+Uvicorn configuration
+    # Match Unit's 4 workers for equivalent sync view concurrency.
+    # With Django ASGI + sync views (thread_sensitive=True), each worker
+    # handles 1 sync request at a time - only workers give concurrency.
+    export UVICORN_WORKERS=${UVICORN_WORKERS:-4}
+
+    # Configurable log-level
+    export UVICORN_LOG_LEVEL=${UVICORN_LOG_LEVEL:-warning}
+
+    # Gunicorn timeout (default 30s, increase for long-running requests)
+    export GUNICORN_TIMEOUT=${GUNICORN_TIMEOUT:-30}
+
+    # Start metrics HTTP server in background on port 8001
+    python ./bin/asgi_metrics.py &
+    METRICS_PID=$!
+
+    # Combined trap: kill metrics server and cleanup temp directory
+    trap 'kill $METRICS_PID 2>/dev/null; rm -rf "$PROMETHEUS_MULTIPROC_DIR"' EXIT
+
+    exec gunicorn posthog.asgi:application \
+        --bind 0.0.0.0:8000 \
+        --workers $UVICORN_WORKERS \
+        --worker-class uvicorn.workers.UvicornWorker \
+        --log-level $UVICORN_LOG_LEVEL \
+        --timeout $GUNICORN_TIMEOUT \
+        --access-logfile - \
+        --error-logfile - \
+        --preload
+
+elif [ "${USE_GRANIAN:-false}" = "true" ]; then
     echo "🚀 Starting with Granian ASGI server (opt-in via USE_GRANIAN=true)..."
 
     # Granian configuration
@@ -32,7 +64,7 @@ if [ "${USE_GRANIAN:-false}" = "true" ]; then
     export GRANIAN_LOG_LEVEL=${GRANIAN_LOG_LEVEL:-warning}
 
     # Start metrics HTTP server in background on port 8001
-    python ./bin/granian_metrics.py &
+    python ./bin/asgi_metrics.py &
     METRICS_PID=$!
 
     # Combined trap: kill metrics server and cleanup temp directory

@@ -335,7 +335,7 @@ docker:
         hidden: true
     docker:server:
         bin_script: docker-server
-        description: Run dual-mode server (Granian/Unit) with Prometheus metrics support
+        description: Run triple-mode server (Granian/Unit/Uvicorn) with Prometheus metrics support
         hidden: true
     docker:server-unit:
         bin_script: docker-server-unit
@@ -494,9 +494,9 @@ tools:
         bin_script: create-notebook-node.sh
         description: Create a new NotebookNode file and update types and editor references
         hidden: true
-    tool:granian-metrics:
-        bin_script: granian_metrics.py
-        description: HTTP server that aggregates Prometheus metrics from Granian workers
+    tool:asgi-metrics:
+        bin_script: asgi_metrics.py
+        description: HTTP server that aggregates Prometheus metrics from ASGI workers (Granian/Uvicorn)
         hidden: true
     sync:storage:
         bin_script: sync-storage
