@@ -89,8 +89,12 @@ async def get_person_count_activity(
         response = await client.read_query(query, query_parameters=query_params)
         for line in response.decode("utf-8").splitlines():
             if line.strip():
-                row = json.loads(line)
-                return PersonCountResult(count=int(row["count"]))
+                try:
+                    row = json.loads(line)
+                    return PersonCountResult(count=int(row["count"]))
+                except (json.JSONDecodeError, KeyError, ValueError):
+                    LOGGER.exception("Failed to parse person count result", line=line)
+                    raise
 
     return PersonCountResult(count=0)
 

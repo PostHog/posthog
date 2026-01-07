@@ -179,8 +179,18 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                         results = []
                         for line in response.decode("utf-8").splitlines():
                             if line.strip():
-                                row = json.loads(line)
-                                results.append((row["person_id"], row["status"]))
+                                try:
+                                    row = json.loads(line)
+                                    results.append((row["person_id"], row["status"]))
+                                except (json.JSONDecodeError, KeyError) as e:
+                                    logger.warning(
+                                        f"Failed to parse cohort query result line: {e}",
+                                        cohort_id=cohort.id,
+                                        line=line,
+                                        error=str(e),
+                                    )
+                                    # Skip malformed lines but continue processing
+                                    continue
 
                     # Process results
                     for row in results:
