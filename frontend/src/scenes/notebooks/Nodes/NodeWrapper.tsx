@@ -28,7 +28,7 @@ import { notebookNodeLogicType } from './notebookNodeLogicType'
 import { SlashCommandsPopover } from '../Notebook/SlashCommands'
 import posthog from 'posthog-js'
 import { NotebookNodeContext } from './NotebookNodeContext'
-import { IconCollapse, IconCopy, IconEllipsis, IconExpand, IconPencil, IconGear, IconPlus, IconX } from '@posthog/icons'
+import { IconCollapse, IconCopy, IconEllipsis, IconExpand, IconPencil, IconPlus, IconX } from '@posthog/icons'
 import {
     CreatePostHogWidgetNodeOptions,
     CustomNotebookNodeAttributes,
@@ -53,7 +53,6 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         attributes,
         updateAttributes,
         Settings = null,
-        settingsIcon,
     } = props
 
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
@@ -217,27 +216,13 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                     />
                                                 )}
 
-                                                {isEditable ? (
-                                                    <>
-                                                        {Settings ? (
-                                                            <LemonButton
-                                                                onClick={() => toggleEditing()}
-                                                                size="small"
-                                                                icon={
-                                                                    typeof settingsIcon === 'string' ? (
-                                                                        settingsIcon === 'gear' ? (
-                                                                            <IconGear />
-                                                                        ) : (
-                                                                            <IconPencil />
-                                                                        )
-                                                                    ) : (
-                                                                        (settingsIcon ?? <IconPencil />)
-                                                                    )
-                                                                }
-                                                                active={editingNodeId === nodeId}
-                                                            />
-                                                        ) : null}
-                                                    </>
+                                                {isEditable && Settings ? (
+                                                    <LemonButton
+                                                        onClick={() => toggleEditing()}
+                                                        size="small"
+                                                        icon={<IconPencil />}
+                                                        active={editingNodeId === nodeId}
+                                                    />
                                                 ) : null}
 
                                                 {hasMenu ? (
