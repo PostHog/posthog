@@ -33,7 +33,7 @@ class TestPageReportsTimeOnPage(ClickhouseTestMixin, APIBaseTest):
     QUERY_TIMESTAMP = "2025-12-29"
 
     def _calculate_pageview_statistics(self, groups_of_pageviews: list[list[PageViewProperties]]):
-        per_path_durations: defaultdict[str, list[float]] = defaultdict(list)
+        per_path_durations: defaultdict[str, list[float | None]] = defaultdict(list)
         total_view_counts: defaultdict[str, int] = defaultdict(int)
 
         for session_pageviews in groups_of_pageviews:
@@ -41,13 +41,13 @@ class TestPageReportsTimeOnPage(ClickhouseTestMixin, APIBaseTest):
                 per_path_durations[page_view.pathname].append(page_view.duration)
                 total_view_counts[page_view.pathname] += 1
 
-        def calculate_p90(values: list[float]) -> float:
-            values = [v for v in values if v is not None]
+        def calculate_p90(values: list[float | None]) -> float | None:
+            filtered_values = [v for v in values if v is not None]
 
-            if len(values) == 0:
+            if len(filtered_values) == 0:
                 return None
 
-            return np.percentile(values, 90)
+            return float(np.percentile(filtered_values, 90))
 
         results = {}
         for path, durations in per_path_durations.items():

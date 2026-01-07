@@ -88,13 +88,13 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
                 total_view_counts[page_view.pathname] += 1
                 per_path_user_count[page_view.pathname].add(person_idx)
 
-        def calculate_p90(values: list[float | None]) -> float:
-            values = [v for v in values if v is not None]
+        def calculate_p90(values: list[float | None]) -> float | None:
+            filtered_values = [v for v in values if v is not None]
 
-            if len(values) == 0:
+            if len(filtered_values) == 0:
                 return None
 
-            return np.percentile(values, 90)
+            return float(np.percentile(filtered_values, 90))
 
         results = {}
         for path, durations in per_path_durations.items():
