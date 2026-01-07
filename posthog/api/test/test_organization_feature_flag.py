@@ -62,7 +62,7 @@ class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
             }
             for flag in [self.feature_flag_1, self.feature_flag_2]
         ]
-        assert sorted(response.json()) == sorted(expected_data)
+        assert sorted(response.json(), key=lambda x: x["flag_id"]) == sorted(expected_data, key=lambda x: x["flag_id"])
 
     def test_get_feature_flag_not_found(self):
         url = f"/api/organizations/{self.organization.id}/feature_flags/nonexistent-flag"
