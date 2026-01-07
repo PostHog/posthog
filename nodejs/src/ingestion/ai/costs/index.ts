@@ -19,6 +19,20 @@ export interface EventWithProperties extends PluginEvent {
     properties: Properties
 }
 
+const setPropertyIfValidOrMissing = (properties: Properties, key: string, value: number): void => {
+    const existingValue = properties[key]
+    if (existingValue !== null && existingValue !== undefined && isBigDecimalInput(existingValue)) {
+        return
+    }
+    if (!Number.isNaN(value)) {
+        properties[key] = value
+    }
+}
+
+const isBigDecimalInput = (value: unknown): value is string | number => {
+    return typeof value === 'string' || typeof value === 'number'
+}
+
 const setCostsOnEvent = (event: EventWithProperties, cost: ResolvedModelCost): void => {
     const inputCost = calculateInputCost(event, cost)
     const outputCost = calculateOutputCost(event, cost)
@@ -51,10 +65,6 @@ const setCostsOnEvent = (event: EventWithProperties, cost: ResolvedModelCost): v
 
 const isString = (property: unknown): property is string => {
     return typeof property === 'string'
-}
-
-const isBigDecimalInput = (value: unknown): value is string | number => {
-    return typeof value === 'string' || typeof value === 'number'
 }
 
 /**
