@@ -23,7 +23,7 @@ def build_function_call(
     context: Optional[HogQLContext] = None,
     table_size_mib: Optional[float] = None,
 ) -> str:
-    if access_key is None and access_secret is None:
+    if access_key is None and access_secret is None and (settings.DEBUG or settings.TEST):
         access_key = settings.AIRBYTE_BUCKET_KEY
         access_secret = settings.AIRBYTE_BUCKET_SECRET
 
