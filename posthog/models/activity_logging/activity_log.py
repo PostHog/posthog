@@ -73,6 +73,7 @@ ActivityScope = Literal[
     "ExternalDataSource",
     "ExternalDataSchema",
     "LLMTrace",
+    "CustomerProfileConfig",
     "Log",
 ]
 ChangeAction = Literal[
