@@ -1,14 +1,14 @@
-import { useMountedLogic, useValues } from 'kea'
-import { useCallback, useMemo, useState } from 'react'
+import { useActions, useMountedLogic, useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconCornerDownRight } from '@posthog/icons'
 
-import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
+import { VariableUsage } from './notebookNodeContent'
 import { notebookNodeLogic } from './notebookNodeLogic'
 
 type NotebookNodePythonAttributes = {
@@ -16,47 +16,6 @@ type NotebookNodePythonAttributes = {
     globalsUsed?: string[]
     globalsExportedWithTypes?: { name: string; type: string }[]
     globalsAnalysisHash?: string | null
-}
-
-type PythonNodeSummary = {
-    nodeId: string
-    code: string
-    globalsUsed: string[]
-    pythonIndex: number
-}
-
-type VariableUsage = {
-    nodeId: string
-    pythonIndex: number
-}
-
-const collectPythonNodes = (content?: JSONContent | null): PythonNodeSummary[] => {
-    if (!content || typeof content !== 'object') {
-        return []
-    }
-
-    const nodes: PythonNodeSummary[] = []
-
-    const walk = (node: any): void => {
-        if (!node || typeof node !== 'object') {
-            return
-        }
-        if (node.type === NotebookNodeType.Python) {
-            const attrs = node.attrs ?? {}
-            nodes.push({
-                nodeId: attrs.nodeId ?? '',
-                code: typeof attrs.code === 'string' ? attrs.code : '',
-                globalsUsed: Array.isArray(attrs.globalsUsed) ? attrs.globalsUsed : [],
-                pythonIndex: nodes.length + 1,
-            })
-        }
-        if (Array.isArray(node.content)) {
-            node.content.forEach(walk)
-        }
-    }
-
-    walk(content)
-    return nodes
 }
 
 const VariableUsageOverlay = ({
@@ -157,43 +116,8 @@ const VariableDependencyBadge = ({
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodePythonAttributes>): JSX.Element | null => {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
-    const { expanded, notebookLogic } = useValues(nodeLogic)
-    const { content } = useValues(notebookLogic)
-    const { findNodeLogicById } = useValues(notebookLogic)
-    const exportedGlobals = attributes.globalsExportedWithTypes ?? []
-
-    const pythonNodes = useMemo(() => collectPythonNodes(content), [content])
-    const currentNodeIndex = pythonNodes.findIndex((node) => node.nodeId === attributes.nodeId)
-    const downstreamNodes = currentNodeIndex >= 0 ? pythonNodes.slice(currentNodeIndex + 1) : []
-
-    const usageByVariable = useMemo(() => {
-        const usageMap: Record<string, VariableUsage[]> = {}
-
-        exportedGlobals.forEach(({ name }) => {
-            const usages = downstreamNodes.flatMap((node) =>
-                node.globalsUsed.includes(name)
-                    ? [
-                          {
-                              nodeId: node.nodeId,
-                              pythonIndex: node.pythonIndex,
-                          },
-                      ]
-                    : []
-            )
-
-            usageMap[name] = usages
-        })
-
-        return usageMap
-    }, [downstreamNodes, exportedGlobals])
-
-    const navigateToNode = useCallback(
-        (nodeId: string) => {
-            const targetLogic = findNodeLogicById(nodeId)
-            targetLogic?.actions.selectNode()
-        },
-        [findNodeLogicById]
-    )
+    const { expanded, exportedGlobals, usageByVariable } = useValues(nodeLogic)
+    const { navigateToNode } = useActions(nodeLogic)
 
     if (!expanded) {
         return null

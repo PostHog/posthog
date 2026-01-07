@@ -17,7 +17,7 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { SCRATCHPAD_NOTEBOOK, notebooksModel, openNotebook } from '~/models/notebooksModel'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { isSavedInsightNode } from '~/queries/utils'
+import { isHogQLQuery, isSavedInsightNode } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -28,6 +28,7 @@ import {
     SidePanelTab,
 } from '~/types'
 
+import { collectNodeIndices, collectPythonNodes } from '../Nodes/notebookNodeContent'
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 // NOTE: Annoyingly, if we import this then kea logic type-gen generates
 // two imports and fails so, we reimport it from the types file
@@ -479,6 +480,25 @@ export const notebookLogic = kea<notebookLogicType>([
                 // NOTE: _content is not but is needed to retrigger as it could mean the children have changed
                 return Object.values(nodeLogics).filter((nodeLogic) => nodeLogic.props.attributes?.children)
             },
+        ],
+
+        pythonNodeSummaries: [(s) => [s.content], (content) => collectPythonNodes(content)],
+
+        pythonNodeIndices: [
+            (s) => [s.content],
+            (content) => collectNodeIndices(content, (node) => node.type === NotebookNodeType.Python),
+        ],
+
+        sqlNodeIndices: [
+            (s) => [s.content],
+            (content) =>
+                collectNodeIndices(
+                    content,
+                    (node) =>
+                        node.type === NotebookNodeType.Query &&
+                        (isHogQLQuery(node.attrs?.query) ||
+                            (node.attrs?.query?.source && isHogQLQuery(node.attrs.query.source)))
+                ),
         ],
 
         isShowingLeftColumn: [
