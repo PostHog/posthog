@@ -3,14 +3,15 @@ import { BindLogic, useActions, useValues } from 'kea'
 import React, { useState } from 'react'
 
 import { IconExpand45, IconInfo, IconLineGraph, IconOpenSidebar, IconX } from '@posthog/icons'
-import { LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonSegmentedButton, LemonSegmentedDropdown, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect/LemonSegmentedSelect'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
@@ -20,6 +21,7 @@ import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { Scene } from 'scenes/sceneTypes'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { teamLogic } from 'scenes/teamLogic'
@@ -36,6 +38,7 @@ import {
     TileVisualizationOption,
     WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
     WebAnalyticsTile,
+    tabSplitIndexMap,
 } from 'scenes/web-analytics/common'
 import { WebAnalyticsErrorTrackingTile } from 'scenes/web-analytics/tiles/WebAnalyticsErrorTracking'
 import { WebAnalyticsRecordingsTile } from 'scenes/web-analytics/tiles/WebAnalyticsRecordings'
@@ -47,6 +50,7 @@ import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollec
 import { ProductIntentContext, ProductKey, QuerySchema } from '~/queries/schema/schema-general'
 import { InsightLogicProps, OnboardingStepKey, TeamPublicType, TeamType } from '~/types'
 
+import { LiveWebAnalyticsMetrics } from './LiveMetricsDashboard/LiveWebAnalyticsMetrics'
 import { WebAnalyticsExport } from './WebAnalyticsExport'
 import { WebAnalyticsFilters } from './WebAnalyticsFilters'
 import { HealthStatusTab, webAnalyticsHealthLogic } from './health'
@@ -65,7 +69,7 @@ export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }):
         <div
             className={clsx(
                 'mt-4 grid grid-cols-1 md:grid-cols-2 xxl:grid-cols-3',
-                compact ? 'gap-x-2 gap-y-2' : 'gap-x-4 gap-y-12'
+                compact ? 'gap-x-2 gap-y-2' : 'gap-x-4 gap-y-4'
             )}
         >
             {emptyOnboardingContent ??
@@ -137,7 +141,7 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
             )}
         >
             {title && (
-                <div className="flex flex-row items-center mb-3">
+                <div className="flex flex-row items-center mb-2">
                     <h2>{title}</h2>
                     {docs && <LearnMorePopover url={docs.url} title={docs.title} description={docs.description} />}
                 </div>
@@ -303,7 +307,7 @@ export const WebTabs = ({
 
     return (
         <div className={clsx(className, 'flex flex-col')}>
-            <div className="flex flex-row items-center self-stretch mb-3">
+            <div className="flex flex-row items-center self-stretch mb-2">
                 <h2 className="flex-1 m-0 flex flex-row ml-1">
                     {activeTab?.title}
                     {activeTab?.docs && (
@@ -334,12 +338,10 @@ export const WebTabs = ({
                     />
                 )}
 
-                <LemonSegmentedSelect
-                    shrinkOn={7}
+                <LemonSegmentedDropdown
+                    splitIndex={tabSplitIndexMap[tileId]}
                     size="small"
-                    disabled={false}
                     value={activeTabId}
-                    dropdownMatchSelectWidth={false}
                     onChange={setActiveTabId}
                     options={tabs.map(({ id, linkText }) => ({ value: id, label: linkText }))}
                 />
@@ -406,6 +408,7 @@ const Filters = ({ tabs }: { tabs: JSX.Element }): JSX.Element | null => {
         case ProductTab.PAGE_REPORTS:
             return <PageReportsFilters tabs={tabs} />
         case ProductTab.HEALTH:
+        case ProductTab.LIVE:
             return null
         default:
             return <WebAnalyticsFilters tabs={tabs} />
@@ -421,6 +424,10 @@ const MainContent = (): JSX.Element => {
 
     if (productTab === ProductTab.HEALTH) {
         return <HealthStatusTab />
+    }
+
+    if (productTab === ProductTab.LIVE) {
+        return <LiveWebAnalyticsMetrics />
     }
 
     return <Tiles />
@@ -455,6 +462,20 @@ const healthTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: JSX
     ]
 }
 
+const liveTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: string; link: string }[] => {
+    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_METRICS]) {
+        return []
+    }
+
+    return [
+        {
+            key: ProductTab.LIVE,
+            label: 'Live',
+            link: '/web/live',
+        },
+    ]
+}
+
 const WebAnalyticsSurveyModal = (): JSX.Element | null => {
     const { surveyModalPath } = useValues(webAnalyticsLogic)
     const { closeSurveyModal } = useActions(webAnalyticsLogic)
@@ -482,13 +503,15 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                 <WebAnalyticsModal />
                 <WebAnalyticsSurveyModal />
                 <VersionCheckerBanner />
-                <SceneContent className="WebAnalyticsDashboard">
-                    <WebAnalyticsTabs />
-                    {/* Empty fragment so tabs are not part of the sticky bar */}
-                    <Filters tabs={<></>} />
+                <SceneContent className="WebAnalyticsDashboard gap-y-2">
+                    <>
+                        <WebAnalyticsTabs />
+                        {/* Empty fragment so tabs are not part of the sticky bar */}
+                        <Filters tabs={<></>} />
 
-                    <WebAnalyticsHealthCheck />
-                    <MainContent />
+                        <WebAnalyticsHealthCheck />
+                        <MainContent />
+                    </>
                 </SceneContent>
             </BindLogic>
         </BindLogic>
@@ -500,6 +523,41 @@ const WebAnalyticsTabs = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
 
     const { setProductTab } = useActions(webAnalyticsLogic)
+
+    // Tab switching shortcuts
+    useAppShortcut({
+        name: 'WebAnalyticsTab1',
+        keybind: [keyBinds.tab1],
+        intent: 'Web analytics tab',
+        interaction: 'function',
+        callback: () => setProductTab(ProductTab.ANALYTICS),
+        scope: Scene.WebAnalytics,
+    })
+    useAppShortcut({
+        name: 'WebAnalyticsTab2',
+        keybind: [keyBinds.tab2],
+        intent: 'Web vitals tab',
+        interaction: 'function',
+        callback: () => setProductTab(ProductTab.WEB_VITALS),
+        scope: Scene.WebAnalytics,
+    })
+    useAppShortcut({
+        name: 'WebAnalyticsTab3',
+        keybind: [keyBinds.tab3],
+        intent: 'Page reports tab',
+        interaction: 'function',
+        callback: () => setProductTab(ProductTab.PAGE_REPORTS),
+        scope: Scene.WebAnalytics,
+    })
+    useAppShortcut({
+        name: 'WebAnalyticsTab4',
+        keybind: [keyBinds.tab4],
+        intent: 'Health tab',
+        interaction: 'function',
+        callback: () => setProductTab(ProductTab.HEALTH),
+        scope: Scene.WebAnalytics,
+        disabled: !featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_HEALTH_TAB],
+    })
 
     const handleShare = (): void => {
         void copyToClipboard(window.location.href, 'link')
@@ -524,6 +582,7 @@ const WebAnalyticsTabs = (): JSX.Element => {
                     ),
                     link: '/web/page-reports',
                 },
+                ...liveTab(featureFlags),
                 ...healthTab(featureFlags),
             ]}
             sceneInset
@@ -604,7 +663,10 @@ const getEmptyOnboardingContent = (
                         <div className="flex items-center gap-2">
                             <LemonButton
                                 type="primary"
-                                to={urls.onboarding(ProductKey.WEB_ANALYTICS, OnboardingStepKey.INSTALL)}
+                                to={urls.onboarding({
+                                    productKey: ProductKey.WEB_ANALYTICS,
+                                    stepKey: OnboardingStepKey.INSTALL,
+                                })}
                                 data-attr="web-analytics-onboarding"
                             >
                                 Open installation guide

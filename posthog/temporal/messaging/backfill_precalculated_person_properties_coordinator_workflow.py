@@ -1,4 +1,5 @@
 import math
+import asyncio
 import datetime as dt
 import dataclasses
 from typing import Any, TypedDict
@@ -9,8 +10,9 @@ import temporalio.common
 import temporalio.activity
 import temporalio.workflow
 
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
     BackfillPrecalculatedPersonPropertiesInputs,
@@ -78,14 +80,22 @@ async def get_person_count_activity(
             GROUP BY id
             HAVING max(is_deleted) = 0
         )
-        FORMAT JSONEachRow
     """
 
     query_params = {"team_id": inputs.team_id}
 
-    async with get_client(team_id=inputs.team_id) as client:
-        async for row in client.stream_query_as_jsonl(query, query_parameters=query_params):
-            return PersonCountResult(count=row["count"])
+    # Execute query using sync_execute in a thread to avoid blocking the event loop
+    results = await asyncio.to_thread(
+        sync_execute,
+        query,
+        query_params,
+        workload=Workload.OFFLINE,
+        team_id=inputs.team_id,
+        ch_user=ClickHouseUser.COHORTS,
+    )
+
+    if results:
+        return PersonCountResult(count=int(results[0][0]))
 
     return PersonCountResult(count=0)
 

@@ -517,6 +517,34 @@ class TestTaskRun(TestCase):
         self.assertEqual(entry["notification"]["params"]["level"], "info")
         self.assertEqual(entry["notification"]["params"]["message"], "Test message")
 
+    @parameterized.expand(
+        [
+            (0, "stdout output", "stderr output"),
+            (1, "failed stdout", "error message"),
+            (137, "", "killed by signal"),
+        ]
+    )
+    def test_emit_sandbox_output_acp_format(self, exit_code, stdout, stderr):
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+        )
+
+        run.emit_sandbox_output(stdout, stderr, exit_code)
+
+        log_content = object_storage.read(run.log_url)
+        assert log_content is not None
+        entry = json.loads(log_content.strip())
+
+        self.assertEqual(entry["type"], "notification")
+        self.assertIn("timestamp", entry)
+        self.assertEqual(entry["notification"]["jsonrpc"], "2.0")
+        self.assertEqual(entry["notification"]["method"], "_posthog/sandbox_output")
+        self.assertEqual(entry["notification"]["params"]["sessionId"], str(run.id))
+        self.assertEqual(entry["notification"]["params"]["stdout"], stdout)
+        self.assertEqual(entry["notification"]["params"]["stderr"], stderr)
+        self.assertEqual(entry["notification"]["params"]["exitCode"], exit_code)
+
 
 class TestSandboxSnapshot(TestCase):
     def setUp(self):

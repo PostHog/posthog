@@ -160,6 +160,9 @@ impl DeduplicationStore {
         ts_cf_opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(8)); // <- per-CF
         ts_cf_opts.set_write_buffer_size(8 * 1024 * 1024);
         ts_cf_opts.set_max_write_buffer_number(3);
+        // IMPORTANT: CF options don't inherit from DB options, must set compression explicitly
+        // LZ4 is ~2x faster than Snappy for both compression and decompression
+        ts_cf_opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
 
         // ----- CF: UuidIndexKey ([ts][uuid_key] => same 8-byte prefix)
         let mut uuid_timestamp_index_cf_opts = Options::default();
@@ -167,10 +170,12 @@ impl DeduplicationStore {
         uuid_timestamp_index_cf_opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(8));
         uuid_timestamp_index_cf_opts.set_write_buffer_size(8 * 1024 * 1024);
         uuid_timestamp_index_cf_opts.set_max_write_buffer_number(3);
+        uuid_timestamp_index_cf_opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
 
         // ----- CF: UuidKey (point-gets; no prefix extractor)
         let mut uuid_cf_opts = Options::default();
         uuid_cf_opts.set_block_based_table_factory(&block_opts);
+        uuid_cf_opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
 
         let cf_descriptors = vec![
             ColumnFamilyDescriptor::new(Self::TIMESTAMP_CF, ts_cf_opts),
@@ -450,20 +455,51 @@ impl DeduplicationStore {
             index_end.as_ref(),
         )?;
 
-        // Calculate bytes freed
+        // Spawn compaction on a background thread to avoid blocking cleanup.
+        // RocksDB's compact_range is synchronous and can block for extended periods.
+        // delete_range creates tombstones but doesn't immediately free disk space -
+        // compaction merges/removes tombstoned data to reclaim space.
+        let store = self.store.clone();
+        let topic = self.topic.clone();
+        let partition = self.partition;
+        std::thread::spawn(move || {
+            info!(
+                "Store {}:{} - Starting background compaction after cleanup",
+                topic, partition
+            );
+            let compaction_start = Instant::now();
+
+            store.compact_range(
+                Self::TIMESTAMP_CF,
+                Some(first_key_bytes.as_ref()),
+                Some(last_key_bytes.as_ref()),
+            );
+            store.compact_range(
+                Self::UUID_TIMESTAMP_INDEX_CF,
+                Some(index_start.as_ref()),
+                Some(index_end.as_ref()),
+            );
+            // UUID_CF doesn't have range-based keys, so compact the full range
+            store.compact_range(Self::UUID_CF, None::<&[u8]>, None::<&[u8]>);
+
+            info!(
+                "Store {}:{} - Background compaction completed in {:?}",
+                topic,
+                partition,
+                compaction_start.elapsed()
+            );
+        });
+
+        // Calculate bytes freed (will likely be 0 since compaction is now async)
         let final_size = self.get_total_size()?;
         let bytes_freed = initial_size.saturating_sub(final_size);
 
-        // Log cleanup results for this store
-        if bytes_freed > 0 {
-            info!(
-                "Store {}:{} cleanup freed {} bytes in {:?}",
-                self.topic,
-                self.partition,
-                bytes_freed,
-                start_time.elapsed()
-            );
-        }
+        info!(
+            "Store {}:{} cleanup completed in {:?} (compaction spawned in background)",
+            self.topic,
+            self.partition,
+            start_time.elapsed()
+        );
 
         Ok(bytes_freed)
     }
@@ -509,6 +545,30 @@ impl DeduplicationStore {
         let uuid_size = self.store.get_db_size(Self::UUID_CF)?;
         let index_size = self.store.get_db_size(Self::UUID_TIMESTAMP_INDEX_CF)?;
         Ok(timestamp_size + uuid_size + index_size)
+    }
+
+    /// Get the age of the oldest data in seconds (current time - oldest timestamp)
+    /// Returns None if the store is empty
+    pub fn get_oldest_data_age_seconds(&self) -> Result<Option<u64>> {
+        let cf = self.store.get_cf_handle(Self::TIMESTAMP_CF)?;
+
+        // Get first (oldest) key
+        let mut first_iter = self.store.db.iterator_cf(&cf, rocksdb::IteratorMode::Start);
+        let oldest_timestamp = if let Some(Ok((first_key, _))) = first_iter.next() {
+            let first_key_parsed: TimestampKey = first_key.as_ref().try_into()?;
+            first_key_parsed.timestamp
+        } else {
+            return Ok(None); // Empty store
+        };
+        drop(first_iter);
+
+        // Calculate age using wall clock
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+
+        Ok(Some(now.saturating_sub(oldest_timestamp)))
     }
 
     /// Flush the store to disk

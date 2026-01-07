@@ -4,9 +4,9 @@ import { useActions, useValues } from 'kea'
 import { compare as compareFn } from 'natural-orderby'
 import { useCallback, useMemo } from 'react'
 
-import { useLocalStorage } from 'lib/hooks/useLocalStorage'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
+import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -17,7 +17,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { isValidBreakdown } from '~/queries/utils'
-import { ChartDisplayType } from '~/types'
+import { ChartDisplayType, TrendsFilterType } from '~/types'
 
 import { entityFilterLogic } from '../../filters/ActionFilter/entityFilterLogic'
 import { AggregationColumnItem, AggregationColumnTitle } from './columns/AggregationColumn'
@@ -89,39 +89,11 @@ export function InsightsTable({
         insightData,
     } = useValues(trendsDataLogic(insightProps))
     const { toggleResultHidden, toggleAllResultsHidden } = useActions(trendsDataLogic(insightProps))
-    const { aggregation, allowAggregation } = useValues(insightsTableDataLogic(insightProps))
-    const { setDetailedResultsAggregationType } = useActions(insightsTableDataLogic(insightProps))
+    const { aggregation, allowAggregation, pinnedColumns, isColumnPinned } = useValues(
+        insightsTableDataLogic(insightProps)
+    )
+    const { setDetailedResultsAggregationType, toggleColumnPin } = useActions(insightsTableDataLogic(insightProps))
     const { weekStartDay, timezone } = useValues(teamLogic)
-
-    // Pinned breakdown columns state (persisted in localStorage per insight)
-    const storageKey = insight?.short_id
-        ? `insight-pinned-columns-${insight.short_id}`
-        : 'insight-pinned-columns-default'
-    const [pinnedBreakdownColumns, setPinnedBreakdownColumns] = useLocalStorage<string[]>(storageKey, [])
-
-    const pinnedColumns = useMemo(() => {
-        const pinned: string[] = ['label'] // Series column is always pinned
-        return [...pinned, ...pinnedBreakdownColumns]
-    }, [pinnedBreakdownColumns])
-
-    const toggleColumnPin = useCallback(
-        (columnKey: string): void => {
-            setPinnedBreakdownColumns((current) => {
-                if (current.includes(columnKey)) {
-                    return current.filter((k) => k !== columnKey)
-                }
-                return [...current, columnKey]
-            })
-        },
-        [setPinnedBreakdownColumns]
-    )
-
-    const isColumnPinned = useCallback(
-        (columnKey: string): boolean => {
-            return pinnedBreakdownColumns.includes(columnKey)
-        },
-        [pinnedBreakdownColumns]
-    )
 
     const handleSeriesEditClick = (item: IndexedTrendResult): void => {
         const entityFilter = entityFilterLogic.findMounted({
@@ -211,7 +183,13 @@ export function InsightsTable({
                 />
             ),
             render: (_, item) => {
-                return <BreakdownColumnItem item={item} formatItemBreakdownLabel={formatItemBreakdownLabel} />
+                return (
+                    <BreakdownColumnItem
+                        item={item}
+                        formatItemBreakdownLabel={formatItemBreakdownLabel}
+                        breakdownFilter={breakdownFilter}
+                    />
+                )
             },
             key: 'breakdown',
             sorter: (a, b) => {
@@ -258,7 +236,13 @@ export function InsightsTable({
                     </MultipleBreakdownColumnTitle>
                 ),
                 render: (_, item) => {
-                    return <BreakdownColumnItem item={item} formatItemBreakdownLabel={formatItemBreakdownLabel} />
+                    return (
+                        <BreakdownColumnItem
+                            item={item}
+                            formatItemBreakdownLabel={formatItemBreakdownLabel}
+                            breakdownFilter={breakdownFilter}
+                        />
+                    )
                 },
                 key: columnKey,
                 sorter: (a, b) => {
@@ -314,6 +298,11 @@ export function InsightsTable({
         })
     }
 
+    const renderCount = useCallback(
+        (value: number) => formatAggregationAxisValue(trendsFilter as Partial<TrendsFilterType>, value),
+        [trendsFilter]
+    )
+
     const valueColumns: LemonTableColumn<IndexedTrendResult, any>[] = useMemo(() => {
         // Don't show value columns for non-time-series displays like WorldMap and Heatmap
         if (display === ChartDisplayType.WorldMap || display === ChartDisplayType.CalendarHeatmap) {
@@ -353,13 +342,21 @@ export function InsightsTable({
                 />
             ),
             render: (_, item: IndexedTrendResult) => {
-                return <ValueColumnItem index={index} item={item} trendsFilter={trendsFilter} />
+                return (
+                    <ValueColumnItem
+                        index={index}
+                        item={item}
+                        isStickiness={isStickiness}
+                        renderCount={renderCount}
+                        formatPropertyValueForDisplay={formatPropertyValueForDisplay}
+                    />
+                )
             },
             key: `data-${index}`,
             sorter: (a: IndexedTrendResult, b: IndexedTrendResult) => dataSorter(a, b, index),
             align: 'right',
         }))
-    }, [indexedResults, trendsFilter, isStickiness, compareFilter?.compare, interval]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [indexedResults, renderCount, formatPropertyValueForDisplay, isStickiness, compareFilter?.compare, interval]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     columns.push(...valueColumns)
 

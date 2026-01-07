@@ -504,6 +504,24 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 elif isinstance(authorization, str) and not authorization.strip():
                     raise serializers.ValidationError("Missing required IAM role for 'COPY'")
 
+        if destination_type == BatchExportDestination.Destination.WORKFLOWS:
+            team_id = self.context["team_id"]
+            team = Team.objects.get(id=team_id)
+
+            if not posthoganalytics.feature_enabled(
+                "backfill-workflows-destination",
+                str(team.uuid),
+                groups={"organization": str(team.organization.id)},
+                group_properties={
+                    "organization": {
+                        "id": str(team.organization.id),
+                        "created_at": team.organization.created_at,
+                    }
+                },
+                send_feature_flag_events=False,
+            ):
+                raise PermissionDenied("Backfilling Workflows is not enabled for this team.")
+
         return destination_attrs
 
     def create(self, validated_data: dict) -> BatchExport:
@@ -671,6 +689,12 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
     queryset = BatchExport.objects.exclude(deleted=True).order_by("-created_at").prefetch_related("destination").all()
     serializer_class = BatchExportSerializer
     log_source = "batch_exports"
+
+    def safely_get_queryset(self, queryset):
+        """Filter out batch exports with Workflows destination type if action is list."""
+        if self.action == "list":
+            return queryset.exclude(destination__type="Workflows")
+        return queryset
 
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def pause(self, request: request.Request, *args, **kwargs) -> response.Response:

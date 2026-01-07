@@ -214,7 +214,10 @@ export function GoalsConfiguration(): JSX.Element {
     }
 
     const handleDeleteGoal = (index: number): void => {
-        deleteGoal(index)
+        const goal = goals[index]
+        if (window.confirm(`Are you sure you want to delete the goal "${goal.name}"?`)) {
+            deleteGoal(index)
+        }
     }
 
     const handleCancelAdd = (): void => {

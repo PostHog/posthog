@@ -290,13 +290,17 @@ class BaseAgentRunner(ABC):
                         ),
                     )
             except GraphRecursionError:
-                yield (
-                    AssistantEventType.MESSAGE,
-                    FailureMessage(
-                        content="The assistant has reached the maximum number of steps. You can explicitly ask to continue.",
-                        id=str(uuid4()),
-                    ),
+                recursion_limit_message = AssistantMessage(
+                    content="I've reached the maximum number of steps. Would you like me to continue?",
+                    id=str(uuid4()),
                 )
+                yield AssistantEventType.MESSAGE, recursion_limit_message
+
+                if self._use_checkpointer:
+                    await self._graph.aupdate_state(
+                        config,
+                        self._partial_state_type(messages=[recursion_limit_message]),
+                    )
             except LLM_API_EXCEPTIONS as e:
                 # Reset the state for LLM provider errors
                 if self._use_checkpointer:
@@ -340,7 +344,7 @@ class BaseAgentRunner(ABC):
 
     def _get_config(self) -> RunnableConfig:
         config: RunnableConfig = {
-            "recursion_limit": 48,
+            "recursion_limit": 96,
             "callbacks": self._callback_handlers,
             "configurable": {
                 "thread_id": self._conversation.id,

@@ -18,7 +18,7 @@ from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.subscription import Subscription
 from posthog.sync import database_sync_to_async
 from posthog.tasks import exporter
-from posthog.tasks.exporter import EXCEPTIONS_TO_RETRY
+from posthog.tasks.exporter import EXCEPTIONS_TO_RETRY, USER_QUERY_ERRORS, record_export_failure
 from posthog.utils import wait_for_parallel_celery_group
 
 logger = structlog.get_logger(__name__)
@@ -223,19 +223,31 @@ async def generate_assets_async(
                     team_id=resource.team_id,
                 )
             except Exception as e:
+                is_user_error = isinstance(e, USER_QUERY_ERRORS)
                 retryable_error = isinstance(e, EXCEPTIONS_TO_RETRY)
-                logger.error(  # noqa: TRY400
-                    "generate_assets_async.export_failed",
-                    asset_id=asset.id,
-                    insight_id=asset.insight_id,
-                    subscription_id=subscription_id,
-                    error=str(e),
-                    exc_info=True,
-                    retryable_error=retryable_error,
-                    team_id=resource.team_id,
-                )
-                asset.exception = str(e)
-                await database_sync_to_async(asset.save, thread_sensitive=False)()
+
+                if is_user_error:
+                    logger.warning(
+                        "generate_assets_async.user_config_error",
+                        asset_id=asset.id,
+                        insight_id=asset.insight_id,
+                        subscription_id=subscription_id,
+                        error=str(e),
+                        team_id=resource.team_id,
+                    )
+                else:
+                    logger.exception(
+                        "generate_assets_async.export_failed",
+                        asset_id=asset.id,
+                        insight_id=asset.insight_id,
+                        subscription_id=subscription_id,
+                        error=str(e),
+                        exc_info=True,
+                        retryable_error=retryable_error,
+                        team_id=resource.team_id,
+                    )
+
+                await database_sync_to_async(record_export_failure, thread_sensitive=False)(asset, e)
 
         # Reserve buffer time for email/Slack delivery after exports
         buffer_seconds = 120  # 2 minutes

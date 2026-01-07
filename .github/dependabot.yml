@@ -11,8 +11,8 @@ updates:
       schedule:
           interval: weekly
       open-pull-requests-limit: 1
-      assignees:
-          - 'posthog/team-devex'
+      reviewers:
+          - 'PostHog/team-devex'
       groups:
           # Security and authentication packages
           security-auth:
@@ -110,7 +110,6 @@ updates:
                   - 'freezegun'
                   - 'requests-mock'
                   - 'responses'
-                  - 'inline-snapshot'
                   - 'syrupy'
                   - 'flaky'
                   - 'parameterized'

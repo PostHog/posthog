@@ -469,7 +469,7 @@ Time period: from and/or to dates or durations. For example: `last 1 week`, `las
 """.strip()
 
 INSIGHT_TOOL_CONTEXT_PROMPT_TEMPLATE = """
-The user is currently editing an insight (aka query). Here is that insight's current definition, which can be edited using the `create_and_query_insight` tool:
+The user is currently editing an insight (aka query). Here is that insight's current definition, which can be edited using the `create_insight` tool:
 
 ```json
 {current_query}
@@ -513,15 +513,24 @@ InsightType = Literal["trends", "funnel", "retention"]
 
 
 class CreateInsightToolArgs(BaseModel):
-    title: str = Field(description="A short title for the insight.")
     query_description: str = Field(description="A plan of the query to generate based on the template.")
     insight_type: InsightType = Field(description="The type of insight to generate.")
+    viz_title: str = Field(
+        description="Short, concise name of the insight (2-7 words) that will be displayed as a header in the insight visualization."
+    )
+    viz_description: str = Field(
+        description="Short, concise summary of the insight (1 sentence) that will be displayed as a description in the insight visualization."
+    )
 
 
 class CreateInsightTool(MaxTool):
     name: Literal["create_insight"] = "create_insight"
     args_schema: type[BaseModel] = CreateInsightToolArgs
     context_prompt_template: str = INSIGHT_TOOL_CONTEXT_PROMPT_TEMPLATE
+
+    def get_required_resource_access(self):
+        """Creating an insight requires editor-level access to insights."""
+        return [("insight", "editor")]
 
     @classmethod
     async def create_tool_class(
@@ -542,7 +551,7 @@ class CreateInsightTool(MaxTool):
         return cls(team=team, user=user, state=state, node_path=node_path, config=config, description=prompt)
 
     async def _arun_impl(
-        self, title: str, query_description: str, insight_type: InsightType
+        self, viz_title: str, viz_description: str, query_description: str, insight_type: InsightType
     ) -> tuple[str, ToolMessagesArtifact | None]:
         graph_builder = InsightsGraph(self._team, self._user)
         match insight_type:
@@ -564,7 +573,8 @@ class CreateInsightTool(MaxTool):
             update={
                 "root_tool_call_id": self.tool_call_id,
                 "plan": query_description,
-                "visualization_title": title,
+                "visualization_title": viz_title,
+                "visualization_description": viz_description,
             },
             deep=True,
         )
