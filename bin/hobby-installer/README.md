@@ -59,7 +59,7 @@ make
 # Build for macOS (local testing)
 make build-darwin
 
-# Build both
+# Build all (development, linux, darwin)
 make build-all
 ```
 
@@ -67,14 +67,16 @@ Output binaries:
 
 - `bin/posthog-hobby` - Linux binary (production)
 - `bin/posthog-hobby-darwin` - macOS binary (gitignored, local testing only)
+- `bin/posthog-hobby-development` - Development binary for current platform
+- `bin/posthog-hobby-demo` - Demo binary for testing UI components
 
 ### Running locally
 
 ```bash
-# Build and run on macOS
+# Build and run development binary
 make run
 
-# Or manually
+# Or for macOS-specific binary
 make build-darwin
 ../posthog-hobby-darwin
 ```
@@ -84,7 +86,10 @@ make build-darwin
 Run isolated demos of specific UI components:
 
 ```bash
-# Run checks demo
+# Build demo binary only
+make build-demo
+
+# Build and run a specific demo
 make demo DEMO=checks
 ```
 
@@ -95,10 +100,11 @@ Available demos:
 ### Other make targets
 
 ```bash
-make deps         # Download dependencies
+make deps         # Download Go dependencies
 make clean        # Remove build artifacts
-make test         # Run tests
-make fmt          # Format code
+make test         # Run Go tests
+make fmt          # Format Go code
+make lint         # Run golangci-lint
 make help         # Show all available targets
 ```
 

@@ -143,6 +143,7 @@ bin/*.lock
 # Also, avoid commiting local build in case someone uses `go build .` over `make`
 bin/posthog-hobby-darwin
 bin/posthog-hobby-demo
+bin/posthog-hobby-development
 bin/hobby-installer/hobby-installer
 
 # Debug output of our session summaries product

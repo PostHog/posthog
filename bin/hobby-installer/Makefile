@@ -2,7 +2,6 @@
 
 # Binary name
 BINARY_NAME=posthog-hobby
-DEMO_BINARY=posthog-hobby-demo
 OUTPUT_DIR=..
 
 # Go parameters
@@ -16,7 +15,7 @@ GOMOD=$(GOCMD) mod
 # Build flags for smaller binary
 LDFLAGS=-ldflags "-s -w"
 
-# Default target
+# Default target builds the final binary for production
 all: build-linux
 
 # Install dependencies
@@ -26,7 +25,7 @@ deps:
 
 # Build for current platform (development)
 build: deps
-	$(GOBUILD) $(LDFLAGS) -o $(OUTPUT_DIR)/$(BINARY_NAME) .
+	$(GOBUILD) $(LDFLAGS) -o $(OUTPUT_DIR)/$(BINARY_NAME)-development .
 
 # Build for Linux (production - hobby deployments are on Ubuntu)
 build-linux: deps
@@ -36,27 +35,28 @@ build-linux: deps
 build-darwin: deps
 	GOOS=darwin GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(OUTPUT_DIR)/$(BINARY_NAME)-darwin .
 
-# Build for both platforms
-build-all: build-linux build-darwin
-
-# Run locally (macOS)
-run: build-darwin
-	$(OUTPUT_DIR)/$(BINARY_NAME)-darwin
-
 # Build demo binary
-demo-build: deps
-	$(GOBUILD) $(LDFLAGS) -o $(OUTPUT_DIR)/$(DEMO_BINARY) ./demo
+build-demo: deps
+	$(GOBUILD) $(LDFLAGS) -o $(OUTPUT_DIR)/$(BINARY_NAME)-demo ./demo
+
+# Build all possible binaries
+build-all: build build-linux build-darwin
+
+# Run development version
+run: build
+	$(OUTPUT_DIR)/$(BINARY_NAME)-development
 
 # Run a demo (usage: make demo DEMO=checks)
-demo: demo-build
-	$(OUTPUT_DIR)/$(DEMO_BINARY) $(DEMO)
+demo: build-demo
+	$(OUTPUT_DIR)/$(BINARY_NAME)-demo $(DEMO)
 
 # Clean build artifacts
 clean:
 	$(GOCLEAN)
 	rm -f $(OUTPUT_DIR)/$(BINARY_NAME)
 	rm -f $(OUTPUT_DIR)/$(BINARY_NAME)-darwin
-	rm -f $(OUTPUT_DIR)/$(DEMO_BINARY)
+	rm -f $(OUTPUT_DIR)/$(BINARY_NAME)-development
+	rm -f $(OUTPUT_DIR)/$(BINARY_NAME)-demo
 	rm -f hobby-installer
 
 # Run tests
@@ -75,16 +75,17 @@ lint:
 help:
 	@echo "PostHog Hobby Installer - Build Targets"
 	@echo ""
-	@echo "  make                   Build Linux binary (default)"
-	@echo "  make build             Build for current platform"
-	@echo "  make build-linux       Build for Linux/Ubuntu"
-	@echo "  make build-darwin      Build for macOS"
-	@echo "  make build-all         Build for all platforms"
-	@echo "  make run               Build and run locally (macOS)"
-	@echo "  make demo DEMO=checks  Run a demo (checks, etc.)"
-	@echo "  make clean             Remove build artifacts"
-	@echo "  make deps              Download dependencies"
-	@echo "  make test              Run tests"
-	@echo "  make fmt               Format code"
+	@echo "  make build             Build for current platform (development binary)"
+	@echo "  make build-linux       Build Linux/Ubuntu amd64 binary (production)"
+	@echo "  make build-darwin      Build macOS amd64 binary (local testing)"
+	@echo "  make build-demo        Build demo binary"
+	@echo "  make build-all         Build binaries for all supported platforms"
+	@echo "  make run               Build and run development binary locally"
+	@echo "  make demo DEMO=<demo>  Build and run demo binary (e.g. DEMO=checks)"
+	@echo "  make clean             Remove all build artifacts"
+	@echo "  make deps              Download Go dependencies"
+	@echo "  make test              Run Go tests"
+	@echo "  make fmt               Format Go code"
+	@echo "  make lint              Run golangci-lint"
 	@echo ""
 
