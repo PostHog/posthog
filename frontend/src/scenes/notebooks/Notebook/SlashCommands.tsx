@@ -25,7 +25,6 @@ import { IconCode } from '@posthog/icons'
 import { LemonButton, LemonDivider, lemonToast } from '@posthog/lemon-ui'
 
 import { EditorCommands, EditorRange } from 'lib/components/RichContentEditor/types'
-import type { FeatureFlagLookupKey } from 'lib/constants'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { IconBold, IconItalic } from 'lib/lemon-ui/icons'
@@ -76,7 +75,7 @@ type SlashCommandsItem = {
     search?: string
     icon?: JSX.Element
     command: (chain: EditorCommands, pos: number | EditorRange) => EditorCommands | Promise<EditorCommands>
-    featureFlag?: FeatureFlagLookupKey
+    featureFlag?: string
 }
 
 const TEXT_CONTROLS: SlashCommandsItem[] = [
