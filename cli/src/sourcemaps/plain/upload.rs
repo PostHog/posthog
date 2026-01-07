@@ -62,9 +62,12 @@ pub fn upload(args: &Args) -> Result<()> {
 
     // Get or create a release if project/version are provided or if any pair is missing a release_id
     let cwd = std::env::current_dir()?;
-    let created_release_id =
-        get_release_for_maps(&cwd, args.release.clone(), pairs.iter().map(|p| &p.sourcemap))?
-            .map(|r| r.id.to_string());
+    let created_release_id = get_release_for_maps(
+        &cwd,
+        args.release.clone(),
+        pairs.iter().map(|p| &p.sourcemap),
+    )?
+    .map(|r| r.id.to_string());
 
     // Override release_id if we created/fetched one
     if let Some(ref release_id) = created_release_id {
