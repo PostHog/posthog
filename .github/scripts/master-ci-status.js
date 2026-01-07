@@ -51,7 +51,10 @@ function handleFailure(state, event, commitTs, core, fs) {
 
     if (isNew) {
         state = {
-            since: new Date().toISOString(),
+            // Use the failing commit's timestamp as incident start, not wall clock.
+            // This ensures pendingWorkflows check compares against when the failure
+            // was authored, not when we detected it (which could be much later).
+            since: new Date(commitTs).toISOString(),
             sha_ts: { [event.head_sha]: commitTs },
             fail_ts: { [event.name]: commitTs },
             ok_ts: {},
