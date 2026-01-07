@@ -588,7 +588,7 @@ const WebAnalyticsTabs = (): JSX.Element => {
             sceneInset
             className="-mt-4"
             rightSlot={
-                !featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR] && (
+                !featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2] && (
                     <LemonButton
                         type="secondary"
                         size="small"
