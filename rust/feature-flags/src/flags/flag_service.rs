@@ -1,6 +1,7 @@
 use crate::{
     api::errors::FlagError,
     flags::flag_models::FeatureFlagList,
+    handler::canonical_log::with_canonical_log,
     metrics::consts::{
         DB_TEAM_READS_COUNTER, TEAM_CACHE_HIT_COUNTER, TOKEN_VALIDATION_ERRORS_COUNTER,
     },
@@ -94,6 +95,14 @@ impl FlagService {
         // Parse the result (from cache or fallback)
         let team = Team::from_hypercache_value(data)?;
         let cache_hit = !matches!(source, CacheSource::Fallback);
+
+        // Convert CacheSource to static string for canonical log
+        let source_str: &'static str = match source {
+            CacheSource::Redis => "redis",
+            CacheSource::S3 => "s3",
+            CacheSource::Fallback => "pg",
+        };
+        with_canonical_log(|log| log.team_cache_source = Some(source_str));
 
         inc(
             TEAM_CACHE_HIT_COUNTER,
@@ -695,8 +704,8 @@ mod tests {
         assert!(result.is_ok());
         let flag_result = result.unwrap();
         assert!(
-            !flag_result.was_cache_hit,
-            "Expected cache miss since mock returned NotFound"
+            matches!(flag_result.cache_source, common_hypercache::CacheSource::Fallback),
+            "Expected fallback to PostgreSQL since mock returned NotFound"
         );
 
         // Verify no SET calls were made - Django handles cache writes, not Rust
