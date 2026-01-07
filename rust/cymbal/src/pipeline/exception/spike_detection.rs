@@ -166,13 +166,7 @@ pub async fn do_spike_detection(
     )
     .await;
 
-    let issue_ids: Vec<Uuid> = issue_counts.keys().copied().collect();
-    match get_spiking_issues(
-        &*context.issue_buckets_redis_client,
-        &issues_by_id,
-        issue_ids,
-    )
-    .await
+    match get_spiking_issues(&*context.issue_buckets_redis_client, &issues_by_id).await
     {
         Ok(spiking) => {
             emit_spiking_events(&context, spiking).await;
@@ -353,11 +347,12 @@ fn is_spiking(current_value: i64, baseline: f64) -> bool {
 async fn get_spiking_issues(
     redis: &(dyn Client + Send + Sync),
     issues_by_id: &HashMap<Uuid, Issue>,
-    issue_ids: Vec<Uuid>,
 ) -> Result<Vec<SpikingIssue>, common_redis::CustomRedisError> {
-    if issue_ids.is_empty() {
+    if issues_by_id.is_empty() {
         return Ok(vec![]);
     }
+
+    let issue_ids: Vec<Uuid> = issues_by_id.keys().copied().collect();
 
     let bucket_timestamps = get_bucket_timestamps();
     let unique_team_ids: Vec<i32> = issues_by_id
@@ -540,7 +535,7 @@ mod tests {
         }
 
         async fn get_spiking(&self) -> Vec<SpikingIssue> {
-            get_spiking_issues(&self.redis, &self.issues_by_id(), vec![self.issue_id])
+            get_spiking_issues(&self.redis, &self.issues_by_id())
                 .await
                 .unwrap()
         }
@@ -963,13 +958,7 @@ mod tests {
             redis.scard_ret(&team_issue_set_key(team_2, ts), Ok(0));
         }
 
-        let result = get_spiking_issues(
-            &redis,
-            &issues_by_id,
-            vec![issue_a, issue_b, issue_c, issue_d, issue_e],
-        )
-        .await
-        .unwrap();
+        let result = get_spiking_issues(&redis, &issues_by_id).await.unwrap();
 
         // Should have 3 spiking issues: A, B, E
         assert_eq!(result.len(), 3);
