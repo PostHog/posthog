@@ -72,3 +72,16 @@ class TestBackfillExportedAssetExpiry(BaseTest):
         call_command("backfill_exported_asset_expiry", stdout=out)
 
         assert "Found 3 ExportedAssets" in out.getvalue()
+
+    def test_backfill_uses_created_at_not_now(self) -> None:
+        created_at = datetime(2024, 1, 1, 10, 0, 0, tzinfo=UTC)
+        with freeze_time(created_at):
+            asset = self._create_asset_without_expiry()
+
+        with freeze_time("2024-06-15T10:00:00Z"):
+            call_command("backfill_exported_asset_expiry", "--live-run", stdout=StringIO())
+
+        asset.refresh_from_db()
+        expiry_delta = ExportedAsset.get_expiry_delta(asset.export_format)
+        expected_expiry = (created_at + expiry_delta).replace(hour=0, minute=0, second=0, microsecond=0)
+        assert asset.expires_after == expected_expiry

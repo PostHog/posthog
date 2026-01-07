@@ -108,15 +108,16 @@ class ExportedAsset(models.Model):
         super().save(*args, **kwargs)
 
     @classmethod
-    def compute_expires_after(cls, export_format: str) -> datetime:
-        expiry_delta = SIX_MONTHS
-
+    def get_expiry_delta(cls, export_format: str) -> timedelta:
         if export_format in (cls.ExportFormat.CSV, cls.ExportFormat.XLSX):
-            expiry_delta = SEVEN_DAYS
+            return SEVEN_DAYS
         elif export_format in (cls.ExportFormat.MP4, cls.ExportFormat.WEBM, cls.ExportFormat.GIF):
-            expiry_delta = TWELVE_MONTHS
+            return TWELVE_MONTHS
+        return SIX_MONTHS
 
-        expiry_datetime = now() + expiry_delta
+    @classmethod
+    def compute_expires_after(cls, export_format: str) -> datetime:
+        expiry_datetime = now() + cls.get_expiry_delta(export_format)
         return expiry_datetime.replace(hour=0, minute=0, second=0, microsecond=0)
 
     @property

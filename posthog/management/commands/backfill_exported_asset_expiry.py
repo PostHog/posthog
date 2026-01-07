@@ -49,8 +49,10 @@ class Command(BaseCommand):
         start_time = time.time()
 
         for asset in queryset.iterator(chunk_size=batch_size):
-            asset.expires_after = ExportedAsset.compute_expires_after(asset.export_format)
+            expiry_datetime = asset.created_at + ExportedAsset.get_expiry_delta(asset.export_format)
+            asset.expires_after = expiry_datetime.replace(hour=0, minute=0, second=0, microsecond=0)
             asset.save(update_fields=["expires_after"])
+
             updated += 1
 
             if updated % batch_size == 0:

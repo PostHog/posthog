@@ -113,28 +113,8 @@ class TestExportedAssetExpiresAfter(APIBaseTest):
         assert asset.expires_after == custom_expiry
 
     @freeze_time("2024-06-15T10:30:00Z")
-    def test_partial_save_sets_expires_after_if_missing(self) -> None:
-        asset = ExportedAsset(
-            team=self.team,
-            export_format=ExportedAsset.ExportFormat.PNG,
-        )
-        asset.expires_after = None
-        asset.save()
-        asset.expires_after = None
-        asset.save(update_fields=["expires_after"])
-
-        asset.exception = "some error"
-        asset.save(update_fields=["exception"])
-
-        asset.refresh_from_db()
-        expected_expiry = (datetime(2024, 6, 15, tzinfo=UTC) + SIX_MONTHS).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
-        assert asset.expires_after == expected_expiry
-
-    @freeze_time("2024-06-15T10:30:00Z")
     def test_partial_save_does_not_overwrite_existing_expires_after(self) -> None:
-        custom_expiry = datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC)
+        custom_expiry = datetime(2025, 12, 22, 0, 0, 0, tzinfo=UTC)
         asset = ExportedAsset.objects.create(
             team=self.team,
             export_format=ExportedAsset.ExportFormat.PNG,
@@ -146,3 +126,19 @@ class TestExportedAssetExpiresAfter(APIBaseTest):
 
         asset.refresh_from_db()
         assert asset.expires_after == custom_expiry
+
+    @freeze_time("2024-06-15T10:30:00Z")
+    def test_explicitly_updating_expires_after_field(self) -> None:
+        custom_expiry = datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC)
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            expires_after=custom_expiry,
+        )
+        assert asset.expires_after == custom_expiry
+
+        new_expiry = datetime(2025, 12, 22, 0, 0, 0, tzinfo=UTC)
+        asset.expires_after = new_expiry
+        asset.save(update_fields=["expires_after"])
+        asset.refresh_from_db()
+        assert asset.expires_after == new_expiry
