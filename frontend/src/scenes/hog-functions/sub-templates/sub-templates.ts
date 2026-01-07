@@ -466,6 +466,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
 
 {event.properties.description}
 
+**Current:** {event.properties.current_bucket_value} errors (baseline: {event.properties.computed_baseline})
 **View issue:** {project.url}/error_tracking/{event.distinct_id}
 **Project:** {project.name}`,
                 },
@@ -479,15 +480,21 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             inputs: {
                 blocks: {
                     value: [
-                        { type: 'header', text: { type: 'plain_text', text: '📈 {event.properties.name}' } },
-                        { type: 'section', text: { type: 'plain_text', text: 'Issue is spiking' } },
+                        { type: 'header', text: { type: 'plain_text', text: '📈 Issue is spiking' } },
                         {
                             type: 'section',
-                            text: { type: 'mrkdwn', text: '```{substring(event.properties.description, 1, 150)}```' },
+                            text: {
+                                type: 'mrkdwn',
+                                text: '```{event.properties.name}: {substring(event.properties.description, 1, 150)}```',
+                            },
                         },
                         {
                             type: 'context',
                             elements: [
+                                {
+                                    type: 'plain_text',
+                                    text: 'Current: {event.properties.current_bucket_value} errors (baseline: {event.properties.computed_baseline})',
+                                },
                                 { type: 'mrkdwn', text: 'Project: <{project.url}|{project.name}>' },
                                 { type: 'mrkdwn', text: 'Alert: <{source.url}|{source.name}>' },
                             ],
