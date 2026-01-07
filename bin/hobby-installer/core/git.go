@@ -120,7 +120,7 @@ func GetCurrentCommit() (string, error) {
 }
 
 func CopyComposeFiles(version string) error {
-	os.Remove("docker-compose.yml")
+	_ = os.Remove("docker-compose.yml") // Ignore error if file doesn't exist
 
 	if err := copyFile("posthog/docker-compose.base.yml", "docker-compose.base.yml"); err != nil {
 		return err

@@ -81,8 +81,9 @@ func GetDockerComposeCommand() (string, []string) {
 func DockerComposeStop() error {
 	cmd, args := GetDockerComposeCommand()
 	fullArgs := append(args, "-f", "docker-compose.yml", "stop")
-	RunCommand(cmd, fullArgs...)
-	return nil
+
+	_, err := RunCommand(cmd, fullArgs...)
+	return err
 }
 
 func DockerComposeDown() error {
@@ -159,7 +160,7 @@ func WaitForHealth(timeout time.Duration) error {
 		attempt++
 		resp, err := client.Get("http://localhost/_health")
 		if err == nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			if resp.StatusCode == 200 {
 				logger.WriteString("PostHog is healthy!\n")
 				return nil

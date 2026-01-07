@@ -41,6 +41,6 @@ func sendEvent(domain, eventName string) {
 
 func CloseTelemetry() {
 	if client != nil {
-		client.Close()
+		_ = client.Close()
 	}
 }

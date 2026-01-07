@@ -1,0 +1,52 @@
+name: Hobby Installer
+
+on:
+    pull_request:
+        paths:
+            - '.github/workflows/ci-hobby-installer.yml'
+            - 'bin/hobby-installer/**'
+
+jobs:
+    lint-and-test:
+        runs-on: ubuntu-24.04
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Set up Go
+              uses: actions/setup-go@v6
+              with:
+                  go-version: '1.24'
+
+            - name: Run golangci-lint
+              uses: golangci/golangci-lint-action@v6
+              with:
+                  version: latest
+                  working-directory: bin/hobby-installer
+                  args: --timeout=5m
+
+            - name: Run tests
+              run: cd bin/hobby-installer && make test
+
+    build:
+        runs-on: ${{ matrix.runner }}
+        strategy:
+            matrix:
+                include:
+                    - runner: ubuntu-24.04
+                      arch: amd64
+                    - runner: ubuntu-24.04-arm
+                      arch: arm64
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Set up Go
+              uses: actions/setup-go@v6
+              with:
+                  go-version: '1.24'
+
+            - name: Build
+              run: cd bin/hobby-installer && make build

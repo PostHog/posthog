@@ -77,7 +77,7 @@ func BackupPostgres12() (string, error) {
 		return "", err
 	}
 	if info.Size() < 1000 {
-		os.Remove(backupFile)
+		_ = os.Remove(backupFile)
 		return "", fmt.Errorf("backup file too small (%d bytes)", info.Size())
 	}
 
@@ -89,9 +89,8 @@ func MigratePostgres12To15(backupFile string) error {
 		return fmt.Errorf("failed to stop stack: %w", err)
 	}
 
-	if err := DockerVolumeRemove("postgres-data"); err != nil {
-		// Ignore error, volume might not exist
-	}
+	// Ignore error, volume might not exist
+	_ = DockerVolumeRemove("postgres-data")
 
 	return nil
 }
@@ -109,7 +108,7 @@ func RestorePostgres15(backupFile string) error {
 
 	cmd, args := GetDockerComposeCommand()
 	fullArgs := append(args, "exec", "-T", "db", "psql", "-U", "posthog", "-c", "ALTER USER posthog WITH PASSWORD 'posthog';")
-	RunCommand(cmd, fullArgs...)
+	_, _ = RunCommand(cmd, fullArgs...) // Best-effort password reset
 
 	return nil
 }

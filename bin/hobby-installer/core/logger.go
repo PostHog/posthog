@@ -40,7 +40,7 @@ func (l *LogBuffer) Write(p []byte) (n int, err error) {
 }
 
 func (l *LogBuffer) WriteString(s string) {
-	io.WriteString(l, s)
+	_, _ = io.WriteString(l, s)
 }
 
 func (l *LogBuffer) GetLines(n int) []string {
