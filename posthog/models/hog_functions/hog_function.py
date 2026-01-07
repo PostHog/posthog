@@ -279,7 +279,32 @@ def enabled_default_hog_functions_for_new_team(sender, instance: Team, created: 
 
     # New way: Create GeoIP transformation from template
     from posthog.api.hog_function import HogFunctionSerializer
+    from posthog.cdp.templates.hog_function_template import sync_template_to_db
     from posthog.models.hog_function_template import HogFunctionTemplate
+    from posthog.plugins.plugin_server_api import get_hog_function_templates
+
+    # try and get the geoip template from db (might not exist yet, e.g. for local dev & hobby deploy)
+    template = HogFunctionTemplate.get_template("template-geoip")
+    # if it does not exist sync it to the db
+    if not template:
+        logger.info("GeoIP template not found in DB, attempting to sync")
+        try:
+            # gets templates from node-land (including geo-ip)
+            response = get_hog_function_templates()
+            if response.status_code == 200:
+                templates = response.json()
+                for template_data in templates:
+                    if template_data.get("id") == "template-geoip":
+                        # sync template to db
+                        template = sync_template_to_db(template_data)
+                        break
+        except Exception as e:
+            logger.exception(
+                "Failed to sync GeoIP template from Node.js",
+                team_id=instance.id,
+                error=str(e),
+            )
+            return
 
     template = HogFunctionTemplate.get_template("template-geoip")
 
@@ -310,10 +335,20 @@ def enabled_default_hog_functions_for_new_team(sender, instance: Team, created: 
         )
 
         if serializer.is_valid():
-            serializer.save()
+            hog_function = serializer.save()
+            logger.info(
+                "Successfully created GeoIP transformation for new team",
+                team_id=instance.id,
+                hog_function_id=hog_function.id,
+            )
         else:
             logger.error(
                 "Failed to create default GeoIP transformation during team creation",
                 team_id=instance.id,
                 errors=serializer.errors,
             )
+    else:
+        logger.warning(
+            "GeoIP template not found, skipping automatic creation",
+            team_id=instance.id,
+        )
