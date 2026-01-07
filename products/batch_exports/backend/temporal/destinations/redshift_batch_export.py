@@ -1295,10 +1295,15 @@ async def upload_manifest_file(
 
         manifest = {"entries": entries}
 
+        optional_kwargs = {}
+        if endpoint_url is None:
+            optional_kwargs["ChecksumAlgorithm"] = "CRC64NVME"
+
         await client.put_object(
             Bucket=bucket,
             Key=manifest_key,
             Body=json.dumps(manifest),
+            **optional_kwargs,  # type: ignore
         )
 
 
