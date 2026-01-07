@@ -79,23 +79,41 @@ export const normalizeTraceProperties = (event: EventWithProperties): EventWithP
     return event
 }
 
+const setPropertyIfValidOrMissing = (props: Properties, key: string, value: number): void => {
+    const existing = props[key]
+    if (existing === null || existing === undefined || !isBigDecimalInput(existing)) {
+        props[key] = value
+    }
+}
+
 const setCostsOnEvent = (event: EventWithProperties, cost: ResolvedModelCost): void => {
     const inputCost = calculateInputCost(event, cost)
     const outputCost = calculateOutputCost(event, cost)
     const requestCost = calculateRequestCost(event, cost)
     const webSearchCost = calculateWebSearchCost(event, cost)
 
-    event.properties['$ai_input_cost_usd'] = parseFloat(inputCost)
-    event.properties['$ai_output_cost_usd'] = parseFloat(outputCost)
-    event.properties['$ai_request_cost_usd'] = parseFloat(requestCost)
-    event.properties['$ai_web_search_cost_usd'] = parseFloat(webSearchCost)
+    setPropertyIfValidOrMissing(event.properties, '$ai_input_cost_usd', parseFloat(inputCost))
+    setPropertyIfValidOrMissing(event.properties, '$ai_output_cost_usd', parseFloat(outputCost))
+    setPropertyIfValidOrMissing(event.properties, '$ai_request_cost_usd', parseFloat(requestCost))
+    setPropertyIfValidOrMissing(event.properties, '$ai_web_search_cost_usd', parseFloat(webSearchCost))
 
-    // Sum all cost components for total using strings (BigDecimal returns strings)
-    let total = bigDecimal.add(inputCost, outputCost)
-    total = bigDecimal.add(total, requestCost)
-    total = bigDecimal.add(total, webSearchCost)
+    const existingTotal = event.properties['$ai_total_cost_usd']
+    if (existingTotal !== null && existingTotal !== undefined && isBigDecimalInput(existingTotal)) {
+        return
+    }
 
-    event.properties['$ai_total_cost_usd'] = parseFloat(total)
+    event.properties['$ai_total_cost_usd'] = parseFloat(
+        bigDecimal.add(
+            bigDecimal.add(
+                String(event.properties['$ai_input_cost_usd']),
+                String(event.properties['$ai_output_cost_usd'])
+            ),
+            bigDecimal.add(
+                String(event.properties['$ai_request_cost_usd']),
+                String(event.properties['$ai_web_search_cost_usd'])
+            )
+        )
+    )
 }
 
 const processCost = (event: EventWithProperties): EventWithProperties => {
