@@ -181,11 +181,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             ? [
                   {
                       identifier: 'ai',
-                      label: 'Posthog AI',
+                      label: 'PostHog AI',
                       icon: <IconSparkles />,
                       to: urls.ai(),
                       onClick: () => handleStaticNavbarItemClick(urls.ai(), true),
-                      collapsedTooltip: 'Posthog AI',
+                      collapsedTooltip: 'PostHog AI',
                   },
               ]
             : []),
