@@ -328,7 +328,6 @@ export function OverViewTab({
                               <FeatureFlagEvaluationTags
                                   tags={tags}
                                   evaluationTags={featureFlag.evaluation_tags || []}
-                                  staticOnly
                                   flagId={featureFlag.id}
                                   context="static"
                               />

@@ -1310,7 +1310,6 @@ function FeatureFlagRollout({
                                                         <FeatureFlagEvaluationTags
                                                             tags={featureFlag.tags}
                                                             evaluationTags={featureFlag.evaluation_tags || []}
-                                                            staticOnly
                                                             flagId={featureFlag.id}
                                                             context="static"
                                                         />
@@ -1698,7 +1697,6 @@ function FeatureFlagRollout({
                                         <FeatureFlagEvaluationTags
                                             tags={featureFlag.tags}
                                             evaluationTags={featureFlag.evaluation_tags || []}
-                                            staticOnly
                                             flagId={featureFlag.id}
                                             context="static"
                                         />

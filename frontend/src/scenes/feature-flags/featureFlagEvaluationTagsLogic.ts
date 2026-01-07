@@ -66,7 +66,7 @@ export const featureFlagEvaluationTagsLogic = kea<featureFlagEvaluationTagsLogic
     listeners(({ props, values }) => ({
         saveTagsAndEvaluationTags: () => {
             const { flagId } = props
-            if (flagId) {
+            if (typeof flagId === 'number') {
                 featureFlagLogic({ id: flagId }).actions.saveFeatureFlag({
                     tags: values.localTags,
                     evaluation_tags: values.localEvaluationTags,
