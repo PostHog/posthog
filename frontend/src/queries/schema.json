@@ -33971,6 +33971,24 @@
             "required": ["results"],
             "type": "object"
         },
+        "WebsiteBrowsingHistoryProdInterest": {
+            "enum": [
+                "product-analytics",
+                "web-analytics",
+                "session-replay",
+                "feature-flags",
+                "experiments",
+                "error-tracking",
+                "surveys",
+                "data-warehouse",
+                "llm-analytics",
+                "revenue-analytics",
+                "workflows",
+                "logs",
+                "endpoints"
+            ],
+            "type": "string"
+        },
         "YAxisSettings": {
             "additionalProperties": false,
             "properties": {
