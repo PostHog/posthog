@@ -90,7 +90,6 @@ class TestExportedAssetExpiresAfter(APIBaseTest):
             (ExportedAsset.ExportFormat.JSON, SIX_MONTHS),
         ]
     )
-    )
     @freeze_time("2024-06-15T10:30:00Z")
     def test_auto_sets_expires_after_based_on_format(self, export_format: str, expected_delta: timedelta) -> None:
         asset = ExportedAsset.objects.create(
