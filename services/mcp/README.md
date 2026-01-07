@@ -189,6 +189,43 @@ The MCP server is hosted on a Cloudflare worker which can be located outside of 
 
 If you're using a self-hosted instance of PostHog, you can specify a custom base URL by adding the `POSTHOG_BASE_URL` [environment variable](https://developers.cloudflare.com/workers/configuration/environment-variables) when running the MCP server locally or on your own infrastructure, e.g. `POSTHOG_BASE_URL=https://posthog.example.com`
 
+## MCP Registry
+
+The PostHog MCP Server is published to the [MCP Registry](https://registry.modelcontextprotocol.io) and is discoverable via the [GitHub MCP Registry](https://github.com/mcp).
+
+- **Registry name**: `io.github.PostHog/mcp`
+- **Search**: https://registry.modelcontextprotocol.io/v0.1/servers?search=posthog
+
+### Publishing / Updating the Registry Entry
+
+To update the registry entry (e.g., after releasing a new version), a PostHog GitHub org member needs to:
+
+1. **Update `server.json`**: Bump the version and update any other fields as needed.
+
+2. **Install mcp-publisher** (if not already installed):
+
+   ```bash
+   # macOS/Linux
+   curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher && sudo mv mcp-publisher /usr/local/bin/
+
+   # Or via Homebrew
+   brew install mcp-publisher
+   ```
+
+3. **Authenticate with GitHub** (org membership must be public):
+
+   ```bash
+   mcp-publisher login github
+   ```
+
+4. **Publish the update**:
+
+   ```bash
+   mcp-publisher publish server.json
+   ```
+
+> **Note**: Your PostHog org membership must be [set to public](https://docs.github.com/en/account-and-profile/setting-up-and-managing-your-personal-account-on-github/managing-your-membership-in-organizations/publicizing-or-hiding-organization-membership) for the publisher to recognize your permissions for the `io.github.PostHog/*` namespace.
+
 # Development
 
 To run the MCP server locally, run the following command:
