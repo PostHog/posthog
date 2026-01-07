@@ -1,6 +1,6 @@
 import { Redis } from 'ioredis'
 
-import { RedisPool } from '../../../../types'
+import { RedisPool } from '../../types'
 import { SessionBatchMetrics } from './metrics'
 import { SessionTracker } from './session-tracker'
 
