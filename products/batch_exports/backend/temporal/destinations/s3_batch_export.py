@@ -726,7 +726,11 @@ class ConcurrentS3Consumer(Consumer):
                         else:
                             raise
 
-            part_info: CompletedPartTypeDef = {"ETag": response["ETag"], "PartNumber": part_number}
+            part_info: CompletedPartTypeDef = {
+                "ETag": response["ETag"],
+                "ChecksumCRC64NVME": response["ChecksumCRC64NVME"],
+                "PartNumber": part_number,
+            }
 
             # Store completed part info
             self.completed_parts[part_number] = part_info
