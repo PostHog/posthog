@@ -10,6 +10,10 @@ use uuid::Uuid;
 
 use crate::app_context::AppContext;
 use crate::issue_resolution::Issue;
+use crate::metric_consts::{
+    SPIKE_ACQUIRE_LOCKS_TIME, SPIKE_EMIT_EVENTS_TIME, SPIKE_GET_SPIKING_ISSUES_TIME,
+    SPIKE_INCREMENT_ISSUE_BUCKETS_TIME, SPIKE_INCREMENT_TEAM_BUCKETS_TIME,
+};
 
 const ISSUE_BUCKET_TTL_SECONDS: usize = 60 * 60;
 const ISSUE_BUCKET_INTERVAL_MINUTES: i64 = 5;
@@ -189,19 +193,27 @@ pub async fn do_spike_detection(
         .filter(|(id, _)| issues_by_id.contains_key(id))
         .collect();
 
+    let issue_buckets_timer = common_metrics::timing_guard(SPIKE_INCREMENT_ISSUE_BUCKETS_TIME, &[]);
     try_increment_issue_buckets(&*context.issue_buckets_redis_client, &issue_counts).await;
+    issue_buckets_timer.fin();
+
+    let team_buckets_timer = common_metrics::timing_guard(SPIKE_INCREMENT_TEAM_BUCKETS_TIME, &[]);
     try_increment_team_buckets(
         &*context.issue_buckets_redis_client,
         &issues_by_id,
         &issue_counts,
     )
     .await;
+    team_buckets_timer.fin();
 
+    let get_spiking_timer = common_metrics::timing_guard(SPIKE_GET_SPIKING_ISSUES_TIME, &[]);
     match get_spiking_issues(&*context.issue_buckets_redis_client, &issues_by_id).await {
         Ok(spiking) => {
+            get_spiking_timer.fin();
             emit_spiking_events(&context, spiking).await;
         }
         Err(err) => {
+            get_spiking_timer.fin();
             warn!("Failed to detect spikes: {err}");
         }
     }
@@ -224,6 +236,7 @@ async fn emit_spiking_events(context: &AppContext, spiking: Vec<SpikingIssue>) {
         return;
     }
 
+    let locks_timer = common_metrics::timing_guard(SPIKE_ACQUIRE_LOCKS_TIME, &[]);
     let cooldown_items: Vec<(String, String)> = spiking
         .iter()
         .map(|s| (cooldown_key(&s.issue.id), "1".to_string()))
@@ -235,6 +248,7 @@ async fn emit_spiking_events(context: &AppContext, spiking: Vec<SpikingIssue>) {
     {
         Ok(results) => results,
         Err(e) => {
+            locks_timer.fin();
             warn!("Failed to acquire spike cooldown locks: {e}");
             return;
         }
@@ -245,11 +259,13 @@ async fn emit_spiking_events(context: &AppContext, spiking: Vec<SpikingIssue>) {
         .zip(lock_results)
         .filter_map(|(spike, acquired)| if acquired { Some(spike) } else { None })
         .collect();
+    locks_timer.fin();
 
     if acquired_locks.is_empty() {
         return;
     }
 
+    let emit_timer = common_metrics::timing_guard(SPIKE_EMIT_EVENTS_TIME, &[]);
     let events: Vec<(Uuid, InternalEvent)> = acquired_locks
         .iter()
         .filter_map(|spike| {
@@ -277,6 +293,7 @@ async fn emit_spiking_events(context: &AppContext, spiking: Vec<SpikingIssue>) {
         .collect();
 
     if events.is_empty() {
+        emit_timer.fin();
         return;
     }
 
@@ -310,6 +327,7 @@ async fn emit_spiking_events(context: &AppContext, spiking: Vec<SpikingIssue>) {
             warn!("Failed to release cooldown locks after Kafka failure: {e}");
         }
     }
+    emit_timer.fin();
 }
 
 fn get_bucket_timestamps() -> Vec<String> {

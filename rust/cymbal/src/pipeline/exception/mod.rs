@@ -17,7 +17,8 @@ use crate::{
     error::{EventError, PipelineFailure, PipelineResult, UnhandledError},
     issue_resolution::{Issue, IssueStatus},
     metric_consts::{
-        ISSUE_PROCESSING_TIME, STACK_PROCESSING_TIME, SUPPRESSED_ISSUE_DROPPED_EVENTS,
+        ISSUE_PROCESSING_TIME, SPIKE_DETECTION_TIME, STACK_PROCESSING_TIME,
+        SUPPRESSED_ISSUE_DROPPED_EVENTS,
     },
     recursively_sanitize_properties,
     types::RawErrProps,
@@ -89,7 +90,9 @@ pub async fn do_exception_handling(
         issues_by_id.entry(issue.id).or_insert(issue);
     }
 
+    let spike_timer = common_metrics::timing_guard(SPIKE_DETECTION_TIME, &[]);
     spike_detection::do_spike_detection(context, issues_by_id, issue_counts).await;
+    spike_timer.fin();
 
     Ok(events)
 }
