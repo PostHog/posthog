@@ -155,6 +155,24 @@ pub async fn do_spike_detection(
         return;
     }
 
+    let allowed_team_ids = parse_enabled_team_ids(&context.config.spike_alert_enabled_team_ids);
+    let issues_by_id: HashMap<Uuid, Issue> = match &allowed_team_ids {
+        Some(ids) => issues_by_id
+            .into_iter()
+            .filter(|(_, issue)| ids.contains(&issue.team_id))
+            .collect(),
+        None => issues_by_id,
+    };
+
+    if issues_by_id.is_empty() {
+        return;
+    }
+
+    let issue_counts: HashMap<Uuid, u32> = issue_counts
+        .into_iter()
+        .filter(|(id, _)| issues_by_id.contains_key(id))
+        .collect();
+
     try_increment_issue_buckets(&*context.issue_buckets_redis_client, &issue_counts).await;
     try_increment_team_buckets(
         &*context.issue_buckets_redis_client,
@@ -163,8 +181,7 @@ pub async fn do_spike_detection(
     )
     .await;
 
-    match get_spiking_issues(&*context.issue_buckets_redis_client, &issues_by_id).await
-    {
+    match get_spiking_issues(&*context.issue_buckets_redis_client, &issues_by_id).await {
         Ok(spiking) => {
             emit_spiking_events(&context, spiking).await;
         }
@@ -187,19 +204,6 @@ fn parse_enabled_team_ids(config_value: &str) -> Option<Vec<i32>> {
 }
 
 async fn emit_spiking_events(context: &AppContext, spiking: Vec<SpikingIssue>) {
-    if spiking.is_empty() {
-        return;
-    }
-
-    let allowed_team_ids = parse_enabled_team_ids(&context.config.spike_alert_enabled_team_ids);
-    let spiking: Vec<SpikingIssue> = match &allowed_team_ids {
-        Some(ids) => spiking
-            .into_iter()
-            .filter(|s| ids.contains(&s.issue.team_id))
-            .collect(),
-        None => spiking,
-    };
-
     if spiking.is_empty() {
         return;
     }
