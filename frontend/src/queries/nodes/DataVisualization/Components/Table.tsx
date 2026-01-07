@@ -2,6 +2,7 @@ import '../../DataTable/DataTable.scss'
 
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
+import React from 'react'
 
 import { IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
@@ -29,6 +30,24 @@ interface TableProps {
 
 export const DEFAULT_PAGE_SIZE = 500
 
+function formatColumnTitle(title: string): React.ReactNode {
+    const parts = title.split(/([_-])/)
+    if (parts.length === 1) {
+        return title
+    }
+    // inserts <wbr> (word break opportunity tag) at dashes and unders for natural break points
+    return parts.map((part, i) =>
+        part === '_' || part === '-' ? (
+            <React.Fragment key={i}>
+                {part}
+                <wbr />
+            </React.Fragment>
+        ) : (
+            part
+        )
+    )
+}
+
 export const Table = (props: TableProps): JSX.Element => {
     const { isDarkModeOn } = useValues(themeLogic)
 
@@ -42,6 +61,7 @@ export const Table = (props: TableProps): JSX.Element => {
         response,
         pinnedColumns,
         isColumnPinned,
+        isPinningEnabled,
     } = useValues(dataVisualizationLogic)
     const { toggleColumnPin } = useActions(dataVisualizationLogic)
 
@@ -51,27 +71,31 @@ export const Table = (props: TableProps): JSX.Element => {
 
             const columnTitle = settings?.display?.label || title || column.name
 
+            const formattedTitle = typeof columnTitle === 'string' ? formatColumnTitle(columnTitle) : columnTitle
+
             return {
                 ...columnMeta,
                 key: column.name,
                 title: (
                     <div className="flex items-center gap-1">
-                        <span>{columnTitle}</span>
-                        <Tooltip title={isColumnPinned(column.name) ? 'Unpin column' : 'Pin column'}>
-                            <span
-                                className="inline-flex items-center justify-center cursor-pointer p-1 -m-1"
-                                onClick={(e) => {
-                                    e.stopPropagation()
-                                    toggleColumnPin(column.name)
-                                }}
-                            >
-                                {isColumnPinned(column.name) ? (
-                                    <IconPinFilled className="text-sm" />
-                                ) : (
-                                    <IconPin className="text-sm" />
-                                )}
-                            </span>
-                        </Tooltip>
+                        <span>{formattedTitle}</span>
+                        {isPinningEnabled && (
+                            <Tooltip title={isColumnPinned(column.name) ? 'Unpin column' : 'Pin column'}>
+                                <span
+                                    className="inline-flex items-center justify-center cursor-pointer p-1 -m-1"
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        toggleColumnPin(column.name)
+                                    }}
+                                >
+                                    {isColumnPinned(column.name) ? (
+                                        <IconPinFilled className="text-sm" />
+                                    ) : (
+                                        <IconPin className="text-sm" />
+                                    )}
+                                </span>
+                            </Tooltip>
+                        )}
                     </div>
                 ),
                 render: (_, data, recordIndex: number, rowCount: number) => {
@@ -146,7 +170,7 @@ export const Table = (props: TableProps): JSX.Element => {
             className="DataVisualizationTable"
             dataSource={tabularData}
             columns={tableColumns}
-            pinnedColumns={pinnedColumns}
+            pinnedColumns={isPinningEnabled ? pinnedColumns : undefined}
             loading={responseLoading}
             pagination={{ pageSize: DEFAULT_PAGE_SIZE }}
             maxHeaderWidth="15rem"

@@ -284,6 +284,7 @@ export enum AccessControlResourceType {
     Survey = 'survey',
     ProductTour = 'product_tour',
     Experiment = 'experiment',
+    ExperimentSavedMetric = 'experiment_saved_metric',
     WebAnalytics = 'web_analytics',
     ActivityLog = 'activity_log',
 }
@@ -588,6 +589,14 @@ export enum ActivationTaskStatus {
     SKIPPED = 'skipped',
 }
 
+export interface ConversationsSettings {
+    widget_enabled?: boolean
+    widget_greeting_text?: string
+    widget_color?: string
+    widget_public_token?: string | null
+    widget_domains?: string[] | null
+}
+
 export interface TeamType extends TeamBasicType {
     created_at: string
     updated_at: string
@@ -622,6 +631,8 @@ export interface TeamType extends TeamBasicType {
     session_recording_trigger_match_type_config?: 'all' | 'any' | null
     surveys_opt_in?: boolean
     heatmaps_opt_in?: boolean
+    conversations_enabled?: boolean
+    conversations_settings?: ConversationsSettings | null
     web_analytics_pre_aggregated_tables_enabled?: boolean
     web_analytics_pre_aggregated_tables_version?: 'v1' | 'v2'
     autocapture_exceptions_errors_to_ignore: string[]
@@ -1166,6 +1177,7 @@ export enum SessionRecordingSidebarTab {
     SESSION_SUMMARY = 'ai-summary',
     INSPECTOR = 'inspector',
     NETWORK_WATERFALL = 'network-waterfall',
+    LINKED_ISSUES = 'linked-issues',
 }
 
 export enum SessionRecordingSidebarStacking {
@@ -1271,7 +1283,7 @@ export type ErrorCluster = {
 }
 export type ErrorClusterResponse = ErrorCluster[] | null
 
-export type EntityType = 'actions' | 'events' | 'data_warehouse' | 'new_entity'
+export type EntityType = 'actions' | 'events' | 'data_warehouse' | 'new_entity' | 'groups'
 
 export interface Entity {
     id: string | number
@@ -1285,6 +1297,7 @@ export enum EntityTypes {
     ACTIONS = 'actions',
     EVENTS = 'events',
     DATA_WAREHOUSE = 'data_warehouse',
+    GROUPS = 'groups',
 }
 
 export type EntityFilter = {
@@ -1306,7 +1319,11 @@ export interface ActionFilter extends EntityFilter {
     properties?: AnyPropertyFilter[]
     type: EntityType
     days?: string[] // TODO: why was this added here?
+    operator?: FilterLogicalOperator | null
+    nestedFilters?: EntityFilter[] | null
 }
+
+export const isGroupFilter = (filter: EntityFilter): filter is ActionFilter => filter.type === EntityTypes.GROUPS
 
 export interface DataWarehouseFilter extends ActionFilter {
     id_field: string
@@ -1652,6 +1669,18 @@ export interface SessionRecordingSegmentType {
     is_active: boolean
 }
 
+export interface SessionRecordingExternalReference {
+    id: string
+    integration: {
+        id: number
+        kind: IntegrationKind
+        display_name: string
+    }
+    external_url: string
+    title: string
+    issue_id: string
+}
+
 export interface SessionRecordingType {
     id: string
     /** Whether this recording has been viewed by you already. */
@@ -1695,6 +1724,8 @@ export interface SessionRecordingType {
     expiry_time?: string
     /** Number of whole days left until the recording expires. */
     recording_ttl?: number
+    /** External references to third party issues. */
+    external_references?: SessionRecordingExternalReference[]
 }
 
 export interface SessionRecordingUpdateType {
@@ -2592,6 +2623,7 @@ export interface FilterType {
     actions?: Record<string, any>[]
     data_warehouse?: Record<string, any>[]
     new_entity?: Record<string, any>[]
+    groups?: Record<string, any>[]
 
     // persons modal
     entity_id?: string | number
@@ -3271,6 +3303,17 @@ export type ProductTourProgressionTriggerType = 'button' | 'click'
 
 export type ProductTourStepType = 'element' | 'modal' | 'survey'
 
+/** Preset width options for product tour tooltips */
+export type ProductTourStepWidth = 'compact' | 'default' | 'wide' | 'extra-wide'
+
+/** Width values in pixels for each preset */
+export const PRODUCT_TOUR_STEP_WIDTHS: Record<ProductTourStepWidth, number> = {
+    compact: 280,
+    default: 360,
+    wide: 480,
+    'extra-wide': 700,
+}
+
 export interface ProductTourStep {
     id: string
     type: ProductTourStepType
@@ -3285,6 +3328,8 @@ export interface ProductTourStep {
     linkedSurveyId?: string
     /** how this step progresses, e.g. next button or click trigger */
     progressionTrigger?: ProductTourProgressionTriggerType
+    /** Custom width for the tooltip - can be a preset name or pixel value */
+    maxWidth?: ProductTourStepWidth | number
 }
 
 /** Tracks a snapshot of steps at a point in time for funnel analysis */
@@ -3588,6 +3633,11 @@ export enum FeatureFlagEvaluationRuntime {
     ALL = 'all',
 }
 
+export enum FeatureFlagBucketingIdentifier {
+    DISTINCT_ID = 'distinct_id',
+    DEVICE_ID = 'device_id',
+}
+
 export interface FeatureFlagFilters {
     groups: FeatureFlagGroupType[]
     multivariate?: MultivariateFlagOptions | null
@@ -3631,6 +3681,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     status: 'ACTIVE' | 'INACTIVE' | 'STALE' | 'DELETED' | 'UNKNOWN'
     _create_in_folder?: string | null
     evaluation_runtime: FeatureFlagEvaluationRuntime
+    bucketing_identifier?: FeatureFlagBucketingIdentifier | null
     _should_create_usage_dashboard?: boolean
     last_called_at?: string | null
 }
@@ -4737,6 +4788,7 @@ export type APIScopeObject =
     | 'annotation'
     | 'batch_export'
     | 'cohort'
+    | 'customer_profile_config'
     | 'dashboard'
     | 'dashboard_template'
     | 'dataset'
@@ -4747,6 +4799,7 @@ export type APIScopeObject =
     | 'evaluation'
     | 'event_definition'
     | 'experiment'
+    | 'experiment_saved_metric'
     | 'export'
     | 'feature_flag'
     | 'group'
@@ -4775,6 +4828,7 @@ export type APIScopeObject =
     | 'subscription'
     | 'survey'
     | 'task'
+    | 'ticket'
     | 'user'
     | 'warehouse_table'
     | 'warehouse_view'
@@ -4912,6 +4966,7 @@ export enum ActivityScope {
     HEATMAP = 'Heatmap',
     USER = 'User',
     LLM_TRACE = 'LLMTrace',
+    LOG = 'Log',
 }
 
 export type CommentType = {
@@ -6413,6 +6468,25 @@ export interface ChangeRequest {
     user_decision: string | null
 }
 
+export enum CustomerProfileScope {
+    PERSON = 'person',
+    GROUP_0 = 'group_0',
+    GROUP_1 = 'group_1',
+    GROUP_2 = 'group_2',
+    GROUP_3 = 'group_3',
+    GROUP_4 = 'group_4',
+}
+
+export interface CustomerProfileConfigType {
+    id: string
+    team: number
+    content: Record<string, any>
+    sidebar: Record<string, any>
+    scope: CustomerProfileScope
+    created_at: string
+    updated_at: string
+}
+
 export interface ApprovalPolicy {
     id: string
     action_key: string
@@ -6425,4 +6499,31 @@ export interface ApprovalPolicy {
     created_by: UserBasicType
     created_at: string
     updated_at: string
+}
+
+export interface WebAnalyticsFiltersConfig {
+    properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[]
+    dateFrom?: string | null
+    dateTo?: string | null
+    interval?: IntervalType
+    compareFilter?: { compare?: boolean; compare_to?: string | null }
+    domainFilter?: string | null
+    deviceTypeFilter?: string | null
+    conversionGoal?: { actionId?: number; customEventName?: string } | null
+    isPathCleaningEnabled?: boolean
+    shouldFilterTestAccounts?: boolean
+}
+
+export interface WebAnalyticsFilterPresetType {
+    id: number
+    short_id: string
+    name: string
+    description: string
+    pinned: boolean
+    deleted: boolean
+    filters: WebAnalyticsFiltersConfig
+    created_at: string
+    created_by: UserBasicType | null
+    last_modified_at: string
+    last_modified_by: UserBasicType | null
 }
