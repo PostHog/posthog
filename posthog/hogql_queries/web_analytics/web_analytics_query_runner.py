@@ -251,6 +251,24 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
 
         return expr
 
+    @cached_property
+    def session_expansion_enabled(self) -> bool:
+        expansion_enabled = self.team.web_analytics_session_expansion_enabled
+        # Default to True (current behavior) if not explicitly set
+        return expansion_enabled is None or expansion_enabled is True
+
+    @cached_property
+    def start_timestamp_expr(self) -> str:
+        """Returns the SQL expression for start_timestamp based on session expansion setting.
+
+        When expansion is enabled (default): uses session.$start_timestamp (session-centric)
+        When expansion is disabled: uses events.timestamp (event-centric, matches Product Analytics)
+        """
+        if self.session_expansion_enabled:
+            return "min(session.$start_timestamp)"
+        else:
+            return "min(events.timestamp)"
+
     def session_where(self, include_previous_period: Optional[bool] = None):
         properties = [
             parse_expr(

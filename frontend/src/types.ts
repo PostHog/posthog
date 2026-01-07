@@ -635,6 +635,7 @@ export interface TeamType extends TeamBasicType {
     conversations_settings?: ConversationsSettings | null
     web_analytics_pre_aggregated_tables_enabled?: boolean
     web_analytics_pre_aggregated_tables_version?: 'v1' | 'v2'
+    web_analytics_session_expansion_enabled?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
     test_account_filters: AnyPropertyFilter[]
     test_account_filters_default_checked: boolean

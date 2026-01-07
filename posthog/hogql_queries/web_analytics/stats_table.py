@@ -164,6 +164,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                     "current_period": self._current_period_expression(),
                     "previous_period": self._previous_period_expression(),
                     "inside_periods": self._periods_expression(),
+                    "start_timestamp_expr": parse_expr(self.start_timestamp_expr),
                 },
             )
         assert isinstance(query, ast.SelectQuery)
@@ -196,6 +197,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                     "current_period": self._current_period_expression(),
                     "previous_period": self._previous_period_expression(),
                     "inside_periods": self._periods_expression(),
+                    "start_timestamp_expr": parse_expr(self.start_timestamp_expr),
                 },
             )
         assert isinstance(query, ast.SelectQuery)
@@ -228,6 +230,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                     "current_period": self._current_period_expression(),
                     "previous_period": self._previous_period_expression(),
                     "inside_periods": self._periods_expression(),
+                    "start_timestamp_expr": parse_expr(self.start_timestamp_expr),
                 },
             )
         assert isinstance(query, ast.SelectQuery)
@@ -274,6 +277,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                 "all_properties": self._all_properties(),
                 "where_breakdown": self.where_breakdown(),
                 "inside_periods": self._periods_expression(),
+                "start_timestamp_expr": parse_expr(self.start_timestamp_expr),
             },
         )
 
@@ -319,6 +323,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                 "all_properties": self._all_properties(),
                 "where_breakdown": self.where_breakdown(),
                 "inside_periods": self._periods_expression(),
+                "start_timestamp_expr": parse_expr(self.start_timestamp_expr),
             },
         )
 

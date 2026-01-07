@@ -191,6 +191,7 @@ TEAM_CONFIG_FIELDS = (
     "onboarding_tasks",
     "base_currency",
     "web_analytics_pre_aggregated_tables_enabled",
+    "web_analytics_session_expansion_enabled",
     "experiment_recalculation_time",
     "receive_org_level_activity_logs",
     "business_model",

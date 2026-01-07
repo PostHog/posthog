@@ -27,6 +27,7 @@ import { PreAggregatedTablesSetting } from 'scenes/settings/environment/PreAggre
 import { ReplayTriggers } from 'scenes/settings/environment/ReplayTriggers'
 import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
 import { SessionsV2JoinModeSettings } from 'scenes/settings/environment/SessionsV2JoinModeSettings'
+import { WebAnalyticsSessionExpansionSettings } from 'scenes/settings/environment/WebAnalyticsSessionExpansionSettings'
 import { urls } from 'scenes/urls'
 
 import { RolesAccessControls } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAccessControls'
@@ -401,6 +402,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'New query engine',
                 component: <WebAnalyticsEnablePreAggregatedTables />,
                 flag: 'WEB_ANALYTICS_API',
+            },
+            {
+                id: 'web-analytics-session-expansion',
+                title: 'Session expansion',
+                component: <WebAnalyticsSessionExpansionSettings />,
             },
         ],
     },

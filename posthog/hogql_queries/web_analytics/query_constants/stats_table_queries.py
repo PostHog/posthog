@@ -17,7 +17,7 @@ FROM (
             count() AS filtered_pageview_count,
             {breakdown_value} AS breakdown_value,
             session.session_id AS session_id,
-            min(session.$start_timestamp) AS start_timestamp
+            {start_timestamp_expr} AS start_timestamp
         FROM events
         WHERE and(
             or(events.event == '$pageview', events.event == '$screen'),
@@ -40,7 +40,7 @@ LEFT JOIN (
             {bounce_breakdown_value} AS breakdown_value, -- use $entry_pathname to find the bounce rate for sessions that started on this pathname
             any(session.`$is_bounce`) AS is_bounce,
             session.session_id AS session_id,
-            min(session.$start_timestamp) AS start_timestamp
+            {start_timestamp_expr} AS start_timestamp
         FROM events
         WHERE and(
             or(events.event == '$pageview', events.event == '$screen'),
@@ -77,7 +77,7 @@ FROM (
             count() AS filtered_pageview_count,
             {breakdown_value} AS breakdown_value,
             session.session_id AS session_id,
-            min(session.$start_timestamp ) AS start_timestamp
+            {start_timestamp_expr} AS start_timestamp
         FROM events
         WHERE and(
             or(events.event == '$pageview', events.event == '$screen'),
@@ -100,7 +100,7 @@ LEFT JOIN (
             {bounce_breakdown_value} AS breakdown_value, -- use $entry_pathname to find the bounce rate for sessions that started on this pathname
             any(session.`$is_bounce`) AS is_bounce,
             session.session_id AS session_id,
-            min(session.$start_timestamp) as start_timestamp
+            {start_timestamp_expr} as start_timestamp
         FROM events
         WHERE and(
             or(events.event == '$pageview', events.event == '$screen'),
@@ -132,7 +132,7 @@ LEFT JOIN (
             ) AS scroll_gt80_percentage_state,
             avgState(toFloat(events.properties.`$prev_pageview_max_scroll_percentage`)) as average_scroll_percentage_state,
             session.session_id AS session_id,
-            min(session.$start_timestamp) AS start_timestamp
+            {start_timestamp_expr} AS start_timestamp
         FROM events
         WHERE and(
             or(events.event == '$pageview', events.event == '$pageleave', events.event == '$screen'),
@@ -178,7 +178,7 @@ FROM (
             count() AS filtered_pageview_count,
             {breakdown_value} AS breakdown_value,
             session.session_id AS session_id,
-            min(session.$start_timestamp) AS start_timestamp
+            {start_timestamp_expr} AS start_timestamp
         FROM events
         WHERE and(
             or(events.event = '$pageview', events.event = '$screen'),
@@ -205,7 +205,7 @@ LEFT JOIN (
             {time_on_page_breakdown_value} AS breakdown_value,
             avg(toFloat(events.properties.`$prev_pageview_duration`)) AS avg_time,
             session.session_id AS session_id,
-            min(session.$start_timestamp) AS start_timestamp
+            {start_timestamp_expr} AS start_timestamp
         FROM events
         WHERE and(
             or(events.event = '$pageview', events.event = '$pageleave', events.event = '$screen'),
@@ -233,7 +233,7 @@ LEFT JOIN (
             {bounce_breakdown_value} AS breakdown_value,
             any(session.`$is_bounce`) AS is_bounce,
             session.session_id AS session_id,
-            min(session.$start_timestamp) AS start_timestamp
+            {start_timestamp_expr} AS start_timestamp
         FROM events
         WHERE and(
             or(events.event = '$pageview', events.event = '$screen'),
@@ -258,7 +258,7 @@ SELECT
     countIf(events.event = '$rageclick') AS rage_clicks_count,
     countIf(events.event = '$dead_click') AS dead_clicks_count,
     session.session_id AS session_id,
-    min(session.$start_timestamp) as start_timestamp
+    {start_timestamp_expr} as start_timestamp
 FROM events
 WHERE and({inside_periods}, {event_where}, {all_properties}, {where_breakdown})
 GROUP BY session_id, breakdown_value
@@ -271,7 +271,7 @@ SELECT
     {breakdown_value} AS breakdown_value,
     session.session_id AS session_id,
     any(session.$is_bounce) AS is_bounce,
-    min(session.$start_timestamp) as start_timestamp
+    {start_timestamp_expr} as start_timestamp
 FROM events
 WHERE and({inside_periods}, {event_where}, {all_properties}, {where_breakdown})
 GROUP BY session_id, breakdown_value

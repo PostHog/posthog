@@ -154,21 +154,25 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
 
     @cached_property
     def inner_select(self) -> ast.SelectQuery:
+        # Use session.$start_timestamp when expansion is enabled (default),
+        # or events.timestamp when disabled (for Product Analytics parity)
+        start_timestamp_sql = self.start_timestamp_expr
+
         parsed_select = parse_select(
-            """
+            f"""
 SELECT
     any(events.person_id) as session_person_id,
     session.session_id as session_id,
-    min(session.$start_timestamp) as start_timestamp
+    {start_timestamp_sql} as start_timestamp
 FROM events
 WHERE and(
-    {events_session_id} IS NOT NULL,
-    {event_type_expr},
-    {inside_timestamp_period},
-    {all_properties},
+    {{events_session_id}} IS NOT NULL,
+    {{event_type_expr}},
+    {{inside_timestamp_period}},
+    {{all_properties}},
 )
 GROUP BY session_id
-HAVING {inside_start_timestamp_period}
+HAVING {{inside_start_timestamp_period}}
         """,
             placeholders={
                 "all_properties": self.all_properties(),
