@@ -1,4 +1,3 @@
-import os
 import re
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
@@ -60,8 +59,9 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils_cors import cors_response
 
+from products.surveys.backend.summarization import fetch_responses, format_as_markdown, summarize_responses
+
 from ee.surveys.summaries.headline_summary import generate_survey_headline
-from ee.surveys.summaries.summarize_surveys import summarize_survey_responses
 
 # Constants for better maintainability
 logger = structlog.get_logger(__name__)
@@ -778,28 +778,66 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if instance.iteration_count is not None and instance.iteration_count > 0:
             survey_key = f"{instance.id}/{instance.current_iteration or 1}"
 
-        user_submitted_dismissed_filter = {
-            "groups": [
-                {
-                    "variant": "",
-                    "rollout_percentage": 100,
-                    "properties": [
-                        {
-                            "key": f"{SurveyEventProperties.SURVEY_DISMISSED}/{survey_key}",
-                            "value": "is_not_set",
-                            "operator": "is_not_set",
-                            "type": "person",
-                        },
-                        {
-                            "key": f"{SurveyEventProperties.SURVEY_RESPONDED}/{survey_key}",
-                            "value": "is_not_set",
-                            "operator": "is_not_set",
-                            "type": "person",
-                        },
-                    ],
-                }
-            ]
-        }
+        base_properties = [
+            {
+                "key": f"{SurveyEventProperties.SURVEY_DISMISSED}/{survey_key}",
+                "value": "is_not_set",
+                "operator": "is_not_set",
+                "type": "person",
+            },
+            {
+                "key": f"{SurveyEventProperties.SURVEY_RESPONDED}/{survey_key}",
+                "value": "is_not_set",
+                "operator": "is_not_set",
+                "type": "person",
+            },
+        ]
+
+        wait_period_days = None
+        if instance.conditions and isinstance(instance.conditions, dict):
+            wait_period_days = instance.conditions.get("seenSurveyWaitPeriodInDays")
+
+        if wait_period_days is not None and wait_period_days > 0:
+            user_submitted_dismissed_filter = {
+                "groups": [
+                    {
+                        "variant": "",
+                        "rollout_percentage": 100,
+                        "properties": [
+                            *base_properties,
+                            {
+                                "key": SurveyEventProperties.SURVEY_LAST_SEEN_DATE,
+                                "value": "is_not_set",
+                                "operator": "is_not_set",
+                                "type": "person",
+                            },
+                        ],
+                    },
+                    {
+                        "variant": "",
+                        "rollout_percentage": 100,
+                        "properties": [
+                            *base_properties,
+                            {
+                                "key": SurveyEventProperties.SURVEY_LAST_SEEN_DATE,
+                                "value": f"{int(wait_period_days)}d",
+                                "operator": "is_date_before",
+                                "type": "person",
+                            },
+                        ],
+                    },
+                ]
+            }
+        else:
+            user_submitted_dismissed_filter = {
+                "groups": [
+                    {
+                        "variant": "",
+                        "rollout_percentage": 100,
+                        "properties": base_properties,
+                    }
+                ]
+            }
 
         if instance.internal_targeting_flag:
             existing_targeting_flag = instance.internal_targeting_flag
@@ -1456,21 +1494,6 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
 
         survey = self.get_object()
 
-        cache_key = f"summarize_survey_responses_{self.team.pk}_{self.kwargs['pk']}"
-        # Check if the response is cached
-        cached_response = cache.get(cache_key)
-        if cached_response is not None:
-            return Response(cached_response)
-
-        environment_is_allowed = settings.DEBUG or is_cloud()
-        has_openai_api_key = bool(os.environ.get("OPENAI_API_KEY"))
-        if not environment_is_allowed or not has_openai_api_key:
-            raise exceptions.ValidationError("session summary is only supported in PostHog Cloud")
-
-        end_date: datetime = (survey.end_date or datetime.now()).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        ) + timedelta(days=1)
-
         try:
             question_index_param = request.query_params.get("question_index", None)
             question_index = int(question_index_param) if question_index_param else None
@@ -1481,44 +1504,141 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
 
         if question_index is None and question_id is None:
             raise exceptions.ValidationError("question_index or question_id is required")
-        # Extract the question text from the survey
+
+        # Check for force_refresh flag in request body
+        force_refresh = request.data.get("force_refresh", False)
+
+        # Check for cached summary in question_summaries field
+        if not force_refresh and question_id and survey.question_summaries:
+            cached_summary = survey.question_summaries.get(question_id)
+            if cached_summary:
+                return Response(
+                    {
+                        "content": cached_summary.get("summary", ""),
+                        "response_count": cached_summary.get("responseCount", 0),
+                        "generated_at": cached_summary.get("generatedAt"),
+                        "trace_id": cached_summary.get("traceId"),
+                        "cached": True,
+                    }
+                )
+
+        # Short-term Redis cache for rapid repeated requests
+        cache_key = f"summarize_survey_responses_{self.team.pk}_{self.kwargs['pk']}_{question_id or question_index}"
+        cached_response = cache.get(cache_key)
+        if cached_response is not None and not force_refresh:
+            return Response(cached_response)
+
+        environment_is_allowed = settings.DEBUG or is_cloud()
+        has_gemini_api_key = bool(settings.GEMINI_API_KEY)
+        if not environment_is_allowed or not has_gemini_api_key:
+            raise exceptions.ValidationError("survey summary is only supported in PostHog Cloud")
+
+        end_date: datetime = (survey.end_date or datetime.now()).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        ) + timedelta(days=1)
+
+        # Extract the question text and choices from the survey
         question_text = None
+        question_choices = None
         if survey.questions and question_id:
             # Find the question with the matching ID
             for question in survey.questions:
                 if question.get("id", None) == question_id:
                     question_text = question.get("question")
+                    question_choices = question.get("choices")
                     break
         elif survey.questions and question_index is not None:
             # Fallback to question index if question_id is not provided
             if 0 <= question_index < len(survey.questions):
                 question_text = survey.questions[question_index].get("question")
+                question_choices = survey.questions[question_index].get("choices")
 
         if question_text is None:
             raise exceptions.ValidationError("the text of the question is required")
 
-        summary = summarize_survey_responses(
+        # Fetch responses using the new module
+        # For choice questions, exclude predefined choices to only get open-ended "Other" responses
+        responses = fetch_responses(
             survey_id=survey_id,
-            question_text=question_text,
             question_index=question_index,
             question_id=question_id,
-            survey_start=(survey.start_date or survey.created_at).replace(hour=0, minute=0, second=0, microsecond=0),
-            survey_end=end_date,
+            start_date=(survey.start_date or survey.created_at).replace(hour=0, minute=0, second=0, microsecond=0),
+            end_date=end_date,
             team=self.team,
-            user=user,
+            exclude_values=question_choices,
         )
-        timings_header = summary.pop("timings_header", None)
-        cache.set(cache_key, summary, timeout=30)
+        response_count = len(responses)
+
+        if not responses:
+            return Response(
+                {
+                    "content": "No responses to analyze.",
+                    "response_count": 0,
+                    "generated_at": datetime.now(UTC).isoformat(),
+                    "cached": False,
+                }
+            )
+
+        # Generate summary using Gemini
+        try:
+            result = summarize_responses(
+                question_text,
+                responses,
+                distinct_id=str(user.distinct_id),
+                survey_id=str(survey_id),
+                question_id=question_id,
+                team_id=self.team.pk,
+            )
+            content = format_as_markdown(result.summary)
+            trace_id = result.trace_id
+        except exceptions.ValidationError:
+            raise
+        except exceptions.APIException:
+            raise
+        except Exception as e:
+            logger.exception(
+                "Failed to generate survey summary",
+                survey_id=survey_id,
+                question_id=question_id,
+                error_type=type(e).__name__,
+                error=str(e),
+            )
+            raise exceptions.APIException("Failed to generate summary. Please try again.")
+
+        generated_at = datetime.now(UTC).isoformat()
+
+        # Prepare response data
+        response_data = {
+            "content": content,
+            "response_count": response_count,
+            "generated_at": generated_at,
+            "trace_id": trace_id,
+            "cached": False,
+        }
+
+        # Save to question_summaries field for long-term caching
+        if question_id:
+            if survey.question_summaries is None:
+                survey.question_summaries = {}
+            survey.question_summaries[question_id] = {
+                "summary": content,
+                "responseCount": response_count,
+                "generatedAt": generated_at,
+                "traceId": trace_id,
+            }
+            survey.save(update_fields=["question_summaries"])
+
+        # Short-term Redis cache
+        cache.set(cache_key, response_data, timeout=30)
 
         posthoganalytics.capture(
-            event="survey response summarized", distinct_id=str(user.distinct_id), properties=summary
+            event="survey response summarized",
+            distinct_id=str(user.distinct_id),
+            properties={"survey_id": survey_id, "question_id": question_id, "response_count": response_count},
         )
 
         # let the browser cache for half the time we cache on the server
-        r = Response(summary, headers={"Cache-Control": "max-age=15"})
-        if timings_header:
-            r.headers["Server-Timing"] = timings_header
-        return r
+        return Response(response_data, headers={"Cache-Control": "max-age=15"})
 
     @action(methods=["POST"], detail=True, url_path="summary_headline", required_scopes=["survey:read"])
     def summary_headline(self, request: request.Request, **kwargs):

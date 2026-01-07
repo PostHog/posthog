@@ -6,23 +6,29 @@ import { ParsedLogMessage } from 'products/logs/frontend/types'
 
 import { logsViewerLogic } from './logsViewerLogic'
 
-const createMockParsedLog = (uuid: string): ParsedLogMessage => ({
-    uuid,
-    trace_id: 'trace-1',
-    span_id: 'span-1',
-    body: `Log ${uuid}`,
-    attributes: {},
-    timestamp: '2024-01-01T00:00:00Z',
-    observed_timestamp: '2024-01-01T00:00:00Z',
-    severity_text: 'info',
-    severity_number: 9,
-    level: 'info',
-    resource_attributes: {},
-    instrumentation_scope: 'test',
-    event_name: 'log',
-    cleanBody: `Log ${uuid}`,
-    parsedBody: null,
-})
+const createMockParsedLog = (uuid: string): ParsedLogMessage => {
+    const baseLog = {
+        uuid,
+        trace_id: 'trace-1',
+        span_id: 'span-1',
+        body: `Log ${uuid}`,
+        attributes: {},
+        timestamp: '2024-01-01T00:00:00Z',
+        observed_timestamp: '2024-01-01T00:00:00Z',
+        severity_text: 'info' as const,
+        severity_number: 9,
+        level: 'info' as const,
+        resource_attributes: {},
+        instrumentation_scope: 'test',
+        event_name: 'log',
+    }
+    return {
+        ...baseLog,
+        cleanBody: `Log ${uuid}`,
+        parsedBody: null,
+        originalLog: baseLog,
+    }
+}
 
 const mockLogs = [createMockParsedLog('log-1'), createMockParsedLog('log-2'), createMockParsedLog('log-3')]
 
@@ -590,6 +596,124 @@ describe('logsViewerLogic', () => {
                     isSelectionActive: false,
                 })
             })
+        })
+    })
+
+    describe('attribute columns', () => {
+        beforeEach(() => {
+            logic = logsViewerLogic({ tabId: 'test-tab', logs: mockLogs, orderBy: 'latest' })
+            logic.mount()
+        })
+
+        describe('moveAttributeColumn', () => {
+            beforeEach(async () => {
+                // Set up initial columns: [A, B, C]
+                logic.actions.toggleAttributeColumn('A')
+                logic.actions.toggleAttributeColumn('B')
+                logic.actions.toggleAttributeColumn('C')
+                await expectLogic(logic).toFinishAllListeners()
+            })
+
+            it('moves column left', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.moveAttributeColumn('B', 'left')
+                }).toMatchValues({
+                    attributeColumns: ['B', 'A', 'C'],
+                })
+            })
+
+            it('moves column right', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.moveAttributeColumn('B', 'right')
+                }).toMatchValues({
+                    attributeColumns: ['A', 'C', 'B'],
+                })
+            })
+
+            it('does nothing when moving first column left', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.moveAttributeColumn('A', 'left')
+                }).toMatchValues({
+                    attributeColumns: ['A', 'B', 'C'],
+                })
+            })
+
+            it('does nothing when moving last column right', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.moveAttributeColumn('C', 'right')
+                }).toMatchValues({
+                    attributeColumns: ['A', 'B', 'C'],
+                })
+            })
+
+            it('does nothing for non-existent column', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.moveAttributeColumn('Z', 'left')
+                }).toMatchValues({
+                    attributeColumns: ['A', 'B', 'C'],
+                })
+            })
+        })
+    })
+
+    describe('per-row prettification', () => {
+        beforeEach(() => {
+            logic = logsViewerLogic({ tabId: 'test-tab', logs: mockLogs, orderBy: 'latest' })
+            logic.mount()
+        })
+
+        it('defaults to empty set', () => {
+            expect(logic.values.prettifiedLogIds).toEqual(new Set())
+            expect(logic.values.prettifiedLogIds.has('log-1')).toBe(false)
+        })
+
+        it('prettifies a log when not prettified', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.togglePrettifyLog('log-1')
+            }).toFinishAllListeners()
+
+            expect(logic.values.prettifiedLogIds.has('log-1')).toBe(true)
+        })
+
+        it('un-prettifies a log when already prettified', async () => {
+            logic.actions.togglePrettifyLog('log-1')
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.togglePrettifyLog('log-1')
+            }).toFinishAllListeners()
+
+            expect(logic.values.prettifiedLogIds.has('log-1')).toBe(false)
+        })
+
+        it('supports multiple prettified logs', async () => {
+            logic.actions.togglePrettifyLog('log-1')
+            logic.actions.togglePrettifyLog('log-3')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.prettifiedLogIds.has('log-1')).toBe(true)
+            expect(logic.values.prettifiedLogIds.has('log-2')).toBe(false)
+            expect(logic.values.prettifiedLogIds.has('log-3')).toBe(true)
+        })
+
+        it('triggers recomputeRowHeights when toggling', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.togglePrettifyLog('log-1')
+            }).toDispatchActions(['togglePrettifyLog', 'recomputeRowHeights'])
+        })
+
+        it('clears when setLogs is called', async () => {
+            logic.actions.togglePrettifyLog('log-1')
+            logic.actions.togglePrettifyLog('log-2')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.prettifiedLogIds.size).toBe(2)
+
+            await expectLogic(logic, () => {
+                logic.actions.setLogs([createMockParsedLog('new-log')])
+            }).toFinishAllListeners()
+
+            expect(logic.values.prettifiedLogIds.size).toBe(0)
         })
     })
 })

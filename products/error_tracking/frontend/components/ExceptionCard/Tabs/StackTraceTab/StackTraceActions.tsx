@@ -17,7 +17,7 @@ import {
 
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 
-import { useErrorTrackingExplainIssueMaxTool } from '../../../ExplainIssueTool'
+import { useErrorTrackingExplainIssue } from '../../../ExplainIssueTool'
 import { FixModal } from '../../FixModal'
 import { exceptionCardLogic } from '../../exceptionCardLogic'
 
@@ -29,7 +29,7 @@ export function StackTraceActions({ issue }: StackTraceActionsProps): JSX.Elemen
     const { exceptionList } = useValues(errorPropertiesLogic)
     const showFixButton = hasResolvedStackFrames(exceptionList)
     const [showFixModal, setShowFixModal] = useState(false)
-    const { openMax } = useErrorTrackingExplainIssueMaxTool(issue.id, issue.name)
+    const { openMax } = useErrorTrackingExplainIssue()
 
     return (
         <ButtonGroupPrimitive size="sm">
@@ -43,16 +43,14 @@ export function StackTraceActions({ issue }: StackTraceActionsProps): JSX.Elemen
                     Get AI prompt
                 </ButtonPrimitive>
             )}
-            {openMax && (
-                <ButtonPrimitive
-                    onClick={() => openMax()}
-                    className="px-2 h-[1.4rem]"
-                    tooltip="Ask PostHog AI for an explanation of this issue"
-                >
-                    <IconMagicWand />
-                    Explain
-                </ButtonPrimitive>
-            )}
+            <ButtonPrimitive
+                onClick={() => openMax()}
+                className="px-2 h-[1.4rem]"
+                tooltip="Ask PostHog AI for an explanation of this issue"
+            >
+                <IconMagicWand />
+                Explain
+            </ButtonPrimitive>
             <ShowDropDownMenu>
                 <ButtonPrimitive className="px-2 h-[1.4rem]">
                     Show

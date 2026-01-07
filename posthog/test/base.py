@@ -1112,7 +1112,7 @@ class BaseTestMigrations(QueryMatchingTest):
 
     migrate_from: str
     migrate_to: str
-    apps: Optional[any] = None
+    apps: Optional[Any] = None
     assert_snapshots = False
 
     def setUp(self):

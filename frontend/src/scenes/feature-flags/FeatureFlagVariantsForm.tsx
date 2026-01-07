@@ -1,9 +1,10 @@
 import 'kea'
 
-import { IconBalance, IconMessage, IconPlus, IconRewindPlay, IconTrash } from '@posthog/icons'
+import { IconBalance, IconMessage, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { Link } from 'lib/lemon-ui/Link'
@@ -14,7 +15,7 @@ import { urls } from 'scenes/urls'
 
 import { FeatureFlagGroupType, MultivariateFlagVariant, Survey } from '~/types'
 
-import { VariantError } from './featureFlagLogic'
+import { VariantError, getRecordingFilterForFlagVariant } from './featureFlagLogic'
 
 export interface FeatureFlagVariantsFormProps {
     variants: MultivariateFlagVariant[]
@@ -29,6 +30,8 @@ export interface FeatureFlagVariantsFormProps {
     experimentName?: string
     isDraftExperiment?: boolean
     readOnly?: boolean
+    flagKey?: string
+    hasEnrichedAnalytics?: boolean
     onViewRecordings?: (variantKey: string) => void
     onGetFeedback?: (variantKey: string) => void
     onVariantChange?: (index: number, field: 'key' | 'name' | 'rollout_percentage', value: any) => void
@@ -57,6 +60,8 @@ export function FeatureFlagVariantsForm({
     experimentName,
     isDraftExperiment = false,
     readOnly = false,
+    flagKey,
+    hasEnrichedAnalytics,
     onViewRecordings,
     onGetFeedback,
     onVariantChange,
@@ -145,17 +150,20 @@ export function FeatureFlagVariantsForm({
                                 )}
                             </div>
                             <div>{variant.rollout_percentage}%</div>
-                            {(onViewRecordings || onGetFeedback) && (
+                            {(flagKey || onGetFeedback) && (
                                 <div className="col-span-2 flex gap-2 items-start">
-                                    {onViewRecordings && (
-                                        <LemonButton
+                                    {flagKey && (
+                                        <ViewRecordingsPlaylistButton
+                                            filters={getRecordingFilterForFlagVariant(
+                                                flagKey,
+                                                variant.key,
+                                                hasEnrichedAnalytics
+                                            )}
                                             size="xsmall"
-                                            icon={<IconRewindPlay />}
                                             type="secondary"
-                                            onClick={() => onViewRecordings(variant.key)}
-                                        >
-                                            View recordings
-                                        </LemonButton>
+                                            data-attr={`feature-flag-variant-${variant.key}-view-recordings`}
+                                            onClick={() => onViewRecordings?.(variant.key)}
+                                        />
                                     )}
                                     {onGetFeedback && (
                                         <LemonButton

@@ -4,12 +4,10 @@ on:
     workflow_run:
         workflows:
             - 'Backend CI'
-            - 'Container Images CI'
             - 'Node.js CI'
             - 'Frontend CI'
             - 'Storybook'
             - 'Security'
-            - 'shellcheck'
             - 'Dagster CI'
             - 'E2E CI Playwright'
             - 'Rust CI'
@@ -18,6 +16,8 @@ on:
 
 env:
     SLACK_CHANNEL: 'C09ADEV3AJD'
+    # Keep in sync with workflow_run.workflows trigger above
+    REQUIRED_WORKFLOWS: 'Backend CI,Node.js CI,Frontend CI,Storybook,Security,Dagster CI,E2E CI Playwright,Rust CI'
 
 permissions:
     contents: read
@@ -166,8 +166,19 @@ jobs:
 
             # ============ SLACK: RESOLVE ============
 
+            - name: Thread reply with recovery
+              if: steps.process.outputs.action == 'resolve' && steps.process.outputs.resolved == 'false'
+              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_BOT_TOKEN }}
+                  payload: |
+                      channel: "${{ steps.incident.outputs.channel }}"
+                      thread_ts: "${{ steps.incident.outputs.ts }}"
+                      text: ":white_check_mark: Resolved: *${{ steps.process.outputs.recovered_workflow }}* (${{ steps.commit.outputs.short_sha }})"
+
             - name: Calculate duration
-              if: steps.process.outputs.action == 'resolve'
+              if: steps.process.outputs.action == 'resolve' && steps.process.outputs.resolved == 'true'
               id: duration
               run: |
                   since="${{ steps.process.outputs.since }}"
@@ -177,7 +188,7 @@ jobs:
                   echo "mins=$mins" >> $GITHUB_OUTPUT
 
             - name: Update Slack to resolved
-              if: steps.process.outputs.action == 'resolve'
+              if: steps.process.outputs.action == 'resolve' && steps.process.outputs.resolved == 'true'
               uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
               with:
                   method: chat.update
@@ -186,12 +197,12 @@ jobs:
                   payload: |
                       channel: "${{ steps.process.outputs.channel }}"
                       ts: "${{ steps.process.outputs.ts }}"
-                      text: ":large_green_circle: Master is green (was red for ~${{ steps.duration.outputs.mins }} min)"
+                      text: "Master recovered :v: (was red for ~${{ steps.duration.outputs.mins }} min)"
                       blocks:
                         - type: "section"
                           text:
                             type: "mrkdwn"
-                            text: ":large_green_circle: *Master is green* (was red for ~${{ steps.duration.outputs.mins }} min, ${{ steps.process.outputs.commit_count }} commits affected)"
+                            text: "*Master recovered* :v: (was red for ~${{ steps.duration.outputs.mins }} min, ${{ steps.process.outputs.commit_count }} commits affected)"
                         - type: "section"
                           fields:
                             - type: "mrkdwn"
@@ -204,7 +215,7 @@ jobs:
                             text: "*Commit*\n<${{ steps.commit.outputs.url }}|${{ steps.commit.outputs.short_sha }}> ${{ steps.commit.outputs.message }}"
 
             - name: Thread reply with resolution
-              if: steps.process.outputs.action == 'resolve'
+              if: steps.process.outputs.action == 'resolve' && steps.process.outputs.resolved == 'true'
               uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
               with:
                   method: chat.postMessage
@@ -214,8 +225,8 @@ jobs:
                       thread_ts: "${{ steps.process.outputs.ts }}"
                       text: ":white_check_mark: Resolved: *${{ github.event.workflow_run.name }}* passed (${{ steps.commit.outputs.short_sha }})"
 
-            - name: Clear state on resolution
-              if: steps.process.outputs.action == 'resolve'
+            - name: Clear state on full resolution
+              if: steps.process.outputs.resolved == 'true'
               run: rm -f .master-ci-incident
 
             # ============ CACHE ============
@@ -234,8 +245,8 @@ jobs:
                   path: .master-ci-incident
                   key: master-ci-incident
 
-            - name: Delete cache on resolution
-              if: steps.process.outputs.action == 'resolve'
+            - name: Delete cache on full resolution
+              if: steps.process.outputs.resolved == 'true'
               continue-on-error: true
               env:
                   GH_TOKEN: ${{ github.token }}

@@ -443,6 +443,10 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     """
     The title of the visualization to be created.
     """
+    visualization_description: Optional[str] = Field(default=None)
+    """
+    The description of the visualization to be created.
+    """
 
 
 class AssistantState(_SharedAssistantState):

@@ -11,9 +11,10 @@ import { RecordingUniversalFilters, ReplayTabs } from '~/types'
 type ViewRecordingsPlaylistButtonProps = {
     filters: Partial<RecordingUniversalFilters>
     label?: ReactNode
-    tooltip?: string
+    tooltip?: ReactNode
     disabled?: boolean
     disabledReason?: string | JSX.Element | null
+    onClick?: () => void
 } & Pick<LemonButtonProps, 'size' | 'type' | 'data-attr' | 'fullWidth' | 'className' | 'loading'>
 
 /**
@@ -26,10 +27,13 @@ export default function ViewRecordingsPlaylistButton({
     tooltip,
     disabled,
     disabledReason,
+    onClick: onClickCallback,
     ...buttonProps
 }: ViewRecordingsPlaylistButtonProps): JSX.Element {
     const onClick = (): void => {
-        newInternalTab(urls.replay(ReplayTabs.Home, filters))
+        onClickCallback?.()
+        const url = urls.replay(ReplayTabs.Home, filters)
+        newInternalTab(url)
     }
 
     const button = (

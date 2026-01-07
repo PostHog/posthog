@@ -85,6 +85,11 @@ export interface ProductTourLogicProps {
     id: string
 }
 
+export enum ProductTourEditTab {
+    Configuration = 'configuration',
+    Customization = 'customization',
+}
+
 export interface ProductTourStats {
     // Unique user counts (primary metrics)
     uniqueShown: number
@@ -129,6 +134,7 @@ export const productTourLogic = kea<productTourLogicType>([
     actions({
         editingProductTour: (editing: boolean) => ({ editing }),
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
+        setEditTab: (tab: ProductTourEditTab) => ({ tab }),
         launchProductTour: true,
         stopProductTour: true,
         resumeProductTour: true,
@@ -297,6 +303,12 @@ export const productTourLogic = kea<productTourLogicType>([
                 editingProductTour: (_, { editing }) => editing,
             },
         ],
+        editTab: [
+            ProductTourEditTab.Configuration as ProductTourEditTab,
+            {
+                setEditTab: (_, { tab }) => tab,
+            },
+        ],
         dateRange: [
             { date_from: '-30d', date_to: null } as DateRange,
             {
@@ -412,9 +424,12 @@ export const productTourLogic = kea<productTourLogicType>([
             if (searchParams.edit) {
                 actions.editingProductTour(true)
             }
+            if (searchParams.tab) {
+                actions.setEditTab(searchParams.tab as ProductTourEditTab)
+            }
         },
     })),
-    actionToUrl(() => ({
+    actionToUrl(({ values }) => ({
         editingProductTour: ({ editing }) => {
             const searchParams = router.values.searchParams
             if (editing) {
@@ -423,6 +438,13 @@ export const productTourLogic = kea<productTourLogicType>([
                 delete searchParams['edit']
             }
             return [router.values.location.pathname, searchParams, router.values.hashParams]
+        },
+        setEditTab: () => {
+            return [
+                router.values.location.pathname,
+                { ...router.values.searchParams, tab: values.editTab },
+                router.values.hashParams,
+            ]
         },
     })),
     afterMount(({ actions, props }) => {

@@ -10,6 +10,7 @@ import asyncio
 import datetime as dt
 import contextlib
 import collections.abc
+from string import Formatter
 from urllib.parse import urljoin
 
 from django.conf import settings
@@ -215,6 +216,23 @@ def add_log_comment_param(params: dict[str, typing.Any], query_tags: typing.Opti
     params[param_name] = query_tags.to_json()
 
 
+class KeywordOnlyFormatter(Formatter):
+    """Formatter supporting only keyword arguments.
+
+    Positional arguments are unchanged, missing keys are also left unchanged.
+    """
+
+    def get_value(self, key, args, kwargs):
+        if isinstance(key, int):
+            # Returns '{n}' unchanged, where n is a numerical index.
+            return f"{{{key}}}"
+        try:
+            return kwargs[key]
+        except KeyError:
+            # Returns '{key}' unchanged
+            return f"{{{key}}}"
+
+
 class ClickHouseClient:
     """An asynchronous client to access ClickHouse via HTTP.
 
@@ -306,7 +324,7 @@ class ClickHouseClient:
         query = query % format_parameters
 
         if has_format_placeholders:
-            query = query.format(**format_parameters)
+            query = KeywordOnlyFormatter().format(query, **format_parameters)
 
         return query
 
@@ -833,6 +851,7 @@ async def get_client(
             team_id, settings.CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT
         )
     max_block_size = kwargs.pop("max_block_size", None) or default_max_block_size
+    http_send_timeout = kwargs.pop("http_send_timeout", 0)
 
     if clickhouse_url is None:
         url = settings.CLICKHOUSE_OFFLINE_HTTP_URL
@@ -851,7 +870,7 @@ async def get_client(
         max_block_size=max_block_size,
         cancel_http_readonly_queries_on_client_close=1,
         output_format_arrow_string_as_string="true",
-        http_send_timeout=0,
+        http_send_timeout=http_send_timeout,
         **kwargs,
     ) as client:
         yield client
