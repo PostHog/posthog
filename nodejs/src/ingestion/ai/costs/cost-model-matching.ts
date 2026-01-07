@@ -1,6 +1,6 @@
 import { Properties } from '@posthog/plugin-scaffold'
 
-import { logger } from '../../utils/logger'
+import { logger } from '../../../utils/logger'
 import { resolveModelCostForProvider } from './provider-matching'
 import { manualCostsByModel, openRouterCostsByModel } from './providers'
 import type { ModelCostRow, ResolvedModelCost } from './providers/types'

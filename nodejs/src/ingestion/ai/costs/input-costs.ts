@@ -2,7 +2,7 @@ import bigDecimal from 'js-big-decimal'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { logger } from '../../utils/logger'
+import { logger } from '../../../utils/logger'
 import { ResolvedModelCost } from './providers/types'
 
 const matchProvider = (event: PluginEvent, provider: string): boolean => {
