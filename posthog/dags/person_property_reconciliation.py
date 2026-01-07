@@ -127,7 +127,12 @@ def get_person_property_updates_from_clickhouse(
                         if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) AS person_id,
                         kv_tuple.2 AS key,
                         kv_tuple.1 AS prop_type,
-                        if(kv_tuple.1 = 'set', argMax(kv_tuple.3, e.timestamp), argMin(kv_tuple.3, e.timestamp)) AS value,
+                        -- $set: newest event wins, $set_once: first event wins
+                        -- Filter out null/empty values with argMaxIf/argMinIf
+                        if(kv_tuple.1 = 'set',
+                            argMaxIf(kv_tuple.3, e.timestamp, kv_tuple.3 IS NOT NULL AND kv_tuple.3 != ''),
+                            argMinIf(kv_tuple.3, e.timestamp, kv_tuple.3 IS NOT NULL AND kv_tuple.3 != '')
+                        ) AS value,
                         if(kv_tuple.1 = 'set', max(e.timestamp), min(e.timestamp)) AS kv_timestamp
                     FROM events e
                     LEFT OUTER JOIN (
@@ -139,10 +144,19 @@ def get_person_property_updates_from_clickhouse(
                         GROUP BY person_distinct_id_overrides.distinct_id
                         HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)
                     ) AS overrides ON e.distinct_id = overrides.distinct_id
+                    -- Extract $set and $set_once properties, filtering out null/empty values
                     ARRAY JOIN
                         arrayConcat(
-                            arrayMap(x -> tuple('set', x.1, x.2), JSONExtractKeysAndValues(e.properties, '$set', 'String')),
-                            arrayMap(x -> tuple('set_once', x.1, x.2), JSONExtractKeysAndValues(e.properties, '$set_once', 'String'))
+                            arrayFilter(x -> x.3 IS NOT NULL AND x.3 != '' AND x.3 != 'null',
+                                arrayMap(x -> tuple('set', x.1, toString(x.2)),
+                                    arrayFilter(x -> x.2 IS NOT NULL, JSONExtractKeysAndValuesRaw(e.properties, '$set'))
+                                )
+                            ),
+                            arrayFilter(x -> x.3 IS NOT NULL AND x.3 != '' AND x.3 != 'null',
+                                arrayMap(x -> tuple('set_once', x.1, toString(x.2)),
+                                    arrayFilter(x -> x.2 IS NOT NULL, JSONExtractKeysAndValuesRaw(e.properties, '$set_once'))
+                                )
+                            )
                         ) AS kv_tuple
                     WHERE e.team_id = %(team_id)s
                       AND e.timestamp > %(bug_window_start)s
@@ -257,17 +271,15 @@ def reconcile_person_properties(
         existing_ts_str = properties_last_updated_at.get(key)
 
         if operation == "set_once":
-            # set_once: these are properties missing from PG that should exist
-            # Only add if property doesn't already exist in PG
+            # set_once: only add if property doesn't already exist in PG
             if key not in properties:
                 properties[key] = value
                 properties_last_updated_at[key] = event_ts_str
                 properties_last_operation[key] = "set_once"
                 changed = True
         else:
-            # set: these are properties where CH value differs from PG
-            # Only update if property exists in PG and CH timestamp is newer
-            if key in properties and (existing_ts_str is None or event_ts > parse_datetime(existing_ts_str)):
+            # set: create or update property if CH timestamp is newer (or no existing timestamp)
+            if existing_ts_str is None or event_ts > parse_datetime(existing_ts_str):
                 properties[key] = value
                 properties_last_updated_at[key] = event_ts_str
                 properties_last_operation[key] = "set"
