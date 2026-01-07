@@ -1234,6 +1234,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     actions.seekToTimestamp(values.currentTimestamp)
                 }
                 actions.syncPlayerSpeed()
+                // Ensure we respect the persisted playing state when the player is reinitialized
+                if (values.playingState === SessionPlayerState.PAUSE && values.currentTimestamp !== undefined) {
+                    values.player?.replayer?.pause(values.toRRWebPlayerTime(values.currentTimestamp))
+                }
             }
         },
         setCurrentSegment: ({ segment }) => {
