@@ -170,7 +170,9 @@ export function ExposureCriteriaPanel({ experiment, onChange, onNext }: Exposure
                                     filterTestAccounts: checked,
                                 })
                             }}
+                            bordered={false}
                             fullWidth
+                            className="p-0"
                         />
                     </div>
                 </div>
