@@ -58,13 +58,20 @@ export function NotebookNodeTitle(): JSX.Element {
         () =>
             collectNodeIndices(
                 content,
-                (node) => node.type === NotebookNodeType.Query && isHogQLQuery(node.attrs?.query)
+                (node) =>
+                    node.type === NotebookNodeType.Query &&
+                    (isHogQLQuery(node.attrs?.query) ||
+                        (node.attrs?.query.source && isHogQLQuery(node.attrs.query.source)))
             ),
         [content]
     )
 
     const isPythonNode = nodeType === NotebookNodeType.Python
-    const isSqlNode = nodeType === NotebookNodeType.Query && isHogQLQuery(nodeAttributes.query)
+    const isSqlNode =
+        nodeType === NotebookNodeType.Query &&
+        (isHogQLQuery(nodeAttributes.query) ||
+            (nodeAttributes.query.source && isHogQLQuery(nodeAttributes.query.source)))
+
     const nodeIndex = isPythonNode
         ? pythonNodeIndices.get(nodeAttributes.nodeId)
         : isSqlNode
