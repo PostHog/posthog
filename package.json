@@ -62,7 +62,7 @@
         "@trivago/prettier-plugin-sort-imports": "^5.2.2",
         "@types/uuid": "^10.0.0",
         "markdownlint-cli2": "^0.18.1",
-        "orval": "8.0.0-rc.3",
+        "orval": "8.0.0-rc.5",
         "oxlint": "^1.8.0",
         "prettier": "^3.6.2",
         "stylelint": "^15.11.0",
