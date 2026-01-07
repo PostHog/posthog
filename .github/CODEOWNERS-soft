@@ -168,9 +168,9 @@ products/error_tracking/frontend/** @PostHog/team-error-tracking
 posthog/hogql_queries/error_tracking/error_tracking_query_runner.py @PostHog/team-error-tracking
 posthog/hogql_queries/error_tracking/error_tracking_issue_correlation_query_runner.py @PostHog/team-error-tracking
 
-# Notebooks - owned by @daibhin
-frontend/src/scenes/notebooks/ @daibhin
-frontend/src/lib/components/RichContentEditor/ @daibhin
+# Notebooks - owned by @PostHog/team-platform-features
+frontend/src/scenes/notebooks/ @PostHog/team-platform-features
+frontend/src/lib/components/RichContentEditor/ @PostHog/team-platform-features
 
 # Session Replay python files - owned by @PostHog/team-replay
 posthog/session_recordings/**/\*.py @PostHog/team-replay

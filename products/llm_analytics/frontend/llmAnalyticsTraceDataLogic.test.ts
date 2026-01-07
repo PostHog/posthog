@@ -161,6 +161,44 @@ describe('llmAnalyticsTraceDataLogic: restoreTree', () => {
             },
         ])
     })
+
+    it('should treat orphaned events as roots when parent does not exist', () => {
+        const events: LLMTraceEvent[] = [
+            {
+                id: '1',
+                event: '$ai_span',
+                properties: {
+                    $ai_span_id: 'span-1',
+                    $ai_parent_id: 'missing-parent',
+                },
+                createdAt: '2024-01-01T00:00:00Z',
+            },
+            {
+                id: '2',
+                event: '$ai_generation',
+                properties: {
+                    $ai_span_id: 'span-2',
+                    $ai_parent_id: 'span-1',
+                },
+                createdAt: '2024-01-01T00:00:00Z',
+            },
+        ]
+
+        const tree = restoreTree(events, 'trace')
+        expect(tree).toEqual([
+            {
+                event: events[0],
+                aggregation: expect.objectContaining({
+                    totalCost: 0,
+                }),
+                children: [
+                    {
+                        event: events[1],
+                    },
+                ],
+            },
+        ])
+    })
 })
 
 describe('getInitialFocusEventId', () => {

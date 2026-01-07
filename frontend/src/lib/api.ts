@@ -170,6 +170,7 @@ import {
     SchemaIncrementalFieldsResponse,
     SearchListParams,
     SearchResponse,
+    SessionRecordingExternalReference,
     SessionRecordingPlaylistType,
     SessionRecordingSnapshotParams,
     SessionRecordingSnapshotResponse,
@@ -781,6 +782,10 @@ export class ApiRequest {
 
     public recording(recordingId: SessionRecordingType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.recordings(teamId).addPathComponent(recordingId)
+    }
+
+    public sessionRecordingsExternalReferences(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('session_recording_external_references')
     }
 
     public recordingMatchingEvents(teamId?: TeamType['id']): ApiRequest {
@@ -3478,6 +3483,16 @@ const api = {
 
         async delete(recordingId: SessionRecordingType['id']): Promise<{ success: boolean }> {
             return await new ApiRequest().recording(recordingId).delete()
+        },
+
+        async createExternalReference(
+            sessionRecordingId: SessionRecordingType['id'],
+            integrationId: number,
+            config: Record<string, any>
+        ): Promise<SessionRecordingExternalReference> {
+            return await new ApiRequest()
+                .sessionRecordingsExternalReferences()
+                .create({ data: { session_recording_id: sessionRecordingId, integration_id: integrationId, config } })
         },
 
         async listSnapshotSources(

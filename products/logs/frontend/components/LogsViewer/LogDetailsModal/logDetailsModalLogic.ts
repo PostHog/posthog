@@ -4,7 +4,7 @@ import { ParsedLogMessage } from 'products/logs/frontend/types'
 
 import type { logDetailsModalLogicType } from './logDetailsModalLogicType'
 
-export type LogDetailsTab = 'details' | 'explore-ai'
+export type LogDetailsTab = 'details' | 'explore-ai' | 'comments'
 
 export const logDetailsModalLogic = kea<logDetailsModalLogicType>([
     path(['products', 'logs', 'frontend', 'components', 'LogsViewer', 'LogDetailsModal', 'logDetailsModalLogic']),
