@@ -12,7 +12,7 @@ from posthog.hogql.database.models import DANGEROUS_NoTeamIdCheckTable, Database
 from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError
 from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string
-from posthog.hogql.printer.base import _Printer, resolve_field_type
+from posthog.hogql.printer.base import HogQLPrinter, resolve_field_type
 from posthog.hogql.printer.types import PrintableMaterializedPropertyGroupItem
 
 from posthog.clickhouse.property_groups import property_groups
@@ -32,7 +32,7 @@ def team_id_guard_for_table(table_type: ast.TableOrSelectType, context: HogQLCon
     )
 
 
-class ClickHousePrinter(_Printer):
+class ClickHousePrinter(HogQLPrinter):
     def __init__(
         self,
         context: HogQLContext,

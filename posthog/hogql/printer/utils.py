@@ -9,7 +9,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import InternalHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_team, set_default_in_cohort_via
-from posthog.hogql.printer.base import _Printer
+from posthog.hogql.printer.base import HogQLPrinter
 from posthog.hogql.printer.clickhouse import ClickHousePrinter
 from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.resolver import resolve_types
@@ -157,7 +157,7 @@ def print_prepared_ast(
     pretty: bool = False,
 ) -> str:
     with context.timings.measure("printer"):
-        printer_class: type[_Printer]
+        printer_class: type[HogQLPrinter]
 
         match dialect:
             case "clickhouse":
@@ -165,7 +165,7 @@ def print_prepared_ast(
             case "postgres":
                 printer_class = PostgresPrinter
             case "hogql":
-                printer_class = _Printer
+                printer_class = HogQLPrinter
             case _:
                 raise InternalHogQLError(f"Invalid SQL dialect: {dialect}")
 

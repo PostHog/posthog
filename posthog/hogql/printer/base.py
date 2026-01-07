@@ -78,7 +78,7 @@ def resolve_field_type(expr: ast.Expr) -> ast.Type | None:
     return expr_type
 
 
-class _Printer(Visitor[str]):
+class HogQLPrinter(Visitor[str]):
     # NOTE: Call "print_ast()", not this class directly.
 
     def __init__(
@@ -202,7 +202,7 @@ class _Printer(Visitor[str]):
                     elif isinstance(column, ast.Call):
                         with self.context.timings.measure("printer"):
                             column_alias = safe_identifier(
-                                _Printer(
+                                HogQLPrinter(
                                     context=self.context,
                                     dialect="hogql",
                                 ).visit(column)

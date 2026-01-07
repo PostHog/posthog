@@ -5,10 +5,10 @@ from posthog.hogql.ast import AST
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import ImpossibleASTError, QueryError
-from posthog.hogql.printer import _Printer
+from posthog.hogql.printer import HogQLPrinter
 
 
-class PostgresPrinter(_Printer):
+class PostgresPrinter(HogQLPrinter):
     def __init__(
         self,
         context: HogQLContext,
