@@ -112,7 +112,7 @@ describe('EmailService', () => {
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
                 expect(sendEmailSpy).toHaveBeenCalled()
-                expect(sendEmailSpy.mock.calls[0][0].Source).toBe('test@posthog.com')
+                expect(sendEmailSpy.mock.calls[0][0].Source).toBe('"Test User" <test@posthog.com>')
             })
             it('should validate if the email domain is not verified', async () => {
                 invocation.queueParameters = createEmailParams({
@@ -129,7 +129,7 @@ describe('EmailService', () => {
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
                 expect(sendEmailSpy).toHaveBeenCalled()
-                expect(sendEmailSpy.mock.calls[0][0].Source).toBe('test@posthog.com')
+                expect(sendEmailSpy.mock.calls[0][0].Source).toBe('"Test User" <test@posthog.com>')
                 expect(sendEmailSpy.mock.calls[0][0].ReturnPath).toBe('test@posthog.com')
             })
             it('should allow a valid email integration and domain', async () => {
@@ -146,7 +146,7 @@ describe('EmailService', () => {
                 expect(result.error).toBeUndefined()
                 expect(sendEmailSpy).toHaveBeenCalled()
                 expect(sendEmailSpy.mock.calls[0][0]).toMatchObject({
-                    Source: 'test@posthog.com',
+                    Source: '"Test User" <test@posthog.com>',
                     ReturnPath: 'test@posthog.com',
                     Destination: {
                         ToAddresses: ['"Test User" <test@example.com>'],
@@ -258,7 +258,7 @@ describe('EmailService', () => {
         it('should error if not verified', async () => {
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toEqual(
-                'Failed to send email via SES: Email address not verified test@posthog-test.com'
+                'Failed to send email via SES: Email address not verified "Test User" <test@posthog-test.com>'
             )
         })
 
@@ -292,7 +292,7 @@ describe('EmailService', () => {
                     },
                   },
                   "ReturnPath": "test@posthog-test.com",
-                  "Source": "test@posthog-test.com",
+                  "Source": "\"Test User\" <test@posthog-test.com>",
                   "Tags": [
                     {
                       "Name": "ph_id",
