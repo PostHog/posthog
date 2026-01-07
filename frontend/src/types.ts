@@ -714,6 +714,7 @@ export interface ActionType extends WithAccessControl {
     is_calculating?: boolean
     last_calculated_at?: string
     last_updated_at?: string // alias for last_calculated_at to achieve event and action parity
+    updated_at?: string
     name: string | null
     description?: string
     post_to_slack?: boolean

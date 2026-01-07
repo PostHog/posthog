@@ -85,6 +85,7 @@ class ActionSerializer(
             "creation_context",
             "_create_in_folder",
             "user_access_level",
+            "updated_at",
         ]
         read_only_fields = [
             "team_id",
