@@ -215,14 +215,6 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                     <LemonButton size="small" icon={<IconLink />} to={parsedHref} />
                                                 )}
 
-                                                {expandable && (
-                                                    <LemonButton
-                                                        onClick={() => setExpanded(!expanded)}
-                                                        size="small"
-                                                        icon={expanded ? <IconCollapse /> : <IconExpand />}
-                                                    />
-                                                )}
-
                                                 {isEditable && Settings ? (
                                                     <LemonButton
                                                         onClick={() => toggleEditing()}
@@ -231,6 +223,14 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                         active={editingNodeId === nodeId}
                                                     />
                                                 ) : null}
+
+                                                {expandable && (
+                                                    <LemonButton
+                                                        onClick={() => setExpanded(!expanded)}
+                                                        size="small"
+                                                        icon={expanded ? <IconCollapse /> : <IconExpand />}
+                                                    />
+                                                )}
 
                                                 {hasMenu ? (
                                                     <LemonMenu items={menuItems} placement="bottom-end">
