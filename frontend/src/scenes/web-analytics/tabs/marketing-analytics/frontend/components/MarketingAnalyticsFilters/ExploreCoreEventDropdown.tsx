@@ -29,7 +29,7 @@ interface SchemaMapFormState {
     isSaving: boolean // true when saving to mapping, false when just exploring
 }
 
-export function ConversionGoalFilterButton(): JSX.Element {
+export function ExploreCoreEventDropdown(): JSX.Element {
     const { draftConversionGoal, availableCoreEventsForExplore } = useValues(marketingAnalyticsLogic)
     const { setDraftConversionGoal, clearConversionGoal, addGoalMapping } = useActions(marketingAnalyticsLogic)
     const { dataWarehouseTables } = useValues(dataWarehouseSettingsLogic)
