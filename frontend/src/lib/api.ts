@@ -4,7 +4,6 @@ import posthog from 'posthog-js'
 
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
-import { INSIGHT_ALERT_FIRING_EVENT_ID } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { humanFriendlyDuration, objectClean, toParams } from 'lib/utils'
@@ -158,8 +157,6 @@ import {
     ProjectType,
     PropertyDefinition,
     PropertyDefinitionType,
-    PropertyFilterType,
-    PropertyOperator,
     QueryBasedInsightModel,
     QueryTabState,
     QuickFilter,
@@ -173,6 +170,7 @@ import {
     SchemaIncrementalFieldsResponse,
     SearchListParams,
     SearchResponse,
+    SessionRecordingExternalReference,
     SessionRecordingPlaylistType,
     SessionRecordingSnapshotParams,
     SessionRecordingSnapshotResponse,
@@ -196,6 +194,7 @@ import {
     ErrorTrackingRuleType,
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/types'
 import { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/symbolSetLogic'
+import { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
 import type {
     SessionGroupSummaryListItemType,
     SessionGroupSummaryType,
@@ -472,6 +471,12 @@ export class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('csp-reporting').addPathComponent('explain')
     }
 
+    // # Onboarding
+
+    public onboardingRecommendProducts(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('onboarding').addPathComponent('recommend_products')
+    }
+
     // # LLM Analytics
 
     public llmAnalyticsTranslate(teamId?: TeamType['id']): ApiRequest {
@@ -678,6 +683,10 @@ export class ApiRequest {
         return this.logs(projectId).addPathComponent('has_logs')
     }
 
+    public logsExplainWithAI(projectId?: ProjectType['id']): ApiRequest {
+        return this.logs(projectId).addPathComponent('explainLogWithAI')
+    }
+
     // # Data management
     public eventDefinitions(projectId?: ProjectType['id']): ApiRequest {
         return this.projectsDetail(projectId).addPathComponent('event_definitions')
@@ -773,6 +782,10 @@ export class ApiRequest {
 
     public recording(recordingId: SessionRecordingType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.recordings(teamId).addPathComponent(recordingId)
+    }
+
+    public sessionRecordingsExternalReferences(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('session_recording_external_references')
     }
 
     public recordingMatchingEvents(teamId?: TeamType['id']): ApiRequest {
@@ -1786,6 +1799,22 @@ const api = {
             return new ApiRequest().cspReportingExplanation().create({ data: { properties } })
         },
     },
+    onboarding: {
+        recommendProducts(
+            params: {
+                description?: string
+                browsingHistory?: string[]
+            },
+            teamId?: TeamType['id']
+        ): Promise<{ products: string[]; reasoning: string }> {
+            return new ApiRequest().onboardingRecommendProducts(teamId).create({
+                data: {
+                    description: params.description,
+                    browsing_history: params.browsingHistory,
+                },
+            })
+        },
+    },
     llmAnalytics: {
         translate(params: {
             text: string
@@ -2313,6 +2342,9 @@ const api = {
                 .logsHasLogs()
                 .get()
                 .then((response) => Boolean(response.hasLogs))
+        },
+        async explain(uuid: string, timestamp: string): Promise<LogExplanation> {
+            return new ApiRequest().logsExplainWithAI().create({ data: { uuid, timestamp } })
         },
     },
 
@@ -3060,11 +3092,13 @@ const api = {
             search,
             types,
             limit,
+            full,
         }: {
             filter_groups?: CyclotronJobFiltersType[]
             search?: string
             types?: HogFunctionTypeType[]
             limit?: number
+            full?: boolean
         }): Promise<CountedPaginatedResponse<HogFunctionType>> {
             return await new ApiRequest()
                 .hogFunctions()
@@ -3074,6 +3108,7 @@ const api = {
                     ...(types ? { type: types.join(',') } : {}),
                     ...(search ? { search } : {}),
                     ...(limit ? { limit } : {}),
+                    ...(full ? { full: 'true' } : {}),
                 })
                 .get()
         },
@@ -3141,33 +3176,6 @@ const api = {
         },
         async rearrange(orders: Record<string, number>): Promise<HogFunctionType[]> {
             return await new ApiRequest().hogFunctions().withAction('rearrange').update({ data: { orders } })
-        },
-        async listForAlert(alertId: string): Promise<CountedPaginatedResponse<HogFunctionType>> {
-            return await new ApiRequest()
-                .hogFunctions()
-                .withQueryString({
-                    filter_groups: [
-                        {
-                            properties: [
-                                {
-                                    key: 'alert_id',
-                                    value: alertId,
-                                    operator: PropertyOperator.Exact,
-                                    type: PropertyFilterType.Event,
-                                },
-                            ],
-                            events: [
-                                {
-                                    id: INSIGHT_ALERT_FIRING_EVENT_ID,
-                                    type: 'events',
-                                },
-                            ],
-                        },
-                    ],
-                    type: 'internal_destination',
-                    full: 'true',
-                })
-                .get()
         },
         async enableBackfills(id: HogFunctionType['id']): Promise<{ batch_export_id: string }> {
             return await new ApiRequest().hogFunction(id).withAction('enable_backfills').create()
@@ -3475,6 +3483,16 @@ const api = {
 
         async delete(recordingId: SessionRecordingType['id']): Promise<{ success: boolean }> {
             return await new ApiRequest().recording(recordingId).delete()
+        },
+
+        async createExternalReference(
+            sessionRecordingId: SessionRecordingType['id'],
+            integrationId: number,
+            config: Record<string, any>
+        ): Promise<SessionRecordingExternalReference> {
+            return await new ApiRequest()
+                .sessionRecordingsExternalReferences()
+                .create({ data: { session_recording_id: sessionRecordingId, integration_id: integrationId, config } })
         },
 
         async listSnapshotSources(
