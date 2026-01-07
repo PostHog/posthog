@@ -77,26 +77,7 @@ class TestSearch(APIBaseTest):
         sorted_results = sorted(response.json()["results"], key=lambda entity: entity["type"])
 
         assert response.status_code == 200
-        assert sorted_results == [
-            {
-                "rank": sorted_results[0]["rank"],
-                "type": "dashboard",
-                "result_id": str(self.dashboard_1.id),
-                "extra_fields": {"description": "", "name": "second dashboard"},
-            },
-            {
-                "rank": sorted_results[1]["rank"],
-                "type": "insight",
-                "result_id": self.insight_1.short_id,
-                "extra_fields": {"name": "second insight", "description": None, "query": None},
-            },
-            {
-                "rank": sorted_results[2]["rank"],
-                "type": "notebook",
-                "result_id": self.notebook_1.short_id,
-                "extra_fields": {"title": "second notebook", "content": None},
-            },
-        ]
+        assert sorted_results == [{"rank": sorted_results[0]["rank"], "type": "dashboard", "result_id": str(self.dashboard_1.id), "extra_fields": {"description": "", "name": "second dashboard"}}, {"rank": sorted_results[1]["rank"], "type": "insight", "result_id": self.insight_1.short_id, "extra_fields": {"name": "second insight", "description": None, "query": None}}, {"rank": sorted_results[2]["rank"], "type": "notebook", "result_id": self.notebook_1.short_id, "extra_fields": {"title": "second notebook", "content": None}}]
 
     def test_extra_fields(self):
         response = self.client.get("/api/projects/@current/search?entities=insight")

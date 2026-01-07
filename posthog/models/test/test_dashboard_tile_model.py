@@ -1,6 +1,5 @@
 import datetime
 
-import pytest
 from posthog.test.base import APIBaseTest
 
 from django.core.exceptions import ValidationError
@@ -10,6 +9,7 @@ from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_tile import DashboardTile, Text
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
+import pytest
 
 
 class TestDashboardTileModel(APIBaseTest):

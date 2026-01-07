@@ -1,12 +1,12 @@
 from datetime import timedelta
 
-import pytest
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
 
 from django.utils import timezone
 
 from ee.models.assistant import CoreMemory
+import pytest
 
 
 class TestCoreMemory(BaseTest):

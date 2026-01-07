@@ -2,7 +2,6 @@ import time
 from typing import cast
 from uuid import uuid4
 
-import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -27,6 +26,7 @@ from ee.hogai.stream.redis_stream import (
 )
 from ee.hogai.utils.types.base import AssistantOutput
 from ee.models.assistant import Conversation
+import pytest
 
 
 class TestAgentExecutor(BaseTest):

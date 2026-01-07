@@ -641,9 +641,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             actual_cohort_order = [call[0][0] for call in actual_calls]  # Extract cohort IDs
             expected_cohort_order = [cohort_a.id, cohort_with_missing_dependency.id]
 
-            assert actual_cohort_order == expected_cohort_order, (
-                "Dependency cohort A should be processed before cohort with missing dependency"
-            )
+            assert actual_cohort_order == expected_cohort_order, "Dependency cohort A should be processed before cohort with missing dependency"
 
             mock_chain.assert_called_once_with(mock_task, mock_task)
             mock_chain_instance.apply_async.assert_called_once()
@@ -699,9 +697,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             actual_cohort_order = [call[0][0] for call in actual_calls]
             expected_cohort_order = [dynamic_cohort.id]
 
-            assert actual_cohort_order == expected_cohort_order, (
-                "Only the dynamic cohort should be processed, static dependencies are skipped"
-            )
+            assert actual_cohort_order == expected_cohort_order, "Only the dynamic cohort should be processed, static dependencies are skipped"
 
             mock_chain.assert_called_once_with(mock_task)
             mock_chain_instance.apply_async.assert_called_once()

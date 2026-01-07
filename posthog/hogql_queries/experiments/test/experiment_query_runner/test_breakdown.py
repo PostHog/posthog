@@ -1,7 +1,6 @@
 from datetime import datetime
 from typing import cast
 
-import pytest
 from freezegun import freeze_time
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
 from unittest import skip
@@ -29,6 +28,7 @@ from posthog.schema import (
 from posthog.hogql_queries.experiments.experiment_query_builder import BREAKDOWN_NULL_STRING_LABEL
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 from posthog.hogql_queries.experiments.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
+import pytest
 
 
 @override_settings(IN_UNIT_TESTING=True)

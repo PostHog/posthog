@@ -210,17 +210,17 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
         # self.assertEqual(results[0]["id"], p1.uuid)
         assert results[0][0] == p1.uuid
         assert list(results[0][2]) == [
-            {
-                "session_id": "s2",
-                "events": [
-                    {
-                        "uuid": UUID("21111111-1111-1111-1111-111111111111"),
-                        "timestamp": timezone.now() + timedelta(days=1),
-                        "window_id": "w2",
-                    }
-                ],
-            }
-        ]
+                {
+                    "session_id": "s2",
+                    "events": [
+                        {
+                            "uuid": UUID("21111111-1111-1111-1111-111111111111"),
+                            "timestamp": timezone.now() + timedelta(days=1),
+                            "window_id": "w2",
+                        }
+                    ],
+                }
+            ]
 
         # Third event dropoff, with recording
         filters = {
@@ -242,14 +242,14 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
         # self.assertEqual(results[0]["id"], p1.uuid)
         assert results[0][0] == p1.uuid
         assert list(results[0][2]) == [
-            {
-                "session_id": "s2",
-                "events": [
-                    {
-                        "uuid": UUID("21111111-1111-1111-1111-111111111111"),
-                        "timestamp": timezone.now() + timedelta(days=1),
-                        "window_id": "w2",
-                    }
-                ],
-            }
-        ]
+                {
+                    "session_id": "s2",
+                    "events": [
+                        {
+                            "uuid": UUID("21111111-1111-1111-1111-111111111111"),
+                            "timestamp": timezone.now() + timedelta(days=1),
+                            "window_id": "w2",
+                        }
+                    ],
+                }
+            ]

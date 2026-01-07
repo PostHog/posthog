@@ -3,7 +3,7 @@ import uuid
 import functools
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
-from typing import Any, cast
+from typing import Any, Optional, cast
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -205,10 +205,10 @@ async def _run(
     source_type: str,
     job_inputs: dict[str, str],
     mock_data_response: Any,
-    sync_type: ExternalDataSchema.SyncType | None = None,
-    sync_type_config: dict | None = None,
-    billable: bool | None = None,
-    ignore_assertions: bool | None = False,
+    sync_type: Optional[ExternalDataSchema.SyncType] = None,
+    sync_type_config: Optional[dict] = None,
+    billable: Optional[bool] = None,
+    ignore_assertions: Optional[bool] = False,
 ):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         source_id=uuid.uuid4(),
@@ -292,12 +292,12 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
         class_self,
         path: str = "",
         method: Any = "GET",
-        params: dict[str, Any] | None = None,
-        json: dict[str, Any] | None = None,
-        auth: Any | None = None,
-        paginator: Any | None = None,
-        data_selector: Any | None = None,
-        hooks: Any | None = None,
+        params: Optional[dict[str, Any]] = None,
+        json: Optional[dict[str, Any]] = None,
+        auth: Optional[Any] = None,
+        paginator: Optional[Any] = None,
+        data_selector: Optional[Any] = None,
+        hooks: Optional[Any] = None,
     ):
         return iter(mock_data_response)
 
@@ -1927,9 +1927,9 @@ async def test_partition_folders_with_uuid_id_and_created_at_with_parametrized_f
 
     # using datetime partition mode with created_at - formatted to day, week, or month
     for expected_partition in expected_partitions:
-        assert any(f"{PARTITION_KEY}={expected_partition}" in obj["Key"] for obj in s3_objects["Contents"]), (
-            f"Expected partition {expected_partition} not found in S3 objects"
-        )
+        assert any(
+            f"{PARTITION_KEY}={expected_partition}" in obj["Key"] for obj in s3_objects["Contents"]
+        ), f"Expected partition {expected_partition} not found in S3 objects"
 
     schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
     assert schema.partitioning_enabled is True

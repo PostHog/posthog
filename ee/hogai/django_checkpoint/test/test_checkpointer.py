@@ -2,7 +2,7 @@
 
 import asyncio
 import operator
-from typing import Annotated, Any, TypedDict
+from typing import Annotated, Any, Optional, TypedDict
 from uuid import uuid4
 
 from posthog.test.base import NonAtomicBaseTest
@@ -290,7 +290,7 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
 
         class State(TypedDict, total=False):
             messages: Annotated[list[str], operator.add]
-            string: str | None
+            string: Optional[str]
 
         graph = StateGraph(State)
 
@@ -325,11 +325,11 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
 
         class State(BaseModel):
             messages: Annotated[list[str], operator.add]
-            string: str | None
+            string: Optional[str]
 
         class PartialState(BaseModel):
-            messages: list[str] | None = Field(default=None)
-            string: str | None = Field(default=None)
+            messages: Optional[list[str]] = Field(default=None)
+            string: Optional[str] = Field(default=None)
 
         graph = StateGraph(State)
 

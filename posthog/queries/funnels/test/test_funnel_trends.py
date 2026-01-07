@@ -112,50 +112,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         funnel_trends = ClickhouseFunnelTrends(filter, self.team)
         results = funnel_trends._exec_query()
 
-        assert results == [
-            {
-                "reached_to_step_count": 0,
-                "conversion_rate": 0,
-                "reached_from_step_count": 1,
-                "timestamp": datetime(2021, 6, 7, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
-            },
-            {
-                "reached_to_step_count": 0,
-                "conversion_rate": 0,
-                "reached_from_step_count": 0,
-                "timestamp": datetime(2021, 6, 8, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
-            },
-            {
-                "reached_to_step_count": 0,
-                "conversion_rate": 0,
-                "reached_from_step_count": 0,
-                "timestamp": datetime(2021, 6, 9, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
-            },
-            {
-                "reached_to_step_count": 0,
-                "conversion_rate": 0,
-                "reached_from_step_count": 0,
-                "timestamp": datetime(2021, 6, 10, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
-            },
-            {
-                "reached_to_step_count": 0,
-                "conversion_rate": 0,
-                "reached_from_step_count": 0,
-                "timestamp": datetime(2021, 6, 11, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
-            },
-            {
-                "reached_to_step_count": 0,
-                "conversion_rate": 0,
-                "reached_from_step_count": 0,
-                "timestamp": datetime(2021, 6, 12, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
-            },
-            {
-                "reached_to_step_count": 0,
-                "conversion_rate": 0,
-                "reached_from_step_count": 0,
-                "timestamp": datetime(2021, 6, 13, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
-            },
-        ]
+        assert results == [{"reached_to_step_count": 0, "conversion_rate": 0, "reached_from_step_count": 1, "timestamp": datetime(2021, 6, 7, 0, 0).replace(tzinfo=ZoneInfo("UTC"))}, {"reached_to_step_count": 0, "conversion_rate": 0, "reached_from_step_count": 0, "timestamp": datetime(2021, 6, 8, 0, 0).replace(tzinfo=ZoneInfo("UTC"))}, {"reached_to_step_count": 0, "conversion_rate": 0, "reached_from_step_count": 0, "timestamp": datetime(2021, 6, 9, 0, 0).replace(tzinfo=ZoneInfo("UTC"))}, {"reached_to_step_count": 0, "conversion_rate": 0, "reached_from_step_count": 0, "timestamp": datetime(2021, 6, 10, 0, 0).replace(tzinfo=ZoneInfo("UTC"))}, {"reached_to_step_count": 0, "conversion_rate": 0, "reached_from_step_count": 0, "timestamp": datetime(2021, 6, 11, 0, 0).replace(tzinfo=ZoneInfo("UTC"))}, {"reached_to_step_count": 0, "conversion_rate": 0, "reached_from_step_count": 0, "timestamp": datetime(2021, 6, 12, 0, 0).replace(tzinfo=ZoneInfo("UTC"))}, {"reached_to_step_count": 0, "conversion_rate": 0, "reached_from_step_count": 0, "timestamp": datetime(2021, 6, 13, 0, 0).replace(tzinfo=ZoneInfo("UTC"))}]
 
         # 1 user who dropped off starting 2021-06-07
         funnel_trends_persons_existent_dropped_off_results = self._get_actors_at_step(
@@ -297,50 +254,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         results = ClickhouseFunnelTrends(filter, self.team)._exec_query()
-        assert results == [
-            {
-                "conversion_rate": 0.0,
-                "reached_from_step_count": 0,
-                "reached_to_step_count": 0,
-                "timestamp": date(2020, 1, 1),
-            },
-            {
-                "conversion_rate": 0.0,
-                "reached_from_step_count": 0,
-                "reached_to_step_count": 0,
-                "timestamp": date(2020, 2, 1),
-            },
-            {
-                "conversion_rate": 0.0,
-                "reached_from_step_count": 0,
-                "reached_to_step_count": 0,
-                "timestamp": date(2020, 3, 1),
-            },
-            {
-                "conversion_rate": 0.0,
-                "reached_from_step_count": 0,
-                "reached_to_step_count": 0,
-                "timestamp": date(2020, 4, 1),
-            },
-            {
-                "conversion_rate": 100.0,
-                "reached_from_step_count": 1,
-                "reached_to_step_count": 1,
-                "timestamp": date(2020, 5, 1),
-            },
-            {
-                "conversion_rate": 0.0,
-                "reached_from_step_count": 0,
-                "reached_to_step_count": 0,
-                "timestamp": date(2020, 6, 1),
-            },
-            {
-                "conversion_rate": 0.0,
-                "reached_from_step_count": 0,
-                "reached_to_step_count": 0,
-                "timestamp": date(2020, 7, 1),
-            },
-        ]
+        assert results == [{"conversion_rate": 0.0, "reached_from_step_count": 0, "reached_to_step_count": 0, "timestamp": date(2020, 1, 1)}, {"conversion_rate": 0.0, "reached_from_step_count": 0, "reached_to_step_count": 0, "timestamp": date(2020, 2, 1)}, {"conversion_rate": 0.0, "reached_from_step_count": 0, "reached_to_step_count": 0, "timestamp": date(2020, 3, 1)}, {"conversion_rate": 0.0, "reached_from_step_count": 0, "reached_to_step_count": 0, "timestamp": date(2020, 4, 1)}, {"conversion_rate": 100.0, "reached_from_step_count": 1, "reached_to_step_count": 1, "timestamp": date(2020, 5, 1)}, {"conversion_rate": 0.0, "reached_from_step_count": 0, "reached_to_step_count": 0, "timestamp": date(2020, 6, 1)}, {"conversion_rate": 0.0, "reached_from_step_count": 0, "reached_to_step_count": 0, "timestamp": date(2020, 7, 1)}]
 
         persons = self._get_actors_at_step(filter, "2020-05-01 00:00:00", False)
 
@@ -529,17 +443,13 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         assert day["reached_from_step_count"] == 0
         assert day["reached_to_step_count"] == 0
         assert day["conversion_rate"] == 0
-        assert day["timestamp"].replace(tzinfo=ZoneInfo("UTC")) == (
-            datetime(now.year, now.month, now.day) - timedelta(1)
-        ).replace(tzinfo=ZoneInfo("UTC"))
+        assert day["timestamp"].replace(tzinfo=ZoneInfo("UTC")) == (datetime(now.year, now.month, now.day) - timedelta(1)).replace(tzinfo=ZoneInfo("UTC"))
 
         day = results[1]  # today
         assert day["reached_from_step_count"] == 1
         assert day["reached_to_step_count"] == 1
         assert day["conversion_rate"] == 100
-        assert day["timestamp"].replace(tzinfo=ZoneInfo("UTC")) == datetime(now.year, now.month, now.day).replace(
-            tzinfo=ZoneInfo("UTC")
-        )
+        assert day["timestamp"].replace(tzinfo=ZoneInfo("UTC")) == datetime(now.year, now.month, now.day).replace(tzinfo=ZoneInfo("UTC"))
 
     def test_two_runs_by_single_user_in_one_period(self):
         journeys_for(
@@ -687,9 +597,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert len(funnel_trends_persons_existent_dropped_off_results) == 1
-        assert [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results] == [
-            ["user_two"]
-        ]
+        assert [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results] == [["user_two"]]
 
         # 1 user who converted starting # 2021-05-04
         funnel_trends_persons_existent_dropped_off_results = self._get_actors_at_step(
@@ -697,9 +605,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert len(funnel_trends_persons_existent_dropped_off_results) == 1
-        assert [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results] == [
-            ["user_one"]
-        ]
+        assert [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results] == [["user_one"]]
 
     def test_from_second_step(self):
         journeys_for(
@@ -885,9 +791,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert len(funnel_trends_persons_existent_dropped_off_results) == 1
-        assert [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results] == [
-            ["user_two"]
-        ]
+        assert [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results] == [["user_two"]]
 
         # 1 user who converted starting # 2021-05-04
         funnel_trends_persons_existent_dropped_off_results = self._get_actors_at_step(
@@ -895,9 +799,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert len(funnel_trends_persons_existent_dropped_off_results) == 1
-        assert [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results] == [
-            ["user_one"]
-        ]
+        assert [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results] == [["user_one"]]
 
     def test_one_person_in_multiple_periods_and_windows_in_strict_funnel(self):
         journeys_for(

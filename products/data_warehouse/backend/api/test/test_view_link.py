@@ -32,18 +32,7 @@ class TestViewLinkQuery(APIBaseTest):
         )
         assert response.status_code == 201, response.content
         view_link = response.json()
-        assert view_link == {
-            "id": view_link["id"],
-            "deleted": False,
-            "created_by": view_link["created_by"],
-            "created_at": view_link["created_at"],
-            "source_table_name": "events",
-            "source_table_key": "uuid",
-            "joining_table_name": "persons",
-            "joining_table_key": "id",
-            "field_name": "some_field",
-            "configuration": None,
-        }
+        assert view_link == {"id": view_link["id"], "deleted": False, "created_by": view_link["created_by"], "created_at": view_link["created_at"], "source_table_name": "events", "source_table_key": "uuid", "joining_table_name": "persons", "joining_table_key": "id", "field_name": "some_field", "configuration": None}
 
     def test_reading_dot_notation(self):
         source = ExternalDataSource.objects.create(
@@ -110,18 +99,7 @@ class TestViewLinkQuery(APIBaseTest):
         )
         assert response.status_code == 201, response.content
         view_link = response.json()
-        assert view_link == {
-            "id": view_link["id"],
-            "deleted": False,
-            "created_by": view_link["created_by"],
-            "created_at": view_link["created_at"],
-            "source_table_name": "events",
-            "source_table_key": "uuid",
-            "joining_table_name": "persons",
-            "joining_table_key": "id",
-            "field_name": "some_field",
-            "configuration": {"experiments_optimized": True, "experiments_timestamp_key": "timestamp"},
-        }
+        assert view_link == {"id": view_link["id"], "deleted": False, "created_by": view_link["created_by"], "created_at": view_link["created_at"], "source_table_name": "events", "source_table_key": "uuid", "joining_table_name": "persons", "joining_table_key": "id", "field_name": "some_field", "configuration": {"experiments_optimized": True, "experiments_timestamp_key": "timestamp"}}
 
     def test_create_key_error(self):
         response = self.client.post(
@@ -194,18 +172,7 @@ class TestViewLinkQuery(APIBaseTest):
         )
         assert response.status_code == 200, response.content
         view_link = response.json()
-        assert view_link == {
-            "id": view_link["id"],
-            "deleted": False,
-            "created_by": view_link["created_by"],
-            "created_at": view_link["created_at"],
-            "source_table_name": "events",
-            "source_table_key": "distinct_id",
-            "joining_table_name": "persons",
-            "joining_table_key": "id",
-            "field_name": "some_field",
-            "configuration": {"experiments_optimized": True, "experiments_timestamp_key": "timestamp"},
-        }
+        assert view_link == {"id": view_link["id"], "deleted": False, "created_by": view_link["created_by"], "created_at": view_link["created_at"], "source_table_name": "events", "source_table_key": "distinct_id", "joining_table_name": "persons", "joining_table_key": "id", "field_name": "some_field", "configuration": {"experiments_optimized": True, "experiments_timestamp_key": "timestamp"}}
         join.refresh_from_db()
         assert join.configuration == {"experiments_optimized": True, "experiments_timestamp_key": "timestamp"}
 

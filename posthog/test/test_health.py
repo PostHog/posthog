@@ -2,6 +2,7 @@ import os
 import random
 import logging
 from contextlib import contextmanager
+from typing import Optional
 
 import pytest
 from unittest import mock
@@ -272,7 +273,7 @@ def test_readyz_complains_if_role_does_not_exist(client: Client):
     assert data["error"] == "InvalidRole"
 
 
-def get_readyz(client: Client, exclude: list[str] | None = None, role: str | None = None) -> HttpResponse:
+def get_readyz(client: Client, exclude: Optional[list[str]] = None, role: Optional[str] = None) -> HttpResponse:
     return client.get("/_readyz", data={"exclude": exclude or [], "role": role or ""})
 
 
@@ -280,7 +281,7 @@ def get_livez(client: Client) -> HttpResponse:
     return client.get("/_livez")
 
 
-def return_given_error_or_random(error: Exception | None = None):
+def return_given_error_or_random(error: Optional[Exception] = None):
     """
     This randomly chooses between returning the given error or a random base exception. Useful
     for testing how we handle unexpected exceptions in health checks.

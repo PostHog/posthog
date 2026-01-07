@@ -32,10 +32,7 @@ class TestBase(APIBaseTest):
         compared_filter = determine_compared_filter(filter)
 
         assert isinstance(compared_filter, PathFilter)
-        assert {
-            "date_from": "2020-05-16T00:00:00+00:00",
-            "date_to": "2020-05-22T23:59:59.999999+00:00",
-        }.items() <= compared_filter.to_dict().items()
+        assert {"date_from": "2020-05-16T00:00:00+00:00", "date_to": "2020-05-22T23:59:59.999999+00:00"}.items() <= compared_filter.to_dict().items()
 
 
 class TestMatchProperties(TestCase):
@@ -213,9 +210,7 @@ class TestMatchProperties(TestCase):
         assert match_property(property_a, {"key": "2022-04-30"})
         assert match_property(property_a, {"key": datetime.date(2022, 4, 30)})
         assert match_property(property_a, {"key": datetime.datetime(2022, 4, 30, 1, 2, 3)})
-        assert match_property(
-            property_a, {"key": datetime.datetime(2022, 4, 30, 1, 2, 3, tzinfo=tz.gettz("Europe/Madrid"))}
-        )
+        assert match_property(property_a, {"key": datetime.datetime(2022, 4, 30, 1, 2, 3, tzinfo=tz.gettz("Europe/Madrid"))})
         assert match_property(property_a, {"key": parser.parse("2022-04-30")})
         assert not match_property(property_a, {"key": "2022-05-30"})
 
@@ -271,9 +266,7 @@ class TestMatchProperties(TestCase):
         assert match_property(property_e, {"key": "1836277747"})
 
     def test_determine_parsed_incoming_date_with_int_timestamp(self):
-        assert determine_parsed_incoming_date(1836277747) == datetime.datetime(
-            2028, 3, 10, 5, 9, 7, tzinfo=ZoneInfo("UTC")
-        )
+        assert determine_parsed_incoming_date(1836277747) == datetime.datetime(2028, 3, 10, 5, 9, 7, tzinfo=ZoneInfo("UTC"))
 
     def test_determine_parsed_incoming_date_with_float_timestamp(self):
         timestamp = 1836277747.867530
@@ -310,9 +303,7 @@ class TestMatchProperties(TestCase):
         assert match_property(property_a, {"key": datetime.date(2022, 4, 30)})
 
         assert not match_property(property_a, {"key": datetime.datetime(2022, 4, 30, 19, 2, 3)})
-        assert match_property(
-            property_a, {"key": datetime.datetime(2022, 4, 30, 1, 2, 3, tzinfo=tz.gettz("Europe/Madrid"))}
-        )
+        assert match_property(property_a, {"key": datetime.datetime(2022, 4, 30, 1, 2, 3, tzinfo=tz.gettz("Europe/Madrid"))})
         assert match_property(property_a, {"key": parser.parse("2022-04-30")})
         assert not match_property(property_a, {"key": "2022-05-30"})
 
@@ -627,9 +618,7 @@ class TestSanitizeRegexPattern(TestCase):
         for pattern, test_string, should_match in test_cases:
             sanitized = sanitize_regex_pattern(pattern)
             match = re.search(sanitized, test_string, re.DOTALL | re.IGNORECASE)
-            assert bool(match) == should_match, (
-                f"Failed for pattern: {pattern}\nSanitized to: {sanitized}\nTesting against: {test_string}\nExpected match: {should_match}"
-            )
+            assert bool(match) == should_match, f"Failed for pattern: {pattern}\nSanitized to: {sanitized}\nTesting against: {test_string}\nExpected match: {should_match}"
 
     def test_property_name_patterns(self):
         test_cases = [
@@ -655,9 +644,7 @@ class TestSanitizeRegexPattern(TestCase):
         for pattern, test_string, should_match in test_cases:
             sanitized = sanitize_regex_pattern(pattern)
             match = re.search(sanitized, test_string, re.DOTALL | re.IGNORECASE)
-            assert bool(match) == should_match, (
-                f"Failed for pattern: {pattern}\nSanitized to: {sanitized}\nTesting against: {test_string}\nExpected match: {should_match}"
-            )
+            assert bool(match) == should_match, f"Failed for pattern: {pattern}\nSanitized to: {sanitized}\nTesting against: {test_string}\nExpected match: {should_match}"
 
     def test_nested_structures(self):
         test_cases = [
@@ -699,9 +686,7 @@ class TestSanitizeRegexPattern(TestCase):
         for pattern, test_string, should_match in test_cases:
             sanitized = sanitize_regex_pattern(pattern)
             match = re.search(sanitized, test_string, re.DOTALL | re.IGNORECASE)
-            assert bool(match) == should_match, (
-                f"Failed for pattern: {pattern}\nSanitized to: {sanitized}\nTesting against: {test_string}\nExpected match: {should_match}"
-            )
+            assert bool(match) == should_match, f"Failed for pattern: {pattern}\nSanitized to: {sanitized}\nTesting against: {test_string}\nExpected match: {should_match}"
 
     def test_multiple_properties(self):
         test_cases = [
@@ -720,9 +705,7 @@ class TestSanitizeRegexPattern(TestCase):
         for pattern, test_string, should_match in test_cases:
             sanitized = sanitize_regex_pattern(pattern)
             match = re.search(sanitized, test_string, re.DOTALL | re.IGNORECASE)
-            assert bool(match) == should_match, (
-                f"Failed for pattern: {pattern}\nSanitized to: {sanitized}\nTesting against: {test_string}\nExpected match: {should_match}"
-            )
+            assert bool(match) == should_match, f"Failed for pattern: {pattern}\nSanitized to: {sanitized}\nTesting against: {test_string}\nExpected match: {should_match}"
 
     def test_simple_regex_patterns(self):
         test_cases = [
@@ -750,6 +733,4 @@ class TestSanitizeRegexPattern(TestCase):
         for pattern, test_string, should_match in test_cases:
             sanitized = sanitize_regex_pattern(pattern)
             match = re.search(sanitized, test_string, re.DOTALL | re.IGNORECASE)
-            assert bool(match) == should_match, (
-                f"Failed for pattern: {pattern}\nSanitized to: {sanitized}\nTesting against: {test_string}\nExpected match: {should_match}"
-            )
+            assert bool(match) == should_match, f"Failed for pattern: {pattern}\nSanitized to: {sanitized}\nTesting against: {test_string}\nExpected match: {should_match}"

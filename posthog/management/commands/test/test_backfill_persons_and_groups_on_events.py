@@ -58,10 +58,7 @@ class TestBackfillPersonsAndGroupsOnEvents(BaseTest, ClickhouseTestMixin):
         )
 
         events_before = sync_execute("select event, person_id, person_properties from events")
-        assert events_before == [
-            ("event1", UUID("00000000-0000-0000-0000-000000000000"), ""),
-            ("event2", UUID("00000000-0000-0000-0000-000000000000"), ""),
-        ]
+        assert events_before == [("event1", UUID("00000000-0000-0000-0000-000000000000"), ""), ("event2", UUID("00000000-0000-0000-0000-000000000000"), "")]
 
         run_backfill({"team_id": 1, "live_run": True})
 

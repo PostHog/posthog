@@ -1,3 +1,4 @@
+from typing import Optional
 
 from freezegun.api import freeze_time
 from posthog.test.base import (
@@ -53,7 +54,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
             return p, session_id
 
-    def _visit_web_analytics(self, person: Person, session_id: str | None = None):
+    def _visit_web_analytics(self, person: Person, session_id: Optional[str] = None):
         with freeze_time(self.EVENT_TIMESTAMP):
             _create_event(
                 team=self.team,
@@ -67,7 +68,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 },
             )
 
-    def _click_pay(self, person: Person, session_id: str | None = None):
+    def _click_pay(self, person: Person, session_id: Optional[str] = None):
         with freeze_time(self.EVENT_TIMESTAMP):
             _create_event(
                 team=self.team,
@@ -128,7 +129,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         properties=None,
         compare=True,
         session_table_version: SessionTableVersion = SessionTableVersion.V2,
-        filter_test_accounts: bool | None = False,
+        filter_test_accounts: Optional[bool] = False,
     ):
         with freeze_time(self.QUERY_TIMESTAMP):
             modifiers = HogQLQueryModifiers(sessionTableVersion=session_table_version)

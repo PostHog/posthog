@@ -1,3 +1,4 @@
+from typing import Optional
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, snapshot_clickhouse_queries
 
@@ -75,12 +76,12 @@ class TestSessionAttributionQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def _run_session_attribution_query(
         self,
-        date_from: str | None = None,
-        date_to: str | None = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
         session_table_version: SessionTableVersion = SessionTableVersion.V2,
-        group_by: list[SessionAttributionGroupBy] | None = None,
-        limit_context: LimitContext | None = None,
-        properties: list[SessionPropertyFilter] | None = None,
+        group_by: Optional[list[SessionAttributionGroupBy]] = None,
+        limit_context: Optional[LimitContext] = None,
+        properties: Optional[list[SessionPropertyFilter]] = None,
     ):
         modifiers = HogQLQueryModifiers(sessionTableVersion=session_table_version)
         query = SessionAttributionExplorerQuery(

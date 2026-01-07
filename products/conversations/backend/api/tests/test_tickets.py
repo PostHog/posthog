@@ -273,6 +273,4 @@ class TestTicketAPI(BaseConversationsAPITest):
 
         for url, method in endpoints:
             response = getattr(self.client, method.lower())(url, format="json")
-            assert response.status_code == status.HTTP_403_FORBIDDEN, (
-                f"Failed for {method} {url}: expected 403, got {response.status_code}"
-            )
+            assert response.status_code == status.HTTP_403_FORBIDDEN, f"Failed for {method} {url}: expected 403, got {response.status_code}"

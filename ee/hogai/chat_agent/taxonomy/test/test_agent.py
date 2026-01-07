@@ -1,6 +1,5 @@
 from typing import cast
 
-import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
@@ -9,6 +8,7 @@ from ee.hogai.chat_agent.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentT
 from ee.hogai.chat_agent.taxonomy.toolkit import TaxonomyAgentToolkit
 from ee.hogai.chat_agent.taxonomy.types import TaxonomyAgentState, TaxonomyNodeName
 from ee.hogai.utils.types.composed import MaxNodeName
+import pytest
 
 
 class MockTaxonomyAgentNode(TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgentState]):

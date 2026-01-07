@@ -1,9 +1,8 @@
 import json
 import datetime
 from collections.abc import Callable
-from typing import Any, cast
+from typing import Any, Optional, cast
 
-import pytest
 from freezegun import freeze_time
 from posthog.test.base import (
     BaseTest,
@@ -20,6 +19,7 @@ from posthog.constants import FILTER_TEST_ACCOUNTS
 from posthog.models import Cohort, Filter, Person, Team
 from posthog.models.property import Property
 from posthog.queries.base import properties_to_Q, property_group_to_Q
+import pytest
 
 
 class TestFilter(BaseTest):
@@ -46,8 +46,7 @@ class TestFilter(BaseTest):
                 "client_query_id": "123",
             }
         )
-        assert sorted(list(filter.to_dict().keys())) == sorted(
-            [
+        assert sorted(list(filter.to_dict().keys())) == sorted([
                 "events",
                 "display",
                 "compare",
@@ -59,8 +58,7 @@ class TestFilter(BaseTest):
                 "sampling_factor",
                 "search",
                 "breakdown_normalize_url",
-            ]
-        )
+            ])
 
     def test_simplify_test_accounts(self):
         self.team.test_account_filters = [
@@ -77,43 +75,15 @@ class TestFilter(BaseTest):
 
         filter = Filter(data=data, team=self.team)
 
-        assert filter.properties_to_dict() == {
-            "properties": {"type": "AND", "values": [{"key": "attr", "value": "some_val", "type": "event"}]}
-        }
+        assert filter.properties_to_dict() == {"properties": {"type": "AND", "values": [{"key": "attr", "value": "some_val", "type": "event"}]}}
         assert filter.is_simplified
 
         filter = Filter(data={**data, FILTER_TEST_ACCOUNTS: True}, team=self.team)
 
-        assert filter.properties_to_dict() == {
-            "properties": {
-                "type": "AND",
-                "values": [
-                    {
-                        "type": "AND",
-                        "values": [
-                            {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
-                        ],
-                    },
-                    {"type": "AND", "values": [{"key": "attr", "value": "some_val", "type": "event"}]},
-                ],
-            }
-        }
+        assert filter.properties_to_dict() == {"properties": {"type": "AND", "values": [{"type": "AND", "values": [{"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}]}, {"type": "AND", "values": [{"key": "attr", "value": "some_val", "type": "event"}]}]}}
         assert filter.is_simplified
 
-        assert filter.simplify(self.team).properties_to_dict() == {
-            "properties": {
-                "type": "AND",
-                "values": [
-                    {
-                        "type": "AND",
-                        "values": [
-                            {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
-                        ],
-                    },
-                    {"type": "AND", "values": [{"key": "attr", "value": "some_val", "type": "event"}]},
-                ],
-            }
-        }
+        assert filter.simplify(self.team).properties_to_dict() == {"properties": {"type": "AND", "values": [{"type": "AND", "values": [{"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}]}, {"type": "AND", "values": [{"key": "attr", "value": "some_val", "type": "event"}]}]}}
 
 
 def property_to_Q_test_factory(filter_persons: Callable, person_factory):
@@ -738,11 +708,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
             }
         )
         query_filter = properties_to_Q(self.team.pk, filter.property_groups.flat)
-        assert query_filter == Q(
-            Q(group_properties__some_prop=5)
-            & Q(group_properties__has_key="some_prop")
-            & ~Q(group_properties__some_prop=None)
-        )
+        assert query_filter == Q(Q(group_properties__some_prop=5) & Q(group_properties__has_key="some_prop") & ~Q(group_properties__some_prop=None))
 
     def test_person_relative_date_parsing(self):
         person1_distinct_id = "example_id"
@@ -1052,7 +1018,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
             assert not matched_person
 
     def _filter_with_date_range(
-        self, date_from: datetime.datetime, date_to: datetime.datetime | None = None
+        self, date_from: datetime.datetime, date_to: Optional[datetime.datetime] = None
     ) -> Filter:
         data = {
             "properties": [{"key": "some_prop", "value": 5, "type": "group", "group_type_index": 1}],
@@ -1162,7 +1128,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
 
 
 def filter_persons_with_property_group(
-    filter: Filter, team: Team, property_overrides: dict[str, Any] | None = None
+    filter: Filter, team: Team, property_overrides: Optional[dict[str, Any]] = None
 ) -> list[str]:
     if property_overrides is None:
         property_overrides = {}

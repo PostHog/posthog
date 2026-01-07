@@ -77,20 +77,7 @@ class TestCohortBytecodeScenarios(APIBaseTest):
         assert and_group[1]["conditionHash"] == "f9c616030a87e68f"
         # person
         assert and_group[2]["type"] == "person"
-        assert and_group[2]["bytecode"] == [
-            "_H",
-            HOGQL_BYTECODE_VERSION,
-            31,
-            32,
-            "$browser",
-            32,
-            "properties",
-            32,
-            "person",
-            1,
-            3,
-            12,
-        ]
+        assert and_group[2]["bytecode"] == ["_H", HOGQL_BYTECODE_VERSION, 31, 32, "$browser", 32, "properties", 32, "person", 1, 3, 12]
         assert and_group[2]["conditionHash"] == "623236814d537b73"
 
         # Update should keep the same inline bytecode
@@ -141,20 +128,7 @@ class TestCohortBytecodeScenarios(APIBaseTest):
         assert or_group[0]["conditionHash"] == "f9c616030a87e68f"
         assert or_group[1]["bytecode"] == ["_H", HOGQL_BYTECODE_VERSION, 32, "$pageview", 32, "event", 1, 1, 11]
         assert or_group[1]["conditionHash"] == "f9c616030a87e68f"
-        assert or_group[2]["bytecode"] == [
-            "_H",
-            HOGQL_BYTECODE_VERSION,
-            31,
-            32,
-            "$browser",
-            32,
-            "properties",
-            32,
-            "person",
-            1,
-            3,
-            12,
-        ]
+        assert or_group[2]["bytecode"] == ["_H", HOGQL_BYTECODE_VERSION, 31, 32, "$browser", 32, "properties", 32, "person", 1, 3, 12]
         assert or_group[2]["conditionHash"] == "623236814d537b73"
 
         cohort2 = self._patch_and_fetch(cohort.id, filters)
@@ -221,48 +195,14 @@ class TestCohortBytecodeScenarios(APIBaseTest):
         assert cohort.cohort_type is None
         values = cohort.filters["properties"]["values"]
         # first OR group's first behavioral bytecode
-        assert values[0]["values"][0]["bytecode"] == [
-            "_H",
-            HOGQL_BYTECODE_VERSION,
-            32,
-            "$pageview",
-            32,
-            "event",
-            1,
-            1,
-            11,
-        ]
+        assert values[0]["values"][0]["bytecode"] == ["_H", HOGQL_BYTECODE_VERSION, 32, "$pageview", 32, "event", 1, 1, 11]
         # person property bytecode
-        assert values[2]["values"][0]["bytecode"] == [
-            "_H",
-            HOGQL_BYTECODE_VERSION,
-            32,
-            "Chrome",
-            32,
-            "$browser",
-            32,
-            "properties",
-            32,
-            "person",
-            1,
-            3,
-            11,
-        ]
+        assert values[2]["values"][0]["bytecode"] == ["_H", HOGQL_BYTECODE_VERSION, 32, "Chrome", 32, "$browser", 32, "properties", 32, "person", 1, 3, 11]
 
         cohort2 = self._patch_and_fetch(cohort.id, filters)
         assert cohort2.cohort_type is None
         values2 = cohort2.filters["properties"]["values"]
-        assert values2[0]["values"][0]["bytecode"] == [
-            "_H",
-            HOGQL_BYTECODE_VERSION,
-            32,
-            "$pageview",
-            32,
-            "event",
-            1,
-            1,
-            11,
-        ]
+        assert values2[0]["values"][0]["bytecode"] == ["_H", HOGQL_BYTECODE_VERSION, 32, "$pageview", 32, "event", 1, 1, 11]
 
     def test_event_properties_realtime(self):
         # 4. with event properties should be realtime
@@ -308,56 +248,7 @@ class TestCohortBytecodeScenarios(APIBaseTest):
         assert cohort.cohort_type == "realtime"
         node = cohort.filters["properties"]["values"][0]["values"][0]
         assert node["type"] == "behavioral"
-        assert node["bytecode"] == [
-            "_H",
-            HOGQL_BYTECODE_VERSION,
-            32,
-            "$pageview",
-            32,
-            "event",
-            1,
-            1,
-            11,
-            31,
-            32,
-            "$active_feature_flags",
-            32,
-            "properties",
-            1,
-            2,
-            12,
-            31,
-            32,
-            "$feature/active-hours-heatmap",
-            32,
-            "properties",
-            1,
-            2,
-            12,
-            52,
-            "lambda",
-            1,
-            0,
-            5,
-            31,
-            36,
-            0,
-            12,
-            38,
-            53,
-            0,
-            32,
-            "elements_chain_texts",
-            1,
-            1,
-            2,
-            "arrayExists",
-            2,
-            3,
-            3,
-            3,
-            2,
-        ]
+        assert node["bytecode"] == ["_H", HOGQL_BYTECODE_VERSION, 32, "$pageview", 32, "event", 1, 1, 11, 31, 32, "$active_feature_flags", 32, "properties", 1, 2, 12, 31, 32, "$feature/active-hours-heatmap", 32, "properties", 1, 2, 12, 52, "lambda", 1, 0, 5, 31, 36, 0, 12, 38, 53, 0, 32, "elements_chain_texts", 1, 1, 2, "arrayExists", 2, 3, 3, 3, 2]
         assert node["conditionHash"] == "827d18e80726ed84"
 
         cohort2 = self._patch_and_fetch(cohort.id, filters)

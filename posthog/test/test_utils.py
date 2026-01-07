@@ -93,9 +93,7 @@ class TestAbsoluteUrls(TestCase):
         for url, site_url, expected in absolute_urls_test_cases:
             with self.subTest():
                 with self.settings(SITE_URL=site_url):
-                    assert expected == absolute_uri(url), (
-                        f"with URL='{url}' & site_url setting='{site_url}' actual did not equal {expected}"
-                    )
+                    assert expected == absolute_uri(url), f"with URL='{url}' & site_url setting='{site_url}' actual did not equal {expected}"
 
     def test_absolute_uri_can_not_escape_out_host(self) -> None:
         with self.settings(SITE_URL="https://app.posthog.com"):
@@ -328,9 +326,7 @@ class TestLoadDataFromRequest(TestCase):
         with pytest.raises(RequestParsingError) as ctx:
             load_data_from_request(post_request)
 
-        assert "data being loaded from the request body for decompression is the literal string 'undefined'" == str(
-            ctx.value
-        )
+        assert "data being loaded from the request body for decompression is the literal string 'undefined'" == str(ctx.value)
 
     @patch("posthog.utils.gzip")
     def test_can_decompress_gzipped_body_received_with_no_compression_flag(self, patched_gzip):

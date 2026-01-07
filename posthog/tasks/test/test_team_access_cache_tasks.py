@@ -2,7 +2,6 @@
 Tests for team access cache Celery tasks.
 """
 
-import pytest
 from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
@@ -16,6 +15,7 @@ from posthog.tasks.team_access_cache_tasks import (
     warm_user_teams_cache_sync,
     warm_user_teams_cache_task,
 )
+import pytest
 
 
 class TestWarmUserTeamsCacheSync(TestCase):

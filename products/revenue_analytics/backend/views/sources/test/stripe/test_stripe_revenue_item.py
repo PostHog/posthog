@@ -1,6 +1,5 @@
 from typing import Any
 
-import pytest
 from posthog.test.base import snapshot_clickhouse_queries
 
 from parameterized import parameterized
@@ -22,6 +21,7 @@ from products.revenue_analytics.backend.views.sources.stripe.revenue_item import
     build,
 )
 from products.revenue_analytics.backend.views.sources.test.stripe.base import StripeSourceBaseTest
+import pytest
 
 
 class TestRevenueItemStripeBuilder(StripeSourceBaseTest):

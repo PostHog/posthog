@@ -1,6 +1,5 @@
 import json
 
-import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -10,6 +9,7 @@ from rest_framework import status
 
 from posthog import redis
 from posthog.api.github import SignatureVerificationError, verify_github_signature
+import pytest
 
 
 class TestGitHubSignatureVerification(TestCase):

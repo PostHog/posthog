@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from typing import Optional
 
 from freezegun import freeze_time
 from posthog.test.base import ClickhouseTestMixin, _create_event, flush_persons_and_events, snapshot_clickhouse_queries
@@ -32,8 +33,8 @@ class TestStopSurveysReachedTarget(TestCase, ClickhouseTestMixin):
         self,
         survey: Survey,
         event: str = "survey sent",
-        custom_timestamp: datetime | None = None,
-        submission_id: str | None = None,
+        custom_timestamp: Optional[datetime] = None,
+        submission_id: Optional[str] = None,
     ) -> None:
         timestamp = custom_timestamp or now()
         properties: dict = {

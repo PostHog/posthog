@@ -29,12 +29,7 @@ class TestWebVitalsAPI(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.pk}/web_vitals/")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "attr": "pathname",
-            "code": "invalid_input",
-            "detail": "This field is required.",
-        }
+        assert response.json() == {"type": "validation_error", "attr": "pathname", "code": "invalid_input", "detail": "This field is required."}
 
     def test_web_vitals_with_data(self):
         # Freeze time at query time

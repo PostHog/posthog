@@ -48,15 +48,7 @@ class TestRevenueAnalyticsFormatters(BaseTest):
         ]
 
         formatter = RevenueAnalyticsGrossRevenueResultsFormatter(query, results)
-        assert (
-            formatter.format() == "Gross revenue for period: 2024-11-01 to 2025-02-01\n"
-            "Breakdown by revenue_analytics_product.name\n"
-            "Date|stripe.posthog_test - Product F|stripe.posthog_test - Product E\n"
-            "2024-11-01|647.24355|64.24353\n"
-            "2024-12-01|2507.21839|207.2432\n"
-            "2025-01-01|2110.27254|210.272\n"
-            "2025-02-01|2415.34023|415.3402"
-        )
+        assert formatter.format() == "Gross revenue for period: 2024-11-01 to 2025-02-01\n" "Breakdown by revenue_analytics_product.name\n" "Date|stripe.posthog_test - Product F|stripe.posthog_test - Product E\n" "2024-11-01|647.24355|64.24353\n" "2024-12-01|2507.21839|207.2432\n" "2025-01-01|2110.27254|210.272\n" "2025-02-01|2415.34023|415.3402"
 
     def test_format_metrics(self):
         query = RevenueAnalyticsMetricsQuery(
@@ -181,58 +173,7 @@ class TestRevenueAnalyticsFormatters(BaseTest):
         ]
 
         formatter = RevenueAnalyticsMetricsResultsFormatter(query, results)
-        assert (
-            formatter.format() == "Revenue metrics for period: 2024-11-01 to 2025-02-01\n"
-            "Breakdown by revenue_analytics_product.name\n"
-            "\nSubscription Count\n"
-            "Date|stripe.posthog_test - Product E|stripe.posthog_test - Product F\n"
-            "2024-11-01|0|1\n"
-            "2024-12-01|0|2\n"
-            "2025-01-01|3|3\n"
-            "2025-02-01|6|4\n"
-            "\nNew Subscription Count\n"
-            "Date|stripe.posthog_test - Product E|stripe.posthog_test - Product F\n"
-            "2024-11-01|0|0\n"
-            "2024-12-01|0|1\n"
-            "2025-01-01|3|1\n"
-            "2025-02-01|3|2\n"
-            "\nChurned Subscription Count\n"
-            "Date|stripe.posthog_test - Product E|stripe.posthog_test - Product F\n"
-            "2024-11-01|0|0\n"
-            "2024-12-01|0|0\n"
-            "2025-01-01|0|0\n"
-            "2025-02-01|0|1\n"
-            "\nCustomer Count\n"
-            "Date|stripe.posthog_test - Product E|stripe.posthog_test - Product F\n"
-            "2024-11-01|0|1\n"
-            "2024-12-01|0|2\n"
-            "2025-01-01|3|3\n"
-            "2025-02-01|6|3\n"
-            "\nNew Customer Count\n"
-            "Date|stripe.posthog_test - Product E|stripe.posthog_test - Product F\n"
-            "2024-11-01|0|0\n"
-            "2024-12-01|0|1\n"
-            "2025-01-01|3|1\n"
-            "2025-02-01|3|1\n"
-            "\nChurned Customer Count\n"
-            "Date|stripe.posthog_test - Product E|stripe.posthog_test - Product F\n"
-            "2024-11-01|0|0\n"
-            "2024-12-01|0|0\n"
-            "2025-01-01|0|0\n"
-            "2025-02-01|0|1\n"
-            "\nARPU\n"
-            "Date|stripe.posthog_test - Product E|stripe.posthog_test - Product F\n"
-            "2024-11-01|0|0\n"
-            "2024-12-01|0|0\n"
-            "2025-01-01|212.51292|152.235\n"
-            "2025-02-01|277.54371|215.3234\n"
-            "\nLTV\n"
-            "Date|stripe.posthog_test - Product E|stripe.posthog_test - Product F\n"
-            "2024-11-01|0|0\n"
-            "2024-12-01|0|0\n"
-            "2025-01-01|N/A|N/A\n"
-            "2025-02-01|N/A|N/A\n"
-        )
+        assert formatter.format() == "Revenue metrics for period: 2024-11-01 to 2025-02-01\n" "Breakdown by revenue_analytics_product.name\n" "\nSubscription Count\n" "Date|stripe.posthog_test - Product E|stripe.posthog_test - Product F\n" "2024-11-01|0|1\n" "2024-12-01|0|2\n" "2025-01-01|3|3\n" "2025-02-01|6|4\n" "\nNew Subscription Count\n" "Date|stripe.posthog_test - Product E|stripe.posthog_test - Product F\n" "2024-11-01|0|0\n" "2024-12-01|0|1\n" "2025-01-01|3|1\n" "2025-02-01|3|2\n" "\nChurned Subscription Count\n" "Date|stripe.posthog_test - Product E|stripe.posthog_test - Product F\n" "2024-11-01|0|0\n" "2024-12-01|0|0\n" "2025-01-01|0|0\n" "2025-02-01|0|1\n" "\nCustomer Count\n" "Date|stripe.posthog_test - Product E|stripe.posthog_test - Product F\n" "2024-11-01|0|1\n" "2024-12-01|0|2\n" "2025-01-01|3|3\n" "2025-02-01|6|3\n" "\nNew Customer Count\n" "Date|stripe.posthog_test - Product E|stripe.posthog_test - Product F\n" "2024-11-01|0|0\n" "2024-12-01|0|1\n" "2025-01-01|3|1\n" "2025-02-01|3|1\n" "\nChurned Customer Count\n" "Date|stripe.posthog_test - Product E|stripe.posthog_test - Product F\n" "2024-11-01|0|0\n" "2024-12-01|0|0\n" "2025-01-01|0|0\n" "2025-02-01|0|1\n" "\nARPU\n" "Date|stripe.posthog_test - Product E|stripe.posthog_test - Product F\n" "2024-11-01|0|0\n" "2024-12-01|0|0\n" "2025-01-01|212.51292|152.235\n" "2025-02-01|277.54371|215.3234\n" "\nLTV\n" "Date|stripe.posthog_test - Product E|stripe.posthog_test - Product F\n" "2024-11-01|0|0\n" "2024-12-01|0|0\n" "2025-01-01|N/A|N/A\n" "2025-02-01|N/A|N/A\n"
 
     def test_format_mrr(self):
         query = RevenueAnalyticsMRRQuery(
@@ -319,40 +260,7 @@ class TestRevenueAnalyticsFormatters(BaseTest):
         ]
 
         formatter = RevenueAnalyticsMRRResultsFormatter(query, results)
-        assert (
-            formatter.format() == "MRR metrics for period: 2024-11-01 to 2025-02-01\n"
-            "Breakdown by revenue_analytics_product.name\n"
-            "\nTotal MRR\n"
-            "Date|stripe.posthog_test - Product C|stripe.posthog_test - Product D\n"
-            "2024-11-30|5.75833|5.325\n"
-            "2024-12-31|24.35234|4.335\n"
-            "2025-01-31|19.96086|19.865\n"
-            "2025-02-28|9.84295|19.845\n"
-            "\nNew MRR\n"
-            "Date|stripe.posthog_test - Product C|stripe.posthog_test - Product D\n"
-            "2024-11-30|0|0\n"
-            "2024-12-31|5.75833|5.7325\n"
-            "2025-01-31|18.59401|18.01\n"
-            "2025-02-28|0|0\n"
-            "\nExpansion MRR\n"
-            "Date|stripe.posthog_test - Product C|stripe.posthog_test - Product D\n"
-            "2024-11-30|0|0\n"
-            "2024-12-31|0|0\n"
-            "2025-01-31|0|8.38045\n"
-            "2025-02-28|8.38045|25.12\n"
-            "\nContraction MRR\n"
-            "Date|stripe.posthog_test - Product C|stripe.posthog_test - Product D\n"
-            "2024-11-30|0|0\n"
-            "2024-12-31|-4.39147|-45.391\n"
-            "2025-01-31|-18.49837|-1.497\n"
-            "2025-02-28|0|0\n"
-            "\nChurned MRR\n"
-            "Date|stripe.posthog_test - Product C|stripe.posthog_test - Product D\n"
-            "2024-11-30|0|0\n"
-            "2024-12-31|0|0\n"
-            "2025-01-31|0|0\n"
-            "2025-02-28|0|0\n"
-        )
+        assert formatter.format() == "MRR metrics for period: 2024-11-01 to 2025-02-01\n" "Breakdown by revenue_analytics_product.name\n" "\nTotal MRR\n" "Date|stripe.posthog_test - Product C|stripe.posthog_test - Product D\n" "2024-11-30|5.75833|5.325\n" "2024-12-31|24.35234|4.335\n" "2025-01-31|19.96086|19.865\n" "2025-02-28|9.84295|19.845\n" "\nNew MRR\n" "Date|stripe.posthog_test - Product C|stripe.posthog_test - Product D\n" "2024-11-30|0|0\n" "2024-12-31|5.75833|5.7325\n" "2025-01-31|18.59401|18.01\n" "2025-02-28|0|0\n" "\nExpansion MRR\n" "Date|stripe.posthog_test - Product C|stripe.posthog_test - Product D\n" "2024-11-30|0|0\n" "2024-12-31|0|0\n" "2025-01-31|0|8.38045\n" "2025-02-28|8.38045|25.12\n" "\nContraction MRR\n" "Date|stripe.posthog_test - Product C|stripe.posthog_test - Product D\n" "2024-11-30|0|0\n" "2024-12-31|-4.39147|-45.391\n" "2025-01-31|-18.49837|-1.497\n" "2025-02-28|0|0\n" "\nChurned MRR\n" "Date|stripe.posthog_test - Product C|stripe.posthog_test - Product D\n" "2024-11-30|0|0\n" "2024-12-31|0|0\n" "2025-01-31|0|0\n" "2025-02-28|0|0\n"
 
     def test_format_top_customers_group_by_month(self):
         query = RevenueAnalyticsTopCustomersQuery(
@@ -376,17 +284,7 @@ class TestRevenueAnalyticsFormatters(BaseTest):
         ]
 
         formatter = RevenueAnalyticsTopCustomersResultsFormatter(query, results)
-        assert (
-            formatter.format() == "Top customers for period: 2024-11-01 to 2025-02-01\n"
-            "Grouped by month\n"
-            "Customer Name|2025-02-01|2025-03-01\n"
-            "John Doe Jr|1105.82156|8104.56\n"
-            "John Doe Jr Jr|668.67503|864.03\n"
-            "John Smith|615.99731|814.915\n"
-            "Jane Smith|85.47825|84.25\n"
-            "Jane Doe|26.01009|84.0101\n"
-            "John Doe|5.23615|73.23614"
-        )
+        assert formatter.format() == "Top customers for period: 2024-11-01 to 2025-02-01\n" "Grouped by month\n" "Customer Name|2025-02-01|2025-03-01\n" "John Doe Jr|1105.82156|8104.56\n" "John Doe Jr Jr|668.67503|864.03\n" "John Smith|615.99731|814.915\n" "Jane Smith|85.47825|84.25\n" "Jane Doe|26.01009|84.0101\n" "John Doe|5.23615|73.23614"
 
     def test_format_top_customers_group_by_all(self):
         query = RevenueAnalyticsTopCustomersQuery(
@@ -404,13 +302,4 @@ class TestRevenueAnalyticsFormatters(BaseTest):
         ]
 
         formatter = RevenueAnalyticsTopCustomersResultsFormatter(query, results)
-        assert (
-            formatter.format() == "Top customers for period: 2024-11-01 to 2025-02-01\n"
-            "Customer Name|Revenue\n"
-            "John Doe Jr|1105.82156\n"
-            "John Doe Jr Jr|668.67503\n"
-            "John Smith|615.99731\n"
-            "Jane Smith|85.47825\n"
-            "Jane Doe|26.01009\n"
-            "John Doe|5.23615"
-        )
+        assert formatter.format() == "Top customers for period: 2024-11-01 to 2025-02-01\n" "Customer Name|Revenue\n" "John Doe Jr|1105.82156\n" "John Doe Jr Jr|668.67503\n" "John Smith|615.99731\n" "Jane Smith|85.47825\n" "Jane Doe|26.01009\n" "John Doe|5.23615"

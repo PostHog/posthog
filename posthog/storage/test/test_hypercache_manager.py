@@ -7,7 +7,6 @@ Covers:
 - Cache invalidation and stats operations
 """
 
-import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -18,6 +17,7 @@ from posthog.storage.hypercache_manager import (
     invalidate_all_caches,
     push_hypercache_stats_metrics,
 )
+import pytest
 
 
 def create_test_hypercache(

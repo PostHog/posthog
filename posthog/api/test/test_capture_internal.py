@@ -2,7 +2,6 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -13,6 +12,7 @@ from posthog.settings.ingestion import (
     NEW_ANALYTICS_CAPTURE_ENDPOINT,
     REPLAY_CAPTURE_ENDPOINT,
 )
+import pytest
 
 
 class InstallCapturePostSpy:
@@ -345,7 +345,8 @@ class TestCaptureInternal(BaseTest):
                 properties=test_props,
             )
         assert (
-            str(e.value) == "capture_internal (test_capture_internal_invalid_token, test_event): API token is required"
+            str(e.value)
+            == "capture_internal (test_capture_internal_invalid_token, test_event): API token is required"
         )
 
     def test_capture_internal_invalid_distinct_id(self):

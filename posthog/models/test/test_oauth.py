@@ -1,7 +1,6 @@
 import uuid
 from datetime import timedelta
 
-import pytest
 from freezegun import freeze_time
 
 from django.conf import settings
@@ -14,6 +13,7 @@ from parameterized import parameterized
 from posthog.api.test.test_oauth import generate_rsa_key
 from posthog.models import Organization, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthIDToken, OAuthRefreshToken
+import pytest
 
 
 @override_settings(

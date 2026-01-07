@@ -1,7 +1,6 @@
 import datetime
 from typing import Any, cast
 
-import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -16,6 +15,7 @@ from posthog.models.user import User
 from ee.billing.billing_manager import BillingManager, _get_user_organization_role, build_billing_token
 from ee.billing.billing_types import Product
 from ee.models.license import License, LicenseManager
+import pytest
 
 
 def create_default_products_response(**kwargs) -> dict[str, list[Product]]:

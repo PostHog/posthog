@@ -33,14 +33,10 @@ class FieldDiscoveryTest(BaseTest):
         scope_fields = detail_fields.get(scope, {}).get("fields", [])
         matching_fields = [f for f in scope_fields if f["name"] == field_path]
 
-        assert matching_fields, (
-            f"Field '{field_path}' not found in scope '{scope}'. Available fields: {[f['name'] for f in scope_fields]}"
-        )
+        assert matching_fields, f"Field '{field_path}' not found in scope '{scope}'. Available fields: {[f['name'] for f in scope_fields]}"
 
         field = matching_fields[0]
-        assert set(field["types"]) == set(expected_types), (
-            f"Field '{field_path}' has types {field['types']}, expected {expected_types}"
-        )
+        assert set(field["types"]) == set(expected_types), f"Field '{field_path}' has types {field['types']}, expected {expected_types}"
 
     def _generate_test_data_from_pattern(self, pattern: str, value: Any = None) -> dict[str, Any]:
         if value is None:

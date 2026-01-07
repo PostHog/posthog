@@ -311,35 +311,10 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
 
     def test_router(self):
         node = self._get_node()
-        assert (
-            node.router(AssistantState(messages=[HumanMessage(content="Question")], root_tool_call_id="1"))
-            == "continue"
-        )
-        assert (
-            node.router(AssistantState(messages=[HumanMessage(content="Question")], root_tool_call_id="1", plan=""))
-            == "continue"
-        )
-        assert (
-            node.router(
-                AssistantState(
-                    messages=[HumanMessage(content="Question")],
-                    root_tool_call_id="1",
-                    root_tool_insight_type="sql",
-                    plan="plan",
-                )
-            )
-            == "sql"
-        )
-        assert (
-            node.router(
-                AssistantState(
-                    messages=[AssistantToolCallMessage(content="help", tool_call_id="1")],
-                    root_tool_call_id=None,
-                    plan=None,
-                )
-            )
-            == "end"
-        )
+        assert node.router(AssistantState(messages=[HumanMessage(content="Question")], root_tool_call_id="1")) == "continue"
+        assert node.router(AssistantState(messages=[HumanMessage(content="Question")], root_tool_call_id="1", plan="")) == "continue"
+        assert node.router(AssistantState(messages=[HumanMessage(content="Question")], root_tool_call_id="1", root_tool_insight_type="sql", plan="plan")) == "sql"
+        assert node.router(AssistantState(messages=[AssistantToolCallMessage(content="help", tool_call_id="1")], root_tool_call_id=None, plan=None)) == "end"
 
     def test_node_terminates_after_max_iterations(self):
         # Create state with 16 intermediate steps

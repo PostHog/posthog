@@ -1,4 +1,4 @@
-from typing import Union
+from typing import Optional, Union
 
 from freezegun import freeze_time
 from posthog.test.base import (
@@ -64,9 +64,9 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         limit=None,
         properties=None,
         session_table_version: SessionTableVersion = SessionTableVersion.V2,
-        filter_test_accounts: bool | None = False,
-        strip_query_params: bool | None = False,
-        order_by: list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]] | None = None,
+        filter_test_accounts: Optional[bool] = False,
+        strip_query_params: Optional[bool] = False,
+        order_by: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None,
     ):
         modifiers = HogQLQueryModifiers(sessionTableVersion=session_table_version)
         query = WebExternalClicksTableQuery(
@@ -106,10 +106,7 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         results = self._run_external_clicks_table_query("2023-12-01", "2023-12-11").results
 
-        assert [
-            ["https://www.example.com/", (2, 0), (2, 0)],
-            ["https://www.example.com/login", (1, 0), (1, 0)],
-        ] == results
+        assert [["https://www.example.com/", (2, 0), (2, 0)], ["https://www.example.com/login", (1, 0), (1, 0)]] == results
 
     def test_all_time(self):
         s1a = str(uuid7("2023-12-02"))
@@ -131,11 +128,7 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         results = self._run_external_clicks_table_query("all", "2023-12-15").results
 
-        assert [
-            ["https://www.example.com/", (2, 0), (2, 0)],
-            ["https://www.example.com/docs", (1, 0), (1, 0)],
-            ["https://www.example.com/login", (1, 0), (1, 0)],
-        ] == results
+        assert [["https://www.example.com/", (2, 0), (2, 0)], ["https://www.example.com/docs", (1, 0), (1, 0)], ["https://www.example.com/login", (1, 0), (1, 0)]] == results
 
     def test_filter_test_accounts(self):
         s1 = str(uuid7("2023-12-02"))
@@ -173,10 +166,7 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         results = self._run_external_clicks_table_query("2023-12-01", "2023-12-03", filter_test_accounts=False).results
 
-        assert [
-            ["https://www.example.com/", (1, 0), (1, 0)],
-            ["https://www.example.com/login", (1, 0), (1, 0)],
-        ] == results
+        assert [["https://www.example.com/", (1, 0), (1, 0)], ["https://www.example.com/login", (1, 0), (1, 0)]] == results
 
     def test_strip_query_params(self):
         s1 = str(uuid7("2023-12-02"))
@@ -203,10 +193,7 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2023-12-01", "2023-12-03", filter_test_accounts=False, strip_query_params=False
         ).results
 
-        assert [
-            ["https://www.example.com/login#bar", (1, 0), (1, 0)],
-            ["https://www.example.com/login?test=1#foo", (1, 0), (1, 0)],
-        ] == results_no_strip
+        assert [["https://www.example.com/login#bar", (1, 0), (1, 0)], ["https://www.example.com/login?test=1#foo", (1, 0), (1, 0)]] == results_no_strip
 
     def test_should_exclude_subdomain_under_root(self):
         s1 = str(uuid7("2023-12-02"))
@@ -294,11 +281,7 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             filter_test_accounts=False,
         ).results
 
-        assert default_results == [
-            ["https://beta.com/", (2, 0), (5, 0)],
-            ["https://example.com/", (3, 0), (4, 0)],
-            ["https://alpha.com/", (1, 0), (1, 0)],
-        ], "Default sorting should be by clicks DESC, then URL ASC"
+        assert default_results == [["https://beta.com/", (2, 0), (5, 0)], ["https://example.com/", (3, 0), (4, 0)], ["https://alpha.com/", (1, 0), (1, 0)]], "Default sorting should be by clicks DESC, then URL ASC"
 
         visitors_desc_results = self._run_external_clicks_table_query(
             "2023-12-01",
@@ -307,8 +290,4 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             order_by=[WebAnalyticsOrderByFields.VISITORS, WebAnalyticsOrderByDirection.DESC],
         ).results
 
-        assert visitors_desc_results == [
-            ["https://example.com/", (3, 0), (4, 0)],
-            ["https://beta.com/", (2, 0), (5, 0)],
-            ["https://alpha.com/", (1, 0), (1, 0)],
-        ], "Sorting by visitors DESC should show URLs with more visitors first, then alphabetically"
+        assert visitors_desc_results == [["https://example.com/", (3, 0), (4, 0)], ["https://beta.com/", (2, 0), (5, 0)], ["https://alpha.com/", (1, 0), (1, 0)]], "Sorting by visitors DESC should show URLs with more visitors first, then alphabetically"

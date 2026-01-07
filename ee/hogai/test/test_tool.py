@@ -1,4 +1,3 @@
-import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -17,6 +16,7 @@ from ee.hogai.tool_errors import (
     MaxToolTransientError,
 )
 from ee.hogai.utils.types.base import NodePath
+import pytest
 
 
 class DummyToolInput(BaseModel):

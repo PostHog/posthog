@@ -1,5 +1,3 @@
-import pytest
-
 from django.db import IntegrityError
 
 from rest_framework import status
@@ -8,6 +6,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 
 from ee.api.test.base import APILicensedTest
 from ee.models.rbac.role import Role
+import pytest
 
 
 class TestRoleAPI(APILicensedTest):
@@ -71,12 +70,7 @@ class TestRoleAPI(APILicensedTest):
             },
         )
         assert res.status_code == status.HTTP_400_BAD_REQUEST
-        assert res.json() == {
-            "type": "validation_error",
-            "code": "unique",
-            "detail": "There is already a role with this name.",
-            "attr": "name",
-        }
+        assert res.json() == {"type": "validation_error", "code": "unique", "detail": "There is already a role with this name.", "attr": "name"}
         assert Role.objects.count() == count
         other_org = Organization.objects.create(name="other org")
         Role.objects.create(name="Marketing", organization=other_org)

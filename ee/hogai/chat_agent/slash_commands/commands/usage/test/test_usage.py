@@ -80,9 +80,7 @@ class TestUsage(BaseTest):
         )
         start_time = get_conversation_start_time(conversation.id)
         assert start_time is not None
-        assert cast(datetime, start_time).replace(microsecond=0) == cast(datetime, conversation.created_at).replace(
-            microsecond=0
-        )
+        assert cast(datetime, start_time).replace(microsecond=0) == cast(datetime, conversation.created_at).replace(microsecond=0)
 
     def test_get_conversation_start_time_not_exists(self):
         """Test that non-existent conversation returns None."""

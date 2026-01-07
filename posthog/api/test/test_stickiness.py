@@ -1,7 +1,7 @@
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any, Union
+from typing import Any, Optional, Union
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, create_person_id_override_by_distinct_id, snapshot_clickhouse_queries
@@ -60,7 +60,7 @@ def get_time_series_ok(data):
 class NormalizedTrendResult:
     value: float
     label: str
-    breakdown_value: Union[str, int] | None
+    breakdown_value: Optional[Union[str, int]]
 
 
 # parameterize tests to reuse in EE

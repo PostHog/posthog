@@ -1,10 +1,10 @@
-import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from posthog.schema import EventsNode, TrendsQuery
 
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
+import pytest
 
 
 class TestDashboardContext(BaseTest):

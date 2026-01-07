@@ -62,7 +62,7 @@ class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
             }
             for flag in [self.feature_flag_1, self.feature_flag_2]
         ]
-        assert sorted(response.json(), key=lambda x: x["flag_id"]) == sorted(expected_data, key=lambda x: x["flag_id"])
+        assert sorted(response.json()) == sorted(expected_data)
 
     def test_get_feature_flag_not_found(self):
         url = f"/api/organizations/{self.organization.id}/feature_flags/nonexistent-flag"
@@ -389,10 +389,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         # target_project_2 should have failed
         assert len(response.json()["failed"]) == 1
         assert response.json()["failed"][0]["project_id"] == target_project_2.id
-        assert (
-            response.json()["failed"][0]["errors"]
-            == "[ErrorDetail(string='Feature flag with this key already exists and is used in an experiment. Please delete the experiment before deleting the flag.', code='invalid')]"
-        )
+        assert response.json()["failed"][0]["errors"] == "[ErrorDetail(string='Feature flag with this key already exists and is used in an experiment. Please delete the experiment before deleting the flag.', code='invalid')]"
 
     def test_copy_feature_flag_missing_fields(self):
         url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"

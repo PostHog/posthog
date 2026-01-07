@@ -3,7 +3,6 @@ from datetime import timedelta
 from functools import wraps
 from urllib.parse import quote
 
-import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, Mock, patch
@@ -23,6 +22,7 @@ from posthog.models.insight import Insight
 from posthog.models.share_password import SharePassword
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
+import pytest
 
 
 def mock_exporter_template(test_func):

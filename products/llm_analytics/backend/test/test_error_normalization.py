@@ -185,14 +185,14 @@ class TestErrorNormalization(ClickhouseTestMixin, APIBaseTest):
         normalized_error, occurrence_count = results[0]
 
         # Check it matches expected pattern
-        assert normalized_error == expected_normalized, (
-            f"{test_name}: Expected '{expected_normalized}', got '{normalized_error}'"
-        )
+        assert (
+            normalized_error == expected_normalized
+        ), f"{test_name}: Expected '{expected_normalized}', got '{normalized_error}'"
 
         # Check all variants were grouped together
-        assert occurrence_count == len(error_variants), (
-            f"{test_name}: Expected {len(error_variants)} occurrences, got {occurrence_count}"
-        )
+        assert occurrence_count == len(
+            error_variants
+        ), f"{test_name}: Expected {len(error_variants)} occurrences, got {occurrence_count}"
 
     @parameterized.expand(
         [
@@ -217,14 +217,14 @@ class TestErrorNormalization(ClickhouseTestMixin, APIBaseTest):
         normalized_error, occurrence_count = results[0]
 
         # Check it matches expected pattern
-        assert normalized_error == expected_normalized, (
-            f"{test_name}: Expected '{expected_normalized}', got '{normalized_error}'"
-        )
+        assert (
+            normalized_error == expected_normalized
+        ), f"{test_name}: Expected '{expected_normalized}', got '{normalized_error}'"
 
         # Check all variants were grouped together
-        assert occurrence_count == len(error_variants), (
-            f"{test_name}: Expected {len(error_variants)} occurrences, got {occurrence_count}"
-        )
+        assert occurrence_count == len(
+            error_variants
+        ), f"{test_name}: Expected {len(error_variants)} occurrences, got {occurrence_count}"
 
     def test_complex_error_with_multiple_normalizations(self):
         """Test that errors requiring multiple normalization steps are handled correctly."""

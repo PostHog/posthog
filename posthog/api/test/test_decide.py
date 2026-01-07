@@ -2,7 +2,7 @@ import json
 import time
 import base64
 import random
-from typing import Any
+from typing import Any, Optional
 
 import pytest
 from freezegun import freeze_time
@@ -48,7 +48,7 @@ from posthog.models.utils import generate_random_token_personal
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
-def make_session_recording_decide_response(overrides: dict | None = None) -> dict:
+def make_session_recording_decide_response(overrides: Optional[dict] = None) -> dict:
     if overrides is None:
         overrides = {}
 
@@ -109,8 +109,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
         geoip_disable=False,
         ip="127.0.0.1",
         disable_flags=False,
-        user_agent: str | None = None,
-        assert_num_queries: int | None = None,
+        user_agent: Optional[str] = None,
+        assert_num_queries: Optional[int] = None,
         simulate_database_timeout: bool = False,
         only_evaluate_survey_feature_flags: bool = False,
     ):
@@ -179,9 +179,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
             total_queries = sum(len(ctx) for ctx in query_contexts.values())
             queries_by_db = ", ".join(f"{len(ctx)} to {db}" for db, ctx in query_contexts.items() if len(ctx) > 0)
-            assert total_queries == assert_num_queries, (
-                f"{total_queries} queries executed ({queries_by_db}), {assert_num_queries} expected"
-            )
+            assert total_queries == assert_num_queries, f"{total_queries} queries executed ({queries_by_db}), {assert_num_queries} expected"
             return result
         else:
             return do_request()
@@ -257,11 +255,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
     def test_user_performance_opt_in(self, *args):
         # :TRICKY: Test for regression around caching
         response = self._post_decide().json()
-        assert response["capturePerformance"] == {
-            "network_timing": True,
-            "web_vitals": False,
-            "web_vitals_allowed_metrics": None,
-        }
+        assert response["capturePerformance"] == {"network_timing": True, "web_vitals": False, "web_vitals_allowed_metrics": None}
 
         self._update_team({"capture_performance_opt_in": False})
 
@@ -518,7 +512,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         ]
     )
     def test_session_recording_masking_config(
-        self, _name: str, config: dict | None, expected: dict | None, *args
+        self, _name: str, config: Optional[dict], expected: Optional[dict], *args
     ):
         self._update_team(
             {
@@ -659,38 +653,22 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
     def test_web_vitals_autocapture_opt_in(self, *args):
         response = self._post_decide().json()
-        assert response["capturePerformance"] == {
-            "web_vitals": False,
-            "network_timing": True,
-            "web_vitals_allowed_metrics": None,
-        }
+        assert response["capturePerformance"] == {"web_vitals": False, "network_timing": True, "web_vitals_allowed_metrics": None}
 
         self._update_team({"autocapture_web_vitals_opt_in": True})
 
         response = self._post_decide().json()
-        assert response["capturePerformance"] == {
-            "web_vitals": True,
-            "network_timing": True,
-            "web_vitals_allowed_metrics": None,
-        }
+        assert response["capturePerformance"] == {"web_vitals": True, "network_timing": True, "web_vitals_allowed_metrics": None}
 
     def test_web_vitals_autocapture_allowed_metrics(self, *args):
         response = self._post_decide().json()
-        assert response["capturePerformance"] == {
-            "web_vitals": False,
-            "network_timing": True,
-            "web_vitals_allowed_metrics": None,
-        }
+        assert response["capturePerformance"] == {"web_vitals": False, "network_timing": True, "web_vitals_allowed_metrics": None}
 
         self._update_team({"autocapture_web_vitals_opt_in": True})
         self._update_team({"autocapture_web_vitals_allowed_metrics": ["CLS", "FCP"]})
 
         response = self._post_decide().json()
-        assert response["capturePerformance"] == {
-            "web_vitals": True,
-            "network_timing": True,
-            "web_vitals_allowed_metrics": ["CLS", "FCP"],
-        }
+        assert response["capturePerformance"] == {"web_vitals": True, "network_timing": True, "web_vitals_allowed_metrics": ["CLS", "FCP"]}
 
     def test_user_session_recording_domain_opt_in_wildcard(self, *args):
         # :TRICKY: Test for regression around caching
@@ -1119,20 +1097,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_200_OK
 
         flags = response.json()["flags"]
-        assert flags["beta-feature"] == {
-            "key": "beta-feature",
-            "enabled": False,
-            "variant": None,
-            "reason": {"code": "out_of_rollout_bound", "condition_index": 0, "description": "Out of rollout bound"},
-            "metadata": {"id": bf.id, "version": 1, "description": None, "payload": None},
-        }
-        assert flags["multivariate-flag"] == {
-            "key": "multivariate-flag",
-            "enabled": True,
-            "variant": "first-variant",
-            "reason": {"code": "condition_match", "condition_index": 0, "description": "Matched condition set 1"},
-            "metadata": {"id": mvFlag.id, "version": 42, "description": None, "payload": {"color": "blue"}},
-        }
+        assert flags["beta-feature"] == {"key": "beta-feature", "enabled": False, "variant": None, "reason": {"code": "out_of_rollout_bound", "condition_index": 0, "description": "Out of rollout bound"}, "metadata": {"id": bf.id, "version": 1, "description": None, "payload": None}}
+        assert flags["multivariate-flag"] == {"key": "multivariate-flag", "enabled": True, "variant": "first-variant", "reason": {"code": "condition_match", "condition_index": 0, "description": "Matched condition set 1"}, "metadata": {"id": mvFlag.id, "version": 42, "description": None, "payload": {"color": "blue"}}}
 
     def test_feature_flags_v2(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -1200,9 +1166,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide(api_version=2, distinct_id="other_id", assert_num_queries=0)
         assert response.json()["featureFlags"]["beta-feature"]
         assert response.json()["featureFlags"]["default-flag"]
-        assert (
-            "third-variant" == response.json()["featureFlags"]["multivariate-flag"]
-        )  # different hash, different variant assigned
+        assert "third-variant" == response.json()["featureFlags"]["multivariate-flag"]  # different hash, different variant assigned
 
     def test_feature_flags_v2_with_property_overrides(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -1444,9 +1408,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
         assert response.json()["featureFlags"]["beta-feature"]
         assert response.json()["featureFlags"]["default-flag"]
-        assert (
-            "first-variant" == response.json()["featureFlags"]["multivariate-flag"]
-        )  # different hash, overridden by distinct_id, same variant assigned
+        assert "first-variant" == response.json()["featureFlags"]["multivariate-flag"]  # different hash, overridden by distinct_id, same variant assigned
 
     def test_feature_flags_v3_consistent_flags_with_numeric_distinct_ids(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -1592,9 +1554,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
         # self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         assert response.json()["featureFlags"]["default-flag"]
-        assert (
-            "third-variant" == response.json()["featureFlags"]["multivariate-flag"]
-        )  # different hash, should've been overridden by distinct_id, but ingestion delays mean different variant assigned
+        assert "third-variant" == response.json()["featureFlags"]["multivariate-flag"]  # different hash, should've been overridden by distinct_id, but ingestion delays mean different variant assigned
 
     def test_feature_flags_v2_consistent_flags_with_merged_persons(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -1677,9 +1637,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
         assert response.json()["featureFlags"]["beta-feature"]
         assert response.json()["featureFlags"]["default-flag"]
-        assert (
-            "first-variant" == response.json()["featureFlags"]["multivariate-flag"]
-        )  # different hash, overridden by distinct_id, same variant assigned
+        assert "first-variant" == response.json()["featureFlags"]["multivariate-flag"]  # different hash, overridden by distinct_id, same variant assigned
 
         # now let's say a merge happens with a call like: identify(distinct_id='example_id', anon_distinct_id='other_id')
         # that is, person2 is going to get merged into person. (Could've been vice versa, but the following code assumes this, it's symmetric.)
@@ -1713,9 +1671,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
         assert response.json()["featureFlags"]["beta-feature"]
         assert response.json()["featureFlags"]["default-flag"]
-        assert (
-            "first-variant" == response.json()["featureFlags"]["multivariate-flag"]
-        )  # different hash, overridden by distinct_id, same variant assigned
+        assert "first-variant" == response.json()["featureFlags"]["multivariate-flag"]  # different hash, overridden by distinct_id, same variant assigned
 
     def test_feature_flags_v2_consistent_flags_with_delayed_new_identified_person(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -1791,9 +1747,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
         assert response.json()["featureFlags"]["beta-feature"]
         assert response.json()["featureFlags"]["default-flag"]
-        assert (
-            "first-variant" == response.json()["featureFlags"]["multivariate-flag"]
-        )  # different hash, overridden by distinct_id, same variant assigned
+        assert "first-variant" == response.json()["featureFlags"]["multivariate-flag"]  # different hash, overridden by distinct_id, same variant assigned
 
         # calling a simple decide call, while 'other_id' is still missing a person creation.
         # In this case, we are over our grace period for ingestion, and there's
@@ -1821,9 +1775,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
         assert response.json()["featureFlags"]["beta-feature"]
         assert response.json()["featureFlags"]["default-flag"]
-        assert (
-            "first-variant" == response.json()["featureFlags"]["multivariate-flag"]
-        )  # different hash, overridden by distinct_id, same variant assigned
+        assert "first-variant" == response.json()["featureFlags"]["multivariate-flag"]  # different hash, overridden by distinct_id, same variant assigned
 
     def test_feature_flags_v2_complex(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -1887,18 +1839,12 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         # caching flag definitions mean fewer queries
         response = self._post_decide(api_version=2, distinct_id="hosted_id", assert_num_queries=5)
-        assert (
-            response.json()["featureFlags"].get("multivariate-flag", None) is None
-        )  # User is does not have realm == "cloud". Value is None.
+        assert response.json()["featureFlags"].get("multivariate-flag", None) is None  # User is does not have realm == "cloud". Value is None.
         assert response.json()["featureFlags"].get("default-flag")  # User still receives the default flag
 
         response = self._post_decide(api_version=2, distinct_id="example_id", assert_num_queries=4)
-        assert (
-            response.json()["featureFlags"]["multivariate-flag"] is not None
-        )  # User has an 80% chance of being assigned any non-empty value.
-        assert (
-            "second-variant" == response.json()["featureFlags"]["multivariate-flag"]
-        )  # If the user falls in the rollout group, they have a 25% chance of being assigned any particular variant.
+        assert response.json()["featureFlags"]["multivariate-flag"] is not None  # User has an 80% chance of being assigned any non-empty value.
+        assert "second-variant" == response.json()["featureFlags"]["multivariate-flag"]  # If the user falls in the rollout group, they have a 25% chance of being assigned any particular variant.
         # Their overall probability is therefore 80% * 25% = 20%.
         # To give another example, if n = 100 Cloud users and rollout_percentage = 80:
         # None:           20 (100 * (100% - 80%))
@@ -1993,9 +1939,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide(api_version=3, distinct_id="other_id", assert_num_queries=0)
         assert response.json()["featureFlags"]["beta-feature"]
         assert response.json()["featureFlags"]["default-flag"]
-        assert (
-            "third-variant" == response.json()["featureFlags"]["multivariate-flag"]
-        )  # different hash, different variant assigned
+        assert "third-variant" == response.json()["featureFlags"]["multivariate-flag"]  # different hash, different variant assigned
         assert not response.json()["errorsWhileComputingFlags"]
 
     @patch("posthog.models.feature_flag.flag_matching.FLAG_EVALUATION_ERROR_COUNTER")
@@ -2224,9 +2168,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             response = self._post_decide(api_version=3, assert_num_queries=9)
             assert response.json()["featureFlags"]["beta-feature"]
             assert response.json()["featureFlags"]["default-flag"]
-            assert (
-                "first-variant" == response.json()["featureFlags"]["multivariate-flag"]
-            )  # assigned by distinct_id hash
+            assert "first-variant" == response.json()["featureFlags"]["multivariate-flag"]  # assigned by distinct_id hash
             assert not response.json()["errorsWhileComputingFlags"]
 
             mock_counter.labels.assert_called_once_with(
@@ -2871,13 +2813,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         # 3. Select deleted cohort
         # 4. Select cohort from other team
         response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=12)
-        assert response.json()["featureFlags"] == {
-            "cohort-flag": False,
-            "simple-flag": True,
-            "cohort-flag-2": False,
-            "cohort-flag-3": False,
-            "cohort-flag-4": True,
-        }
+        assert response.json()["featureFlags"] == {"cohort-flag": False, "simple-flag": True, "cohort-flag-2": False, "cohort-flag-3": False, "cohort-flag-4": True}
         assert not response.json()["errorsWhileComputingFlags"]
 
     @snapshot_postgres_queries
@@ -2932,12 +2868,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         response = self._post_decide({"distinct_id": "example_id", "api_key": key_value})
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
-        assert response.json() == {
-            "type": "authentication_error",
-            "code": "invalid_api_key",
-            "detail": "Project API key invalid. You can find your project API key in PostHog project settings.",
-            "attr": None,
-        }
+        assert response.json() == {"type": "authentication_error", "code": "invalid_api_key", "detail": "Project API key invalid. You can find your project API key in PostHog project settings.", "attr": None}
 
     def test_missing_token(self, *args):
         Person.objects.create(team=self.team, distinct_ids=["example_id"])
@@ -2980,10 +2911,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             )
             assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
             response_data = response.json()
-            assert (
-                response_data["detail"]
-                == f"Team with ID {short_circuited_team.id} cannot access the /decide endpoint. Please contact us at hey@posthog.com"
-            )
+            assert response_data["detail"] == f"Team with ID {short_circuited_team.id} cannot access the /decide endpoint. Please contact us at hey@posthog.com"
 
     def test_invalid_payload_on_decide_endpoint(self, *args):
         invalid_payloads = [
@@ -3178,11 +3106,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         assert response["supportedCompression"] == ["gzip", "gzip-js"]
         assert response["siteApps"] == []
-        assert response["capturePerformance"] == {
-            "network_timing": True,
-            "web_vitals": False,
-            "web_vitals_allowed_metrics": None,
-        }
+        assert response["capturePerformance"] == {"network_timing": True, "web_vitals": False, "web_vitals_allowed_metrics": None}
         assert response["featureFlags"] == {}
         assert response["autocaptureExceptions"]
 
@@ -3194,11 +3118,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         assert response["supportedCompression"] == ["gzip", "gzip-js"]
         assert response["siteApps"] == []
-        assert response["capturePerformance"] == {
-            "network_timing": True,
-            "web_vitals": False,
-            "web_vitals_allowed_metrics": None,
-        }
+        assert response["capturePerformance"] == {"network_timing": True, "web_vitals": False, "web_vitals_allowed_metrics": None}
         assert response["autocaptureExceptions"]
         assert response["featureFlags"] == {}
 
@@ -3227,12 +3147,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             .filter(team=self.team, person=person)
             .values_list("distinct_id", flat=True)
         )
-        assert set(distinct_ids) == {
-            "a",
-            "{'id': 33040, 'shopify_domain': 'xxx.myshopify.com', 'shopify_token': 'shpat_xxxx', 'created_at': '2023-04-17T08:55:34.624Z', 'updated_at': '2023-04-21T08:43:34.479'}",
-            "{'x': 'y'}",
-            '{"x": "z"}',
-        }
+        assert set(distinct_ids) == {"a", "{'id': 33040, 'shopify_domain': 'xxx.myshopify.com', 'shopify_token': 'shpat_xxxx', 'created_at': '2023-04-17T08:55:34.624Z', 'updated_at': '2023-04-21T08:43:34.479'}", "{'x': 'y'}", '{"x": "z"}'}
 
         # Verify person properties
         assert person.properties == {"email": "tim@posthog.com", "realm": "cloud"}
@@ -3322,12 +3237,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
             response = self._post_decide(api_version=2)
             assert response.status_code == 429
-            assert response.json() == {
-                "type": "validation_error",
-                "code": "rate_limit_exceeded",
-                "detail": "Rate limit exceeded ",
-                "attr": None,
-            }
+            assert response.json() == {"type": "validation_error", "code": "rate_limit_exceeded", "detail": "Rate limit exceeded ", "attr": None}
 
     def test_rate_limits_replenish_over_time(self, *args):
         with self.settings(
@@ -3384,12 +3294,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
             response = self._post_decide(api_version=3, data={"token": "aloha?", "distinct_id": "123"})
             assert response.status_code == 429
-            assert response.json() == {
-                "type": "validation_error",
-                "code": "rate_limit_exceeded",
-                "detail": "Rate limit exceeded ",
-                "attr": None,
-            }
+            assert response.json() == {"type": "validation_error", "code": "rate_limit_exceeded", "detail": "Rate limit exceeded ", "attr": None}
 
     def test_rate_limits_work_with_missing_tokens(self, *args):
         self.client.logout()
@@ -3404,12 +3309,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
             response = self._post_decide(api_version=3, data={"distinct_id": "123"})
             assert response.status_code == 429
-            assert response.json() == {
-                "type": "validation_error",
-                "code": "rate_limit_exceeded",
-                "detail": "Rate limit exceeded ",
-                "attr": None,
-            }
+            assert response.json() == {"type": "validation_error", "code": "rate_limit_exceeded", "detail": "Rate limit exceeded ", "attr": None}
 
     def test_rate_limits_work_with_malformed_request(self, *args):
         self.client.logout()
@@ -3428,12 +3328,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
             response = invalid_request()
             assert response.status_code == 429
-            assert response.json() == {
-                "type": "validation_error",
-                "code": "rate_limit_exceeded",
-                "detail": "Rate limit exceeded ",
-                "attr": None,
-            }
+            assert response.json() == {"type": "validation_error", "code": "rate_limit_exceeded", "detail": "Rate limit exceeded ", "attr": None}
 
     def test_rate_limits_dont_apply_when_disabled(self, *args):
         with self.settings(DECIDE_RATE_LIMIT_ENABLED="n"):
@@ -3740,7 +3635,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         with self.settings(NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS={str(self.team.id)}):
             response = self._post_decide(api_version=3)
             assert response.status_code == 200
-            assert "analytics" not in response.json()
+            assert not "analytics" in response.json()
 
     def test_decide_element_chain_as_string(self, *args):
         self.client.logout()
@@ -3758,7 +3653,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         ):
             response = self._post_decide(api_version=3)
             assert response.status_code == 200
-            assert "elementsChainAsString" not in response.json()
+            assert not "elementsChainAsString" in response.json()
 
     def test_decide_default_identified_only(self, *args):
         self.client.logout()
@@ -3918,12 +3813,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             },
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "missing_distinct_id",
-            "detail": "Decide requires a distinct_id.",
-            "attr": None,
-        }
+        assert response.json() == {"type": "validation_error", "code": "missing_distinct_id", "detail": "Decide requires a distinct_id.", "attr": None}
 
     def test_only_evaluate_survey_feature_flags_query_param(self, *args):
         # Create a survey flag and a regular flag
@@ -4233,21 +4123,13 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             # E   2. SELECT (true) AS "flag_41_condition_0", (true) AS "flag_42_condition_0" -- i.e. flag selection
 
             assert response.status_code == status.HTTP_200_OK
-            assert response.json()["featureFlags"] == {
-                "default-flag": True,
-                "default-no-prop-flag": True,
-                "beta-feature": True,
-            }
+            assert response.json()["featureFlags"] == {"default-flag": True, "default-no-prop-flag": True, "beta-feature": True}
 
         # same query with property overrides, shouldn't go to db
         with self.assertNumQueries(0, using="replica"), self.assertNumQueries(0, using="default"):
             response = self._post_decide(person_props={"email": "tom@hi.com"})
             assert response.status_code == status.HTTP_200_OK
-            assert response.json()["featureFlags"] == {
-                "default-flag": False,
-                "default-no-prop-flag": True,
-                "beta-feature": True,
-            }
+            assert response.json()["featureFlags"] == {"default-flag": False, "default-no-prop-flag": True, "beta-feature": True}
 
     def test_decide_uses_read_replica_for_cohorts_based_flags(self):
         org, team, user = self.setup_user_and_team_in_db("default")
@@ -4401,12 +4283,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             # E   3. SELECT EXISTS(SELECT (1) AS "a" FROM "posthog_cohortpeople" U0 WHERE (U0."cohort_id" = 28 AND U0."cohort_id" = 28 AND U0."person_id" = "posthog_person"."id") LIMIT 1) AS "flag_47_condition_0",  -- a.k.a flag selection query
 
             assert response.status_code == status.HTTP_200_OK
-            assert response.json()["featureFlags"] == {
-                "static-flag": True,
-                "dynamic-flag": False,
-                "both-flag": False,
-                "either-flag": True,
-            }
+            assert response.json()["featureFlags"] == {"static-flag": True, "dynamic-flag": False, "both-flag": False, "either-flag": True}
 
         with self.assertNumQueries(8, using="replica"), self.assertNumQueries(0, using="default"):
             response = self._post_decide(api_version=3, distinct_id="example_id")
@@ -4416,12 +4293,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             # E   3. SELECT EXISTS(SELECT (1) AS "a" FROM "posthog_cohortpeople" U0 WHERE (U0."cohort_id" = 28 AND U0."cohort_id" = 28 AND U0."person_id" = "posthog_person"."id") LIMIT 1) AS "flag_47_condition_0",  -- a.k.a flag selection query
 
             assert response.status_code == status.HTTP_200_OK
-            assert response.json()["featureFlags"] == {
-                "static-flag": False,
-                "dynamic-flag": True,
-                "both-flag": False,
-                "either-flag": True,
-            }
+            assert response.json()["featureFlags"] == {"static-flag": False, "dynamic-flag": True, "both-flag": False, "either-flag": True}
 
         with self.assertNumQueries(8, using="replica"), self.assertNumQueries(0, using="default"):
             response = self._post_decide(api_version=3, distinct_id="cohort_secondary")
@@ -4431,12 +4303,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             # E   3. SELECT EXISTS(SELECT (1) AS "a" FROM "posthog_cohortpeople" U0 WHERE (U0."cohort_id" = 28 AND U0."cohort_id" = 28 AND U0."person_id" = "posthog_person"."id") LIMIT 1) AS "flag_47_condition_0",  -- a.k.a flag selection query
 
             assert response.status_code == status.HTTP_200_OK
-            assert response.json()["featureFlags"] == {
-                "static-flag": True,
-                "dynamic-flag": True,
-                "both-flag": True,
-                "either-flag": True,
-            }
+            assert response.json()["featureFlags"] == {"static-flag": True, "dynamic-flag": True, "both-flag": True, "either-flag": True}
 
     def test_feature_flags_v3_consistent_flags(self):
         org, team, user = self.setup_user_and_team_in_db("default")
@@ -4521,9 +4388,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             response = self._post_decide(api_version=3)
             assert response.json()["featureFlags"]["beta-feature"]
             assert response.json()["featureFlags"]["default-flag"]
-            assert (
-                "first-variant" == response.json()["featureFlags"]["multivariate-flag"]
-            )  # assigned by distinct_id hash
+            assert "first-variant" == response.json()["featureFlags"]["multivariate-flag"]  # assigned by distinct_id hash
 
         # new person, merged from old distinct ID
         PersonDistinctId.objects.db_manager("default").create(person=person, distinct_id="other_id", team=self.team)
@@ -4690,9 +4555,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             response = self._post_decide(api_version=3)
             assert response.json()["featureFlags"]["beta-feature"]
             assert response.json()["featureFlags"]["default-flag"]
-            assert (
-                "first-variant" == response.json()["featureFlags"]["multivariate-flag"]
-            )  # assigned by distinct_id hash
+            assert "first-variant" == response.json()["featureFlags"]["multivariate-flag"]  # assigned by distinct_id hash
 
         # new person, merged from old distinct ID
         PersonDistinctId.objects.db_manager("default").create(person=person, distinct_id="other_id", team=self.team)
@@ -4732,9 +4595,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             assert response.json()["featureFlags"]["beta-feature"]
             assert response.json()["featureFlags"]["default-flag"]
             assert not response.json()["errorsWhileComputingFlags"]
-            assert (
-                "first-variant" == response.json()["featureFlags"]["multivariate-flag"]
-            )  # assigned by distinct_id hash
+            assert "first-variant" == response.json()["featureFlags"]["multivariate-flag"]  # assigned by distinct_id hash
 
     def test_feature_flags_v2_with_groups(
         self,
@@ -4981,50 +4842,11 @@ class TestDecideUsesReadReplica(TransactionTestCase):
 
         sorted_flags = sorted(response_data["flags"], key=lambda x: x["key"])
 
-        assert {
-            "name": "Alpha feature",
-            "key": "alpha-feature",
-            "filters": {
-                "groups": [{"rollout_percentage": 20}],
-                "multivariate": {
-                    "variants": [
-                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
-                    ]
-                },
-            },
-            "deleted": False,
-            "active": True,
-            "ensure_experience_continuity": False,
-        }.items() <= sorted_flags[0].items()
-        assert {
-            "name": "Beta feature",
-            "key": "beta-feature",
-            "filters": {
-                "groups": [{"properties": [{"key": "beta-property", "value": "beta-value"}], "rollout_percentage": 51}]
-            },
-            "deleted": False,
-            "active": True,
-            "ensure_experience_continuity": False,
-        }.items() <= sorted_flags[1].items()
-        assert {
-            "name": "Group feature",
-            "key": "group-feature",
-            "filters": {"groups": [{"rollout_percentage": 21}], "aggregation_group_type_index": 0},
-            "deleted": False,
-            "active": True,
-            "ensure_experience_continuity": False,
-        }.items() <= sorted_flags[2].items()
+        assert {"name": "Alpha feature", "key": "alpha-feature", "filters": {"groups": [{"rollout_percentage": 20}], "multivariate": {"variants": [{"key": "first-variant", "name": "First Variant", "rollout_percentage": 50}, {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25}, {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25}]}}, "deleted": False, "active": True, "ensure_experience_continuity": False}.items() <= sorted_flags[0].items()
+        assert {"name": "Beta feature", "key": "beta-feature", "filters": {"groups": [{"properties": [{"key": "beta-property", "value": "beta-value"}], "rollout_percentage": 51}]}, "deleted": False, "active": True, "ensure_experience_continuity": False}.items() <= sorted_flags[1].items()
+        assert {"name": "Group feature", "key": "group-feature", "filters": {"groups": [{"rollout_percentage": 21}], "aggregation_group_type_index": 0}, "deleted": False, "active": True, "ensure_experience_continuity": False}.items() <= sorted_flags[2].items()
 
-        assert {
-            "name": "Inactive feature",
-            "key": "inactive-flag",
-            "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
-            "deleted": False,
-            "active": False,
-            "ensure_experience_continuity": False,
-        }.items() <= sorted_flags[3].items()
+        assert {"name": "Inactive feature", "key": "inactive-flag", "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]}, "deleted": False, "active": False, "ensure_experience_continuity": False}.items() <= sorted_flags[3].items()
 
         assert response_data["group_type_mapping"] == {"0": "organization", "1": "company"}
 
@@ -5203,69 +5025,12 @@ class TestDecideUsesReadReplica(TransactionTestCase):
 
         sorted_flags = sorted(response_data["flags"], key=lambda x: x["key"])
 
-        assert {
-            "name": "Alpha feature",
-            "key": "alpha-feature",
-            "filters": {
-                "groups": [
-                    {
-                        "properties": [{"key": "id", "type": "cohort", "value": cohort_valid_for_ff.pk}],
-                        "rollout_percentage": 20,
-                    }
-                ],
-                "multivariate": {
-                    "variants": [
-                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
-                    ]
-                },
-            },
-            "deleted": False,
-            "active": True,
-            "ensure_experience_continuity": False,
-        }.items() <= sorted_flags[0].items()
+        assert {"name": "Alpha feature", "key": "alpha-feature", "filters": {"groups": [{"properties": [{"key": "id", "type": "cohort", "value": cohort_valid_for_ff.pk}], "rollout_percentage": 20}], "multivariate": {"variants": [{"key": "first-variant", "name": "First Variant", "rollout_percentage": 50}, {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25}, {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25}]}}, "deleted": False, "active": True, "ensure_experience_continuity": False}.items() <= sorted_flags[0].items()
 
-        assert {
-            "name": "Beta feature",
-            "key": "beta-feature",
-            "filters": {
-                "groups": [
-                    {
-                        "properties": [{"key": "id", "type": "cohort", "value": other_cohort1.pk}],
-                        "rollout_percentage": 20,
-                    }
-                ]
-            },
-            "deleted": False,
-            "active": True,
-            "ensure_experience_continuity": False,
-        }.items() <= sorted_flags[1].items()
+        assert {"name": "Beta feature", "key": "beta-feature", "filters": {"groups": [{"properties": [{"key": "id", "type": "cohort", "value": other_cohort1.pk}], "rollout_percentage": 20}]}, "deleted": False, "active": True, "ensure_experience_continuity": False}.items() <= sorted_flags[1].items()
 
         # When send_cohorts is true, no transformations happen, so all relevant cohorts are returned
-        assert (
-            response_data["cohorts"].items()
-            == {
-                str(cohort_valid_for_ff.pk): {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "OR",
-                            "values": [
-                                {"key": "$some_prop", "type": "person", "value": "nomatchihope"},
-                                {"key": "$some_prop2", "type": "person", "value": "nomatchihope2"},
-                            ],
-                        }
-                    ],
-                },
-                str(other_cohort1.pk): {
-                    "type": "OR",
-                    "values": [
-                        {"type": "OR", "values": [{"key": "$some_prop", "type": "person", "value": "nomatchihope"}]}
-                    ],
-                },
-            }.items()
-        )
+        assert response_data["cohorts"].items() == {str(cohort_valid_for_ff.pk): {"type": "OR", "values": [{"type": "OR", "values": [{"key": "$some_prop", "type": "person", "value": "nomatchihope"}, {"key": "$some_prop2", "type": "person", "value": "nomatchihope2"}]}]}, str(other_cohort1.pk): {"type": "OR", "values": [{"type": "OR", "values": [{"key": "$some_prop", "type": "person", "value": "nomatchihope"}]}]}}.items()
 
     @patch("posthog.api.feature_flag.report_user_action")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
@@ -5424,72 +5189,11 @@ class TestDecideUsesReadReplica(TransactionTestCase):
 
         sorted_flags = sorted(response_data["flags"], key=lambda x: x["key"])
 
-        assert (
-            response_data["cohorts"].items()
-            == {
-                str(cohort_valid_for_ff.pk): {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "OR",
-                            "values": [
-                                {"key": "$some_prop", "type": "person", "value": "nomatchihope"},
-                                {"key": "$some_prop2", "type": "person", "value": "nomatchihope2"},
-                            ],
-                        }
-                    ],
-                },
-                str(cohort2.pk): {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "OR",
-                            "values": [
-                                {"key": "$some_prop", "type": "person", "value": "nomatchihope"},
-                                {"key": "$some_prop2", "type": "person", "value": "nomatchihope2"},
-                                {"key": "id", "type": "cohort", "value": cohort_valid_for_ff.pk, "negation": True},
-                            ],
-                        }
-                    ],
-                },
-            }.items()
-        )
+        assert response_data["cohorts"].items() == {str(cohort_valid_for_ff.pk): {"type": "OR", "values": [{"type": "OR", "values": [{"key": "$some_prop", "type": "person", "value": "nomatchihope"}, {"key": "$some_prop2", "type": "person", "value": "nomatchihope2"}]}]}, str(cohort2.pk): {"type": "OR", "values": [{"type": "OR", "values": [{"key": "$some_prop", "type": "person", "value": "nomatchihope"}, {"key": "$some_prop2", "type": "person", "value": "nomatchihope2"}, {"key": "id", "type": "cohort", "value": cohort_valid_for_ff.pk, "negation": True}]}]}}.items()
 
-        assert {
-            "name": "Alpha feature",
-            "key": "alpha-feature",
-            "filters": {
-                "groups": [
-                    {"rollout_percentage": 20, "properties": [{"key": "id", "type": "cohort", "value": cohort2.pk}]}
-                ],
-                "multivariate": {
-                    "variants": [
-                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
-                    ]
-                },
-            },
-            "deleted": False,
-            "active": True,
-            "ensure_experience_continuity": False,
-        }.items() <= sorted_flags[0].items()
+        assert {"name": "Alpha feature", "key": "alpha-feature", "filters": {"groups": [{"rollout_percentage": 20, "properties": [{"key": "id", "type": "cohort", "value": cohort2.pk}]}], "multivariate": {"variants": [{"key": "first-variant", "name": "First Variant", "rollout_percentage": 50}, {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25}, {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25}]}}, "deleted": False, "active": True, "ensure_experience_continuity": False}.items() <= sorted_flags[0].items()
 
-        assert {
-            "name": "Alpha feature",
-            "key": "alpha-feature-2",
-            "filters": {
-                "groups": [
-                    {
-                        "properties": [{"key": "id", "type": "cohort", "value": cohort_valid_for_ff.pk}],
-                        "rollout_percentage": 20,
-                    }
-                ]
-            },
-            "deleted": False,
-            "active": True,
-            "ensure_experience_continuity": False,
-        }.items() <= sorted_flags[1].items()
+        assert {"name": "Alpha feature", "key": "alpha-feature-2", "filters": {"groups": [{"properties": [{"key": "id", "type": "cohort", "value": cohort_valid_for_ff.pk}], "rollout_percentage": 20}]}, "deleted": False, "active": True, "ensure_experience_continuity": False}.items() <= sorted_flags[1].items()
 
 
 class TestDecideMetricLabel(TestCase):

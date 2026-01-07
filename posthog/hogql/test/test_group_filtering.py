@@ -39,10 +39,7 @@ class TestGroupKeyFiltering(APIBaseTest):
 
         sql, _ = prepare_and_print_ast(parsed, context=self.context, dialect="clickhouse")
 
-        assert (
-            "SELECT if(less(toTimeZone(events.timestamp, %(hogql_val_0)s), %(hogql_val_1)s), %(hogql_val_2)s, events.`$group_0`) AS `$group_0` FROM events WHERE equals(events.team_id,"
-            in sql
-        )
+        assert "SELECT if(less(toTimeZone(events.timestamp, %(hogql_val_0)s), %(hogql_val_1)s), %(hogql_val_2)s, events.`$group_0`) AS `$group_0` FROM events WHERE equals(events.team_id," in sql
 
     def test_group_field_without_mapping(self):
         """Test that $group_0 falls back when no GroupTypeMapping exists"""
@@ -189,10 +186,7 @@ class TestGroupKeyFiltering(APIBaseTest):
 
         sql, _ = prepare_and_print_ast(parsed, context=self.context, dialect="clickhouse")
 
-        assert (
-            "ON equals(if(less(toTimeZone(events.timestamp, %(hogql_val_2)s), %(hogql_val_3)s), %(hogql_val_4)s, events.`$group_0`), events__group_0.key)"
-            in sql
-        )
+        assert "ON equals(if(less(toTimeZone(events.timestamp, %(hogql_val_2)s), %(hogql_val_3)s), %(hogql_val_4)s, events.`$group_0`), events__group_0.key)" in sql
 
     def test_group_alias_in_where_clause(self):
         """Test that group aliases work with filtering in WHERE clauses"""

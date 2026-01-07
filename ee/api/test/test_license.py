@@ -28,9 +28,7 @@ class TestLicenseAPI(APILicensedTest):
         assert response_data["count"] == 1
         assert response_data["results"][0]["plan"] == "enterprise"
         assert response_data["results"][0]["key"] == "12345::67890"
-        assert response_data["results"][0]["valid_until"] == datetime.datetime(
-            2038, 1, 19, 3, 14, 7, tzinfo=ZoneInfo("UTC")
-        ).isoformat().replace("+00:00", "Z")
+        assert response_data["results"][0]["valid_until"] == datetime.datetime(2038, 1, 19, 3, 14, 7, tzinfo=ZoneInfo("UTC")).isoformat().replace("+00:00", "Z")
 
         retrieve_response = self.client.get(f"/api/license/{response_data['results'][0]['id']}")
         assert retrieve_response.status_code == status.HTTP_200_OK
@@ -75,12 +73,7 @@ class TestLicenseAPI(APILicensedTest):
 
         response = self.client.post("/api/license", {"key": "invalid_key"})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "license_error",
-            "code": "invalid_key",
-            "detail": "Provided key is invalid.",
-            "attr": None,
-        }
+        assert response.json() == {"type": "license_error", "code": "invalid_key", "detail": "Provided key is invalid.", "attr": None}
 
         assert License.objects.count() == count
 
@@ -135,9 +128,7 @@ class TestLicenseAPI(APILicensedTest):
         from_another_organisation = Team.objects.create(organization=other_org)
 
         assert Team.objects.count() == 4
-        assert sorted([team.id for team in Team.objects.all()]) == sorted(
-            [self.team.pk, to_be_deleted.pk, not_to_be_deleted.pk, from_another_organisation.pk]
-        )
+        assert sorted([team.id for team in Team.objects.all()]) == sorted([self.team.pk, to_be_deleted.pk, not_to_be_deleted.pk, from_another_organisation.pk])
 
         mock = Mock()
         mock.json.return_value = {"ok": True}

@@ -123,9 +123,7 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         assert not response_data["has_keys_active_last_week"]
         assert len(response_data["keys"]) == 1
         assert response_data["keys"][0]["name"] == "Old Org Key"
-        assert response_data["keys"][0]["last_used_at"] == (
-            old_key.last_used_at.isoformat().replace("+00:00", "Z") if old_key.last_used_at else None
-        )
+        assert response_data["keys"][0]["last_used_at"] == (old_key.last_used_at.isoformat().replace("+00:00", "Z") if old_key.last_used_at else None)
 
         # Create a key that has been used recently - scoped to team
         team_key = PersonalAPIKey.objects.create(
@@ -161,17 +159,11 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         # Find each key in the response and verify its last_used_at
         for key_data in response_data["keys"]:
             if key_data["name"] == "Old Org Key":
-                assert key_data["last_used_at"] == (
-                    old_key.last_used_at.isoformat().replace("+00:00", "Z") if old_key.last_used_at else None
-                )
+                assert key_data["last_used_at"] == (old_key.last_used_at.isoformat().replace("+00:00", "Z") if old_key.last_used_at else None)
             elif key_data["name"] == "Team Key":
-                assert key_data["last_used_at"] == (
-                    team_key.last_used_at.isoformat().replace("+00:00", "Z") if team_key.last_used_at else None
-                )
+                assert key_data["last_used_at"] == (team_key.last_used_at.isoformat().replace("+00:00", "Z") if team_key.last_used_at else None)
             elif key_data["name"] == "Global Key":
-                assert key_data["last_used_at"] == (
-                    global_key.last_used_at.isoformat().replace("+00:00", "Z") if global_key.last_used_at else None
-                )
+                assert key_data["last_used_at"] == (global_key.last_used_at.isoformat().replace("+00:00", "Z") if global_key.last_used_at else None)
 
         # Create a key with null scoped teams and organizations (also applies to all orgs/teams)
         PersonalAPIKey.objects.create(
@@ -260,22 +252,22 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         response_data.pop("updated_at")
         response_data.pop("last_login")
         assert response_data == {
-            "id": str(updated_membership.id),
-            "is_2fa_enabled": False,
-            "has_social_auth": False,
-            "user": {
-                "id": user.id,
-                "uuid": str(user.uuid),
-                "distinct_id": str(user.distinct_id),
-                "first_name": user.first_name,
-                "last_name": user.last_name,
-                "email": user.email,
-                "is_email_verified": None,
-                "hedgehog_config": None,
-                "role_at_organization": None,
-            },
-            "level": OrganizationMembership.Level.ADMIN.value,
-        }
+                "id": str(updated_membership.id),
+                "is_2fa_enabled": False,
+                "has_social_auth": False,
+                "user": {
+                    "id": user.id,
+                    "uuid": str(user.uuid),
+                    "distinct_id": str(user.distinct_id),
+                    "first_name": user.first_name,
+                    "last_name": user.last_name,
+                    "email": user.email,
+                    "is_email_verified": None,
+                    "hedgehog_config": None,
+                    "role_at_organization": None,
+                },
+                "level": OrganizationMembership.Level.ADMIN.value,
+            }
         assert mock_update_billing_organization_users.call_count == 1
         assert mock_update_billing_organization_users.call_args_list == [
             call(self.organization),
@@ -314,11 +306,11 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         updated_membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
         assert updated_membership.level == OrganizationMembership.Level.MEMBER
         assert response.json() == {
-            "attr": None,
-            "code": "permission_denied",
-            "detail": "You can only edit others if you are an admin.",
-            "type": "authentication_error",
-        }
+                "attr": None,
+                "code": "permission_denied",
+                "detail": "You can only edit others if you are an admin.",
+                "type": "authentication_error",
+            }
         assert response.status_code == 403
 
         assert mock_update_billing_organization_users.call_count == 0
@@ -333,11 +325,11 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         self.organization_membership.refresh_from_db()
         assert self.organization_membership.level == OrganizationMembership.Level.ADMIN
         assert response.json() == {
-            "attr": None,
-            "code": "permission_denied",
-            "detail": "You can't change your own access level.",
-            "type": "authentication_error",
-        }
+                "attr": None,
+                "code": "permission_denied",
+                "detail": "You can't change your own access level.",
+                "type": "authentication_error",
+            }
         assert response.status_code == 403
 
     def test_add_another_owner(self):
@@ -356,12 +348,7 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         assert response.status_code == 200
         assert self.organization_membership.level == OrganizationMembership.Level.OWNER
         assert membership.level == OrganizationMembership.Level.OWNER
-        assert (
-            OrganizationMembership.objects.filter(
-                organization=self.organization, level=OrganizationMembership.Level.OWNER
-            ).count()
-            == 2
-        )
+        assert OrganizationMembership.objects.filter(organization=self.organization, level=OrganizationMembership.Level.OWNER).count() == 2
 
     def test_add_owner_only_if_owner(self):
         user = User.objects.create_user("test@x.com", None, "X")
@@ -377,11 +364,11 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         self.organization_membership.refresh_from_db()
         membership.refresh_from_db()
         assert response.json() == {
-            "attr": None,
-            "code": "permission_denied",
-            "detail": "You can only make another member owner if you're this organization's owner.",
-            "type": "authentication_error",
-        }
+                "attr": None,
+                "code": "permission_denied",
+                "detail": "You can only make another member owner if you're this organization's owner.",
+                "type": "authentication_error",
+            }
         assert response.status_code == 403
         assert self.organization_membership.level == OrganizationMembership.Level.ADMIN
         assert membership.level == OrganizationMembership.Level.MEMBER

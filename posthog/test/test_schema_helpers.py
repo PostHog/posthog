@@ -108,11 +108,7 @@ class TestSchemaHelpers(TestCase):
 
         # cumulative time series
         query = TrendsQuery(**{**base_trends, "trendsFilter": {"display": "ActionsLineGraphCumulative"}})
-        assert to_dict(query) == {
-            "kind": "TrendsQuery",
-            "series": [],
-            "trendsFilter": {"display": "ActionsLineGraphCumulative"},
-        }
+        assert to_dict(query) == {"kind": "TrendsQuery", "series": [], "trendsFilter": {"display": "ActionsLineGraphCumulative"}}
 
         # total value
         query = TrendsQuery(**{**base_trends, "trendsFilter": {"display": "BoldNumber"}})
@@ -121,7 +117,7 @@ class TestSchemaHelpers(TestCase):
     def _assert_filter(self, key: str, num_keys: int, q1: BaseModel, q2: BaseModel):
         assert to_dict(q1) == to_dict(q2)
         if num_keys == 0:
-            assert key not in to_dict(q1)
+            assert not (key in to_dict(q1))
         else:
             assert num_keys == len(to_dict(q1)[key].keys())
 

@@ -1,5 +1,5 @@
 import datetime
-from typing import cast
+from typing import Optional, cast
 
 import pytest
 from freezegun import freeze_time
@@ -157,7 +157,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         property.refresh_from_db()
         assert set(property.tagged_items.values_list("tag__name", flat=True)) == {"official", "internal"}
 
-        activity_log: ActivityLog | None = ActivityLog.objects.filter(scope="PropertyDefinition").first()
+        activity_log: Optional[ActivityLog] = ActivityLog.objects.filter(scope="PropertyDefinition").first()
         assert activity_log is not None
         assert activity_log.scope == "PropertyDefinition"
         assert activity_log.activity == "changed"

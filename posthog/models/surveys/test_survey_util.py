@@ -17,10 +17,7 @@ class TestSurveyResponseFunctions(TestCase):
     def test_build_id_based_key_without_question_id(self):
         """Test building an ID-based key when no question ID is provided"""
         key = _build_id_based_key(2, None)
-        assert (
-            key
-            == "CONCAT('$survey_response_', JSONExtractString(JSONExtractArrayRaw(properties, '$survey_questions')[3], 'id'))"
-        )
+        assert key == "CONCAT('$survey_response_', JSONExtractString(JSONExtractArrayRaw(properties, '$survey_questions')[3], 'id'))"
 
     def test_build_index_based_key_for_first_question(self):
         """Test building an index-based key for the first question"""

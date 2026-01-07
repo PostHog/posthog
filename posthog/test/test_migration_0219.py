@@ -83,30 +83,15 @@ class TagsTestCase(TestMigrations):
         Insight = self.apps.get_model("posthog", "Insight")  # type: ignore
 
         dashboard = Dashboard.objects.get(id=self.dashboard.id)
-        assert list(dashboard.tagged_items.order_by("tag__name").values_list("tag__name", flat=True)) == [
-            "a",
-            "b",
-            "c",
-            "existing tag",
-        ]
+        assert list(dashboard.tagged_items.order_by("tag__name").values_list("tag__name", flat=True)) == ["a", "b", "c", "existing tag"]
 
         insight_with_tags = Insight.objects.get(id=self.insight_with_tags.id)
-        assert list(insight_with_tags.tagged_items.order_by("tag__name").values_list("tag__name", flat=True)) == [
-            "c",
-            "d",
-            "existing tag",
-        ]
+        assert list(insight_with_tags.tagged_items.order_by("tag__name").values_list("tag__name", flat=True)) == ["c", "d", "existing tag"]
 
         insight_without_tags = Insight.objects.get(id=self.insight_without_tags.id)
         assert insight_without_tags.tagged_items.count() == 0
 
-        assert sorted(Tag.objects.filter(team_id=self.team.id).all().values_list("name", flat=True)) == [
-            "a",
-            "b",
-            "c",
-            "d",
-            "existing tag",
-        ]
+        assert sorted(Tag.objects.filter(team_id=self.team.id).all().values_list("name", flat=True)) == ["a", "b", "c", "d", "existing tag"]
 
         # By the end of the migration, the total count for team 2 should be
         # Tags = team2_total_insights + 2 + team1_tags

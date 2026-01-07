@@ -1,6 +1,5 @@
 from uuid import uuid4
 
-import pytest
 from posthog.test.base import BaseTest
 
 from langchain_core.runnables import RunnableConfig
@@ -23,6 +22,7 @@ from posthog.models import Insight
 from ee.hogai.artifacts.manager import ArtifactManager
 from ee.hogai.utils.types.base import ArtifactRefMessage
 from ee.models.assistant import AgentArtifact, Conversation
+import pytest
 
 
 class TestArtifactManagerCreateMessage(BaseTest):

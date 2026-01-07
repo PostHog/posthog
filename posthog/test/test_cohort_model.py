@@ -130,33 +130,7 @@ class TestCohort(BaseTest):
             name="cohort1",
         )
 
-        assert cohort.properties.to_dict() == {
-            "type": "OR",
-            "values": [
-                {
-                    "type": "AND",
-                    "values": [
-                        {"key": "$some_prop", "type": "person", "value": "something", "operator": "contains"},
-                        {"key": "other_prop", "type": "person", "value": "other_value"},
-                    ],
-                },
-                {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": 1,
-                            "type": "behavioral",
-                            "value": "performed_event_multiple",
-                            "event_type": "actions",
-                            "operator": "eq",
-                            "operator_value": 3,
-                            "time_interval": "day",
-                            "time_value": "4",
-                        }
-                    ],
-                },
-            ],
-        }
+        assert cohort.properties.to_dict() == {"type": "OR", "values": [{"type": "AND", "values": [{"key": "$some_prop", "type": "person", "value": "something", "operator": "contains"}, {"key": "other_prop", "type": "person", "value": "other_value"}]}, {"type": "AND", "values": [{"key": 1, "type": "behavioral", "value": "performed_event_multiple", "event_type": "actions", "operator": "eq", "operator_value": 3, "time_interval": "day", "time_value": "4"}]}]}
 
     def test_group_to_property_conversion_with_valid_zero_count(self):
         cohort = Cohort.objects.create(
@@ -184,33 +158,7 @@ class TestCohort(BaseTest):
             name="cohort1",
         )
 
-        assert cohort.properties.to_dict() == {
-            "type": "OR",
-            "values": [
-                {
-                    "type": "AND",
-                    "values": [
-                        {"key": "$some_prop", "type": "person", "value": "something", "operator": "contains"},
-                        {"key": "other_prop", "type": "person", "value": "other_value"},
-                    ],
-                },
-                {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "$pageview",
-                            "type": "behavioral",
-                            "value": "performed_event",
-                            "event_type": "events",
-                            "operator": "gte",
-                            "operator_value": 0,
-                            "time_interval": "day",
-                            "time_value": "4",
-                        }
-                    ],
-                },
-            ],
-        }
+        assert cohort.properties.to_dict() == {"type": "OR", "values": [{"type": "AND", "values": [{"key": "$some_prop", "type": "person", "value": "something", "operator": "contains"}, {"key": "other_prop", "type": "person", "value": "other_value"}]}, {"type": "AND", "values": [{"key": "$pageview", "type": "behavioral", "value": "performed_event", "event_type": "events", "operator": "gte", "operator_value": 0, "time_interval": "day", "time_value": "4"}]}]}
 
     def test_group_to_property_conversion_with_valid_zero_count_different_operator(self):
         cohort = Cohort.objects.create(
@@ -227,26 +175,7 @@ class TestCohort(BaseTest):
             name="cohort1",
         )
 
-        assert cohort.properties.to_dict() == {
-            "type": "OR",
-            "values": [
-                {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "$pageview",
-                            "type": "behavioral",
-                            "value": "performed_event",
-                            "event_type": "events",
-                            "operator": "lte",
-                            "operator_value": 0,
-                            "time_interval": "day",
-                            "time_value": "4",
-                        }
-                    ],
-                }
-            ],
-        }
+        assert cohort.properties.to_dict() == {"type": "OR", "values": [{"type": "AND", "values": [{"key": "$pageview", "type": "behavioral", "value": "performed_event", "event_type": "events", "operator": "lte", "operator_value": 0, "time_interval": "day", "time_value": "4"}]}]}
 
     def test_group_to_property_conversion_with_missing_days_and_invalid_count(self):
         cohort = Cohort.objects.create(
@@ -262,26 +191,7 @@ class TestCohort(BaseTest):
             name="cohort1",
         )
 
-        assert cohort.properties.to_dict() == {
-            "type": "OR",
-            "values": [
-                {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "$pageview",
-                            "type": "behavioral",
-                            "value": "performed_event",
-                            "event_type": "events",
-                            "operator": "gte",
-                            "operator_value": 0,
-                            "time_interval": "day",
-                            "time_value": 365,
-                        }
-                    ],
-                }
-            ],
-        }
+        assert cohort.properties.to_dict() == {"type": "OR", "values": [{"type": "AND", "values": [{"key": "$pageview", "type": "behavioral", "value": "performed_event", "event_type": "events", "operator": "gte", "operator_value": 0, "time_interval": "day", "time_value": 365}]}]}
 
     def test_insert_users_list_by_uuid(self):
         # These are some fine uuids.

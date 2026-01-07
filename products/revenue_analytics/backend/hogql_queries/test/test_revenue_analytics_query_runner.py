@@ -1,6 +1,5 @@
 from datetime import datetime, timedelta
 
-import pytest
 from posthog.test.base import APIBaseTest
 
 from posthog.schema import IntervalType, RevenueAnalyticsGrossRevenueQuery
@@ -11,6 +10,7 @@ from posthog.rbac.user_access_control import UserAccessControlError
 from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
 from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.revenue_analytics.backend.hogql_queries.revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
+import pytest
 
 try:
     from ee.models.rbac.access_control import AccessControl

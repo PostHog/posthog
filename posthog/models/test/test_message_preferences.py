@@ -1,6 +1,5 @@
 import uuid
 
-import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -10,6 +9,7 @@ from django.test import Client
 import posthog.plugins.plugin_server_api as plugin_server_api
 from posthog.models.message_category import MessageCategory
 from posthog.models.message_preferences import MessageRecipientPreference, PreferenceStatus
+import pytest
 
 
 class TestMessagePreferences(BaseTest):

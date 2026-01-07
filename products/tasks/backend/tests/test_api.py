@@ -739,10 +739,6 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             self.fail(f"Unsupported method: {method}")
 
         if should_have_access:
-            assert response.status_code != status.HTTP_403_FORBIDDEN, (
-                f"Expected access but got 403 for {scope} on {method} {url}"
-            )
+            assert response.status_code != status.HTTP_403_FORBIDDEN, f"Expected access but got 403 for {scope} on {method} {url}"
         else:
-            assert response.status_code == status.HTTP_403_FORBIDDEN, (
-                f"Expected 403 but got {response.status_code} for {scope} on {method} {url}"
-            )
+            assert response.status_code == status.HTTP_403_FORBIDDEN, f"Expected 403 but got {response.status_code} for {scope} on {method} {url}"

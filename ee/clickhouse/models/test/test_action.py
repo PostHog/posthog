@@ -282,30 +282,30 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
 
         assert action1.bytecode == create_bytecode(action_to_expr(action1)).bytecode
         assert action1.bytecode == [
-            _H,
-            HOGQL_BYTECODE_VERSION,
-            # event = 'insight viewed'
-            op.STRING,
-            "insight viewed",
-            op.STRING,
-            "event",
-            op.GET_GLOBAL,
-            1,
-            op.EQ,
-            # toInt(properties.filters_count) > 10
-            op.INTEGER,
-            10,
-            op.STRING,
-            "filters_count",
-            op.STRING,
-            "properties",
-            op.GET_GLOBAL,
-            2,
-            op.CALL_GLOBAL,
-            "toInt",
-            1,
-            op.GT,
-            # and
-            op.AND,
-            2,
-        ]
+                _H,
+                HOGQL_BYTECODE_VERSION,
+                # event = 'insight viewed'
+                op.STRING,
+                "insight viewed",
+                op.STRING,
+                "event",
+                op.GET_GLOBAL,
+                1,
+                op.EQ,
+                # toInt(properties.filters_count) > 10
+                op.INTEGER,
+                10,
+                op.STRING,
+                "filters_count",
+                op.STRING,
+                "properties",
+                op.GET_GLOBAL,
+                2,
+                op.CALL_GLOBAL,
+                "toInt",
+                1,
+                op.GT,
+                # and
+                op.AND,
+                2,
+            ]

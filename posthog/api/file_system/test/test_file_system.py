@@ -247,9 +247,7 @@ class TestFileSystemAPI(APIBaseTest):
         assert FileSystem.objects.exclude(type="folder").count() == 1
 
         # Verify that no experiment row was created
-        assert not FileSystem.objects.exclude(type="folder").filter(type="experiment").exists(), (
-            "Should not have created an experiment row yet!"
-        )
+        assert not FileSystem.objects.exclude(type="folder").filter(type="experiment").exists(), "Should not have created an experiment row yet!"
 
     def test_search_files_by_path(self):
         """
@@ -1010,9 +1008,7 @@ class TestFileSystemAPI(APIBaseTest):
         fs = FileSystem.objects.exclude(type="folder").get()
 
         # created_at matches (ignore possible micro-second differences)
-        assert timezone.make_naive(fs.created_at, UTC).replace(microsecond=0) == timezone.make_naive(
-            flag.created_at, UTC
-        ).replace(microsecond=0)
+        assert timezone.make_naive(fs.created_at, UTC).replace(microsecond=0) == timezone.make_naive(flag.created_at, UTC).replace(microsecond=0)
         assert fs.created_by_id == flag.created_by_id
 
         # meta mirrors those values
@@ -1511,9 +1507,7 @@ class TestMoveRepairsLeftoverHogFunctions(APIBaseTest):
 
         # ─── Parent folders exist for both teams ------------------------------
         #  • Team-1 now has “SharedRenamed”
-        assert FileSystem.objects.filter(team=self.team, path="SharedRenamed", type="folder").exists(), (
-            "Folder for team-1 after move is missing"
-        )
+        assert FileSystem.objects.filter(team=self.team, path="SharedRenamed", type="folder").exists(), "Folder for team-1 after move is missing"
         #  • Team-2 still has “Shared” (re-created by the repair step)
         folder_t2_qs = FileSystem.objects.filter(team=self.team2, path="Shared", type="folder")
         assert folder_t2_qs.exists(), "Left-behind hog_function lost its parent folder"
@@ -1522,9 +1516,7 @@ class TestMoveRepairsLeftoverHogFunctions(APIBaseTest):
         assert folder.depth == 1
 
         #  • Team-1 should *not* have a leftover “Shared” folder any more
-        assert not FileSystem.objects.filter(team=self.team, path="Shared", type="folder").exists(), (
-            "Old folder for team-1 should have been moved away"
-        )
+        assert not FileSystem.objects.filter(team=self.team, path="Shared", type="folder").exists(), "Old folder for team-1 should have been moved away"
 
 
 @pytest.mark.django_db
@@ -1578,13 +1570,9 @@ class TestDestroyRepairsLeftoverHogFunctions(APIBaseTest):
         resp = self.client.delete(delete_url)
         assert resp.status_code == status.HTTP_204_NO_CONTENT
 
-        assert not FileSystem.objects.filter(team=self.team, path__startswith="Shared").exists(), (
-            "Team-1 rows should have been deleted"
-        )
+        assert not FileSystem.objects.filter(team=self.team, path__startswith="Shared").exists(), "Team-1 rows should have been deleted"
 
-        assert FileSystem.objects.filter(id=self.hog_t2.id).exists(), (
-            "Leftover hog_function row was deleted erroneously"
-        )
+        assert FileSystem.objects.filter(id=self.hog_t2.id).exists(), "Leftover hog_function row was deleted erroneously"
 
         folder_t2_qs = FileSystem.objects.filter(team=self.team2, path="Shared", type="folder")
         assert folder_t2_qs.exists(), "Destroy did not recreate the folder hierarchy for leftovers"
@@ -1712,14 +1700,10 @@ class TestDestroyRepairsLeftoverHogFunctions(APIBaseTest):
                     detail = cast(dict[str, Any], restore_log.detail or {})
                     assert detail.get("name"), f"Expected restore log name for {case['scope']}"
                     changes = cast(Iterable[Mapping[str, Any]], detail.get("changes", []))
-                    assert any(
-                        change.get("field") == "deleted" and change.get("after") is False for change in changes
-                    ), f"Expected deleted change for {case['scope']} restore"
+                    assert any(change.get("field") == "deleted" and change.get("after") is False for change in changes), f"Expected deleted change for {case['scope']} restore"
 
                     for field in case.get("extra_restore_fields", []):
-                        assert any(change.get("field") == field for change in changes), (
-                            f"Expected {field} change for {case['scope']} restore"
-                        )
+                        assert any(change.get("field") == field for change in changes), f"Expected {field} change for {case['scope']} restore"
 
     def _ensure_file_system_entry(self, *, file_type: str, ref: str, fallback_name: str) -> FileSystem:
         fs_entry = (

@@ -38,10 +38,7 @@ class TestInstanceSettings(APIBaseTest):
 
         assert json_response["key"] == "AUTO_START_ASYNC_MIGRATIONS"
         assert not json_response["value"]
-        assert (
-            json_response["description"]
-            == "Whether the earliest unapplied async migration should be triggered automatically on server startup."
-        )
+        assert json_response["description"] == "Whether the earliest unapplied async migration should be triggered automatically on server startup."
         assert json_response["value_type"] == "bool"
         assert json_response["editable"]
 
@@ -71,15 +68,11 @@ class TestInstanceSettings(APIBaseTest):
 
         response = self.client.get(f"/api/instance_settings/")
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json() == self.permission_denied_response(
-            "You are not a staff user, contact your instance admin."
-        )
+        assert response.json() == self.permission_denied_response("You are not a staff user, contact your instance admin.")
 
         response = self.client.get(f"/api/instance_settings/AUTO_START_ASYNC_MIGRATIONS")
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json() == self.permission_denied_response(
-            "You are not a staff user, contact your instance admin."
-        )
+        assert response.json() == self.permission_denied_response("You are not a staff user, contact your instance admin.")
 
     def test_update_setting(self):
         response = self.client.get(f"/api/instance_settings/AUTO_START_ASYNC_MIGRATIONS")
@@ -124,12 +117,7 @@ class TestInstanceSettings(APIBaseTest):
     def test_cant_update_setting_that_is_not_overridable(self):
         response = self.client.patch(f"/api/instance_settings/MATERIALIZED_COLUMNS_ENABLED", {"value": False})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "no_api_override",
-            "detail": "This setting cannot be updated from the API.",
-            "attr": None,
-        }
+        assert response.json() == {"type": "validation_error", "code": "no_api_override", "detail": "This setting cannot be updated from the API.", "attr": None}
         assert get_instance_setting("MATERIALIZED_COLUMNS_ENABLED")
 
     def test_non_staff_user_cant_update(self):
@@ -138,9 +126,7 @@ class TestInstanceSettings(APIBaseTest):
 
         response = self.client.get(f"/api/instance_settings/AUTO_START_ASYNC_MIGRATIONS", {"value": True})
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json() == self.permission_denied_response(
-            "You are not a staff user, contact your instance admin."
-        )
+        assert response.json() == self.permission_denied_response("You are not a staff user, contact your instance admin.")
 
         assert not get_instance_setting_helper("AUTO_START_ASYNC_MIGRATIONS").value
         assert not get_instance_setting("AUTO_START_ASYNC_MIGRATIONS")

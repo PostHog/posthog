@@ -1,9 +1,9 @@
-import pytest
 from posthog.test.base import BaseTest
 
 from django.core.exceptions import ValidationError
 
 from products.marketing_analytics.backend.hogql_queries.adapters.factory import MarketingSourceFactory
+import pytest
 
 
 class TestMarketingSourceFactoryCustomSourceMappings(BaseTest):

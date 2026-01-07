@@ -1,7 +1,6 @@
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-import pytest
 from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
@@ -27,6 +26,7 @@ from posthog.models.action.action import Action
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
 from posthog.test.test_journeys import journeys_for
+import pytest
 
 
 @override_settings(IN_UNIT_TESTING=True)

@@ -123,12 +123,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             headers={"origin": "http://testserver"},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "unique",
-            "detail": f"This project already has an action with this name, ID {original_action.id}",
-            "attr": "name",
-        }
+        assert response.json() == {"type": "validation_error", "code": "unique", "detail": f"This project already has an action with this name, ID {original_action.id}", "attr": "name"}
 
         assert Action.objects.count() == count
 
@@ -465,6 +460,6 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         fs_entry = FileSystem.objects.filter(team=self.team, ref=str(action_id), type="action").first()
         assert fs_entry is not None, "A FileSystem entry was not created for this Action."
-        assert "Special Folder/Actions" in fs_entry.path, (
-            f"Expected folder to include 'Special Folder/Actions' but got '{fs_entry.path}'."
-        )
+        assert (
+            "Special Folder/Actions" in fs_entry.path
+        ), f"Expected folder to include 'Special Folder/Actions' but got '{fs_entry.path}'."

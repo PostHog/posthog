@@ -371,9 +371,9 @@ class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase, Fl
             for team_name, comparison in [("UTC", utc_comparison), ("PT", pt_comparison), ("JST", jst_comparison)]:
                 preagg_results = self._sort_results(comparison["preagg_response"].results)
                 raw_results = self._sort_results(comparison["raw_response"].results)
-                assert preagg_results == raw_results, (
-                    f"Boundary behavior mismatch in {team_name}: preagg={preagg_results} vs raw={raw_results}"
-                )
+                assert (
+                    preagg_results == raw_results
+                ), f"Boundary behavior mismatch in {team_name}: preagg={preagg_results} vs raw={raw_results}"
 
         finally:
             Person.objects.filter(team__in=[utc_team, pt_team, jst_team]).delete()

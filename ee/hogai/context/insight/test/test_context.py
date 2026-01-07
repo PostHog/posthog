@@ -1,4 +1,3 @@
-import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -8,6 +7,7 @@ from posthog.schema import AssistantTrendsEventsNode, AssistantTrendsQuery
 
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.tool_errors import MaxToolRetryableError
+import pytest
 
 
 class TestInsightContext(BaseTest):

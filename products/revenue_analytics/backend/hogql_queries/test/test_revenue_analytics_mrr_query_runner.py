@@ -347,166 +347,15 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert len(results) == 1
 
-        assert results[0].total == {
-            "label": "stripe.posthog_test",
-            "days": ALL_MONTHS_DAYS,
-            "labels": ALL_MONTHS_LABELS,
-            "data": [
-                0,
-                0,
-                Decimal("636.4423413331"),
-                Decimal("1664.1658713331"),
-                Decimal("2027.1834313331"),
-                Decimal("2297.8366613331"),
-                Decimal("1610.3628763904"),
-                Decimal("20.4450263331"),
-                Decimal("20.4450263331"),
-                Decimal("20.4450263331"),
-                Decimal("20.4450263331"),
-                Decimal("20.4450263331"),
-                Decimal("20.4450263331"),
-                Decimal("20.4450263331"),
-                0,
-                0,
-                0,
-                0,
-                0,
-            ],
-            "breakdown": {"property": "stripe.posthog_test", "kind": None},
-            "action": {"days": ALL_MONTHS_FAKEDATETIMES, "id": "stripe.posthog_test", "name": "stripe.posthog_test"},
-        }
+        assert results[0].total == {"label": "stripe.posthog_test", "days": ALL_MONTHS_DAYS, "labels": ALL_MONTHS_LABELS, "data": [0, 0, Decimal("636.4423413331"), Decimal("1664.1658713331"), Decimal("2027.1834313331"), Decimal("2297.8366613331"), Decimal("1610.3628763904"), Decimal("20.4450263331"), Decimal("20.4450263331"), Decimal("20.4450263331"), Decimal("20.4450263331"), Decimal("20.4450263331"), Decimal("20.4450263331"), Decimal("20.4450263331"), 0, 0, 0, 0, 0], "breakdown": {"property": "stripe.posthog_test", "kind": None}, "action": {"days": ALL_MONTHS_FAKEDATETIMES, "id": "stripe.posthog_test", "name": "stripe.posthog_test"}}
 
-        assert results[0].new == {
-            "label": "New | stripe.posthog_test",
-            "days": ALL_MONTHS_DAYS,
-            "labels": ALL_MONTHS_LABELS,
-            "data": [
-                0,
-                0,
-                Decimal("636.4423413331"),
-                Decimal("1027.72353"),
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-            ],
-            "breakdown": {"property": "stripe.posthog_test", "kind": "New"},
-            "action": {
-                "days": ALL_MONTHS_FAKEDATETIMES,
-                "id": "New | stripe.posthog_test",
-                "name": "New | stripe.posthog_test",
-            },
-        }
+        assert results[0].new == {"label": "New | stripe.posthog_test", "days": ALL_MONTHS_DAYS, "labels": ALL_MONTHS_LABELS, "data": [0, 0, Decimal("636.4423413331"), Decimal("1027.72353"), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "breakdown": {"property": "stripe.posthog_test", "kind": "New"}, "action": {"days": ALL_MONTHS_FAKEDATETIMES, "id": "New | stripe.posthog_test", "name": "New | stripe.posthog_test"}}
 
-        assert results[0].expansion == {
-            "label": "Expansion | stripe.posthog_test",
-            "days": ALL_MONTHS_DAYS,
-            "labels": ALL_MONTHS_LABELS,
-            "data": [
-                0,
-                0,
-                0,
-                0,
-                Decimal("363.01756"),
-                Decimal("790.34505"),
-                Decimal("898.5402750573"),
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-            ],
-            "breakdown": {"property": "stripe.posthog_test", "kind": "Expansion"},
-            "action": {
-                "days": ALL_MONTHS_FAKEDATETIMES,
-                "id": "Expansion | stripe.posthog_test",
-                "name": "Expansion | stripe.posthog_test",
-            },
-        }
+        assert results[0].expansion == {"label": "Expansion | stripe.posthog_test", "days": ALL_MONTHS_DAYS, "labels": ALL_MONTHS_LABELS, "data": [0, 0, 0, 0, Decimal("363.01756"), Decimal("790.34505"), Decimal("898.5402750573"), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "breakdown": {"property": "stripe.posthog_test", "kind": "Expansion"}, "action": {"days": ALL_MONTHS_FAKEDATETIMES, "id": "Expansion | stripe.posthog_test", "name": "Expansion | stripe.posthog_test"}}
 
-        assert results[0].contraction == {
-            "label": "Contraction | stripe.posthog_test",
-            "days": ALL_MONTHS_DAYS,
-            "labels": ALL_MONTHS_LABELS,
-            "data": [
-                0,
-                0,
-                0,
-                0,
-                0,
-                Decimal("-519.69182"),
-                0,
-                Decimal("-43.3234100573"),
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-            ],
-            "breakdown": {"property": "stripe.posthog_test", "kind": "Contraction"},
-            "action": {
-                "days": ALL_MONTHS_FAKEDATETIMES,
-                "id": "Contraction | stripe.posthog_test",
-                "name": "Contraction | stripe.posthog_test",
-            },
-        }
+        assert results[0].contraction == {"label": "Contraction | stripe.posthog_test", "days": ALL_MONTHS_DAYS, "labels": ALL_MONTHS_LABELS, "data": [0, 0, 0, 0, 0, Decimal("-519.69182"), 0, Decimal("-43.3234100573"), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "breakdown": {"property": "stripe.posthog_test", "kind": "Contraction"}, "action": {"days": ALL_MONTHS_FAKEDATETIMES, "id": "Contraction | stripe.posthog_test", "name": "Contraction | stripe.posthog_test"}}
 
-        assert results[0].churn == {
-            "label": "Churn | stripe.posthog_test",
-            "days": ALL_MONTHS_DAYS,
-            "labels": ALL_MONTHS_LABELS,
-            "data": [
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                Decimal("-1586.01406"),
-                Decimal("-1546.59444"),
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                Decimal("-20.4450263331"),
-                0,
-                0,
-                0,
-                0,
-            ],
-            "breakdown": {"property": "stripe.posthog_test", "kind": "Churn"},
-            "action": {
-                "days": ALL_MONTHS_FAKEDATETIMES,
-                "id": "Churn | stripe.posthog_test",
-                "name": "Churn | stripe.posthog_test",
-            },
-        }
+        assert results[0].churn == {"label": "Churn | stripe.posthog_test", "days": ALL_MONTHS_DAYS, "labels": ALL_MONTHS_LABELS, "data": [0, 0, 0, 0, 0, 0, Decimal("-1586.01406"), Decimal("-1546.59444"), 0, 0, 0, 0, 0, 0, Decimal("-20.4450263331"), 0, 0, 0, 0], "breakdown": {"property": "stripe.posthog_test", "kind": "Churn"}, "action": {"days": ALL_MONTHS_FAKEDATETIMES, "id": "Churn | stripe.posthog_test", "name": "Churn | stripe.posthog_test"}}
 
         # Iterate over the values and check that the new/expansion/contraction/churn values
         # properly add up to the change between the previous period and the current period
@@ -535,170 +384,15 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
             assert len(results) == 1
 
-            assert results[0].total == {
-                "label": "stripe.posthog_test",
-                "days": ALL_MONTHS_DAYS,
-                "labels": ALL_MONTHS_LABELS,
-                "data": [
-                    0,
-                    0,
-                    Decimal("636.4423413331"),
-                    Decimal("1664.1658713331"),
-                    Decimal("2027.1834313331"),
-                    Decimal("2297.8366613331"),
-                    Decimal("1610.3628763904"),
-                    Decimal("20.4450263331"),
-                    Decimal("20.4450263331"),
-                    Decimal("20.4450263331"),
-                    Decimal("20.4450263331"),
-                    Decimal("20.4450263331"),
-                    Decimal("20.4450263331"),
-                    Decimal("20.4450263331"),
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                ],
-                "breakdown": {"property": "stripe.posthog_test", "kind": None},
-                "action": {
-                    "days": ALL_MONTHS_FAKEDATETIMES,
-                    "id": "stripe.posthog_test",
-                    "name": "stripe.posthog_test",
-                },
-            }
+            assert results[0].total == {"label": "stripe.posthog_test", "days": ALL_MONTHS_DAYS, "labels": ALL_MONTHS_LABELS, "data": [0, 0, Decimal("636.4423413331"), Decimal("1664.1658713331"), Decimal("2027.1834313331"), Decimal("2297.8366613331"), Decimal("1610.3628763904"), Decimal("20.4450263331"), Decimal("20.4450263331"), Decimal("20.4450263331"), Decimal("20.4450263331"), Decimal("20.4450263331"), Decimal("20.4450263331"), Decimal("20.4450263331"), 0, 0, 0, 0, 0], "breakdown": {"property": "stripe.posthog_test", "kind": None}, "action": {"days": ALL_MONTHS_FAKEDATETIMES, "id": "stripe.posthog_test", "name": "stripe.posthog_test"}}
 
-            assert results[0].new == {
-                "label": "New | stripe.posthog_test",
-                "days": ALL_MONTHS_DAYS,
-                "labels": ALL_MONTHS_LABELS,
-                "data": [
-                    0,
-                    0,
-                    Decimal("636.4423413331"),
-                    Decimal("1027.72353"),
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                ],
-                "breakdown": {"property": "stripe.posthog_test", "kind": "New"},
-                "action": {
-                    "days": ALL_MONTHS_FAKEDATETIMES,
-                    "id": "New | stripe.posthog_test",
-                    "name": "New | stripe.posthog_test",
-                },
-            }
+            assert results[0].new == {"label": "New | stripe.posthog_test", "days": ALL_MONTHS_DAYS, "labels": ALL_MONTHS_LABELS, "data": [0, 0, Decimal("636.4423413331"), Decimal("1027.72353"), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "breakdown": {"property": "stripe.posthog_test", "kind": "New"}, "action": {"days": ALL_MONTHS_FAKEDATETIMES, "id": "New | stripe.posthog_test", "name": "New | stripe.posthog_test"}}
 
-            assert results[0].expansion == {
-                "label": "Expansion | stripe.posthog_test",
-                "days": ALL_MONTHS_DAYS,
-                "labels": ALL_MONTHS_LABELS,
-                "data": [
-                    0,
-                    0,
-                    0,
-                    0,
-                    Decimal("363.01756"),
-                    Decimal("790.34505"),
-                    Decimal("898.5402750573"),
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                ],
-                "breakdown": {"property": "stripe.posthog_test", "kind": "Expansion"},
-                "action": {
-                    "days": ALL_MONTHS_FAKEDATETIMES,
-                    "id": "Expansion | stripe.posthog_test",
-                    "name": "Expansion | stripe.posthog_test",
-                },
-            }
+            assert results[0].expansion == {"label": "Expansion | stripe.posthog_test", "days": ALL_MONTHS_DAYS, "labels": ALL_MONTHS_LABELS, "data": [0, 0, 0, 0, Decimal("363.01756"), Decimal("790.34505"), Decimal("898.5402750573"), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "breakdown": {"property": "stripe.posthog_test", "kind": "Expansion"}, "action": {"days": ALL_MONTHS_FAKEDATETIMES, "id": "Expansion | stripe.posthog_test", "name": "Expansion | stripe.posthog_test"}}
 
-            assert results[0].contraction == {
-                "label": "Contraction | stripe.posthog_test",
-                "days": ALL_MONTHS_DAYS,
-                "labels": ALL_MONTHS_LABELS,
-                "data": [
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    Decimal("-519.69182"),
-                    0,
-                    Decimal("-43.3234100573"),
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                ],
-                "breakdown": {"property": "stripe.posthog_test", "kind": "Contraction"},
-                "action": {
-                    "days": ALL_MONTHS_FAKEDATETIMES,
-                    "id": "Contraction | stripe.posthog_test",
-                    "name": "Contraction | stripe.posthog_test",
-                },
-            }
+            assert results[0].contraction == {"label": "Contraction | stripe.posthog_test", "days": ALL_MONTHS_DAYS, "labels": ALL_MONTHS_LABELS, "data": [0, 0, 0, 0, 0, Decimal("-519.69182"), 0, Decimal("-43.3234100573"), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "breakdown": {"property": "stripe.posthog_test", "kind": "Contraction"}, "action": {"days": ALL_MONTHS_FAKEDATETIMES, "id": "Contraction | stripe.posthog_test", "name": "Contraction | stripe.posthog_test"}}
 
-            assert results[0].churn == {
-                "label": "Churn | stripe.posthog_test",
-                "days": ALL_MONTHS_DAYS,
-                "labels": ALL_MONTHS_LABELS,
-                "data": [
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    Decimal("-1586.01406"),
-                    Decimal("-1546.59444"),
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    Decimal("-20.4450263331"),
-                    0,
-                    0,
-                    0,
-                    0,
-                ],
-                "breakdown": {"property": "stripe.posthog_test", "kind": "Churn"},
-                "action": {
-                    "days": ALL_MONTHS_FAKEDATETIMES,
-                    "id": "Churn | stripe.posthog_test",
-                    "name": "Churn | stripe.posthog_test",
-                },
-            }
+            assert results[0].churn == {"label": "Churn | stripe.posthog_test", "days": ALL_MONTHS_DAYS, "labels": ALL_MONTHS_LABELS, "data": [0, 0, 0, 0, 0, 0, Decimal("-1586.01406"), Decimal("-1546.59444"), 0, 0, 0, 0, 0, 0, Decimal("-20.4450263331"), 0, 0, 0, 0], "breakdown": {"property": "stripe.posthog_test", "kind": "Churn"}, "action": {"days": ALL_MONTHS_FAKEDATETIMES, "id": "Churn | stripe.posthog_test", "name": "Churn | stripe.posthog_test"}}
 
             # Iterate over the values and check that the new/expansion/contraction/churn values
             # properly add up to the change between the previous period and the current period
@@ -724,20 +418,20 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
             assert len(results) == 1
 
             assert results[0].total == {
-                "label": "stripe.posthog_test",
-                # May 1st because we use end of interval
-                "days": ["2025-02-28", "2025-03-31", "2025-04-30", "2025-05-01"],
-                "labels": ["Feb 2025", "Mar 2025", "Apr 2025", "May 2025"],
-                # This is an important test, see how MRR is included for the first month, because there's previous data from January 30 days prior to February 1st
-                "data": [
-                    Decimal("1664.1658713331"),
-                    Decimal("2027.1834313331"),
-                    Decimal("2297.8366613331"),
-                    Decimal("2297.8366613331"),
-                ],
-                "breakdown": {"property": "stripe.posthog_test", "kind": None},
-                "action": {"days": [ANY] * 4, "id": "stripe.posthog_test", "name": "stripe.posthog_test"},
-            }
+                    "label": "stripe.posthog_test",
+                    # May 1st because we use end of interval
+                    "days": ["2025-02-28", "2025-03-31", "2025-04-30", "2025-05-01"],
+                    "labels": ["Feb 2025", "Mar 2025", "Apr 2025", "May 2025"],
+                    # This is an important test, see how MRR is included for the first month, because there's previous data from January 30 days prior to February 1st
+                    "data": [
+                        Decimal("1664.1658713331"),
+                        Decimal("2027.1834313331"),
+                        Decimal("2297.8366613331"),
+                        Decimal("2297.8366613331"),
+                    ],
+                    "breakdown": {"property": "stripe.posthog_test", "kind": None},
+                    "action": {"days": [ANY] * 4, "id": "stripe.posthog_test", "name": "stripe.posthog_test"},
+                }
 
     def test_with_data_and_date_range_for_daily_interval(self):
         results = self._run_revenue_analytics_mrr_query(
@@ -749,51 +443,29 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # There are 90 days between February 1st and May 1st
         a_lot_of_anys = [ANY] * 90
-        assert results[0].total == {
-            "label": "stripe.posthog_test",
-            "days": a_lot_of_anys,
-            "labels": a_lot_of_anys,
-            "data": a_lot_of_anys,
-            "breakdown": {"property": "stripe.posthog_test", "kind": None},
-            "action": {"days": a_lot_of_anys, "id": "stripe.posthog_test", "name": "stripe.posthog_test"},
-        }
+        assert results[0].total == {"label": "stripe.posthog_test", "days": a_lot_of_anys, "labels": a_lot_of_anys, "data": a_lot_of_anys, "breakdown": {"property": "stripe.posthog_test", "kind": None}, "action": {"days": a_lot_of_anys, "id": "stripe.posthog_test", "name": "stripe.posthog_test"}}
 
         # Asserting on the actual values would make this file humongous, so let's just assert on some aggregates!
         # Check sum of all MRR values and also a hash of the values
         total_mrr = sum(results[0].total["data"])
         assert total_mrr == Decimal("144121.5922299790")
-        assert (
-            hashlib.sha256(",".join(str(x) for x in results[0].total["data"]).encode()).hexdigest()
-            == "6d4d5493654fae577ae2c3ca45e20c0713b8fa071f25be618dc8b3621e996434"
-        )
+        assert hashlib.sha256(",".join(str(x) for x in results[0].total["data"]).encode()).hexdigest() == "6d4d5493654fae577ae2c3ca45e20c0713b8fa071f25be618dc8b3621e996434"
 
         new_mrr = sum(results[0].new["data"])
         assert new_mrr == Decimal("1027.72353")
-        assert (
-            hashlib.sha256(",".join(str(x) for x in results[0].new["data"]).encode()).hexdigest()
-            == "61f5a7730f25acad320b476d884eca9360f881cacfefe524d6e3174a7ae364a0"
-        )
+        assert hashlib.sha256(",".join(str(x) for x in results[0].new["data"]).encode()).hexdigest() == "61f5a7730f25acad320b476d884eca9360f881cacfefe524d6e3174a7ae364a0"
 
         expansion_mrr = sum(results[0].expansion["data"])
         assert expansion_mrr == Decimal("1153.36261")
-        assert (
-            hashlib.sha256(",".join(str(x) for x in results[0].expansion["data"]).encode()).hexdigest()
-            == "6bb00ac4691e4ae161f74bfed10a24abe38ff45484f6ebdd8e1e75dc308b8a84"
-        )
+        assert hashlib.sha256(",".join(str(x) for x in results[0].expansion["data"]).encode()).hexdigest() == "6bb00ac4691e4ae161f74bfed10a24abe38ff45484f6ebdd8e1e75dc308b8a84"
 
         contraction_mrr = sum(results[0].contraction["data"])
         assert contraction_mrr == Decimal("-519.69182")
-        assert (
-            hashlib.sha256(",".join(str(x) for x in results[0].contraction["data"]).encode()).hexdigest()
-            == "3ae3548dcb601bb1f6f3f6acf32cf0b0cba97be0d3a94a6e9391ee38c40363a4"
-        )
+        assert hashlib.sha256(",".join(str(x) for x in results[0].contraction["data"]).encode()).hexdigest() == "3ae3548dcb601bb1f6f3f6acf32cf0b0cba97be0d3a94a6e9391ee38c40363a4"
 
         churn_mrr = sum(results[0].churn["data"])
         assert churn_mrr == 0
-        assert (
-            hashlib.sha256(",".join(str(x) for x in results[0].churn["data"]).encode()).hexdigest()
-            == "c437cc187e67c1ac601f65fcc1ac3a5d492ba904c63ed805109e4a417c98865b"
-        )
+        assert hashlib.sha256(",".join(str(x) for x in results[0].churn["data"]).encode()).hexdigest() == "c437cc187e67c1ac601f65fcc1ac3a5d492ba904c63ed805109e4a417c98865b"
 
         # Iterate over the values and check that the new/expansion/contraction/churn values
         # properly add up to the change between the previous period and the current period
@@ -835,62 +507,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ]
         assert [result.total["label"] for result in results] == expected_products
 
-        assert [result.total["data"] for result in results] == [
-            [
-                0,
-                0,
-                Decimal("4.1397346665"),
-                Decimal("89.6179846665"),
-                Decimal("304.9673846665"),
-                Decimal("87.3066846665"),
-                Decimal("106.1300947238"),
-            ],
-            [
-                0,
-                0,
-                Decimal("16.3052916666"),
-                Decimal("289.8755416666"),
-                Decimal("362.1634416666"),
-                Decimal("60.1323216666"),
-                Decimal("84.6323216666"),
-            ],
-            [
-                0,
-                0,
-                Decimal("5.758325"),
-                Decimal("24.352335"),
-                Decimal("19.960865"),
-                Decimal("1.462495"),
-                Decimal("0.09564"),
-            ],
-            [
-                0,
-                0,
-                Decimal("193.451825"),
-                Decimal("386.90365"),
-                Decimal("386.90365"),
-                Decimal("580.355475"),
-                Decimal("773.8073"),
-            ],
-            [
-                0,
-                0,
-                Decimal("0.171355"),
-                Decimal("0.34271"),
-                Decimal("0.34271"),
-                Decimal("0.514065"),
-                Decimal("0.68542"),
-            ],
-            [
-                0,
-                0,
-                Decimal("416.61581"),
-                Decimal("873.07365"),
-                Decimal("952.84538"),
-                Decimal("1568.06562"),
-                Decimal("1159.34808"),
-            ],
-        ]
+        assert [result.total["data"] for result in results] == [[0, 0, Decimal("4.1397346665"), Decimal("89.6179846665"), Decimal("304.9673846665"), Decimal("87.3066846665"), Decimal("106.1300947238")], [0, 0, Decimal("16.3052916666"), Decimal("289.8755416666"), Decimal("362.1634416666"), Decimal("60.1323216666"), Decimal("84.6323216666")], [0, 0, Decimal("5.758325"), Decimal("24.352335"), Decimal("19.960865"), Decimal("1.462495"), Decimal("0.09564")], [0, 0, Decimal("193.451825"), Decimal("386.90365"), Decimal("386.90365"), Decimal("580.355475"), Decimal("773.8073")], [0, 0, Decimal("0.171355"), Decimal("0.34271"), Decimal("0.34271"), Decimal("0.514065"), Decimal("0.68542")], [0, 0, Decimal("416.61581"), Decimal("873.07365"), Decimal("952.84538"), Decimal("1568.06562"), Decimal("1159.34808")]]
 
     def test_with_data_and_double_grouping(self):
         results = self._run_revenue_analytics_mrr_query(
@@ -919,60 +536,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ]
         assert [result.total["label"] for result in results] == expected_breakdowns
 
-        assert [result.total["data"] for result in results] == [
-            [
-                0,
-                0,
-                Decimal("4.1397346665"),
-                Decimal("4.1397346665"),
-                Decimal("219.4891346665"),
-                Decimal("4.1397346665"),
-                Decimal("22.9631447238"),
-            ],
-            [
-                0,
-                0,
-                Decimal("16.3052916666"),
-                Decimal("16.3052916666"),
-                Decimal("88.5931916666"),
-                Decimal("16.3052916666"),
-                Decimal("40.8052916666"),
-            ],
-            [0, 0, Decimal("5.758325"), Decimal("5.758325"), Decimal("1.366855"), Decimal("1.366855"), 0],
-            [
-                0,
-                0,
-                Decimal("193.451825"),
-                Decimal("193.451825"),
-                Decimal("193.451825"),
-                Decimal("193.451825"),
-                Decimal("386.90365"),
-            ],
-            [
-                0,
-                0,
-                Decimal("0.171355"),
-                Decimal("0.171355"),
-                Decimal("0.171355"),
-                Decimal("0.171355"),
-                Decimal("0.34271"),
-            ],
-            [
-                0,
-                0,
-                Decimal("416.61581"),
-                Decimal("416.61581"),
-                Decimal("496.38754"),
-                Decimal("496.38754"),
-                Decimal("1159.34808"),
-            ],
-            [0, 0, 0, Decimal("85.47825"), Decimal("85.47825"), Decimal("83.16695"), Decimal("83.16695")],
-            [0, 0, 0, Decimal("273.57025"), Decimal("273.57025"), Decimal("43.82703"), Decimal("43.82703")],
-            [0, 0, 0, Decimal("18.59401"), Decimal("18.59401"), Decimal("0.09564"), Decimal("0.09564")],
-            [0, 0, 0, Decimal("193.451825"), Decimal("193.451825"), Decimal("386.90365"), Decimal("386.90365")],
-            [0, 0, 0, Decimal("0.171355"), Decimal("0.171355"), Decimal("0.34271"), Decimal("0.34271")],
-            [0, 0, 0, Decimal("456.45784"), Decimal("456.45784"), Decimal("1071.67808"), 0],
-        ]
+        assert [result.total["data"] for result in results] == [[0, 0, Decimal("4.1397346665"), Decimal("4.1397346665"), Decimal("219.4891346665"), Decimal("4.1397346665"), Decimal("22.9631447238")], [0, 0, Decimal("16.3052916666"), Decimal("16.3052916666"), Decimal("88.5931916666"), Decimal("16.3052916666"), Decimal("40.8052916666")], [0, 0, Decimal("5.758325"), Decimal("5.758325"), Decimal("1.366855"), Decimal("1.366855"), 0], [0, 0, Decimal("193.451825"), Decimal("193.451825"), Decimal("193.451825"), Decimal("193.451825"), Decimal("386.90365")], [0, 0, Decimal("0.171355"), Decimal("0.171355"), Decimal("0.171355"), Decimal("0.171355"), Decimal("0.34271")], [0, 0, Decimal("416.61581"), Decimal("416.61581"), Decimal("496.38754"), Decimal("496.38754"), Decimal("1159.34808")], [0, 0, 0, Decimal("85.47825"), Decimal("85.47825"), Decimal("83.16695"), Decimal("83.16695")], [0, 0, 0, Decimal("273.57025"), Decimal("273.57025"), Decimal("43.82703"), Decimal("43.82703")], [0, 0, 0, Decimal("18.59401"), Decimal("18.59401"), Decimal("0.09564"), Decimal("0.09564")], [0, 0, 0, Decimal("193.451825"), Decimal("193.451825"), Decimal("386.90365"), Decimal("386.90365")], [0, 0, 0, Decimal("0.171355"), Decimal("0.171355"), Decimal("0.34271"), Decimal("0.34271")], [0, 0, 0, Decimal("456.45784"), Decimal("456.45784"), Decimal("1071.67808"), 0]]
 
     def test_with_product_filter(self):
         expected_data = [
@@ -1030,17 +594,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert len(results) == 1
         assert [result.total["label"] for result in results] == ["stripe.posthog_test"]
-        assert [result.total["data"] for result in results] == [
-            [
-                0,
-                0,
-                Decimal("20.4450263331"),
-                Decimal("20.4450263331"),
-                Decimal("308.0823263331"),
-                Decimal("20.4450263331"),
-                Decimal("63.7684363904"),
-            ]
-        ]
+        assert [result.total["data"] for result in results] == [[0, 0, Decimal("20.4450263331"), Decimal("20.4450263331"), Decimal("308.0823263331"), Decimal("20.4450263331"), Decimal("63.7684363904")]]
 
     def test_with_events_data(self):
         self.team.revenue_analytics_config.events = [
@@ -1088,70 +642,15 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert len(results) == 1
 
-        assert results[0].total == {
-            "label": "revenue_analytics.events.purchase",
-            "days": LAST_7_MONTHS_DAYS,
-            "labels": LAST_7_MONTHS_LABELS,
-            "data": [0, 0, Decimal("33.474"), Decimal("25.4879321819"), Decimal("36.9999675355"), 0, 0],
-            "breakdown": {"property": "revenue_analytics.events.purchase", "kind": None},
-            "action": {
-                "days": LAST_7_MONTHS_FAKEDATETIMES,
-                "id": "revenue_analytics.events.purchase",
-                "name": "revenue_analytics.events.purchase",
-            },
-        }
+        assert results[0].total == {"label": "revenue_analytics.events.purchase", "days": LAST_7_MONTHS_DAYS, "labels": LAST_7_MONTHS_LABELS, "data": [0, 0, Decimal("33.474"), Decimal("25.4879321819"), Decimal("36.9999675355"), 0, 0], "breakdown": {"property": "revenue_analytics.events.purchase", "kind": None}, "action": {"days": LAST_7_MONTHS_FAKEDATETIMES, "id": "revenue_analytics.events.purchase", "name": "revenue_analytics.events.purchase"}}
 
-        assert results[0].new == {
-            "label": "New | revenue_analytics.events.purchase",
-            "days": LAST_7_MONTHS_DAYS,
-            "labels": LAST_7_MONTHS_LABELS,
-            "data": [0, 0, Decimal("33.474"), Decimal("5.5629321819"), 0, 0, 0],
-            "breakdown": {"property": "revenue_analytics.events.purchase", "kind": "New"},
-            "action": {
-                "days": LAST_7_MONTHS_FAKEDATETIMES,
-                "id": "New | revenue_analytics.events.purchase",
-                "name": "New | revenue_analytics.events.purchase",
-            },
-        }
+        assert results[0].new == {"label": "New | revenue_analytics.events.purchase", "days": LAST_7_MONTHS_DAYS, "labels": LAST_7_MONTHS_LABELS, "data": [0, 0, Decimal("33.474"), Decimal("5.5629321819"), 0, 0, 0], "breakdown": {"property": "revenue_analytics.events.purchase", "kind": "New"}, "action": {"days": LAST_7_MONTHS_FAKEDATETIMES, "id": "New | revenue_analytics.events.purchase", "name": "New | revenue_analytics.events.purchase"}}
 
-        assert results[0].expansion == {
-            "label": "Expansion | revenue_analytics.events.purchase",
-            "days": LAST_7_MONTHS_DAYS,
-            "labels": LAST_7_MONTHS_LABELS,
-            "data": [0, 0, 0, 0, Decimal("31.4370353536"), 0, 0],
-            "breakdown": {"property": "revenue_analytics.events.purchase", "kind": "Expansion"},
-            "action": {
-                "days": LAST_7_MONTHS_FAKEDATETIMES,
-                "id": "Expansion | revenue_analytics.events.purchase",
-                "name": "Expansion | revenue_analytics.events.purchase",
-            },
-        }
+        assert results[0].expansion == {"label": "Expansion | revenue_analytics.events.purchase", "days": LAST_7_MONTHS_DAYS, "labels": LAST_7_MONTHS_LABELS, "data": [0, 0, 0, 0, Decimal("31.4370353536"), 0, 0], "breakdown": {"property": "revenue_analytics.events.purchase", "kind": "Expansion"}, "action": {"days": LAST_7_MONTHS_FAKEDATETIMES, "id": "Expansion | revenue_analytics.events.purchase", "name": "Expansion | revenue_analytics.events.purchase"}}
 
-        assert results[0].contraction == {
-            "label": "Contraction | revenue_analytics.events.purchase",
-            "days": LAST_7_MONTHS_DAYS,
-            "labels": LAST_7_MONTHS_LABELS,
-            "data": [0, 0, 0, Decimal("-13.549"), 0, 0, 0],
-            "breakdown": {"property": "revenue_analytics.events.purchase", "kind": "Contraction"},
-            "action": {
-                "days": LAST_7_MONTHS_FAKEDATETIMES,
-                "id": "Contraction | revenue_analytics.events.purchase",
-                "name": "Contraction | revenue_analytics.events.purchase",
-            },
-        }
+        assert results[0].contraction == {"label": "Contraction | revenue_analytics.events.purchase", "days": LAST_7_MONTHS_DAYS, "labels": LAST_7_MONTHS_LABELS, "data": [0, 0, 0, Decimal("-13.549"), 0, 0, 0], "breakdown": {"property": "revenue_analytics.events.purchase", "kind": "Contraction"}, "action": {"days": LAST_7_MONTHS_FAKEDATETIMES, "id": "Contraction | revenue_analytics.events.purchase", "name": "Contraction | revenue_analytics.events.purchase"}}
 
-        assert results[0].churn == {
-            "label": "Churn | revenue_analytics.events.purchase",
-            "days": LAST_7_MONTHS_DAYS,
-            "labels": LAST_7_MONTHS_LABELS,
-            "data": [0, 0, 0, 0, Decimal("-19.925"), Decimal("-36.9999675355"), 0],
-            "breakdown": {"property": "revenue_analytics.events.purchase", "kind": "Churn"},
-            "action": {
-                "days": LAST_7_MONTHS_FAKEDATETIMES,
-                "id": "Churn | revenue_analytics.events.purchase",
-                "name": "Churn | revenue_analytics.events.purchase",
-            },
-        }
+        assert results[0].churn == {"label": "Churn | revenue_analytics.events.purchase", "days": LAST_7_MONTHS_DAYS, "labels": LAST_7_MONTHS_LABELS, "data": [0, 0, 0, 0, Decimal("-19.925"), Decimal("-36.9999675355"), 0], "breakdown": {"property": "revenue_analytics.events.purchase", "kind": "Churn"}, "action": {"days": LAST_7_MONTHS_FAKEDATETIMES, "id": "Churn | revenue_analytics.events.purchase", "name": "Churn | revenue_analytics.events.purchase"}}
 
     def test_with_events_data_with_managed_viewsets_ff(self):
         with patch("posthoganalytics.feature_enabled", return_value=True):
@@ -1201,70 +700,15 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
             assert len(results) == 1
 
-            assert results[0].total == {
-                "label": "revenue_analytics.events.purchase",
-                "days": LAST_7_MONTHS_DAYS,
-                "labels": LAST_7_MONTHS_LABELS,
-                "data": [0, 0, Decimal("33.474"), Decimal("25.4879321819"), Decimal("36.9999675355"), 0, 0],
-                "breakdown": {"property": "revenue_analytics.events.purchase", "kind": None},
-                "action": {
-                    "days": LAST_7_MONTHS_FAKEDATETIMES,
-                    "id": "revenue_analytics.events.purchase",
-                    "name": "revenue_analytics.events.purchase",
-                },
-            }
+            assert results[0].total == {"label": "revenue_analytics.events.purchase", "days": LAST_7_MONTHS_DAYS, "labels": LAST_7_MONTHS_LABELS, "data": [0, 0, Decimal("33.474"), Decimal("25.4879321819"), Decimal("36.9999675355"), 0, 0], "breakdown": {"property": "revenue_analytics.events.purchase", "kind": None}, "action": {"days": LAST_7_MONTHS_FAKEDATETIMES, "id": "revenue_analytics.events.purchase", "name": "revenue_analytics.events.purchase"}}
 
-            assert results[0].new == {
-                "label": "New | revenue_analytics.events.purchase",
-                "days": LAST_7_MONTHS_DAYS,
-                "labels": LAST_7_MONTHS_LABELS,
-                "data": [0, 0, Decimal("33.474"), Decimal("5.5629321819"), 0, 0, 0],
-                "breakdown": {"property": "revenue_analytics.events.purchase", "kind": "New"},
-                "action": {
-                    "days": LAST_7_MONTHS_FAKEDATETIMES,
-                    "id": "New | revenue_analytics.events.purchase",
-                    "name": "New | revenue_analytics.events.purchase",
-                },
-            }
+            assert results[0].new == {"label": "New | revenue_analytics.events.purchase", "days": LAST_7_MONTHS_DAYS, "labels": LAST_7_MONTHS_LABELS, "data": [0, 0, Decimal("33.474"), Decimal("5.5629321819"), 0, 0, 0], "breakdown": {"property": "revenue_analytics.events.purchase", "kind": "New"}, "action": {"days": LAST_7_MONTHS_FAKEDATETIMES, "id": "New | revenue_analytics.events.purchase", "name": "New | revenue_analytics.events.purchase"}}
 
-            assert results[0].expansion == {
-                "label": "Expansion | revenue_analytics.events.purchase",
-                "days": LAST_7_MONTHS_DAYS,
-                "labels": LAST_7_MONTHS_LABELS,
-                "data": [0, 0, 0, 0, Decimal("31.4370353536"), 0, 0],
-                "breakdown": {"property": "revenue_analytics.events.purchase", "kind": "Expansion"},
-                "action": {
-                    "days": LAST_7_MONTHS_FAKEDATETIMES,
-                    "id": "Expansion | revenue_analytics.events.purchase",
-                    "name": "Expansion | revenue_analytics.events.purchase",
-                },
-            }
+            assert results[0].expansion == {"label": "Expansion | revenue_analytics.events.purchase", "days": LAST_7_MONTHS_DAYS, "labels": LAST_7_MONTHS_LABELS, "data": [0, 0, 0, 0, Decimal("31.4370353536"), 0, 0], "breakdown": {"property": "revenue_analytics.events.purchase", "kind": "Expansion"}, "action": {"days": LAST_7_MONTHS_FAKEDATETIMES, "id": "Expansion | revenue_analytics.events.purchase", "name": "Expansion | revenue_analytics.events.purchase"}}
 
-            assert results[0].contraction == {
-                "label": "Contraction | revenue_analytics.events.purchase",
-                "days": LAST_7_MONTHS_DAYS,
-                "labels": LAST_7_MONTHS_LABELS,
-                "data": [0, 0, 0, Decimal("-13.549"), 0, 0, 0],
-                "breakdown": {"property": "revenue_analytics.events.purchase", "kind": "Contraction"},
-                "action": {
-                    "days": LAST_7_MONTHS_FAKEDATETIMES,
-                    "id": "Contraction | revenue_analytics.events.purchase",
-                    "name": "Contraction | revenue_analytics.events.purchase",
-                },
-            }
+            assert results[0].contraction == {"label": "Contraction | revenue_analytics.events.purchase", "days": LAST_7_MONTHS_DAYS, "labels": LAST_7_MONTHS_LABELS, "data": [0, 0, 0, Decimal("-13.549"), 0, 0, 0], "breakdown": {"property": "revenue_analytics.events.purchase", "kind": "Contraction"}, "action": {"days": LAST_7_MONTHS_FAKEDATETIMES, "id": "Contraction | revenue_analytics.events.purchase", "name": "Contraction | revenue_analytics.events.purchase"}}
 
-            assert results[0].churn == {
-                "label": "Churn | revenue_analytics.events.purchase",
-                "days": LAST_7_MONTHS_DAYS,
-                "labels": LAST_7_MONTHS_LABELS,
-                "data": [0, 0, 0, 0, Decimal("-19.925"), Decimal("-36.9999675355"), 0],
-                "breakdown": {"property": "revenue_analytics.events.purchase", "kind": "Churn"},
-                "action": {
-                    "days": LAST_7_MONTHS_FAKEDATETIMES,
-                    "id": "Churn | revenue_analytics.events.purchase",
-                    "name": "Churn | revenue_analytics.events.purchase",
-                },
-            }
+            assert results[0].churn == {"label": "Churn | revenue_analytics.events.purchase", "days": LAST_7_MONTHS_DAYS, "labels": LAST_7_MONTHS_LABELS, "data": [0, 0, 0, 0, Decimal("-19.925"), Decimal("-36.9999675355"), 0], "breakdown": {"property": "revenue_analytics.events.purchase", "kind": "Churn"}, "action": {"days": LAST_7_MONTHS_FAKEDATETIMES, "id": "Churn | revenue_analytics.events.purchase", "name": "Churn | revenue_analytics.events.purchase"}}
 
     def test_with_events_data_and_currency_aware_divider(self):
         self.team.revenue_analytics_config.events = [
@@ -1292,18 +736,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ).results
 
         assert len(results) == 1
-        assert results[0].total == {
-            "label": "revenue_analytics.events.purchase",
-            "days": LAST_7_MONTHS_DAYS,
-            "labels": LAST_7_MONTHS_LABELS,
-            "data": [0, Decimal("0.33474"), Decimal("0.3903693217"), 0, 0, 0, 0],
-            "breakdown": {"property": "revenue_analytics.events.purchase", "kind": None},
-            "action": {
-                "days": LAST_7_MONTHS_FAKEDATETIMES,
-                "id": "revenue_analytics.events.purchase",
-                "name": "revenue_analytics.events.purchase",
-            },
-        }
+        assert results[0].total == {"label": "revenue_analytics.events.purchase", "days": LAST_7_MONTHS_DAYS, "labels": LAST_7_MONTHS_LABELS, "data": [0, Decimal("0.33474"), Decimal("0.3903693217"), 0, 0, 0, 0], "breakdown": {"property": "revenue_analytics.events.purchase", "kind": None}, "action": {"days": LAST_7_MONTHS_FAKEDATETIMES, "id": "revenue_analytics.events.purchase", "name": "revenue_analytics.events.purchase"}}
 
     def test_with_events_data_and_grouping(self):
         s1 = str(uuid7("2024-12-25"))

@@ -718,14 +718,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/id_no_person")
         response_data = response.json()
 
-        assert response_data["person"] == {
-            "id": None,
-            "name": None,
-            "distinct_ids": ["d1"],
-            "properties": {},
-            "created_at": None,
-            "uuid": response_data["person"]["uuid"],
-        }
+        assert response_data["person"] == {"id": None, "name": None, "distinct_ids": ["d1"], "properties": {}, "created_at": None, "uuid": response_data["person"]["uuid"]}
 
     def test_session_recording_doesnt_exist(self):
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/non_existent_id")

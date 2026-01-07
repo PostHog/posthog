@@ -1,7 +1,6 @@
 import json
 import uuid
 
-import pytest
 from unittest.mock import patch
 
 from django.conf import settings
@@ -15,6 +14,7 @@ from posthog.models.user import User
 from posthog.storage import object_storage
 
 from products.tasks.backend.models import SandboxEnvironment, SandboxSnapshot, Task, TaskRun
+import pytest
 
 
 class TestTask(TestCase):

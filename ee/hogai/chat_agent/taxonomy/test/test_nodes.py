@@ -1,4 +1,3 @@
-import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
@@ -10,6 +9,7 @@ from pydantic import ValidationError
 from ee.hogai.chat_agent.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
 from ee.hogai.chat_agent.taxonomy.toolkit import TaxonomyAgentToolkit
 from ee.hogai.chat_agent.taxonomy.types import TaxonomyAgentState
+import pytest
 
 IntermediateSteps = list[tuple[AgentAction, str | None]]
 

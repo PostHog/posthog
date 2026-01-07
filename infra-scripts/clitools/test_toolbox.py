@@ -4,13 +4,13 @@ import json
 import time
 import subprocess
 
-import pytest
 import unittest
 from unittest.mock import MagicMock, patch
 
 from toolbox.kubernetes import get_available_contexts, get_current_context, select_context, switch_context
 from toolbox.pod import claim_pod, get_toolbox_pod
 from toolbox.user import get_current_user, parse_arn, sanitize_label
+import pytest
 
 
 class TestToolbox(unittest.TestCase):
@@ -183,54 +183,16 @@ class TestToolbox(unittest.TestCase):
         calls = mock_run.call_args_list
 
         # Verify the first call to get pod labels
-        assert calls[0][0][0] == [
-            "kubectl",
-            "get",
-            "pod",
-            "-n",
-            "posthog",
-            "toolbox-pod-1",
-            "-o",
-            "jsonpath={.metadata.labels}",
-        ]
+        assert calls[0][0][0] == ["kubectl", "get", "pod", "-n", "posthog", "toolbox-pod-1", "-o", "jsonpath={.metadata.labels}"]
 
         # Verify the annotation call
-        assert calls[1][0][0] == [
-            "kubectl",
-            "annotate",
-            "pod",
-            "-n",
-            "posthog",
-            "toolbox-pod-1",
-            "karpenter.sh/do-not-disrupt=true",
-            "--overwrite=true",
-        ]
+        assert calls[1][0][0] == ["kubectl", "annotate", "pod", "-n", "posthog", "toolbox-pod-1", "karpenter.sh/do-not-disrupt=true", "--overwrite=true"]
 
         # Verify the label call
-        assert calls[2][0][0] == [
-            "kubectl",
-            "label",
-            "pod",
-            "-n",
-            "posthog",
-            "toolbox-pod-1",
-            "toolbox-claimed=michael.k_at_posthog.com",
-            "role-name=developers",
-            "assumed-role=true",
-            "terminate-after=1234567890",
-        ]
+        assert calls[2][0][0] == ["kubectl", "label", "pod", "-n", "posthog", "toolbox-pod-1", "toolbox-claimed=michael.k_at_posthog.com", "role-name=developers", "assumed-role=true", "terminate-after=1234567890"]
 
         # Verify the wait call
-        assert calls[3][0][0] == [
-            "kubectl",
-            "wait",
-            "--for=condition=Ready",
-            "--timeout=5m",
-            "-n",
-            "posthog",
-            "pod",
-            "toolbox-pod-1",
-        ]
+        assert calls[3][0][0] == ["kubectl", "wait", "--for=condition=Ready", "--timeout=5m", "-n", "posthog", "pod", "toolbox-pod-1"]
 
     @patch("subprocess.run")
     def test_claim_pod_custom_duration(self, mock_run):
@@ -264,18 +226,7 @@ class TestToolbox(unittest.TestCase):
         calls = mock_run.call_args_list
 
         # Verify the label call includes the future timestamp
-        assert calls[2][0][0] == [
-            "kubectl",
-            "label",
-            "pod",
-            "-n",
-            "posthog",
-            "toolbox-pod-1",
-            "toolbox-claimed=michael.k_at_posthog.com",
-            "role-name=developers",
-            "assumed-role=true",
-            f"terminate-after={future_timestamp}",
-        ]
+        assert calls[2][0][0] == ["kubectl", "label", "pod", "-n", "posthog", "toolbox-pod-1", "toolbox-claimed=michael.k_at_posthog.com", "role-name=developers", "assumed-role=true", f"terminate-after={future_timestamp}"]
 
     @patch("subprocess.run")
     def test_update_claim(self, mock_run):
@@ -321,16 +272,7 @@ class TestToolbox(unittest.TestCase):
         calls = mock_run.call_args_list
 
         # Verify the first call to get pod labels
-        assert calls[0][0][0] == [
-            "kubectl",
-            "get",
-            "pod",
-            "-n",
-            "posthog",
-            "toolbox-pod-1",
-            "-o",
-            "jsonpath={.metadata.labels}",
-        ]
+        assert calls[0][0][0] == ["kubectl", "get", "pod", "-n", "posthog", "toolbox-pod-1", "-o", "jsonpath={.metadata.labels}"]
 
         # Verify the label removal calls
         assert calls[1][0][0] == ["kubectl", "label", "pod", "-n", "posthog", "toolbox-pod-1", "toolbox-claimed-"]
@@ -339,42 +281,13 @@ class TestToolbox(unittest.TestCase):
         assert calls[4][0][0] == ["kubectl", "label", "pod", "-n", "posthog", "toolbox-pod-1", "terminate-after-"]
 
         # Verify the annotation call
-        assert calls[5][0][0] == [
-            "kubectl",
-            "annotate",
-            "pod",
-            "-n",
-            "posthog",
-            "toolbox-pod-1",
-            "karpenter.sh/do-not-disrupt=true",
-            "--overwrite=true",
-        ]
+        assert calls[5][0][0] == ["kubectl", "annotate", "pod", "-n", "posthog", "toolbox-pod-1", "karpenter.sh/do-not-disrupt=true", "--overwrite=true"]
 
         # Verify the label call
-        assert calls[6][0][0] == [
-            "kubectl",
-            "label",
-            "pod",
-            "-n",
-            "posthog",
-            "toolbox-pod-1",
-            "toolbox-claimed=michael.k_at_posthog.com",
-            "role-name=developers",
-            "assumed-role=true",
-            f"terminate-after={future_timestamp}",
-        ]
+        assert calls[6][0][0] == ["kubectl", "label", "pod", "-n", "posthog", "toolbox-pod-1", "toolbox-claimed=michael.k_at_posthog.com", "role-name=developers", "assumed-role=true", f"terminate-after={future_timestamp}"]
 
         # Verify the wait call
-        assert calls[7][0][0] == [
-            "kubectl",
-            "wait",
-            "--for=condition=Ready",
-            "--timeout=5m",
-            "-n",
-            "posthog",
-            "pod",
-            "toolbox-pod-1",
-        ]
+        assert calls[7][0][0] == ["kubectl", "wait", "--for=condition=Ready", "--timeout=5m", "-n", "posthog", "pod", "toolbox-pod-1"]
 
     # New tests for Kubernetes context functions
     @patch("subprocess.run")

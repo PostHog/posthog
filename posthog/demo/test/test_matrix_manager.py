@@ -1,5 +1,6 @@
 import datetime as dt
 from enum import auto
+from typing import Optional
 from zoneinfo import ZoneInfo
 
 from posthog.test.base import ClickhouseDestroyTablesMixin
@@ -18,7 +19,7 @@ class DummyPerson(SimPerson):
     def determine_next_session_datetime(self):
         return self.cluster.start
 
-    def determine_session_intent(self) -> DummySessionIntent | None:
+    def determine_session_intent(self) -> Optional[DummySessionIntent]:
         return DummySessionIntent.FLAIL
 
     def simulate_session(self):

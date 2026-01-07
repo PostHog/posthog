@@ -1,4 +1,3 @@
-import pytest
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
 
@@ -7,6 +6,7 @@ from parameterized import parameterized
 from products.data_modeling.backend.models import Edge, Node
 from products.data_modeling.backend.models.edge import DAGMismatchError
 from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+import pytest
 
 A_DAG_ID = "A"
 B_DAG_ID = "B"

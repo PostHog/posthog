@@ -1,9 +1,9 @@
-import pytest
 from posthog.test.base import BaseTest
 
 from posthog.hogql import ast
 from posthog.hogql.compiler.javascript import JavaScriptCompiler, Local, _sanitize_identifier, to_js_expr, to_js_program
 from posthog.hogql.errors import QueryError
+import pytest
 
 
 class TestSanitizeIdentifier(BaseTest):
@@ -135,10 +135,7 @@ class TestJavaScript(BaseTest):
         assert to_js_expr("3.14") == "3.14"
         assert to_js_expr("properties.bla") == '__getProperty(__getGlobal("properties"), "bla", true)'
         assert to_js_expr("concat('arg', 'another')") == 'concat("arg", "another")'
-        assert (
-            to_js_expr("ifNull(properties.email, false)")
-            == '(__getProperty(__getGlobal("properties"), "email", true) ?? false)'
-        )
+        assert to_js_expr("ifNull(properties.email, false)") == '(__getProperty(__getGlobal("properties"), "email", true) ?? false)'
         assert to_js_expr("1 in 2") == "(2.includes(1))"
         assert to_js_expr("1 not in 2") == "(!2.includes(1))"
         assert to_js_expr("match('test', 'e.*')") == 'match("test", "e.*")'
@@ -225,24 +222,12 @@ return fibonacci(6);"""
         assert 'Variable "globalVar" not declared in this scope. Cannot assign to globals.' in str(context.value)
 
     def test_bytecode_sql(self):
-        assert (
-            to_js_expr("sql(1 + 1)")
-            == '{"__hx_ast": "ArithmeticOperation", "left": {"__hx_ast": "Constant", "value": 1}, "right": {"__hx_ast": "Constant", "value": 1}, "op": "+"}'
-        )
+        assert to_js_expr("sql(1 + 1)") == '{"__hx_ast": "ArithmeticOperation", "left": {"__hx_ast": "Constant", "value": 1}, "right": {"__hx_ast": "Constant", "value": 1}, "op": "+"}'
 
     def test_bytecode_sql_select(self):
-        assert (
-            to_js_expr("(select 1)") == '{"__hx_ast": "SelectQuery", "select": [{"__hx_ast": "Constant", "value": 1}]}'
-        )
+        assert to_js_expr("(select 1)") == '{"__hx_ast": "SelectQuery", "select": [{"__hx_ast": "Constant", "value": 1}]}'
 
-        assert (
-            to_js_expr("(select b.* from b join a on a.id = b.id)")
-            == '{"__hx_ast": "SelectQuery", "select": [{"__hx_ast": "Field", "chain": ["b", "*"], "from_asterisk": false}], "select_from": {"__hx_ast": "JoinExpr", '
-            '"table": {"__hx_ast": "Field", "chain": ["b"], "from_asterisk": false}, "next_join": {"__hx_ast": "JoinExpr", "join_type": "JOIN", "table": '
-            '{"__hx_ast": "Field", "chain": ["a"], "from_asterisk": false}, "constraint": {"__hx_ast": "JoinConstraint", "expr": {"__hx_ast": "CompareOperation", '
-            '"left": {"__hx_ast": "Field", "chain": ["a", "id"], "from_asterisk": false}, "right": {"__hx_ast": "Field", "chain": ["b", "id"], "from_asterisk": false}, "op": "=="}, '
-            '"constraint_type": "ON"}}}}'
-        )
+        assert to_js_expr("(select b.* from b join a on a.id = b.id)") == '{"__hx_ast": "SelectQuery", "select": [{"__hx_ast": "Field", "chain": ["b", "*"], "from_asterisk": false}], "select_from": {"__hx_ast": "JoinExpr", ' '"table": {"__hx_ast": "Field", "chain": ["b"], "from_asterisk": false}, "next_join": {"__hx_ast": "JoinExpr", "join_type": "JOIN", "table": ' '{"__hx_ast": "Field", "chain": ["a"], "from_asterisk": false}, "constraint": {"__hx_ast": "JoinConstraint", "expr": {"__hx_ast": "CompareOperation", ' '"left": {"__hx_ast": "Field", "chain": ["a", "id"], "from_asterisk": false}, "right": {"__hx_ast": "Field", "chain": ["b", "id"], "from_asterisk": false}, "op": "=="}, ' '"constraint_type": "ON"}}}}'
 
     def test_lambda_dict_literal(self):
         code = to_js_expr("x -> {'key': x}")

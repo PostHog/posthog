@@ -269,9 +269,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
             # Verify _get_model was called with a SearchSessionRecordingsTool instance in the tools arg
             mock_get_model.assert_called()
             tools_arg = mock_get_model.call_args[0][1]
-            assert any(isinstance(tool, FilterSessionRecordingsTool) for tool in tools_arg), (
-                "SearchSessionRecordingsTool instance not found in tools arg"
-            )
+            assert any(isinstance(tool, FilterSessionRecordingsTool) for tool in tools_arg), "SearchSessionRecordingsTool instance not found in tools arg"
 
     async def test_node_includes_project_org_user_context_in_prompt_template(self):
         with (

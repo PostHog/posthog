@@ -362,14 +362,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         assert response.results[0].id == "trace1"
         assert response.results[0].totalLatency == 10.5
         assert len(response.results[0].events) == 1
-        assert {
-            "$ai_latency": 10.5,
-            "$ai_provider": "posthog",
-            "$ai_model": "hog-destroyer",
-            "$ai_http_status": 200,
-            "$ai_base_url": "https://us.posthog.com",
-            "$ai_parent_id": "trace1",
-        }.items() <= response.results[0].events[0].properties.items()
+        assert {"$ai_latency": 10.5, "$ai_provider": "posthog", "$ai_model": "hog-destroyer", "$ai_http_status": 200, "$ai_base_url": "https://us.posthog.com", "$ai_parent_id": "trace1"}.items() <= response.results[0].events[0].properties.items()
 
     @freeze_time("2025-01-01T00:00:00Z")
     def test_person_properties(self):

@@ -1,3 +1,4 @@
+from typing import Optional
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
@@ -35,7 +36,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
         )
 
-    def _select(self, query: str, modifiers: HogQLQueryModifiers | None = None) -> HogQLMetadataResponse:
+    def _select(self, query: str, modifiers: Optional[HogQLQueryModifiers] = None) -> HogQLMetadataResponse:
         return get_hogql_metadata(
             query=HogQLMetadata(
                 kind="HogQLMetadata", language=HogLanguage.HOG_QL, query=query, response=None, modifiers=modifiers
@@ -43,7 +44,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
         )
 
-    def _program(self, query: str, globals: dict | None = None) -> HogQLMetadataResponse:
+    def _program(self, query: str, globals: Optional[dict] = None) -> HogQLMetadataResponse:
         return get_hogql_metadata(
             query=HogQLMetadata(
                 kind="HogQLMetadata", language=HogLanguage.HOG, query=query, globals=globals, response=None
@@ -59,11 +60,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
 
     def test_metadata_valid_expr_select(self):
         metadata = self._expr("select 1")
-        assert metadata.dict() == metadata.dict() | {
-            "isValid": False,
-            "query": "select 1",
-            "errors": [{"message": "extraneous input '1' expecting <EOF>", "start": 7, "end": 8, "fix": None}],
-        }
+        assert metadata.dict() == metadata.dict() | {"isValid": False, "query": "select 1", "errors": [{"message": "extraneous input '1' expecting <EOF>", "start": 7, "end": 8, "fix": None}]}
 
         metadata = self._select("select 1")
         assert metadata.dict() == metadata.dict() | {"isValid": True, "query": "select 1", "errors": []}
@@ -72,41 +69,15 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         assert metadata.dict() == metadata.dict() | {"isValid": True, "query": "timestamp", "errors": []}
 
         metadata = self._select("timestamp")
-        assert metadata.dict() == metadata.dict() | {
-            "isValid": False,
-            "query": "timestamp",
-            "errors": [
-                {
-                    "message": "mismatched input 'timestamp' expecting {SELECT, WITH, '{', '(', '<'}",
-                    "start": 0,
-                    "end": 9,
-                    "fix": None,
-                }
-            ],
-        }
+        assert metadata.dict() == metadata.dict() | {"isValid": False, "query": "timestamp", "errors": [{"message": "mismatched input 'timestamp' expecting {SELECT, WITH, '{', '(', '<'}", "start": 0, "end": 9, "fix": None}]}
 
     def test_metadata_expr_parse_error(self):
         metadata = self._expr("1 as true")
-        assert metadata.dict() == metadata.dict() | {
-            "isValid": False,
-            "query": "1 as true",
-            "errors": [
-                {
-                    "message": '"true" cannot be an alias or identifier, as it\'s a reserved keyword',
-                    "start": 0,
-                    "end": 9,
-                    "fix": None,
-                }
-            ],
-        }
+        assert metadata.dict() == metadata.dict() | {"isValid": False, "query": "1 as true", "errors": [{"message": '"true" cannot be an alias or identifier, as it\'s a reserved keyword', "start": 0, "end": 9, "fix": None}]}
 
     def test_metadata_expr_resolve_error(self):
         metadata = self._expr("1 + no_field")
-        assert metadata.dict() == metadata.dict() | {
-            "isValid": False,
-            "query": "1 + no_field",
-            "errors": [{"message": "Unable to resolve field: no_field", "start": 4, "end": 12, "fix": None}],
-        }
+        assert metadata.dict() == metadata.dict() | {"isValid": False, "query": "1 + no_field", "errors": [{"message": "Unable to resolve field: no_field", "start": 4, "end": 12, "fix": None}]}
 
     def test_metadata_table(self):
         metadata = self._expr("timestamp", "events")
@@ -128,32 +99,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             f"select person_id from events where person_id in cohort {cohort.pk} or person_id in cohort '{cohort.name}'"
         )
         metadata = self._select(query)
-        assert metadata.model_dump() == metadata.model_dump() | {
-            "isValid": True,
-            "query": query,
-            "notices": [
-                {"message": "Field 'person_id' is of type 'String'", "start": 7, "end": 16, "fix": None},
-                {
-                    "message": f"Cohort #{cohort.pk} can also be specified as '{cohort.name}'",
-                    "start": 55,
-                    "end": 55 + len(str(cohort.pk)),
-                    "fix": f"'{cohort.name}'",
-                },
-                {"message": "Field 'person_id' is of type 'String'", "start": 35, "end": 44, "fix": None},
-                {
-                    "message": f"Searching for cohort by name. Replace with numeric ID {cohort.pk} to protect against renaming.",
-                    "start": 79 + len(str(cohort.pk)),
-                    "end": 92 + len(str(cohort.pk)),
-                    "fix": str(cohort.pk),
-                },
-                {
-                    "message": "Field 'person_id' is of type 'String'",
-                    "start": 59 + len(str(cohort.pk)),
-                    "end": 68 + len(str(cohort.pk)),
-                    "fix": None,
-                },
-            ],
-        }
+        assert metadata.model_dump() == metadata.model_dump() | {"isValid": True, "query": query, "notices": [{"message": "Field 'person_id' is of type 'String'", "start": 7, "end": 16, "fix": None}, {"message": f"Cohort #{cohort.pk} can also be specified as '{cohort.name}'", "start": 55, "end": 55 + len(str(cohort.pk)), "fix": f"'{cohort.name}'"}, {"message": "Field 'person_id' is of type 'String'", "start": 35, "end": 44, "fix": None}, {"message": f"Searching for cohort by name. Replace with numeric ID {cohort.pk} to protect against renaming.", "start": 79 + len(str(cohort.pk)), "end": 92 + len(str(cohort.pk)), "fix": str(cohort.pk)}, {"message": "Field 'person_id' is of type 'String'", "start": 59 + len(str(cohort.pk)), "end": 68 + len(str(cohort.pk)), "fix": None}]}
 
     def test_metadata_property_type_notice_debug(self):
         try:
@@ -167,24 +113,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         PropertyDefinition.objects.create(team=self.team, name="string", property_type="String")
         PropertyDefinition.objects.create(team=self.team, name="number", property_type="Numeric")
         metadata = self._expr("properties.string || properties.number")
-        assert metadata.dict() == metadata.dict() | {
-            "isValid": True,
-            "query": "properties.string || properties.number",
-            "notices": [
-                {
-                    "message": "Event property 'string' is of type 'String'. This property is not materialized 🐢.",
-                    "start": 11,
-                    "end": 17,
-                    "fix": None,
-                },
-                {
-                    "message": "Event property 'number' is of type 'Float'. This property is materialized (mat_*) ⚡️.",
-                    "start": 32,
-                    "end": 38,
-                    "fix": None,
-                },
-            ],
-        }
+        assert metadata.dict() == metadata.dict() | {"isValid": True, "query": "properties.string || properties.number", "notices": [{"message": "Event property 'string' is of type 'String'. This property is not materialized 🐢.", "start": 11, "end": 17, "fix": None}, {"message": "Event property 'number' is of type 'Float'. This property is materialized (mat_*) ⚡️.", "start": 32, "end": 38, "fix": None}]}
 
     def test_metadata_property_type_notice_no_debug(self):
         try:
@@ -198,22 +127,11 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         PropertyDefinition.objects.create(team=self.team, name="string", property_type="String")
         PropertyDefinition.objects.create(team=self.team, name="number", property_type="Numeric")
         metadata = self._expr("properties.string || properties.number", debug=False)
-        assert metadata.dict() == metadata.dict() | {
-            "isValid": True,
-            "query": "properties.string || properties.number",
-            "notices": [
-                {"message": "Event property 'string' is of type 'String'.", "start": 11, "end": 17, "fix": None},
-                {"message": "Event property 'number' is of type 'Float'.", "start": 32, "end": 38, "fix": None},
-            ],
-        }
+        assert metadata.dict() == metadata.dict() | {"isValid": True, "query": "properties.string || properties.number", "notices": [{"message": "Event property 'string' is of type 'String'.", "start": 11, "end": 17, "fix": None}, {"message": "Event property 'number' is of type 'Float'.", "start": 32, "end": 38, "fix": None}]}
 
     def test_valid_view(self):
         metadata = self._select("select event AS event FROM events")
-        assert metadata.dict() == metadata.dict() | {
-            "isValid": True,
-            "query": "select event AS event FROM events",
-            "errors": [],
-        }
+        assert metadata.dict() == metadata.dict() | {"isValid": True, "query": "select event AS event FROM events", "errors": []}
 
     def test_valid_view_nested_view(self):
         saved_query_response = self.client.post(
@@ -230,11 +148,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         metadata = self._select("select event AS event FROM event_view")
 
         assert saved_query_response.status_code == 201, saved_query_response.json()
-        assert metadata.dict() == metadata.dict() | {
-            "isValid": True,
-            "query": "select event AS event FROM event_view",
-            "errors": [],
-        }
+        assert metadata.dict() == metadata.dict() | {"isValid": True, "query": "select event AS event FROM event_view", "errors": []}
 
     def test_union_all_does_not_crash(self):
         metadata = self._select("SELECT events.event FROM events UNION ALL SELECT events.event FROM events WHERE 1 = 2")
@@ -246,23 +160,11 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
 
     def test_hog_program_invalid(self):
         metadata = self._program("let i := NONO()")
-        assert metadata.dict() == metadata.dict() | {
-            "query": "let i := NONO()",
-            "isValid": False,
-            "notices": [],
-            "warnings": [],
-            "errors": [{"end": 15, "fix": None, "message": "Hog function `NONO` is not implemented", "start": 9}],
-        }
+        assert metadata.dict() == metadata.dict() | {"query": "let i := NONO()", "isValid": False, "notices": [], "warnings": [], "errors": [{"end": 15, "fix": None, "message": "Hog function `NONO` is not implemented", "start": 9}]}
 
     def test_hog_program_globals(self):
         metadata = self._program("print(event, region)", globals={"event": "banana"})
-        assert metadata.dict() == metadata.dict() | {
-            "query": "print(event, region)",
-            "isValid": True,
-            "notices": [{"end": 11, "fix": None, "message": "Global variable: event", "start": 6}],
-            "warnings": [{"end": 19, "fix": None, "message": "Unknown global variable: region", "start": 13}],
-            "errors": [],
-        }
+        assert metadata.dict() == metadata.dict() | {"query": "print(event, region)", "isValid": True, "notices": [{"end": 11, "fix": None, "message": "Global variable: event", "start": 6}], "warnings": [{"end": 19, "fix": None, "message": "Unknown global variable: region", "start": 13}], "errors": []}
 
     def test_string_template(self):
         metadata = self._program("this is a {event} string")
@@ -270,44 +172,25 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
 
     def test_string_template_invalid(self):
         metadata = self._program("this is a {NONO()} string")
-        assert metadata.dict() == metadata.dict() | {
-            "isValid": False,
-            "errors": [{"end": 17, "fix": None, "message": "Hog function `NONO` is not implemented", "start": 11}],
-        }
+        assert metadata.dict() == metadata.dict() | {"isValid": False, "errors": [{"end": 17, "fix": None, "message": "Hog function `NONO` is not implemented", "start": 11}]}
 
     def test_is_valid_view_when_all_fields_have_aliases(self):
         metadata = self._select("SELECT event AS event FROM events")
-        assert metadata.dict() == metadata.dict() | {
-            "isValid": True,
-            "query": "SELECT event AS event FROM events",
-            "errors": [],
-        }
+        assert metadata.dict() == metadata.dict() | {"isValid": True, "query": "SELECT event AS event FROM events", "errors": []}
 
     def test_is_valid_view_is_true_when_not_all_fields_have_aliases(self):
         metadata = self._select("SELECT event AS event, uuid FROM events")
-        assert metadata.dict() == metadata.dict() | {
-            "isValid": True,
-            "query": "SELECT event AS event, uuid FROM events",
-            "errors": [],
-        }
+        assert metadata.dict() == metadata.dict() | {"isValid": True, "query": "SELECT event AS event, uuid FROM events", "errors": []}
 
     def test_is_valid_view_is_false_when_fields_that_are_transformations_dont_have_aliases(self):
         metadata = self._select("SELECT toDate(timestamp), count() FROM events GROUP BY toDate(timestamp)")
-        assert metadata.dict() == metadata.dict() | {
-            "isValid": True,
-            "query": "SELECT toDate(timestamp), count() FROM events GROUP BY toDate(timestamp)",
-            "errors": [],
-        }
+        assert metadata.dict() == metadata.dict() | {"isValid": True, "query": "SELECT toDate(timestamp), count() FROM events GROUP BY toDate(timestamp)", "errors": []}
 
     def test_is_valid_view_is_true_when_fields_that_are_transformations_have_aliases(self):
         metadata = self._select(
             "SELECT toDate(timestamp) as timestamp, count() as total_count FROM events GROUP BY timestamp"
         )
-        assert metadata.dict() == metadata.dict() | {
-            "isValid": True,
-            "query": "SELECT toDate(timestamp) as timestamp, count() as total_count FROM events GROUP BY timestamp",
-            "errors": [],
-        }
+        assert metadata.dict() == metadata.dict() | {"isValid": True, "query": "SELECT toDate(timestamp) as timestamp, count() as total_count FROM events GROUP BY timestamp", "errors": []}
 
     def test_is_valid_view_is_false_when_using_asterisk(self):
         metadata = self._select("SELECT * FROM events")

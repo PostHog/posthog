@@ -1,6 +1,5 @@
 from typing import cast
 
-import pytest
 from freezegun import freeze_time
 from posthog.test.base import (
     BaseTest,
@@ -39,6 +38,7 @@ from ee.hogai.chat_agent.memory.nodes import (
 from ee.hogai.core.agent_modes import SlashCommandName
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.models import CoreMemory
+import pytest
 
 
 class TestMemoryInitializerContextMixin(ClickhouseTestMixin, NonAtomicBaseTest):
@@ -103,30 +103,16 @@ class TestMemoryOnboardingNode(ClickhouseTestMixin, NonAtomicBaseTest):
 
     async def test_should_run(self):
         node = MemoryOnboardingNode(team=self.team, user=self.user)
-        assert (
-            await node.should_run_onboarding_at_start(
-                AssistantState(messages=[HumanMessage(content=SlashCommandName.FIELD_INIT)])
-            )
-            == "memory_onboarding"
-        )
+        assert await node.should_run_onboarding_at_start(AssistantState(messages=[HumanMessage(content=SlashCommandName.FIELD_INIT)])) == "memory_onboarding"
 
         core_memory = await CoreMemory.objects.acreate(team=self.team)
-        assert (
-            await node.should_run_onboarding_at_start(AssistantState(messages=[HumanMessage(content="Hello")]))
-            == "continue"
-        )
+        assert await node.should_run_onboarding_at_start(AssistantState(messages=[HumanMessage(content="Hello")])) == "continue"
 
         await core_memory.achange_status_to_pending()
-        assert (
-            await node.should_run_onboarding_at_start(AssistantState(messages=[HumanMessage(content="Hello")]))
-            == "continue"
-        )
+        assert await node.should_run_onboarding_at_start(AssistantState(messages=[HumanMessage(content="Hello")])) == "continue"
 
         await core_memory.achange_status_to_skipped()
-        assert (
-            await node.should_run_onboarding_at_start(AssistantState(messages=[HumanMessage(content="Hello")]))
-            == "continue"
-        )
+        assert await node.should_run_onboarding_at_start(AssistantState(messages=[HumanMessage(content="Hello")])) == "continue"
 
     async def test_should_run_with_empty_messages(self):
         node = MemoryOnboardingNode(team=self.team, user=self.user)
@@ -162,10 +148,7 @@ class TestMemoryOnboardingNode(ClickhouseTestMixin, NonAtomicBaseTest):
         assert cast(AssistantMessage, new_state.messages[0]).content == prompts.ENQUIRY_INITIAL_MESSAGE
 
         core_memory = await CoreMemory.objects.aget(team=self.team)
-        assert (
-            core_memory.initial_text
-            == "Question: What does the company do?\nAnswer: This is a product analytics platform"
-        )
+        assert core_memory.initial_text == "Question: What does the company do?\nAnswer: This is a product analytics platform"
 
     async def test_node_starts_onboarding_for_pageview_events(self):
         await sync_to_async(self._set_up_pageview_events)()
@@ -360,10 +343,7 @@ class TestMemoryOnboardingEnquiryNode(ClickhouseTestMixin, NonAtomicBaseTest):
         assert await self.node.arouter(AssistantState(messages=[])) == "continue"
 
     async def test_arouter_with_onboarding_question(self):
-        assert (
-            await self.node.arouter(AssistantState(messages=[], onboarding_question="What is your target market?"))
-            == "interrupt"
-        )
+        assert await self.node.arouter(AssistantState(messages=[], onboarding_question="What is your target market?")) == "interrupt"
 
     def test_format_question_with_separator(self):
         question = "Some prefix===What is your target market?"
@@ -403,10 +383,7 @@ class TestMemoryOnboardingEnquiryNode(ClickhouseTestMixin, NonAtomicBaseTest):
             new_state = await self.node.arun(state, {})
             assert new_state.onboarding_question == "What is your pricing model?"
             await self.core_memory.arefresh_from_db()
-            assert (
-                self.core_memory.initial_text
-                == "Question: What is your target market?\nAnswer: We target enterprise customers\nQuestion: What is your pricing model?\nAnswer:"
-            )
+            assert self.core_memory.initial_text == "Question: What is your target market?\nAnswer: We target enterprise customers\nQuestion: What is your pricing model?\nAnswer:"
 
     async def test_run_with_all_questions_answered(self):
         with patch.object(MemoryOnboardingEnquiryNode, "_model") as model_mock:
@@ -463,10 +440,7 @@ class TestMemoryOnboardingEnquiryNode(ClickhouseTestMixin, NonAtomicBaseTest):
             assert new_state.onboarding_question == "What is your target market?"
 
             await core_memory.arefresh_from_db()
-            assert (
-                core_memory.initial_text
-                == "Question: What does the company do?\nAnswer: Product description\nQuestion: What is your target market?\nAnswer:"
-            )
+            assert core_memory.initial_text == "Question: What does the company do?\nAnswer: Product description\nQuestion: What is your target market?\nAnswer:"
 
     async def test_memory_rejected(self):
         with patch.object(MemoryOnboardingEnquiryNode, "_model") as model_mock:

@@ -65,7 +65,7 @@ def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _cr
                     **(
                         {
                             "action_id": None,
-                            "name": f"Completed {order + 1} step{'s' if order > 0 else ''}",
+                            "name": f"Completed {order+1} step{'s' if order > 0 else ''}",
                         }
                         if Funnel == ClickhouseFunnelUnordered
                         else {}
@@ -182,9 +182,7 @@ def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _cr
                 ],
             )
 
-            assert sorted(self._get_actor_ids_at_step(filter, 1, "technology")) == sorted(
-                [people["person2"].uuid, people["person3"].uuid]
-            )
+            assert sorted(self._get_actor_ids_at_step(filter, 1, "technology")) == sorted([people["person2"].uuid, people["person3"].uuid])
             assert sorted(self._get_actor_ids_at_step(filter, 2, "technology")) == sorted([people["person2"].uuid])
 
         # TODO: Delete this test when moved to person-on-events

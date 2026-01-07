@@ -18,11 +18,7 @@ class TestQueryTabState(APIBaseTest):
             },
         )
         assert response.status_code == 201
-        assert response.data["state"] == {
-            "editorModelsStateKey": '["my_model"]',
-            "activeModelStateKey": "my_model",
-            "activeModelVariablesStateKey": "my_model_variables",
-        }
+        assert response.data["state"] == {"editorModelsStateKey": '["my_model"]', "activeModelStateKey": "my_model", "activeModelVariablesStateKey": "my_model_variables"}
 
     def test_get_query_tab_state(self):
         query_tab_state = QueryTabState.objects.create(
@@ -37,11 +33,7 @@ class TestQueryTabState(APIBaseTest):
             f"/api/projects/{self.team.id}/query_tab_state/{query_tab_state.pk}",
         )
         assert response.status_code == 200
-        assert response.data["state"] == {
-            "editorModelsStateKey": '["my_model"]',
-            "activeModelStateKey": "my_model",
-            "activeModelVariablesStateKey": "my_model_variables",
-        }
+        assert response.data["state"] == {"editorModelsStateKey": '["my_model"]', "activeModelStateKey": "my_model", "activeModelVariablesStateKey": "my_model_variables"}
 
     def test_update_query_tab_state(self):
         query_tab_state = QueryTabState.objects.create(
@@ -64,11 +56,7 @@ class TestQueryTabState(APIBaseTest):
             },
         )
         assert response.status_code == 200
-        assert response.data["state"] == {
-            "editorModelsStateKey": '["my_model_2"]',
-            "activeModelStateKey": "my_model_2",
-            "activeModelVariablesStateKey": "my_model_variables_2",
-        }
+        assert response.data["state"] == {"editorModelsStateKey": '["my_model_2"]', "activeModelStateKey": "my_model_2", "activeModelVariablesStateKey": "my_model_variables_2"}
 
     def test_delete_query_tab_state(self):
         query_tab_state = QueryTabState.objects.create(
@@ -104,11 +92,7 @@ class TestQueryTabState(APIBaseTest):
         )
         assert response.status_code == 200
         assert response.json()["id"] == str(query_tab_state.id)
-        assert response.json()["state"] == {
-            "editorModelsStateKey": '["my_model"]',
-            "activeModelStateKey": "my_model",
-            "activeModelVariablesStateKey": "my_model_variables",
-        }
+        assert response.json()["state"] == {"editorModelsStateKey": '["my_model"]', "activeModelStateKey": "my_model", "activeModelVariablesStateKey": "my_model_variables"}
 
         # Test missing user_id parameter
         response = self.client.get(

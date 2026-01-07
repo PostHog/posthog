@@ -35,9 +35,7 @@ class TestGolangGenerator(APIBaseTest):
     def test_to_go_func_name(self, name, event_name, expected_output):
         """Test event name to Go exported identifier conversion"""
         result = self.generator._to_go_func_name(event_name)
-        assert expected_output == result, (
-            f"{name} failed: Expected '{event_name}' to convert to '{expected_output}', got '{result}'"
-        )
+        assert expected_output == result, f"{name} failed: Expected '{event_name}' to convert to '{expected_output}', got '{result}'"
 
     @parameterized.expand(
         [
@@ -66,9 +64,7 @@ class TestGolangGenerator(APIBaseTest):
     def test_to_go_param_name(self, name, input_name, expected_output):
         """Test property name to Go parameter name conversion (camelCase)"""
         result = self.generator._to_go_param_name(input_name)
-        assert expected_output == result, (
-            f"{name} failed: Expected '{input_name}' to convert to '{expected_output}', got '{result}'"
-        )
+        assert expected_output == result, f"{name} failed: Expected '{input_name}' to convert to '{expected_output}', got '{result}'"
 
     @parameterized.expand(
         [
@@ -86,9 +82,7 @@ class TestGolangGenerator(APIBaseTest):
     )
     def test_go_pascal_name_conversion(self, name, input_name, expected_output):
         result = self.generator._to_pascal_name(input_name)
-        assert expected_output == result, (
-            f"{name} failed: Expected '{input_name}' to convert to '{expected_output}', got '{result}'"
-        )
+        assert expected_output == result, f"{name} failed: Expected '{input_name}' to convert to '{expected_output}', got '{result}'"
 
     def test_get_unique_name(self):
         """Test collision handling in parameter name generation"""
@@ -111,10 +105,7 @@ class TestGolangGenerator(APIBaseTest):
     def test_generate_event_without_properties(self):
         """Test code generation for event without properties"""
         code = self.generator._generate_event_without_properties("simple_click")
-        assert (
-            """// SimpleClickCapture creates a capture for the "simple_click" event.\n// This event has no defined schema properties.\nfunc SimpleClickCapture(distinctId string, properties ...posthog.Properties) posthog.Capture {\n\tprops := posthog.Properties{}\n\tfor _, p := range properties {\n\t\tfor k, v := range p {\n\t\t\tprops[k] = v\n\t\t}\n\t}\n\n\treturn posthog.Capture{\n\t\tDistinctId: distinctId,\n\t\tEvent:      "simple_click",\n\t\tProperties: props,\n\t}\n}\n\n// SimpleClickCaptureFromBase creates a posthog.Capture for the "simple_click" event\n// starting from an existing base capture. The event name is overridden, and\n// any additional properties can be passed via the properties parameter.\nfunc SimpleClickCaptureFromBase(base posthog.Capture, properties ...posthog.Properties) posthog.Capture {\n\tprops := posthog.Properties{}\n\tfor _, p := range properties {\n\t\tfor k, v := range p {\n\t\t\tprops[k] = v\n\t\t}\n\t}\n\n\tbase.Event = "simple_click"\n\tif base.Properties == nil {\n\t\tbase.Properties = posthog.Properties{}\n\t}\n\tbase.Properties = base.Properties.Merge(props)\n\n\treturn base\n}"""
-            == code.strip()
-        )
+        assert '''// SimpleClickCapture creates a capture for the "simple_click" event.\n// This event has no defined schema properties.\nfunc SimpleClickCapture(distinctId string, properties ...posthog.Properties) posthog.Capture {\n\tprops := posthog.Properties{}\n\tfor _, p := range properties {\n\t\tfor k, v := range p {\n\t\t\tprops[k] = v\n\t\t}\n\t}\n\n\treturn posthog.Capture{\n\t\tDistinctId: distinctId,\n\t\tEvent:      "simple_click",\n\t\tProperties: props,\n\t}\n}\n\n// SimpleClickCaptureFromBase creates a posthog.Capture for the "simple_click" event\n// starting from an existing base capture. The event name is overridden, and\n// any additional properties can be passed via the properties parameter.\nfunc SimpleClickCaptureFromBase(base posthog.Capture, properties ...posthog.Properties) posthog.Capture {\n\tprops := posthog.Properties{}\n\tfor _, p := range properties {\n\t\tfor k, v := range p {\n\t\t\tprops[k] = v\n\t\t}\n\t}\n\n\tbase.Event = "simple_click"\n\tif base.Properties == nil {\n\t\tbase.Properties = posthog.Properties{}\n\t}\n\tbase.Properties = base.Properties.Merge(props)\n\n\treturn base\n}''' == code.strip()
 
     def test_generate_event_with_properties(self):
         props = [
@@ -127,10 +118,7 @@ class TestGolangGenerator(APIBaseTest):
         ]
 
         code = self.generator._generate_event_with_properties("file_uploaded", props)  # type: ignore[arg-type]
-        assert (
-            """// FileUploadedOption configures optional properties for a "file_uploaded" capture.\ntype FileUploadedOption func(*posthog.Capture)\n\n// FileUploadedWithIsActive sets the "is_active" property on a "file_uploaded" event.\nfunc FileUploadedWithIsActive(isActive bool) FileUploadedOption {\n\treturn func(c *posthog.Capture) {\n\t\tif c.Properties == nil {\n\t\t\tc.Properties = posthog.Properties{}\n\t\t}\n\t\tc.Properties["is_active"] = isActive\n\t}\n}\n\n// FileUploadedWithMetadata sets the "metadata" property on a "file_uploaded" event.\nfunc FileUploadedWithMetadata(metadata map[string]interface{}) FileUploadedOption {\n\treturn func(c *posthog.Capture) {\n\t\tif c.Properties == nil {\n\t\t\tc.Properties = posthog.Properties{}\n\t\t}\n\t\tc.Properties["metadata"] = metadata\n\t}\n}\n\n// FileUploadedWithTags sets the "tags" property on a "file_uploaded" event.\nfunc FileUploadedWithTags(tags []interface{}) FileUploadedOption {\n\treturn func(c *posthog.Capture) {\n\t\tif c.Properties == nil {\n\t\t\tc.Properties = posthog.Properties{}\n\t\t}\n\t\tc.Properties["tags"] = tags\n\t}\n}\n\n// FileUploadedWithExtraProps adds additional properties to a "file_uploaded" event.\nfunc FileUploadedWithExtraProps(props posthog.Properties) FileUploadedOption {\n\treturn func(c *posthog.Capture) {\n\t\tif c.Properties == nil {\n\t\t\tc.Properties = posthog.Properties{}\n\t\t}\n\t\tfor k, v := range props {\n\t\t\tc.Properties[k] = v\n\t\t}\n\t}\n}\n\n// FileUploadedCapture is a wrapper for the "file_uploaded" event.\n// It manages the creation of the `posthog.Capture`. If you need control over this, please make use of\n// the FileUploadedCaptureFromBase function.\n// Required properties from the schema are explicit parameters; optional properties\n// should be passed via FileUploadedWith* option functions.\nfunc FileUploadedCapture(\n\tdistinctId string,\n\tcreatedAt time.Time,\n\tfileName string,\n\tfileSize float64,\n\toptions ...FileUploadedOption,\n) posthog.Capture {\n\tprops := posthog.Properties{\n\t\t"created_at": createdAt,\n\t\t"file_name": fileName,\n\t\t"file_size": fileSize,\n\t}\n\n\tc := posthog.Capture{\n\t\tDistinctId: distinctId,\n\t\tEvent:      "file_uploaded",\n\t\tProperties: props,\n\t}\n\n\tfor _, opt := range options {\n\t\topt(&c)\n\t}\n\n\treturn c\n}\n\n// FileUploadedCaptureFromBase creates a posthog.Capture for the "file_uploaded" event\n// starting from an existing base capture. The event name is overridden, and\n// required properties from the schema are merged on top. Optional properties\n// should be passed via FileUploadedWith* option functions.\nfunc FileUploadedCaptureFromBase(\n\tbase posthog.Capture,\n\tcreatedAt time.Time,\n\tfileName string,\n\tfileSize float64,\n\toptions ...FileUploadedOption,\n) posthog.Capture {\n\tprops := posthog.Properties{\n\t\t"created_at": createdAt,\n\t\t"file_name": fileName,\n\t\t"file_size": fileSize,\n\t}\n\n\tbase.Event = "file_uploaded"\n\tif base.Properties == nil {\n\t\tbase.Properties = posthog.Properties{}\n\t}\n\tbase.Properties = base.Properties.Merge(props)\n\n\tfor _, opt := range options {\n\t\topt(&base)\n\t}\n\n\treturn base\n}"""
-            == code.strip()
-        )
+        assert '''// FileUploadedOption configures optional properties for a "file_uploaded" capture.\ntype FileUploadedOption func(*posthog.Capture)\n\n// FileUploadedWithIsActive sets the "is_active" property on a "file_uploaded" event.\nfunc FileUploadedWithIsActive(isActive bool) FileUploadedOption {\n\treturn func(c *posthog.Capture) {\n\t\tif c.Properties == nil {\n\t\t\tc.Properties = posthog.Properties{}\n\t\t}\n\t\tc.Properties["is_active"] = isActive\n\t}\n}\n\n// FileUploadedWithMetadata sets the "metadata" property on a "file_uploaded" event.\nfunc FileUploadedWithMetadata(metadata map[string]interface{}) FileUploadedOption {\n\treturn func(c *posthog.Capture) {\n\t\tif c.Properties == nil {\n\t\t\tc.Properties = posthog.Properties{}\n\t\t}\n\t\tc.Properties["metadata"] = metadata\n\t}\n}\n\n// FileUploadedWithTags sets the "tags" property on a "file_uploaded" event.\nfunc FileUploadedWithTags(tags []interface{}) FileUploadedOption {\n\treturn func(c *posthog.Capture) {\n\t\tif c.Properties == nil {\n\t\t\tc.Properties = posthog.Properties{}\n\t\t}\n\t\tc.Properties["tags"] = tags\n\t}\n}\n\n// FileUploadedWithExtraProps adds additional properties to a "file_uploaded" event.\nfunc FileUploadedWithExtraProps(props posthog.Properties) FileUploadedOption {\n\treturn func(c *posthog.Capture) {\n\t\tif c.Properties == nil {\n\t\t\tc.Properties = posthog.Properties{}\n\t\t}\n\t\tfor k, v := range props {\n\t\t\tc.Properties[k] = v\n\t\t}\n\t}\n}\n\n// FileUploadedCapture is a wrapper for the "file_uploaded" event.\n// It manages the creation of the `posthog.Capture`. If you need control over this, please make use of\n// the FileUploadedCaptureFromBase function.\n// Required properties from the schema are explicit parameters; optional properties\n// should be passed via FileUploadedWith* option functions.\nfunc FileUploadedCapture(\n\tdistinctId string,\n\tcreatedAt time.Time,\n\tfileName string,\n\tfileSize float64,\n\toptions ...FileUploadedOption,\n) posthog.Capture {\n\tprops := posthog.Properties{\n\t\t"created_at": createdAt,\n\t\t"file_name": fileName,\n\t\t"file_size": fileSize,\n\t}\n\n\tc := posthog.Capture{\n\t\tDistinctId: distinctId,\n\t\tEvent:      "file_uploaded",\n\t\tProperties: props,\n\t}\n\n\tfor _, opt := range options {\n\t\topt(&c)\n\t}\n\n\treturn c\n}\n\n// FileUploadedCaptureFromBase creates a posthog.Capture for the "file_uploaded" event\n// starting from an existing base capture. The event name is overridden, and\n// required properties from the schema are merged on top. Optional properties\n// should be passed via FileUploadedWith* option functions.\nfunc FileUploadedCaptureFromBase(\n\tbase posthog.Capture,\n\tcreatedAt time.Time,\n\tfileName string,\n\tfileSize float64,\n\toptions ...FileUploadedOption,\n) posthog.Capture {\n\tprops := posthog.Properties{\n\t\t"created_at": createdAt,\n\t\t"file_name": fileName,\n\t\t"file_size": fileSize,\n\t}\n\n\tbase.Event = "file_uploaded"\n\tif base.Properties == nil {\n\t\tbase.Properties = posthog.Properties{}\n\t}\n\tbase.Properties = base.Properties.Merge(props)\n\n\tfor _, opt := range options {\n\t\topt(&base)\n\t}\n\n\treturn base\n}''' == code.strip()
 
     def test_generate_event_with_quoted_and_escaped_properties(self):
         props = [
@@ -138,10 +126,7 @@ class TestGolangGenerator(APIBaseTest):
         ]
 
         code = self.generator._generate_event_with_properties("creative_naming", props)  # type: ignore[arg-type]
-        assert (
-            """// CreativeNamingOption configures optional properties for a \"creative_naming\" capture.\ntype CreativeNamingOption func(*posthog.Capture)\n\n// CreativeNamingWithExtraProps adds additional properties to a \"creative_naming\" event.\nfunc CreativeNamingWithExtraProps(props posthog.Properties) CreativeNamingOption {\n\treturn func(c *posthog.Capture) {\n\t\tif c.Properties == nil {\n\t\t\tc.Properties = posthog.Properties{}\n\t\t}\n\t\tfor k, v := range props {\n\t\t\tc.Properties[k] = v\n\t\t}\n\t}\n}\n\n// CreativeNamingCapture is a wrapper for the \"creative_naming\" event.\n// It manages the creation of the `posthog.Capture`. If you need control over this, please make use of\n// the CreativeNamingCaptureFromBase function.\n// Required properties from the schema are explicit parameters; optional properties\n// should be passed via CreativeNamingWith* option functions.\nfunc CreativeNamingCapture(\n\tdistinctId string,\n\tescApEing string,\n\toptions ...CreativeNamingOption,\n) posthog.Capture {\n\tprops := posthog.Properties{\n\t\t\"esc'ap\\\"eing\": escApEing,\n\t}\n\n\tc := posthog.Capture{\n\t\tDistinctId: distinctId,\n\t\tEvent:      \"creative_naming\",\n\t\tProperties: props,\n\t}\n\n\tfor _, opt := range options {\n\t\topt(&c)\n\t}\n\n\treturn c\n}\n\n// CreativeNamingCaptureFromBase creates a posthog.Capture for the \"creative_naming\" event\n// starting from an existing base capture. The event name is overridden, and\n// required properties from the schema are merged on top. Optional properties\n// should be passed via CreativeNamingWith* option functions.\nfunc CreativeNamingCaptureFromBase(\n\tbase posthog.Capture,\n\tescApEing string,\n\toptions ...CreativeNamingOption,\n) posthog.Capture {\n\tprops := posthog.Properties{\n\t\t\"esc'ap\\\"eing\": escApEing,\n\t}\n\n\tbase.Event = \"creative_naming\"\n\tif base.Properties == nil {\n\t\tbase.Properties = posthog.Properties{}\n\t}\n\tbase.Properties = base.Properties.Merge(props)\n\n\tfor _, opt := range options {\n\t\topt(&base)\n\t}\n\n\treturn base\n}"""
-            == code.strip()
-        )
+        assert """// CreativeNamingOption configures optional properties for a \"creative_naming\" capture.\ntype CreativeNamingOption func(*posthog.Capture)\n\n// CreativeNamingWithExtraProps adds additional properties to a \"creative_naming\" event.\nfunc CreativeNamingWithExtraProps(props posthog.Properties) CreativeNamingOption {\n\treturn func(c *posthog.Capture) {\n\t\tif c.Properties == nil {\n\t\t\tc.Properties = posthog.Properties{}\n\t\t}\n\t\tfor k, v := range props {\n\t\t\tc.Properties[k] = v\n\t\t}\n\t}\n}\n\n// CreativeNamingCapture is a wrapper for the \"creative_naming\" event.\n// It manages the creation of the `posthog.Capture`. If you need control over this, please make use of\n// the CreativeNamingCaptureFromBase function.\n// Required properties from the schema are explicit parameters; optional properties\n// should be passed via CreativeNamingWith* option functions.\nfunc CreativeNamingCapture(\n\tdistinctId string,\n\tescApEing string,\n\toptions ...CreativeNamingOption,\n) posthog.Capture {\n\tprops := posthog.Properties{\n\t\t\"esc'ap\\\"eing\": escApEing,\n\t}\n\n\tc := posthog.Capture{\n\t\tDistinctId: distinctId,\n\t\tEvent:      \"creative_naming\",\n\t\tProperties: props,\n\t}\n\n\tfor _, opt := range options {\n\t\topt(&c)\n\t}\n\n\treturn c\n}\n\n// CreativeNamingCaptureFromBase creates a posthog.Capture for the \"creative_naming\" event\n// starting from an existing base capture. The event name is overridden, and\n// required properties from the schema are merged on top. Optional properties\n// should be passed via CreativeNamingWith* option functions.\nfunc CreativeNamingCaptureFromBase(\n\tbase posthog.Capture,\n\tescApEing string,\n\toptions ...CreativeNamingOption,\n) posthog.Capture {\n\tprops := posthog.Properties{\n\t\t\"esc'ap\\\"eing\": escApEing,\n\t}\n\n\tbase.Event = \"creative_naming\"\n\tif base.Properties == nil {\n\t\tbase.Properties = posthog.Properties{}\n\t}\n\tbase.Properties = base.Properties.Merge(props)\n\n\tfor _, opt := range options {\n\t\topt(&base)\n\t}\n\n\treturn base\n}""" == code.strip()
 
     def test_full_generation_output(self):
         """
@@ -412,12 +397,7 @@ func main() {
             )
 
             # Assert compilation succeeded
-            assert build_result.returncode == 0, (
-                f"Go compilation failed. This indicates the generated code is invalid.\n\n"
-                f"STDOUT:\n{build_result.stdout}\n\n"
-                f"STDERR:\n{build_result.stderr}\n\n"
-                f"Generated Go file:\n{go_content}"
-            )
+            assert build_result.returncode == 0, f"Go compilation failed. This indicates the generated code is invalid.\n\n" f"STDOUT:\n{build_result.stdout}\n\n" f"STDERR:\n{build_result.stderr}\n\n" f"Generated Go file:\n{go_content}"
 
     def _test_telemetry_called(self, mock_report) -> None:
         # Verify telemetry was called

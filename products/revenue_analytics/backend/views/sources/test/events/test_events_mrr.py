@@ -1,10 +1,10 @@
-import pytest
 from freezegun import freeze_time
 
 from products.revenue_analytics.backend.views.core import SourceHandle
 from products.revenue_analytics.backend.views.schemas.mrr import SCHEMA as MRR_SCHEMA
 from products.revenue_analytics.backend.views.sources.events.mrr import build
 from products.revenue_analytics.backend.views.sources.test.events.base import EventsSourceBaseTest
+import pytest
 
 
 class TestMRREventsBuilder(EventsSourceBaseTest):

@@ -1,7 +1,6 @@
 import asyncio
 from datetime import timedelta
 
-import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -28,6 +27,7 @@ from ee.hogai.chat_agent.insights.nodes import InsightDict, InsightSearchNode, N
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage
 from ee.models.assistant import Conversation
+import pytest
 
 
 def create_mock_query_executor():
@@ -399,9 +399,7 @@ class TestInsightSearchNode(BaseTest):
                         assert isinstance(result, PartialAssistantState)
                         assert result.search_insights_query is None, "search_insights_query should be cleared"
                         # root_tool_insight_plan should be set to search_query to trigger creation
-                        assert result.root_tool_insight_plan == search_query, (
-                            "root_tool_insight_plan should be set to search_query"
-                        )
+                        assert result.root_tool_insight_plan == search_query, "root_tool_insight_plan should be set to search_query"
 
                         # Verify that _evaluate_insights_with_tools was called with the search_query
                         mock_evaluate.assert_called_once_with(selected_insights, search_query, max_selections=1)
@@ -793,9 +791,9 @@ class TestInsightSearchNode(BaseTest):
         assert viz_message is not None
 
         # Verify the answer contains the correct query type
-        assert isinstance(viz_message.content, VisualizationArtifactContent), (
-            "Should create visualization artifact content"
-        )
+        assert isinstance(
+            viz_message.content, VisualizationArtifactContent
+        ), "Should create visualization artifact content"
         query = viz_message.content.query
         assert isinstance(query, AssistantTrendsQuery)
 
@@ -816,9 +814,9 @@ class TestInsightSearchNode(BaseTest):
         assert viz_message2 is not None
 
         # Verify the answer contains the correct query type
-        assert isinstance(viz_message2.content, VisualizationArtifactContent), (
-            "Should create visualization artifact content"
-        )
+        assert isinstance(
+            viz_message2.content, VisualizationArtifactContent
+        ), "Should create visualization artifact content"
         query2 = viz_message2.content.query
         assert isinstance(query2, AssistantFunnelsQuery)
 
@@ -866,9 +864,9 @@ class TestInsightSearchNode(BaseTest):
         assert viz_message is not None
 
         # Verify the answer contains the correct query type
-        assert isinstance(viz_message.content, VisualizationArtifactContent), (
-            "Should create visualization artifact content"
-        )
+        assert isinstance(
+            viz_message.content, VisualizationArtifactContent
+        ), "Should create visualization artifact content"
         assert isinstance(viz_message.content.query, AssistantRetentionQuery)
 
     async def test_returns_artifact_with_hogql_query(self):
@@ -904,7 +902,7 @@ class TestInsightSearchNode(BaseTest):
         assert viz_message is not None
 
         # Verify the answer contains the correct query type
-        assert isinstance(viz_message.content, VisualizationArtifactContent), (
-            "Should create visualization artifact content"
-        )
+        assert isinstance(
+            viz_message.content, VisualizationArtifactContent
+        ), "Should create visualization artifact content"
         assert isinstance(viz_message.content.query, AssistantHogQLQuery)

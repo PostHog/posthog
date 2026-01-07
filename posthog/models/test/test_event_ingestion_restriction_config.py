@@ -232,9 +232,7 @@ class TestEventIngestionRestrictionConfig(BaseTest):
             {"token": "test_token", "distinct_id": "id1", "pipelines": ["analytics"]},
             {"token": "test_token", "distinct_id": "id2", "pipelines": ["analytics"]},
         ]
-        assert sorted(data, key=lambda x: x.get("distinct_id", "")) == sorted(
-            expected_entries, key=lambda x: x.get("distinct_id", "")
-        )
+        assert sorted(data, key=lambda x: x.get("distinct_id", "")) == sorted(expected_entries, key=lambda x: x.get("distinct_id", ""))
         # Verify the token-only entry was removed
         assert {"token": "test_token", "pipelines": ["analytics"]} not in data
 
@@ -503,9 +501,7 @@ class TestEventIngestionRestrictionConfig(BaseTest):
             {"token": "test_token", "session_id": "session1", "pipelines": ["analytics"]},
             {"token": "test_token", "session_id": "session2", "pipelines": ["analytics"]},
         ]
-        assert sorted(data, key=lambda x: x.get("session_id", "")) == sorted(
-            expected_entries, key=lambda x: x.get("session_id", "")
-        )
+        assert sorted(data, key=lambda x: x.get("session_id", "")) == sorted(expected_entries, key=lambda x: x.get("session_id", ""))
         # Verify the token-only entry was removed
         assert {"token": "test_token", "pipelines": ["analytics"]} not in data
 

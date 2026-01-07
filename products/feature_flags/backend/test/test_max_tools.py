@@ -329,14 +329,14 @@ class TestCreateFeatureFlagTool(APIBaseTest):
 
                 # Either the key should be rejected with an error, or it should be sanitized
                 if artifact.get("error"):
-                    assert "invalid" in result.lower() or "key" in result.lower(), (
-                        f"Invalid key '{key}' should produce an error message"
-                    )
+                    assert (
+                        "invalid" in result.lower() or "key" in result.lower()
+                    ), f"Invalid key '{key}' should produce an error message"
                 else:
                     # If not rejected, the key must be sanitized to match the regex
-                    assert re.match(r"^[a-zA-Z0-9_-]+$", artifact["flag_key"]), (
-                        f"Invalid key '{key}' should be sanitized to match regex pattern, got '{artifact['flag_key']}'"
-                    )
+                    assert re.match(
+                        r"^[a-zA-Z0-9_-]+$", artifact["flag_key"]
+                    ), f"Invalid key '{key}' should be sanitized to match regex pattern, got '{artifact['flag_key']}'"
 
                 # Clean up if flag was created
                 if not artifact.get("error"):

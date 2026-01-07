@@ -1,5 +1,6 @@
 import datetime
 from datetime import timedelta
+from typing import Optional
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
@@ -467,7 +468,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             properties={"name": "Test Organization", "priority": 100, "status": "active"},
         )
 
-        test_cases: list[tuple[str, list[str] | None, list[str], dict[int, str | int]]] = [
+        test_cases: list[tuple[str, Optional[list[str]], list[str], dict[int, str | int]]] = [
             (
                 "Default (no select specified)",
                 None,

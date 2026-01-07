@@ -1,3 +1,4 @@
+from typing import Optional
 
 from freezegun import freeze_time
 from posthog.test.base import (
@@ -139,7 +140,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                 },
             )
 
-    def _run(self, extra: dict | None = None, run_at: str | None = None):
+    def _run(self, extra: Optional[dict] = None, run_at: Optional[str] = None):
         flush_persons_and_events()
         query_dict = {
             "series": [
@@ -169,32 +170,32 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
             "data"
         ]
         assert data == [
-            1200.0,  # starting at 2020-01-02 13:00 - 24 h before run_at (rounded to start of interval, i.e. hour)
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            1350.0,
-        ]
+                1200.0,  # starting at 2020-01-02 13:00 - 24 h before run_at (rounded to start of interval, i.e. hour)
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                1350.0,
+            ]
 
     @snapshot_clickhouse_queries
     def test_hour_interval_day_level_relative(self):
@@ -202,45 +203,45 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
             "data"
         ]
         assert data == [
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            1200.0,  # 2020-01-02 13:00 - 24 h before run_at (rounded to start of interval, i.e. hour)
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            1350.0,
-        ]
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                1200.0,  # 2020-01-02 13:00 - 24 h before run_at (rounded to start of interval, i.e. hour)
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                1350.0,
+            ]
 
     def test_day_interval(self):
         data = self._run({"dateRange": {"date_from": "-3d"}}, run_at="2020-01-03T13:05:01Z")[0]["data"]
@@ -259,37 +260,10 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
         assert data == [0.0, 0.0, 2160.0]
 
     def test_formula(self):
-        assert self._run({"trendsFilter": {"formula": "A - B"}})[0]["data"] == [
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            600.0,
-            450.0,
-            0.0,
-        ]
-        assert self._run({"trendsFilter": {"formula": "A * B"}})[0]["data"] == [
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            270000.0,
-            405000.0,
-            0.0,
-        ]
+        assert self._run({"trendsFilter": {"formula": "A - B"}})[0]["data"] == [0.0, 0.0, 0.0, 0.0, 0.0, 600.0, 450.0, 0.0]
+        assert self._run({"trendsFilter": {"formula": "A * B"}})[0]["data"] == [0.0, 0.0, 0.0, 0.0, 0.0, 270000.0, 405000.0, 0.0]
         assert self._run({"trendsFilter": {"formula": "A / B"}})[0]["data"] == [0.0, 0.0, 0.0, 0.0, 0.0, 3.0, 2.0, 0.0]
-        assert self._run({"trendsFilter": {"formula": "(A/3600)/B"}})[0]["data"] == [
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            1 / 1200,
-            1 / 1800,
-            0.0,
-        ]
+        assert self._run({"trendsFilter": {"formula": "(A/3600)/B"}})[0]["data"] == [0.0, 0.0, 0.0, 0.0, 0.0, 1 / 1200, 1 / 1800, 0.0]
         assert self._run({"trendsFilter": {"formula": "(A/3600)/B"}})[0]["count"] == 1 / 720
 
         assert self._run({"trendsFilter": {"formula": "A/0"}})[0]["data"] == [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
@@ -520,66 +494,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                     ],
                 }
             )
-        assert response == [
-            {
-                "data": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                "count": 0.0,
-                "labels": [
-                    "28-Dec-2019",
-                    "29-Dec-2019",
-                    "30-Dec-2019",
-                    "31-Dec-2019",
-                    "1-Jan-2020",
-                    "2-Jan-2020",
-                    "3-Jan-2020",
-                    "4-Jan-2020",
-                ],
-                "days": [
-                    "2019-12-28",
-                    "2019-12-29",
-                    "2019-12-30",
-                    "2019-12-31",
-                    "2020-01-01",
-                    "2020-01-02",
-                    "2020-01-03",
-                    "2020-01-04",
-                ],
-                "label": "Formula (B / A)",
-                "breakdown_value": "Paris",
-                "action": None,
-                "filter": mock.ANY,
-                "order": 0,
-            },
-            {
-                "data": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                "count": 0.0,
-                "labels": [
-                    "28-Dec-2019",
-                    "29-Dec-2019",
-                    "30-Dec-2019",
-                    "31-Dec-2019",
-                    "1-Jan-2020",
-                    "2-Jan-2020",
-                    "3-Jan-2020",
-                    "4-Jan-2020",
-                ],
-                "days": [
-                    "2019-12-28",
-                    "2019-12-29",
-                    "2019-12-30",
-                    "2019-12-31",
-                    "2020-01-01",
-                    "2020-01-02",
-                    "2020-01-03",
-                    "2020-01-04",
-                ],
-                "label": "Formula (B / A)",
-                "breakdown_value": "London",
-                "action": None,
-                "filter": mock.ANY,
-                "order": 0,
-            },
-        ]
+        assert response == [{"data": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "count": 0.0, "labels": ["28-Dec-2019", "29-Dec-2019", "30-Dec-2019", "31-Dec-2019", "1-Jan-2020", "2-Jan-2020", "3-Jan-2020", "4-Jan-2020"], "days": ["2019-12-28", "2019-12-29", "2019-12-30", "2019-12-31", "2020-01-01", "2020-01-02", "2020-01-03", "2020-01-04"], "label": "Formula (B / A)", "breakdown_value": "Paris", "action": None, "filter": mock.ANY, "order": 0}, {"data": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "count": 0.0, "labels": ["28-Dec-2019", "29-Dec-2019", "30-Dec-2019", "31-Dec-2019", "1-Jan-2020", "2-Jan-2020", "3-Jan-2020", "4-Jan-2020"], "days": ["2019-12-28", "2019-12-29", "2019-12-30", "2019-12-31", "2020-01-01", "2020-01-02", "2020-01-03", "2020-01-04"], "label": "Formula (B / A)", "breakdown_value": "London", "action": None, "filter": mock.ANY, "order": 0}]
 
     @snapshot_clickhouse_queries
     def test_breakdown_cohort(self):
@@ -612,9 +527,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
             }
         )
         assert [series["breakdown_value"] for series in response] == ["some_val : London", "some_val : Paris"]
-        assert [[0.0, 0.0, 0.0, 0.0, 0.0, 800.0, 1350.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 750.0, 0.0, 0.0]] == [
-            series["data"] for series in response
-        ]
+        assert [[0.0, 0.0, 0.0, 0.0, 0.0, 800.0, 1350.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 750.0, 0.0, 0.0]] == [series["data"] for series in response]
 
     def test_breakdown_mismatching_sizes(self):
         response = self._run(
@@ -638,44 +551,14 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
         assert response[3]["data"] == [0, 0, 0, 0, 0, 0, 1, 0]
 
     def test_global_properties(self):
-        assert self._run({"properties": [{"key": "$current_url", "value": "http://example.org"}]})[0]["data"] == [
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            400.0,
-            0.0,
-            0.0,
-        ]
+        assert self._run({"properties": [{"key": "$current_url", "value": "http://example.org"}]})[0]["data"] == [0.0, 0.0, 0.0, 0.0, 0.0, 400.0, 0.0, 0.0]
 
     def test_properties_with_escape_params(self):
         # regression test
-        assert self._run(
-            {
-                "properties": [
-                    {
-                        "key": "$current_url",
-                        "value": "http://localhost:8000/insights?insight=TRENDS&interval=day&display=ActionsLineGraph&actions=%5B%5D&events=%5B%7B%22id%22%3A%22%24pageview%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%2C%7B%22id%22%3A%22%24pageview%2",
-                    }
-                ]
-            }
-        )[0]["data"] == [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        assert self._run({"properties": [{"key": "$current_url", "value": "http://localhost:8000/insights?insight=TRENDS&interval=day&display=ActionsLineGraph&actions=%5B%5D&events=%5B%7B%22id%22%3A%22%24pageview%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%2C%7B%22id%22%3A%22%24pageview%2"}]})[0]["data"] == [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
     def test_event_properties(self):
-        assert self._run(
-            {
-                "series": [
-                    {
-                        "event": "session start",
-                        "math": "sum",
-                        "math_property": "xyz",
-                        "properties": [{"key": "$current_url", "value": "http://example.org"}],
-                    },
-                    {"event": "session start", "math": "avg", "math_property": "xyz"},
-                ]
-            }
-        )[0]["data"] == [0.0, 0.0, 0.0, 0.0, 0.0, 500.0, 450.0, 0.0]
+        assert self._run({"series": [{"event": "session start", "math": "sum", "math_property": "xyz", "properties": [{"key": "$current_url", "value": "http://example.org"}]}, {"event": "session start", "math": "avg", "math_property": "xyz"}]})[0]["data"] == [0.0, 0.0, 0.0, 0.0, 0.0, 500.0, 450.0, 0.0]
 
     def test_compare(self):
         response = self._run(
@@ -698,38 +581,14 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
         response = self._run({"trendsFilter": {"display": TRENDS_CUMULATIVE, "formula": "A + B"}})
         assert len(response) == 1
         assert response[0]["data"] == [0.0, 0.0, 0.0, 0.0, 0.0, 1200.0, 2550.0, 2550.0]
-        assert response[0]["days"] == [
-            "2019-12-28",
-            "2019-12-29",
-            "2019-12-30",
-            "2019-12-31",
-            "2020-01-01",
-            "2020-01-02",
-            "2020-01-03",
-            "2020-01-04",
-        ]
+        assert response[0]["days"] == ["2019-12-28", "2019-12-29", "2019-12-30", "2019-12-31", "2020-01-01", "2020-01-02", "2020-01-03", "2020-01-04"]
 
     def test_multiple_events(self):
         # regression test
-        assert self._run(
-            {
-                "series": [
-                    {"event": "session start", "math": "sum", "math_property": "xyz"},
-                    {"event": "session start", "math": "avg", "math_property": "xyz"},
-                    {"event": "session start", "math": "avg", "math_property": "xyz"},
-                ]
-            }
-        )[0]["data"] == [0.0, 0.0, 0.0, 0.0, 0.0, 1200.0, 1350.0, 0.0]
+        assert self._run({"series": [{"event": "session start", "math": "sum", "math_property": "xyz"}, {"event": "session start", "math": "avg", "math_property": "xyz"}, {"event": "session start", "math": "avg", "math_property": "xyz"}]})[0]["data"] == [0.0, 0.0, 0.0, 0.0, 0.0, 1200.0, 1350.0, 0.0]
 
     def test_session_formulas(self):
-        assert self._run(
-            {
-                "series": [
-                    {"event": "session start", "math": "unique_session"},
-                    {"event": "session start", "math": "unique_session"},
-                ]
-            }
-        )[0]["data"] == [0, 0, 0, 0, 0, 2, 2, 0]
+        assert self._run({"series": [{"event": "session start", "math": "unique_session"}, {"event": "session start", "math": "unique_session"}]})[0]["data"] == [0, 0, 0, 0, 0, 2, 2, 0]
 
     def test_group_formulas(self):
         create_group_type_mapping_without_created_at(
@@ -738,11 +597,4 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
             group_type="organization",
             group_type_index=0,
         )
-        assert self._run(
-            {
-                "series": [
-                    {"event": "session start", "math": "unique_group", "math_group_type_index": 0},
-                    {"event": "session start", "math": "unique_group", "math_group_type_index": 0},
-                ]
-            }
-        )[0]["data"] == [0, 0, 0, 0, 0, 2, 2, 0]
+        assert self._run({"series": [{"event": "session start", "math": "unique_group", "math_group_type_index": 0}, {"event": "session start", "math": "unique_group", "math_group_type_index": 0}]})[0]["data"] == [0, 0, 0, 0, 0, 2, 2, 0]

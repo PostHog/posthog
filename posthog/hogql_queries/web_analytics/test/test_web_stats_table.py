@@ -1,8 +1,7 @@
 import math
 from collections import defaultdict
-from typing import Any
+from typing import Any, Optional
 
-import pytest
 import unittest
 from freezegun import freeze_time
 from posthog.test.base import (
@@ -36,6 +35,7 @@ from posthog.schema import (
 from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
 from posthog.models import Action, Cohort, Element
 from posthog.models.utils import uuid7
+import pytest
 
 nan_value = float("nan")
 
@@ -220,11 +220,11 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
         include_avg_time_on_page=False,
         properties=None,
         compare_filter=None,
-        action: Action | None = None,
-        custom_event: str | None = None,
+        action: Optional[Action] = None,
+        custom_event: Optional[str] = None,
         session_table_version: SessionTableVersion = SessionTableVersion.V2,
-        filter_test_accounts: bool | None = False,
-        bounce_rate_mode: BounceRatePageViewMode | None = BounceRatePageViewMode.COUNT_PAGEVIEWS,
+        filter_test_accounts: Optional[bool] = False,
+        bounce_rate_mode: Optional[BounceRatePageViewMode] = BounceRatePageViewMode.COUNT_PAGEVIEWS,
         orderBy=None,
     ):
         with freeze_time(self.QUERY_TIMESTAMP):
@@ -1502,9 +1502,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
             "2023-12-01", "2023-12-03", breakdown_by=WebStatsBreakdown.PAGE, action=action
         )
 
-        assert [
-            ["https://www.example.com/foo", (1, None), (0, None), (0, None), (0, None), nan_value, ""]
-        ] == response.results
+        assert [["https://www.example.com/foo", (1, None), (0, None), (0, None), (0, None), nan_value, ""]] == response.results
         assert [
             "context.columns.breakdown_value",
             "context.columns.visitors",
@@ -2036,16 +2034,16 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
         ).results
 
         assert [
-            [
-                "/a",  # breakdown (page / path)
-                (stats["/a"]["user_count"], 0),  # (visitors_this_month, visitors_last_month)
-                (stats["/a"]["view_count"], 0),  # (views_this_month, views_last_month)
-                (stats["/a"]["avg_duration"], 0),  # (avg_time_on_page_this_month, avg_time_on_page_last_month)
-                (0, 0),
-                1 / len(results),  # ui fill fraction
-                "",
-            ],
-        ] == results
+                [
+                    "/a",  # breakdown (page / path)
+                    (stats["/a"]["user_count"], 0),  # (visitors_this_month, visitors_last_month)
+                    (stats["/a"]["view_count"], 0),  # (views_this_month, views_last_month)
+                    (stats["/a"]["avg_duration"], 0),  # (avg_time_on_page_this_month, avg_time_on_page_last_month)
+                    (0, 0),
+                    1 / len(results),  # ui fill fraction
+                    "",
+                ],
+            ] == results
 
     def test_avg_time_on_page_multiple_users(self):
         p1_page_views = [
@@ -2076,17 +2074,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
             include_avg_time_on_page=True,
         ).results
 
-        assert [
-            [
-                "/a",
-                (stats["/a"]["user_count"], 0),
-                (stats["/a"]["view_count"], 0),
-                (stats["/a"]["avg_duration"], 0),
-                (0, 0),
-                1 / len(results),
-                "",
-            ]
-        ] == results
+        assert [["/a", (stats["/a"]["user_count"], 0), (stats["/a"]["view_count"], 0), (stats["/a"]["avg_duration"], 0), (0, 0), 1 / len(results), ""]] == results
 
     def test_avg_time_on_multiple_routes_and_users(self):
         p1_page_views = [
@@ -2125,35 +2113,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
             include_avg_time_on_page=True,
         ).results
 
-        assert [
-            [
-                "/a",
-                (stats["/a"]["user_count"], 0),
-                (stats["/a"]["view_count"], 0),
-                (stats["/a"]["avg_duration"], 0),
-                (0, 0),
-                1 / len(results),
-                "",
-            ],
-            [
-                "/b",
-                (stats["/a"]["user_count"], 0),
-                (stats["/b"]["view_count"], 0),
-                (stats["/b"]["avg_duration"], 0),
-                (0, 0),
-                1 / len(results),
-                "",
-            ],
-            [
-                "/c",
-                (stats["/a"]["user_count"], 0),
-                (stats["/c"]["view_count"], 0),
-                (stats["/c"]["avg_duration"], 0),
-                (0, 0),
-                1 / len(results),
-                "",
-            ],
-        ] == results
+        assert [["/a", (stats["/a"]["user_count"], 0), (stats["/a"]["view_count"], 0), (stats["/a"]["avg_duration"], 0), (0, 0), 1 / len(results), ""], ["/b", (stats["/a"]["user_count"], 0), (stats["/b"]["view_count"], 0), (stats["/b"]["avg_duration"], 0), (0, 0), 1 / len(results), ""], ["/c", (stats["/a"]["user_count"], 0), (stats["/c"]["view_count"], 0), (stats["/c"]["avg_duration"], 0), (0, 0), 1 / len(results), ""]] == results
 
     def test_avg_time_can_compare(self):
         m1_page_views = [
@@ -2178,17 +2138,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
             include_avg_time_on_page=True,
         ).results
 
-        assert [
-            [
-                "/a",
-                (m2_stats["/a"]["user_count"], m1_stats["/a"]["user_count"]),
-                (m2_stats["/a"]["view_count"], m1_stats["/a"]["view_count"]),
-                (m2_stats["/a"]["avg_duration"], m1_stats["/a"]["avg_duration"]),
-                (1, 1),
-                1 / len(results),
-                "",
-            ]
-        ] == results
+        assert [["/a", (m2_stats["/a"]["user_count"], m1_stats["/a"]["user_count"]), (m2_stats["/a"]["view_count"], m1_stats["/a"]["view_count"]), (m2_stats["/a"]["avg_duration"], m1_stats["/a"]["avg_duration"]), (1, 1), 1 / len(results), ""]] == results
 
     def test_calculate_pageview_statsistics_averages_per_person(self):
         p1_page_views = [

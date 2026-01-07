@@ -1,4 +1,3 @@
-import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -21,6 +20,7 @@ from posthog.storage.session_recording_v2_object_storage import (
     async_client,
     client,
 )
+import pytest
 
 TEST_BUCKET = "test_session_recording_v2_bucket"
 

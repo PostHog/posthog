@@ -1,6 +1,5 @@
 from datetime import UTC, datetime, timedelta
 
-import pytest
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -13,6 +12,7 @@ from posthog.models.organization_integration import OrganizationIntegration
 
 from ee.api.authentication import BillingServiceAuthentication
 from ee.models import License
+import pytest
 
 
 @patch("ee.api.authentication.get_cached_instance_license")

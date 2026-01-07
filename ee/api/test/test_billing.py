@@ -1,4 +1,3 @@
-import re
 import json
 import urllib.parse
 from datetime import datetime
@@ -933,12 +932,7 @@ class TestActivateBillingAPI(APILicensedTest):
         response = self.client.get(url, data)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "attr": "plan",
-            "code": "invalid_input",
-            "detail": "The 'plan' parameter is no longer supported. Please use the 'products' parameter instead.",
-            "type": "validation_error",
-        }
+        assert response.json() == {"attr": "plan", "code": "invalid_input", "detail": "The 'plan' parameter is no longer supported. Please use the 'products' parameter instead.", "type": "validation_error"}
 
     @patch("ee.billing.billing_manager.BillingManager.deactivate_products")
     @patch("ee.billing.billing_manager.BillingManager.get_billing")
@@ -994,10 +988,7 @@ class TestStartupApplicationBillingAPI(APILicensedTest):
         response = self.client.post(self.url, self.data)
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert (
-            response.json()["detail"]
-            == "You need to be an organization admin or owner to apply for the startup program"
-        )
+        assert response.json()["detail"] == "You need to be an organization admin or owner to apply for the startup program"
 
     def test_startup_apply_missing_org_id(self):
         empty_data: dict[str, Any] = {}
@@ -1005,12 +996,7 @@ class TestStartupApplicationBillingAPI(APILicensedTest):
         response = self.client.post(self.url, empty_data)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "invalid_input",
-            "detail": "This field is required.",
-            "attr": "organization_id",
-        }
+        assert response.json() == {"type": "validation_error", "code": "invalid_input", "detail": "This field is required.", "attr": "organization_id"}
 
     @patch("ee.billing.billing_manager.BillingManager.apply_startup_program")
     def test_startup_apply_passes_user_info(self, mock_apply_startup_program):
@@ -1089,12 +1075,7 @@ class TestCouponClaimBillingAPI(APILicensedTest):
         response = self.client.post(self.url, empty_data)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "invalid_input",
-            "detail": "This field is required.",
-            "attr": "code",
-        }
+        assert response.json() == {"type": "validation_error", "code": "invalid_input", "detail": "This field is required.", "attr": "code"}
 
     @patch("ee.billing.billing_manager.BillingManager.claim_coupon")
     def test_claim_coupon_billing_error_with_detail(self, mock_claim_coupon):

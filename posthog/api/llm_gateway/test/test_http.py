@@ -384,10 +384,6 @@ class TestLLMGatewayPermissions(APIBaseTest):
         )
 
         if should_have_access:
-            assert response.status_code != status.HTTP_403_FORBIDDEN, (
-                f"Expected access but got 403 for {scope} on {endpoint}"
-            )
+            assert response.status_code != status.HTTP_403_FORBIDDEN, f"Expected access but got 403 for {scope} on {endpoint}"
         else:
-            assert response.status_code == status.HTTP_403_FORBIDDEN, (
-                f"Expected 403 but got {response.status_code} for {scope} on {endpoint}"
-            )
+            assert response.status_code == status.HTTP_403_FORBIDDEN, f"Expected 403 but got {response.status_code} for {scope} on {endpoint}"

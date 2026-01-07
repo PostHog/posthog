@@ -263,15 +263,7 @@ class TestPersonsRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             for query in queries:
                 response = execute_hogql_query(parse_select(query), self.team, modifiers=self.MODIFIERS)
 
-                assert response.results == [
-                    (distinct_id_to_person_id["cus_1"], Decimal("283.8496260553")),
-                    (distinct_id_to_person_id["cus_2"], Decimal("482.2158673452")),
-                    (distinct_id_to_person_id["cus_3"], Decimal("4161.34422")),
-                    (distinct_id_to_person_id["cus_4"], Decimal("254.12345")),
-                    (distinct_id_to_person_id["cus_5"], Decimal("1494.0562")),
-                    (distinct_id_to_person_id["cus_6"], Decimal("2796.37014")),
-                    (distinct_id_to_person_id["dummy"], None),
-                ]
+                assert response.results == [(distinct_id_to_person_id["cus_1"], Decimal("283.8496260553")), (distinct_id_to_person_id["cus_2"], Decimal("482.2158673452")), (distinct_id_to_person_id["cus_3"], Decimal("4161.34422")), (distinct_id_to_person_id["cus_4"], Decimal("254.12345")), (distinct_id_to_person_id["cus_5"], Decimal("1494.0562")), (distinct_id_to_person_id["cus_6"], Decimal("2796.37014")), (distinct_id_to_person_id["dummy"], None)]
 
     def test_get_revenue_for_schema_source_for_id_join_with_managed_viewsets_ff(self):
         with patch("posthoganalytics.feature_enabled", return_value=True):
@@ -297,15 +289,7 @@ class TestPersonsRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                 for query in queries:
                     response = execute_hogql_query(parse_select(query), self.team, modifiers=self.MODIFIERS)
 
-                    assert response.results == [
-                        (distinct_id_to_person_id["cus_1"], Decimal("283.8496260553")),
-                        (distinct_id_to_person_id["cus_2"], Decimal("482.2158673452")),
-                        (distinct_id_to_person_id["cus_3"], Decimal("4161.34422")),
-                        (distinct_id_to_person_id["cus_4"], Decimal("254.12345")),
-                        (distinct_id_to_person_id["cus_5"], Decimal("1494.0562")),
-                        (distinct_id_to_person_id["cus_6"], Decimal("2796.37014")),
-                        (distinct_id_to_person_id["dummy"], None),
-                    ]
+                    assert response.results == [(distinct_id_to_person_id["cus_1"], Decimal("283.8496260553")), (distinct_id_to_person_id["cus_2"], Decimal("482.2158673452")), (distinct_id_to_person_id["cus_3"], Decimal("4161.34422")), (distinct_id_to_person_id["cus_4"], Decimal("254.12345")), (distinct_id_to_person_id["cus_5"], Decimal("1494.0562")), (distinct_id_to_person_id["cus_6"], Decimal("2796.37014")), (distinct_id_to_person_id["dummy"], None)]
 
     def test_get_revenue_for_schema_source_for_email_join(self):
         self.setup_schema_sources()
@@ -333,23 +317,7 @@ class TestPersonsRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                 modifiers=self.MODIFIERS,
             )
 
-            assert response.results == [
-                (
-                    distinct_id_to_person_id["john.doe@example.com"],
-                    Decimal("283.8496260553"),
-                    Decimal("283.8496260553"),
-                ),
-                (
-                    distinct_id_to_person_id["jane.doe@example.com"],
-                    Decimal("482.2158673452"),
-                    Decimal("482.2158673452"),
-                ),
-                (distinct_id_to_person_id["john.smith@example.com"], Decimal("4161.34422"), Decimal("4161.34422")),
-                (distinct_id_to_person_id["jane.smith@example.com"], Decimal("254.12345"), Decimal("254.12345")),
-                (distinct_id_to_person_id["john.doejr@example.com"], Decimal("1494.0562"), Decimal("1494.0562")),
-                (distinct_id_to_person_id["john.doejrjr@example.com"], Decimal("2796.37014"), Decimal("2796.37014")),
-                (distinct_id_to_person_id["zdummy"], None, None),
-            ]
+            assert response.results == [(distinct_id_to_person_id["john.doe@example.com"], Decimal("283.8496260553"), Decimal("283.8496260553")), (distinct_id_to_person_id["jane.doe@example.com"], Decimal("482.2158673452"), Decimal("482.2158673452")), (distinct_id_to_person_id["john.smith@example.com"], Decimal("4161.34422"), Decimal("4161.34422")), (distinct_id_to_person_id["jane.smith@example.com"], Decimal("254.12345"), Decimal("254.12345")), (distinct_id_to_person_id["john.doejr@example.com"], Decimal("1494.0562"), Decimal("1494.0562")), (distinct_id_to_person_id["john.doejrjr@example.com"], Decimal("2796.37014"), Decimal("2796.37014")), (distinct_id_to_person_id["zdummy"], None, None)]
 
     def test_get_revenue_for_schema_source_for_metadata_join(self):
         self.setup_schema_sources()
@@ -377,15 +345,7 @@ class TestPersonsRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                 modifiers=self.MODIFIERS,
             )
 
-            assert response.results == [
-                (distinct_id_to_person_id["cus_1_metadata"], Decimal("283.8496260553"), Decimal("283.8496260553")),
-                (distinct_id_to_person_id["cus_2_metadata"], Decimal("482.2158673452"), Decimal("482.2158673452")),
-                (distinct_id_to_person_id["cus_3_metadata"], Decimal("4161.34422"), Decimal("4161.34422")),
-                (distinct_id_to_person_id["cus_4_metadata"], Decimal("254.12345"), Decimal("254.12345")),
-                (distinct_id_to_person_id["cus_5_metadata"], Decimal("1494.0562"), Decimal("1494.0562")),
-                (distinct_id_to_person_id["cus_6_metadata"], Decimal("2796.37014"), Decimal("2796.37014")),
-                (distinct_id_to_person_id["dummy"], None, None),
-            ]
+            assert response.results == [(distinct_id_to_person_id["cus_1_metadata"], Decimal("283.8496260553"), Decimal("283.8496260553")), (distinct_id_to_person_id["cus_2_metadata"], Decimal("482.2158673452"), Decimal("482.2158673452")), (distinct_id_to_person_id["cus_3_metadata"], Decimal("4161.34422"), Decimal("4161.34422")), (distinct_id_to_person_id["cus_4_metadata"], Decimal("254.12345"), Decimal("254.12345")), (distinct_id_to_person_id["cus_5_metadata"], Decimal("1494.0562"), Decimal("1494.0562")), (distinct_id_to_person_id["cus_6_metadata"], Decimal("2796.37014"), Decimal("2796.37014")), (distinct_id_to_person_id["dummy"], None, None)]
 
     def test_get_revenue_for_schema_source_for_customer_with_multiple_distinct_ids(self):
         self.setup_schema_sources()
@@ -407,10 +367,7 @@ class TestPersonsRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                 modifiers=self.MODIFIERS,
             )
 
-            assert response.results == [
-                (multiple_distinct_ids_person.uuid, Decimal("283.8496260553")),
-                (dummy_person.uuid, None),
-            ]
+            assert response.results == [(multiple_distinct_ids_person.uuid, Decimal("283.8496260553")), (dummy_person.uuid, None)]
 
             response = execute_hogql_query(
                 parse_select("SELECT $virt_revenue FROM persons ORDER BY $virt_revenue ASC"),
@@ -440,14 +397,7 @@ class TestPersonsRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                 modifiers=self.MODIFIERS,
             )
 
-            assert results.results == [
-                (distinct_id_to_person_id["cus_3"], Decimal("4161.34422"), Decimal("1546.59444")),
-                (distinct_id_to_person_id["cus_6"], Decimal("2796.37014"), Decimal("1459.02008")),
-                (distinct_id_to_person_id["cus_4"], Decimal("254.12345"), Decimal("83.16695")),
-                (distinct_id_to_person_id["cus_5"], Decimal("1494.0562"), Decimal("43.82703")),
-                (distinct_id_to_person_id["cus_2"], Decimal("482.2158673452"), Decimal("40.8052916666")),
-                (distinct_id_to_person_id["cus_1"], Decimal("283.8496260553"), Decimal("22.9631447238")),
-            ]
+            assert results.results == [(distinct_id_to_person_id["cus_3"], Decimal("4161.34422"), Decimal("1546.59444")), (distinct_id_to_person_id["cus_6"], Decimal("2796.37014"), Decimal("1459.02008")), (distinct_id_to_person_id["cus_4"], Decimal("254.12345"), Decimal("83.16695")), (distinct_id_to_person_id["cus_5"], Decimal("1494.0562"), Decimal("43.82703")), (distinct_id_to_person_id["cus_2"], Decimal("482.2158673452"), Decimal("40.8052916666")), (distinct_id_to_person_id["cus_1"], Decimal("283.8496260553"), Decimal("22.9631447238"))]
 
     def test_query_revenue_analytics_table_sources_with_managed_viewsets_ff(self):
         with patch("posthoganalytics.feature_enabled", return_value=True):
@@ -471,14 +421,7 @@ class TestPersonsRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                     modifiers=self.MODIFIERS,
                 )
 
-                assert results.results == [
-                    (distinct_id_to_person_id["cus_2"], Decimal("482.2158673452"), Decimal("16.3052916666")),
-                    (distinct_id_to_person_id["cus_1"], Decimal("283.8496260553"), Decimal("4.1397346665")),
-                    (distinct_id_to_person_id["cus_3"], Decimal("4161.34422"), 0),
-                    (distinct_id_to_person_id["cus_6"], Decimal("2796.37014"), 0),
-                    (distinct_id_to_person_id["cus_5"], Decimal("1494.0562"), 0),
-                    (distinct_id_to_person_id["cus_4"], Decimal("254.12345"), 0),
-                ]
+                assert results.results == [(distinct_id_to_person_id["cus_2"], Decimal("482.2158673452"), Decimal("16.3052916666")), (distinct_id_to_person_id["cus_1"], Decimal("283.8496260553"), Decimal("4.1397346665")), (distinct_id_to_person_id["cus_3"], Decimal("4161.34422"), 0), (distinct_id_to_person_id["cus_6"], Decimal("2796.37014"), 0), (distinct_id_to_person_id["cus_5"], Decimal("1494.0562"), 0), (distinct_id_to_person_id["cus_4"], Decimal("254.12345"), 0)]
 
     def test_query_revenue_analytics_table_events(self):
         self.setup_events_with_subscriptions()

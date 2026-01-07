@@ -1,3 +1,4 @@
+from typing import Optional
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import Mock, patch
@@ -26,7 +27,7 @@ class TestMarketingAnalyticsAggregatedQueryRunner(ClickhouseTestMixin, BaseTest)
         )
 
     def _create_query_runner(
-        self, query: MarketingAnalyticsAggregatedQuery | None = None
+        self, query: Optional[MarketingAnalyticsAggregatedQuery] = None
     ) -> MarketingAnalyticsAggregatedQueryRunner:
         if query is None:
             query = self.default_query
@@ -70,9 +71,9 @@ class TestMarketingAnalyticsAggregatedQueryRunner(ClickhouseTestMixin, BaseTest)
 
         # Verify there's no OR condition in the JOIN
         # The old code had: (campaign_costs.campaign = ucg.campaign) OR (campaign_costs.id = ucg.id)
-        assert "or(equals(campaign_costs.campaign" not in hogql.lower(), (
-            f"JOIN should NOT use OR condition with campaign field. Got: {hogql}"
-        )
+        assert (
+            "or(equals(campaign_costs.campaign" not in hogql.lower()
+        ), f"JOIN should NOT use OR condition with campaign field. Got: {hogql}"
 
         # Snapshot the query
         assert pretty_print_in_tests(hogql, self.team.pk) == self.snapshot

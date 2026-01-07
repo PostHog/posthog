@@ -95,13 +95,10 @@ class TestUserAPI(APIBaseTest):
         assert response_data["organization"]["membership_level"] == 1
         assert response_data["organization"]["teams"][0]["id"] == self.team.id
         assert response_data["organization"]["teams"][0]["name"] == self.team.name
-        assert (
-            "test_account_filters" not in response_data["organization"]["teams"][0]
-        )  # Ensure we're not returning the full `Team`
+        assert "test_account_filters" not in response_data["organization"]["teams"][0]  # Ensure we're not returning the full `Team`
         assert "event_names" not in response_data["organization"]["teams"][0]
 
-        assert sorted(response_data["organizations"]) == sorted(
-            [
+        assert sorted(response_data["organizations"]) == sorted([
                 {
                     "id": str(self.organization.id),
                     "name": self.organization.name,
@@ -122,8 +119,7 @@ class TestUserAPI(APIBaseTest):
                     "is_active": True,
                     "is_not_active_reason": None,
                 },
-            ]
-        )
+            ])
 
     def test_hedgehog_config_is_unset(self):
         self.user.hedgehog_config = None
@@ -154,12 +150,7 @@ class TestUserAPI(APIBaseTest):
         user = self._create_user("newtest@posthog.com")
         response = self.client.get(f"/api/users/{user.uuid}")
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json() == {
-            "type": "authentication_error",
-            "code": "permission_denied",
-            "detail": "As a non-staff user you're only allowed to access the `@me` user instance.",
-            "attr": None,
-        }
+        assert response.json() == {"type": "authentication_error", "code": "permission_denied", "detail": "As a non-staff user you're only allowed to access the `@me` user instance.", "attr": None}
 
     def test_unauthenticated_user_cannot_fetch_endpoint(self):
         self.client.logout()
@@ -538,9 +529,7 @@ class TestUserAPI(APIBaseTest):
         response = self.client.patch("/api/users/@me/", {"is_staff": True})
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json() == self.permission_denied_response(
-            "You are not a staff user, contact your instance admin."
-        )
+        assert response.json() == self.permission_denied_response("You are not a staff user, contact your instance admin.")
 
         self.user.refresh_from_db()
         assert not self.user.is_staff
@@ -615,12 +604,7 @@ class TestUserAPI(APIBaseTest):
             },
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "invalid_input",
-            "detail": "Team must belong to the same organization in set_current_organization.",
-            "attr": "set_current_team",
-        }
+        assert response.json() == {"type": "validation_error", "code": "invalid_input", "detail": "Team must belong to the same organization in set_current_organization.", "attr": "set_current_team"}
 
         self.user.refresh_from_db()
         assert self.user.current_team == first_team
@@ -631,12 +615,7 @@ class TestUserAPI(APIBaseTest):
 
         response = self.client.patch("/api/users/@me/", {"set_current_organization": org.id})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "does_not_exist",
-            "detail": f"Object with id={org.id} does not exist.",
-            "attr": "set_current_organization",
-        }
+        assert response.json() == {"type": "validation_error", "code": "does_not_exist", "detail": f"Object with id={org.id} does not exist.", "attr": "set_current_organization"}
 
         self._assert_current_org_and_team_unchanged()
 
@@ -646,34 +625,19 @@ class TestUserAPI(APIBaseTest):
 
         response = self.client.patch("/api/users/@me/", {"set_current_team": team.id})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "does_not_exist",
-            "detail": f"Object with id={team.id} does not exist.",
-            "attr": "set_current_team",
-        }
+        assert response.json() == {"type": "validation_error", "code": "does_not_exist", "detail": f"Object with id={team.id} does not exist.", "attr": "set_current_team"}
 
         self._assert_current_org_and_team_unchanged()
 
     def test_cannot_set_a_non_existent_org_or_team(self):
         response = self.client.patch("/api/users/@me/", {"set_current_team": 3983838})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "does_not_exist",
-            "detail": f"Object with id=3983838 does not exist.",
-            "attr": "set_current_team",
-        }
+        assert response.json() == {"type": "validation_error", "code": "does_not_exist", "detail": f"Object with id=3983838 does not exist.", "attr": "set_current_team"}
 
         _uuid = str(uuid.uuid4())
         response = self.client.patch("/api/users/@me/", {"set_current_organization": _uuid})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "does_not_exist",
-            "detail": f"Object with id={_uuid} does not exist.",
-            "attr": "set_current_organization",
-        }
+        assert response.json() == {"type": "validation_error", "code": "does_not_exist", "detail": f"Object with id={_uuid} does not exist.", "attr": "set_current_organization"}
 
         self._assert_current_org_and_team_unchanged()
 
@@ -909,12 +873,7 @@ class TestUserAPI(APIBaseTest):
             {"current_password": self.CONFIG_PASSWORD, "password": "123"},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "invalid_input",
-            "detail": "This password is too short. It must contain at least 8 characters.",
-            "attr": "password",
-        }
+        assert response.json() == {"type": "validation_error", "code": "invalid_input", "detail": "This password is too short. It must contain at least 8 characters.", "attr": "password"}
 
         # Assert session is still valid
         get_response = self.client.get("/api/users/@me/")
@@ -928,12 +887,7 @@ class TestUserAPI(APIBaseTest):
     def test_user_cannot_update_password_without_current_password(self):
         response = self.client.patch("/api/users/@me/", {"password": "12345678"})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "required",
-            "detail": "This field is required when updating your password.",
-            "attr": "current_password",
-        }
+        assert response.json() == {"type": "validation_error", "code": "required", "detail": "This field is required when updating your password.", "attr": "current_password"}
 
         # Password was not changed
         self.user.refresh_from_db()
@@ -942,12 +896,7 @@ class TestUserAPI(APIBaseTest):
     def test_user_cannot_update_password_with_incorrect_current_password(self):
         response = self.client.patch("/api/users/@me/", {"current_password": "wrong", "password": "12345678"})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "incorrect_password",
-            "detail": "Your current password is incorrect.",
-            "attr": "current_password",
-        }
+        assert response.json() == {"type": "validation_error", "code": "incorrect_password", "detail": "Your current password is incorrect.", "attr": "current_password"}
 
         # Password was not changed
         self.user.refresh_from_db()
@@ -1149,10 +1098,7 @@ class TestUserAPI(APIBaseTest):
         locationHeader = response.headers.get("location", "not found")
         assert "22apiURL%22%3A%20%22http%3A%2F%2Ftestserver%22" in locationHeader
         self.maxDiff = None
-        assert (
-            unquote(locationHeader)
-            == 'http://127.0.0.1:8010#__posthog={"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": "12", "productTourId": null, "userIntent": "edit-experiment", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}'
-        )
+        assert unquote(locationHeader) == 'http://127.0.0.1:8010#__posthog={"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": "12", "productTourId": null, "userIntent": "edit-experiment", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}'
 
     @patch("posthog.api.user.secrets.token_urlsafe")
     def test_redirect_only_to_allowed_urls(self, patched_token):
@@ -1305,9 +1251,9 @@ class TestUserAPI(APIBaseTest):
 
         for field, value in fields.items():
             response = self.client.patch("/api/users/@me/", {field: value})
-            assert response.json()[field] == initial_user[field], (
-                f"Updating field '{field}' to '{value}' worked when it shouldn't! Was {initial_user[field]} and is now {response.json()[field]}"
-            )
+            assert (
+                response.json()[field] == initial_user[field]
+            ), f"Updating field '{field}' to '{value}' worked when it shouldn't! Was {initial_user[field]} and is now {response.json()[field]}"
 
     def test_can_update_notification_settings(self):
         response = self.client.patch(
@@ -1326,21 +1272,15 @@ class TestUserAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
         assert response_data["notification_settings"] == {
-            "plugin_disabled": False,
-            "discussions_mentioned": False,
-            "project_weekly_digest_disabled": {"123": True},  # Note: JSON converts int keys to strings
-            "all_weekly_digest_disabled": True,
-            "error_tracking_issue_assigned": False,
-        }
+                "plugin_disabled": False,
+                "discussions_mentioned": False,
+                "project_weekly_digest_disabled": {"123": True},  # Note: JSON converts int keys to strings
+                "all_weekly_digest_disabled": True,
+                "error_tracking_issue_assigned": False,
+            }
 
         self.user.refresh_from_db()
-        assert self.user.partial_notification_settings == {
-            "plugin_disabled": False,
-            "discussions_mentioned": False,
-            "project_weekly_digest_disabled": {"123": True},
-            "all_weekly_digest_disabled": True,
-            "error_tracking_issue_assigned": False,
-        }
+        assert self.user.partial_notification_settings == {"plugin_disabled": False, "discussions_mentioned": False, "project_weekly_digest_disabled": {"123": True}, "all_weekly_digest_disabled": True, "error_tracking_issue_assigned": False}
 
     def test_notification_settings_project_settings_are_merged_not_replaced(self):
         # First update
@@ -1361,12 +1301,7 @@ class TestUserAPI(APIBaseTest):
     def test_invalid_notification_settings_returns_error(self):
         response = self.client.patch("/api/users/@me/", {"notification_settings": {"invalid_key": True}})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "invalid_input",
-            "detail": "Key invalid_key is not valid as a key for notification settings",
-            "attr": "notification_settings",
-        }
+        assert response.json() == {"type": "validation_error", "code": "invalid_input", "detail": "Key invalid_key is not valid as a key for notification settings", "attr": "notification_settings"}
 
     def test_notification_settings_wrong_type_returns_error(self):
         response = self.client.patch(
@@ -1378,24 +1313,19 @@ class TestUserAPI(APIBaseTest):
             },
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "invalid_input",
-            "detail": "Project notification setting values must be boolean, got <class 'str'> instead",
-            "attr": "notification_settings",
-        }
+        assert response.json() == {"type": "validation_error", "code": "invalid_input", "detail": "Project notification setting values must be boolean, got <class 'str'> instead", "attr": "notification_settings"}
 
     def test_can_disable_all_notifications(self):
         response = self.client.patch("/api/users/@me/", {"notification_settings": {"all_weekly_digest_disabled": True}})
         assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
         assert response_data["notification_settings"] == {
-            "plugin_disabled": True,  # Default value
-            "discussions_mentioned": True,  # Default value
-            "project_weekly_digest_disabled": {},  # Default value
-            "all_weekly_digest_disabled": True,
-            "error_tracking_issue_assigned": True,  # Default value
-        }
+                "plugin_disabled": True,  # Default value
+                "discussions_mentioned": True,  # Default value
+                "project_weekly_digest_disabled": {},  # Default value
+                "all_weekly_digest_disabled": True,
+                "error_tracking_issue_assigned": True,  # Default value
+            }
 
 
 class TestUserSlackWebhook(APIBaseTest):
@@ -1479,12 +1409,7 @@ class TestStaffUserAPI(APIBaseTest):
 
         response = self.client.patch(f"/api/users/{user.uuid}/", {"is_staff": True})
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json() == {
-            "type": "authentication_error",
-            "code": "permission_denied",
-            "detail": "As a non-staff user you're only allowed to access the `@me` user instance.",
-            "attr": None,
-        }
+        assert response.json() == {"type": "authentication_error", "code": "permission_denied", "detail": "As a non-staff user you're only allowed to access the `@me` user instance.", "attr": None}
 
         user.refresh_from_db()
         assert not user.is_staff
@@ -1567,12 +1492,7 @@ class TestEmailVerificationAPI(APIBaseTest):
         with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
             response = self.client.post(f"/api/users/request_email_verification/", {"uuid": self.user.uuid})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "email_not_available",
-            "detail": "Cannot verify email address because email is not configured for your instance. Please contact your administrator.",
-            "attr": None,
-        }
+        assert response.json() == {"type": "validation_error", "code": "email_not_available", "detail": "Cannot verify email address because email is not configured for your instance. Please contact your administrator.", "attr": None}
 
     def test_cant_verify_more_than_six_times(self):
         set_instance_setting("EMAIL_HOST", "localhost")
@@ -1603,12 +1523,7 @@ class TestEmailVerificationAPI(APIBaseTest):
     def test_cant_validate_email_verification_token_without_a_token(self):
         response = self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "required",
-            "detail": "This field is required.",
-            "attr": "token",
-        }
+        assert response.json() == {"type": "validation_error", "code": "required", "detail": "This field is required.", "attr": "token"}
 
     def test_invalid_verification_token_returns_error(self):
         valid_token = default_token_generator.make_token(self.user)
@@ -1628,12 +1543,7 @@ class TestEmailVerificationAPI(APIBaseTest):
                 {"uuid": self.user.uuid, "token": token},
             )
             assert response.status_code == status.HTTP_400_BAD_REQUEST
-            assert response.json() == {
-                "type": "validation_error",
-                "code": "invalid_token",
-                "detail": "This verification token is invalid or has expired.",
-                "attr": "token",
-            }
+            assert response.json() == {"type": "validation_error", "code": "invalid_token", "detail": "This verification token is invalid or has expired.", "attr": "token"}
 
     def test_can_only_validate_email_token_one_time(self):
         token = email_verification_token_generator.make_token(self.user)
@@ -1642,12 +1552,7 @@ class TestEmailVerificationAPI(APIBaseTest):
 
         response = self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "invalid_token",
-            "detail": "This verification token is invalid or has expired.",
-            "attr": "token",
-        }
+        assert response.json() == {"type": "validation_error", "code": "invalid_token", "detail": "This verification token is invalid or has expired.", "attr": "token"}
 
     def test_email_verification_logs_in_user(self):
         token = email_verification_token_generator.make_token(self.user)
@@ -1773,12 +1678,7 @@ class TestUserTwoFactor(APIBaseTest):
 
         response = self.client.post(f"/api/users/@me/two_factor_validate/", {"token": "invalid"})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "token_invalid",
-            "detail": "Token is not valid",
-            "attr": None,
-        }
+        assert response.json() == {"type": "validation_error", "code": "token_invalid", "detail": "Token is not valid", "attr": None}
 
     def test_two_factor_status_when_disabled(self):
         response = self.client.get(f"/api/users/@me/two_factor_status/")
@@ -1820,12 +1720,7 @@ class TestUserTwoFactor(APIBaseTest):
     def test_two_factor_backup_codes_requires_2fa_enabled(self):
         response = self.client.post(f"/api/users/@me/two_factor_backup_codes/")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "2fa_not_enabled",
-            "detail": "2FA must be enabled first",
-            "attr": None,
-        }
+        assert response.json() == {"type": "validation_error", "code": "2fa_not_enabled", "detail": "2FA must be enabled first", "attr": None}
 
     @patch("posthog.api.user.send_two_factor_auth_disabled_email")
     def test_two_factor_disable(self, mock_send_email):

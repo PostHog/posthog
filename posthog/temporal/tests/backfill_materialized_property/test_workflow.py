@@ -169,9 +169,9 @@ class TestBackfillMaterializedPropertyWorkflow:
                     full_error = error_str
 
                 # The original "backfill failed" error should be in the error chain
-                assert "backfill failed" in full_error or "Activity task failed" in full_error, (
-                    f"Expected original backfill error in chain, got: {full_error}"
-                )
+                assert (
+                    "backfill failed" in full_error or "Activity task failed" in full_error
+                ), f"Expected original backfill error in chain, got: {full_error}"
 
     async def test_workflow_update_state_to_ready_retries(self, amaterialized_slot):
         """Test that update_slot_state to READY retries on transient failures."""

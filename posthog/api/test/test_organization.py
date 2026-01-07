@@ -1,7 +1,6 @@
 from datetime import timedelta
 from typing import cast
 
-import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
@@ -24,6 +23,7 @@ from ee.models.explicit_team_membership import ExplicitTeamMembership
 from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
 from ee.models.rbac.access_control import AccessControl
 from ee.models.rbac.role import Role, RoleMembership
+import pytest
 
 
 class TestOrganizationAPI(APIBaseTest):
@@ -59,12 +59,7 @@ class TestOrganizationAPI(APIBaseTest):
         with self.is_cloud(False):
             response = self.client.post("/api/organizations/", {"name": "Test"})
             assert response.status_code == status.HTTP_403_FORBIDDEN
-            assert response.json() == {
-                "attr": None,
-                "code": "permission_denied",
-                "detail": "You must upgrade your PostHog plan to be able to create and manage multiple organizations.",
-                "type": "authentication_error",
-            }
+            assert response.json() == {"attr": None, "code": "permission_denied", "detail": "You must upgrade your PostHog plan to be able to create and manage multiple organizations.", "type": "authentication_error"}
             assert Organization.objects.count() == 1
             response = self.client.post("/api/organizations/", {"name": "Test"})
             assert Organization.objects.count() == 1
@@ -327,9 +322,7 @@ class TestOrganizationAPI(APIBaseTest):
         response = self.client.get("/api/organizations/", headers={"authorization": f"Bearer {personal_api_key}"})
 
         assert response.status_code == status.HTTP_200_OK
-        assert {org["id"] for org in response.json()["results"]} == {str(other_org.id)}, (
-            "Only the scoped organization should be listed, the other one should be excluded"
-        )
+        assert {org["id"] for org in response.json()["results"]} == {str(other_org.id)}, "Only the scoped organization should be listed, the other one should be excluded"
 
     @override_settings(
         OAUTH2_PROVIDER={
@@ -399,12 +392,7 @@ class TestOrganizationAPI(APIBaseTest):
         response = self.client.delete(f"/api/organizations/{self.organization.id}")
         assert response.status_code == status.HTTP_204_NO_CONTENT
         response = self.client.get("/api/organizations/")
-        assert response.json() == {
-            "type": "invalid_request",
-            "code": "not_found",
-            "detail": "You need to belong to an organization.",
-            "attr": None,
-        }
+        assert response.json() == {"type": "invalid_request", "code": "not_found", "detail": "You need to belong to an organization.", "attr": None}
 
     @patch("ee.billing.billing_manager.BillingManager.get_billing")
     @patch("posthog.api.organization.get_cached_instance_license")

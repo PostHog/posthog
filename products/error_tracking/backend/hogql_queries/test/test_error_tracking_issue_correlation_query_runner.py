@@ -28,17 +28,4 @@ class TestErrorTrackingIssueCorrelationQueryRunner(ClickhouseTestMixin, APIBaseT
     @snapshot_clickhouse_queries
     def test_column_names(self):
         columns = self._calculate()["columns"]
-        assert columns == [
-            "id",
-            "status",
-            "name",
-            "description",
-            "first_seen",
-            "assignee",
-            "external_issues",
-            "last_seen",
-            "library",
-            "odds_ratio",
-            "population",
-            "event",
-        ]
+        assert columns == ["id", "status", "name", "description", "first_seen", "assignee", "external_issues", "last_seen", "library", "odds_ratio", "population", "event"]

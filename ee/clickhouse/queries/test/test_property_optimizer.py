@@ -137,15 +137,7 @@ class TestPersonPushdown(unittest.TestCase):
 
         assert inner.to_dict() == {"type": "AND", "values": [{"key": "person_prop", "value": "efg", "type": "person"}]}
 
-        assert outer.to_dict() == {
-            "type": "AND",
-            "values": [
-                {"key": "event_prop", "value": ["foo", "bar"], "type": "event"},
-                {"key": "id", "value": 1, "type": "cohort"},
-                {"key": "tag_name", "value": ["label"], "operator": "exact", "type": "element"},
-                {"key": "group_prop", "value": ["value"], "operator": "exact", "type": "group", "group_type_index": 2},
-            ],
-        }
+        assert outer.to_dict() == {"type": "AND", "values": [{"key": "event_prop", "value": ["foo", "bar"], "type": "event"}, {"key": "id", "value": 1, "type": "cohort"}, {"key": "tag_name", "value": ["label"], "operator": "exact", "type": "element"}, {"key": "group_prop", "value": ["value"], "operator": "exact", "type": "group", "group_type_index": 2}]}
 
     def test_person_properties_mixed_with_event_properties(self):
         filter = BASE_FILTER.shallow_clone(
@@ -195,38 +187,35 @@ class TestPersonPushdown(unittest.TestCase):
         assert inner is not None
         assert outer is not None
 
-        assert inner.to_dict() == {
-            "type": "AND",
-            "values": [{"type": "AND", "values": [{"key": "person_prop", "value": "efg", "type": "person"}]}],
-        }
+        assert inner.to_dict() == {"type": "AND", "values": [{"type": "AND", "values": [{"key": "person_prop", "value": "efg", "type": "person"}]}]}
 
         assert outer.to_dict() == {
-            "type": "AND",
-            "values": [
-                {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "key": "event_prop2",
-                            "value": ["foo2", "bar2"],
-                            "type": "event",
-                        },
-                        {"key": "person_prop2", "value": "efg2", "type": "person"},
-                    ],
-                },
-                {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "event_prop",
-                            "value": ["foo", "bar"],
-                            "type": "event",
-                        },
-                        # {"key": "person_prop", "value": "efg", "type": "person", }, # this was pushed down
-                    ],
-                },
-            ],
-        }
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "event_prop2",
+                                "value": ["foo2", "bar2"],
+                                "type": "event",
+                            },
+                            {"key": "person_prop2", "value": "efg2", "type": "person"},
+                        ],
+                    },
+                    {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "event_prop",
+                                "value": ["foo", "bar"],
+                                "type": "event",
+                            },
+                            # {"key": "person_prop", "value": "efg", "type": "person", }, # this was pushed down
+                        ],
+                    },
+                ],
+            }
 
     def test_person_properties_with_or_not_mixed_with_event_properties(self):
         filter = BASE_FILTER.shallow_clone(
@@ -276,37 +265,25 @@ class TestPersonPushdown(unittest.TestCase):
         assert inner is not None
         assert outer is not None
 
-        assert inner.to_dict() == {
-            "type": "AND",
-            "values": [
-                {
-                    "type": "OR",
-                    "values": [
-                        {"key": "person_prop2", "value": ["foo2", "bar2"], "type": "person"},
-                        {"key": "person_prop2", "value": "efg2", "type": "person"},
-                    ],
-                },
-                {"type": "AND", "values": [{"key": "person_prop", "value": "efg", "type": "person"}]},
-            ],
-        }
+        assert inner.to_dict() == {"type": "AND", "values": [{"type": "OR", "values": [{"key": "person_prop2", "value": ["foo2", "bar2"], "type": "person"}, {"key": "person_prop2", "value": "efg2", "type": "person"}]}, {"type": "AND", "values": [{"key": "person_prop", "value": "efg", "type": "person"}]}]}
 
         assert outer.to_dict() == {
-            "type": "AND",
-            "values": [
-                #  OR group was pushed down, so not here anymore
-                {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "event_prop",
-                            "value": ["foo", "bar"],
-                            "type": "event",
-                        },
-                        # {"key": "person_prop", "value": "efg", "type": "person", }, # this was pushed down
-                    ],
-                }
-            ],
-        }
+                "type": "AND",
+                "values": [
+                    #  OR group was pushed down, so not here anymore
+                    {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "event_prop",
+                                "value": ["foo", "bar"],
+                                "type": "event",
+                            },
+                            # {"key": "person_prop", "value": "efg", "type": "person", }, # this was pushed down
+                        ],
+                    }
+                ],
+            }
 
     def test_person_properties_mixed_with_event_properties_with_misdirection_using_nested_groups(self):
         filter = BASE_FILTER.shallow_clone(
@@ -401,96 +378,73 @@ class TestPersonPushdown(unittest.TestCase):
         assert inner is not None
         assert outer is not None
 
-        assert inner.to_dict() == {
-            "type": "AND",
-            "values": [
-                {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "type": "OR",
-                            "values": [
-                                {
-                                    "type": "AND",
-                                    "values": [
-                                        {
-                                            "type": "OR",
-                                            "values": [{"key": "person_prop", "value": "efg", "type": "person"}],
-                                        }
-                                    ],
-                                }
-                            ],
-                        }
-                    ],
-                }
-            ],
-        }
+        assert inner.to_dict() == {"type": "AND", "values": [{"type": "AND", "values": [{"type": "OR", "values": [{"type": "AND", "values": [{"type": "OR", "values": [{"key": "person_prop", "value": "efg", "type": "person"}]}]}]}]}]}
 
         assert outer.to_dict() == {
-            "type": "AND",
-            "values": [
-                {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "type": "OR",
-                                    "values": [
-                                        {
-                                            "type": "OR",
-                                            "values": [
-                                                {
-                                                    "key": "event_prop2",
-                                                    "value": ["foo2", "bar2"],
-                                                    "type": "event",
-                                                }
-                                            ],
-                                        }
-                                    ],
-                                },
-                                {
-                                    "type": "AND",
-                                    "values": [
-                                        {
-                                            "key": "person_prop2",
-                                            "value": "efg2",
-                                            "type": "person",
-                                        }
-                                    ],
-                                },
-                            ],
-                        }
-                    ],
-                },
-                {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "type": "OR",
-                            "values": [
-                                {
-                                    "type": "AND",
-                                    "values": [
-                                        {
-                                            "key": "event_prop",
-                                            "value": ["foo", "bar"],
-                                            "type": "event",
-                                        }
-                                    ],
-                                }
-                            ],
-                        },
-                        # {"type": "OR", "values": [
-                        #     {"type": "AND", "values": [
-                        #         {"type": "OR", "values": [{"key": "person_prop", "value": "efg", "type": "person"}]}]
-                        #     }]}
-                        # this was pushed down
-                    ],
-                },
-            ],
-        }
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "type": "OR",
+                                        "values": [
+                                            {
+                                                "type": "OR",
+                                                "values": [
+                                                    {
+                                                        "key": "event_prop2",
+                                                        "value": ["foo2", "bar2"],
+                                                        "type": "event",
+                                                    }
+                                                ],
+                                            }
+                                        ],
+                                    },
+                                    {
+                                        "type": "AND",
+                                        "values": [
+                                            {
+                                                "key": "person_prop2",
+                                                "value": "efg2",
+                                                "type": "person",
+                                            }
+                                        ],
+                                    },
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "OR",
+                                "values": [
+                                    {
+                                        "type": "AND",
+                                        "values": [
+                                            {
+                                                "key": "event_prop",
+                                                "value": ["foo", "bar"],
+                                                "type": "event",
+                                            }
+                                        ],
+                                    }
+                                ],
+                            },
+                            # {"type": "OR", "values": [
+                            #     {"type": "AND", "values": [
+                            #         {"type": "OR", "values": [{"key": "person_prop", "value": "efg", "type": "person"}]}]
+                            #     }]}
+                            # this was pushed down
+                        ],
+                    },
+                ],
+            }
 
 
 # TODO: add macobo-groups in mixture to tests as well

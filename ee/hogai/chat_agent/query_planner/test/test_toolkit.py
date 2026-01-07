@@ -103,21 +103,12 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
 
     def test_retrieve_entity_properties_returns_descriptive_feedback_without_properties(self):
         toolkit = DummyToolkit(self.team)
-        assert (
-            toolkit.retrieve_entity_properties("person")
-            == "Properties do not exist in the taxonomy for the entity person."
-        )
+        assert toolkit.retrieve_entity_properties("person") == "Properties do not exist in the taxonomy for the entity person."
 
     def test_retrieve_entity_property_values(self):
         toolkit = DummyToolkit(self.team)
-        assert (
-            toolkit.retrieve_entity_property_values("session", "$session_duration")
-            == "30, 146, 2 and many more distinct values."
-        )
-        assert (
-            toolkit.retrieve_entity_property_values("session", "nonsense")
-            == "The property nonsense does not exist in the taxonomy."
-        )
+        assert toolkit.retrieve_entity_property_values("session", "$session_duration") == "30, 146, 2 and many more distinct values."
+        assert toolkit.retrieve_entity_property_values("session", "nonsense") == "The property nonsense does not exist in the taxonomy."
 
         PropertyDefinition.objects.create(
             team=self.team, type=PropertyDefinition.Type.PERSON, name="email", property_type=PropertyType.String
@@ -141,10 +132,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
             )
 
-        assert (
-            '"person5@example.com", "person4@example.com", "person3@example.com", "person2@example.com", "person1@example.com"'
-            in toolkit.retrieve_entity_property_values("person", "email")
-        )
+        assert '"person5@example.com", "person4@example.com", "person3@example.com", "person2@example.com", "person1@example.com"' in toolkit.retrieve_entity_property_values("person", "email")
         assert "1 more distinct value" in toolkit.retrieve_entity_property_values("person", "id")
 
         toolkit = DummyToolkit(self.team)
@@ -193,17 +181,11 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
 
     def test_retrieve_event_properties_returns_descriptive_feedback_without_properties(self):
         toolkit = DummyToolkit(self.team)
-        assert (
-            toolkit.retrieve_event_or_action_properties("pageview")
-            == "Properties do not exist in the taxonomy for the event pageview."
-        )
+        assert toolkit.retrieve_event_or_action_properties("pageview") == "Properties do not exist in the taxonomy for the event pageview."
 
     def test_empty_events(self):
         toolkit = DummyToolkit(self.team)
-        assert (
-            toolkit.retrieve_event_or_action_properties("test")
-            == "Properties do not exist in the taxonomy for the event test."
-        )
+        assert toolkit.retrieve_event_or_action_properties("test") == "Properties do not exist in the taxonomy for the event test."
 
         _create_person(
             distinct_ids=["person1"],
@@ -218,10 +200,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         )
 
         toolkit = DummyToolkit(self.team)
-        assert (
-            toolkit.retrieve_event_or_action_properties("event1")
-            == "Properties do not exist in the taxonomy for the event event1."
-        )
+        assert toolkit.retrieve_event_or_action_properties("event1") == "Properties do not exist in the taxonomy for the event event1."
 
     def test_retrieve_event_or_action_properties(self):
         self._create_taxonomy()
@@ -251,20 +230,14 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             assert '"Firefox"' in toolkit.retrieve_event_or_action_property_values(item, "$browser")
             assert toolkit.retrieve_event_or_action_property_values(item, "bool") == "true"
             assert toolkit.retrieve_event_or_action_property_values(item, "id") == "9, 8, 7, 6, 5, 4, 3, 2, 1, 0"
-            assert (
-                toolkit.retrieve_event_or_action_property_values(item, "date")
-                == f'"{datetime(2024, 1, 1).isoformat()}"'
-            )
+            assert toolkit.retrieve_event_or_action_property_values(item, "date") == f'"{datetime(2024, 1, 1).isoformat()}"'
 
     def test_retrieve_event_or_action_properties_when_actions_exist_but_action_id_incorrect(self):
         toolkit = DummyToolkit(self.team)
         incorrect_action_id = self.action.id + 999  # Ensure it doesn't exist
 
         result = toolkit.retrieve_event_or_action_properties(incorrect_action_id)
-        assert (
-            result
-            == f"Action {incorrect_action_id} does not exist in the taxonomy. Verify that the action ID is correct and try again."
-        )
+        assert result == f"Action {incorrect_action_id} does not exist in the taxonomy. Verify that the action ID is correct and try again."
 
     def test_retrieve_event_or_action_properties_when_no_actions_exist_and_action_id_incorrect(self):
         Action.objects.all().delete()

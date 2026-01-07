@@ -204,36 +204,13 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert columns == ["id", "last_seen", "first_seen", "function", "source", "library"]
 
         columns = self._calculate(withAggregations=True)["columns"]
-        assert columns == [
-            "id",
-            "last_seen",
-            "first_seen",
-            "function",
-            "source",
-            "occurrences",
-            "sessions",
-            "users",
-            "volumeRange",
-            "library",
-        ]
+        assert columns == ["id", "last_seen", "first_seen", "function", "source", "occurrences", "sessions", "users", "volumeRange", "library"]
 
         columns = self._calculate(withFirstEvent=True)["columns"]
         assert columns == ["id", "last_seen", "first_seen", "function", "source", "first_event", "library"]
 
         columns = self._calculate(issueId=self.issue_id_one, withAggregations=True, withFirstEvent=True)["columns"]
-        assert columns == [
-            "id",
-            "last_seen",
-            "first_seen",
-            "function",
-            "source",
-            "occurrences",
-            "sessions",
-            "users",
-            "volumeRange",
-            "first_event",
-            "library",
-        ]
+        assert columns == ["id", "last_seen", "first_seen", "function", "source", "occurrences", "sessions", "users", "volumeRange", "first_event", "library"]
 
     @freeze_time("2022-01-10T12:11:00")
     def test_date_range_resolution(self):

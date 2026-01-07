@@ -1,8 +1,8 @@
+import pytest
 import uuid
 from datetime import datetime
 from typing import cast
 
-import pytest
 from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
@@ -921,14 +921,16 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         assert results[1]["count"] == 1
 
-        assert sorted(self._get_actor_ids_at_step(filters, 1)) == sorted(
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(1),
             [
                 person1_stopped_after_two_signups.uuid,
                 person2_stopped_after_signup.uuid,
-            ]
+            ],
         )
 
-        assert sorted(self._get_actor_ids_at_step(filters, 2)) == sorted([person1_stopped_after_two_signups.uuid])
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(2),
+            [person1_stopped_after_two_signups.uuid],
+        )
 
     @also_test_with_materialized_columns(["key"])
     def test_basic_funnel_with_derivative_steps(self):
@@ -976,14 +978,16 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         assert results[1]["count"] == 1
 
-        assert sorted(self._get_actor_ids_at_step(filters, 1)) == sorted(
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(1),
             [
                 person1_stopped_after_two_signups.uuid,
                 person2_stopped_after_signup.uuid,
-            ]
+            ],
         )
 
-        assert sorted(self._get_actor_ids_at_step(filters, 2)) == sorted([person1_stopped_after_two_signups.uuid])
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(2),
+            [person1_stopped_after_two_signups.uuid],
+        )
 
     def test_basic_funnel_with_repeat_step_updated_param(self):
         people = journeys_for(
@@ -1015,14 +1019,16 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         assert results[1]["count"] == 1
 
-        assert sorted(self._get_actor_ids_at_step(filters, 1)) == sorted(
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(1),
             [
                 people["stopped_after_signup1"].uuid,
                 people["stopped_after_signup2"].uuid,
-            ]
+            ],
         )
 
-        assert sorted(self._get_actor_ids_at_step(filters, 2)) == sorted([people["stopped_after_signup1"].uuid])
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(2),
+            [people["stopped_after_signup1"].uuid],
+        )
 
         filters = {
             "events": [
@@ -1117,41 +1123,43 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         assert results[4]["count"] == 1
 
         # check ordering of people in every step
-        assert sorted(self._get_actor_ids_at_step(filters, 1)) == sorted(
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(1),
             [
                 people["stopped_after_signup1"].uuid,
                 people["stopped_after_pageview1"].uuid,
                 people["stopped_after_pageview2"].uuid,
                 people["stopped_after_pageview3"].uuid,
                 people["stopped_after_pageview4"].uuid,
-            ]
+            ],
         )
 
-        assert sorted(self._get_actor_ids_at_step(filters, 2)) == sorted(
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(2),
             [
                 people["stopped_after_pageview1"].uuid,
                 people["stopped_after_pageview2"].uuid,
                 people["stopped_after_pageview3"].uuid,
                 people["stopped_after_pageview4"].uuid,
-            ]
+            ],
         )
 
-        assert sorted(self._get_actor_ids_at_step(filters, 3)) == sorted(
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(3),
             [
                 people["stopped_after_pageview2"].uuid,
                 people["stopped_after_pageview3"].uuid,
                 people["stopped_after_pageview4"].uuid,
-            ]
+            ],
         )
 
-        assert sorted(self._get_actor_ids_at_step(filters, 4)) == sorted(
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(4),
             [
                 people["stopped_after_pageview3"].uuid,
                 people["stopped_after_pageview4"].uuid,
-            ]
+            ],
         )
 
-        assert sorted(self._get_actor_ids_at_step(filters, 5)) == sorted([people["stopped_after_pageview4"].uuid])
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(5),
+            [people["stopped_after_pageview4"].uuid],
+        )
 
     def test_advanced_funnel_with_repeat_steps_out_of_order_events(self):
         filters = {
@@ -1271,30 +1279,36 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         assert results[4]["count"] == 1
 
         # check ordering of people in every step
-        assert sorted(self._get_actor_ids_at_step(filters, 1)) == sorted(
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(1),
             [
                 person1_stopped_after_signup.uuid,
                 person2_stopped_after_one_pageview.uuid,
                 person3_stopped_after_two_pageview.uuid,
                 person4_stopped_after_three_pageview.uuid,
                 person5_stopped_after_many_pageview.uuid,
-            ]
+            ],
         )
 
-        assert sorted(self._get_actor_ids_at_step(filters, 2)) == sorted(
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(2),
             [
                 person2_stopped_after_one_pageview.uuid,
                 person3_stopped_after_two_pageview.uuid,
                 person4_stopped_after_three_pageview.uuid,
                 person5_stopped_after_many_pageview.uuid,
-            ]
+            ],
         )
 
-        assert sorted(self._get_actor_ids_at_step(filters, 3)) == sorted([person5_stopped_after_many_pageview.uuid])
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(3),
+            [person5_stopped_after_many_pageview.uuid],
+        )
 
-        assert sorted(self._get_actor_ids_at_step(filters, 4)) == sorted([person5_stopped_after_many_pageview.uuid])
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(4),
+            [person5_stopped_after_many_pageview.uuid],
+        )
 
-        assert sorted(self._get_actor_ids_at_step(filters, 5)) == sorted([person5_stopped_after_many_pageview.uuid])
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(5),
+            [person5_stopped_after_many_pageview.uuid],
+        )
 
     @also_test_with_materialized_columns(["key"])
     def test_funnel_with_actions(self):
@@ -1351,14 +1365,16 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         assert results[1]["count"] == 1
 
         # check ordering of people in first step
-        assert sorted(self._get_actor_ids_at_step(filters, 1)) == sorted(
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(1),
             [
                 person1_stopped_after_two_signups.uuid,
                 person2_stopped_after_signup.uuid,
-            ]
+            ],
         )
 
-        assert sorted(self._get_actor_ids_at_step(filters, 2)) == sorted([person1_stopped_after_two_signups.uuid])
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(2),
+            [person1_stopped_after_two_signups.uuid],
+        )
 
     def test_funnel_with_different_actions_at_same_time_count_as_converted(self):
         sign_up_action = _create_action(
@@ -1417,14 +1433,16 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
             assert results[1]["count"] == 1
 
             # check ordering of people in first step
-            assert sorted(self._get_actor_ids_at_step(filters, 1)) == sorted(
+            assert sorted(self._get_actor_ids_at_step(filters) == sorted(1),
                 [
                     person1_stopped_after_two_signups.uuid,
                     person2_stopped_after_signup.uuid,
-                ]
+                ],
             )
 
-            assert sorted(self._get_actor_ids_at_step(filters, 2)) == sorted([person1_stopped_after_two_signups.uuid])
+            assert sorted(self._get_actor_ids_at_step(filters) == sorted(2),
+                [person1_stopped_after_two_signups.uuid],
+            )
 
     def test_funnel_with_actions_and_props(self):
         sign_up_action = _create_action(
@@ -1488,14 +1506,16 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         assert results[1]["count"] == 1
 
         # check ordering of people in first step
-        assert sorted(self._get_actor_ids_at_step(filters, 1)) == sorted(
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(1),
             [
                 person1_stopped_after_two_signups.uuid,
                 person2_stopped_after_signup.uuid,
-            ]
+            ],
         )
 
-        assert sorted(self._get_actor_ids_at_step(filters, 2)) == sorted([person1_stopped_after_two_signups.uuid])
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(2),
+            [person1_stopped_after_two_signups.uuid],
+        )
 
     def test_funnel_with_actions_and_props_with_zero_person_ids(self):
         # only a person-on-event test
@@ -1578,14 +1598,16 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         assert results[1]["count"] == 1
 
         # check ordering of people in first step
-        assert sorted(self._get_actor_ids_at_step(filters, 1)) == sorted(
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(1),
             [
                 person1_stopped_after_two_signups.uuid,
                 person2_stopped_after_signup.uuid,
-            ]
+            ],
         )
 
-        assert sorted(self._get_actor_ids_at_step(filters, 2)) == sorted([person1_stopped_after_two_signups.uuid])
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(2),
+            [person1_stopped_after_two_signups.uuid],
+        )
 
     @also_test_with_materialized_columns(["$current_url"])
     def test_funnel_with_matching_properties(self):
@@ -1691,41 +1713,41 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         assert results[3]["count"] == 2
         assert results[4]["count"] == 0
         # check ordering of people in every step
-        assert sorted(self._get_actor_ids_at_step(filters, 1)) == sorted(
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(1),
             [
                 people["stopped_after_signup1"].uuid,
                 people["stopped_after_pageview1"].uuid,
                 people["stopped_after_pageview2"].uuid,
                 people["stopped_after_pageview3"].uuid,
                 people["stopped_after_pageview4"].uuid,
-            ]
+            ],
         )
 
-        assert sorted(self._get_actor_ids_at_step(filters, 2)) == sorted(
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(2),
             [
                 people["stopped_after_pageview1"].uuid,
                 people["stopped_after_pageview2"].uuid,
                 people["stopped_after_pageview3"].uuid,
                 people["stopped_after_pageview4"].uuid,
-            ]
+            ],
         )
 
-        assert sorted(self._get_actor_ids_at_step(filters, 3)) == sorted(
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(3),
             [
                 people["stopped_after_pageview2"].uuid,
                 people["stopped_after_pageview3"].uuid,
                 people["stopped_after_pageview4"].uuid,
-            ]
+            ],
         )
 
-        assert sorted(self._get_actor_ids_at_step(filters, 4)) == sorted(
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(4),
             [
                 people["stopped_after_pageview3"].uuid,
                 people["stopped_after_pageview4"].uuid,
-            ]
+            ],
         )
 
-        assert sorted(self._get_actor_ids_at_step(filters, 5)) == sorted([])
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(5), [])
 
     def test_funnel_conversion_window(self):
         ids_to_compare = []
@@ -1780,7 +1802,9 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         assert results[1]["count"] == 10
         assert results[2]["count"] == 0
 
-        assert sorted([str(id) for id in self._get_actor_ids_at_step(filters, 2)]) == sorted(ids_to_compare)
+        assert sorted([str(id) for id in self._get_actor_ids_at_step(filters) == sorted(2)],
+            ids_to_compare,
+        )
 
     @snapshot_clickhouse_queries
     def test_funnel_conversion_window_seconds(self):
@@ -1835,7 +1859,9 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         assert results[1]["count"] == 10
         assert results[2]["count"] == 0
 
-        assert sorted([str(id) for id in self._get_actor_ids_at_step(filters, 2)]) == sorted(ids_to_compare)
+        assert sorted([str(id) for id in self._get_actor_ids_at_step(filters) == sorted(2)],
+            ids_to_compare,
+        )
 
     def test_funnel_exclusions_invalid_params(self):
         filters = {
@@ -1858,8 +1884,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         }
 
         query = cast(FunnelsQuery, filter_to_query(filters))
-        with pytest.raises(ValidationError):
-            FunnelsQueryRunner(query=query, team=self.team).calculate()
+        pytest.raises(ValidationError, FunnelsQueryRunner(query=query, team=self.team).calculate())
 
         filters = {
             **filters,
@@ -1873,8 +1898,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
             ],
         }
         query = cast(FunnelsQuery, filter_to_query(filters))
-        with pytest.raises(ValidationError):
-            FunnelsQueryRunner(query=query, team=self.team).calculate()
+        pytest.raises(ValidationError, FunnelsQueryRunner(query=query, team=self.team).calculate())
 
         filters = {
             **filters,
@@ -1888,8 +1912,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
             ],
         }
         query = cast(FunnelsQuery, filter_to_query(filters))
-        with pytest.raises(ValidationError):
-            FunnelsQueryRunner(query=query, team=self.team).calculate()
+        pytest.raises(ValidationError, FunnelsQueryRunner(query=query, team=self.team).calculate())
 
         filters = {
             **filters,
@@ -1903,8 +1926,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
             ],
         }
         query = cast(FunnelsQuery, filter_to_query(filters))
-        with pytest.raises(ValidationError):
-            FunnelsQueryRunner(query=query, team=self.team).calculate()
+        pytest.raises(ValidationError, FunnelsQueryRunner(query=query, team=self.team).calculate())
 
     def test_funnel_exclusion_no_end_event(self):
         filters = {
@@ -2003,8 +2025,8 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         assert results[1]["name"] == "paid"
         assert results[1]["count"] == 1
 
-        assert sorted(self._get_actor_ids_at_step(filters, 1)) == sorted([person1.uuid, person4.uuid])
-        assert sorted(self._get_actor_ids_at_step(filters, 2)) == sorted([person1.uuid])
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(1), [person1.uuid, person4.uuid])
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(2), [person1.uuid])
 
     def test_funnel_exclusion_multiple_possible_no_end_event1(self):
         journeys_for(
@@ -2257,8 +2279,8 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         assert results[1]["name"] == "paid"
         assert results[1]["count"] == 2
 
-        assert sorted(self._get_actor_ids_at_step(filters, 1)) == sorted([person1.uuid, person3.uuid])
-        assert sorted(self._get_actor_ids_at_step(filters, 2)) == sorted([person1.uuid, person3.uuid])
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(1), [person1.uuid, person3.uuid])
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(2), [person1.uuid, person3.uuid])
 
     def test_funnel_exclusions_full_window(self):
         filters = {
@@ -2341,8 +2363,8 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         assert results[1]["name"] == "paid"
         assert results[1]["count"] == 2
 
-        assert sorted(self._get_actor_ids_at_step(filters, 1)) == sorted([person1.uuid, person3.uuid])
-        assert sorted(self._get_actor_ids_at_step(filters, 2)) == sorted([person1.uuid, person3.uuid])
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(1), [person1.uuid, person3.uuid])
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(2), [person1.uuid, person3.uuid])
 
     def test_advanced_funnel_exclusions_between_steps(self):
         filters = {
@@ -2519,7 +2541,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         assert results[4]["count"] == 2
 
-        assert sorted(self._get_actor_ids_at_step(filters, 1)) == sorted([person1.uuid, person2.uuid])
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(1), [person1.uuid, person2.uuid])
 
         filters = {
             **filters,
@@ -2540,7 +2562,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         assert results[4]["count"] == 2
 
-        assert sorted(self._get_actor_ids_at_step(filters, 1)) == sorted([person2.uuid, person3.uuid])
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(1), [person2.uuid, person3.uuid])
 
         filters = {
             **filters,
@@ -2561,7 +2583,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         assert results[4]["count"] == 1
 
-        assert sorted(self._get_actor_ids_at_step(filters, 1)) == sorted([person3.uuid])
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(1), [person3.uuid])
 
         filters = {
             **filters,
@@ -2586,7 +2608,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
             assert results[0]["count"] == 0
             assert results[4]["count"] == 0
 
-        assert sorted(self._get_actor_ids_at_step(filters, 1)) == sorted([])
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(1), [])
 
         #  bigger step window
         filters = {
@@ -2608,7 +2630,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         assert results[4]["count"] == 1
 
-        assert sorted(self._get_actor_ids_at_step(filters, 1)) == sorted([person3.uuid])
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(1), [person3.uuid])
 
     def test_advanced_funnel_multiple_exclusions_between_steps(self):
         filters = {
@@ -2816,7 +2838,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         assert results[4]["count"] == 1
 
-        assert sorted(self._get_actor_ids_at_step(filters, 1)) == sorted([person4.uuid])
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(1), [person4.uuid])
 
         filters = {
             **filters,
@@ -2844,7 +2866,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         assert results[4]["count"] == 1
 
-        assert sorted(self._get_actor_ids_at_step(filters, 1)) == sorted([person4.uuid])
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(1), [person4.uuid])
 
         filters = {
             **filters,
@@ -2871,7 +2893,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         assert results[4]["count"] == 1
 
-        assert sorted(self._get_actor_ids_at_step(filters, 1)) == sorted([person4.uuid])
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(1), [person4.uuid])
 
         filters = {
             **filters,
@@ -2898,7 +2920,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         assert results[4]["count"] == 1
 
-        assert sorted(self._get_actor_ids_at_step(filters, 1)) == sorted([person4.uuid])
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(1), [person4.uuid])
 
     @also_test_with_materialized_columns(["test_prop"])
     def test_funnel_with_denormalised_properties(self):
@@ -3008,8 +3030,8 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
             assert results[1]["name"] == "$autocapture"
             assert results[1]["count"] == 1
 
-            assert sorted(self._get_actor_ids_at_step(filters, 1)) == sorted([person1.uuid, person2.uuid])
-            assert sorted(self._get_actor_ids_at_step(filters, 2)) == sorted([person1.uuid])
+            assert sorted(self._get_actor_ids_at_step(filters) == sorted(1), [person1.uuid, person2.uuid])
+            assert sorted(self._get_actor_ids_at_step(filters) == sorted(2), [person1.uuid])
 
     # TODO: fix this test
     # @snapshot_clickhouse_queries
@@ -3394,22 +3416,24 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         assert results[1]["count"] == 2
         assert results[2]["count"] == 1
         # check ordering of people in every step
-        assert sorted(self._get_actor_ids_at_step(filters, 1)) == sorted(
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(1),
             [
                 people["stopped_after_pageview1"].uuid,
                 people["stopped_after_pageview2"].uuid,
                 people["stopped_after_pageview3"].uuid,
-            ]
+            ],
         )
 
-        assert sorted(self._get_actor_ids_at_step(filters, 2)) == sorted(
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(2),
             [
                 people["stopped_after_pageview2"].uuid,
                 people["stopped_after_pageview3"].uuid,
-            ]
+            ],
         )
 
-        assert sorted(self._get_actor_ids_at_step(filters, 3)) == sorted([people["stopped_after_pageview3"].uuid])
+        assert sorted(self._get_actor_ids_at_step(filters) == sorted(3),
+            [people["stopped_after_pageview3"].uuid],
+        )
 
     @snapshot_clickhouse_queries
     def test_timezones(self):

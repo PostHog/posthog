@@ -305,7 +305,7 @@ class TestSyncDistinctIdsToCh:
         insert_person_to_ch(self.team.id, person_uuid, version=0)
 
         mapping = PersonDistinctIdMapping(
-            person_uuid=person_uuid, distinct_id_versions=dict.fromkeys(distinct_ids, 0)
+            person_uuid=person_uuid, distinct_id_versions={did: 0 for did in distinct_ids}
         )
 
         result: SyncDistinctIdsToChResult = await self.activity_environment.run(
@@ -408,7 +408,7 @@ class TestMarkChOnlyOrphansDeleted:
             self.created_person_uuids.append(person_uuid)
             insert_person_to_ch(self.team.id, person_uuid, version=0)
 
-        person_versions = dict.fromkeys(person_uuids, 0)
+        person_versions = {uuid: 0 for uuid in person_uuids}
         result: MarkChOnlyOrphansDeletedResult = await self.activity_environment.run(
             mark_ch_only_orphans_deleted,
             MarkChOnlyOrphansDeletedInputs(team_id=self.team.id, person_versions=person_versions, dry_run=False),

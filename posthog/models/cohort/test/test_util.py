@@ -55,10 +55,7 @@ class TestCohortUtils(BaseTest):
 
         result = simplified_cohort_filter_properties(cohort, self.team, is_negated=False)
 
-        assert result.to_dict() == {
-            "type": "AND",
-            "values": [{"key": "id", "negation": False, "type": "static-cohort", "value": cohort.pk}],
-        }
+        assert result.to_dict() == {"type": "AND", "values": [{"key": "id", "negation": False, "type": "static-cohort", "value": cohort.pk}]}
 
     def test_simplified_cohort_filter_properties_static_cohort_with_negation(self):
         _create_person(
@@ -72,10 +69,7 @@ class TestCohortUtils(BaseTest):
 
         result = simplified_cohort_filter_properties(cohort, self.team, is_negated=True)
 
-        assert result.to_dict() == {
-            "type": "AND",
-            "values": [{"key": "id", "negation": True, "type": "static-cohort", "value": cohort.pk}],
-        }
+        assert result.to_dict() == {"type": "AND", "values": [{"key": "id", "negation": True, "type": "static-cohort", "value": cohort.pk}]}
 
     def test_simplified_cohort_filter_properties_precalculated_cohort(self):
         cohort = _create_cohort(
@@ -89,10 +83,7 @@ class TestCohortUtils(BaseTest):
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
             result = simplified_cohort_filter_properties(cohort, self.team, is_negated=False)
 
-        assert result.to_dict() == {
-            "type": "AND",
-            "values": [{"key": "id", "negation": False, "type": "precalculated-cohort", "value": cohort.pk}],
-        }
+        assert result.to_dict() == {"type": "AND", "values": [{"key": "id", "negation": False, "type": "precalculated-cohort", "value": cohort.pk}]}
 
     def test_simplified_cohort_filter_properties_precalculated_cohort_negated(self):
         cohort = _create_cohort(
@@ -106,10 +97,7 @@ class TestCohortUtils(BaseTest):
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
             result = simplified_cohort_filter_properties(cohort, self.team, is_negated=True)
 
-        assert result.to_dict() == {
-            "type": "AND",
-            "values": [{"key": "id", "negation": True, "type": "precalculated-cohort", "value": cohort.pk}],
-        }
+        assert result.to_dict() == {"type": "AND", "values": [{"key": "id", "negation": True, "type": "precalculated-cohort", "value": cohort.pk}]}
 
     def test_simplified_cohort_filter_properties_non_precalculated_cohort_with_behavioural_filter(self):
         cohort = Cohort.objects.create(
@@ -141,19 +129,13 @@ class TestCohortUtils(BaseTest):
 
         result = simplified_cohort_filter_properties(cohort, self.team, is_negated=False)
 
-        assert result.to_dict() == {
-            "type": "AND",
-            "values": [{"key": "id", "negation": False, "type": "cohort", "value": cohort.pk}],
-        }
+        assert result.to_dict() == {"type": "AND", "values": [{"key": "id", "negation": False, "type": "cohort", "value": cohort.pk}]}
 
         # with negation
 
         result = simplified_cohort_filter_properties(cohort, self.team, is_negated=True)
 
-        assert result.to_dict() == {
-            "type": "AND",
-            "values": [{"key": "id", "negation": True, "type": "cohort", "value": cohort.pk}],
-        }
+        assert result.to_dict() == {"type": "AND", "values": [{"key": "id", "negation": True, "type": "cohort", "value": cohort.pk}]}
 
     def test_simplified_cohort_filter_properties_non_precalculated_cohort_with_cohort_filter(self):
         cohort1 = _create_cohort(
@@ -184,22 +166,13 @@ class TestCohortUtils(BaseTest):
 
         result = simplified_cohort_filter_properties(cohort, self.team, is_negated=False)
 
-        assert result.to_dict() == {
-            "type": "AND",
-            "values": [
-                {"type": "AND", "values": [{"key": "name", "value": "test", "type": "person"}]},
-                {"type": "AND", "values": [{"key": "id", "value": cohort1.pk, "type": "cohort", "negation": True}]},
-            ],
-        }
+        assert result.to_dict() == {"type": "AND", "values": [{"type": "AND", "values": [{"key": "name", "value": "test", "type": "person"}]}, {"type": "AND", "values": [{"key": "id", "value": cohort1.pk, "type": "cohort", "negation": True}]}]}
 
         # with negation
 
         result = simplified_cohort_filter_properties(cohort, self.team, is_negated=True)
 
-        assert result.to_dict() == {
-            "type": "AND",
-            "values": [{"key": "id", "negation": True, "type": "cohort", "value": cohort.pk}],
-        }
+        assert result.to_dict() == {"type": "AND", "values": [{"key": "id", "negation": True, "type": "cohort", "value": cohort.pk}]}
 
     def test_simplified_cohort_filter_properties_non_precalculated_cohort_with_only_person_property_filters(self):
         cohort = Cohort.objects.create(
@@ -229,28 +202,13 @@ class TestCohortUtils(BaseTest):
 
         result = simplified_cohort_filter_properties(cohort, self.team, is_negated=False)
 
-        assert result.to_dict() == {
-            "type": "OR",
-            "values": [
-                {"type": "AND", "values": [{"key": "name", "value": "test", "type": "person"}]},
-                {
-                    "type": "OR",
-                    "values": [
-                        {"key": "name2", "value": "test", "type": "person"},
-                        {"key": "name3", "value": "test", "type": "person"},
-                    ],
-                },
-            ],
-        }
+        assert result.to_dict() == {"type": "OR", "values": [{"type": "AND", "values": [{"key": "name", "value": "test", "type": "person"}]}, {"type": "OR", "values": [{"key": "name2", "value": "test", "type": "person"}, {"key": "name3", "value": "test", "type": "person"}]}]}
 
         # with negation
 
         result = simplified_cohort_filter_properties(cohort, self.team, is_negated=True)
 
-        assert result.to_dict() == {
-            "type": "AND",
-            "values": [{"key": "id", "negation": True, "type": "cohort", "value": cohort.pk}],
-        }
+        assert result.to_dict() == {"type": "AND", "values": [{"key": "id", "negation": True, "type": "cohort", "value": cohort.pk}]}
 
     def test_print_cohort_hogql_query_includes_settings(self):
         """Test that cohort queries include HogQL global settings"""

@@ -1,4 +1,3 @@
-import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -8,6 +7,7 @@ from pydantic import BaseModel
 
 from ee.hogai.chat_agent.taxonomy.toolkit import TaxonomyAgentToolkit, TaxonomyToolNotFoundError
 from ee.hogai.chat_agent.taxonomy.tools import TaxonomyTool
+import pytest
 
 
 class DummyToolkit(TaxonomyAgentToolkit):

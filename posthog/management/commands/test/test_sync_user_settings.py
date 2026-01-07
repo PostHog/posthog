@@ -1,7 +1,6 @@
 import os
 from urllib.parse import urlparse
 
-import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -13,6 +12,7 @@ from parameterized import parameterized
 from posthog.models import User
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 from posthog.models.user_home_settings import UserHomeSettings
+import pytest
 
 
 class TestSyncUserSettingsCommand(BaseTest):

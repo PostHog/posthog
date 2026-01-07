@@ -29,10 +29,7 @@ class TestInstanceStatus(APIBaseTest):
             json = response.json()
 
             object_storage_metrics = [o for o in json["results"]["overview"] if o.get("key", None) == "object_storage"]
-            assert object_storage_metrics == [
-                {"key": "object_storage", "metric": "Object Storage enabled", "value": True},
-                {"key": "object_storage", "metric": "Object Storage healthy", "value": False},
-            ]
+            assert object_storage_metrics == [{"key": "object_storage", "metric": "Object Storage enabled", "value": True}, {"key": "object_storage", "metric": "Object Storage healthy", "value": False}]
 
     @patch("posthog.storage.object_storage._client")
     def test_object_storage_when_enabled_and_healthy(self, patched_s3_client):
@@ -43,10 +40,7 @@ class TestInstanceStatus(APIBaseTest):
             json = response.json()
 
             object_storage_metrics = [o for o in json["results"]["overview"] if o.get("key", None) == "object_storage"]
-            assert object_storage_metrics == [
-                {"key": "object_storage", "metric": "Object Storage enabled", "value": True},
-                {"key": "object_storage", "metric": "Object Storage healthy", "value": True},
-            ]
+            assert object_storage_metrics == [{"key": "object_storage", "metric": "Object Storage enabled", "value": True}, {"key": "object_storage", "metric": "Object Storage healthy", "value": True}]
 
     @patch("posthog.api.instance_status.is_postgres_alive")
     @patch("posthog.api.instance_status.is_redis_alive")

@@ -688,10 +688,7 @@ class TestConversation(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
-        assert (
-            response.json()["detail"]
-            == "Your organization reached its AI credit usage limit. Increase the limits in Billing settings, or ask an org admin to do so."
-        )
+        assert response.json()["detail"] == "Your organization reached its AI credit usage limit. Increase the limits in Billing settings, or ask an org admin to do so."
         mock_is_team_limited.assert_called_once()
 
     @patch("ee.api.conversation.is_team_limited")

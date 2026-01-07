@@ -661,104 +661,16 @@ class TestSessionsV3(ClickhouseTestMixin, APIBaseTest):
 class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
     def test_all(self):
         results = get_lazy_session_table_properties_v3(None)
-        assert {r["id"] for r in results} == {
-            "$autocapture_count",
-            "$channel_type",
-            "$end_current_url",
-            "$end_hostname",
-            "$end_pathname",
-            "$end_timestamp",
-            "$entry__kx",
-            "$entry_current_url",
-            "$entry_dclid",
-            "$entry_epik",
-            "$entry_fbclid",
-            "$entry_gad_source",
-            "$entry_gbraid",
-            "$entry_gclid",
-            "$entry_gclsrc",
-            "$entry_has__kx",
-            "$entry_has_dclid",
-            "$entry_has_epik",
-            "$entry_has_fbclid",
-            "$entry_has_gbraid",
-            "$entry_has_gclid",
-            "$entry_has_gclsrc",
-            "$entry_has_igshid",
-            "$entry_has_irclid",
-            "$entry_has_li_fat_id",
-            "$entry_has_mc_cid",
-            "$entry_has_msclkid",
-            "$entry_has_qclid",
-            "$entry_has_sccid",
-            "$entry_has_ttclid",
-            "$entry_has_twclid",
-            "$entry_has_wbraid",
-            "$entry_hostname",
-            "$entry_igshid",
-            "$entry_irclid",
-            "$entry_li_fat_id",
-            "$entry_mc_cid",
-            "$entry_msclkid",
-            "$entry_pathname",
-            "$entry_qclid",
-            "$entry_referring_domain",
-            "$entry_sccid",
-            "$entry_ttclid",
-            "$entry_twclid",
-            "$entry_utm_campaign",
-            "$entry_utm_content",
-            "$entry_utm_medium",
-            "$entry_utm_source",
-            "$entry_utm_term",
-            "$entry_wbraid",
-            "$is_bounce",
-            "$last_external_click_url",
-            "$pageview_count",
-            "$screen_count",
-            "$session_duration",
-            "$start_timestamp",
-            "$has_replay_events",
-        }
-        assert results[0] == {
-            "id": "$start_timestamp",
-            "is_numerical": False,
-            "is_seen_on_filtered_events": None,
-            "name": "$start_timestamp",
-            "property_type": PropertyType.Datetime,
-            "tags": [],
-        }
+        assert {r["id"] for r in results} == {"$autocapture_count", "$channel_type", "$end_current_url", "$end_hostname", "$end_pathname", "$end_timestamp", "$entry__kx", "$entry_current_url", "$entry_dclid", "$entry_epik", "$entry_fbclid", "$entry_gad_source", "$entry_gbraid", "$entry_gclid", "$entry_gclsrc", "$entry_has__kx", "$entry_has_dclid", "$entry_has_epik", "$entry_has_fbclid", "$entry_has_gbraid", "$entry_has_gclid", "$entry_has_gclsrc", "$entry_has_igshid", "$entry_has_irclid", "$entry_has_li_fat_id", "$entry_has_mc_cid", "$entry_has_msclkid", "$entry_has_qclid", "$entry_has_sccid", "$entry_has_ttclid", "$entry_has_twclid", "$entry_has_wbraid", "$entry_hostname", "$entry_igshid", "$entry_irclid", "$entry_li_fat_id", "$entry_mc_cid", "$entry_msclkid", "$entry_pathname", "$entry_qclid", "$entry_referring_domain", "$entry_sccid", "$entry_ttclid", "$entry_twclid", "$entry_utm_campaign", "$entry_utm_content", "$entry_utm_medium", "$entry_utm_source", "$entry_utm_term", "$entry_wbraid", "$is_bounce", "$last_external_click_url", "$pageview_count", "$screen_count", "$session_duration", "$start_timestamp", "$has_replay_events"}
+        assert results[0] == {"id": "$start_timestamp", "is_numerical": False, "is_seen_on_filtered_events": None, "name": "$start_timestamp", "property_type": PropertyType.Datetime, "tags": []}
 
     def test_source(self):
         results = get_lazy_session_table_properties_v3("source")
-        assert results == [
-            {
-                "id": "$entry_utm_source",
-                "is_numerical": False,
-                "is_seen_on_filtered_events": None,
-                "name": "$entry_utm_source",
-                "property_type": PropertyType.String,
-                "tags": [],
-            },
-            {
-                "id": "$entry_gad_source",
-                "is_numerical": False,
-                "is_seen_on_filtered_events": None,
-                "name": "$entry_gad_source",
-                "property_type": PropertyType.String,
-                "tags": [],
-            },
-        ]
+        assert results == [{"id": "$entry_utm_source", "is_numerical": False, "is_seen_on_filtered_events": None, "name": "$entry_utm_source", "property_type": PropertyType.String, "tags": []}, {"id": "$entry_gad_source", "is_numerical": False, "is_seen_on_filtered_events": None, "name": "$entry_gad_source", "property_type": PropertyType.String, "tags": []}]
 
     def test_entry_utm(self):
         results = get_lazy_session_table_properties_v3("entry utm")
-        assert [result["name"] for result in results] == [
-            "$entry_utm_source",
-            "$entry_utm_campaign",
-            "$entry_utm_medium",
-            "$entry_utm_term",
-            "$entry_utm_content",
-        ]
+        assert [result["name"] for result in results] == ["$entry_utm_source", "$entry_utm_campaign", "$entry_utm_medium", "$entry_utm_term", "$entry_utm_content"]
 
     def test_can_get_values_for_all(self):
         results = get_lazy_session_table_properties_v3(None)

@@ -142,12 +142,7 @@ class TestEEAuthenticationAPI(APILicensedTest):
                 {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD},
             )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "sso_enforced",
-            "detail": "You can only login with SSO for this account (google-oauth2).",
-            "attr": None,
-        }
+        assert response.json() == {"type": "validation_error", "code": "sso_enforced", "detail": "You can only login with SSO for this account (google-oauth2).", "attr": None}
 
     def test_can_enforce_sso_on_cloud_enviroment(self):
         self.client.logout()
@@ -162,12 +157,7 @@ class TestEEAuthenticationAPI(APILicensedTest):
                 {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD},
             )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "sso_enforced",
-            "detail": "You can only login with SSO for this account (google-oauth2).",
-            "attr": None,
-        }
+        assert response.json() == {"type": "validation_error", "code": "sso_enforced", "detail": "You can only login with SSO for this account (google-oauth2).", "attr": None}
 
     def test_cannot_reset_password_with_enforced_sso(self):
         self.create_enforced_domain()
@@ -178,12 +168,7 @@ class TestEEAuthenticationAPI(APILicensedTest):
         ):
             response = self.client.post("/api/reset/", {"email": "i_dont_exist@posthog.com"})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "sso_enforced",
-            "detail": "Password reset is disabled because SSO login is enforced for this domain.",
-            "attr": None,
-        }
+        assert response.json() == {"type": "validation_error", "code": "sso_enforced", "detail": "Password reset is disabled because SSO login is enforced for this domain.", "attr": None}
         assert len(mail.outbox) == 0
 
     @patch("posthog.models.organization_domain.logger.warning")
@@ -258,12 +243,7 @@ class TestEEAuthenticationAPI(APILicensedTest):
                 {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD},
             )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "sso_enforced",
-            "detail": "You can only login with SSO for this account (google-oauth2).",
-            "attr": None,
-        }
+        assert response.json() == {"type": "validation_error", "code": "sso_enforced", "detail": "You can only login with SSO for this account (google-oauth2).", "attr": None}
 
 
 @pytest.mark.skip_on_multitenancy
@@ -324,9 +304,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         self.client.force_login(self.user)
         response = self.client.get("/api/saml/metadata/")
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json() == self.permission_denied_response(
-            "You need to be an administrator or owner to access this resource."
-        )
+        assert response.json() == self.permission_denied_response("You need to be an administrator or owner to access this resource.")
 
     # Login precheck
 
@@ -462,10 +440,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         assert user.organization == self.organization
         assert user.team == self.team
         assert user.organization_memberships.count() == 1
-        assert (
-            cast(OrganizationMembership, user.organization_memberships.first()).level
-            == OrganizationMembership.Level.MEMBER
-        )
+        assert cast(OrganizationMembership, user.organization_memberships.first()).level == OrganizationMembership.Level.MEMBER
 
         _session = self.client.session
         assert _session.get("_auth_user_id") == str(user.pk)
@@ -517,10 +492,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         assert user.organization == self.organization
         assert user.team == self.team
         assert user.organization_memberships.count() == 1
-        assert (
-            cast(OrganizationMembership, user.organization_memberships.first()).level
-            == OrganizationMembership.Level.MEMBER
-        )
+        assert cast(OrganizationMembership, user.organization_memberships.first()).level == OrganizationMembership.Level.MEMBER
 
         _session = self.client.session
         assert _session.get("_auth_user_id") == str(user.pk)
@@ -714,12 +686,7 @@ YotAcSbU3p5bzd11wpyebYHB"""
             {"email": "engineering@posthog.com", "password": self.CONFIG_PASSWORD},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "sso_enforced",
-            "detail": "You can only login with SSO for this account (saml).",
-            "attr": None,
-        }
+        assert response.json() == {"type": "validation_error", "code": "sso_enforced", "detail": "You can only login with SSO for this account (saml).", "attr": None}
 
         # Login precheck returns SAML info
         response = self.client.post("/api/login/precheck", {"email": "engineering@posthog.com"})
@@ -742,9 +709,7 @@ YotAcSbU3p5bzd11wpyebYHB"""
         # Cannot start SAML flow
         with pytest.raises(AuthFailed) as e:
             response = self.client.get("/login/saml/?email=engineering@posthog.com")
-        assert (
-            str(e.value) == "Authentication failed: Your organization does not have the required license to use SAML."
-        )
+        assert str(e.value) == "Authentication failed: Your organization does not have the required license to use SAML."
 
         # Attempting to use SAML fails
         _session = self.client.session
@@ -768,9 +733,7 @@ YotAcSbU3p5bzd11wpyebYHB"""
                 format="multipart",
             )
 
-        assert (
-            str(e.value) == "Authentication failed: Your organization does not have the required license to use SAML."
-        )
+        assert str(e.value) == "Authentication failed: Your organization does not have the required license to use SAML."
 
     # Remove after we figure out saml / xmlsec issues
     # Test login with SAML on dev prod before removing

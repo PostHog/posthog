@@ -1,6 +1,5 @@
 from io import StringIO
 
-import pytest
 from posthog.test.base import BaseTest
 
 from django.core.management import call_command
@@ -8,6 +7,7 @@ from django.core.management import call_command
 from parameterized import parameterized
 
 from posthog.models import Team
+import pytest
 
 
 class TestSetRecorderScriptCommand(BaseTest):

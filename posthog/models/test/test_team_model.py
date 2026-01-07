@@ -1,4 +1,3 @@
-import pytest
 from posthog.test.base import BaseTest
 
 from django.core.exceptions import ValidationError
@@ -12,6 +11,7 @@ from posthog.models.user import User
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 from ee.models.rbac.access_control import AccessControl
 from ee.models.rbac.role import Role, RoleMembership
+import pytest
 
 
 class TestCoreEvent(BaseTest):

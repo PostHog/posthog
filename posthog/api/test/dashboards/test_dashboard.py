@@ -1,8 +1,6 @@
-import re
 import json
 import datetime
 
-import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries
 from unittest import mock
@@ -30,6 +28,7 @@ from posthog.models.signals import mute_selected_signals
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from ee.models.rbac.access_control import AccessControl
+import pytest
 
 valid_template: dict = {
     "template_name": "Sign up conversion template with variables",
@@ -103,10 +102,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         response_env_other_data = self.dashboard_api.list_dashboards(other_team_in_project.id, parent="environment")
 
         assert {dashboard["id"] for dashboard in response_project_data["results"]} == {dashboard_a_id, dashboard_b_id}
-        assert {dashboard["id"] for dashboard in response_env_current_data["results"]} == {
-            dashboard_a_id,
-            dashboard_b_id,
-        }
+        assert {dashboard["id"] for dashboard in response_env_current_data["results"]} == {dashboard_a_id, dashboard_b_id}
         assert {dashboard["id"] for dashboard in response_env_other_data["results"]} == {dashboard_a_id, dashboard_b_id}
 
     def test_list_filter_by_tag(self):
@@ -1235,12 +1231,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         DashboardTile.objects.create(insight=item, dashboard=dashboard)
         response = self.dashboard_api.get_dashboard(dashboard.pk)
-        assert response["tiles"][0]["insight"]["filters"] == {
-            "events": [{"id": "$pageview"}],
-            "insight": "TRENDS",
-            "date_from": None,
-            "date_to": None,
-        }
+        assert response["tiles"][0]["insight"]["filters"] == {"events": [{"id": "$pageview"}], "insight": "TRENDS", "date_from": None, "date_to": None}
 
     def test_retrieve_dashboard_different_team(self):
         team2 = Team.objects.create(organization=Organization.objects.create(name="a"))
@@ -2049,15 +2040,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         sse_data = json.loads(metadata_line)  # type: ignore
         sse_dashboard = sse_data["dashboard"]
 
-        assert regular_response.get("persisted_filters") == sse_dashboard.get("persisted_filters"), (
-            "persisted_filters should be the same in both endpoints"
-        )
-        assert regular_response.get("persisted_variables") == sse_dashboard.get("persisted_variables"), (
-            "persisted_variables should be the same in both endpoints"
-        )
-        assert regular_response.get("team_id") == sse_dashboard.get("team_id"), (
-            "team_id should be the same in both endpoints"
-        )
+        assert regular_response.get("persisted_filters") == sse_dashboard.get("persisted_filters"), "persisted_filters should be the same in both endpoints"
+        assert regular_response.get("persisted_variables") == sse_dashboard.get("persisted_variables"), "persisted_variables should be the same in both endpoints"
+        assert regular_response.get("team_id") == sse_dashboard.get("team_id"), "team_id should be the same in both endpoints"
 
         assert regular_response["persisted_filters"] == dashboard_filters
         assert sse_dashboard["persisted_filters"] == dashboard_filters

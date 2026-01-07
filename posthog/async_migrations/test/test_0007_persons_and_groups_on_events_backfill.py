@@ -146,24 +146,9 @@ class Test0007PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
         events = query_events()
 
         assert len(events) == 3
-        assert {
-            "distinct_id": "1",
-            "person_id": uuid1,
-            "person_properties": json.dumps({"personprop": 1}),
-            "person_created_at": "2022-01-01T00:00:00Z",
-        }.items() <= events[0].items()
-        assert {
-            "distinct_id": "2",
-            "person_id": uuid1,
-            "person_properties": json.dumps({"personprop": 1}),
-            "person_created_at": "2022-01-01T00:00:00Z",
-        }.items() <= events[1].items()
-        assert {
-            "distinct_id": "3",
-            "person_id": uuid2,
-            "person_properties": json.dumps({"personprop": 2}),
-            "person_created_at": "2022-01-02T00:00:00Z",
-        }.items() <= events[2].items()
+        assert {"distinct_id": "1", "person_id": uuid1, "person_properties": json.dumps({"personprop": 1}), "person_created_at": "2022-01-01T00:00:00Z"}.items() <= events[0].items()
+        assert {"distinct_id": "2", "person_id": uuid1, "person_properties": json.dumps({"personprop": 1}), "person_created_at": "2022-01-01T00:00:00Z"}.items() <= events[1].items()
+        assert {"distinct_id": "3", "person_id": uuid2, "person_properties": json.dumps({"personprop": 2}), "person_created_at": "2022-01-02T00:00:00Z"}.items() <= events[2].items()
 
     def test_duplicated_data_persons(self):
         create_event(event_uuid=uuid1, team=self.team, distinct_id="1", event="$pageview")
@@ -187,12 +172,7 @@ class Test0007PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
 
         events = query_events()
         assert len(events) == 1
-        assert {
-            "distinct_id": "1",
-            "person_id": uuid1,
-            "person_properties": json.dumps({"personprop": 2}),
-            "person_created_at": "2022-01-02T00:00:00Z",
-        }.items() <= events[0].items()
+        assert {"distinct_id": "1", "person_id": uuid1, "person_properties": json.dumps({"personprop": 2}), "person_created_at": "2022-01-02T00:00:00Z"}.items() <= events[0].items()
 
     def test_deleted_data_persons(self):
         distinct_id = "not-reused-id"  # distinct ID re-use isn't supported after person deletion
@@ -211,12 +191,7 @@ class Test0007PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
 
         events = query_events()
         assert len(events) == 1
-        assert {
-            "distinct_id": distinct_id,
-            "person_id": ZERO_UUID,
-            "person_properties": "{}",
-            "person_created_at": ZERO_DATE,
-        }.items() <= events[0].items()
+        assert {"distinct_id": distinct_id, "person_id": ZERO_UUID, "person_properties": "{}", "person_created_at": ZERO_DATE}.items() <= events[0].items()
 
     def test_data_copy_groups(self):
         create_group(
@@ -275,23 +250,7 @@ class Test0007PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
 
         events = query_events()
         assert len(events) == 1
-        assert {
-            "$group_0": "org:7",
-            "group0_properties": json.dumps({"industry": "IT"}),
-            "group0_created_at": "2022-01-02T00:00:00Z",
-            "$group_1": "77",
-            "group1_properties": "{}",
-            "group1_created_at": ZERO_DATE,
-            "$group_2": "77",
-            "group2_properties": json.dumps({"index": 2}),
-            "group2_created_at": "2022-01-03T00:00:00Z",
-            "$group_3": "77",
-            "group3_properties": json.dumps({"index": 3}),
-            "group3_created_at": "2022-01-04T00:00:00Z",
-            "$group_4": "",
-            "group4_properties": "{}",
-            "group4_created_at": ZERO_DATE,
-        }.items() <= events[0].items()
+        assert {"$group_0": "org:7", "group0_properties": json.dumps({"industry": "IT"}), "group0_created_at": "2022-01-02T00:00:00Z", "$group_1": "77", "group1_properties": "{}", "group1_created_at": ZERO_DATE, "$group_2": "77", "group2_properties": json.dumps({"index": 2}), "group2_created_at": "2022-01-03T00:00:00Z", "$group_3": "77", "group3_properties": json.dumps({"index": 3}), "group3_created_at": "2022-01-04T00:00:00Z", "$group_4": "", "group4_properties": "{}", "group4_created_at": ZERO_DATE}.items() <= events[0].items()
 
     def test_no_extra_tables(self):
         create_event(event_uuid=uuid1, team=self.team, distinct_id="1", event="$pageview")
@@ -371,24 +330,9 @@ class Test0007PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
 
         events = query_events()
         assert len(events) == 3
-        assert {
-            "distinct_id": "1_outside_lower",
-            "person_id": ZERO_UUID,
-            "person_properties": "",
-            "person_created_at": ZERO_DATE,
-        }.items() <= events[0].items()
-        assert {
-            "distinct_id": "2_outside_upper",
-            "person_id": ZERO_UUID,
-            "person_properties": "",
-            "person_created_at": ZERO_DATE,
-        }.items() <= events[1].items()
-        assert {
-            "distinct_id": "3_in_range",
-            "person_id": _uuid3,
-            "person_properties": json.dumps({"personprop": 3}),
-            "person_created_at": "2022-01-01T00:00:00Z",
-        }.items() <= events[2].items()
+        assert {"distinct_id": "1_outside_lower", "person_id": ZERO_UUID, "person_properties": "", "person_created_at": ZERO_DATE}.items() <= events[0].items()
+        assert {"distinct_id": "2_outside_upper", "person_id": ZERO_UUID, "person_properties": "", "person_created_at": ZERO_DATE}.items() <= events[1].items()
+        assert {"distinct_id": "3_in_range", "person_id": _uuid3, "person_properties": json.dumps({"personprop": 3}), "person_created_at": "2022-01-01T00:00:00Z"}.items() <= events[2].items()
 
     def test_team_id_filter_event_not_in_team(self):
         _uuid1 = UUIDT()
@@ -410,12 +354,7 @@ class Test0007PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
         events = query_events()
 
         assert len(events) == 1
-        assert {
-            "distinct_id": "1",
-            "person_id": ZERO_UUID,
-            "person_properties": "",
-            "person_created_at": ZERO_DATE,
-        }.items() <= events[0].items()
+        assert {"distinct_id": "1", "person_id": ZERO_UUID, "person_properties": "", "person_created_at": ZERO_DATE}.items() <= events[0].items()
 
     def test_team_id_filter_event_in_team(self):
         _uuid1 = UUIDT()
@@ -437,12 +376,7 @@ class Test0007PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
         events = query_events()
 
         assert len(events) == 1
-        assert {
-            "distinct_id": "1",
-            "person_id": _uuid1,
-            "person_properties": json.dumps({"personprop": 1}),
-            "person_created_at": "2022-01-01T00:00:00Z",
-        }.items() <= events[0].items()
+        assert {"distinct_id": "1", "person_id": _uuid1, "person_properties": json.dumps({"personprop": 1}), "person_created_at": "2022-01-01T00:00:00Z"}.items() <= events[0].items()
 
     def test_postcheck_e2e(self):
         create_event(event_uuid=uuid1, team=self.team, distinct_id="1", event="$pageview")
@@ -523,10 +457,7 @@ class Test0007PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
         )
 
         # Test that we fail the postcheck with the right message when 3 out of 101 events is incomplete (~2%)
-        with pytest.raises(
-            Exception,
-            match="Backfill did not work succesfully. ~2% of events did not get the correct data for persons.",
-        ):
+        with pytest.raises(Exception, match="Backfill did not work succesfully. ~2% of events did not get the correct data for persons."):
             MIGRATION_DEFINITION._check_person_data()  # type: ignore
 
     def test_check_groups_data_success(self):

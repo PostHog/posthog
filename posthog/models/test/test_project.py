@@ -1,9 +1,9 @@
-import pytest
 from posthog.test.base import BaseTest
 from unittest import mock
 
 from posthog.models.project import Project
 from posthog.models.team.team import Team
+import pytest
 
 
 class TestProject(BaseTest):

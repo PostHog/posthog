@@ -181,9 +181,7 @@ class TestRBACDashboardMigration(BaseTest):
         assert default_ac.access_level == "viewer"
 
         # Verify no access control was created for the orphaned user
-        assert not AccessControl.objects.filter(
-            resource="dashboard", resource_id=str(dashboard.id), organization_member__user=orphaned_user
-        ).exists()
+        assert not AccessControl.objects.filter(resource="dashboard", resource_id=str(dashboard.id), organization_member__user=orphaned_user).exists()
 
         # The original privilege should NOT be deleted since we couldn't find org membership
         # This is correct behavior - we skip processing for orphaned users

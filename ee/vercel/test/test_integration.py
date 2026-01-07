@@ -1,6 +1,5 @@
 from typing import Any
 
-import pytest
 from unittest import mock
 from unittest.mock import Mock, patch
 
@@ -21,6 +20,7 @@ from posthog.models.user import User
 
 from ee.api.vercel.types import VercelUserClaims
 from ee.vercel.integration import VercelIntegration
+import pytest
 
 
 class TestVercelIntegration(TestCase):
@@ -72,14 +72,14 @@ class TestVercelIntegration(TestCase):
         assert "createdAt" in result
         assert "updatedAt" in result
         # Verify createdAt is in milliseconds (should be > 1 billion ms since epoch)
-        assert result["createdAt"] > 1_000_000_000_000, (
-            f"createdAt should be in milliseconds, got {result['createdAt']}"
-        )
+        assert (
+            result["createdAt"] > 1_000_000_000_000
+        ), f"createdAt should be in milliseconds, got {result['createdAt']}"
         assert isinstance(result["createdAt"], int), f"createdAt should be int, got {type(result['createdAt'])}"
         # Verify updatedAt is in milliseconds
-        assert result["updatedAt"] > 1_000_000_000_000, (
-            f"updatedAt should be in milliseconds, got {result['updatedAt']}"
-        )
+        assert (
+            result["updatedAt"] > 1_000_000_000_000
+        ), f"updatedAt should be in milliseconds, got {result['updatedAt']}"
         assert isinstance(result["updatedAt"], int), f"updatedAt should be int, got {type(result['updatedAt'])}"
 
     def make_vercel_item(self, **overrides):

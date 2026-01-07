@@ -4,7 +4,7 @@ import itertools
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from itertools import groupby
-from typing import Any
+from typing import Any, Optional
 
 import pytest
 from freezegun import freeze_time
@@ -83,11 +83,11 @@ class Series:
 
 @dataclass
 class GroupTestProperties:
-    group0_properties: dict[str, str | int] | None = None
-    group1_properties: dict[str, str | int] | None = None
-    group2_properties: dict[str, str | int] | None = None
-    group3_properties: dict[str, str | int] | None = None
-    group4_properties: dict[str, str | int] | None = None
+    group0_properties: Optional[dict[str, str | int]] = None
+    group1_properties: Optional[dict[str, str | int]] = None
+    group2_properties: Optional[dict[str, str | int]] = None
+    group3_properties: Optional[dict[str, str | int]] = None
+    group4_properties: Optional[dict[str, str | int]] = None
 
 
 @dataclass
@@ -95,7 +95,7 @@ class SeriesTestData:
     distinct_id: str
     events: list[Series]
     properties: dict[str, str | int]
-    group_properties: GroupTestProperties | None = None
+    group_properties: Optional[GroupTestProperties] = None
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -354,15 +354,15 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _create_trends_query(
         self,
         date_from: str,
-        date_to: str | None,
+        date_to: Optional[str],
         interval: IntervalType,
-        series: list[EventsNode | ActionsNode] | None,
-        trends_filters: TrendsFilter | None = None,
-        breakdown: BreakdownFilter | None = None,
-        compare_filters: CompareFilter | None = None,
-        filter_test_accounts: bool | None = None,
-        explicit_date: bool | None = None,
-        properties: Any | None = None,
+        series: Optional[list[EventsNode | ActionsNode]],
+        trends_filters: Optional[TrendsFilter] = None,
+        breakdown: Optional[BreakdownFilter] = None,
+        compare_filters: Optional[CompareFilter] = None,
+        filter_test_accounts: Optional[bool] = None,
+        explicit_date: Optional[bool] = None,
+        properties: Optional[Any] = None,
     ) -> TrendsQuery:
         query_series: list[EventsNode | ActionsNode] = [EventsNode(event="$pageview")] if series is None else series
         return TrendsQuery(
@@ -379,17 +379,17 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _create_query_runner(
         self,
         date_from: str,
-        date_to: str | None,
+        date_to: Optional[str],
         interval: IntervalType,
-        series: list[EventsNode | ActionsNode] | None,
-        trends_filters: TrendsFilter | None = None,
-        breakdown: BreakdownFilter | None = None,
-        compare_filters: CompareFilter | None = None,
-        filter_test_accounts: bool | None = None,
-        hogql_modifiers: HogQLQueryModifiers | None = None,
-        limit_context: LimitContext | None = None,
-        explicit_date: bool | None = None,
-        properties: Any | None = None,
+        series: Optional[list[EventsNode | ActionsNode]],
+        trends_filters: Optional[TrendsFilter] = None,
+        breakdown: Optional[BreakdownFilter] = None,
+        compare_filters: Optional[CompareFilter] = None,
+        filter_test_accounts: Optional[bool] = None,
+        hogql_modifiers: Optional[HogQLQueryModifiers] = None,
+        limit_context: Optional[LimitContext] = None,
+        explicit_date: Optional[bool] = None,
+        properties: Optional[Any] = None,
     ) -> TrendsQueryRunner:
         query = self._create_trends_query(
             date_from=date_from,
@@ -408,17 +408,17 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _run_trends_query(
         self,
         date_from: str,
-        date_to: str | None,
+        date_to: Optional[str],
         interval: IntervalType,
-        series: list[EventsNode | ActionsNode] | None,
-        trends_filters: TrendsFilter | None = None,
-        breakdown: BreakdownFilter | None = None,
-        compare_filters: CompareFilter | None = None,
-        properties: Any | None = None,
+        series: Optional[list[EventsNode | ActionsNode]],
+        trends_filters: Optional[TrendsFilter] = None,
+        breakdown: Optional[BreakdownFilter] = None,
+        compare_filters: Optional[CompareFilter] = None,
+        properties: Optional[Any] = None,
         *,
-        filter_test_accounts: bool | None = None,
-        hogql_modifiers: HogQLQueryModifiers | None = None,
-        limit_context: LimitContext | None = None,
+        filter_test_accounts: Optional[bool] = None,
+        hogql_modifiers: Optional[HogQLQueryModifiers] = None,
+        limit_context: Optional[LimitContext] = None,
     ):
         return self._create_query_runner(
             date_from=date_from,
@@ -488,19 +488,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             None,
         )
 
-        assert [
-            "2020-01-09",
-            "2020-01-10",
-            "2020-01-11",
-            "2020-01-12",
-            "2020-01-13",
-            "2020-01-14",
-            "2020-01-15",
-            "2020-01-16",
-            "2020-01-17",
-            "2020-01-18",
-            "2020-01-19",
-        ] == response.results[0]["days"]
+        assert ["2020-01-09", "2020-01-10", "2020-01-11", "2020-01-12", "2020-01-13", "2020-01-14", "2020-01-15", "2020-01-16", "2020-01-17", "2020-01-18", "2020-01-19"] == response.results[0]["days"]
 
     def test_trends_labels(self):
         self._create_test_events()
@@ -514,19 +502,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             None,
         )
 
-        assert [
-            "9-Jan-2020",
-            "10-Jan-2020",
-            "11-Jan-2020",
-            "12-Jan-2020",
-            "13-Jan-2020",
-            "14-Jan-2020",
-            "15-Jan-2020",
-            "16-Jan-2020",
-            "17-Jan-2020",
-            "18-Jan-2020",
-            "19-Jan-2020",
-        ] == response.results[0]["labels"]
+        assert ["9-Jan-2020", "10-Jan-2020", "11-Jan-2020", "12-Jan-2020", "13-Jan-2020", "14-Jan-2020", "15-Jan-2020", "16-Jan-2020", "17-Jan-2020", "18-Jan-2020", "19-Jan-2020"] == response.results[0]["labels"]
 
     def test_trends_labels_hour(self):
         self._create_test_events()
@@ -1244,13 +1220,9 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert ["2020-01-15", "2020-01-16", "2020-01-17", "2020-01-18", "2020-01-19"] == response.results[0]["days"]
         assert ["2020-01-10", "2020-01-11", "2020-01-12", "2020-01-13", "2020-01-14"] == response.results[1]["days"]
 
-        assert ["15-Jan-2020", "16-Jan-2020", "17-Jan-2020", "18-Jan-2020", "19-Jan-2020"] == response.results[0][
-            "labels"
-        ]
+        assert ["15-Jan-2020", "16-Jan-2020", "17-Jan-2020", "18-Jan-2020", "19-Jan-2020"] == response.results[0]["labels"]
 
-        assert ["10-Jan-2020", "11-Jan-2020", "12-Jan-2020", "13-Jan-2020", "14-Jan-2020"] == response.results[1][
-            "labels"
-        ]
+        assert ["10-Jan-2020", "11-Jan-2020", "12-Jan-2020", "13-Jan-2020", "14-Jan-2020"] == response.results[1]["labels"]
 
     def test_trends_compare_weeks(self):
         self._create_test_events()
@@ -1273,48 +1245,12 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             assert "current" == response.results[0]["compare_label"]
             assert "previous" == response.results[1]["compare_label"]
 
-            assert [
-                "2020-01-17",
-                "2020-01-18",
-                "2020-01-19",
-                "2020-01-20",
-                "2020-01-21",
-                "2020-01-22",
-                "2020-01-23",
-                "2020-01-24",
-            ] == response.results[0]["days"]
-            assert [
-                "2020-01-10",
-                "2020-01-11",
-                "2020-01-12",
-                "2020-01-13",
-                "2020-01-14",
-                "2020-01-15",
-                "2020-01-16",
-                "2020-01-17",
-            ] == response.results[1]["days"]
+            assert ["2020-01-17", "2020-01-18", "2020-01-19", "2020-01-20", "2020-01-21", "2020-01-22", "2020-01-23", "2020-01-24"] == response.results[0]["days"]
+            assert ["2020-01-10", "2020-01-11", "2020-01-12", "2020-01-13", "2020-01-14", "2020-01-15", "2020-01-16", "2020-01-17"] == response.results[1]["days"]
 
-            assert [
-                "17-Jan-2020",
-                "18-Jan-2020",
-                "19-Jan-2020",
-                "20-Jan-2020",
-                "21-Jan-2020",
-                "22-Jan-2020",
-                "23-Jan-2020",
-                "24-Jan-2020",
-            ] == response.results[0]["labels"]
+            assert ["17-Jan-2020", "18-Jan-2020", "19-Jan-2020", "20-Jan-2020", "21-Jan-2020", "22-Jan-2020", "23-Jan-2020", "24-Jan-2020"] == response.results[0]["labels"]
 
-            assert [
-                "10-Jan-2020",
-                "11-Jan-2020",
-                "12-Jan-2020",
-                "13-Jan-2020",
-                "14-Jan-2020",
-                "15-Jan-2020",
-                "16-Jan-2020",
-                "17-Jan-2020",
-            ] == response.results[1]["labels"]
+            assert ["10-Jan-2020", "11-Jan-2020", "12-Jan-2020", "13-Jan-2020", "14-Jan-2020", "15-Jan-2020", "16-Jan-2020", "17-Jan-2020"] == response.results[1]["labels"]
 
     def test_trends_breakdowns(self):
         self._create_test_events()
@@ -6272,9 +6208,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ).calculate()
 
         assert 1 == len(response_default.results)
-        assert 31 == response_default.results[0]["count"], (
-            "Without explicitDate, includes entire month due to interval boundary adjustment"
-        )
+        assert 31 == response_default.results[0]["count"], "Without explicitDate, includes entire month due to interval boundary adjustment"
 
         # Test 2: With explicitDate=True and explicit dates, STILL has issues (gets 6 instead of 7)
         with freeze_time("2020-01-31 23:59:59"):
@@ -6289,9 +6223,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert 1 == len(response_explicit.results)
         # explicitDate has an off-by-one issue - gets 6 instead of 7
-        assert 6 == response_explicit.results[0]["count"], (
-            "explicitDate=True still has issues, doesn't fully solve the problem"
-        )
+        assert 6 == response_explicit.results[0]["count"], "explicitDate=True still has issues, doesn't fully solve the problem"
 
         # Test 3: With explicitDate=True and relative dates, should only include events within the 7-day filter
         with freeze_time("2020-01-31 23:59:59"):
@@ -6305,9 +6237,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ).calculate()
 
         assert 1 == len(response_exact.results)
-        assert 7 == response_exact.results[0]["count"], (
-            "With explicitDate=True, only includes events within the 7-day filter even with relative dates"
-        )
+        assert 7 == response_exact.results[0]["count"], "With explicitDate=True, only includes events within the 7-day filter even with relative dates"
 
     def test_breakdown_other_aggregates_correctly(self):
         """
@@ -6434,9 +6364,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         #
         # Or if it takes the overall max across all "Other" values: 2000 (incorrect)
         other_result = breakdown_to_result["$$_posthog_breakdown_other_$$"]
-        assert other_result["data"][2] == 5500.0, (
-            "Other should sum all ram_mb values from categories D and E (3500 + 2000 = 5500), not take the max"
-        )
+        assert other_result["data"][2] == 5500.0, "Other should sum all ram_mb values from categories D and E (3500 + 2000 = 5500), not take the max"
 
     def test_breakdown_other_with_histogram_bins_and_max_aggregation(self):
         """
@@ -6534,9 +6462,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         #
         # The user reported: "the Other suddenly is bigger than the previous max"
         # which would happen if it's summing (5500) instead of maxing (3000)
-        assert other_result["data"][2] == 3000.0, (
-            "Other with MAX aggregation should take the maximum value across bins (max of 3000 and 2500 = 3000), not sum them (which would be 5500)"
-        )
+        assert other_result["data"][2] == 3000.0, "Other with MAX aggregation should take the maximum value across bins (max of 3000 and 2500 = 3000), not sum them (which would be 5500)"
 
     def test_breakdown_other_with_histogram_bins_aggregates_correctly(self):
         """
@@ -6652,9 +6578,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # - 3000 (the max single value across all "Other" events)
         # - 4500 (max of the bin totals if those were computed incorrectly)
         # - Some other incorrect value
-        assert other_result["data"][2] == 6500.0, (
-            "Other should sum all ram_mb values from bins that didn't make the top 2 (4500 + 2000 = 6500), not take the max"
-        )
+        assert other_result["data"][2] == 6500.0, "Other should sum all ram_mb values from bins that didn't make the top 2 (4500 + 2000 = 6500), not take the max"
 
     def test_group_node_or_operator_combines_events(self):
         """Test that GroupNode with OR operator correctly combines multiple events"""

@@ -153,16 +153,7 @@ class TestClickhouseLifecycle(TestLifecycleBase):
                 {"status": "returning", "data": [1] * 8},
             ],
         )
-        assert result[0]["days"] == [
-            "2021-04-28",
-            "2021-04-29",
-            "2021-04-30",
-            "2021-05-01",
-            "2021-05-02",
-            "2021-05-03",
-            "2021-05-04",
-            "2021-05-05",
-        ]
+        assert result[0]["days"] == ["2021-04-28", "2021-04-29", "2021-04-30", "2021-05-01", "2021-05-02", "2021-05-03", "2021-05-04", "2021-05-05"]
 
     @snapshot_clickhouse_queries
     def test_interval_dates_weeks(self):

@@ -3,7 +3,6 @@ import base64
 from datetime import timedelta
 from urllib.parse import quote
 
-import pytest
 from freezegun.api import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, Mock, call, patch
@@ -24,6 +23,7 @@ from posthog.models.instance_setting import override_instance_config
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle, HogQLQueryThrottle, get_route_from_path
+import pytest
 
 
 class TestUserAPI(APIBaseTest):

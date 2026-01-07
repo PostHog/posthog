@@ -76,10 +76,7 @@ class TestActivityLogModel(BaseTest):
         with pytest.raises(IntegrityError) as error:
             ActivityLog.objects.create()
 
-        assert (
-            'new row for relation "posthog_activitylog" violates check constraint "must_have_team_or_organization_id'
-            in error.value.args[0]
-        )
+        assert 'new row for relation "posthog_activitylog" violates check constraint "must_have_team_or_organization_id' in error.value.args[0]
 
     def test_does_not_throw_if_cannot_log_activity(self) -> None:
         with self.assertLogs(level="WARN") as log:

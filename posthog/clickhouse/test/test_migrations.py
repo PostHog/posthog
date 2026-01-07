@@ -47,30 +47,20 @@ class TestUniqueMigrationPrefixes(TestCase):
         max_migration_txt = migrations_dir / "max_migration.txt"
 
         # Check that max_migration.txt exists
-        assert max_migration_txt.exists(), (
-            "max_migration.txt does not exist in clickhouse/migrations/. "
-            "This file is required to prevent migration conflicts."
-        )
+        assert max_migration_txt.exists(), "max_migration.txt does not exist in clickhouse/migrations/. " "This file is required to prevent migration conflicts."
 
         # Read the max_migration.txt file
         max_migration_content = max_migration_txt.read_text().strip()
         lines = max_migration_content.splitlines()
 
         # Check that it contains exactly one line
-        assert len(lines) == 1, (
-            f"max_migration.txt contains {len(lines)} lines but should contain exactly 1. "
-            "This may be the result of a git merge. Fix the file to contain only the name "
-            "of the latest migration."
-        )
+        assert len(lines) == 1, f"max_migration.txt contains {len(lines)} lines but should contain exactly 1. " "This may be the result of a git merge. Fix the file to contain only the name " "of the latest migration."
 
         max_migration_name = lines[0]
 
         # Check that the migration file exists
         max_migration_file = migrations_dir / f"{max_migration_name}.py"
-        assert max_migration_file.exists(), (
-            f"max_migration.txt points to {max_migration_name!r} but that file doesn't exist. "
-            "Update max_migration.txt to point to the latest migration."
-        )
+        assert max_migration_file.exists(), f"max_migration.txt points to {max_migration_name!r} but that file doesn't exist. " "Update max_migration.txt to point to the latest migration."
 
         # Get all migration files
         migration_files = [
@@ -86,10 +76,7 @@ class TestUniqueMigrationPrefixes(TestCase):
         )
 
         # Check that max_migration.txt points to the latest migration
-        assert max_migration_name == latest_migration, (
-            f"max_migration.txt contains {max_migration_name!r} but the latest migration "
-            f"is {latest_migration!r}. Update max_migration.txt to contain {latest_migration!r}."
-        )
+        assert max_migration_name == latest_migration, f"max_migration.txt contains {max_migration_name!r} but the latest migration " f"is {latest_migration!r}. Update max_migration.txt to contain {latest_migration!r}."
 
     def check_alter_table(
         self, sql: str, node_roles: list[NodeRole], sharded: bool | None, is_alter_on_replicated_table: bool | None

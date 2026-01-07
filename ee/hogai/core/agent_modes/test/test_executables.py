@@ -126,9 +126,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
             assert assistant_message.tool_calls is not None
             assert assistant_message.tool_calls is not None
             assert len(assistant_message.tool_calls) == 1
-            assert assistant_message.tool_calls[0] == AssistantToolCall(
-                id="xyz", name="does_not_exist", args={"query_description": "Foobar"}
-            )
+            assert assistant_message.tool_calls[0] == AssistantToolCall(id="xyz", name="does_not_exist", args={"query_description": "Foobar"})
 
     @patch(
         "ee.hogai.core.agent_modes.executables.AgentExecutable._get_model", return_value=FakeChatOpenAI(responses=[])
@@ -139,9 +137,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         result = node._construct_messages(
             state_1.messages, state_1.root_conversation_start_id, state_1.root_tool_calls_count
         )
-        assert result == [
-            LangchainHumanMessage(content=[{"text": "Hello", "type": "text", "cache_control": {"type": "ephemeral"}}])
-        ]
+        assert result == [LangchainHumanMessage(content=[{"text": "Hello", "type": "text", "cache_control": {"type": "ephemeral"}}])]
 
         # We want full access to message history in root
         state_2 = AssistantState(
@@ -154,13 +150,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         result2 = node._construct_messages(
             state_2.messages, state_2.root_conversation_start_id, state_2.root_tool_calls_count
         )
-        assert result2 == [
-            LangchainHumanMessage(content=[{"text": "Hello", "type": "text"}]),
-            LangchainAIMessage(content=[{"text": "Welcome!", "type": "text"}]),
-            LangchainHumanMessage(
-                content=[{"text": "Generate trends", "type": "text", "cache_control": {"type": "ephemeral"}}]
-            ),
-        ]
+        assert result2 == [LangchainHumanMessage(content=[{"text": "Hello", "type": "text"}]), LangchainAIMessage(content=[{"text": "Welcome!", "type": "text"}]), LangchainHumanMessage(content=[{"text": "Generate trends", "type": "text", "cache_control": {"type": "ephemeral"}}])]
 
     @patch(
         "ee.hogai.core.agent_modes.executables.AgentExecutable._get_model",
@@ -187,16 +177,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
             ]
         )
         result = node._construct_messages(state.messages, state.root_conversation_start_id, state.root_tool_calls_count)
-        assert result == [
-            LangchainHumanMessage(content=[{"text": "Hello", "type": "text"}]),
-            LangchainAIMessage(
-                content=[{"text": "Welcome!", "type": "text"}],
-                tool_calls=[{"id": "xyz", "name": "create_insight", "args": {}}],
-            ),
-            LangchainHumanMessage(content=[{"type": "tool_result", "tool_use_id": "xyz", "content": "Answer"}]),
-            LangchainAIMessage(content=[{"text": "Follow-up", "type": "text"}]),
-            LangchainHumanMessage(content=[{"text": "Answer", "type": "text", "cache_control": {"type": "ephemeral"}}]),
-        ]
+        assert result == [LangchainHumanMessage(content=[{"text": "Hello", "type": "text"}]), LangchainAIMessage(content=[{"text": "Welcome!", "type": "text"}], tool_calls=[{"id": "xyz", "name": "create_insight", "args": {}}]), LangchainHumanMessage(content=[{"type": "tool_result", "tool_use_id": "xyz", "content": "Answer"}]), LangchainAIMessage(content=[{"text": "Follow-up", "type": "text"}]), LangchainHumanMessage(content=[{"text": "Answer", "type": "text", "cache_control": {"type": "ephemeral"}}])]
 
     @patch(
         "ee.hogai.core.agent_modes.executables.AgentExecutable._get_model", return_value=FakeChatOpenAI(responses=[])
@@ -248,14 +229,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         tool_message = messages[2]
         assert isinstance(tool_message, LangchainHumanMessage)
         assert isinstance(tool_message, LangchainHumanMessage)
-        assert tool_message.content == [
-            {
-                "content": "Answer for xyz1",
-                "type": "tool_result",
-                "tool_use_id": "xyz1",
-                "cache_control": {"type": "ephemeral"},
-            }
-        ]
+        assert tool_message.content == [{"content": "Answer for xyz1", "type": "tool_result", "tool_use_id": "xyz1", "cache_control": {"type": "ephemeral"}}]
 
     async def test_hard_limit_removes_tools(self):
         mock_with_tokens = MagicMock()

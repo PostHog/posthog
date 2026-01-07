@@ -1,4 +1,3 @@
-import pytest
 from posthog.test.base import BaseTest
 
 from posthog.hogql import ast
@@ -6,6 +5,7 @@ from posthog.hogql.ast import HogQLXAttribute, HogQLXTag, UUIDType
 from posthog.hogql.errors import InternalHogQLError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, Visitor
+import pytest
 
 
 class TestVisitor(BaseTest):

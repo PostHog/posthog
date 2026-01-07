@@ -249,11 +249,7 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
             {"team_id": self.team.pk},
         )
 
-        assert ch_groups == [
-            (1, "group-key", '{"a": 123456}'),
-            (2, "group-key", '{"a": 1234}'),
-            (2, "group-key-2", '{"a": 12345}'),
-        ]
+        assert ch_groups == [(1, "group-key", '{"a": 123456}'), (2, "group-key", '{"a": 1234}'), (2, "group-key-2", '{"a": 12345}')]
 
         # second time it's a no-op
         run_group_sync(self.team.pk, live_run=True, sync=True)
@@ -451,44 +447,12 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
         )
 
         if not live_run:
-            assert ch_persons == [
-                (person_not_changed_1.uuid, self.team.pk, '{"abcdef": 1111}', False, 0, False),
-                (person_not_changed_2.uuid, self.team.pk, '{"abcdefg": 11112}', False, 1, False),
-                (person_should_update_1.uuid, self.team.pk, '{"a": 13}', False, 4, False),
-                (person_should_update_2.uuid, self.team.pk, '{"a": 1}', False, 6, False),
-                (UUID(deleted_person_1_uuid), self.team.pk, '{"abcd": 123}', False, 7, False),
-                (UUID(deleted_person_2_uuid), self.team.pk, '{"abcef": 123}', False, 8, False),
-            ]
-            assert ch_person_distinct_ids == [
-                (person_not_changed_1.uuid, self.team.pk, "distinct_id", 0, False),
-                (person_not_changed_1.uuid, self.team.pk, "distinct_id-9", 9, False),
-                (person_not_changed_1.uuid, self.team.pk, "distinct_id-12", 12, False),
-                (person_not_changed_1.uuid, self.team.pk, "distinct_id-14", 14, False),
-                (deleted_distinct_id_1_uuid, self.team.pk, "distinct_id-17", 17, False),
-                (deleted_distinct_id_2_uuid, self.team.pk, "distinct_id-18", 18, False),
-            ]
+            assert ch_persons == [(person_not_changed_1.uuid, self.team.pk, '{"abcdef": 1111}', False, 0, False), (person_not_changed_2.uuid, self.team.pk, '{"abcdefg": 11112}', False, 1, False), (person_should_update_1.uuid, self.team.pk, '{"a": 13}', False, 4, False), (person_should_update_2.uuid, self.team.pk, '{"a": 1}', False, 6, False), (UUID(deleted_person_1_uuid), self.team.pk, '{"abcd": 123}', False, 7, False), (UUID(deleted_person_2_uuid), self.team.pk, '{"abcef": 123}', False, 8, False)]
+            assert ch_person_distinct_ids == [(person_not_changed_1.uuid, self.team.pk, "distinct_id", 0, False), (person_not_changed_1.uuid, self.team.pk, "distinct_id-9", 9, False), (person_not_changed_1.uuid, self.team.pk, "distinct_id-12", 12, False), (person_not_changed_1.uuid, self.team.pk, "distinct_id-14", 14, False), (deleted_distinct_id_1_uuid, self.team.pk, "distinct_id-17", 17, False), (deleted_distinct_id_2_uuid, self.team.pk, "distinct_id-18", 18, False)]
             assert len(ch_groups) == 0
         else:
-            assert ch_persons == [
-                (person_not_changed_1.uuid, self.team.pk, '{"abcdef": 1111}', False, 0, False),
-                (person_not_changed_2.uuid, self.team.pk, '{"abcdefg": 11112}', False, 1, False),
-                (person_should_be_created_1.uuid, self.team.pk, '{"abcde": 12553633}', False, 2, False),
-                (person_should_be_created_2.uuid, self.team.pk, '{"abcdeit34": 12553633}', False, 3, False),
-                (person_should_update_1.uuid, self.team.pk, '{"abcde": 12553}', False, 5, False),
-                (person_should_update_2.uuid, self.team.pk, '{"abc": 125}', False, 7, False),
-                (UUID(deleted_person_1_uuid), self.team.pk, "{}", False, 107, True),
-                (UUID(deleted_person_2_uuid), self.team.pk, "{}", False, 108, True),
-            ]
-            assert ch_person_distinct_ids == [
-                (person_not_changed_1.uuid, self.team.pk, "distinct_id", 0, False),
-                (person_not_changed_1.uuid, self.team.pk, "distinct_id-9", 9, False),
-                (person_not_changed_1.uuid, self.team.pk, "distinct_id-10", 10, False),
-                (person_not_changed_1.uuid, self.team.pk, "distinct_id-11", 11, False),
-                (person_not_changed_2.uuid, self.team.pk, "distinct_id-12", 13, False),
-                (person_not_changed_2.uuid, self.team.pk, "distinct_id-14", 15, False),
-                (UUID(int=0), self.team.pk, "distinct_id-17", 117, True),
-                (UUID(int=0), self.team.pk, "distinct_id-18", 118, True),
-            ]
+            assert ch_persons == [(person_not_changed_1.uuid, self.team.pk, '{"abcdef": 1111}', False, 0, False), (person_not_changed_2.uuid, self.team.pk, '{"abcdefg": 11112}', False, 1, False), (person_should_be_created_1.uuid, self.team.pk, '{"abcde": 12553633}', False, 2, False), (person_should_be_created_2.uuid, self.team.pk, '{"abcdeit34": 12553633}', False, 3, False), (person_should_update_1.uuid, self.team.pk, '{"abcde": 12553}', False, 5, False), (person_should_update_2.uuid, self.team.pk, '{"abc": 125}', False, 7, False), (UUID(deleted_person_1_uuid), self.team.pk, "{}", False, 107, True), (UUID(deleted_person_2_uuid), self.team.pk, "{}", False, 108, True)]
+            assert ch_person_distinct_ids == [(person_not_changed_1.uuid, self.team.pk, "distinct_id", 0, False), (person_not_changed_1.uuid, self.team.pk, "distinct_id-9", 9, False), (person_not_changed_1.uuid, self.team.pk, "distinct_id-10", 10, False), (person_not_changed_1.uuid, self.team.pk, "distinct_id-11", 11, False), (person_not_changed_2.uuid, self.team.pk, "distinct_id-12", 13, False), (person_not_changed_2.uuid, self.team.pk, "distinct_id-14", 15, False), (UUID(int=0), self.team.pk, "distinct_id-17", 117, True), (UUID(int=0), self.team.pk, "distinct_id-18", 118, True)]
             assert ch_groups == [(2, "group-key", '{"a": 1234}')]
 
 

@@ -109,10 +109,7 @@ class TestRunnerLLMProviderErrorHandling(BaseTest):
             event_type, message = results[0]
             assert event_type == AssistantEventType.MESSAGE
             assert isinstance(message, FailureMessage)
-            assert (
-                message.content
-                == "I'm unable to respond right now due to a temporary service issue. Please try again later."
-            )
+            assert message.content == "I'm unable to respond right now due to a temporary service issue. Please try again later."
 
             # Verify state was reset
             mock_graph.aupdate_state.assert_called()

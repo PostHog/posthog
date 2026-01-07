@@ -3,7 +3,6 @@ import base64
 from datetime import UTC, datetime
 from typing import Any
 
-import pytest
 from posthog.test.base import SimpleTestCase
 from unittest.mock import patch
 
@@ -17,6 +16,7 @@ from rest_framework.test import APIRequestFactory
 
 from ee.api.authentication import VercelAuthentication
 from ee.api.vercel.types import VercelUser
+import pytest
 
 
 @patch("ee.api.authentication.get_vercel_jwks")

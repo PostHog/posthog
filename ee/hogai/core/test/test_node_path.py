@@ -377,9 +377,7 @@ class TestNodePath(BaseTest):
         assert captured_paths[1][1] is not None
         assert len(captured_paths[1][1]) == 2
         assert captured_paths[1][1][0].name == AssistantGraphName.ASSISTANT.value
-        assert (
-            captured_paths[1][1][1].name == AssistantNodeName.ROOT
-        )  # Same as async because initialized in same context
+        assert captured_paths[1][1][1].name == AssistantNodeName.ROOT  # Same as async because initialized in same context
 
     def test_node_path_with_explicit_node_path_parameter(self):
         """Test that explicitly passing node_path overrides default behavior"""

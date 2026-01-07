@@ -1,5 +1,5 @@
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Any, Optional
 
 import pytest
 from freezegun import freeze_time
@@ -25,7 +25,7 @@ from posthog.hogql.query import execute_hogql_query
 class TestMappings(BaseTest):
     snapshot: Any
 
-    def _return_present_function(self, function: HogQLFunctionMeta | None) -> HogQLFunctionMeta:
+    def _return_present_function(self, function: Optional[HogQLFunctionMeta]) -> HogQLFunctionMeta:
         assert function is not None
         return function
 

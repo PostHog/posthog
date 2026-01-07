@@ -102,10 +102,7 @@ class TestGroups(ClickhouseTestMixin, NonAtomicBaseTest):
         )
 
         assert "test" in property_vals
-        assert (
-            "Entity test not found. Available entities: person, session, organization, project, no_properties"
-            in property_vals["test"]
-        )
+        assert "Entity test not found. Available entities: person, session, organization, project, no_properties" in property_vals["test"]
         assert "project" in property_vals
 
     async def test_retrieve_entity_properties_group(self):

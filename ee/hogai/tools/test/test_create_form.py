@@ -1,4 +1,3 @@
-import pytest
 from posthog.test.base import BaseTest
 
 from langgraph.errors import NodeInterrupt
@@ -9,6 +8,7 @@ from posthog.schema import MultiQuestionFormQuestion
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.tools.create_form import CreateFormTool
 from ee.hogai.utils.types.base import NodePath
+import pytest
 
 
 class TestCreateFormTool(BaseTest):

@@ -1,6 +1,7 @@
 import time
 import socket
 from datetime import UTC, datetime, timedelta
+from typing import Optional
 
 import pytest
 from freezegun import freeze_time
@@ -40,7 +41,7 @@ def update_db_field_value(field, model_id, value):
 
 class TestIntegrationModel(BaseTest):
     def create_integration(
-        self, kind: str, config: dict | None = None, sensitive_config: dict | None = None
+        self, kind: str, config: Optional[dict] = None, sensitive_config: Optional[dict] = None
     ) -> Integration:
         _config = {"refreshed_at": int(time.time()), "expires_in": 3600}
         _sensitive_config = {"refresh_token": "REFRESH", "id_token": None}
@@ -112,7 +113,7 @@ class TestOauthIntegrationModel(BaseTest):
     }
 
     def create_integration(
-        self, kind: str, config: dict | None = None, sensitive_config: dict | None = None
+        self, kind: str, config: Optional[dict] = None, sensitive_config: Optional[dict] = None
     ) -> Integration:
         _config = {"refreshed_at": int(time.time()), "expires_in": 3600}
         _sensitive_config = {"refresh_token": "REFRESH"}
@@ -524,7 +525,7 @@ class TestGoogleCloudIntegrationModel(BaseTest):
     }
 
     def create_integration(
-        self, kind: str, config: dict | None = None, sensitive_config: dict | None = None
+        self, kind: str, config: Optional[dict] = None, sensitive_config: Optional[dict] = None
     ) -> Integration:
         _config = {"refreshed_at": int(time.time()), "expires_in": 3600}
         _sensitive_config = self.mock_keyfile
@@ -594,7 +595,7 @@ class TestGoogleCloudIntegrationModel(BaseTest):
 
 
 class TestGitHubIntegrationModel(BaseTest):
-    def create_integration(self, config: dict | None = None, sensitive_config: dict | None = None) -> Integration:
+    def create_integration(self, config: Optional[dict] = None, sensitive_config: Optional[dict] = None) -> Integration:
         _config = {"expires_at": 3600}
         _sensitive_config = {"token": "REFRESH"}
         _config.update(config or {})

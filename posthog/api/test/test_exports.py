@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from typing import Optional
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
@@ -172,21 +173,21 @@ class TestExports(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED
         data = response.json()
         assert data == {
-            "id": data["id"],
-            "created_at": data["created_at"],
-            "insight": self.insight.id,
-            "export_format": "image/png",
-            "filename": "export-example-insight.png",
-            "has_content": False,
-            "dashboard": None,
-            "exception": None,
-            "export_context": None,
-            # PNG format gets 180 days (6 months) expiry
-            "expires_after": (now() + timedelta(days=180))
-            .replace(hour=0, minute=0, second=0, microsecond=0)
-            .isoformat()
-            .replace("+00:00", "Z"),
-        }
+                "id": data["id"],
+                "created_at": data["created_at"],
+                "insight": self.insight.id,
+                "export_format": "image/png",
+                "filename": "export-example-insight.png",
+                "has_content": False,
+                "dashboard": None,
+                "exception": None,
+                "export_context": None,
+                # PNG format gets 180 days (6 months) expiry
+                "expires_after": (now() + timedelta(days=180))
+                .replace(hour=0, minute=0, second=0, microsecond=0)
+                .isoformat()
+                .replace("+00:00", "Z"),
+            }
 
         self._assert_logs_the_activity(
             insight_id=self.insight.id,
@@ -240,22 +241,12 @@ class TestExports(APIBaseTest):
     def test_errors_if_missing_related_instance(self) -> None:
         response = self.client.post(f"/api/projects/{self.team.id}/exports", {"export_format": "image/png"})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "attr": None,
-            "code": "invalid_input",
-            "detail": "Either dashboard, insight or export_context is required for an export.",
-            "type": "validation_error",
-        }
+        assert response.json() == {"attr": None, "code": "invalid_input", "detail": "Either dashboard, insight or export_context is required for an export.", "type": "validation_error"}
 
     def test_errors_if_bad_format(self) -> None:
         response = self.client.post(f"/api/projects/{self.team.id}/exports", {"export_format": "not/allowed"})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "attr": "export_format",
-            "code": "invalid_choice",
-            "detail": '"not/allowed" is not a valid choice.',
-            "type": "validation_error",
-        }
+        assert response.json() == {"attr": "export_format", "code": "invalid_choice", "detail": '"not/allowed" is not a valid choice.', "type": "validation_error"}
 
     @patch("posthog.api.exports.exporter")
     def test_will_respond_even_if_task_timesout(self, mock_exporter_task) -> None:
@@ -274,12 +265,7 @@ class TestExports(APIBaseTest):
             {"export_format": "image/jpeg", "insight": self.insight.id},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "attr": "export_format",
-            "code": "invalid_choice",
-            "detail": '"image/jpeg" is not a valid choice.',
-            "type": "validation_error",
-        }
+        assert response.json() == {"attr": "export_format", "code": "invalid_choice", "detail": '"image/jpeg" is not a valid choice.', "type": "validation_error"}
 
     def test_will_error_if_dashboard_missing(self) -> None:
         response = self.client.post(
@@ -287,12 +273,7 @@ class TestExports(APIBaseTest):
             {"export_format": "application/pdf", "dashboard": 54321},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "attr": "dashboard",
-            "code": "does_not_exist",
-            "detail": 'Invalid pk "54321" - object does not exist.',
-            "type": "validation_error",
-        }
+        assert response.json() == {"attr": "dashboard", "code": "does_not_exist", "detail": 'Invalid pk "54321" - object does not exist.', "type": "validation_error"}
 
     def test_will_error_if_export_contains_other_team_dashboard(self) -> None:
         other_team = Team.objects.create(
@@ -316,12 +297,7 @@ class TestExports(APIBaseTest):
             {"export_format": "application/pdf", "dashboard": other_dashboard.id},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "attr": "dashboard",
-            "code": "invalid_input",
-            "detail": "This dashboard does not belong to your team.",
-            "type": "validation_error",
-        }
+        assert response.json() == {"attr": "dashboard", "code": "invalid_input", "detail": "This dashboard does not belong to your team.", "type": "validation_error"}
 
     def test_will_error_if_export_contains_other_team_insight(self) -> None:
         other_team = Team.objects.create(
@@ -347,12 +323,7 @@ class TestExports(APIBaseTest):
             {"export_format": "application/pdf", "insight": other_insight.id},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "attr": "insight",
-            "code": "invalid_input",
-            "detail": "This insight does not belong to your team.",
-            "type": "validation_error",
-        }
+        assert response.json() == {"attr": "insight", "code": "invalid_input", "detail": "This insight does not belong to your team.", "type": "validation_error"}
 
     @patch("posthog.tasks.exports.csv_exporter.requests.request")
     def test_can_download_a_csv(self, patched_request) -> None:
@@ -419,7 +390,7 @@ class TestExports(APIBaseTest):
             with self.settings(OBJECT_STORAGE_ENABLED=False):
                 exporter.export_asset(instance["id"], limit=1)
 
-            download_response: HttpResponse | None = None
+            download_response: Optional[HttpResponse] = None
             attempt_count = 0
             while attempt_count < 10 and not download_response:
                 download_response = self.client.get(

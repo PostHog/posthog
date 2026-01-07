@@ -1,7 +1,6 @@
 from datetime import timedelta
 from zoneinfo import ZoneInfo
 
-import pytest
 from posthog.test.base import APIBaseTest
 
 from dateutil import parser
@@ -12,6 +11,7 @@ from posthog.hogql import ast
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange, QueryDateRangeWithIntervals
 from posthog.models.team import WeekStartDay
+import pytest
 
 
 class TestQueryDateRange(APIBaseTest):
@@ -28,9 +28,7 @@ class TestQueryDateRange(APIBaseTest):
         query_date_range = QueryDateRange(team=self.team, date_range=date_range, interval=IntervalType.HOUR, now=now)
 
         assert query_date_range.date_from() == parser.isoparse("2021-08-23T00:00:00Z")
-        assert query_date_range.date_to() == parser.isoparse(
-            "2021-08-25T00:59:59.999999Z"
-        )  # ensure last hour is included
+        assert query_date_range.date_to() == parser.isoparse("2021-08-25T00:59:59.999999Z")  # ensure last hour is included
 
     def test_parsed_date_middle_of_hour(self):
         now = parser.isoparse("2021-08-25T00:00:00.000Z")
@@ -50,37 +48,12 @@ class TestQueryDateRange(APIBaseTest):
 
     def test_all_values(self):
         now = parser.isoparse("2021-08-25T00:00:00.000Z")
-        assert QueryDateRange(
-            team=self.team, date_range=DateRange(date_from="-20h"), interval=IntervalType.DAY, now=now
-        ).all_values() == [parser.isoparse("2021-08-24T00:00:00Z"), parser.isoparse("2021-08-25T00:00:00Z")]
-        assert QueryDateRange(
-            team=self.team, date_range=DateRange(date_from="-20d"), interval=IntervalType.WEEK, now=now
-        ).all_values() == [
-            parser.isoparse("2021-08-01T00:00:00Z"),
-            parser.isoparse("2021-08-08T00:00:00Z"),
-            parser.isoparse("2021-08-15T00:00:00Z"),
-            parser.isoparse("2021-08-22T00:00:00Z"),
-        ]
+        assert QueryDateRange(team=self.team, date_range=DateRange(date_from="-20h"), interval=IntervalType.DAY, now=now).all_values() == [parser.isoparse("2021-08-24T00:00:00Z"), parser.isoparse("2021-08-25T00:00:00Z")]
+        assert QueryDateRange(team=self.team, date_range=DateRange(date_from="-20d"), interval=IntervalType.WEEK, now=now).all_values() == [parser.isoparse("2021-08-01T00:00:00Z"), parser.isoparse("2021-08-08T00:00:00Z"), parser.isoparse("2021-08-15T00:00:00Z"), parser.isoparse("2021-08-22T00:00:00Z")]
         self.team.week_start_day = WeekStartDay.MONDAY
-        assert QueryDateRange(
-            team=self.team, date_range=DateRange(date_from="-20d"), interval=IntervalType.WEEK, now=now
-        ).all_values() == [
-            parser.isoparse("2021-08-02T00:00:00Z"),
-            parser.isoparse("2021-08-09T00:00:00Z"),
-            parser.isoparse("2021-08-16T00:00:00Z"),
-            parser.isoparse("2021-08-23T00:00:00Z"),
-        ]
-        assert QueryDateRange(
-            team=self.team, date_range=DateRange(date_from="-50d"), interval=IntervalType.MONTH, now=now
-        ).all_values() == [parser.isoparse("2021-07-01T00:00:00Z"), parser.isoparse("2021-08-01T00:00:00Z")]
-        assert QueryDateRange(
-            team=self.team, date_range=DateRange(date_from="-3h"), interval=IntervalType.HOUR, now=now
-        ).all_values() == [
-            parser.isoparse("2021-08-24T21:00:00Z"),
-            parser.isoparse("2021-08-24T22:00:00Z"),
-            parser.isoparse("2021-08-24T23:00:00Z"),
-            parser.isoparse("2021-08-25T00:00:00Z"),
-        ]
+        assert QueryDateRange(team=self.team, date_range=DateRange(date_from="-20d"), interval=IntervalType.WEEK, now=now).all_values() == [parser.isoparse("2021-08-02T00:00:00Z"), parser.isoparse("2021-08-09T00:00:00Z"), parser.isoparse("2021-08-16T00:00:00Z"), parser.isoparse("2021-08-23T00:00:00Z")]
+        assert QueryDateRange(team=self.team, date_range=DateRange(date_from="-50d"), interval=IntervalType.MONTH, now=now).all_values() == [parser.isoparse("2021-07-01T00:00:00Z"), parser.isoparse("2021-08-01T00:00:00Z")]
+        assert QueryDateRange(team=self.team, date_range=DateRange(date_from="-3h"), interval=IntervalType.HOUR, now=now).all_values() == [parser.isoparse("2021-08-24T21:00:00Z"), parser.isoparse("2021-08-24T22:00:00Z"), parser.isoparse("2021-08-24T23:00:00Z"), parser.isoparse("2021-08-25T00:00:00Z")]
 
     def test_date_to_explicit(self):
         now = parser.isoparse("2021-08-25T00:00:00.000Z")

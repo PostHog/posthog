@@ -1814,9 +1814,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
             # Assert the expected join condition in the clickhouse SQL
             expected_join_condition = f"and(equals(events.team_id, {query_runner.count_query_runner.team.id}), equals(event, %(hogql_val_9)s), greaterOrEquals(timestamp, assumeNotNull(toDateTime(%(hogql_val_10)s, %(hogql_val_11)s))), lessOrEquals(timestamp, assumeNotNull(toDateTime(%(hogql_val_12)s, %(hogql_val_13)s))))) AS e__events ON"
-            assert expected_join_condition in str(response.clickhouse), (
-                "Please check to make sure the timestamp statements are included in the ASOF LEFT JOIN select statement. This may also fail if the placeholder numbers have changed."
-            )
+            assert expected_join_condition in str(response.clickhouse), "Please check to make sure the timestamp statements are included in the ASOF LEFT JOIN select statement. This may also fail if the placeholder numbers have changed."
 
             result = query_runner.calculate()
 
@@ -1835,18 +1833,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert control_result.absolute_exposure == 9
         assert test_result.absolute_exposure == 9
 
-        assert control_insight["data"][:10] == [
-            1000.0,
-            1000.0,
-            1000.0,
-            1000.0,
-            1000.0,
-            1000.0,
-            1000.0,
-            1000.0,
-            1000.0,
-            1000.0,
-        ]
+        assert control_insight["data"][:10] == [1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0]
         assert test_insight["data"][:10] == [0.0, 500.0, 1250.0, 1250.0, 1250.0, 2050.0, 2050.0, 2050.0, 2050.0, 2050.0]
 
         # Run the query again with filter_test_accounts=False
@@ -1899,30 +1886,8 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert control_result.absolute_exposure == 9
         assert test_result.absolute_exposure == 10
 
-        assert control_insight["data"][:10] == [
-            1000.0,
-            1000.0,
-            1000.0,
-            1000.0,
-            1000.0,
-            1000.0,
-            1000.0,
-            1000.0,
-            1000.0,
-            1000.0,
-        ]
-        assert test_insight["data"][:10] == [
-            0.0,
-            500.0,
-            1250.0,
-            101250.0,
-            101250.0,
-            102050.0,
-            102050.0,
-            102050.0,
-            102050.0,
-            102050.0,
-        ]
+        assert control_insight["data"][:10] == [1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0]
+        assert test_insight["data"][:10] == [0.0, 500.0, 1250.0, 101250.0, 101250.0, 102050.0, 102050.0, 102050.0, 102050.0, 102050.0]
 
     def test_query_runner_with_data_warehouse_series_internal_user_filter(self):
         table_name = self.create_data_warehouse_table_with_usage()
@@ -2098,18 +2063,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert control_result.absolute_exposure == 9
         assert test_result.absolute_exposure == 9
 
-        assert control_insight["data"][:10] == [
-            1000.0,
-            1000.0,
-            1000.0,
-            1000.0,
-            1000.0,
-            1000.0,
-            1000.0,
-            1000.0,
-            1000.0,
-            1000.0,
-        ]
+        assert control_insight["data"][:10] == [1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0]
         assert test_insight["data"][:10] == [0.0, 500.0, 1250.0, 1250.0, 1250.0, 2050.0, 2050.0, 2050.0, 2050.0, 2050.0]
 
         # Run the query again with filter_test_accounts=False
@@ -2162,30 +2116,8 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert control_result.absolute_exposure == 9
         assert test_result.absolute_exposure == 10
 
-        assert control_insight["data"][:10] == [
-            1000.0,
-            1000.0,
-            1000.0,
-            1000.0,
-            1000.0,
-            1000.0,
-            1000.0,
-            1000.0,
-            1000.0,
-            1000.0,
-        ]
-        assert test_insight["data"][:10] == [
-            0.0,
-            500.0,
-            1250.0,
-            101250.0,
-            101250.0,
-            102050.0,
-            102050.0,
-            102050.0,
-            102050.0,
-            102050.0,
-        ]
+        assert control_insight["data"][:10] == [1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0]
+        assert test_insight["data"][:10] == [0.0, 500.0, 1250.0, 101250.0, 101250.0, 102050.0, 102050.0, 102050.0, 102050.0, 102050.0]
 
     def test_query_runner_with_data_warehouse_series_expected_query(self):
         table_name = self.create_data_warehouse_table_with_payments()
@@ -2255,9 +2187,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
             # Assert the expected join condition in the clickhouse SQL
             expected_join_condition = f"and(equals(events.team_id, {query_runner.count_query_runner.team.id}), equals(event, %(hogql_val_7)s), greaterOrEquals(timestamp, assumeNotNull(toDateTime(%(hogql_val_8)s, %(hogql_val_9)s))), lessOrEquals(timestamp, assumeNotNull(toDateTime(%(hogql_val_10)s, %(hogql_val_11)s))))) AS e__events ON"
-            assert expected_join_condition in str(response.clickhouse), (
-                "Please check to make sure the timestamp statements are included in the ASOF LEFT JOIN select statement. This may also fail if the placeholder numbers have changed."
-            )
+            assert expected_join_condition in str(response.clickhouse), "Please check to make sure the timestamp statements are included in the ASOF LEFT JOIN select statement. This may also fail if the placeholder numbers have changed."
 
             result = query_runner.calculate()
 
@@ -2512,40 +2442,8 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert control_result.absolute_exposure == 1
         assert test_result.absolute_exposure == 3
 
-        assert control_insight["data"] == [
-            0.0,
-            100.0,
-            100.0,
-            100.0,
-            100.0,
-            100.0,
-            100.0,
-            100.0,
-            100.0,
-            100.0,
-            100.0,
-            100.0,
-            100.0,
-            100.0,
-            100.0,
-        ]
-        assert test_insight["data"] == [
-            0.0,
-            50.0,
-            125.0,
-            125.0,
-            125.0,
-            205.0,
-            205.0,
-            205.0,
-            205.0,
-            205.0,
-            205.0,
-            205.0,
-            205.0,
-            205.0,
-            205.0,
-        ]
+        assert control_insight["data"] == [0.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0]
+        assert test_insight["data"] == [0.0, 50.0, 125.0, 125.0, 125.0, 205.0, 205.0, 205.0, 205.0, 205.0, 205.0, 205.0, 205.0, 205.0, 205.0]
 
     @pytest.mark.flaky(reruns=9)
     @freeze_time("2020-01-01T12:00:00Z")

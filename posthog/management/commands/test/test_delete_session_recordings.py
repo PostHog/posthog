@@ -2,7 +2,6 @@ import os
 import tempfile
 from io import StringIO
 
-import pytest
 from posthog.test.base import BaseTest
 
 from django.core.management import call_command
@@ -11,6 +10,7 @@ from django.core.management.base import CommandError
 from parameterized import parameterized
 
 from posthog.session_recordings.models.session_recording import SessionRecording
+import pytest
 
 
 class TestDeleteSessionRecordingsCommand(BaseTest):

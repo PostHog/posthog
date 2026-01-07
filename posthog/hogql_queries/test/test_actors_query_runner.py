@@ -788,14 +788,10 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # Should return no results because latest version doesn't have email with @
         person_ids_in_results = [row[1] for row in response.results]
-        assert str(person.uuid) not in person_ids_in_results, (
-            "Person with deleted email property should not appear in search results for '@'"
-        )
+        assert str(person.uuid) not in person_ids_in_results, "Person with deleted email property should not appear in search results for '@'"
 
         # Verify that direct ActorsQuery is using PersonsArgMaxVersion.V2
-        assert runner.modifiers.personsArgMaxVersion == PersonsArgMaxVersion.V2, (
-            "Direct ActorsQuery should use PersonsArgMaxVersion.V2 for latest person data"
-        )
+        assert runner.modifiers.personsArgMaxVersion == PersonsArgMaxVersion.V2, "Direct ActorsQuery should use PersonsArgMaxVersion.V2 for latest person data"
 
     def test_person_strategy_batches_large_actor_sets(self):
         """Verify that PersonStrategy.get_actors batches queries."""

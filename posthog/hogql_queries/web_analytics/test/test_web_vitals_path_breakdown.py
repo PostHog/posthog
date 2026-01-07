@@ -149,22 +149,7 @@ class TestWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
             PropertyMathType.P75,
         ).results
 
-        assert [
-            WebVitalsPathBreakdownResult(
-                good=[
-                    WebVitalsPathBreakdownResultItem(path="/path1", value=50),
-                    WebVitalsPathBreakdownResultItem(path="/path2", value=100),
-                ],
-                needs_improvements=[
-                    WebVitalsPathBreakdownResultItem(path="/path3", value=150),
-                    WebVitalsPathBreakdownResultItem(path="/path4", value=200),
-                ],
-                poor=[
-                    WebVitalsPathBreakdownResultItem(path="/path5", value=250),
-                    WebVitalsPathBreakdownResultItem(path="/path6", value=300),
-                ],
-            )
-        ] == results
+        assert [WebVitalsPathBreakdownResult(good=[WebVitalsPathBreakdownResultItem(path="/path1", value=50), WebVitalsPathBreakdownResultItem(path="/path2", value=100)], needs_improvements=[WebVitalsPathBreakdownResultItem(path="/path3", value=150), WebVitalsPathBreakdownResultItem(path="/path4", value=200)], poor=[WebVitalsPathBreakdownResultItem(path="/path5", value=250), WebVitalsPathBreakdownResultItem(path="/path6", value=300)])] == results
 
     def test_limit_of_20_paths(self):
         self._create_events(
@@ -237,11 +222,7 @@ class TestWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 percentile,
             ).results
 
-            assert [
-                WebVitalsPathBreakdownResult(
-                    good=[], needs_improvements=[], poor=[WebVitalsPathBreakdownResultItem(path="/path1", value=value)]
-                )
-            ] == results
+            assert [WebVitalsPathBreakdownResult(good=[], needs_improvements=[], poor=[WebVitalsPathBreakdownResultItem(path="/path1", value=value)])] == results
 
     def test_properties_are_applied(self):
         self._create_events(
@@ -264,8 +245,4 @@ class TestWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
             properties=[EventPropertyFilter(key="$pathname", operator=PropertyOperator.EXACT, value="/path1")],
         ).results
 
-        assert [
-            WebVitalsPathBreakdownResult(
-                good=[WebVitalsPathBreakdownResultItem(path="/path1", value=50)], needs_improvements=[], poor=[]
-            )
-        ] == results
+        assert [WebVitalsPathBreakdownResult(good=[WebVitalsPathBreakdownResultItem(path="/path1", value=50)], needs_improvements=[], poor=[])] == results

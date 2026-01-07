@@ -1,9 +1,9 @@
-import pytest
 from posthog.test.base import BaseTest
 
 from langchain_core.messages import AIMessage
 
 from ee.hogai.chat_agent.memory.parsers import MemoryCollectionCompleted, compressed_memory_parser, raise_memory_updated
+import pytest
 
 
 class TestParsers(BaseTest):

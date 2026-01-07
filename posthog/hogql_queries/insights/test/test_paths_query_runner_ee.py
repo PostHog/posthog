@@ -161,10 +161,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             assert isinstance(result, CachedPathsQueryResponse)
             response = result.results
 
-            assert response == [
-                PathsLink(source="1_/1", target="2_/2", value=1, average_conversion_time=ONE_MINUTE),
-                PathsLink(source="2_/2", target="3_/3", value=1, average_conversion_time=2 * ONE_MINUTE),
-            ]
+            assert response == [PathsLink(source="1_/1", target="2_/2", value=1, average_conversion_time=ONE_MINUTE), PathsLink(source="2_/2", target="3_/3", value=1, average_conversion_time=2 * ONE_MINUTE)]
             assert [p1.uuid] == self._get_people_at_path(filter, "2_/2", "3_/3")
 
         with freeze_time("2012-01-7T03:21:34.000Z"):
@@ -173,11 +170,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             assert isinstance(result, CachedPathsQueryResponse)
             response = result.results
 
-            assert response == [
-                PathsLink(source="1_/1", target="2_/2", value=1, average_conversion_time=ONE_MINUTE),
-                PathsLink(source="2_/2", target="3_/3", value=1, average_conversion_time=2 * ONE_MINUTE),
-                PathsLink(source="3_/3", target="4_/4", value=1, average_conversion_time=3 * ONE_MINUTE),
-            ]
+            assert response == [PathsLink(source="1_/1", target="2_/2", value=1, average_conversion_time=ONE_MINUTE), PathsLink(source="2_/2", target="3_/3", value=1, average_conversion_time=2 * ONE_MINUTE), PathsLink(source="3_/3", target="4_/4", value=1, average_conversion_time=3 * ONE_MINUTE)]
             assert [p1.uuid] == self._get_people_at_path(filter, "1_/1", "2_/2")
             assert [p1.uuid] == self._get_people_at_path(filter, "2_/2", "3_/3")
             assert [p1.uuid] == self._get_people_at_path(filter, "3_/3", "4_/4")
@@ -269,11 +262,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(result, CachedPathsQueryResponse)
         response = result.results
 
-        assert response == [
-            PathsLink(source="1_/1", target="2_/2", value=2, average_conversion_time=1.5 * ONE_MINUTE),
-            PathsLink(source="2_/2", target="3_/3", value=2, average_conversion_time=3 * ONE_MINUTE),
-            PathsLink(source="3_/3", target="4_/4", value=1, average_conversion_time=3 * ONE_MINUTE),
-        ]
+        assert response == [PathsLink(source="1_/1", target="2_/2", value=2, average_conversion_time=1.5 * ONE_MINUTE), PathsLink(source="2_/2", target="3_/3", value=2, average_conversion_time=3 * ONE_MINUTE), PathsLink(source="3_/3", target="4_/4", value=1, average_conversion_time=3 * ONE_MINUTE)]
 
     @snapshot_clickhouse_queries
     def test_event_ordering(self):
@@ -334,11 +323,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(result, CachedPathsQueryResponse)
         response = result.results
 
-        assert response == [
-            PathsLink(source="1_step one", target="2_step two", value=50, average_conversion_time=60000.0),
-            PathsLink(source="2_step two", target="3_step three", value=50, average_conversion_time=60000.0),
-            PathsLink(source="3_step three", target="4_step branch", value=25, average_conversion_time=60000.0),
-        ]
+        assert response == [PathsLink(source="1_step one", target="2_step two", value=50, average_conversion_time=60000.0), PathsLink(source="2_step two", target="3_step three", value=50, average_conversion_time=60000.0), PathsLink(source="3_step three", target="4_step branch", value=25, average_conversion_time=60000.0)]
 
     def _create_sample_data_multiple_dropoffs(self, use_groups=False):
         events = []
@@ -496,31 +481,11 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         funnel_filter: dict = {}
         path_filter: dict = {}
         response: dict = {}
-        assert response == [
-            {"source": "1_step one", "target": "2_between_step_1_a", "value": 15, "average_conversion_time": 60000.0},
-            {
-                "source": "2_between_step_1_a",
-                "target": "3_between_step_1_b",
-                "value": 15,
-                "average_conversion_time": 60000.0,
-            },
-            {"source": "3_between_step_1_b", "target": "4_step two", "value": 10, "average_conversion_time": 60000.0},
-            {
-                "source": "3_between_step_1_b",
-                "target": "4_between_step_1_c",
-                "value": 5,
-                "average_conversion_time": 60000.0,
-            },
-            {"source": "4_between_step_1_c", "target": "5_step two", "value": 5, "average_conversion_time": 60000.0},
-        ]
+        assert response == [{"source": "1_step one", "target": "2_between_step_1_a", "value": 15, "average_conversion_time": 60000.0}, {"source": "2_between_step_1_a", "target": "3_between_step_1_b", "value": 15, "average_conversion_time": 60000.0}, {"source": "3_between_step_1_b", "target": "4_step two", "value": 10, "average_conversion_time": 60000.0}, {"source": "3_between_step_1_b", "target": "4_between_step_1_c", "value": 5, "average_conversion_time": 60000.0}, {"source": "4_between_step_1_c", "target": "5_step two", "value": 5, "average_conversion_time": 60000.0}]
         assert 15 == len(self._get_people_at_path(path_filter, "1_step one", "2_between_step_1_a", funnel_filter))
-        assert 15 == len(
-            self._get_people_at_path(path_filter, "2_between_step_1_a", "3_between_step_1_b", funnel_filter)
-        )
+        assert 15 == len(self._get_people_at_path(path_filter, "2_between_step_1_a", "3_between_step_1_b", funnel_filter))
         assert 10 == len(self._get_people_at_path(path_filter, "3_between_step_1_b", "4_step two", funnel_filter))
-        assert 5 == len(
-            self._get_people_at_path(path_filter, "3_between_step_1_b", "4_between_step_1_c", funnel_filter)
-        )
+        assert 5 == len(self._get_people_at_path(path_filter, "3_between_step_1_b", "4_between_step_1_c", funnel_filter))
         assert 5 == len(self._get_people_at_path(path_filter, "4_between_step_1_c", "5_step two", funnel_filter))
 
     @also_test_with_materialized_columns(["$current_url", "$screen_name"])
@@ -647,15 +612,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(result, CachedPathsQueryResponse)
         response = result.results
 
-        assert response == [
-            PathsLink(source="1_/2", target="2_/3", value=1, average_conversion_time=60000.0),
-            PathsLink(source="1_/3", target="2_/4", value=1, average_conversion_time=60000.0),
-            PathsLink(source="1_/5", target="2_/about", value=1, average_conversion_time=60000.0),
-            PathsLink(source="2_/3", target="3_/4", value=1, average_conversion_time=60000.0),
-            PathsLink(source="2_/4", target="3_/about", value=1, average_conversion_time=60000.0),
-            PathsLink(source="3_/4", target="4_/5", value=1, average_conversion_time=60000.0),
-            PathsLink(source="4_/5", target="5_/about", value=1, average_conversion_time=60000.0),
-        ]
+        assert response == [PathsLink(source="1_/2", target="2_/3", value=1, average_conversion_time=60000.0), PathsLink(source="1_/3", target="2_/4", value=1, average_conversion_time=60000.0), PathsLink(source="1_/5", target="2_/about", value=1, average_conversion_time=60000.0), PathsLink(source="2_/3", target="3_/4", value=1, average_conversion_time=60000.0), PathsLink(source="2_/4", target="3_/about", value=1, average_conversion_time=60000.0), PathsLink(source="3_/4", target="4_/5", value=1, average_conversion_time=60000.0), PathsLink(source="4_/5", target="5_/about", value=1, average_conversion_time=60000.0)]
 
         # ensure trailing slashes don't change results
         result = PathsQueryRunner(
@@ -674,15 +631,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(result, CachedPathsQueryResponse)
         response = result.results
 
-        assert response == [
-            PathsLink(source="1_/2", target="2_/3", value=1, average_conversion_time=60000.0),
-            PathsLink(source="1_/3", target="2_/4", value=1, average_conversion_time=60000.0),
-            PathsLink(source="1_/5", target="2_/about", value=1, average_conversion_time=60000.0),
-            PathsLink(source="2_/3", target="3_/4", value=1, average_conversion_time=60000.0),
-            PathsLink(source="2_/4", target="3_/about", value=1, average_conversion_time=60000.0),
-            PathsLink(source="3_/4", target="4_/5", value=1, average_conversion_time=60000.0),
-            PathsLink(source="4_/5", target="5_/about", value=1, average_conversion_time=60000.0),
-        ]
+        assert response == [PathsLink(source="1_/2", target="2_/3", value=1, average_conversion_time=60000.0), PathsLink(source="1_/3", target="2_/4", value=1, average_conversion_time=60000.0), PathsLink(source="1_/5", target="2_/about", value=1, average_conversion_time=60000.0), PathsLink(source="2_/3", target="3_/4", value=1, average_conversion_time=60000.0), PathsLink(source="2_/4", target="3_/about", value=1, average_conversion_time=60000.0), PathsLink(source="3_/4", target="4_/5", value=1, average_conversion_time=60000.0), PathsLink(source="4_/5", target="5_/about", value=1, average_conversion_time=60000.0)]
 
     @snapshot_clickhouse_queries
     @freeze_time("2023-05-23T11:00:00.000Z")
@@ -780,10 +729,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(result, CachedPathsQueryResponse)
         response = result.results
 
-        assert response == [
-            PathsLink(source="1_/1", target="2_/2", value=1, average_conversion_time=ONE_MINUTE),
-            PathsLink(source="2_/2", target="3_/3", value=1, average_conversion_time=2 * ONE_MINUTE),
-        ]
+        assert response == [PathsLink(source="1_/1", target="2_/2", value=1, average_conversion_time=ONE_MINUTE), PathsLink(source="2_/2", target="3_/3", value=1, average_conversion_time=2 * ONE_MINUTE)]
 
         result = PathsQueryRunner(
             query={
@@ -801,10 +747,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(result, CachedPathsQueryResponse)
         response = result.results
 
-        assert response == [
-            PathsLink(source="1_/screen1", target="2_/screen2", value=1, average_conversion_time=ONE_MINUTE),
-            PathsLink(source="2_/screen2", target="3_/screen3", value=1, average_conversion_time=2 * ONE_MINUTE),
-        ]
+        assert response == [PathsLink(source="1_/screen1", target="2_/screen2", value=1, average_conversion_time=ONE_MINUTE), PathsLink(source="2_/screen2", target="3_/screen3", value=1, average_conversion_time=2 * ONE_MINUTE)]
 
         result = PathsQueryRunner(
             query={
@@ -822,10 +765,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(result, CachedPathsQueryResponse)
         response = result.results
 
-        assert response == [
-            PathsLink(source="1_/custom1", target="2_/custom2", value=1, average_conversion_time=ONE_MINUTE),
-            PathsLink(source="2_/custom2", target="3_/custom3", value=1, average_conversion_time=2 * ONE_MINUTE),
-        ]
+        assert response == [PathsLink(source="1_/custom1", target="2_/custom2", value=1, average_conversion_time=ONE_MINUTE), PathsLink(source="2_/custom2", target="3_/custom3", value=1, average_conversion_time=2 * ONE_MINUTE)]
 
         result = PathsQueryRunner(
             query={
@@ -844,11 +784,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(result, CachedPathsQueryResponse)
         response = result.results
 
-        assert response == [
-            PathsLink(source="1_/custom2", target="2_/custom3", value=1, average_conversion_time=2 * ONE_MINUTE),
-            PathsLink(source="1_/screen1", target="2_/screen2", value=1, average_conversion_time=ONE_MINUTE),
-            PathsLink(source="2_/screen2", target="3_/screen3", value=1, average_conversion_time=2 * ONE_MINUTE),
-        ]
+        assert response == [PathsLink(source="1_/custom2", target="2_/custom3", value=1, average_conversion_time=2 * ONE_MINUTE), PathsLink(source="1_/screen1", target="2_/screen2", value=1, average_conversion_time=ONE_MINUTE), PathsLink(source="2_/screen2", target="3_/screen3", value=1, average_conversion_time=2 * ONE_MINUTE)]
 
     @snapshot_clickhouse_queries
     @freeze_time("2023-05-23T11:00:00.000Z")
@@ -1070,16 +1006,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(result, CachedPathsQueryResponse)
         response = result.results
 
-        assert response == [
-            PathsLink(source="1_/1", target="2_/2", value=1, average_conversion_time=ONE_MINUTE),
-            PathsLink(source="2_/2", target="3_/3", value=1, average_conversion_time=2 * ONE_MINUTE),
-            PathsLink(source="3_/3", target="4_/screen1", value=1, average_conversion_time=ONE_MINUTE),
-            PathsLink(source="4_/screen1", target="5_/screen2", value=1, average_conversion_time=ONE_MINUTE),
-            PathsLink(source="5_/screen2", target="6_/screen3", value=1, average_conversion_time=2 * ONE_MINUTE),
-            PathsLink(source="6_/screen3", target="7_/custom1", value=1, average_conversion_time=ONE_MINUTE),
-            PathsLink(source="7_/custom1", target="8_/custom2", value=1, average_conversion_time=ONE_MINUTE),
-            PathsLink(source="8_/custom2", target="9_/custom3", value=1, average_conversion_time=2 * ONE_MINUTE),
-        ]
+        assert response == [PathsLink(source="1_/1", target="2_/2", value=1, average_conversion_time=ONE_MINUTE), PathsLink(source="2_/2", target="3_/3", value=1, average_conversion_time=2 * ONE_MINUTE), PathsLink(source="3_/3", target="4_/screen1", value=1, average_conversion_time=ONE_MINUTE), PathsLink(source="4_/screen1", target="5_/screen2", value=1, average_conversion_time=ONE_MINUTE), PathsLink(source="5_/screen2", target="6_/screen3", value=1, average_conversion_time=2 * ONE_MINUTE), PathsLink(source="6_/screen3", target="7_/custom1", value=1, average_conversion_time=ONE_MINUTE), PathsLink(source="7_/custom1", target="8_/custom2", value=1, average_conversion_time=ONE_MINUTE), PathsLink(source="8_/custom2", target="9_/custom3", value=1, average_conversion_time=2 * ONE_MINUTE)]
 
         result = PathsQueryRunner(
             query={
@@ -1097,13 +1024,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(result, CachedPathsQueryResponse)
         response = result.results
 
-        assert response == [
-            PathsLink(source="1_/1", target="2_/2", value=1, average_conversion_time=ONE_MINUTE),
-            PathsLink(source="2_/2", target="3_/3", value=1, average_conversion_time=2 * ONE_MINUTE),
-            PathsLink(source="3_/3", target="4_/screen1", value=1, average_conversion_time=ONE_MINUTE),
-            PathsLink(source="4_/screen1", target="5_/screen2", value=1, average_conversion_time=ONE_MINUTE),
-            PathsLink(source="5_/screen2", target="6_/screen3", value=1, average_conversion_time=2 * ONE_MINUTE),
-        ]
+        assert response == [PathsLink(source="1_/1", target="2_/2", value=1, average_conversion_time=ONE_MINUTE), PathsLink(source="2_/2", target="3_/3", value=1, average_conversion_time=2 * ONE_MINUTE), PathsLink(source="3_/3", target="4_/screen1", value=1, average_conversion_time=ONE_MINUTE), PathsLink(source="4_/screen1", target="5_/screen2", value=1, average_conversion_time=ONE_MINUTE), PathsLink(source="5_/screen2", target="6_/screen3", value=1, average_conversion_time=2 * ONE_MINUTE)]
 
         result = PathsQueryRunner(
             query={
@@ -1122,11 +1043,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(result, CachedPathsQueryResponse)
         response = result.results
 
-        assert response == [
-            PathsLink(source="1_/1", target="2_/2", value=1, average_conversion_time=ONE_MINUTE),
-            PathsLink(source="2_/2", target="3_/3", value=1, average_conversion_time=2 * ONE_MINUTE),
-            PathsLink(source="3_/3", target="4_/custom2", value=1, average_conversion_time=6 * ONE_MINUTE),
-        ]
+        assert response == [PathsLink(source="1_/1", target="2_/2", value=1, average_conversion_time=ONE_MINUTE), PathsLink(source="2_/2", target="3_/3", value=1, average_conversion_time=2 * ONE_MINUTE), PathsLink(source="3_/3", target="4_/custom2", value=1, average_conversion_time=6 * ONE_MINUTE)]
 
     @snapshot_clickhouse_queries
     @freeze_time("2023-05-23T11:00:00.000Z")
@@ -1201,10 +1118,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(result, CachedPathsQueryResponse)
         response = result.results
 
-        assert response == [
-            PathsLink(source="1_/1", target="2_/2", value=2, average_conversion_time=ONE_MINUTE),
-            PathsLink(source="2_/2", target="3_/3", value=2, average_conversion_time=3 * ONE_MINUTE),
-        ]
+        assert response == [PathsLink(source="1_/1", target="2_/2", value=2, average_conversion_time=ONE_MINUTE), PathsLink(source="2_/2", target="3_/3", value=2, average_conversion_time=3 * ONE_MINUTE)]
 
     def test_removes_duplicates(self):
         _create_person(team_id=self.team.pk, distinct_ids=["fake"])
@@ -1298,10 +1212,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(result, CachedPathsQueryResponse)
         response = result.results
 
-        assert response == [
-            PathsLink(source="1_/1", target="2_/2", value=2, average_conversion_time=1.5 * ONE_MINUTE),
-            PathsLink(source="2_/2", target="3_/3", value=2, average_conversion_time=3 * ONE_MINUTE),
-        ]
+        assert response == [PathsLink(source="1_/1", target="2_/2", value=2, average_conversion_time=1.5 * ONE_MINUTE), PathsLink(source="2_/2", target="3_/3", value=2, average_conversion_time=3 * ONE_MINUTE)]
 
     @also_test_with_materialized_columns(["$current_url", "$screen_name"])
     @snapshot_clickhouse_queries
@@ -1465,12 +1376,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(result, CachedPathsQueryResponse)
         response = result.results
 
-        assert response == [
-            PathsLink(source="1_/2", target="2_/3", value=1, average_conversion_time=ONE_MINUTE),
-            PathsLink(source="2_/3", target="3_...", value=1, average_conversion_time=ONE_MINUTE),
-            PathsLink(source="3_...", target="4_/5", value=1, average_conversion_time=ONE_MINUTE),
-            PathsLink(source="4_/5", target="5_/about", value=1, average_conversion_time=ONE_MINUTE),
-        ]
+        assert response == [PathsLink(source="1_/2", target="2_/3", value=1, average_conversion_time=ONE_MINUTE), PathsLink(source="2_/3", target="3_...", value=1, average_conversion_time=ONE_MINUTE), PathsLink(source="3_...", target="4_/5", value=1, average_conversion_time=ONE_MINUTE), PathsLink(source="4_/5", target="5_/about", value=1, average_conversion_time=ONE_MINUTE)]
         assert sorted(self._get_people_at_path(paths_query, "3_...", "4_/5")) == sorted([p1.uuid])
 
     @snapshot_clickhouse_queries
@@ -1626,10 +1532,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(result, CachedPathsQueryResponse)
         response = result.results
 
-        assert response == [
-            PathsLink(source="1_/1", target="2_/bar/*/foo", value=3, average_conversion_time=ONE_MINUTE),
-            PathsLink(source="2_/bar/*/foo", target="3_/3", value=3, average_conversion_time=2 * ONE_MINUTE),
-        ]
+        assert response == [PathsLink(source="1_/1", target="2_/bar/*/foo", value=3, average_conversion_time=ONE_MINUTE), PathsLink(source="2_/bar/*/foo", target="3_/3", value=3, average_conversion_time=2 * ONE_MINUTE)]
 
     @snapshot_clickhouse_queries
     @freeze_time("2023-05-23T11:00:00.000Z")
@@ -1720,11 +1623,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(result, CachedPathsQueryResponse)
         response = result.results
 
-        assert response == [
-            PathsLink(source="1_/1", target="2_/3*", value=1, average_conversion_time=3 * ONE_MINUTE),
-            PathsLink(source=f"1_{evil_string}", target="2_/2/bar/aaa", value=1, average_conversion_time=ONE_MINUTE),
-            PathsLink(source="2_/2/bar/aaa", target="3_/3*", value=1, average_conversion_time=2 * ONE_MINUTE),
-        ]
+        assert response == [PathsLink(source="1_/1", target="2_/3*", value=1, average_conversion_time=3 * ONE_MINUTE), PathsLink(source=f"1_{evil_string}", target="2_/2/bar/aaa", value=1, average_conversion_time=ONE_MINUTE), PathsLink(source="2_/2/bar/aaa", target="3_/3*", value=1, average_conversion_time=2 * ONE_MINUTE)]
 
     @snapshot_clickhouse_queries
     def test_person_dropoffs(self):
@@ -1981,38 +1880,38 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         response = result.results
 
         assert response == [
-            PathsLink(
-                source="1_/2",
-                target="2_/3",
-                value=5,
-                average_conversion_time=60000.0,
-            ),
-            PathsLink(
-                source="2_/3",
-                target="3_/4",
-                value=5,
-                average_conversion_time=60000.0,
-            ),
-            PathsLink(
-                source="3_/4",
-                target="4_/5",
-                value=5,
-                average_conversion_time=60000.0,
-            ),
-            PathsLink(
-                source="4_/5",
-                target="5_/about",
-                value=5,
-                average_conversion_time=60000.0,
-            ),
-            # PathsLink(source='3_/x', target='4_/about', value=2, average_conversion_time=60000.0), # gets deleted by validation since dangling
-            PathsLink(
-                source="1_/2",
-                target="2_/a",
-                value=1,
-                average_conversion_time=30000.0,
-            ),
-        ]
+                PathsLink(
+                    source="1_/2",
+                    target="2_/3",
+                    value=5,
+                    average_conversion_time=60000.0,
+                ),
+                PathsLink(
+                    source="2_/3",
+                    target="3_/4",
+                    value=5,
+                    average_conversion_time=60000.0,
+                ),
+                PathsLink(
+                    source="3_/4",
+                    target="4_/5",
+                    value=5,
+                    average_conversion_time=60000.0,
+                ),
+                PathsLink(
+                    source="4_/5",
+                    target="5_/about",
+                    value=5,
+                    average_conversion_time=60000.0,
+                ),
+                # PathsLink(source='3_/x', target='4_/about', value=2, average_conversion_time=60000.0), # gets deleted by validation since dangling
+                PathsLink(
+                    source="1_/2",
+                    target="2_/a",
+                    value=1,
+                    average_conversion_time=30000.0,
+                ),
+            ]
 
     def test_groups_filtering(self):
         self._create_groups()
@@ -2130,10 +2029,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(result, CachedPathsQueryResponse)
         response = result.results
 
-        assert response == [
-            PathsLink(source="1_/1", target="2_/2", value=1, average_conversion_time=ONE_MINUTE),
-            PathsLink(source="2_/2", target="3_/3", value=1, average_conversion_time=2 * ONE_MINUTE),
-        ]
+        assert response == [PathsLink(source="1_/1", target="2_/2", value=1, average_conversion_time=ONE_MINUTE), PathsLink(source="2_/2", target="3_/3", value=1, average_conversion_time=2 * ONE_MINUTE)]
 
         result = PathsQueryRunner(
             query={
@@ -2169,10 +2065,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(result, CachedPathsQueryResponse)
         response = result.results
 
-        assert response == [
-            PathsLink(source="1_/screen1", target="2_/screen2", value=1, average_conversion_time=ONE_MINUTE),
-            PathsLink(source="2_/screen2", target="3_/screen3", value=1, average_conversion_time=2 * ONE_MINUTE),
-        ]
+        assert response == [PathsLink(source="1_/screen1", target="2_/screen2", value=1, average_conversion_time=ONE_MINUTE), PathsLink(source="2_/screen2", target="3_/screen3", value=1, average_conversion_time=2 * ONE_MINUTE)]
 
         result = PathsQueryRunner(
             query={
@@ -2208,10 +2101,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(result, CachedPathsQueryResponse)
         response = result.results
 
-        assert response == [
-            PathsLink(source="1_/custom1", target="2_/custom2", value=1, average_conversion_time=ONE_MINUTE),
-            PathsLink(source="2_/custom2", target="3_/custom3", value=1, average_conversion_time=2 * ONE_MINUTE),
-        ]
+        assert response == [PathsLink(source="1_/custom1", target="2_/custom2", value=1, average_conversion_time=ONE_MINUTE), PathsLink(source="2_/custom2", target="3_/custom3", value=1, average_conversion_time=2 * ONE_MINUTE)]
 
     @snapshot_clickhouse_queries
     def test_groups_filtering_person_on_events(self):
@@ -2331,10 +2221,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         response = result.results
 
         with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
-            assert response == [
-                PathsLink(source="1_/1", target="2_/2", value=1, average_conversion_time=ONE_MINUTE),
-                PathsLink(source="2_/2", target="3_/3", value=1, average_conversion_time=2 * ONE_MINUTE),
-            ]
+            assert response == [PathsLink(source="1_/1", target="2_/2", value=1, average_conversion_time=ONE_MINUTE), PathsLink(source="2_/2", target="3_/3", value=1, average_conversion_time=2 * ONE_MINUTE)]
 
             result = PathsQueryRunner(
                 query={
@@ -2369,10 +2256,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             assert isinstance(result, CachedPathsQueryResponse)
             response = result.results
 
-            assert response == [
-                PathsLink(source="1_/screen1", target="2_/screen2", value=1, average_conversion_time=ONE_MINUTE),
-                PathsLink(source="2_/screen2", target="3_/screen3", value=1, average_conversion_time=2 * ONE_MINUTE),
-            ]
+            assert response == [PathsLink(source="1_/screen1", target="2_/screen2", value=1, average_conversion_time=ONE_MINUTE), PathsLink(source="2_/screen2", target="3_/screen3", value=1, average_conversion_time=2 * ONE_MINUTE)]
 
             result = PathsQueryRunner(
                 query={
@@ -2407,10 +2291,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             assert isinstance(result, CachedPathsQueryResponse)
             response = result.results
 
-            assert response == [
-                PathsLink(source="1_/custom1", target="2_/custom2", value=1, average_conversion_time=ONE_MINUTE),
-                PathsLink(source="2_/custom2", target="3_/custom3", value=1, average_conversion_time=2 * ONE_MINUTE),
-            ]
+            assert response == [PathsLink(source="1_/custom1", target="2_/custom2", value=1, average_conversion_time=ONE_MINUTE), PathsLink(source="2_/custom2", target="3_/custom3", value=1, average_conversion_time=2 * ONE_MINUTE)]
 
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True)
     @snapshot_clickhouse_queries
@@ -2497,10 +2378,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(result, CachedPathsQueryResponse)
         response = result.results
 
-        assert response == [
-            PathsLink(source="1_/1", target="2_/2", value=1, average_conversion_time=ONE_MINUTE),
-            PathsLink(source="2_/2", target="3_/3", value=1, average_conversion_time=2 * ONE_MINUTE),
-        ]
+        assert response == [PathsLink(source="1_/1", target="2_/2", value=1, average_conversion_time=ONE_MINUTE), PathsLink(source="2_/2", target="3_/3", value=1, average_conversion_time=2 * ONE_MINUTE)]
 
     @freeze_time("2012-01-01T03:21:34.000Z")
     @snapshot_clickhouse_queries
@@ -2632,8 +2510,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         assert sorted([p1.uuid, p2.uuid]) == sorted([row[0]["id"] for row in results])
         matched_recordings = [list(row[3]) for row in results]
 
-        assert sorted(
-            [
+        assert sorted([
                 {
                     "session_id": "s3",
                     "events": [
@@ -2654,8 +2531,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
                         }
                     ],
                 },
-            ]
-        ) == sorted(matched_recordings[0])
+            ]) == sorted(matched_recordings[0])
         assert [] == matched_recordings[1]
 
     @snapshot_clickhouse_queries
@@ -2799,20 +2675,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert [p1.uuid] == [row[0]["id"] for row in results]
-        assert [
-            [
-                {
-                    "session_id": "s1",
-                    "events": [
-                        {
-                            "uuid": UUID("21111111-1111-1111-1111-111111111111"),
-                            "timestamp": timezone.now() + timedelta(minutes=1),
-                            "window_id": "w1",
-                        }
-                    ],
-                }
-            ]
-        ] == [list(row[3]) for row in results]
+        assert [[{"session_id": "s1", "events": [{"uuid": UUID("21111111-1111-1111-1111-111111111111"), "timestamp": timezone.now() + timedelta(minutes=1), "window_id": "w1"}]}]] == [list(row[3]) for row in results]
 
     @snapshot_clickhouse_queries
     @freeze_time("2012-01-01T03:21:34.000Z")
@@ -2928,20 +2791,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert [p1.uuid] == [row[0]["id"] for row in results]
-        assert [
-            [
-                {
-                    "session_id": "s1",
-                    "events": [
-                        {
-                            "uuid": UUID("31111111-1111-1111-1111-111111111111"),
-                            "timestamp": timezone.now() + timedelta(minutes=2),
-                            "window_id": "w1",
-                        }
-                    ],
-                }
-            ]
-        ] == [list(row[3]) for row in results]
+        assert [[{"session_id": "s1", "events": [{"uuid": UUID("31111111-1111-1111-1111-111111111111"), "timestamp": timezone.now() + timedelta(minutes=2), "window_id": "w1"}]}]] == [list(row[3]) for row in results]
 
 
 class TestClickhousePathsEdgeValidation(TestCase):

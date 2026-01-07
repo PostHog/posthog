@@ -1,10 +1,10 @@
-import pytest
 from posthog.test.base import NonAtomicBaseTest
 
 from posthog.schema import AssistantHogQLQuery
 
 from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.chat_agent.sql.mixins import HogQLGeneratorMixin, SQLSchemaGeneratorOutput
+import pytest
 
 
 class TestSQLMixins(NonAtomicBaseTest):
@@ -43,9 +43,7 @@ class TestSQLMixins(NonAtomicBaseTest):
         result = mixin._parse_output(test_output)
 
         assert isinstance(result, SQLSchemaGeneratorOutput)
-        assert result == SQLSchemaGeneratorOutput(
-            query=AssistantHogQLQuery(query="SELECT count() FROM events"), name="", description=""
-        )
+        assert result == SQLSchemaGeneratorOutput(query=AssistantHogQLQuery(query="SELECT count() FROM events"), name="", description="")
 
     def test_parse_output_with_empty_query(self):
         """Test parsing with empty query string."""

@@ -70,28 +70,7 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
         self.recurring_survey.refresh_from_db()
         assert self.recurring_survey.current_iteration == 3
 
-        assert {
-            "groups": [
-                {
-                    "variant": "",
-                    "properties": [
-                        {
-                            "key": f"$survey_dismissed/{self.recurring_survey.id}/3",
-                            "type": "person",
-                            "value": "is_not_set",
-                            "operator": "is_not_set",
-                        },
-                        {
-                            "key": f"$survey_responded/{self.recurring_survey.id}/3",
-                            "type": "person",
-                            "value": "is_not_set",
-                            "operator": "is_not_set",
-                        },
-                    ],
-                    "rollout_percentage": 100,
-                }
-            ]
-        }.items() <= self.recurring_survey.internal_targeting_flag.filters.items()
+        assert {"groups": [{"variant": "", "properties": [{"key": f"$survey_dismissed/{self.recurring_survey.id}/3", "type": "person", "value": "is_not_set", "operator": "is_not_set"}, {"key": f"$survey_responded/{self.recurring_survey.id}/3", "type": "person", "value": "is_not_set", "operator": "is_not_set"}], "rollout_percentage": 100}]}.items() <= self.recurring_survey.internal_targeting_flag.filters.items()
 
     def test_can_create_internal_targeting_flag(self) -> None:
         self.recurring_survey.start_date = now() - timedelta(self.iteration_frequency_days * 3)
@@ -106,28 +85,7 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
         internal_flag = FeatureFlag.objects.get(key=self.recurring_survey.id)
         assert internal_flag is not None
         if internal_flag is not None:
-            assert {
-                "groups": [
-                    {
-                        "variant": "",
-                        "properties": [
-                            {
-                                "key": f"$survey_dismissed/{self.recurring_survey.id}/3",
-                                "type": "person",
-                                "value": "is_not_set",
-                                "operator": "is_not_set",
-                            },
-                            {
-                                "key": f"$survey_responded/{self.recurring_survey.id}/3",
-                                "type": "person",
-                                "value": "is_not_set",
-                                "operator": "is_not_set",
-                            },
-                        ],
-                        "rollout_percentage": 100,
-                    }
-                ]
-            }.items() <= internal_flag.filters.items()
+            assert {"groups": [{"variant": "", "properties": [{"key": f"$survey_dismissed/{self.recurring_survey.id}/3", "type": "person", "value": "is_not_set", "operator": "is_not_set"}, {"key": f"$survey_responded/{self.recurring_survey.id}/3", "type": "person", "value": "is_not_set", "operator": "is_not_set"}], "rollout_percentage": 100}]}.items() <= internal_flag.filters.items()
 
     def test_iteration_change_updates_flag_with_new_iteration_suffix(self) -> None:
         """Test that when iteration changes, the flag is updated with the NEW iteration suffix.

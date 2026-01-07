@@ -88,17 +88,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 ]
             )
             response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
-            assert response == response | {
-                "columns": ["properties.key", "event", "distinct_id", "concat(event, ' ', properties.key)"],
-                "hasMore": False,
-                "results": [
-                    ["test_val1", "sign up", "2", "sign up test_val1"],
-                    ["test_val2", "sign out", "2", "sign out test_val2"],
-                    ["test_val2", "sign out", "2", "sign out test_val2"],
-                    ["test_val3", "sign out", "2", "sign out test_val3"],
-                ],
-                "types": ["Nullable(String)", "String", "String", "String"],
-            }
+            assert response == response | {"columns": ["properties.key", "event", "distinct_id", "concat(event, ' ', properties.key)"], "hasMore": False, "results": [["test_val1", "sign up", "2", "sign up test_val1"], ["test_val2", "sign out", "2", "sign out test_val2"], ["test_val2", "sign out", "2", "sign out test_val2"], ["test_val3", "sign out", "2", "sign out test_val3"]], "types": ["Nullable(String)", "String", "String", "String"]}
 
             query.select = ["*", "event"]
             response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
@@ -111,23 +101,13 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
             query.select = ["count()", "event"]
             response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
-            assert response == response | {
-                "columns": ["count()", "event"],
-                "hasMore": False,
-                "types": ["UInt64", "String"],
-                "results": [[3, "sign out"], [1, "sign up"]],
-            }
+            assert response == response | {"columns": ["count()", "event"], "hasMore": False, "types": ["UInt64", "String"], "results": [[3, "sign out"], [1, "sign up"]]}
 
             query.select = ["count()", "event"]
             query.where = ["event == 'sign up' or like(properties.key, '%val2')"]
             query.orderBy = ["count() DESC", "event"]
             response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
-            assert response == response | {
-                "columns": ["count()", "event"],
-                "hasMore": False,
-                "types": ["UInt64", "String"],
-                "results": [[2, "sign out"], [1, "sign up"]],
-            }
+            assert response == response | {"columns": ["count()", "event"], "hasMore": False, "types": ["UInt64", "String"], "results": [[2, "sign out"], [1, "sign up"]]}
 
     @also_test_with_materialized_columns(["key"])
     @snapshot_clickhouse_queries
@@ -335,12 +315,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response_post = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query})
             assert response_post.status_code == status.HTTP_400_BAD_REQUEST
 
-            assert response_post.json() == {
-                "type": "validation_error",
-                "code": "illegal_type_of_argument",
-                "detail": f"Illegal types DateTime64(6, 'UTC') and String of arguments of function plus: In scope SELECT toTimeZone(events.timestamp, 'UTC') + 'string' FROM events WHERE (events.team_id = {self.team.id}) AND (toTimeZone(events.timestamp, 'UTC') < toDateTime64('2024-10-16 22:10:34.691212', 6, 'UTC')) AND (toTimeZone(events.timestamp, 'UTC') > toDateTime64('2024-10-15 22:10:29.691212', 6, 'UTC')) ORDER BY toTimeZone(events.timestamp, 'UTC') + 'string' ASC LIMIT 0, 101 SETTINGS readonly = 2, max_execution_time = 60, allow_experimental_object_type = 1, format_csv_allow_double_quotes = 0, max_ast_elements = 4000000, max_expanded_ast_elements = 4000000, max_bytes_before_external_group_by = 0, transform_null_in = 1, optimize_min_equality_disjunction_chain_length = 4294967295, allow_experimental_join_condition = 1, use_hive_partitioning = 0.",
-                "attr": None,
-            }
+            assert response_post.json() == {"type": "validation_error", "code": "illegal_type_of_argument", "detail": f"Illegal types DateTime64(6, 'UTC') and String of arguments of function plus: In scope SELECT toTimeZone(events.timestamp, 'UTC') + 'string' FROM events WHERE (events.team_id = {self.team.id}) AND (toTimeZone(events.timestamp, 'UTC') < toDateTime64('2024-10-16 22:10:34.691212', 6, 'UTC')) AND (toTimeZone(events.timestamp, 'UTC') > toDateTime64('2024-10-15 22:10:29.691212', 6, 'UTC')) ORDER BY toTimeZone(events.timestamp, 'UTC') + 'string' ASC LIMIT 0, 101 SETTINGS readonly = 2, max_execution_time = 60, allow_experimental_object_type = 1, format_csv_allow_double_quotes = 0, max_ast_elements = 4000000, max_expanded_ast_elements = 4000000, max_bytes_before_external_group_by = 0, transform_null_in = 1, optimize_min_equality_disjunction_chain_length = 4294967295, allow_experimental_join_condition = 1, use_hive_partitioning = 0.", "attr": None}
 
     @patch(
         "posthog.clickhouse.client.execute._annotate_tagged_query", return_value=("SELECT 1&&&", {})
@@ -550,12 +525,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response = CachedHogQLQueryResponse.model_validate(api_response)
 
             assert (response.results and len(response.results)) == 4
-            assert response.results == [
-                ["sign up", "2", "test_val1"],
-                ["sign out", "2", "test_val2"],
-                ["sign out", "3", "test_val2"],
-                ["sign out", "4", "test_val3"],
-            ]
+            assert response.results == [["sign up", "2", "test_val1"], ["sign out", "2", "test_val2"], ["sign out", "3", "test_val2"], ["sign out", "4", "test_val3"]]
 
     def test_query_with_source(self):
         query = {
@@ -712,10 +682,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         assert api_response.status_code == 400
         assert api_response.json()["code"] == "parse_error"
         assert "1 validation error for QueryRequest" in api_response.json()["detail"], api_response.content
-        assert (
-            "Input tag 'Tomato Soup' found using 'kind' does not match any of the expected tags"
-            in api_response.json()["detail"]
-        ), api_response.content
+        assert "Input tag 'Tomato Soup' found using 'kind' does not match any of the expected tags" in api_response.json()["detail"], api_response.content
 
     def test_missing_query(self):
         api_response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": {}})
@@ -780,12 +747,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
             assert api_response.status_code == 200
             assert len(response.results) == 4
-            assert response.results == [
-                ["sign up", "2", "test_val1"],
-                ["sign out", "2", "test_val2"],
-                ["sign out", "3", "test_val2"],
-                ["sign out", "4", "test_val3"],
-            ]
+            assert response.results == [["sign up", "2", "test_val1"], ["sign out", "2", "test_val2"], ["sign out", "3", "test_val2"], ["sign out", "4", "test_val3"]]
 
     @snapshot_clickhouse_queries
     def test_full_hogql_query_async(self):
@@ -818,26 +780,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
 
             assert api_response.status_code == 202  # This means "Accepted" (for processing)
-            assert api_response.json() == {
-                "query_status": {
-                    "complete": False,
-                    "pickup_time": None,
-                    "end_time": None,
-                    "error": False,
-                    "error_message": None,
-                    "expiration_time": mock.ANY,
-                    "id": mock.ANY,
-                    "query_async": True,
-                    "results": None,
-                    "start_time": "2020-01-10T12:14:00Z",
-                    "task_id": mock.ANY,
-                    "team_id": mock.ANY,
-                    "insight_id": mock.ANY,
-                    "dashboard_id": mock.ANY,
-                    "query_progress": None,
-                    "labels": None,
-                }
-            }
+            assert api_response.json() == {"query_status": {"complete": False, "pickup_time": None, "end_time": None, "error": False, "error_message": None, "expiration_time": mock.ANY, "id": mock.ANY, "query_async": True, "results": None, "start_time": "2020-01-10T12:14:00Z", "task_id": mock.ANY, "team_id": mock.ANY, "insight_id": mock.ANY, "dashboard_id": mock.ANY, "query_progress": None, "labels": None}}
 
     def test_full_hogql_query_values(self):
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
@@ -1139,10 +1082,4 @@ class TestQueryUpgrade(APIBaseTest):
         response = self.client.post(f"/api/environments/{self.team.id}/query/upgrade/", {"query": query})
 
         assert response.status_code == 200
-        assert response.json() == {
-            "query": {
-                "kind": "RetentionQuery",
-                "retentionFilter": {"meanRetentionCalculation": "simple", "period": "Day", "totalIntervals": 7},
-                "version": 2,
-            }
-        }
+        assert response.json() == {"query": {"kind": "RetentionQuery", "retentionFilter": {"meanRetentionCalculation": "simple", "period": "Day", "totalIntervals": 7}, "version": 2}}

@@ -1,6 +1,5 @@
 from uuid import uuid4
 
-import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -24,6 +23,7 @@ from posthog.schema import (
 from ee.hogai.utils.types.base import AssistantMessageUnion
 
 from ..compaction_manager import AnthropicConversationCompactionManager
+import pytest
 
 
 class TestAnthropicConversationCompactionManager(BaseTest):
@@ -572,9 +572,7 @@ class TestAnthropicConversationCompactionManager(BaseTest):
                 tool_result_count += 1
 
         # Even when removing incomplete sequences, remaining should be complete
-        assert tool_call_count == tool_result_count, (
-            "Even when removing incomplete sequences, remaining should be complete"
-        )
+        assert tool_call_count == tool_result_count, "Even when removing incomplete sequences, remaining should be complete"
 
     def test_tool_call_multiple_complete_sequences(self):
         """

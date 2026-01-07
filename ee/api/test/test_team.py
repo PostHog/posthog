@@ -1,4 +1,5 @@
 import uuid
+from typing import Optional
 
 from freezegun import freeze_time
 from posthog.test.base import FuzzyInt
@@ -28,7 +29,7 @@ def team_enterprise_api_test_factory():
     class TestTeamEnterpriseAPI(APILicensedTest):
         CLASS_DATA_LEVEL_SETUP = False
 
-        def _assert_activity_log(self, expected: list[dict], team_id: int | None = None) -> None:
+        def _assert_activity_log(self, expected: list[dict], team_id: Optional[int] = None) -> None:
             if not team_id:
                 team_id = self.team.pk
 
@@ -55,9 +56,7 @@ def team_enterprise_api_test_factory():
                 "/api/projects/@current/environments/", {"name": "Test", "primary_dashboard": dashboard_x.id}
             )
             assert response.status_code == HTTP_400_BAD_REQUEST, response.json()
-            assert response.json() == self.validation_error_response(
-                "Primary dashboard cannot be set on project creation.", attr="primary_dashboard"
-            )
+            assert response.json() == self.validation_error_response("Primary dashboard cannot be set on project creation.", attr="primary_dashboard")
 
         @patch("posthog.demo.matrix.manager.MatrixManager.run_on_team")  # We don't actually need demo data, it's slow
         def test_create_demo_team(self, *args):
@@ -68,11 +67,7 @@ def team_enterprise_api_test_factory():
             assert response.status_code == 201, response.json()
             assert Team.objects.count() == 2
             response_data = response.json()
-            assert {
-                "name": "Hedgebox",
-                "access_control": False,
-                "effective_membership_level": OrganizationMembership.Level.ADMIN,
-            }.items() <= response_data.items()
+            assert {"name": "Hedgebox", "access_control": False, "effective_membership_level": OrganizationMembership.Level.ADMIN}.items() <= response_data.items()
             assert self.organization.teams.count() == 2
 
         @patch("posthog.demo.matrix.manager.MatrixManager.run_on_team")  # We don't actually need demo data, it's slow
@@ -85,19 +80,11 @@ def team_enterprise_api_test_factory():
             assert Team.objects.count() == 2
 
             response_data = response.json()
-            assert {
-                "name": "Hedgebox",
-                "access_control": False,
-                "effective_membership_level": OrganizationMembership.Level.ADMIN,
-            }.items() <= response_data.items()
+            assert {"name": "Hedgebox", "access_control": False, "effective_membership_level": OrganizationMembership.Level.ADMIN}.items() <= response_data.items()
             response_2 = self.client.post("/api/projects/@current/environments/", {"name": "Hedgebox", "is_demo": True})
             assert Team.objects.count() == 2, response_2.json()
             response_2_data = response_2.json()
-            assert response_2_data.get("detail") == (
-                "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
-                if self.client_class is not EnvironmentToProjectRewriteClient
-                else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
-            )
+            assert response_2_data.get("detail") == ("You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments." if self.client_class is not EnvironmentToProjectRewriteClient else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects.")
             assert response_2_data.get("type") == "authentication_error"
             assert response_2_data.get("code") == "permission_denied"
             assert self.organization.teams.count() == 2
@@ -171,11 +158,7 @@ def team_enterprise_api_test_factory():
             response_data = response.json()
 
             assert response.status_code == HTTP_200_OK
-            assert {
-                "name": "Default project",
-                "access_control": False,
-                "effective_membership_level": OrganizationMembership.Level.ADMIN,
-            }.items() <= response_data.items()
+            assert {"name": "Default project", "access_control": False, "effective_membership_level": OrganizationMembership.Level.ADMIN}.items() <= response_data.items()
 
         def test_fetch_team_as_org_member_works(self):
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -185,11 +168,7 @@ def team_enterprise_api_test_factory():
             response_data = response.json()
 
             assert response.status_code == HTTP_200_OK
-            assert {
-                "name": "Default project",
-                "access_control": False,
-                "effective_membership_level": OrganizationMembership.Level.MEMBER,
-            }.items() <= response_data.items()
+            assert {"name": "Default project", "access_control": False, "effective_membership_level": OrganizationMembership.Level.MEMBER}.items() <= response_data.items()
 
         def test_fetch_team_as_org_outsider(self):
             self.organization_membership.delete()
@@ -300,11 +279,7 @@ class TestTeamEnterpriseAPI(team_enterprise_api_test_factory()):
         assert Team.objects.count() == 2
         assert Project.objects.count() == 1  # Created under the same project, not a new one!
         response_data = response.json()
-        assert {
-            "name": "Test",
-            "access_control": False,
-            "effective_membership_level": OrganizationMembership.Level.ADMIN,
-        }.items() <= response_data.items()
+        assert {"name": "Test", "access_control": False, "effective_membership_level": OrganizationMembership.Level.ADMIN}.items() <= response_data.items()
         assert self.organization.teams.count() == 2
 
     def test_cannot_create_team_not_under_project(self):
@@ -316,9 +291,7 @@ class TestTeamEnterpriseAPI(team_enterprise_api_test_factory()):
         assert response.status_code == 400
         assert Team.objects.count() == 1
         assert Project.objects.count() == 1
-        assert response.json() == self.validation_error_response(
-            "Environments must be created under a specific project. Send the POST request to /api/projects/<project_id>/environments/ instead."
-        )
+        assert response.json() == self.validation_error_response("Environments must be created under a specific project. Send the POST request to /api/projects/<project_id>/environments/ instead.")
 
     def test_cannot_create_team_in_nonexistent_project(self):
         _, _, team = Organization.objects.bootstrap(self.user, name="other_org")
@@ -371,36 +344,6 @@ class TestTeamEnterpriseAPI(team_enterprise_api_test_factory()):
             current_org_response = self.client.get(f"/api/organizations/{self.organization.id}/")
 
         assert projects_response.status_code == HTTP_200_OK
-        assert projects_response.json().get("results") == [
-            {
-                "id": self.team.id,
-                "uuid": str(self.team.uuid),
-                "organization": str(self.organization.id),
-                "project_id": self.team.project.id,
-                "api_token": self.team.api_token,
-                "name": self.team.name,
-                "completed_snippet_onboarding": False,
-                "has_completed_onboarding_for": {"product_analytics": True},
-                "ingested_event": False,
-                "is_demo": False,
-                "timezone": "UTC",
-                "access_control": False,
-            }
-        ]
+        assert projects_response.json().get("results") == [{"id": self.team.id, "uuid": str(self.team.uuid), "organization": str(self.organization.id), "project_id": self.team.project.id, "api_token": self.team.api_token, "name": self.team.name, "completed_snippet_onboarding": False, "has_completed_onboarding_for": {"product_analytics": True}, "ingested_event": False, "is_demo": False, "timezone": "UTC", "access_control": False}]
         assert current_org_response.status_code == HTTP_200_OK
-        assert current_org_response.json().get("teams") == [
-            {
-                "id": self.team.id,
-                "uuid": str(self.team.uuid),
-                "organization": str(self.organization.id),
-                "project_id": self.team.project.id,
-                "api_token": self.team.api_token,
-                "name": self.team.name,
-                "completed_snippet_onboarding": False,
-                "has_completed_onboarding_for": {"product_analytics": True},
-                "ingested_event": False,
-                "is_demo": False,
-                "timezone": "UTC",
-                "access_control": False,
-            }
-        ]
+        assert current_org_response.json().get("teams") == [{"id": self.team.id, "uuid": str(self.team.uuid), "organization": str(self.organization.id), "project_id": self.team.project.id, "api_token": self.team.api_token, "name": self.team.name, "completed_snippet_onboarding": False, "has_completed_onboarding_for": {"product_analytics": True}, "ingested_event": False, "is_demo": False, "timezone": "UTC", "access_control": False}]

@@ -7,7 +7,6 @@ Tests cover:
 - Tasks skip when FLAGS_REDIS_URL not configured
 """
 
-import pytest
 from unittest.mock import MagicMock, patch
 
 from django.test import TestCase, override_settings
@@ -16,6 +15,7 @@ from posthog.tasks.hypercache_verification import (
     verify_and_fix_flags_cache_task,
     verify_and_fix_team_metadata_cache_task,
 )
+import pytest
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")

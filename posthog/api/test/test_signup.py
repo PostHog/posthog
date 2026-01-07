@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timedelta
-from typing import cast
+from typing import Optional, cast
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -66,18 +66,7 @@ class TestSignupAPI(APIBaseTest):
         team = cast(Team, user.team)
         organization = cast(Organization, user.organization)
 
-        assert response.json() == {
-            "id": user.pk,
-            "uuid": str(user.uuid),
-            "distinct_id": user.distinct_id,
-            "first_name": "John",
-            "last_name": "Doe",
-            "email": "hedgehog@posthog.com",
-            "redirect_url": "/",
-            "is_email_verified": False,
-            "hedgehog_config": None,
-            "role_at_organization": "product",
-        }
+        assert response.json() == {"id": user.pk, "uuid": str(user.uuid), "distinct_id": user.distinct_id, "first_name": "John", "last_name": "Doe", "email": "hedgehog@posthog.com", "redirect_url": "/", "is_email_verified": False, "hedgehog_config": None, "role_at_organization": "product"}
 
         # Assert that the user was properly created
         assert user.first_name == "John"
@@ -135,18 +124,7 @@ class TestSignupAPI(APIBaseTest):
 
         user = cast(User, User.objects.order_by("-pk")[0])
 
-        assert response.json() == {
-            "id": user.pk,
-            "uuid": str(user.uuid),
-            "distinct_id": user.distinct_id,
-            "first_name": "John",
-            "last_name": "Doe",
-            "email": "hedgehog@posthog.com",
-            "redirect_url": f"/verify_email/{user.uuid}",
-            "is_email_verified": False,
-            "hedgehog_config": None,
-            "role_at_organization": "product",
-        }
+        assert response.json() == {"id": user.pk, "uuid": str(user.uuid), "distinct_id": user.distinct_id, "first_name": "John", "last_name": "Doe", "email": "hedgehog@posthog.com", "redirect_url": f"/verify_email/{user.uuid}", "is_email_verified": False, "hedgehog_config": None, "role_at_organization": "product"}
 
         # Assert that the user is logged in
         response = self.client.get("/api/users/@me/")
@@ -183,18 +161,7 @@ class TestSignupAPI(APIBaseTest):
 
         user = cast(User, User.objects.order_by("-pk")[0])
 
-        assert response.json() == {
-            "id": user.pk,
-            "uuid": str(user.uuid),
-            "distinct_id": user.distinct_id,
-            "first_name": "John",
-            "last_name": "Doe",
-            "email": "hedgehog@posthog.com",
-            "redirect_url": "/",
-            "is_email_verified": False,
-            "hedgehog_config": None,
-            "role_at_organization": "product",
-        }
+        assert response.json() == {"id": user.pk, "uuid": str(user.uuid), "distinct_id": user.distinct_id, "first_name": "John", "last_name": "Doe", "email": "hedgehog@posthog.com", "redirect_url": "/", "is_email_verified": False, "hedgehog_config": None, "role_at_organization": "product"}
         mock_is_email_available.assert_called()
         mock_verification_disabled.assert_called()
         mock_email_verifier.assert_not_called()
@@ -216,9 +183,7 @@ class TestSignupAPI(APIBaseTest):
             },
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == self.validation_error_response(
-            "There is already an account with this email address.", code="unique", attr="email"
-        )
+        assert response.json() == self.validation_error_response("There is already an account with this email address.", code="unique", attr="email")
         assert User.objects.count() == 1
 
     @pytest.mark.skip_on_multitenancy
@@ -247,9 +212,7 @@ class TestSignupAPI(APIBaseTest):
                     },
                 )
                 assert response.status_code == status.HTTP_400_BAD_REQUEST
-                assert response.json() == self.validation_error_response(
-                    "There is already an account with this email address.", code="unique", attr="email"
-                )
+                assert response.json() == self.validation_error_response("There is already an account with this email address.", code="unique", attr="email")
 
         assert User.objects.count() == initial_user_count
         existing_user.refresh_from_db()
@@ -308,13 +271,7 @@ class TestSignupAPI(APIBaseTest):
                 },
             )
             assert response.status_code == status.HTTP_403_FORBIDDEN
-            assert response.json() == {
-                "attr": None,
-                "code": "permission_denied",
-                "detail": "New organizations cannot be created in this instance. Contact your administrator if you"
-                " think this is a mistake.",
-                "type": "authentication_error",
-            }
+            assert response.json() == {"attr": None, "code": "permission_denied", "detail": "New organizations cannot be created in this instance. Contact your administrator if you" " think this is a mistake.", "type": "authentication_error"}
 
     @pytest.mark.ee
     def test_signup_allowed_on_self_hosted_with_env_var(self):
@@ -362,18 +319,7 @@ class TestSignupAPI(APIBaseTest):
 
         user = cast(User, User.objects.order_by("-pk").get())
         organization = cast(Organization, user.organization)
-        assert response.json() == {
-            "id": user.pk,
-            "uuid": str(user.uuid),
-            "distinct_id": user.distinct_id,
-            "last_name": "",
-            "first_name": "Jane",
-            "email": "hedgehog2@posthog.com",
-            "redirect_url": "/",
-            "is_email_verified": False,
-            "hedgehog_config": None,
-            "role_at_organization": "product",
-        }
+        assert response.json() == {"id": user.pk, "uuid": str(user.uuid), "distinct_id": user.distinct_id, "last_name": "", "first_name": "Jane", "email": "hedgehog2@posthog.com", "redirect_url": "/", "is_email_verified": False, "hedgehog_config": None, "role_at_organization": "product"}
 
         # Assert that the user & org were properly created
         assert user.first_name == "Jane"
@@ -421,12 +367,7 @@ class TestSignupAPI(APIBaseTest):
             # Make sure the endpoint works with and without the trailing slash
             response = self.client.post("/api/signup", body)
             assert response.status_code == status.HTTP_400_BAD_REQUEST, f"{attribute} is required"
-            assert response.json() == {
-                "type": "validation_error",
-                "code": "required",
-                "detail": "This field is required.",
-                "attr": attribute,
-            }, f"{attribute} is required"
+            assert response.json() == {"type": "validation_error", "code": "required", "detail": "This field is required.", "attr": attribute}, f"{attribute} is required"
 
         assert User.objects.count() == count
         assert Team.objects.count() == team_count
@@ -440,7 +381,7 @@ class TestSignupAPI(APIBaseTest):
         required_attributes = ["first_name", "email"]
 
         for attribute in required_attributes:
-            body: dict[str, str | None] = {
+            body: dict[str, Optional[str]] = {
                 "first_name": "Jane",
                 "email": "invalid@posthog.com",
                 "password": VALID_TEST_PASSWORD,
@@ -449,12 +390,7 @@ class TestSignupAPI(APIBaseTest):
 
             response = self.client.post("/api/signup/", body)
             assert response.status_code == status.HTTP_400_BAD_REQUEST, f"{attribute} may not be null"
-            assert response.json() == {
-                "type": "validation_error",
-                "code": "null",
-                "detail": "This field may not be null.",
-                "attr": attribute,
-            }, f"{attribute} may not be null"
+            assert response.json() == {"type": "validation_error", "code": "null", "detail": "This field may not be null.", "attr": attribute}, f"{attribute} may not be null"
 
         assert User.objects.count() == count
         assert Team.objects.count() == team_count
@@ -469,12 +405,7 @@ class TestSignupAPI(APIBaseTest):
             {"first_name": "Jane", "email": "failed@posthog.com", "password": "123"},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "password_too_short",
-            "detail": "This password is too short. It must contain at least 8 characters.",
-            "attr": "password",
-        }
+        assert response.json() == {"type": "validation_error", "code": "password_too_short", "detail": "This password is too short. It must contain at least 8 characters.", "attr": "password"}
 
         assert User.objects.count() == count
         assert Team.objects.count() == team_count
@@ -521,18 +452,7 @@ class TestSignupAPI(APIBaseTest):
 
         user: User = User.objects.order_by("-pk").get()
 
-        assert response.json() == {
-            "id": user.pk,
-            "uuid": str(user.uuid),
-            "distinct_id": user.distinct_id,
-            "last_name": "",
-            "first_name": "Jane",
-            "email": "hedgehog75@posthog.com",
-            "redirect_url": "/",
-            "is_email_verified": False,
-            "hedgehog_config": None,
-            "role_at_organization": "product",
-        }
+        assert response.json() == {"id": user.pk, "uuid": str(user.uuid), "distinct_id": user.distinct_id, "last_name": "", "first_name": "Jane", "email": "hedgehog75@posthog.com", "redirect_url": "/", "is_email_verified": False, "hedgehog_config": None, "role_at_organization": "product"}
 
         dashboard: Dashboard = Dashboard.objects.first()  # type: ignore
         assert dashboard.team == user.team
@@ -705,18 +625,12 @@ class TestSignupAPI(APIBaseTest):
         assert user.organization == new_org
         assert user.team == new_project
         assert user.organization_memberships.count() == 1
-        assert (
-            cast(OrganizationMembership, user.organization_memberships.first()).level
-            == OrganizationMembership.Level.MEMBER
-        )
+        assert cast(OrganizationMembership, user.organization_memberships.first()).level == OrganizationMembership.Level.MEMBER
         assert not mock_capture.call_args.kwargs["properties"]["is_organization_first_user"]
 
         if use_invite and not expired_invite:
             # make sure the org invite no longer exists
-            assert (
-                OrganizationInvite.objects.filter(organization=new_org, target_email="jane@hogflix.posthog.com").count()
-                == 0
-            )
+            assert OrganizationInvite.objects.filter(organization=new_org, target_email="jane@hogflix.posthog.com").count() == 0
             teams = user.teams.all()
             # make sure user has access to the private project specified in the invite
             assert teams.filter(pk=private_project.pk).exists()
@@ -846,10 +760,7 @@ class TestSignupAPI(APIBaseTest):
             assert user.organization == new_org
             assert user.team == new_project
             assert user.organization_memberships.count() == 1
-            assert (
-                cast(OrganizationMembership, user.organization_memberships.first()).level
-                == OrganizationMembership.Level.MEMBER
-            )
+            assert cast(OrganizationMembership, user.organization_memberships.first()).level == OrganizationMembership.Level.MEMBER
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
@@ -1147,12 +1058,7 @@ class TestInviteSignupAPI(APIBaseTest):
 
         response = self.client.get(f"/api/signup/{invite.id}/")
         assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {
-            "id": str(invite.id),
-            "target_email": "test+19@posthog.com",
-            "first_name": "",
-            "organization_name": self.CONFIG_ORGANIZATION_NAME,
-        }
+        assert response.json() == {"id": str(invite.id), "target_email": "test+19@posthog.com", "first_name": "", "organization_name": self.CONFIG_ORGANIZATION_NAME}
 
     def test_api_invite_sign_up_with_first_name_prevalidate(self):
         invite: OrganizationInvite = OrganizationInvite.objects.create(
@@ -1163,12 +1069,7 @@ class TestInviteSignupAPI(APIBaseTest):
 
         response = self.client.get(f"/api/signup/{invite.id}/")
         assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {
-            "id": str(invite.id),
-            "target_email": "test+58@posthog.com",
-            "first_name": "Jane",
-            "organization_name": self.CONFIG_ORGANIZATION_NAME,
-        }
+        assert response.json() == {"id": str(invite.id), "target_email": "test+58@posthog.com", "first_name": "Jane", "organization_name": self.CONFIG_ORGANIZATION_NAME}
 
     def test_api_invite_sign_up_prevalidate_for_existing_user(self):
         user = self._create_user("test+29@posthog.com", VALID_TEST_PASSWORD)
@@ -1180,23 +1081,13 @@ class TestInviteSignupAPI(APIBaseTest):
         self.client.force_login(user)
         response = self.client.get(f"/api/signup/{invite.id}/")
         assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {
-            "id": str(invite.id),
-            "target_email": "test+29@posthog.com",
-            "first_name": "",
-            "organization_name": "Test, Inc",
-        }
+        assert response.json() == {"id": str(invite.id), "target_email": "test+29@posthog.com", "first_name": "", "organization_name": "Test, Inc"}
 
     def test_api_invite_sign_up_prevalidate_invalid_invite(self):
         for invalid_invite in [uuid.uuid4(), "abc", "1234"]:
             response = self.client.get(f"/api/signup/{invalid_invite}/")
             assert response.status_code == status.HTTP_400_BAD_REQUEST
-            assert response.json() == {
-                "type": "validation_error",
-                "code": "invalid_input",
-                "detail": "The provided invite ID is not valid.",
-                "attr": None,
-            }
+            assert response.json() == {"type": "validation_error", "code": "invalid_input", "detail": "The provided invite ID is not valid.", "attr": None}
 
     def test_existing_user_cant_claim_invite_if_it_doesnt_match_target_email(self):
         user = self._create_user("test+39@posthog.com", VALID_TEST_PASSWORD)
@@ -1207,12 +1098,7 @@ class TestInviteSignupAPI(APIBaseTest):
         self.client.force_login(user)
         response = self.client.get(f"/api/signup/{invite.id}/")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "invalid_recipient",
-            "detail": "This invite is intended for another email address.",
-            "attr": None,
-        }
+        assert response.json() == {"type": "validation_error", "code": "invalid_recipient", "detail": "This invite is intended for another email address.", "attr": None}
 
     def test_api_invite_sign_up_prevalidate_expired_invite(self):
         invite: OrganizationInvite = OrganizationInvite.objects.create(
@@ -1223,12 +1109,7 @@ class TestInviteSignupAPI(APIBaseTest):
 
         response = self.client.get(f"/api/signup/{invite.id}/")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "expired",
-            "detail": "This invite has expired. Please ask your admin for a new one.",
-            "attr": None,
-        }
+        assert response.json() == {"type": "validation_error", "code": "expired", "detail": "This invite has expired. Please ask your admin for a new one.", "attr": None}
 
     # Signup (using invite)
 
@@ -1249,18 +1130,7 @@ class TestInviteSignupAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_201_CREATED
         user = cast(User, User.objects.order_by("-pk")[0])
-        assert response.json() == {
-            "id": user.pk,
-            "uuid": str(user.uuid),
-            "distinct_id": user.distinct_id,
-            "last_name": "",
-            "first_name": "Alice",
-            "email": "test+99@posthog.com",
-            "redirect_url": "/",
-            "is_email_verified": False,
-            "hedgehog_config": None,
-            "role_at_organization": "Engineering",
-        }
+        assert response.json() == {"id": user.pk, "uuid": str(user.uuid), "distinct_id": user.distinct_id, "last_name": "", "first_name": "Alice", "email": "test+99@posthog.com", "redirect_url": "/", "is_email_verified": False, "hedgehog_config": None, "role_at_organization": "Engineering"}
 
         # User is now a member of the organization
         assert user.organization_memberships.count() == 1
@@ -1540,18 +1410,7 @@ class TestInviteSignupAPI(APIBaseTest):
         with self.is_cloud(True):
             response = self.client.post(f"/api/signup/{invite.id}/")
         assert response.status_code == status.HTTP_201_CREATED
-        assert response.json() == {
-            "id": user.pk,
-            "uuid": str(user.uuid),
-            "distinct_id": user.distinct_id,
-            "last_name": "",
-            "first_name": "",
-            "email": "test+159@posthog.com",
-            "redirect_url": "/",
-            "is_email_verified": None,
-            "hedgehog_config": None,
-            "role_at_organization": "product",
-        }
+        assert response.json() == {"id": user.pk, "uuid": str(user.uuid), "distinct_id": user.distinct_id, "last_name": "", "first_name": "", "email": "test+159@posthog.com", "redirect_url": "/", "is_email_verified": None, "hedgehog_config": None, "role_at_organization": "product"}
 
         # No new user is created
         assert User.objects.count() == count
@@ -1617,17 +1476,17 @@ class TestInviteSignupAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json() == {
-            "id": user.pk,
-            "uuid": str(user.uuid),
-            "distinct_id": user.distinct_id,
-            "last_name": "",
-            "first_name": "",
-            "email": "test+189@posthog.com",
-            "redirect_url": "/",
-            "is_email_verified": None,
-            "hedgehog_config": None,
-            "role_at_organization": None,
-        }
+                "id": user.pk,
+                "uuid": str(user.uuid),
+                "distinct_id": user.distinct_id,
+                "last_name": "",
+                "first_name": "",
+                "email": "test+189@posthog.com",
+                "redirect_url": "/",
+                "is_email_verified": None,
+                "hedgehog_config": None,
+                "role_at_organization": None,
+            }
 
         # User is subscribed to the new organization
         user.refresh_from_db()
@@ -1669,12 +1528,7 @@ class TestInviteSignupAPI(APIBaseTest):
 
             response = self.client.post(f"/api/signup/{invite.id}/", body)
             assert response.status_code == status.HTTP_400_BAD_REQUEST
-            assert response.json() == {
-                "type": "validation_error",
-                "code": "required",
-                "detail": "This field is required.",
-                "attr": attribute,
-            }
+            assert response.json() == {"type": "validation_error", "code": "required", "detail": "This field is required.", "attr": attribute}
 
         assert User.objects.count() == count
         assert Team.objects.count() == team_count
@@ -1691,12 +1545,7 @@ class TestInviteSignupAPI(APIBaseTest):
 
         response = self.client.post(f"/api/signup/{invite.id}/", {"first_name": "Charlie", "password": "123"})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "password_too_short",
-            "detail": "This password is too short. It must contain at least 8 characters.",
-            "attr": "password",
-        }
+        assert response.json() == {"type": "validation_error", "code": "password_too_short", "detail": "This password is too short. It must contain at least 8 characters.", "attr": "password"}
 
         assert User.objects.count() == count
         assert Team.objects.count() == team_count
@@ -1712,12 +1561,7 @@ class TestInviteSignupAPI(APIBaseTest):
             {"first_name": "Charlie", "password": VALID_TEST_PASSWORD},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "invalid_input",
-            "detail": "The provided invite ID is not valid.",
-            "attr": None,
-        }
+        assert response.json() == {"type": "validation_error", "code": "invalid_input", "detail": "The provided invite ID is not valid.", "attr": None}
 
         assert User.objects.count() == count
         assert Team.objects.count() == team_count
@@ -1739,12 +1583,7 @@ class TestInviteSignupAPI(APIBaseTest):
             {"first_name": "Charlie", "password": VALID_TEST_PASSWORD},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "expired",
-            "detail": "This invite has expired. Please ask your admin for a new one.",
-            "attr": None,
-        }
+        assert response.json() == {"type": "validation_error", "code": "expired", "detail": "This invite has expired. Please ask your admin for a new one.", "attr": None}
 
         assert User.objects.count() == count
         assert Team.objects.count() == team_count
@@ -1776,12 +1615,7 @@ class TestInviteSignupAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "sso_enforced",
-            "detail": "Sign up with a password is disabled because SSO login is enforced for this domain. Please log in with your SSO credentials.",
-            "attr": None,
-        }
+        assert response.json() == {"type": "validation_error", "code": "sso_enforced", "detail": "Sign up with a password is disabled because SSO login is enforced for this domain. Please log in with your SSO credentials.", "attr": None}
 
         # Verify no user was created and invite was not used
         assert not User.objects.filter(email="test+sso@posthog.com").exists()
@@ -1813,12 +1647,7 @@ class TestInviteSignupAPI(APIBaseTest):
         assert response.json() == {"continue_url": "/complete/google-oauth2/"}
 
         # Check the organization and user were created
-        assert (
-            User.objects.filter(
-                email="test_api_social_invite_sign_up@posthog.com", first_name="Max", is_email_verified=True
-            ).count()
-            == 1
-        )
+        assert User.objects.filter(email="test_api_social_invite_sign_up@posthog.com", first_name="Max", is_email_verified=True).count() == 1
         assert Organization.objects.filter(name="Org test_api_social_invite_sign_up").count() == 1
 
     @patch("posthog.api.signup.is_email_available", return_value=True)
@@ -1848,12 +1677,7 @@ class TestInviteSignupAPI(APIBaseTest):
         assert response.json() == {"continue_url": "/complete/google-oauth2/"}
 
         # Check the organization and user were created
-        assert (
-            User.objects.filter(
-                email="test_api_social_invite_sign_up_with_verification@posthog.com", first_name="Max"
-            ).count()
-            == 1
-        )
+        assert User.objects.filter(email="test_api_social_invite_sign_up_with_verification@posthog.com", first_name="Max").count() == 1
         assert Organization.objects.filter(name="Org test_api_social_invite_sign_up_with_verification").count() == 1
         me_response = self.client.get("/api/users/@me/")
         assert me_response.status_code == status.HTTP_200_OK
@@ -1866,12 +1690,7 @@ class TestInviteSignupAPI(APIBaseTest):
             {"organization_name": "Tech R Us", "first_name": "Max"},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "invalid_input",
-            "detail": "Inactive social login session. Go to /login and log in before continuing.",
-            "attr": None,
-        }
+        assert response.json() == {"type": "validation_error", "code": "invalid_input", "detail": "Inactive social login session. Go to /login and log in before continuing.", "attr": None}
         assert len(self.client.session.keys()) == 0  # Nothing is saved in the session
 
     def test_cannot_use_social_invite_sign_up_without_required_attributes(self):
@@ -1879,12 +1698,7 @@ class TestInviteSignupAPI(APIBaseTest):
 
         response = self.client.post("/api/social_signup", {})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "required",
-            "detail": "This field is required.",
-            "attr": "organization_name",
-        }
+        assert response.json() == {"type": "validation_error", "code": "required", "detail": "This field is required.", "attr": "organization_name"}
         assert len(self.client.session.keys()) == 0  # Nothing is saved in the session
 
     def test_invite_an_already_existing_user(self):

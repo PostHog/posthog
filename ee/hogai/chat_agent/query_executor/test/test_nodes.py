@@ -190,10 +190,7 @@ class TestQueryExecutorNode(ClickhouseTestMixin, NonAtomicBaseTest):
         new_state = cast(PartialAssistantState, new_state)
         mock_process_query_dict.assert_called_once()  # Query processing started
         msg = cast(AssistantMessage, new_state.messages[0])
-        assert (
-            msg.content
-            == "There was an error running this query: Error executing query: There was an unknown error running this query."
-        )
+        assert msg.content == "There was an error running this query: Error executing query: There was an unknown error running this query."
         assert msg.type == "ai"
         assert msg.id is not None
 
@@ -237,10 +234,7 @@ class TestQueryExecutorNode(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_process_query_dict.assert_called_once()  # Query processing started
         msg = new_state.messages[0]
         assert isinstance(msg, AssistantMessage)
-        assert (
-            msg.content
-            == "There was an error running this query: Error executing query: This query exceeds the capabilities of our picolator. Try de-brolling its flim-flam."
-        )
+        assert msg.content == "There was an error running this query: Error executing query: This query exceeds the capabilities of our picolator. Try de-brolling its flim-flam."
         assert msg.type == "ai"
         assert msg.id is not None
 

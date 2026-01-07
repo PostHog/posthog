@@ -1,6 +1,5 @@
 from uuid import uuid4
 
-import pytest
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -15,6 +14,7 @@ from ee.hogai.tools.search import DOC_ITEM_TEMPLATE, DOCS_SEARCH_RESULTS_TEMPLAT
 from ee.hogai.utils.tests import FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import NodePath
+import pytest
 
 
 class TestSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):

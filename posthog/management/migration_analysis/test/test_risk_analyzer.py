@@ -1430,7 +1430,7 @@ class TestCombinationRisks:
         # Message should be specific about DDL + schema operations
         ddl_warnings = [r for r in migration_risk.combination_risks if "RunSQL DDL and Django schema operations" in r]
         assert len(ddl_warnings) == 1, (
-            f"Should warn about DDL mixed with schema operations. Got warnings: {migration_risk.combination_risks}"
+            f"Should warn about DDL mixed with schema operations. " f"Got warnings: {migration_risk.combination_risks}"
         )
 
     def test_create_model_with_add_index_safe(self):

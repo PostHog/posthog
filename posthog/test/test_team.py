@@ -1,4 +1,3 @@
-import pytest
 from unittest import mock
 
 from django.core.cache import cache
@@ -14,6 +13,7 @@ from posthog.models.project import Project
 from posthog.models.team import get_team_in_cache, util
 
 from .base import BaseTest
+import pytest
 
 util.can_enable_actor_on_events = True
 
@@ -73,19 +73,14 @@ class TestTeam(BaseTest):
 
     def test_create_team_with_test_account_filters(self):
         team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
-        assert team.test_account_filters == [
-            {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},
-            {"key": "$host", "operator": "not_regex", "value": "^(localhost|127\\.0\\.0\\.1)($|:)", "type": "event"},
-        ]
+        assert team.test_account_filters == [{"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}, {"key": "$host", "operator": "not_regex", "value": "^(localhost|127\\.0\\.0\\.1)($|:)", "type": "event"}]
 
         # test generic emails
         user = User.objects.create(email="test@gmail.com")
         organization = Organization.objects.create()
         organization.members.set([user])
         team = Team.objects.create_with_data(initiating_user=self.user, organization=organization)
-        assert team.test_account_filters == [
-            {"key": "$host", "operator": "not_regex", "value": "^(localhost|127\\.0\\.0\\.1)($|:)", "type": "event"}
-        ]
+        assert team.test_account_filters == [{"key": "$host", "operator": "not_regex", "value": "^(localhost|127\\.0\\.0\\.1)($|:)", "type": "event"}]
 
     def test_create_team_sets_primary_dashboard(self):
         team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)

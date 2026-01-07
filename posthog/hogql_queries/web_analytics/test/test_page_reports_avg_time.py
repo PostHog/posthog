@@ -1,7 +1,6 @@
 from collections import defaultdict
 from dataclasses import dataclass
 
-import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 
@@ -11,6 +10,7 @@ from posthog.schema import DateRange, HogQLFilters, HogQLQuery
 
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.models.utils import uuid7
+import pytest
 
 
 @dataclass

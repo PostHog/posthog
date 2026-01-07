@@ -694,12 +694,7 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             control_variant = next(v for v in result.variants if v.key == "control")
             test_variant = next(v for v in result.variants if v.key == "test")
 
-            assert {
-                "control_success": int(control_variant.success_count),
-                "control_failure": int(control_variant.failure_count),
-                "test_success": int(test_variant.success_count),
-                "test_failure": int(test_variant.failure_count),
-            } == expected_results
+            assert {"control_success": int(control_variant.success_count), "control_failure": int(control_variant.failure_count), "test_success": int(test_variant.success_count), "test_failure": int(test_variant.failure_count)} == expected_results
 
     @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner_with_holdout(self):

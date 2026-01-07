@@ -67,12 +67,7 @@ class BackfillHogFlowBillableActionTypesTest(TestCase):
 
         # Check results - only billable action types
         assert sorted(flow1.billable_action_types or []) == ["function", "function_email"]
-        assert sorted(flow2.billable_action_types or []) == [
-            "function",
-            "function_email",
-            "function_push",
-            "function_sms",
-        ]
+        assert sorted(flow2.billable_action_types or []) == ["function", "function_email", "function_push", "function_sms"]
         assert flow3.billable_action_types == []
 
         # Check output

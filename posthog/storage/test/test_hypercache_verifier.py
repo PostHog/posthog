@@ -8,7 +8,6 @@ Tests cover:
 - Error handling and edge cases
 """
 
-import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -25,6 +24,7 @@ from posthog.storage.hypercache_verifier import (
     _verify_empty_cache_team,
     verify_and_fix_all_teams,
 )
+import pytest
 
 
 class TestVerificationResult(TestCase):

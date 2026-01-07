@@ -284,9 +284,9 @@ class TestSurvey(APIBaseTest):
 
         assert survey.internal_targeting_flag is not None
         survey.internal_targeting_flag.refresh_from_db()
-        assert survey.internal_targeting_flag.filters == expected_filters_with_iteration, (
-            f"Expected iteration-aware filters but got: {survey.internal_targeting_flag.filters}"
-        )
+        assert (
+            survey.internal_targeting_flag.filters == expected_filters_with_iteration
+        ), f"Expected iteration-aware filters but got: {survey.internal_targeting_flag.filters}"
 
     def test_can_create_survey_with_linked_flag_and_targeting(self):
         notebooks_flag = FeatureFlag.objects.create(team=self.team, key="notebooks", created_by=self.user)
@@ -507,10 +507,7 @@ class TestSurvey(APIBaseTest):
 
             assert result["count"] == 2
 
-            assert [(res["key"], [survey["id"] for survey in res["surveys"]]) for res in result["results"]] == [
-                ("flag_0", []),
-                (ff_key, [created_survey1, created_survey2]),
-            ]
+            assert [(res["key"], [survey["id"] for survey in res["surveys"]]) for res in result["results"]] == [("flag_0", []), (ff_key, [created_survey1, created_survey2])]
 
     def test_updating_survey_with_invalid_iteration_count_is_rejected(self):
         survey_with_targeting = self.client.post(
@@ -2026,9 +2023,9 @@ class TestSurvey(APIBaseTest):
 
         fs_entry = FileSystem.objects.filter(team=self.team, ref=str(survey_id), type="survey").first()
         assert fs_entry is not None, "A FileSystem entry was not created for this Survey."
-        assert "Special Folder/Surveys" in fs_entry.path, (
-            f"Expected path to include 'Special Folder/Surveys', got '{fs_entry.path}'."
-        )
+        assert (
+            "Special Folder/Surveys" in fs_entry.path
+        ), f"Expected path to include 'Special Folder/Surveys', got '{fs_entry.path}'."
 
 
 class TestMultipleChoiceQuestions(APIBaseTest):
@@ -3354,51 +3351,51 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
             assert response.status_code == status.HTTP_200_OK
             assert response.get("access-control-allow-origin") == "http://127.0.0.1:8000"
             assert response.json()["surveys"] == [
-                {
-                    "id": str(survey_with_actions.id),
-                    "name": "survey with actions",
-                    "type": "popover",
-                    "questions": [
-                        {
-                            "id": str(survey_with_actions.questions[0]["id"]),
-                            "type": "open",
-                            "question": "Why's a hedgehog?",
-                        }
-                    ],
-                    "conditions": {
-                        "actions": {
-                            "values": [
-                                {
-                                    "id": action.id,
-                                    "name": "user subscribed",
-                                    "steps": [
-                                        {
-                                            "event": "$pageview",
-                                            "properties": None,
-                                            "selector": None,
-                                            "selector_regex": None,
-                                            "tag_name": None,
-                                            "text": None,
-                                            "text_matching": None,
-                                            "href": None,
-                                            "href_matching": None,
-                                            "url": "docs",
-                                            "url_matching": "contains",
-                                        }
-                                    ],
-                                }
-                            ]
-                        }
-                    },
-                    "appearance": None,
-                    "start_date": None,
-                    "end_date": None,
-                    "current_iteration": None,
-                    "current_iteration_start_date": None,
-                    "schedule": "once",
-                    "enable_partial_responses": False,
-                }
-            ]
+                    {
+                        "id": str(survey_with_actions.id),
+                        "name": "survey with actions",
+                        "type": "popover",
+                        "questions": [
+                            {
+                                "id": str(survey_with_actions.questions[0]["id"]),
+                                "type": "open",
+                                "question": "Why's a hedgehog?",
+                            }
+                        ],
+                        "conditions": {
+                            "actions": {
+                                "values": [
+                                    {
+                                        "id": action.id,
+                                        "name": "user subscribed",
+                                        "steps": [
+                                            {
+                                                "event": "$pageview",
+                                                "properties": None,
+                                                "selector": None,
+                                                "selector_regex": None,
+                                                "tag_name": None,
+                                                "text": None,
+                                                "text_matching": None,
+                                                "href": None,
+                                                "href_matching": None,
+                                                "url": "docs",
+                                                "url_matching": "contains",
+                                            }
+                                        ],
+                                    }
+                                ]
+                            }
+                        },
+                        "appearance": None,
+                        "start_date": None,
+                        "end_date": None,
+                        "current_iteration": None,
+                        "current_iteration_start_date": None,
+                        "schedule": "once",
+                        "enable_partial_responses": False,
+                    }
+                ]
 
     @snapshot_postgres_queries
     def test_list_surveys(self):
@@ -3433,41 +3430,8 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
             assert response.status_code == status.HTTP_200_OK
             assert response.get("access-control-allow-origin") == "http://127.0.0.1:8000"
             surveys = response.json()["surveys"]
-            assert {
-                "id": str(survey_with_flags.id),
-                "name": "Survey 2",
-                "type": "popover",
-                "conditions": None,
-                "appearance": None,
-                "questions": [
-                    {"id": str(survey_with_flags.questions[0]["id"]), "type": "open", "question": "What's a hedgehog?"}
-                ],
-                "linked_flag_key": "linked-flag",
-                "targeting_flag_key": "targeting-flag",
-                "current_iteration": None,
-                "current_iteration_start_date": None,
-                "internal_targeting_flag_key": "custom-targeting-flag",
-                "start_date": None,
-                "end_date": None,
-                "schedule": "once",
-                "enable_partial_responses": False,
-            } in surveys
-            assert {
-                "id": str(basic_survey.id),
-                "name": "Survey 1",
-                "type": "popover",
-                "questions": [
-                    {"id": str(basic_survey.questions[0]["id"]), "type": "open", "question": "What's a survey?"}
-                ],
-                "conditions": None,
-                "appearance": None,
-                "start_date": None,
-                "end_date": None,
-                "current_iteration": None,
-                "current_iteration_start_date": None,
-                "schedule": "once",
-                "enable_partial_responses": False,
-            } in surveys
+            assert {"id": str(survey_with_flags.id), "name": "Survey 2", "type": "popover", "conditions": None, "appearance": None, "questions": [{"id": str(survey_with_flags.questions[0]["id"]), "type": "open", "question": "What's a hedgehog?"}], "linked_flag_key": "linked-flag", "targeting_flag_key": "targeting-flag", "current_iteration": None, "current_iteration_start_date": None, "internal_targeting_flag_key": "custom-targeting-flag", "start_date": None, "end_date": None, "schedule": "once", "enable_partial_responses": False} in surveys
+            assert {"id": str(basic_survey.id), "name": "Survey 1", "type": "popover", "questions": [{"id": str(basic_survey.questions[0]["id"]), "type": "open", "question": "What's a survey?"}], "conditions": None, "appearance": None, "start_date": None, "end_date": None, "current_iteration": None, "current_iteration_start_date": None, "schedule": "once", "enable_partial_responses": False} in surveys
 
     def test_list_surveys_excludes_description(self):
         Survey.objects.create(
@@ -4248,10 +4212,7 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         error_data = response.json()
-        assert (
-            "Feature flag variant 'some_variant' specified but the linked feature flag has no variants"
-            in error_data["detail"]
-        )
+        assert "Feature flag variant 'some_variant' specified but the linked feature flag has no variants" in error_data["detail"]
 
     def test_create_survey_with_linked_flag_variant_without_flag_id(self):
         """Test creating a survey with linkedFlagVariant but no linked_flag_id"""

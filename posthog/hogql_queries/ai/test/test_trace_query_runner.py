@@ -332,13 +332,7 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         assert len(response.results) == 1
         assert response.results[0].id == "trace1"
         assert response.results[0].totalLatency == 10.5
-        assert {
-            "$ai_latency": 10.5,
-            "$ai_provider": "posthog",
-            "$ai_model": "hog-destroyer",
-            "$ai_http_status": 200,
-            "$ai_base_url": "https://us.posthog.com",
-        }.items() < response.results[0].events[0].properties.items()
+        assert {"$ai_latency": 10.5, "$ai_provider": "posthog", "$ai_model": "hog-destroyer", "$ai_http_status": 200, "$ai_base_url": "https://us.posthog.com"}.items() < response.results[0].events[0].properties.items()
 
     @freeze_time("2025-01-01T00:00:00Z")
     def test_person_properties(self):
@@ -568,9 +562,7 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         assert response.results[0].id == "trace1"
         assert response.results[0].traceName == "runnable"
         assert response.results[0].inputState == {"messages": [{"role": "user", "content": "Foo"}]}
-        assert response.results[0].outputState == {
-            "messages": [{"role": "user", "content": "Foo"}, {"role": "assistant", "content": "Bar"}]
-        }
+        assert response.results[0].outputState == {"messages": [{"role": "user", "content": "Foo"}, {"role": "assistant", "content": "Bar"}]}
         # Should return all events except $ai_trace
         assert len(response.results[0].events) == 3
 

@@ -1,4 +1,5 @@
 import time
+from typing import Optional
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -14,7 +15,7 @@ class TestIntegrationsTasks(APIBaseTest):
         super().setUp()
 
     def create_integration(
-        self, kind: str, config: dict | None = None, sensitive_config: dict | None = None
+        self, kind: str, config: Optional[dict] = None, sensitive_config: Optional[dict] = None
     ) -> Integration:
         _config = {"refreshed_at": int(time.time()), "expires_in": 3600}
         _sensitive_config = {"refresh_token": "REFRESH"}

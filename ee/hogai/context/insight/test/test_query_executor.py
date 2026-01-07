@@ -2,7 +2,6 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-import pytest
 from freezegun import freeze_time
 from posthog.test.base import NonAtomicBaseTest
 from unittest.mock import Mock, patch
@@ -44,6 +43,7 @@ from posthog.errors import ExposedCHQueryError
 from ee.hogai.context.insight.query_executor import AssistantQueryExecutor, execute_and_format_query
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.utils.query import validate_assistant_query
+import pytest
 
 
 class TestAssistantQueryExecutor(NonAtomicBaseTest):

@@ -1,7 +1,6 @@
 import re
 import uuid
 
-import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -26,6 +25,7 @@ from posthog.storage.object_storage import (
     read,
     write,
 )
+import pytest
 
 TEST_BUCKET = "test_storage_bucket"
 

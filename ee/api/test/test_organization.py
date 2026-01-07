@@ -24,10 +24,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         response_data = response.json()
         assert response_data.get("name") == "Test"
         assert OrganizationMembership.objects.filter(organization_id=response_data.get("id")).count() == 1
-        assert (
-            OrganizationMembership.objects.get(organization_id=response_data.get("id"), user=self.user).level
-            == OrganizationMembership.Level.OWNER
-        )
+        assert OrganizationMembership.objects.get(organization_id=response_data.get("id"), user=self.user).level == OrganizationMembership.Level.OWNER
 
     @patch("posthog.models.utils.generate_random_short_suffix", return_value="YYYY")
     def test_create_two_similarly_named_organizations(self, mock_choice):
@@ -36,20 +33,14 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             {"name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"},
         )
         assert response.status_code == status.HTTP_201_CREATED
-        assert {
-            "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-            "slug": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-        }.items() <= response.json().items()
+        assert {"name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", "slug": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}.items() <= response.json().items()
 
         response = self.client.post(
             "/api/organizations/",
             {"name": "#XXxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxX"},
         )
         assert response.status_code == status.HTTP_201_CREATED
-        assert {
-            "name": "#XXxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxX",
-            "slug": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-YYYY",
-        }.items() <= response.json().items()
+        assert {"name": "#XXxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxX", "slug": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-YYYY"}.items() <= response.json().items()
 
     @patch("posthog.api.organization.delete_bulky_postgres_data")
     @patch("posthoganalytics.capture")
@@ -116,14 +107,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             self.organization_membership.save()
             response = self.client.delete(f"/api/organizations/{self.organization.id}")
             potential_err_message = f"Somehow managed to delete the org as a level {level} (which is not owner)"
-            assert response.json() == {
-                "attr": None,
-                "detail": "You do not have admin access to this resource."
-                if level == OrganizationMembership.Level.MEMBER
-                else "Your organization access level is insufficient.",
-                "code": "permission_denied",
-                "type": "authentication_error",
-            }, potential_err_message
+            assert response.json() == {"attr": None, "detail": "You do not have admin access to this resource." if level == OrganizationMembership.Level.MEMBER else "Your organization access level is insufficient.", "code": "permission_denied", "type": "authentication_error"}, potential_err_message
             assert response.status_code == 403, potential_err_message
             assert self.organization.name, self.CONFIG_ORGANIZATION_NAME
 
@@ -149,12 +133,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             organization = Organization.objects.create(name="Some Other Org")
             response = self.client.delete(f"/api/organizations/{organization.id}")
             potential_err_message = f"Somehow managed to delete someone else's org as a level {level} in own org"
-            assert response.json() == {
-                "attr": None,
-                "detail": "Not found.",
-                "code": "not_found",
-                "type": "invalid_request",
-            }, potential_err_message
+            assert response.json() == {"attr": None, "detail": "Not found.", "code": "not_found", "type": "invalid_request"}, potential_err_message
             assert response.status_code == 404, potential_err_message
             assert Organization.objects.filter(id=organization.id).exists(), potential_err_message
 
@@ -195,12 +174,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             organization = Organization.objects.create(name="Meow")
             response = self.client.patch(f"/api/organizations/{organization.id}", {"name": "Mooooooooo"})
             potential_err_message = f"Somehow managed to update someone else's org as a level {level} in own org"
-            assert response.json() == {
-                "attr": None,
-                "detail": "Not found.",
-                "code": "not_found",
-                "type": "invalid_request",
-            }, potential_err_message
+            assert response.json() == {"attr": None, "detail": "Not found.", "code": "not_found", "type": "invalid_request"}, potential_err_message
             assert response.status_code == 404, potential_err_message
             organization.refresh_from_db()
             assert organization.name, "Meow"
@@ -323,12 +297,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         )
 
         assert response.status_code == 400
-        assert response.json() == {
-            "attr": None,
-            "code": "invalid_input",
-            "detail": "Environment mappings are required",
-            "type": "validation_error",
-        }
+        assert response.json() == {"attr": None, "code": "invalid_input", "detail": "Environment mappings are required", "type": "validation_error"}
 
     def test_environments_rollback_invalid_environments(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -343,12 +312,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         )
 
         assert response.status_code == 400
-        assert response.json() == {
-            "attr": None,
-            "code": "invalid_input",
-            "detail": "Environments not found: {888888, 999999}",
-            "type": "validation_error",
-        }
+        assert response.json() == {"attr": None, "code": "invalid_input", "detail": "Environments not found: {888888, 999999}", "type": "validation_error"}
 
     def test_environments_rollback_permission_denied(self):
         project_2 = Team.objects.create(organization=self.organization, name="Project 2")

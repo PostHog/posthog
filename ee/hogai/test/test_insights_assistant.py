@@ -1,5 +1,5 @@
 from itertools import cycle
-from typing import Any
+from typing import Any, Optional
 from uuid import uuid4
 
 from unittest.mock import AsyncMock, patch
@@ -44,12 +44,12 @@ query_executor_mock = patch(
 class TestChatAgent(BaseAssistantTest):
     async def _run_assistant_graph(
         self,
-        message: str | None = "Hello",
-        conversation: Conversation | None = None,
-        tool_call_partial_state: AssistantState | None = None,
+        message: Optional[str] = "Hello",
+        conversation: Optional[Conversation] = None,
+        tool_call_partial_state: Optional[AssistantState] = None,
         is_new_conversation: bool = False,
-        contextual_tools: dict[str, Any] | None = None,
-        ui_context: MaxUIContext | None = None,
+        contextual_tools: Optional[dict[str, Any]] = None,
+        ui_context: Optional[MaxUIContext] = None,
         filter_ack_messages: bool = True,
     ) -> tuple[list[AssistantOutput], ChatAgentRunner | InsightsAssistant]:
         assistant = InsightsAssistant(

@@ -60,29 +60,7 @@ class TestUser(BaseTest):
         )
 
         with self.is_cloud(True):
-            assert user.get_analytics_metadata() == {
-                "realm": "cloud",
-                "anonymize_data": True,
-                "email": None,
-                "is_signed_up": True,
-                "organization_count": 1,
-                "project_count": 1,
-                "team_member_count_all": 1,
-                "completed_onboarding_once": False,
-                "organization_id": str(organization.id),
-                "current_organization_membership_level": 15,
-                "project_id": str(team.uuid),
-                "project_setup_complete": False,
-                "has_password_set": True,
-                "joined_at": user.date_joined,
-                "has_social_auth": False,
-                "social_providers": [],
-                "strapi_id": None,
-                "instance_url": "http://localhost:8010",
-                "instance_tag": "none",
-                "is_email_verified": None,
-                "has_seen_product_intro_for": None,
-            }
+            assert user.get_analytics_metadata() == {"realm": "cloud", "anonymize_data": True, "email": None, "is_signed_up": True, "organization_count": 1, "project_count": 1, "team_member_count_all": 1, "completed_onboarding_once": False, "organization_id": str(organization.id), "current_organization_membership_level": 15, "project_id": str(team.uuid), "project_setup_complete": False, "has_password_set": True, "joined_at": user.date_joined, "has_social_auth": False, "social_providers": [], "strapi_id": None, "instance_url": "http://localhost:8010", "instance_tag": "none", "is_email_verified": None, "has_seen_product_intro_for": None}
 
         # Multiple teams, multiple members, completed onboarding
         self.team.completed_snippet_onboarding = True
@@ -93,29 +71,7 @@ class TestUser(BaseTest):
         user_2.join(organization=self.organization)
 
         with self.is_cloud(False):
-            assert user_2.get_analytics_metadata() == {
-                "realm": "hosted-clickhouse",
-                "anonymize_data": False,
-                "email": "test_org_2@posthog.com",
-                "is_signed_up": True,
-                "organization_count": 1,
-                "project_count": 2,
-                "team_member_count_all": 2,
-                "completed_onboarding_once": True,
-                "organization_id": str(self.organization.id),
-                "current_organization_membership_level": 1,
-                "project_id": str(self.team.uuid),
-                "project_setup_complete": True,
-                "has_password_set": True,
-                "joined_at": user_2.date_joined,
-                "has_social_auth": False,
-                "social_providers": [],
-                "strapi_id": None,
-                "instance_url": "http://localhost:8010",
-                "instance_tag": "none",
-                "is_email_verified": None,
-                "has_seen_product_intro_for": None,
-            }
+            assert user_2.get_analytics_metadata() == {"realm": "hosted-clickhouse", "anonymize_data": False, "email": "test_org_2@posthog.com", "is_signed_up": True, "organization_count": 1, "project_count": 2, "team_member_count_all": 2, "completed_onboarding_once": True, "organization_id": str(self.organization.id), "current_organization_membership_level": 1, "project_id": str(self.team.uuid), "project_setup_complete": True, "has_password_set": True, "joined_at": user_2.date_joined, "has_social_auth": False, "social_providers": [], "strapi_id": None, "instance_url": "http://localhost:8010", "instance_tag": "none", "is_email_verified": None, "has_seen_product_intro_for": None}
 
     def test_join_with_new_access_control_sets_allowed_team(self):
         # Org WITH ADVANCED_PERMISSIONS

@@ -1,5 +1,5 @@
 from datetime import UTC, date, datetime
-from typing import Any, cast
+from typing import Any, Optional, cast
 from uuid import UUID
 
 import pytest
@@ -34,7 +34,7 @@ class TestResolver(BaseTest):
     maxDiff = None
     snapshot: Any
 
-    def _select(self, query: str, placeholders: dict[str, ast.Expr] | None = None) -> ast.SelectQuery:
+    def _select(self, query: str, placeholders: Optional[dict[str, ast.Expr]] = None) -> ast.SelectQuery:
         return cast(
             ast.SelectQuery,
             clone_expr(parse_select(query, placeholders=placeholders), clear_locations=True),
@@ -197,9 +197,7 @@ class TestResolver(BaseTest):
         assert expr == expected
 
     def test_ctes_recursive_column(self):
-        assert self._print_hogql("with 1 as cte, cte as soap select soap from events") == self._print_hogql(
-            "select 1 from events"
-        )
+        assert self._print_hogql("with 1 as cte, cte as soap select soap from events") == self._print_hogql("select 1 from events")
 
     def test_ctes_field_access(self):
         with pytest.raises(QueryError) as e:
@@ -207,45 +205,23 @@ class TestResolver(BaseTest):
         assert "Cannot access fields on CTE cte yet" in str(e.value)
 
     def test_ctes_subqueries(self):
-        assert self._print_hogql("with my_table as (select * from events) select * from my_table") == self._print_hogql(
-            "select * from (select * from events) my_table"
-        )
+        assert self._print_hogql("with my_table as (select * from events) select * from my_table") == self._print_hogql("select * from (select * from events) my_table")
 
-        assert self._print_hogql(
-            "with my_table as (select * from events) select my_table.timestamp from my_table"
-        ) == self._print_hogql("select my_table.timestamp from (select * from events) my_table")
+        assert self._print_hogql("with my_table as (select * from events) select my_table.timestamp from my_table") == self._print_hogql("select my_table.timestamp from (select * from events) my_table")
 
-        assert self._print_hogql(
-            "with my_table as (select * from events) select timestamp from my_table"
-        ) == self._print_hogql("select timestamp from (select * from events) my_table")
+        assert self._print_hogql("with my_table as (select * from events) select timestamp from my_table") == self._print_hogql("select timestamp from (select * from events) my_table")
 
     def test_ctes_subquery_deep(self):
-        assert self._print_hogql(
-            "with my_table as (select * from events), "
-            "other_table as (select * from (select * from (select * from my_table))) "
-            "select * from other_table"
-        ) == self._print_hogql(
-            "select * from (select * from (select * from (select * from (select * from events) as my_table))) as other_table"
-        )
+        assert self._print_hogql("with my_table as (select * from events), " "other_table as (select * from (select * from (select * from my_table))) " "select * from other_table") == self._print_hogql("select * from (select * from (select * from (select * from (select * from events) as my_table))) as other_table")
 
     def test_ctes_subquery_recursion(self):
-        assert self._print_hogql(
-            "with users as (select event, timestamp as tt from events ), final as ( select tt from users ) select * from final"
-        ) == self._print_hogql(
-            "select * from (select tt from (select event, timestamp as tt from events) AS users) AS final"
-        )
+        assert self._print_hogql("with users as (select event, timestamp as tt from events ), final as ( select tt from users ) select * from final") == self._print_hogql("select * from (select tt from (select event, timestamp as tt from events) AS users) AS final")
 
     def test_ctes_with_aliases(self):
-        assert self._print_hogql(
-            "WITH initial_alias AS (SELECT 1 AS a) SELECT a FROM initial_alias AS new_alias WHERE new_alias.a=1"
-        ) == self._print_hogql("SELECT a FROM (SELECT 1 AS a) AS new_alias WHERE new_alias.a=1")
+        assert self._print_hogql("WITH initial_alias AS (SELECT 1 AS a) SELECT a FROM initial_alias AS new_alias WHERE new_alias.a=1") == self._print_hogql("SELECT a FROM (SELECT 1 AS a) AS new_alias WHERE new_alias.a=1")
 
     def test_ctes_with_union_all(self):
-        assert self._print_hogql(
-            """\n                    WITH cte1 AS (SELECT 1 AS a)\n                    SELECT 1 AS a\n                    UNION ALL\n                    WITH cte2 AS (SELECT 2 AS a)\n                    SELECT * FROM cte2\n                    UNION ALL\n                    SELECT * FROM cte1\n                        """
-        ) == self._print_hogql(
-            """\n                    SELECT 1 AS a\n                    UNION ALL\n                    SELECT * FROM (SELECT 2 AS a) AS cte2\n                    UNION ALL\n                    SELECT * FROM (SELECT 1 AS a) AS cte1\n                        """
-        )
+        assert self._print_hogql("""\n                    WITH cte1 AS (SELECT 1 AS a)\n                    SELECT 1 AS a\n                    UNION ALL\n                    WITH cte2 AS (SELECT 2 AS a)\n                    SELECT * FROM cte2\n                    UNION ALL\n                    SELECT * FROM cte1\n                        """) == self._print_hogql("""\n                    SELECT 1 AS a\n                    UNION ALL\n                    SELECT * FROM (SELECT 2 AS a) AS cte2\n                    UNION ALL\n                    SELECT * FROM (SELECT 1 AS a) AS cte1\n                        """)
 
     def test_join_using(self):
         node = self._select(

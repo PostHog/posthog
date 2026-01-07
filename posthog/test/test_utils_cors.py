@@ -27,6 +27,4 @@ class TestCorsResponse(TestCase):
         for origin, expected in valid_origin_test_cases:
             with self.subTest():
                 request = FakeRequest(META={"HTTP_ORIGIN": origin})
-                assert expected == cors_response(request, HttpResponse()).get("Access-Control-Allow-Origin"), (
-                    f"with origin='{origin}', actual did not equal {expected}"
-                )
+                assert expected == cors_response(request, HttpResponse()).get("Access-Control-Allow-Origin"), f"with origin='{origin}', actual did not equal {expected}"

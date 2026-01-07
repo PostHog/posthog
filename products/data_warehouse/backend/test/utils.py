@@ -1,5 +1,6 @@
 from collections.abc import Mapping
 from pathlib import Path
+from typing import Optional
 
 import s3fs
 import pandas as pd
@@ -27,9 +28,9 @@ def create_data_warehouse_table_from_csv(
     test_bucket: str,
     team: Team,
     *,
-    source: ExternalDataSource | None = None,
-    credential: DataWarehouseCredential | None = None,
-    source_prefix: str | None = None,
+    source: Optional[ExternalDataSource] = None,
+    credential: Optional[DataWarehouseCredential] = None,
+    source_prefix: Optional[str] = None,
 ):
     if not csv_path.exists():
         raise FileNotFoundError(f"Test data file not found at {csv_path}")

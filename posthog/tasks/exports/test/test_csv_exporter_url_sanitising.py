@@ -1,9 +1,9 @@
-import pytest
 from posthog.test.base import APIBaseTest
 
 from parameterized import parameterized
 
 from posthog.utils import PotentialSecurityProblemException, absolute_uri
+import pytest
 
 
 class TestCSVExporterURLSanitization(APIBaseTest):

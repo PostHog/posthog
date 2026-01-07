@@ -1,9 +1,8 @@
-import re
+import pytest
 import json
 import uuid
 from typing import Any
 
-import pytest
 from posthog.test.base import ClickhouseTestMixin, snapshot_clickhouse_queries
 from unittest.mock import MagicMock, patch
 
@@ -51,8 +50,7 @@ class TestQueryStatusManager(SimpleTestCase):
         self.manager = QueryStatusManager(self.query_id, self.team_id)
 
     def test_is_empty(self):
-        with pytest.raises(QueryNotFoundError):
-            self.manager.get_query_status(True)
+        pytest.raises(QueryNotFoundError, self.manager.get_query_status(True))
 
     def test_no_status(self):
         self.manager.store_query_status(self.query_status)
@@ -182,10 +180,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         with patch(
             "posthog.api.services.query.process_query_dict", side_effect=CHQueryErrorTooManySimultaneousQueries("bla")
         ):
-            with pytest.raises(CHQueryErrorTooManySimultaneousQueries):
-                client.enqueue_process_query_task(
-                    team=self.team, user_id=self.user.id, query_json=query, _test_only_bypass_celery=True
-                )
+            pytest.raises(CHQueryErrorTooManySimultaneousQueries, client.enqueue_process_query_task, **{"team": self.team, "user_id": self.user.id, "query_json": query, "_test_only_bypass_celery": True})
 
             query_id = uuid.uuid4().hex
             try:

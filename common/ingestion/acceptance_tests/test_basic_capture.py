@@ -66,14 +66,14 @@ class TestBasicCapture:
 
             # Step 6: Verify event properties
             logger.info("Step 6: Verifying event properties")
-            assert event.get("event") == event_name, (
-                f"Event name mismatch: expected {event_name}, got {event.get('event')}"
-            )
+            assert (
+                event.get("event") == event_name
+            ), f"Event name mismatch: expected {event_name}, got {event.get('event')}"
             logger.debug("Event name matches: %s", event_name)
 
-            assert event.get("distinct_id") == distinct_id, (
-                f"Distinct ID mismatch: expected {distinct_id}, got {event.get('distinct_id')}"
-            )
+            assert (
+                event.get("distinct_id") == distinct_id
+            ), f"Distinct ID mismatch: expected {distinct_id}, got {event.get('distinct_id')}"
             logger.debug("Distinct ID matches: %s", distinct_id)
 
             # Check if properties match
@@ -82,9 +82,9 @@ class TestBasicCapture:
 
             for key, value in test_properties.items():
                 assert key in event_properties, f"Property {key} not found in event"
-                assert event_properties[key] == value, (
-                    f"Property {key} value mismatch: expected {value}, got {event_properties[key]}"
-                )
+                assert (
+                    event_properties[key] == value
+                ), f"Property {key} value mismatch: expected {value}, got {event_properties[key]}"
                 logger.debug("Property %s = %s", key, value)
 
             logger.info("All event properties verified successfully")

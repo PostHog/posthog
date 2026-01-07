@@ -2,7 +2,6 @@ import json
 import base64
 from typing import cast
 
-import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
@@ -20,6 +19,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLCursorPaginator, HogQLHasMorePaginator
 from posthog.models.utils import UUIDT
+import pytest
 
 
 class TestHogQLHasMorePaginator(ClickhouseTestMixin, APIBaseTest):

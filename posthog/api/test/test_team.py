@@ -2,7 +2,6 @@ import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries_context
 from unittest import mock
@@ -41,6 +40,7 @@ from posthog.utils import get_instance_realm
 from products.early_access_features.backend.models import EarlyAccessFeature
 
 from ee.models.rbac.access_control import AccessControl
+import pytest
 
 
 def team_api_test_factory():
@@ -89,9 +89,7 @@ def team_api_test_factory():
             assert not response_data["is_demo"]
             assert response_data["slack_incoming_webhook"] == self.team.slack_incoming_webhook
             assert not response_data["has_group_types"]
-            assert response_data["person_on_events_querying_enabled"] == (
-                get_instance_setting("PERSON_ON_EVENTS_ENABLED") or get_instance_setting("PERSON_ON_EVENTS_V2_ENABLED")
-            )
+            assert response_data["person_on_events_querying_enabled"] == (get_instance_setting("PERSON_ON_EVENTS_ENABLED") or get_instance_setting("PERSON_ON_EVENTS_V2_ENABLED"))
 
             # TODO: These assertions will no longer make sense when we fully remove these attributes from the model
             assert "event_names" not in response_data
@@ -125,35 +123,7 @@ def team_api_test_factory():
 
             assert response.status_code == status.HTTP_200_OK, response_data
             assert response_data["has_group_types"]
-            assert response_data["group_types"] == [
-                {
-                    "group_type": "person",
-                    "group_type_index": 0,
-                    "name_singular": None,
-                    "name_plural": None,
-                    "default_columns": None,
-                    "detail_dashboard": None,
-                    "created_at": None,
-                },
-                {
-                    "group_type": "place",
-                    "group_type_index": 1,
-                    "name_singular": None,
-                    "name_plural": None,
-                    "default_columns": None,
-                    "detail_dashboard": None,
-                    "created_at": None,
-                },
-                {
-                    "group_type": "thing",
-                    "group_type_index": 2,
-                    "name_singular": None,
-                    "name_plural": None,
-                    "default_columns": None,
-                    "detail_dashboard": None,
-                    "created_at": None,
-                },
-            ]
+            assert response_data["group_types"] == [{"group_type": "person", "group_type_index": 0, "name_singular": None, "name_plural": None, "default_columns": None, "detail_dashboard": None, "created_at": None}, {"group_type": "place", "group_type_index": 1, "name_singular": None, "name_plural": None, "default_columns": None, "detail_dashboard": None, "created_at": None}, {"group_type": "thing", "group_type_index": 2, "name_singular": None, "name_plural": None, "default_columns": None, "detail_dashboard": None, "created_at": None}]
 
         def test_cant_retrieve_team_from_another_org(self):
             org = Organization.objects.create(name="New Org")
@@ -215,11 +185,7 @@ def team_api_test_factory():
             response = self.client.post("/api/projects/@current/environments/", {"name": "Hedgebox", "is_demo": False})
             assert response.status_code == 403
             response_data = response.json()
-            assert response_data.get("detail") == (
-                "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
-                if self.client_class is not EnvironmentToProjectRewriteClient
-                else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
-            )
+            assert response_data.get("detail") == ("You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments." if self.client_class is not EnvironmentToProjectRewriteClient else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects.")
             assert response_data.get("type") == "authentication_error"
             assert response_data.get("code") == "permission_denied"
             assert Team.objects.count() == 1
@@ -228,11 +194,7 @@ def team_api_test_factory():
             response = self.client.post("/api/projects/@current/environments/", {"name": "Hedgebox"})
             assert response.status_code == 403
             response_data = response.json()
-            assert response_data.get("detail") == (
-                "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
-                if self.client_class is not EnvironmentToProjectRewriteClient
-                else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
-            )
+            assert response_data.get("detail") == ("You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments." if self.client_class is not EnvironmentToProjectRewriteClient else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects.")
             assert response_data.get("type") == "authentication_error"
             assert response_data.get("code") == "permission_denied"
             assert Team.objects.count() == 1
@@ -324,12 +286,7 @@ def team_api_test_factory():
 
             response = self.client.patch("/api/environments/@current/", {"receive_org_level_activity_logs": True})
             assert response.status_code == status.HTTP_403_FORBIDDEN
-            assert response.json() == {
-                "type": "authentication_error",
-                "code": "permission_denied",
-                "detail": "Only organization owners and admins can modify the receive_org_level_activity_logs setting.",
-                "attr": None,
-            }
+            assert response.json() == {"type": "authentication_error", "code": "permission_denied", "detail": "Only organization owners and admins can modify the receive_org_level_activity_logs setting.", "attr": None}
 
             self.team.refresh_from_db()
             assert not self.team.receive_org_level_activity_logs
@@ -355,12 +312,7 @@ def team_api_test_factory():
         def test_cannot_set_invalid_timezone_for_team(self):
             response = self.client.patch("/api/environments/@current/", {"timezone": "America/I_Dont_Exist"})
             assert response.status_code == status.HTTP_400_BAD_REQUEST
-            assert response.json() == {
-                "type": "validation_error",
-                "code": "invalid_choice",
-                "detail": '"America/I_Dont_Exist" is not a valid choice.',
-                "attr": "timezone",
-            }
+            assert response.json() == {"type": "validation_error", "code": "invalid_choice", "detail": '"America/I_Dont_Exist" is not a valid choice.', "attr": "timezone"}
 
             self.team.refresh_from_db()
             assert self.team.timezone != "America/I_Dont_Exist"
@@ -532,10 +484,7 @@ def team_api_test_factory():
 
             assert response.status_code == 204
             assert Team.objects.filter(organization=self.organization).count() == 1
-            assert (
-                AsyncDeletion.objects.filter(team_id=team.id, deletion_type=DeletionType.Team, key=str(team.id)).count()
-                == 1
-            )
+            assert AsyncDeletion.objects.filter(team_id=team.id, deletion_type=DeletionType.Team, key=str(team.id)).count() == 1
             expected_capture_calls = [
                 call(
                     distinct_id=self.user.distinct_id,
@@ -983,9 +932,7 @@ def team_api_test_factory():
 
             response = self.client.patch("/api/environments/@current/", {"primary_dashboard": d.id})
             assert response.status_code == status.HTTP_400_BAD_REQUEST
-            assert response.json() == self.validation_error_response(
-                "Dashboard does not belong to this team.", attr="primary_dashboard"
-            )
+            assert response.json() == self.validation_error_response("Dashboard does not belong to this team.", attr="primary_dashboard")
 
         def test_is_generating_demo_data(self):
             cache_key = f"is_generating_demo_data_{self.team.pk}"
@@ -2043,9 +1990,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         response = self.client.get("/api/environments/", headers={"authorization": f"Bearer {personal_api_key}"})
 
         assert response.status_code == status.HTTP_200_OK
-        assert {team["id"] for team in response.json()["results"]} == {other_team_in_project.id}, (
-            "Only the scoped team listed here, the other two should be excluded"
-        )
+        assert {team["id"] for team in response.json()["results"]} == {other_team_in_project.id}, "Only the scoped team listed here, the other two should be excluded"
 
     def test_teams_outside_personal_api_key_scoped_organizations_not_listed(self):
         other_org, __, team_in_other_org = Organization.objects.bootstrap(self.user)
@@ -2061,9 +2006,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         response = self.client.get("/api/environments/", headers={"authorization": f"Bearer {personal_api_key}"})
 
         assert response.status_code == status.HTTP_200_OK
-        assert {team["id"] for team in response.json()["results"]} == {team_in_other_org.id}, (
-            "Only the team belonging to the scoped organization should be listed, the other one should be excluded"
-        )
+        assert {team["id"] for team in response.json()["results"]} == {team_in_other_org.id}, "Only the team belonging to the scoped organization should be listed, the other one should be excluded"
 
     @override_settings(
         OAUTH2_PROVIDER={
@@ -2132,9 +2075,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         response = self.client.get("/api/environments/", headers={"authorization": f"Bearer {access_token.token}"})
 
         assert response.status_code == status.HTTP_200_OK
-        assert {team["id"] for team in response.json()["results"]} == {team_in_other_org.id}, (
-            "Only the team belonging to the scoped organization should be listed, the other one should be excluded"
-        )
+        assert {team["id"] for team in response.json()["results"]} == {team_in_other_org.id}, "Only the team belonging to the scoped organization should be listed, the other one should be excluded"
 
     def test_can_create_team_with_valid_environments_limit(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -2169,11 +2110,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         response = self.client.post("/api/projects/@current/environments/", {"name": "New environment"})
         assert response.status_code == 403
         response_data = response.json()
-        assert response_data.get("detail") == (
-            "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
-            if self.client_class is not EnvironmentToProjectRewriteClient
-            else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
-        )
+        assert response_data.get("detail") == ("You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments." if self.client_class is not EnvironmentToProjectRewriteClient else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects.")
         assert response_data.get("type") == "authentication_error"
         assert response_data.get("code") == "permission_denied"
         assert Team.objects.count() == 1

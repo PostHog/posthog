@@ -1,7 +1,7 @@
+import pytest
 import uuid
 from datetime import datetime
 
-import pytest
 from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
@@ -855,14 +855,16 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             assert result[1]["count"] == 1
 
-            assert sorted(self._get_actor_ids_at_step(filter, 1)) == sorted(
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(1),
                 [
                     person1_stopped_after_two_signups.uuid,
                     person2_stopped_after_signup.uuid,
-                ]
+                ],
             )
 
-            assert sorted(self._get_actor_ids_at_step(filter, 2)) == sorted([person1_stopped_after_two_signups.uuid])
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(2),
+                [person1_stopped_after_two_signups.uuid],
+            )
 
         @also_test_with_materialized_columns(["key"])
         def test_basic_funnel_with_derivative_steps(self):
@@ -913,14 +915,16 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             assert result[1]["count"] == 1
 
-            assert sorted(self._get_actor_ids_at_step(filter, 1)) == sorted(
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(1),
                 [
                     person1_stopped_after_two_signups.uuid,
                     person2_stopped_after_signup.uuid,
-                ]
+                ],
             )
 
-            assert sorted(self._get_actor_ids_at_step(filter, 2)) == sorted([person1_stopped_after_two_signups.uuid])
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(2),
+                [person1_stopped_after_two_signups.uuid],
+            )
 
         def test_basic_funnel_with_repeat_step_updated_param(self):
             people = journeys_for(
@@ -953,14 +957,16 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             assert result[1]["count"] == 1
 
-            assert sorted(self._get_actor_ids_at_step(filter, 1)) == sorted(
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(1),
                 [
                     people["stopped_after_signup1"].uuid,
                     people["stopped_after_signup2"].uuid,
-                ]
+                ],
             )
 
-            assert sorted(self._get_actor_ids_at_step(filter, 2)) == sorted([people["stopped_after_signup1"].uuid])
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(2),
+                [people["stopped_after_signup1"].uuid],
+            )
 
             filters = {
                 "events": [
@@ -1076,8 +1082,8 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             assert result[1]["name"] == "paid"
             assert result[1]["count"] == 2
 
-            assert sorted(self._get_actor_ids_at_step(filter, 1)) == sorted([person1.uuid, person3.uuid])
-            assert sorted(self._get_actor_ids_at_step(filter, 2)) == sorted([person1.uuid, person3.uuid])
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(1), [person1.uuid, person3.uuid])
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(2), [person1.uuid, person3.uuid])
 
         def test_advanced_funnel_exclusions_between_steps(self):
             filters = {
@@ -1256,7 +1262,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             assert result[4]["count"] == 2
 
-            assert sorted(self._get_actor_ids_at_step(filter, 1)) == sorted([person1.uuid, person2.uuid])
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(1), [person1.uuid, person2.uuid])
 
             filter = filter.shallow_clone(
                 {
@@ -1279,7 +1285,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             assert result[4]["count"] == 2
 
-            assert sorted(self._get_actor_ids_at_step(filter, 1)) == sorted([person2.uuid, person3.uuid])
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(1), [person2.uuid, person3.uuid])
 
             filter = filter.shallow_clone(
                 {
@@ -1302,7 +1308,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             assert result[4]["count"] == 1
 
-            assert sorted(self._get_actor_ids_at_step(filter, 1)) == sorted([person3.uuid])
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(1), [person3.uuid])
 
             filter = filter.shallow_clone(
                 {
@@ -1325,7 +1331,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             assert result[4]["count"] == 0
 
-            assert sorted(self._get_actor_ids_at_step(filter, 1)) == sorted([])
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(1), [])
 
             #  bigger step window
             filter = filter.shallow_clone(
@@ -1349,7 +1355,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             assert result[4]["count"] == 1
 
-            assert sorted(self._get_actor_ids_at_step(filter, 1)) == sorted([person3.uuid])
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(1), [person3.uuid])
 
         def test_advanced_funnel_with_repeat_steps(self):
             filters = {
@@ -1414,41 +1420,43 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             assert result[4]["count"] == 1
 
             # check ordering of people in every step
-            assert sorted(self._get_actor_ids_at_step(filter, 1)) == sorted(
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(1),
                 [
                     people["stopped_after_signup1"].uuid,
                     people["stopped_after_pageview1"].uuid,
                     people["stopped_after_pageview2"].uuid,
                     people["stopped_after_pageview3"].uuid,
                     people["stopped_after_pageview4"].uuid,
-                ]
+                ],
             )
 
-            assert sorted(self._get_actor_ids_at_step(filter, 2)) == sorted(
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(2),
                 [
                     people["stopped_after_pageview1"].uuid,
                     people["stopped_after_pageview2"].uuid,
                     people["stopped_after_pageview3"].uuid,
                     people["stopped_after_pageview4"].uuid,
-                ]
+                ],
             )
 
-            assert sorted(self._get_actor_ids_at_step(filter, 3)) == sorted(
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(3),
                 [
                     people["stopped_after_pageview2"].uuid,
                     people["stopped_after_pageview3"].uuid,
                     people["stopped_after_pageview4"].uuid,
-                ]
+                ],
             )
 
-            assert sorted(self._get_actor_ids_at_step(filter, 4)) == sorted(
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(4),
                 [
                     people["stopped_after_pageview3"].uuid,
                     people["stopped_after_pageview4"].uuid,
-                ]
+                ],
             )
 
-            assert sorted(self._get_actor_ids_at_step(filter, 5)) == sorted([people["stopped_after_pageview4"].uuid])
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(5),
+                [people["stopped_after_pageview4"].uuid],
+            )
 
         def test_advanced_funnel_with_repeat_steps_out_of_order_events(self):
             filters = {
@@ -1570,30 +1578,36 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             assert result[4]["count"] == 1
 
             # check ordering of people in every step
-            assert sorted(self._get_actor_ids_at_step(filter, 1)) == sorted(
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(1),
                 [
                     person1_stopped_after_signup.uuid,
                     person2_stopped_after_one_pageview.uuid,
                     person3_stopped_after_two_pageview.uuid,
                     person4_stopped_after_three_pageview.uuid,
                     person5_stopped_after_many_pageview.uuid,
-                ]
+                ],
             )
 
-            assert sorted(self._get_actor_ids_at_step(filter, 2)) == sorted(
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(2),
                 [
                     person2_stopped_after_one_pageview.uuid,
                     person3_stopped_after_two_pageview.uuid,
                     person4_stopped_after_three_pageview.uuid,
                     person5_stopped_after_many_pageview.uuid,
-                ]
+                ],
             )
 
-            assert sorted(self._get_actor_ids_at_step(filter, 3)) == sorted([person5_stopped_after_many_pageview.uuid])
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(3),
+                [person5_stopped_after_many_pageview.uuid],
+            )
 
-            assert sorted(self._get_actor_ids_at_step(filter, 4)) == sorted([person5_stopped_after_many_pageview.uuid])
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(4),
+                [person5_stopped_after_many_pageview.uuid],
+            )
 
-            assert sorted(self._get_actor_ids_at_step(filter, 5)) == sorted([person5_stopped_after_many_pageview.uuid])
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(5),
+                [person5_stopped_after_many_pageview.uuid],
+            )
 
         @also_test_with_materialized_columns(["key"])
         def test_funnel_with_actions(self):
@@ -1654,14 +1668,16 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             assert result[1]["count"] == 1
 
             # check ordering of people in first step
-            assert sorted(self._get_actor_ids_at_step(filter, 1)) == sorted(
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(1),
                 [
                     person1_stopped_after_two_signups.uuid,
                     person2_stopped_after_signup.uuid,
-                ]
+                ],
             )
 
-            assert sorted(self._get_actor_ids_at_step(filter, 2)) == sorted([person1_stopped_after_two_signups.uuid])
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(2),
+                [person1_stopped_after_two_signups.uuid],
+            )
 
         def test_funnel_with_different_actions_at_same_time_count_as_converted(self):
             sign_up_action = _create_action(
@@ -1724,15 +1740,15 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 assert result[1]["count"] == 1
 
                 # check ordering of people in first step
-                assert sorted(self._get_actor_ids_at_step(filter, 1)) == sorted(
+                assert sorted(self._get_actor_ids_at_step(filter) == sorted(1),
                     [
                         person1_stopped_after_two_signups.uuid,
                         person2_stopped_after_signup.uuid,
-                    ]
+                    ],
                 )
 
-                assert sorted(self._get_actor_ids_at_step(filter, 2)) == sorted(
-                    [person1_stopped_after_two_signups.uuid]
+                assert sorted(self._get_actor_ids_at_step(filter) == sorted(2),
+                    [person1_stopped_after_two_signups.uuid],
                 )
 
         def test_funnel_with_actions_and_props(self):
@@ -1799,14 +1815,16 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             assert result[1]["count"] == 1
 
             # check ordering of people in first step
-            assert sorted(self._get_actor_ids_at_step(filter, 1)) == sorted(
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(1),
                 [
                     person1_stopped_after_two_signups.uuid,
                     person2_stopped_after_signup.uuid,
-                ]
+                ],
             )
 
-            assert sorted(self._get_actor_ids_at_step(filter, 2)) == sorted([person1_stopped_after_two_signups.uuid])
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(2),
+                [person1_stopped_after_two_signups.uuid],
+            )
 
         def test_funnel_with_actions_and_props_with_zero_person_ids(self):
             # only a person-on-event test
@@ -1891,14 +1909,16 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             assert result[1]["count"] == 1
 
             # check ordering of people in first step
-            assert sorted(self._get_actor_ids_at_step(filter, 1)) == sorted(
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(1),
                 [
                     person1_stopped_after_two_signups.uuid,
                     person2_stopped_after_signup.uuid,
-                ]
+                ],
             )
 
-            assert sorted(self._get_actor_ids_at_step(filter, 2)) == sorted([person1_stopped_after_two_signups.uuid])
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(2),
+                [person1_stopped_after_two_signups.uuid],
+            )
 
         @also_test_with_materialized_columns(["key"])
         @skip("Flaky funnel test")
@@ -2051,33 +2071,35 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             assert result[3]["count"] == 1
 
             # check ordering of people in steps
-            assert sorted(self._get_actor_ids_at_step(filter, 1)) == sorted(
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(1),
                 [
                     person1_stopped_after_two_signups.uuid,
                     person2_stopped_after_signup.uuid,
                     person3.uuid,
                     person4.uuid,
-                ]
+                ],
             )
 
-            assert sorted(self._get_actor_ids_at_step(filter, 2)) == sorted(
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(2),
                 [
                     person1_stopped_after_two_signups.uuid,
                     person2_stopped_after_signup.uuid,
                     person3.uuid,
                     person4.uuid,
-                ]
+                ],
             )
 
-            assert sorted(self._get_actor_ids_at_step(filter, 3)) == sorted(
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(3),
                 [
                     person1_stopped_after_two_signups.uuid,
                     person2_stopped_after_signup.uuid,
                     person3.uuid,
-                ]
+                ],
             )
 
-            assert sorted(self._get_actor_ids_at_step(filter, 4)) == sorted([person1_stopped_after_two_signups.uuid])
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(4),
+                [person1_stopped_after_two_signups.uuid],
+            )
 
         @also_test_with_materialized_columns(["$current_url"])
         def test_funnel_with_matching_properties(self):
@@ -2185,41 +2207,41 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             assert result[3]["count"] == 2
             assert result[4]["count"] == 0
             # check ordering of people in every step
-            assert sorted(self._get_actor_ids_at_step(filter, 1)) == sorted(
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(1),
                 [
                     people["stopped_after_signup1"].uuid,
                     people["stopped_after_pageview1"].uuid,
                     people["stopped_after_pageview2"].uuid,
                     people["stopped_after_pageview3"].uuid,
                     people["stopped_after_pageview4"].uuid,
-                ]
+                ],
             )
 
-            assert sorted(self._get_actor_ids_at_step(filter, 2)) == sorted(
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(2),
                 [
                     people["stopped_after_pageview1"].uuid,
                     people["stopped_after_pageview2"].uuid,
                     people["stopped_after_pageview3"].uuid,
                     people["stopped_after_pageview4"].uuid,
-                ]
+                ],
             )
 
-            assert sorted(self._get_actor_ids_at_step(filter, 3)) == sorted(
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(3),
                 [
                     people["stopped_after_pageview2"].uuid,
                     people["stopped_after_pageview3"].uuid,
                     people["stopped_after_pageview4"].uuid,
-                ]
+                ],
             )
 
-            assert sorted(self._get_actor_ids_at_step(filter, 4)) == sorted(
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(4),
                 [
                     people["stopped_after_pageview3"].uuid,
                     people["stopped_after_pageview4"].uuid,
-                ]
+                ],
             )
 
-            assert sorted(self._get_actor_ids_at_step(filter, 5)) == sorted([])
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(5), [])
 
         def test_funnel_conversion_window(self):
             ids_to_compare = []
@@ -2274,7 +2296,9 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             assert results[1]["count"] == 10
             assert results[2]["count"] == 0
 
-            assert sorted([str(id) for id in self._get_actor_ids_at_step(filter, 2)]) == sorted(ids_to_compare)
+            assert sorted([str(id) for id in self._get_actor_ids_at_step(filter) == sorted(2)],
+                ids_to_compare,
+            )
 
         @snapshot_clickhouse_queries
         def test_funnel_conversion_window_seconds(self):
@@ -2330,7 +2354,9 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             assert results[1]["count"] == 10
             assert results[2]["count"] == 0
 
-            assert sorted([str(id) for id in self._get_actor_ids_at_step(filter, 2)]) == sorted(ids_to_compare)
+            assert sorted([str(id) for id in self._get_actor_ids_at_step(filter) == sorted(2)],
+                ids_to_compare,
+            )
 
         def test_funnel_exclusions_invalid_params(self):
             filters = {
@@ -2352,8 +2378,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 ],
             }
             filter = Filter(data=filters)
-            with pytest.raises(ValidationError):
-                Funnel(filter, self.team)
+            pytest.raises(ValidationError, Funnel(filter, self.team))
 
             filter = filter.shallow_clone(
                 {
@@ -2367,8 +2392,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                     ]
                 }
             )
-            with pytest.raises(ValidationError):
-                Funnel(filter, self.team)
+            pytest.raises(ValidationError, Funnel(filter, self.team))
 
             filter = filter.shallow_clone(
                 {
@@ -2382,8 +2406,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                     ]
                 }
             )
-            with pytest.raises(ValidationError):
-                Funnel(filter, self.team)
+            pytest.raises(ValidationError, Funnel(filter, self.team))
 
             filter = filter.shallow_clone(
                 {
@@ -2397,8 +2420,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                     ]
                 }
             )
-            with pytest.raises(ValidationError):
-                Funnel(filter, self.team)
+            pytest.raises(ValidationError, Funnel(filter, self.team))
 
         def test_funnel_exclusion_no_end_event(self):
             filters = {
@@ -2497,8 +2519,8 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             assert result[1]["name"] == "paid"
             assert result[1]["count"] == 1
 
-            assert sorted(self._get_actor_ids_at_step(filter, 1)) == sorted([person1.uuid, person4.uuid])
-            assert sorted(self._get_actor_ids_at_step(filter, 2)) == sorted([person1.uuid])
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(1), [person1.uuid, person4.uuid])
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(2), [person1.uuid])
 
         @also_test_with_materialized_columns(["key"])
         def test_funnel_exclusions_with_actions(self):
@@ -2596,8 +2618,8 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             assert result[1]["name"] == "paid"
             assert result[1]["count"] == 2
 
-            assert sorted(self._get_actor_ids_at_step(filter, 1)) == sorted([person1.uuid, person3.uuid])
-            assert sorted(self._get_actor_ids_at_step(filter, 2)) == sorted([person1.uuid, person3.uuid])
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(1), [person1.uuid, person3.uuid])
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(2), [person1.uuid, person3.uuid])
 
         @also_test_with_materialized_columns(["test_prop"])
         def test_funnel_with_denormalised_properties(self):
@@ -2849,7 +2871,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             assert result[4]["count"] == 1
 
-            assert sorted(self._get_actor_ids_at_step(filter, 1)) == sorted([person4.uuid])
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(1), [person4.uuid])
 
             filter = filter.shallow_clone(
                 {
@@ -2878,7 +2900,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             assert result[4]["count"] == 1
 
-            assert sorted(self._get_actor_ids_at_step(filter, 1)) == sorted([person4.uuid])
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(1), [person4.uuid])
 
             filter = filter.shallow_clone(
                 {
@@ -2907,7 +2929,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             assert result[4]["count"] == 1
 
-            assert sorted(self._get_actor_ids_at_step(filter, 1)) == sorted([person4.uuid])
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(1), [person4.uuid])
 
             filter = filter.shallow_clone(
                 {
@@ -2936,7 +2958,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             assert result[4]["count"] == 1
 
-            assert sorted(self._get_actor_ids_at_step(filter, 1)) == sorted([person4.uuid])
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(1), [person4.uuid])
 
         def test_funnel_with_elements_chain(self):
             person1 = _create_person(distinct_ids=["test"], team_id=self.team.pk)
@@ -2984,8 +3006,8 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 assert result[1]["name"] == "$autocapture"
                 assert result[1]["count"] == 1
 
-                assert sorted(self._get_actor_ids_at_step(filter, 1)) == sorted([person1.uuid, person2.uuid])
-                assert sorted(self._get_actor_ids_at_step(filter, 2)) == sorted([person1.uuid])
+                assert sorted(self._get_actor_ids_at_step(filter) == sorted(1), [person1.uuid, person2.uuid])
+                assert sorted(self._get_actor_ids_at_step(filter) == sorted(2), [person1.uuid])
 
         def test_breakdown_values_is_set_on_the_query_with_fewer_than_two_entities(self):
             filter_with_breakdown = {
@@ -3379,22 +3401,24 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             assert result[1]["count"] == 2
             assert result[2]["count"] == 1
             # check ordering of people in every step
-            assert sorted(self._get_actor_ids_at_step(filter, 1)) == sorted(
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(1),
                 [
                     people["stopped_after_pageview1"].uuid,
                     people["stopped_after_pageview2"].uuid,
                     people["stopped_after_pageview3"].uuid,
-                ]
+                ],
             )
 
-            assert sorted(self._get_actor_ids_at_step(filter, 2)) == sorted(
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(2),
                 [
                     people["stopped_after_pageview2"].uuid,
                     people["stopped_after_pageview3"].uuid,
-                ]
+                ],
             )
 
-            assert sorted(self._get_actor_ids_at_step(filter, 3)) == sorted([people["stopped_after_pageview3"].uuid])
+            assert sorted(self._get_actor_ids_at_step(filter) == sorted(3),
+                [people["stopped_after_pageview3"].uuid],
+            )
 
         @snapshot_clickhouse_queries
         def test_timezones(self):

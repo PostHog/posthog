@@ -1,4 +1,3 @@
-import re
 import datetime
 from zoneinfo import ZoneInfo
 
@@ -156,12 +155,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
 
         response = self.client.post("/api/organizations/@current/domains/", {"domain": "i-registered-first.com"})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "unique",
-            "detail": "domain with this domain already exists.",
-            "attr": "domain",
-        }
+        assert response.json() == {"type": "validation_error", "code": "unique", "detail": "domain with this domain already exists.", "attr": "domain"}
 
         assert OrganizationDomain.objects.count() == count
 
@@ -180,12 +174,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         for _domain in invalid_domains:
             response = self.client.post("/api/organizations/@current/domains/", {"domain": _domain})
             assert response.status_code == status.HTTP_400_BAD_REQUEST
-            assert response.json() == {
-                "type": "validation_error",
-                "code": "invalid_input",
-                "detail": "Please enter a valid domain or subdomain name.",
-                "attr": "domain",
-            }
+            assert response.json() == {"type": "validation_error", "code": "invalid_input", "detail": "Please enter a valid domain or subdomain name.", "attr": "domain"}
 
         assert OrganizationDomain.objects.count() == count
 
@@ -234,9 +223,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         assert response_data["domain"] == "myposthog.com"
         assert response_data["verified_at"] is None
         assert self.domain.verified_at is None
-        assert self.domain.last_verification_retry == datetime.datetime(
-            2021, 10, 10, 10, 10, 10, tzinfo=ZoneInfo("UTC")
-        )
+        assert self.domain.last_verification_retry == datetime.datetime(2021, 10, 10, 10, 10, 10, tzinfo=ZoneInfo("UTC"))
 
     @patch("posthog.models.organization_domain.dns.resolver.resolve")
     def test_domain_is_not_verified_with_missing_domain(self, mock_dns_query):
@@ -254,9 +241,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         assert response_data["domain"] == "myposthog.com"
         assert response_data["verified_at"] is None
         assert self.domain.verified_at is None
-        assert self.domain.last_verification_retry == datetime.datetime(
-            2021, 10, 10, 10, 10, 10, tzinfo=ZoneInfo("UTC")
-        )
+        assert self.domain.last_verification_retry == datetime.datetime(2021, 10, 10, 10, 10, 10, tzinfo=ZoneInfo("UTC"))
 
     @patch("posthog.models.organization_domain.dns.resolver.resolve")
     def test_domain_is_not_verified_with_incorrect_challenge(self, mock_dns_query):
@@ -284,9 +269,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         assert response_data["domain"] == "myposthog.com"
         assert response_data["verified_at"] is None
         assert self.domain.verified_at is None
-        assert self.domain.last_verification_retry == datetime.datetime(
-            2021, 10, 10, 10, 10, 10, tzinfo=ZoneInfo("UTC")
-        )
+        assert self.domain.last_verification_retry == datetime.datetime(2021, 10, 10, 10, 10, 10, tzinfo=ZoneInfo("UTC"))
 
     def test_cannot_request_verification_for_verified_domains(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -296,12 +279,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
 
         response = self.client.post(f"/api/organizations/@current/domains/{self.domain.id}/verify")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "already_verified",
-            "detail": "This domain has already been verified.",
-            "attr": None,
-        }
+        assert response.json() == {"type": "validation_error", "code": "already_verified", "detail": "This domain has already been verified.", "attr": None}
 
     def test_only_admin_can_create_verified_domains(self):
         count = OrganizationDomain.objects.count()
@@ -353,12 +331,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
             {"sso_enforcement": "google-oauth2"},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "verification_required",
-            "detail": "This attribute cannot be updated until the domain is verified.",
-            "attr": "sso_enforcement",
-        }
+        assert response.json() == {"type": "validation_error", "code": "verification_required", "detail": "This attribute cannot be updated until the domain is verified.", "attr": "sso_enforcement"}
         self.domain.refresh_from_db()
         assert self.domain.sso_enforcement == ""
 
@@ -368,12 +341,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
             {"jit_provisioning_enabled": True},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "verification_required",
-            "detail": "This attribute cannot be updated until the domain is verified.",
-            "attr": "jit_provisioning_enabled",
-        }
+        assert response.json() == {"type": "validation_error", "code": "verification_required", "detail": "This attribute cannot be updated until the domain is verified.", "attr": "jit_provisioning_enabled"}
         self.domain.refresh_from_db()
         assert not self.domain.jit_provisioning_enabled
 
@@ -509,12 +477,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
             {"scim_enabled": True},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "verification_required",
-            "detail": "This attribute cannot be updated until the domain is verified.",
-            "attr": "scim_enabled",
-        }
+        assert response.json() == {"type": "validation_error", "code": "verification_required", "detail": "This attribute cannot be updated until the domain is verified.", "attr": "scim_enabled"}
 
     def test_can_disable_scim(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN

@@ -346,33 +346,7 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
 
         assert len(results) == 1
 
-        assert results[0] == {
-            "label": "stripe.posthog_test",
-            "days": ALL_MONTHS_DAYS,
-            "labels": ALL_MONTHS_LABELS,
-            "data": [
-                0,
-                0,
-                Decimal("646.1471446664"),
-                Decimal("2506.1219846664"),
-                Decimal("2109.1761346664"),
-                Decimal("2668.3175004797"),
-                Decimal("1621.0866070701"),
-                Decimal("30.1498296664"),
-                Decimal("30.1498296664"),
-                Decimal("30.1498296664"),
-                Decimal("30.1498296664"),
-                Decimal("30.1498296664"),
-                Decimal("30.1498296664"),
-                Decimal("30.1498296664"),
-                0,
-                0,
-                0,
-                0,
-                0,
-            ],
-            "action": {"days": ALL_MONTHS_FAKEDATETIMES, "id": "stripe.posthog_test", "name": "stripe.posthog_test"},
-        }
+        assert results[0] == {"label": "stripe.posthog_test", "days": ALL_MONTHS_DAYS, "labels": ALL_MONTHS_LABELS, "data": [0, 0, Decimal("646.1471446664"), Decimal("2506.1219846664"), Decimal("2109.1761346664"), Decimal("2668.3175004797"), Decimal("1621.0866070701"), Decimal("30.1498296664"), Decimal("30.1498296664"), Decimal("30.1498296664"), Decimal("30.1498296664"), Decimal("30.1498296664"), Decimal("30.1498296664"), Decimal("30.1498296664"), 0, 0, 0, 0, 0], "action": {"days": ALL_MONTHS_FAKEDATETIMES, "id": "stripe.posthog_test", "name": "stripe.posthog_test"}}
 
     # NOTE: This can be removed once `managed-viewsets` feature flag is rolled out to all teams
     def test_with_data_with_managed_viewsets_ff(self):
@@ -386,37 +360,7 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
 
             assert len(results) == 1
 
-            assert results[0] == {
-                "label": "stripe.posthog_test",
-                "days": ALL_MONTHS_DAYS,
-                "labels": ALL_MONTHS_LABELS,
-                "data": [
-                    0,
-                    0,
-                    Decimal("646.1471446664"),
-                    Decimal("2506.1219846664"),
-                    Decimal("2109.1761346664"),
-                    Decimal("2668.3175004797"),
-                    Decimal("1621.0866070701"),
-                    Decimal("30.1498296664"),
-                    Decimal("30.1498296664"),
-                    Decimal("30.1498296664"),
-                    Decimal("30.1498296664"),
-                    Decimal("30.1498296664"),
-                    Decimal("30.1498296664"),
-                    Decimal("30.1498296664"),
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                ],
-                "action": {
-                    "days": ALL_MONTHS_FAKEDATETIMES,
-                    "id": "stripe.posthog_test",
-                    "name": "stripe.posthog_test",
-                },
-            }
+            assert results[0] == {"label": "stripe.posthog_test", "days": ALL_MONTHS_DAYS, "labels": ALL_MONTHS_LABELS, "data": [0, 0, Decimal("646.1471446664"), Decimal("2506.1219846664"), Decimal("2109.1761346664"), Decimal("2668.3175004797"), Decimal("1621.0866070701"), Decimal("30.1498296664"), Decimal("30.1498296664"), Decimal("30.1498296664"), Decimal("30.1498296664"), Decimal("30.1498296664"), Decimal("30.1498296664"), Decimal("30.1498296664"), 0, 0, 0, 0, 0], "action": {"days": ALL_MONTHS_FAKEDATETIMES, "id": "stripe.posthog_test", "name": "stripe.posthog_test"}}
 
     def test_with_data_and_date_range(self):
         results = self._run_revenue_analytics_gross_revenue_query(
@@ -425,13 +369,7 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
 
         assert len(results) == 1
 
-        assert results[0] == {
-            "label": "stripe.posthog_test",
-            "days": ["2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01"],
-            "labels": ["Feb 2025", "Mar 2025", "Apr 2025", "May 2025"],
-            "data": [Decimal("2506.1219846664"), Decimal("2109.1761346664"), Decimal("2668.3175004797"), 0],
-            "action": {"days": [ANY] * 4, "id": "stripe.posthog_test", "name": "stripe.posthog_test"},
-        }
+        assert results[0] == {"label": "stripe.posthog_test", "days": ["2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01"], "labels": ["Feb 2025", "Mar 2025", "Apr 2025", "May 2025"], "data": [Decimal("2506.1219846664"), Decimal("2109.1761346664"), Decimal("2668.3175004797"), 0], "action": {"days": [ANY] * 4, "id": "stripe.posthog_test", "name": "stripe.posthog_test"}}
 
     def test_disabling_invoiceless_charges(self):
         self.source.revenue_analytics_config.include_invoiceless_charges = False
@@ -444,33 +382,7 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
 
         assert len(results) == 1
 
-        assert results[0] == {
-            "label": "stripe.posthog_test",
-            "days": ALL_MONTHS_DAYS,
-            "labels": ALL_MONTHS_LABELS,
-            "data": [
-                0,
-                0,
-                Decimal("646.1471446664"),
-                Decimal("2506.1219846664"),
-                Decimal("2109.1761346664"),
-                Decimal("2378.3788246664"),
-                Decimal("1621.0866070701"),
-                Decimal("30.1498296664"),
-                Decimal("30.1498296664"),
-                Decimal("30.1498296664"),
-                Decimal("30.1498296664"),
-                Decimal("30.1498296664"),
-                Decimal("30.1498296664"),
-                Decimal("30.1498296664"),
-                0,
-                0,
-                0,
-                0,
-                0,
-            ],
-            "action": {"days": ALL_MONTHS_FAKEDATETIMES, "id": "stripe.posthog_test", "name": "stripe.posthog_test"},
-        }
+        assert results[0] == {"label": "stripe.posthog_test", "days": ALL_MONTHS_DAYS, "labels": ALL_MONTHS_LABELS, "data": [0, 0, Decimal("646.1471446664"), Decimal("2506.1219846664"), Decimal("2109.1761346664"), Decimal("2378.3788246664"), Decimal("1621.0866070701"), Decimal("30.1498296664"), Decimal("30.1498296664"), Decimal("30.1498296664"), Decimal("30.1498296664"), Decimal("30.1498296664"), Decimal("30.1498296664"), Decimal("30.1498296664"), 0, 0, 0, 0, 0], "action": {"days": ALL_MONTHS_FAKEDATETIMES, "id": "stripe.posthog_test", "name": "stripe.posthog_test"}}
 
     def test_with_empty_date_range(self):
         results = self._run_revenue_analytics_gross_revenue_query(
@@ -497,55 +409,7 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
         ]
         assert [result["label"] for result in results] == expected_products
 
-        assert [result["data"] for result in results] == [
-            [
-                0,
-                0,
-                Decimal("416.61581"),
-                Decimal("873.07365"),
-                Decimal("952.84538"),
-                Decimal("1568.06562"),
-                Decimal("1159.34808"),
-            ],
-            [
-                0,
-                0,
-                Decimal("26.0100949999"),
-                Decimal("1131.8316549999"),
-                Decimal("444.1561449999"),
-                Decimal("140.6744849999"),
-                Decimal("51.5290223463"),
-            ],
-            [
-                0,
-                0,
-                Decimal("193.451825"),
-                Decimal("386.90365"),
-                Decimal("386.90365"),
-                Decimal("580.355475"),
-                Decimal("386.90365"),
-            ],
-            [
-                0,
-                0,
-                Decimal("4.1397346665"),
-                Decimal("89.6179846665"),
-                Decimal("304.9673846665"),
-                Decimal("87.3066846665"),
-                Decimal("22.9631447238"),
-            ],
-            [0, 0, 0, 0, 0, Decimal("289.9386758133"), 0],
-            [0, 0, Decimal("5.758325"), Decimal("24.352335"), Decimal("19.960865"), Decimal("1.462495"), 0],
-            [
-                0,
-                0,
-                Decimal("0.171355"),
-                Decimal("0.34271"),
-                Decimal("0.34271"),
-                Decimal("0.514065"),
-                Decimal("0.34271"),
-            ],
-        ]
+        assert [result["data"] for result in results] == [[0, 0, Decimal("416.61581"), Decimal("873.07365"), Decimal("952.84538"), Decimal("1568.06562"), Decimal("1159.34808")], [0, 0, Decimal("26.0100949999"), Decimal("1131.8316549999"), Decimal("444.1561449999"), Decimal("140.6744849999"), Decimal("51.5290223463")], [0, 0, Decimal("193.451825"), Decimal("386.90365"), Decimal("386.90365"), Decimal("580.355475"), Decimal("386.90365")], [0, 0, Decimal("4.1397346665"), Decimal("89.6179846665"), Decimal("304.9673846665"), Decimal("87.3066846665"), Decimal("22.9631447238")], [0, 0, 0, 0, 0, Decimal("289.9386758133"), 0], [0, 0, Decimal("5.758325"), Decimal("24.352335"), Decimal("19.960865"), Decimal("1.462495"), 0], [0, 0, Decimal("0.171355"), Decimal("0.34271"), Decimal("0.34271"), Decimal("0.514065"), Decimal("0.34271")]]
 
     def test_with_data_and_double_grouping(self):
         results = self._run_revenue_analytics_gross_revenue_query(
@@ -574,61 +438,7 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
             "stripe.posthog_test - 2025-02 - Product E",
         ]
         assert [result["label"] for result in results] == expected_breakdowns
-        assert [result["data"] for result in results] == [
-            [
-                0,
-                0,
-                Decimal("416.61581"),
-                Decimal("416.61581"),
-                Decimal("496.38754"),
-                Decimal("496.38754"),
-                Decimal("1159.34808"),
-            ],
-            [0, 0, 0, Decimal("1105.82156"), Decimal("273.57025"), Decimal("114.66439"), 0],
-            [0, 0, 0, Decimal("456.45784"), Decimal("456.45784"), Decimal("1071.67808"), 0],
-            [
-                0,
-                0,
-                Decimal("193.451825"),
-                Decimal("193.451825"),
-                Decimal("193.451825"),
-                Decimal("193.451825"),
-                Decimal("386.90365"),
-            ],
-            [0, 0, 0, Decimal("193.451825"), Decimal("193.451825"), Decimal("386.90365"), 0],
-            [0, 0, 0, 0, 0, Decimal("289.9386758133"), 0],
-            [
-                0,
-                0,
-                Decimal("4.1397346665"),
-                Decimal("4.1397346665"),
-                Decimal("219.4891346665"),
-                Decimal("4.1397346665"),
-                Decimal("22.9631447238"),
-            ],
-            [
-                0,
-                0,
-                Decimal("26.0100949999"),
-                Decimal("26.0100949999"),
-                Decimal("170.5858949999"),
-                Decimal("26.0100949999"),
-                Decimal("51.5290223463"),
-            ],
-            [0, 0, 0, Decimal("85.47825"), Decimal("85.47825"), Decimal("83.16695"), 0],
-            [0, 0, 0, Decimal("18.59401"), Decimal("18.59401"), Decimal("0.09564"), 0],
-            [0, 0, Decimal("5.758325"), Decimal("5.758325"), Decimal("1.366855"), Decimal("1.366855"), 0],
-            [
-                0,
-                0,
-                Decimal("0.171355"),
-                Decimal("0.171355"),
-                Decimal("0.171355"),
-                Decimal("0.171355"),
-                Decimal("0.34271"),
-            ],
-            [0, 0, 0, Decimal("0.171355"), Decimal("0.171355"), Decimal("0.34271"), 0],
-        ]
+        assert [result["data"] for result in results] == [[0, 0, Decimal("416.61581"), Decimal("416.61581"), Decimal("496.38754"), Decimal("496.38754"), Decimal("1159.34808")], [0, 0, 0, Decimal("1105.82156"), Decimal("273.57025"), Decimal("114.66439"), 0], [0, 0, 0, Decimal("456.45784"), Decimal("456.45784"), Decimal("1071.67808"), 0], [0, 0, Decimal("193.451825"), Decimal("193.451825"), Decimal("193.451825"), Decimal("193.451825"), Decimal("386.90365")], [0, 0, 0, Decimal("193.451825"), Decimal("193.451825"), Decimal("386.90365"), 0], [0, 0, 0, 0, 0, Decimal("289.9386758133"), 0], [0, 0, Decimal("4.1397346665"), Decimal("4.1397346665"), Decimal("219.4891346665"), Decimal("4.1397346665"), Decimal("22.9631447238")], [0, 0, Decimal("26.0100949999"), Decimal("26.0100949999"), Decimal("170.5858949999"), Decimal("26.0100949999"), Decimal("51.5290223463")], [0, 0, 0, Decimal("85.47825"), Decimal("85.47825"), Decimal("83.16695"), 0], [0, 0, 0, Decimal("18.59401"), Decimal("18.59401"), Decimal("0.09564"), 0], [0, 0, Decimal("5.758325"), Decimal("5.758325"), Decimal("1.366855"), Decimal("1.366855"), 0], [0, 0, Decimal("0.171355"), Decimal("0.171355"), Decimal("0.171355"), Decimal("0.171355"), Decimal("0.34271")], [0, 0, 0, Decimal("0.171355"), Decimal("0.171355"), Decimal("0.34271"), 0]]
 
     def test_with_product_filter(self):
         expected_data = [
@@ -686,17 +496,7 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
 
         assert len(results) == 1
         assert [result["label"] for result in results] == ["stripe.posthog_test"]
-        assert [result["data"] for result in results] == [
-            [
-                0,
-                0,
-                Decimal("30.1498296664"),
-                Decimal("30.1498296664"),
-                Decimal("390.0750296664"),
-                Decimal("320.0885054797"),
-                Decimal("74.4921670701"),
-            ]
-        ]
+        assert [result["data"] for result in results] == [[0, 0, Decimal("30.1498296664"), Decimal("30.1498296664"), Decimal("390.0750296664"), Decimal("320.0885054797"), Decimal("74.4921670701")]]
 
     def test_with_events_data(self):
         self.team.revenue_analytics_config.events = [
@@ -743,17 +543,7 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
         ).results
 
         assert len(results) == 1
-        assert results[0] == {
-            "label": "revenue_analytics.events.purchase",
-            "days": LAST_6_MONTHS_DAYS,
-            "labels": LAST_6_MONTHS_LABELS,
-            "data": [0, 0, Decimal("77.309"), Decimal("25.4879321819"), Decimal("36.9999675355"), 0, 0],
-            "action": {
-                "days": LAST_6_MONTHS_FAKEDATETIMES,
-                "id": "revenue_analytics.events.purchase",
-                "name": "revenue_analytics.events.purchase",
-            },
-        }
+        assert results[0] == {"label": "revenue_analytics.events.purchase", "days": LAST_6_MONTHS_DAYS, "labels": LAST_6_MONTHS_LABELS, "data": [0, 0, Decimal("77.309"), Decimal("25.4879321819"), Decimal("36.9999675355"), 0, 0], "action": {"days": LAST_6_MONTHS_FAKEDATETIMES, "id": "revenue_analytics.events.purchase", "name": "revenue_analytics.events.purchase"}}
 
     def test_with_events_data_with_managed_viewsets_ff(self):
         with patch("posthoganalytics.feature_enabled", return_value=True):
@@ -802,17 +592,7 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
             ).results
 
             assert len(results) == 1
-            assert results[0] == {
-                "label": "revenue_analytics.events.purchase",
-                "days": LAST_6_MONTHS_DAYS,
-                "labels": LAST_6_MONTHS_LABELS,
-                "data": [0, 0, Decimal("77.309"), Decimal("25.4879321819"), Decimal("36.9999675355"), 0, 0],
-                "action": {
-                    "days": LAST_6_MONTHS_FAKEDATETIMES,
-                    "id": "revenue_analytics.events.purchase",
-                    "name": "revenue_analytics.events.purchase",
-                },
-            }
+            assert results[0] == {"label": "revenue_analytics.events.purchase", "days": LAST_6_MONTHS_DAYS, "labels": LAST_6_MONTHS_LABELS, "data": [0, 0, Decimal("77.309"), Decimal("25.4879321819"), Decimal("36.9999675355"), 0, 0], "action": {"days": LAST_6_MONTHS_FAKEDATETIMES, "id": "revenue_analytics.events.purchase", "name": "revenue_analytics.events.purchase"}}
 
     def test_with_events_data_and_currency_aware_divider(self):
         self.team.revenue_analytics_config.events = [
@@ -840,17 +620,7 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
         ).results
 
         assert len(results) == 1
-        assert results[0] == {
-            "label": "revenue_analytics.events.purchase",
-            "days": LAST_6_MONTHS_DAYS,
-            "labels": LAST_6_MONTHS_LABELS,
-            "data": [0, Decimal("0.33474"), Decimal("0.0556293217"), 0, 0, 0, 0],
-            "action": {
-                "days": LAST_6_MONTHS_FAKEDATETIMES,
-                "id": "revenue_analytics.events.purchase",
-                "name": "revenue_analytics.events.purchase",
-            },
-        }
+        assert results[0] == {"label": "revenue_analytics.events.purchase", "days": LAST_6_MONTHS_DAYS, "labels": LAST_6_MONTHS_LABELS, "data": [0, Decimal("0.33474"), Decimal("0.0556293217"), 0, 0, 0, 0], "action": {"days": LAST_6_MONTHS_FAKEDATETIMES, "id": "revenue_analytics.events.purchase", "name": "revenue_analytics.events.purchase"}}
 
     def test_with_events_data_and_grouping(self):
         s1 = str(uuid7("2024-12-25"))
@@ -885,60 +655,4 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
             ],
         ).results
 
-        assert results == [
-            {
-                "label": "revenue_analytics.events.purchase - <none> - <none>",
-                "days": LAST_6_MONTHS_DAYS,
-                "labels": LAST_6_MONTHS_LABELS,
-                "data": [0, 0, Decimal("95"), 0, 0, 0, 0],
-                "action": {
-                    "days": LAST_6_MONTHS_FAKEDATETIMES,
-                    "id": "revenue_analytics.events.purchase - <none> - <none>",
-                    "name": "revenue_analytics.events.purchase - <none> - <none>",
-                },
-            },
-            {
-                "label": "revenue_analytics.events.purchase - Prod C - <none>",
-                "days": LAST_6_MONTHS_DAYS,
-                "labels": LAST_6_MONTHS_LABELS,
-                "data": [0, 0, Decimal("85"), 0, 0, 0, 0],
-                "action": {
-                    "days": LAST_6_MONTHS_FAKEDATETIMES,
-                    "id": "revenue_analytics.events.purchase - Prod C - <none>",
-                    "name": "revenue_analytics.events.purchase - Prod C - <none>",
-                },
-            },
-            {
-                "label": "revenue_analytics.events.purchase - <none> - coupon_z",
-                "days": LAST_6_MONTHS_DAYS,
-                "labels": LAST_6_MONTHS_LABELS,
-                "data": [0, 0, Decimal("75"), 0, 0, 0, 0],
-                "action": {
-                    "days": LAST_6_MONTHS_FAKEDATETIMES,
-                    "id": "revenue_analytics.events.purchase - <none> - coupon_z",
-                    "name": "revenue_analytics.events.purchase - <none> - coupon_z",
-                },
-            },
-            {
-                "label": "revenue_analytics.events.purchase - Prod A - coupon_x",
-                "days": LAST_6_MONTHS_DAYS,
-                "labels": LAST_6_MONTHS_LABELS,
-                "data": [0, Decimal("33.474"), 0, 0, 0, 0, 0],
-                "action": {
-                    "days": LAST_6_MONTHS_FAKEDATETIMES,
-                    "id": "revenue_analytics.events.purchase - Prod A - coupon_x",
-                    "name": "revenue_analytics.events.purchase - Prod A - coupon_x",
-                },
-            },
-            {
-                "label": "revenue_analytics.events.purchase - Prod B - coupon_y",
-                "days": LAST_6_MONTHS_DAYS,
-                "labels": LAST_6_MONTHS_LABELS,
-                "data": [0, 0, Decimal("5.5629321819"), 0, 0, 0, 0],
-                "action": {
-                    "days": LAST_6_MONTHS_FAKEDATETIMES,
-                    "id": "revenue_analytics.events.purchase - Prod B - coupon_y",
-                    "name": "revenue_analytics.events.purchase - Prod B - coupon_y",
-                },
-            },
-        ]
+        assert results == [{"label": "revenue_analytics.events.purchase - <none> - <none>", "days": LAST_6_MONTHS_DAYS, "labels": LAST_6_MONTHS_LABELS, "data": [0, 0, Decimal("95"), 0, 0, 0, 0], "action": {"days": LAST_6_MONTHS_FAKEDATETIMES, "id": "revenue_analytics.events.purchase - <none> - <none>", "name": "revenue_analytics.events.purchase - <none> - <none>"}}, {"label": "revenue_analytics.events.purchase - Prod C - <none>", "days": LAST_6_MONTHS_DAYS, "labels": LAST_6_MONTHS_LABELS, "data": [0, 0, Decimal("85"), 0, 0, 0, 0], "action": {"days": LAST_6_MONTHS_FAKEDATETIMES, "id": "revenue_analytics.events.purchase - Prod C - <none>", "name": "revenue_analytics.events.purchase - Prod C - <none>"}}, {"label": "revenue_analytics.events.purchase - <none> - coupon_z", "days": LAST_6_MONTHS_DAYS, "labels": LAST_6_MONTHS_LABELS, "data": [0, 0, Decimal("75"), 0, 0, 0, 0], "action": {"days": LAST_6_MONTHS_FAKEDATETIMES, "id": "revenue_analytics.events.purchase - <none> - coupon_z", "name": "revenue_analytics.events.purchase - <none> - coupon_z"}}, {"label": "revenue_analytics.events.purchase - Prod A - coupon_x", "days": LAST_6_MONTHS_DAYS, "labels": LAST_6_MONTHS_LABELS, "data": [0, Decimal("33.474"), 0, 0, 0, 0, 0], "action": {"days": LAST_6_MONTHS_FAKEDATETIMES, "id": "revenue_analytics.events.purchase - Prod A - coupon_x", "name": "revenue_analytics.events.purchase - Prod A - coupon_x"}}, {"label": "revenue_analytics.events.purchase - Prod B - coupon_y", "days": LAST_6_MONTHS_DAYS, "labels": LAST_6_MONTHS_LABELS, "data": [0, 0, Decimal("5.5629321819"), 0, 0, 0, 0], "action": {"days": LAST_6_MONTHS_FAKEDATETIMES, "id": "revenue_analytics.events.purchase - Prod B - coupon_y", "name": "revenue_analytics.events.purchase - Prod B - coupon_y"}}]

@@ -1,6 +1,5 @@
 from datetime import datetime, timedelta
 
-import pytest
 from posthog.test.base import BaseTest
 from unittest import mock
 from unittest.mock import patch
@@ -16,6 +15,7 @@ from posthog.plugins.test.mock import mocked_plugin_requests_get
 from posthog.plugins.test.plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_ZIP
 
 from ee.billing.quota_limiting import QuotaResource
+import pytest
 
 
 class TestOrganization(BaseTest):

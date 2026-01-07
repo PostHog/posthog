@@ -77,8 +77,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         assert len(serialized_actors) == 1
         assert len(serialized_actors[0]["matched_recordings"]) == 1
         assert serialized_actors[0]["matched_recordings"][0]["session_id"] == "s1"
-        assert sorted(serialized_actors[0]["matched_recordings"][0]["events"]) == sorted(
-            [
+        assert sorted(serialized_actors[0]["matched_recordings"][0]["events"]) == sorted([
                 {
                     "window_id": "w1",
                     "timestamp": timezone.now() + relativedelta(hours=3),
@@ -89,8 +88,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                     "timestamp": timezone.now() + relativedelta(hours=2),
                     "uuid": UUID("b06e5a5e-e001-4293-af81-ac73e194569d"),
                 },
-            ]
-        )
+            ])
 
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21T20:00:00.000Z")
@@ -164,8 +162,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         _, serialized_actors, _ = TrendsActors(self.team, entity, filter).get_actors()
 
-        assert sorted(serialized_actors[0].get("matched_recordings", [])) == sorted(
-            [
+        assert sorted(serialized_actors[0].get("matched_recordings", [])) == sorted([
                 {
                     "session_id": "s1",
                     "events": [
@@ -176,5 +173,4 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                         }
                     ],
                 }
-            ]
-        )
+            ])

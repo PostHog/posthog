@@ -1,6 +1,7 @@
 import uuid
 import contextlib
 from datetime import datetime
+from typing import Optional
 from zoneinfo import ZoneInfo
 
 from freezegun import freeze_time
@@ -48,7 +49,7 @@ class TestRowTracking(BaseTest):
             yield
 
     @contextlib.contextmanager
-    def _setup_redis_rows(self, rows: int, team_id: int | None = None):
+    def _setup_redis_rows(self, rows: int, team_id: Optional[int] = None):
         with override_settings(DATA_WAREHOUSE_REDIS_HOST="localhost", DATA_WAREHOUSE_REDIS_PORT="6379"):
             t_id = team_id or self.team.pk
 

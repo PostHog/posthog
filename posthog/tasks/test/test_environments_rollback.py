@@ -1,4 +1,3 @@
-import pytest
 from unittest.mock import MagicMock, patch
 
 from django.test import TransactionTestCase
@@ -19,6 +18,7 @@ from posthog.tasks.environments_rollback import environments_rollback_migration
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.early_access_features.backend.models import EarlyAccessFeature
+import pytest
 
 
 class TestEnvironmentsRollbackTask(TransactionTestCase):
@@ -387,9 +387,7 @@ class TestEnvironmentsRollbackTask(TransactionTestCase):
 
         # Verify teams with same name as project keep original names
         assert same_name_env.name == "Default project"
-        assert (
-            same_name_env.project.name == "Default project"
-        )  # Project name should be the same as the environment name
+        assert same_name_env.project.name == "Default project"  # Project name should be the same as the environment name
         assert same_name_env.project.id != project1.id  # Should be in new project
 
         # Verify teams with different names get renamed

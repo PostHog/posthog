@@ -131,7 +131,9 @@ class TestEventDefinitionTypeScriptGeneration(APIBaseTest):
 
             if install_result.returncode != 0:
                 self.fail(
-                    f"Failed to install dependencies:\nSTDOUT: {install_result.stdout}\nSTDERR: {install_result.stderr}"
+                    f"Failed to install dependencies:\n"
+                    f"STDOUT: {install_result.stdout}\n"
+                    f"STDERR: {install_result.stderr}"
                 )
 
             # Write generated types (using real posthog-js)
@@ -290,9 +292,4 @@ posthog.capture("a'a\\\\'b\\"c>?>%}}%%>c<[[?${{%}}cake'", {
             )
 
             # Assert compilation succeeded
-            assert result.returncode == 0, (
-                f"TypeScript compilation failed. This indicates the type system is broken.\n\n"
-                f"STDOUT:\n{result.stdout}\n\n"
-                f"STDERR:\n{result.stderr}\n\n"
-                f"Generated TypeScript file location: {types_file}"
-            )
+            assert result.returncode == 0, f"TypeScript compilation failed. This indicates the type system is broken.\n\n" f"STDOUT:\n{result.stdout}\n\n" f"STDERR:\n{result.stderr}\n\n" f"Generated TypeScript file location: {types_file}"

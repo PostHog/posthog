@@ -66,10 +66,7 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
 
             # redis returns encoded bytes
             assert client.hgetall(f"posthog:decide_requests:{team_id}") == {b"165192618": b"10", b"165192619": b"5"}
-            assert client.hgetall(f"posthog:decide_requests:{other_team_id}") == {
-                b"165192618": b"7",
-                b"165192619": b"3",
-            }
+            assert client.hgetall(f"posthog:decide_requests:{other_team_id}") == {b"165192618": b"7", b"165192619": b"3"}
             assert client.hgetall(f"posthog:decide_requests:other") == {}
 
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)

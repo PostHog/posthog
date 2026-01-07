@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import pytest
 from posthog.test.base import APIBaseTest
 
 from django.db import IntegrityError
@@ -9,6 +8,7 @@ from rest_framework import status
 
 from posthog.models.file_system.persisted_folder import PersistedFolder
 from posthog.models.user import User
+import pytest
 
 
 class _Base(APIBaseTest):

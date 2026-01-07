@@ -52,25 +52,7 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
             f"/api/projects/@current/app_metrics/{self.plugin_config.id}?category=processEvent&date_from=-7d"
         )
         assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {
-            "metrics": {
-                "dates": [
-                    "2021-11-28",
-                    "2021-11-29",
-                    "2021-11-30",
-                    "2021-12-01",
-                    "2021-12-02",
-                    "2021-12-03",
-                    "2021-12-04",
-                    "2021-12-05",
-                ],
-                "successes": [0, 0, 0, 0, 0, 3, 0, 0],
-                "successes_on_retry": [0, 0, 0, 0, 0, 0, 0, 0],
-                "failures": [0, 0, 0, 0, 0, 0, 1, 0],
-                "totals": {"successes": 3, "successes_on_retry": 0, "failures": 1},
-            },
-            "errors": [{"error_type": "SomeError", "count": 1, "last_seen": "2021-12-04T00:00:00Z"}],
-        }
+        assert response.json() == {"metrics": {"dates": ["2021-11-28", "2021-11-29", "2021-11-30", "2021-12-01", "2021-12-02", "2021-12-03", "2021-12-04", "2021-12-05"], "successes": [0, 0, 0, 0, 0, 3, 0, 0], "successes_on_retry": [0, 0, 0, 0, 0, 0, 0, 0], "failures": [0, 0, 0, 0, 0, 0, 1, 0], "totals": {"successes": 3, "successes_on_retry": 0, "failures": 1}}, "errors": [{"error_type": "SomeError", "count": 1, "last_seen": "2021-12-04T00:00:00Z"}]}
 
     def test_retrieve_batch_export_runs_app_metrics(self):
         """Test batch export metrics returned by app metrics endpoint."""
@@ -142,24 +124,7 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
 
             response = self.client.get(f"/api/projects/@current/app_metrics/{batch_export_id}?date_from=-7d")
             assert response.status_code == status.HTTP_200_OK
-            assert response.json() == {
-                "metrics": {
-                    "dates": [
-                        "2021-11-29",
-                        "2021-11-30",
-                        "2021-12-01",
-                        "2021-12-02",
-                        "2021-12-03",
-                        "2021-12-04",
-                        "2021-12-05",
-                    ],
-                    "successes": [3, 3, 3, 3, 3, 3, 3],
-                    "successes_on_retry": [0, 0, 0, 0, 0, 0, 0],
-                    "failures": [2, 2, 2, 2, 2, 2, 2],
-                    "totals": {"successes": 21, "successes_on_retry": 0, "failures": 14},
-                },
-                "errors": None,
-            }
+            assert response.json() == {"metrics": {"dates": ["2021-11-29", "2021-11-30", "2021-12-01", "2021-12-02", "2021-12-03", "2021-12-04", "2021-12-05"], "successes": [3, 3, 3, 3, 3, 3, 3], "successes_on_retry": [0, 0, 0, 0, 0, 0, 0], "failures": [2, 2, 2, 2, 2, 2, 2], "totals": {"successes": 21, "successes_on_retry": 0, "failures": 14}}, "errors": None}
 
     def test_retrieve_batch_export_runs_app_metrics_defaults_to_zero(self):
         """Test batch export metrics returned by app metrics endpoint."""
@@ -207,24 +172,7 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
 
             response = self.client.get(f"/api/projects/@current/app_metrics/{batch_export_id}?date_from=-7d")
             assert response.status_code == status.HTTP_200_OK
-            assert response.json() == {
-                "metrics": {
-                    "dates": [
-                        "2021-11-29",
-                        "2021-11-30",
-                        "2021-12-01",
-                        "2021-12-02",
-                        "2021-12-03",
-                        "2021-12-04",
-                        "2021-12-05",
-                    ],
-                    "successes": [1, 1, 1, 1, 1, 1, 1],
-                    "successes_on_retry": [0, 0, 0, 0, 0, 0, 0],
-                    "failures": [0, 0, 0, 0, 0, 0, 0],
-                    "totals": {"successes": 7, "successes_on_retry": 0, "failures": 0},
-                },
-                "errors": None,
-            }
+            assert response.json() == {"metrics": {"dates": ["2021-11-29", "2021-11-30", "2021-12-01", "2021-12-02", "2021-12-03", "2021-12-04", "2021-12-05"], "successes": [1, 1, 1, 1, 1, 1, 1], "successes_on_retry": [0, 0, 0, 0, 0, 0, 0], "failures": [0, 0, 0, 0, 0, 0, 0], "totals": {"successes": 7, "successes_on_retry": 0, "failures": 0}}, "errors": None}
 
     def test_list_historical_exports(self):
         self._create_activity_log(
@@ -238,17 +186,7 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/projects/@current/app_metrics/{self.plugin_config.id}/historical_exports")
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {
-            "results": [
-                {
-                    "job_id": "1234",
-                    "created_at": "2021-12-05T13:23:00Z",
-                    "status": "not_finished",
-                    "payload": {},
-                    "created_by": mock.ANY,
-                }
-            ]
-        }
+        assert response.json() == {"results": [{"job_id": "1234", "created_at": "2021-12-05T13:23:00Z", "status": "not_finished", "payload": {}, "created_by": mock.ANY}]}
 
     def test_retrieve_historical_export(self):
         with freeze_time("2021-08-25T01:00:00Z"):
@@ -308,33 +246,7 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {
-            "metrics": {
-                "dates": [
-                    "2021-08-25 00:00:00",
-                    "2021-08-25 01:00:00",
-                    "2021-08-25 02:00:00",
-                    "2021-08-25 03:00:00",
-                    "2021-08-25 04:00:00",
-                    "2021-08-25 05:00:00",
-                    "2021-08-25 06:00:00",
-                ],
-                "successes": [0, 102, 0, 10, 0, 0, 0],
-                "successes_on_retry": [0, 0, 0, 0, 0, 0, 0],
-                "failures": [0, 0, 1, 0, 0, 0, 0],
-                "totals": {"successes": 112, "successes_on_retry": 0, "failures": 1},
-            },
-            "summary": {
-                "duration": 4 * 60 * 60,
-                "finished_at": "2021-08-25T05:00:00Z",
-                "job_id": "1234",
-                "payload": SAMPLE_PAYLOAD,
-                "status": "success",
-                "created_at": "2021-08-25T01:00:00Z",
-                "created_by": mock.ANY,
-            },
-            "errors": [{"error_type": "SomeError", "count": 1, "last_seen": "2021-08-25T02:55:00Z"}],
-        }
+        assert response.json() == {"metrics": {"dates": ["2021-08-25 00:00:00", "2021-08-25 01:00:00", "2021-08-25 02:00:00", "2021-08-25 03:00:00", "2021-08-25 04:00:00", "2021-08-25 05:00:00", "2021-08-25 06:00:00"], "successes": [0, 102, 0, 10, 0, 0, 0], "successes_on_retry": [0, 0, 0, 0, 0, 0, 0], "failures": [0, 0, 1, 0, 0, 0, 0], "totals": {"successes": 112, "successes_on_retry": 0, "failures": 1}}, "summary": {"duration": 4 * 60 * 60, "finished_at": "2021-08-25T05:00:00Z", "job_id": "1234", "payload": SAMPLE_PAYLOAD, "status": "success", "created_at": "2021-08-25T01:00:00Z", "created_by": mock.ANY}, "errors": [{"error_type": "SomeError", "count": 1, "last_seen": "2021-08-25T02:55:00Z"}]}
 
     def test_error_details(self):
         error_uuid = str(UUIDT())
@@ -355,16 +267,7 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {
-            "result": [
-                {
-                    "error_uuid": error_uuid,
-                    "error_type": "SomeError",
-                    "error_details": {"event": {}},
-                    "timestamp": "2021-08-25T02:55:00Z",
-                }
-            ]
-        }
+        assert response.json() == {"result": [{"error_uuid": error_uuid, "error_type": "SomeError", "error_details": {"event": {}}, "timestamp": "2021-08-25T02:55:00Z"}]}
 
     def _create_activity_log(self, **kwargs):
         log_activity(

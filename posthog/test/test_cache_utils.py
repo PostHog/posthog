@@ -1,5 +1,6 @@
 from datetime import timedelta
 from time import sleep
+from typing import Optional
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import Mock
@@ -13,7 +14,7 @@ order_of_events = Mock(side_effect=lambda x: print(x))  # noqa T201
 
 
 @cache_for(timedelta(seconds=1))
-def fn(number: int | None = None) -> int:
+def fn(number: Optional[int] = None) -> int:
     return mocked_dependency(number)
 
 

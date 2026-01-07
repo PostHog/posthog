@@ -1,4 +1,3 @@
-import pytest
 from posthog.test.base import BaseTest
 
 from django.db import IntegrityError
@@ -7,6 +6,7 @@ from posthog.schema import RevenueAnalyticsEventItem, RevenueCurrencyPropertyCon
 
 from products.data_warehouse.backend.models import DataWarehouseManagedViewSet, DataWarehouseSavedQuery
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
+import pytest
 
 
 class TestDataWarehouseManagedViewSetModel(BaseTest):

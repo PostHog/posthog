@@ -60,16 +60,11 @@ class TestFormatUtils(BaseTest):
 
     def test_replace_breakdown_labels(self):
         # Test with breakdown other string
-        assert (
-            replace_breakdown_labels("test $$_posthog_breakdown_other_$$") == "test Other (i.e. all remaining values)"
-        )
+        assert replace_breakdown_labels("test $$_posthog_breakdown_other_$$") == "test Other (i.e. all remaining values)"
         # Test with breakdown null string
         assert replace_breakdown_labels("test $$_posthog_breakdown_null_$$") == "test None (i.e. no value)"
         # Test with both
-        assert (
-            replace_breakdown_labels("$$_posthog_breakdown_other_$$ and $$_posthog_breakdown_null_$$")
-            == "Other (i.e. all remaining values) and None (i.e. no value)"
-        )
+        assert replace_breakdown_labels("$$_posthog_breakdown_other_$$ and $$_posthog_breakdown_null_$$") == "Other (i.e. all remaining values) and None (i.e. no value)"
         # Test with normal string
         assert replace_breakdown_labels("normal text") == "normal text"
 

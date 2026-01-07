@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Any, cast
+from typing import Any, Optional, cast
 from uuid import UUID
 
 from freezegun import freeze_time
@@ -40,11 +40,11 @@ FORMAT_TIME = "%Y-%m-%d 00:00:00"
 def get_actors_legacy_filters(
     filters: dict[str, Any],
     team: Team,
-    funnel_step: int | None = None,
-    funnel_step_breakdown: str | float | list[str | float] | None = None,
-    funnel_trends_drop_off: bool | None = None,
-    funnel_trends_entrance_period_start: str | None = None,
-    offset: int | None = None,
+    funnel_step: Optional[int] = None,
+    funnel_step_breakdown: Optional[str | float | list[str | float]] = None,
+    funnel_trends_drop_off: Optional[bool] = None,
+    funnel_trends_entrance_period_start: Optional[str] = None,
+    offset: Optional[int] = None,
     include_recordings: bool = False,
 ) -> list[list]:
     funnels_query = cast(FunnelsQuery, filter_to_query(filters))
@@ -63,11 +63,11 @@ def get_actors_legacy_filters(
 def get_actors(
     funnels_query: FunnelsQuery,
     team: Team,
-    funnel_step: int | None = None,
-    funnel_step_breakdown: str | float | list[str | float] | None = None,
-    funnel_trends_drop_off: bool | None = None,
-    funnel_trends_entrance_period_start: str | None = None,
-    offset: int | None = None,
+    funnel_step: Optional[int] = None,
+    funnel_step_breakdown: Optional[str | float | list[str | float]] = None,
+    funnel_trends_drop_off: Optional[bool] = None,
+    funnel_trends_entrance_period_start: Optional[str] = None,
+    offset: Optional[int] = None,
     include_recordings: bool = False,
 ) -> list[list]:
     funnel_actors_query = FunnelsActorsQuery(
@@ -505,17 +505,17 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         # self.assertEqual(results[0]["id"], p1.uuid)
         assert results[0][0] == p1.uuid
         assert list(results[0][2]) == [
-            {
-                "session_id": "s2",
-                "events": [
-                    {
-                        "uuid": UUID("21111111-1111-1111-1111-111111111111"),
-                        "timestamp": timezone.now() + timedelta(days=1),
-                        "window_id": "w2",
-                    }
-                ],
-            }
-        ]
+                {
+                    "session_id": "s2",
+                    "events": [
+                        {
+                            "uuid": UUID("21111111-1111-1111-1111-111111111111"),
+                            "timestamp": timezone.now() + timedelta(days=1),
+                            "window_id": "w2",
+                        }
+                    ],
+                }
+            ]
 
         # Third event dropoff, with recording
         filters = {
@@ -535,17 +535,17 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         # self.assertEqual(results[0]["id"], p1.uuid)
         assert results[0][0] == p1.uuid
         assert list(results[0][2]) == [
-            {
-                "session_id": "s2",
-                "events": [
-                    {
-                        "uuid": UUID("21111111-1111-1111-1111-111111111111"),
-                        "timestamp": timezone.now() + timedelta(days=1),
-                        "window_id": "w2",
-                    }
-                ],
-            }
-        ]
+                {
+                    "session_id": "s2",
+                    "events": [
+                        {
+                            "uuid": UUID("21111111-1111-1111-1111-111111111111"),
+                            "timestamp": timezone.now() + timedelta(days=1),
+                            "window_id": "w2",
+                        }
+                    ],
+                }
+            ]
 
     def test_parses_step_breakdown_correctly(self):
         person1 = _create_person(

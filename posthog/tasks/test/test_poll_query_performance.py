@@ -82,9 +82,7 @@ class TestPollQueryPerformanceTask(SimpleTestCase):
         mock_logger_error.assert_not_called()
         mock_apply_async.assert_called_once()
         assert 0 < mock_apply_async.call_args.kwargs["countdown"] < 2
-        assert redis_client.get(Polling._SINGLETON_REDIS_KEY) == Polling._encode_redis_key(
-            mock_apply_async.call_args.kwargs["args"][0]
-        )
+        assert redis_client.get(Polling._SINGLETON_REDIS_KEY) == Polling._encode_redis_key(mock_apply_async.call_args.kwargs["args"][0])
 
     @patch("posthog.tasks.tasks.logger.error")
     @patch("posthog.tasks.tasks.poll_query_performance.delay")

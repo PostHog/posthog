@@ -3,7 +3,6 @@ from collections.abc import Iterable
 from typing import Any, cast
 from uuid import uuid4
 
-import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -34,6 +33,7 @@ from ee.hogai.chat_agent.schema_generator.utils import SchemaGeneratorOutput
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage, IntermediateStep
 from ee.models import AgentArtifact, Conversation
+import pytest
 
 DummySchema = SchemaGeneratorOutput[AssistantTrendsQuery]
 
@@ -702,6 +702,6 @@ class TestSchemaGeneratorToolsNode(BaseTest):
         action = AgentAction(tool="fix", tool_input="validationerror", log="pydanticexception")
         state = await node(AssistantState(messages=[], intermediate_steps=[(action, None)]), {})
         state = cast(PartialAssistantState, state)
-        assert "validationerror" != None, cast(list[IntermediateStep], state.intermediate_steps)[0][1]
+        assert "validationerror" is not None, cast(list[IntermediateStep], state.intermediate_steps)[0][1]
         assert "validationerror" in cast(Iterable[Any], cast(list[IntermediateStep], state.intermediate_steps)[0][1])
         assert "pydanticexception" in cast(Iterable[Any], cast(list[IntermediateStep], state.intermediate_steps)[0][1])

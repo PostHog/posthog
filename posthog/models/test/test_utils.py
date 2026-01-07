@@ -1,7 +1,6 @@
 from random import Random
 from uuid import UUID
 
-import pytest
 from posthog.test.base import BaseTest
 
 from django.core.exceptions import ValidationError
@@ -13,6 +12,7 @@ from posthog.models.utils import (
     uuid7,
     validate_rate_limit,
 )
+import pytest
 
 
 class TestUUIDv7(BaseTest):

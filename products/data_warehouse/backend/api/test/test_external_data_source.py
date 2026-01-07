@@ -539,36 +539,20 @@ class TestExternalDataSource(APIBaseTest):
 
         assert response.status_code == 200
         assert list(payload.keys()) == [
-            "id",
-            "created_at",
-            "created_by",
-            "status",
-            "source_type",
-            "latest_error",
-            "prefix",
-            "description",
-            "last_run_at",
-            "schemas",
-            "job_inputs",
-            "revenue_analytics_config",
-        ]
-        assert payload["schemas"] == [
-            {
-                "id": str(schema.pk),
-                "incremental": False,
-                "incremental_field": None,
-                "incremental_field_type": None,
-                "last_synced_at": schema.last_synced_at,
-                "name": schema.name,
-                "latest_error": schema.latest_error,
-                "should_sync": schema.should_sync,
-                "status": schema.status,
-                "sync_type": schema.sync_type,
-                "table": schema.table,
-                "sync_frequency": sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval),
-                "sync_time_of_day": schema.sync_time_of_day,
-            }
-        ]
+                "id",
+                "created_at",
+                "created_by",
+                "status",
+                "source_type",
+                "latest_error",
+                "prefix",
+                "description",
+                "last_run_at",
+                "schemas",
+                "job_inputs",
+                "revenue_analytics_config",
+            ]
+        assert payload["schemas"] == [{"id": str(schema.pk), "incremental": False, "incremental_field": None, "incremental_field_type": None, "last_synced_at": schema.last_synced_at, "name": schema.name, "latest_error": schema.latest_error, "should_sync": schema.should_sync, "status": schema.status, "sync_type": schema.sync_type, "table": schema.table, "sync_frequency": sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval), "sync_time_of_day": schema.sync_time_of_day}]
 
     def test_delete_external_data_source(self):
         source = self._create_external_data_source()
@@ -1139,9 +1123,9 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         # Should succeed, not fail with "Required field 'auth' is missing"
-        assert patch_response.status_code == 200, (
-            f"Expected 200, got {patch_response.status_code}: {patch_response.json()}"
-        )
+        assert (
+            patch_response.status_code == 200
+        ), f"Expected 200, got {patch_response.status_code}: {patch_response.json()}"
 
         # Verify credentials are still intact
         source.refresh_from_db()
@@ -1363,9 +1347,9 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         # Should succeed, not fail with validation error
-        assert patch_response.status_code == 200, (
-            f"Expected 200, got {patch_response.status_code}: {patch_response.json()}"
-        )
+        assert (
+            patch_response.status_code == 200
+        ), f"Expected 200, got {patch_response.status_code}: {patch_response.json()}"
 
         # Verify credentials are preserved
         source.refresh_from_db()
@@ -1768,9 +1752,7 @@ class TestExternalDataSource(APIBaseTest):
                 assert response.status_code == 400, f"Expected rejection for prefix '{prefix}' ({reason})"
                 response_text = str(response.json()).lower()
                 # Different invalid prefixes return different error messages
-                assert "prefix" in response_text and ("letters" in response_text or "underscores" in response_text), (
-                    f"Expected error message about prefix validation for '{prefix}' ({reason}), got: {response.json()}"
-                )
+                assert "prefix" in response_text and ("letters" in response_text or "underscores" in response_text), f"Expected error message about prefix validation for '{prefix}' ({reason}), got: {response.json()}"
 
     def test_create_external_data_source_accepts_valid_prefix(self):
         """Test that valid prefixes are accepted."""

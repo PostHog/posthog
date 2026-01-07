@@ -30,9 +30,7 @@ class TestExperimentHoldoutCRUD(APILicensedTest):
         holdout_id = response.json()["id"]
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["name"] == "Test Experiment holdout"
-        assert response.json()["filters"] == [
-            {"properties": [], "rollout_percentage": 20, "variant": f"holdout-{holdout_id}"}
-        ]
+        assert response.json()["filters"] == [{"properties": [], "rollout_percentage": 20, "variant": f"holdout-{holdout_id}"}]
 
         # Generate experiment to be part of holdout
         ff_key = "a-b-tests"
@@ -66,9 +64,7 @@ class TestExperimentHoldoutCRUD(APILicensedTest):
         assert created_ff.filters["multivariate"]["variants"][0]["key"] == "control"
         assert created_ff.filters["multivariate"]["variants"][1]["key"] == "test"
         assert created_ff.filters["groups"][0]["properties"] == []
-        assert created_ff.filters["holdout_groups"] == [
-            {"properties": [], "rollout_percentage": 20, "variant": f"holdout-{holdout_id}"}
-        ]
+        assert created_ff.filters["holdout_groups"] == [{"properties": [], "rollout_percentage": 20, "variant": f"holdout-{holdout_id}"}]
 
         exp_id = response.json()["id"]
         # Now try updating holdout
@@ -88,15 +84,11 @@ class TestExperimentHoldoutCRUD(APILicensedTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["name"] == "Test Experiment holdout 2"
-        assert response.json()["filters"] == [
-            {"properties": [], "rollout_percentage": 30, "variant": f"holdout-{holdout_id}"}
-        ]
+        assert response.json()["filters"] == [{"properties": [], "rollout_percentage": 30, "variant": f"holdout-{holdout_id}"}]
 
         # make sure flag for experiment in question was updated as well
         created_ff = FeatureFlag.objects.get(key=ff_key)
-        assert created_ff.filters["holdout_groups"] == [
-            {"properties": [], "rollout_percentage": 30, "variant": f"holdout-{holdout_id}"}
-        ]
+        assert created_ff.filters["holdout_groups"] == [{"properties": [], "rollout_percentage": 30, "variant": f"holdout-{holdout_id}"}]
 
         # now delete holdout
         response = self.client.delete(f"/api/projects/{self.team.id}/experiment_holdouts/{holdout_id}")

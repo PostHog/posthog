@@ -28,7 +28,7 @@ class TestTeamMetadataCache(BaseTest):
     def test_get_and_update_team_metadata(self, mock_hypercache):
         """Test basic cache read and write operations."""
         # Mock the cache to return metadata
-        mock_metadata: dict[str, Any] = dict.fromkeys(TEAM_METADATA_FIELDS)
+        mock_metadata: dict[str, Any] = {field: None for field in TEAM_METADATA_FIELDS}
         mock_metadata.update({"id": self.team.id, "name": self.team.name})
         mock_hypercache.get_from_cache.return_value = mock_metadata
         mock_hypercache.update_cache.return_value = True
@@ -403,14 +403,8 @@ class TestWarmCachesExpiryTracking(BaseTest):
         # Second arg is a dict with identifier -> timestamp
         # The identifier should be the API token, NOT the team ID
         identifier_dict = call_args[0][1]
-        assert self.team.api_token in identifier_dict, (
-            f"Expected API token '{self.team.api_token}' as identifier, "
-            f"but got: {list(identifier_dict.keys())}. "
-            "This indicates warm_caches is using the wrong identifier type for token-based caches."
-        )
-        assert str(self.team.id) not in identifier_dict, (
-            f"Found team ID '{self.team.id}' as identifier, but token-based caches should use API tokens."
-        )
+        assert self.team.api_token in identifier_dict, f"Expected API token '{self.team.api_token}' as identifier, " f"but got: {list(identifier_dict.keys())}. " "This indicates warm_caches is using the wrong identifier type for token-based caches."
+        assert str(self.team.id) not in identifier_dict, f"Found team ID '{self.team.id}' as identifier, but token-based caches should use API tokens."
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test", TEST=True)

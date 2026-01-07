@@ -15,10 +15,10 @@ class TestCleanDataForJSON(TestCase):
         data = SafeJSONRenderer().render(response)
 
         assert json.loads(data) == {
-            "control": 1.0,
-            "test_1": None,
-            "test_2": None,
-        }
+                "control": 1.0,
+                "test_1": None,
+                "test_2": None,
+            }
 
     def test_cleans_dict_with_nan_and_inf_list(self):
         response = {
@@ -28,9 +28,9 @@ class TestCleanDataForJSON(TestCase):
         data = SafeJSONRenderer().render(response)
 
         assert json.loads(data) == {
-            "control": 1.0,
-            "test": [None, 1.0, None],
-        }
+                "control": 1.0,
+                "test": [None, 1.0, None],
+            }
 
     def test_cleans_dict_with_nan_and_inf_tuple(self):
         response = {
@@ -40,9 +40,9 @@ class TestCleanDataForJSON(TestCase):
         data = SafeJSONRenderer().render(response)
 
         assert json.loads(data) == {
-            "control": 1.0,
-            "test": [None, 1.0, None],
-        }
+                "control": 1.0,
+                "test": [None, 1.0, None],
+            }
 
     def test_cleans_dict_with_nan_and_inf_nested_list(self):
         response = {
@@ -57,9 +57,9 @@ class TestCleanDataForJSON(TestCase):
         data = SafeJSONRenderer().render(response)
 
         assert json.loads(data) == {
-            "control": 1.0,
-            "test": [None, [None, None, 1.0], None, 5.0],
-        }
+                "control": 1.0,
+                "test": [None, [None, None, 1.0], None, 5.0],
+            }
 
     def test_cleans_dict_with_nan_nested_dict(self):
         response = {
@@ -69,12 +69,12 @@ class TestCleanDataForJSON(TestCase):
         data = SafeJSONRenderer().render(response)
 
         assert json.loads(data) == {
-            "control": 1.0,
-            "test": [
-                {
-                    "yup": True,
-                    "meh": [],
-                    "nope": None,
-                }
-            ],
-        }
+                "control": 1.0,
+                "test": [
+                    {
+                        "yup": True,
+                        "meh": [],
+                        "nope": None,
+                    }
+                ],
+            }

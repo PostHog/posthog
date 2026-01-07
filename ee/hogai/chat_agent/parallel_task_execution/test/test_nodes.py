@@ -2,7 +2,6 @@ import uuid
 import asyncio
 from typing import Any, cast
 
-import pytest
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
@@ -13,6 +12,7 @@ from posthog.schema import AssistantToolCall, TaskExecutionStatus
 
 from ee.hogai.chat_agent.parallel_task_execution.nodes import BaseTaskExecutorNode, TaskExecutionInputTuple
 from ee.hogai.utils.types.base import BaseStateWithTasks, TaskArtifact, TaskResult
+import pytest
 
 
 class MockTestState(BaseStateWithTasks):

@@ -286,10 +286,7 @@ class TestCreateExperimentTool(APIBaseTest):
         experiment = await Experiment.objects.aget(name="Parameter Test", team=self.team)
         # Variants should come from the feature flag, not hardcoded
         assert isinstance(experiment.parameters, dict)
-        assert experiment.parameters["feature_flag_variants"] == [
-            {"key": "control", "name": "Control", "rollout_percentage": 50},
-            {"key": "test", "name": "Test", "rollout_percentage": 50},
-        ]
+        assert experiment.parameters["feature_flag_variants"] == [{"key": "control", "name": "Control", "rollout_percentage": 50}, {"key": "test", "name": "Test", "rollout_percentage": 50}]
         assert experiment.parameters["minimum_detectable_effect"] == 30
         assert experiment.metrics == []
         assert experiment.metrics_secondary == []

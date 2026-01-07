@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
+from typing import Optional
 from zoneinfo import ZoneInfo
 
-import pytest
 from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
@@ -35,6 +35,7 @@ from posthog.hogql_queries.web_analytics.web_overview_pre_aggregated import WebO
 from posthog.models import Action, Cohort, Element
 from posthog.models.utils import uuid7
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
+import pytest
 
 
 @snapshot_clickhouse_queries
@@ -95,11 +96,11 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         date_to: str,
         session_table_version: SessionTableVersion = SessionTableVersion.V2,
         compare: bool = True,
-        limit_context: LimitContext | None = None,
-        filter_test_accounts: bool | None = False,
-        action: Action | None = None,
-        custom_event: str | None = None,
-        bounce_rate_mode: BounceRatePageViewMode | None = BounceRatePageViewMode.COUNT_PAGEVIEWS,
+        limit_context: Optional[LimitContext] = None,
+        filter_test_accounts: Optional[bool] = False,
+        action: Optional[Action] = None,
+        custom_event: Optional[str] = None,
+        bounce_rate_mode: Optional[BounceRatePageViewMode] = BounceRatePageViewMode.COUNT_PAGEVIEWS,
     ):
         with freeze_time(self.QUERY_TIMESTAMP):
             modifiers = HogQLQueryModifiers(
@@ -736,9 +737,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         runner = WebOverviewQueryRunner(team=self.team, query=query)
         pre_agg_builder = WebOverviewPreAggregatedQueryBuilder(runner)
-        assert pre_agg_builder.can_use_preaggregated_tables(), (
-            "Should use pre-aggregated tables when date range includes current date (using UNION ALL with hourly tables)"
-        )
+        assert pre_agg_builder.can_use_preaggregated_tables(), "Should use pre-aggregated tables when date range includes current date (using UNION ALL with hourly tables)"
 
     @freeze_time("2023-12-15T12:00:00Z")
     def test_cannot_use_preaggregated_tables_with_unsupported_properties(self):
@@ -748,9 +747,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         runner = WebOverviewQueryRunner(team=self.team, query=query)
         pre_agg_builder = WebOverviewPreAggregatedQueryBuilder(runner)
-        assert not pre_agg_builder.can_use_preaggregated_tables(), (
-            "Should not use pre-aggregated tables with unsupported properties"
-        )
+        assert not pre_agg_builder.can_use_preaggregated_tables(), "Should not use pre-aggregated tables with unsupported properties"
 
     @freeze_time("2023-12-15T12:00:00Z")
     def test_can_use_preaggregated_tables_with_conversion_goal(self):
@@ -771,9 +768,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         runner = WebOverviewQueryRunner(team=self.team, query=query)
         pre_agg_builder = WebOverviewPreAggregatedQueryBuilder(runner)
-        assert pre_agg_builder.can_use_preaggregated_tables(), (
-            "Should use pre-aggregated tables with supported properties"
-        )
+        assert pre_agg_builder.can_use_preaggregated_tables(), "Should use pre-aggregated tables with supported properties"
 
     @freeze_time("2023-12-15T12:00:00Z")
     def test_can_use_preaggregated_tables_with_channel_type_filter(self):

@@ -2,7 +2,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from string import ascii_lowercase
-from typing import Any, Literal, Union
+from typing import Any, Literal, Optional, Union
 
 from posthog.test.base import APIBaseTest, also_test_with_materialized_columns, snapshot_clickhouse_queries
 
@@ -19,10 +19,10 @@ class FunnelStepResult:
     name: str
     count: int
     breakdown: Union[list[str], str]
-    average_conversion_time: float | None = None
-    median_conversion_time: float | None = None
+    average_conversion_time: Optional[float] = None
+    median_conversion_time: Optional[float] = None
     type: Literal["events", "actions"] = "events"
-    action_id: str | None = None
+    action_id: Optional[str] = None
 
 
 def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_action, _create_person):
@@ -50,7 +50,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     **(
                         {
                             "action_id": None,
-                            "name": f"Completed {order + 1} step{'s' if order > 0 else ''}",
+                            "name": f"Completed {order+1} step{'s' if order > 0 else ''}",
                         }
                         if Funnel == ClickhouseFunnelUnordered
                         else {}
@@ -301,9 +301,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 ],
             )
 
-            assert sorted(self._get_actor_ids_at_step(filter, 1, "Safari")) == sorted(
-                [people["person2"].uuid, people["person3"].uuid]
-            )
+            assert sorted(self._get_actor_ids_at_step(filter, 1, "Safari")) == sorted([people["person2"].uuid, people["person3"].uuid])
             assert sorted(self._get_actor_ids_at_step(filter, 2, "Safari")) == sorted([people["person2"].uuid])
 
         @also_test_with_materialized_columns(["$browser"])
@@ -406,9 +404,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 ],
             )
 
-            assert sorted(self._get_actor_ids_at_step(filter, 1, "Safari")) == sorted(
-                [people["person2"].uuid, people["person3"].uuid]
-            )
+            assert sorted(self._get_actor_ids_at_step(filter, 1, "Safari")) == sorted([people["person2"].uuid, people["person3"].uuid])
             assert sorted(self._get_actor_ids_at_step(filter, 2, "Safari")) == sorted([people["person2"].uuid])
 
         @also_test_with_materialized_columns(["$browser"])
@@ -504,9 +500,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 ],
             )
 
-            assert sorted(self._get_actor_ids_at_step(filter, 1, "Safari")) == sorted(
-                [people["person2"].uuid, people["person3"].uuid]
-            )
+            assert sorted(self._get_actor_ids_at_step(filter, 1, "Safari")) == sorted([people["person2"].uuid, people["person3"].uuid])
             assert sorted(self._get_actor_ids_at_step(filter, 2, "Safari")) == sorted([people["person2"].uuid])
 
             self._assert_funnel_breakdown_result_is_correct(
@@ -530,13 +524,11 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 ],
             )
 
-            assert sorted(self._get_actor_ids_at_step(filter, 1, "Other")) == sorted(
-                [
+            assert sorted(self._get_actor_ids_at_step(filter, 1, "Other")) == sorted([
                     people["person1"].uuid,
                     people["person4"].uuid,
                     people["person5"].uuid,
-                ]
-            )
+                ])
             assert sorted(self._get_actor_ids_at_step(filter, 2, "Other")) == sorted([people["person1"].uuid])
 
         @also_test_with_materialized_columns(["$browser"])
@@ -639,9 +631,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 ],
             )
 
-            assert sorted(self._get_actor_ids_at_step(filter, 1, "Safari")) == sorted(
-                [people["person2"].uuid, people["person3"].uuid]
-            )
+            assert sorted(self._get_actor_ids_at_step(filter, 1, "Safari")) == sorted([people["person2"].uuid, people["person3"].uuid])
             assert sorted(self._get_actor_ids_at_step(filter, 2, "Safari")) == sorted([people["person2"].uuid])
 
         @also_test_with_materialized_columns(person_properties=["$browser"])
@@ -1097,9 +1087,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             assert sorted(self._get_actor_ids_at_step(filter, 1, cohort.pk)) == sorted([people["person1"].uuid])
             assert sorted(self._get_actor_ids_at_step(filter, 2, cohort.pk)) == sorted([])
 
-            assert sorted(self._get_actor_ids_at_step(filter, 1, ALL_USERS_COHORT_ID)) == sorted(
-                [people["person1"].uuid]
-            )
+            assert sorted(self._get_actor_ids_at_step(filter, 1, ALL_USERS_COHORT_ID)) == sorted([people["person1"].uuid])
             assert sorted(self._get_actor_ids_at_step(filter, 2, ALL_USERS_COHORT_ID)) == sorted([])
 
             # non array
@@ -1778,9 +1766,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 ],
             )
 
-            assert sorted(self._get_actor_ids_at_step(filter, 1, "")) == sorted(
-                [people["person1"].uuid, people["person3"].uuid]
-            )
+            assert sorted(self._get_actor_ids_at_step(filter, 1, "")) == sorted([people["person1"].uuid, people["person3"].uuid])
 
             self._assert_funnel_breakdown_result_is_correct(
                 result[1],

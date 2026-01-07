@@ -2,12 +2,12 @@ import uuid
 import asyncio
 from collections.abc import Callable
 
-import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, RateLimit
 from posthog.constants import AvailableFeature
+import pytest
 
 
 class TestRateLimit(BaseTest):

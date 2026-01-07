@@ -3,7 +3,6 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import cast
 
-import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
@@ -37,6 +36,7 @@ from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal
+import pytest
 
 VALID_TEST_PASSWORD = "mighty-strong-secure-1337!!"
 
@@ -216,12 +216,7 @@ class TestLoginAPI(APIBaseTest):
 
             response = self.client.post("/api/login/", body)
             assert response.status_code == status.HTTP_400_BAD_REQUEST
-            assert response.json() == {
-                "type": "validation_error",
-                "code": "required",
-                "detail": "This field is required.",
-                "attr": attribute,
-            }
+            assert response.json() == {"type": "validation_error", "code": "required", "detail": "This field is required.", "attr": attribute}
 
             # Assert user is not logged in
             response = self.client.get("/api/users/@me/")
@@ -246,12 +241,7 @@ class TestLoginAPI(APIBaseTest):
 
             response = self.client.post("/api/login", {"email": "new_user@posthog.com", "password": "invalid"})
             assert response.status_code == status.HTTP_403_FORBIDDEN
-            assert response.json() == {
-                "type": "authentication_error",
-                "code": "too_many_failed_attempts",
-                "detail": "Too many failed login attempts. Please try again in 10 minutes.",
-                "attr": None,
-            }
+            assert response.json() == {"type": "authentication_error", "code": "too_many_failed_attempts", "detail": "Too many failed login attempts. Please try again in 10 minutes.", "attr": None}
 
     def test_login_lockout_is_ip_based(self):
         """Verify brute force lockout applies per-IP, not globally"""
@@ -297,12 +287,7 @@ class TestTwoFactorAPI(APIBaseTest):
 
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
-        assert response.json() == {
-            "type": "server_error",
-            "code": "2fa_required",
-            "detail": "2FA is required.",
-            "attr": None,
-        }
+        assert response.json() == {"type": "server_error", "code": "2fa_required", "detail": "2FA is required.", "attr": None}
 
         # Assert user is not logged in
         response = self.client.get("/api/users/@me/")
@@ -330,22 +315,12 @@ class TestTwoFactorAPI(APIBaseTest):
                 {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD},
             )
             assert response.status_code == status.HTTP_401_UNAUTHORIZED, response.json()
-            assert response.json() == {
-                "type": "server_error",
-                "code": "2fa_required",
-                "detail": "2FA is required.",
-                "attr": None,
-            }
+            assert response.json() == {"type": "server_error", "code": "2fa_required", "detail": "2FA is required.", "attr": None}
 
         with freeze_time("2023-01-01T10:30:00"):
             response = self.client.post("/api/login/token", {"token": "abcdefg"})
             assert response.status_code == status.HTTP_400_BAD_REQUEST
-            assert response.json() == {
-                "type": "validation_error",
-                "code": "2fa_expired",
-                "detail": "Login attempt has expired. Re-enter username/password.",
-                "attr": None,
-            }
+            assert response.json() == {"type": "validation_error", "code": "2fa_expired", "detail": "Login attempt has expired. Re-enter username/password.", "attr": None}
 
         response = self.client.get("/api/users/@me/")
         assert response.status_code == status.HTTP_401_UNAUTHORIZED, response.json()
@@ -479,9 +454,7 @@ class TestPasswordResetAPI(APIBaseTest):
         # validate reset token
         link_index = html_message.find("https://my.posthog.net/reset")
         reset_link = html_message[link_index : html_message.find('"', link_index)]
-        assert password_reset_token_generator.check_token(
-            self.user, reset_link.replace("https://my.posthog.net/reset/", "").replace(f"{self.user.uuid}/", "")
-        )
+        assert password_reset_token_generator.check_token(self.user, reset_link.replace("https://my.posthog.net/reset/", "").replace(f"{self.user.uuid}/", ""))
 
     def test_reset_with_sso_available(self):
         """
@@ -517,9 +490,7 @@ class TestPasswordResetAPI(APIBaseTest):
         # validate reset token
         link_index = html_message.find("https://my.posthog.net/reset")
         reset_link = html_message[link_index : html_message.find('"', link_index)]
-        assert password_reset_token_generator.check_token(
-            self.user, reset_link.replace(f"https://my.posthog.net/reset/{self.user.uuid}/", "")
-        )
+        assert password_reset_token_generator.check_token(self.user, reset_link.replace(f"https://my.posthog.net/reset/{self.user.uuid}/", ""))
 
         # check we mention SSO providers
         assert "Google, GitHub" in html_message
@@ -539,12 +510,7 @@ class TestPasswordResetAPI(APIBaseTest):
         with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
             response = self.client.post("/api/reset/", {"email": "i_dont_exist@posthog.com"})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "email_not_available",
-            "detail": "Cannot reset passwords because email is not configured for your instance. Please contact your administrator.",
-            "attr": None,
-        }
+        assert response.json() == {"type": "validation_error", "code": "email_not_available", "detail": "Cannot reset passwords because email is not configured for your instance. Please contact your administrator.", "attr": None}
 
     def test_cant_reset_more_than_six_times(self):
         set_instance_setting("EMAIL_HOST", "localhost")
@@ -574,11 +540,7 @@ class TestPasswordResetAPI(APIBaseTest):
                 else:
                     # Fourth request should fail
                     assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
-                    assert {
-                        "attr": None,
-                        "code": "throttled",
-                        "type": "throttled_error",
-                    }.items() <= response.json().items()
+                    assert {"attr": None, "code": "throttled", "type": "throttled_error"}.items() <= response.json().items()
 
     # Token validation
 
@@ -592,12 +554,7 @@ class TestPasswordResetAPI(APIBaseTest):
     def test_cant_validate_token_without_a_token(self):
         response = self.client.get(f"/api/reset/{self.user.uuid}/")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "required",
-            "detail": "This field is required.",
-            "attr": "token",
-        }
+        assert response.json() == {"type": "validation_error", "code": "required", "detail": "This field is required.", "attr": "token"}
 
     def test_invalid_token_returns_error(self):
         valid_token = password_reset_token_generator.make_token(self.user)
@@ -614,12 +571,7 @@ class TestPasswordResetAPI(APIBaseTest):
         ]:
             response = self.client.get(f"/api/reset/{self.user.uuid}/?token={token}")
             assert response.status_code == status.HTTP_400_BAD_REQUEST
-            assert response.json() == {
-                "type": "validation_error",
-                "code": "invalid_token",
-                "detail": "This reset token is invalid or has expired.",
-                "attr": "token",
-            }
+            assert response.json() == {"type": "validation_error", "code": "invalid_token", "detail": "This reset token is invalid or has expired.", "attr": "token"}
 
     # Password reset completion
 
@@ -680,12 +632,7 @@ class TestPasswordResetAPI(APIBaseTest):
         token = password_reset_token_generator.make_token(self.user)
         response = self.client.post(f"/api/reset/{self.user.uuid}/", {"token": token, "password": "123"})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "invalid_input",
-            "detail": "This password is too short. It must contain at least 8 characters.",
-            "attr": "password",
-        }
+        assert response.json() == {"type": "validation_error", "code": "invalid_input", "detail": "This password is too short. It must contain at least 8 characters.", "attr": "password"}
 
         # user remains logged out
         response = self.client.get("/api/users/@me/")
@@ -699,12 +646,7 @@ class TestPasswordResetAPI(APIBaseTest):
     def test_cant_reset_password_with_no_token(self):
         response = self.client.post(f"/api/reset/{self.user.uuid}/", {"password": "a12345678"})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "required",
-            "detail": "This field is required.",
-            "attr": "token",
-        }
+        assert response.json() == {"type": "validation_error", "code": "required", "detail": "This field is required.", "attr": "token"}
 
         # user remains logged out
         response = self.client.get("/api/users/@me/")
@@ -733,12 +675,7 @@ class TestPasswordResetAPI(APIBaseTest):
                 {"token": token, "password": "a12345678"},
             )
             assert response.status_code == status.HTTP_400_BAD_REQUEST
-            assert response.json() == {
-                "type": "validation_error",
-                "code": "invalid_token",
-                "detail": "This reset token is invalid or has expired.",
-                "attr": "token",
-            }
+            assert response.json() == {"type": "validation_error", "code": "invalid_token", "detail": "This reset token is invalid or has expired.", "attr": "token"}
 
             # user remains logged out
             response = self.client.get("/api/users/@me/")
@@ -754,12 +691,7 @@ class TestPasswordResetAPI(APIBaseTest):
 
         response = self.client.post(f"/api/reset/{uuid.uuid4()}/", {"token": token, "password": "a12345678"})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "invalid_token",
-            "detail": "This reset token is invalid or has expired.",
-            "attr": "token",
-        }
+        assert response.json() == {"type": "validation_error", "code": "invalid_token", "detail": "This reset token is invalid or has expired.", "attr": "token"}
 
         # user remains logged out
         response = self.client.get("/api/users/@me/")

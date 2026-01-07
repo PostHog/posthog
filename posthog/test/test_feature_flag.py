@@ -71,12 +71,7 @@ class TestFeatureFlagCohortExpansion(BaseTest):
             key="active-flag",
             filters={"groups": [{"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}]}]},
         )
-        assert flag.transform_cohort_filters_for_easy_evaluation() == [
-            {
-                "properties": [{"key": "email", "operator": "icontains", "type": "person", "value": ["@posthog.com"]}],
-                "rollout_percentage": None,
-            }
-        ]
+        assert flag.transform_cohort_filters_for_easy_evaluation() == [{"properties": [{"key": "email", "operator": "icontains", "type": "person", "value": ["@posthog.com"]}], "rollout_percentage": None}]
 
     def test_cohort_expansion_with_negation(self):
         cohort = Cohort.objects.create(
@@ -102,9 +97,7 @@ class TestFeatureFlagCohortExpansion(BaseTest):
             key="active-flag",
             filters={"groups": [{"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}]}]},
         )
-        assert flag.transform_cohort_filters_for_easy_evaluation() == [
-            {"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}]}
-        ]
+        assert flag.transform_cohort_filters_for_easy_evaluation() == [{"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}]}]
 
     def test_cohort_expansion_multiple_properties(self):
         cohort = Cohort.objects.create(
@@ -135,15 +128,7 @@ class TestFeatureFlagCohortExpansion(BaseTest):
             key="active-flag",
             filters={"groups": [{"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}]}]},
         )
-        assert flag.transform_cohort_filters_for_easy_evaluation() == [
-            {
-                "properties": [
-                    {"key": "email", "operator": "icontains", "type": "person", "value": ["@posthog.com"]},
-                    {"key": "name", "value": ["posthog"], "type": "person", "operator": "icontains"},
-                ],
-                "rollout_percentage": None,
-            }
-        ]
+        assert flag.transform_cohort_filters_for_easy_evaluation() == [{"properties": [{"key": "email", "operator": "icontains", "type": "person", "value": ["@posthog.com"]}, {"key": "name", "value": ["posthog"], "type": "person", "operator": "icontains"}], "rollout_percentage": None}]
 
     def test_cohort_property_group(self):
         cohort = Cohort.objects.create(
@@ -186,16 +171,7 @@ class TestFeatureFlagCohortExpansion(BaseTest):
                 ]
             },
         )
-        assert flag.transform_cohort_filters_for_easy_evaluation() == [
-            {
-                "properties": [{"key": "$some_prop", "value": "nomatchihope", "type": "person"}],
-                "rollout_percentage": 50,
-            },
-            {
-                "properties": [{"key": "$some_prop2", "value": "nomatchihope2", "type": "person"}],
-                "rollout_percentage": 50,
-            },
-        ]
+        assert flag.transform_cohort_filters_for_easy_evaluation() == [{"properties": [{"key": "$some_prop", "value": "nomatchihope", "type": "person"}], "rollout_percentage": 50}, {"properties": [{"key": "$some_prop2", "value": "nomatchihope2", "type": "person"}], "rollout_percentage": 50}]
 
     def test_behavioral_cohorts(self):
         cohort = Cohort.objects.create(
@@ -246,9 +222,7 @@ class TestFeatureFlagCohortExpansion(BaseTest):
                 ]
             },
         )
-        assert flag.transform_cohort_filters_for_easy_evaluation() == [
-            {"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}], "rollout_percentage": 50}
-        ]
+        assert flag.transform_cohort_filters_for_easy_evaluation() == [{"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}], "rollout_percentage": 50}]
 
     def test_multiple_cohorts(self):
         cohort = Cohort.objects.create(
@@ -506,19 +480,7 @@ class TestFeatureFlagCohortExpansion(BaseTest):
             },
         )
 
-        assert flag.transform_cohort_filters_for_easy_evaluation() == [
-            {"properties": [{"key": "name_above", "value": "name", "type": "person"}], "rollout_percentage": 50},
-            {"properties": [{"key": "name", "value": "name", "type": "person"}], "rollout_percentage": 50},
-            {
-                "properties": [
-                    {"key": "$some_prop", "value": "nomatchihope", "type": "person"},
-                    {"key": "$some_prop2", "value": "nomatchihope2", "type": "person"},
-                ],
-                "rollout_percentage": 50,
-            },
-            {"properties": [{"key": "$name", "value": "nomatchihope", "type": "person"}], "rollout_percentage": 50},
-            {"properties": [{"key": "$email", "value": "nomatchihope", "type": "person"}], "rollout_percentage": 50},
-        ]
+        assert flag.transform_cohort_filters_for_easy_evaluation() == [{"properties": [{"key": "name_above", "value": "name", "type": "person"}], "rollout_percentage": 50}, {"properties": [{"key": "name", "value": "name", "type": "person"}], "rollout_percentage": 50}, {"properties": [{"key": "$some_prop", "value": "nomatchihope", "type": "person"}, {"key": "$some_prop2", "value": "nomatchihope2", "type": "person"}], "rollout_percentage": 50}, {"properties": [{"key": "$name", "value": "nomatchihope", "type": "person"}], "rollout_percentage": 50}, {"properties": [{"key": "$email", "value": "nomatchihope", "type": "person"}], "rollout_percentage": 50}]
 
     def test_complex_cohort_expansion_that_is_simplified_via_clearing_excess_levels(self):
         cohort = Cohort.objects.create(
@@ -582,15 +544,7 @@ class TestFeatureFlagCohortExpansion(BaseTest):
             },
         )
 
-        assert flag.transform_cohort_filters_for_easy_evaluation() == [
-            {"properties": [{"key": "name", "value": "name", "type": "person"}], "rollout_percentage": 50},
-            {
-                "properties": [{"key": "$some_prop", "value": "nomatchihope", "type": "person"}],
-                "rollout_percentage": 50,
-            },
-            {"properties": [{"key": "$name", "value": "nomatchihope", "type": "person"}], "rollout_percentage": 50},
-            {"properties": [{"key": "$email", "value": "nomatchihope", "type": "person"}], "rollout_percentage": 50},
-        ]
+        assert flag.transform_cohort_filters_for_easy_evaluation() == [{"properties": [{"key": "name", "value": "name", "type": "person"}], "rollout_percentage": 50}, {"properties": [{"key": "$some_prop", "value": "nomatchihope", "type": "person"}], "rollout_percentage": 50}, {"properties": [{"key": "$name", "value": "nomatchihope", "type": "person"}], "rollout_percentage": 50}, {"properties": [{"key": "$email", "value": "nomatchihope", "type": "person"}], "rollout_percentage": 50}]
 
 
 class TestModelCache(BaseTest):
@@ -678,12 +632,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
     def test_blank_flag(self):
         # Blank feature flags now default to be released for everyone
         feature_flag = self.create_feature_flag()
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
     @snapshot_postgres_queries
     def test_invalid_regex_match_flag(self):
@@ -710,12 +660,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 ]
             }
         )
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "307").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "307").get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
 
     def test_feature_flag_with_greater_than_filter(self):
         Person.objects.create(
@@ -731,9 +677,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         with self.assertNumQueries(4):
-            assert self.match_flag(feature_flag, "example_id") == FeatureFlagMatch(
-                True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0
-            )
+            assert self.match_flag(feature_flag, "example_id") == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
     def test_feature_flag_with_greater_than_filter_no_match(self):
         Person.objects.create(
@@ -749,9 +693,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         with self.assertNumQueries(4):
-            assert self.match_flag(feature_flag, "example_id") == FeatureFlagMatch(
-                False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0
-            )
+            assert self.match_flag(feature_flag, "example_id") == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
 
     def test_feature_flag_with_greater_than_filter_invalid_value(self):
         Person.objects.create(
@@ -767,9 +709,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         with self.assertNumQueries(3):
-            assert self.match_flag(feature_flag, "example_id") == FeatureFlagMatch(
-                False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0
-            )
+            assert self.match_flag(feature_flag, "example_id") == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
 
     def test_feature_flag_with_holdout_filter(self):
         # example_id is outside 70% holdout
@@ -851,33 +791,21 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
         # regular flag evaluation when outside holdout
         with self.assertNumQueries(4):
-            assert self.match_flag(feature_flag, "example_id") == FeatureFlagMatch(
-                True, "second-variant", FeatureFlagMatchReason.CONDITION_MATCH, 0
-            )
+            assert self.match_flag(feature_flag, "example_id") == FeatureFlagMatch(True, "second-variant", FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
         # inside holdout, get holdout variant override.
         # also, should have no db queries here.
         with self.assertNumQueries(0):
-            assert self.match_flag(feature_flag, "example_id2") == FeatureFlagMatch(
-                True, "holdout", FeatureFlagMatchReason.HOLDOUT_CONDITION_VALUE, 0
-            )
+            assert self.match_flag(feature_flag, "example_id2") == FeatureFlagMatch(True, "holdout", FeatureFlagMatchReason.HOLDOUT_CONDITION_VALUE, 0)
 
         # same should hold true for a different feature flag when within holdout
-        assert self.match_flag(other_feature_flag, "example_id2") == FeatureFlagMatch(
-            True, "holdout", FeatureFlagMatchReason.HOLDOUT_CONDITION_VALUE, 0
-        )
+        assert self.match_flag(other_feature_flag, "example_id2") == FeatureFlagMatch(True, "holdout", FeatureFlagMatchReason.HOLDOUT_CONDITION_VALUE, 0)
         # but the variants may change outside holdout since different flag
-        assert self.match_flag(other_feature_flag, "example_id") == FeatureFlagMatch(
-            True, "third-variant", FeatureFlagMatchReason.CONDITION_MATCH, 0
-        )
+        assert self.match_flag(other_feature_flag, "example_id") == FeatureFlagMatch(True, "third-variant", FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
         # when holdout exists but is zero, should default to regular flag evaluation
-        assert self.match_flag(other_flag_without_holdout, "example_id") == FeatureFlagMatch(
-            True, "second-variant", FeatureFlagMatchReason.CONDITION_MATCH, 0
-        )
-        assert self.match_flag(other_flag_without_holdout, "example_id2") == FeatureFlagMatch(
-            True, "second-variant", FeatureFlagMatchReason.CONDITION_MATCH, 0
-        )
+        assert self.match_flag(other_flag_without_holdout, "example_id") == FeatureFlagMatch(True, "second-variant", FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert self.match_flag(other_flag_without_holdout, "example_id2") == FeatureFlagMatch(True, "second-variant", FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
     def test_coercion_of_strings_and_numbers(self):
         Person.objects.create(
@@ -933,33 +861,21 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             },
         )
 
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "307").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "307").get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
         # confirm it works with overrides as well, which are computed locally
-        assert FeatureFlagMatcher(
-            self.team.id, self.project.id, [feature_flag], "307", property_value_overrides={"Organizer Id": "307"}
-        ).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "307", property_value_overrides={"Organizer Id": "307"}).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
-        assert FeatureFlagMatcher(
-            self.team.id, self.project.id, [feature_flag], "307", property_value_overrides={"Organizer Id": 307}
-        ).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "307", property_value_overrides={"Organizer Id": 307}).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
         # test with a flag where the property is a number
 
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag2], "307").get_match(
-            feature_flag2
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag2], "307").get_match(feature_flag2) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
         # confirm it works with overrides as well, which are computed locally
-        assert FeatureFlagMatcher(
-            self.team.id, self.project.id, [feature_flag2], "307", property_value_overrides={"Distinct Id": "307"}
-        ).get_match(feature_flag2) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag2], "307", property_value_overrides={"Distinct Id": "307"}).get_match(feature_flag2) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
-        assert FeatureFlagMatcher(
-            self.team.id, self.project.id, [feature_flag2], "307", property_value_overrides={"Distinct Id": 307}
-        ).get_match(feature_flag2) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag2], "307", property_value_overrides={"Distinct Id": 307}).get_match(feature_flag2) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
     def test_coercion_of_strings_and_numbers_with_is_not_operator(self):
         Person.objects.create(
@@ -1054,49 +970,25 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         with snapshot_postgres_queries_context(self), self.assertNumQueries(5):
-            assert self.match_flag(feature_flag, "307") == FeatureFlagMatch(
-                False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0
-            )
+            assert self.match_flag(feature_flag, "307") == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
 
         # confirm it works with overrides as well, which are computed locally
-        assert self.match_flag(
-            feature_flag, "307", property_value_overrides={"Organizer Id": "307"}
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
-        assert self.match_flag(feature_flag, "307", property_value_overrides={"Organizer Id": 307}) == FeatureFlagMatch(
-            False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0
-        )
-        assert self.match_flag(feature_flag, "307", property_value_overrides={"Organizer Id": 0}) == FeatureFlagMatch(
-            True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0
-        )
-        assert self.match_flag(
-            feature_flag, "307", property_value_overrides={"Organizer Id": "308"}
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
-        assert self.match_flag(feature_flag, "307", property_value_overrides={"Organizer Id": "0"}) == FeatureFlagMatch(
-            True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0
-        )
+        assert self.match_flag(feature_flag, "307", property_value_overrides={"Organizer Id": "307"}) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+        assert self.match_flag(feature_flag, "307", property_value_overrides={"Organizer Id": 307}) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+        assert self.match_flag(feature_flag, "307", property_value_overrides={"Organizer Id": 0}) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert self.match_flag(feature_flag, "307", property_value_overrides={"Organizer Id": "308"}) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert self.match_flag(feature_flag, "307", property_value_overrides={"Organizer Id": "0"}) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
         # test with a flag where the property is a number
         with snapshot_postgres_queries_context(self), self.assertNumQueries(5):
-            assert self.match_flag(feature_flag2, "307") == FeatureFlagMatch(
-                False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 3
-            )
+            assert self.match_flag(feature_flag2, "307") == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 3)
 
         # confirm it works with overrides as well, which are computed locally
-        assert self.match_flag(
-            feature_flag2, "307", property_value_overrides={"Distinct Id": "307"}
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 3)
-        assert self.match_flag(feature_flag2, "307", property_value_overrides={"Distinct Id": 307}) == FeatureFlagMatch(
-            False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 3
-        )
-        assert self.match_flag(feature_flag2, "307", property_value_overrides={"Distinct Id": 0}) == FeatureFlagMatch(
-            True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0
-        )
-        assert self.match_flag(
-            feature_flag2, "307", property_value_overrides={"Distinct Id": "308"}
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
-        assert self.match_flag(feature_flag2, "307", property_value_overrides={"Distinct Id": "0"}) == FeatureFlagMatch(
-            True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0
-        )
+        assert self.match_flag(feature_flag2, "307", property_value_overrides={"Distinct Id": "307"}) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 3)
+        assert self.match_flag(feature_flag2, "307", property_value_overrides={"Distinct Id": 307}) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 3)
+        assert self.match_flag(feature_flag2, "307", property_value_overrides={"Distinct Id": 0}) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert self.match_flag(feature_flag2, "307", property_value_overrides={"Distinct Id": "308"}) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert self.match_flag(feature_flag2, "307", property_value_overrides={"Distinct Id": "0"}) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
     def test_coercion_of_booleans(self):
         Person.objects.create(
@@ -1207,45 +1099,21 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             },
         )
 
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1], "307").get_match(
-            feature_flag1
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag2], "307").get_match(
-            feature_flag2
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag3], "307").get_match(
-            feature_flag3
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag4], "307").get_match(
-            feature_flag4
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1], "307").get_match(feature_flag1) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag2], "307").get_match(feature_flag2) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag3], "307").get_match(feature_flag3) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag4], "307").get_match(feature_flag4) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
         # confirm it works with overrides as well, which are computed locally
-        assert FeatureFlagMatcher(
-            self.team.id, self.project.id, [feature_flag1], "307", property_value_overrides={"enabled": True}
-        ).get_match(feature_flag1) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
-        assert FeatureFlagMatcher(
-            self.team.id, self.project.id, [feature_flag2], "307", property_value_overrides={"enabled": True}
-        ).get_match(feature_flag2) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
-        assert FeatureFlagMatcher(
-            self.team.id, self.project.id, [feature_flag3], "307", property_value_overrides={"string_enabled": True}
-        ).get_match(feature_flag3) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
-        assert FeatureFlagMatcher(
-            self.team.id, self.project.id, [feature_flag4], "307", property_value_overrides={"string_enabled": True}
-        ).get_match(feature_flag4) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1], "307", property_value_overrides={"enabled": True}).get_match(feature_flag1) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag2], "307", property_value_overrides={"enabled": True}).get_match(feature_flag2) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag3], "307", property_value_overrides={"string_enabled": True}).get_match(feature_flag3) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag4], "307", property_value_overrides={"string_enabled": True}).get_match(feature_flag4) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
-        assert FeatureFlagMatcher(
-            self.team.id, self.project.id, [feature_flag1], "307", property_value_overrides={"enabled": "true"}
-        ).get_match(feature_flag1) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
-        assert FeatureFlagMatcher(
-            self.team.id, self.project.id, [feature_flag2], "307", property_value_overrides={"enabled": "true"}
-        ).get_match(feature_flag2) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
-        assert FeatureFlagMatcher(
-            self.team.id, self.project.id, [feature_flag3], "307", property_value_overrides={"string_enabled": "true"}
-        ).get_match(feature_flag3) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
-        assert FeatureFlagMatcher(
-            self.team.id, self.project.id, [feature_flag4], "307", property_value_overrides={"string_enabled": "true"}
-        ).get_match(feature_flag4) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1], "307", property_value_overrides={"enabled": "true"}).get_match(feature_flag1) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag2], "307", property_value_overrides={"enabled": "true"}).get_match(feature_flag2) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag3], "307", property_value_overrides={"string_enabled": "true"}).get_match(feature_flag3) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag4], "307", property_value_overrides={"string_enabled": "true"}).get_match(feature_flag4) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
     def test_coercion_of_booleans_with_is_not_operator(self):
         Person.objects.create(
@@ -1504,84 +1372,36 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 ]
             },
         )
-        assert self.match_flag(feature_flag1, "307") == FeatureFlagMatch(
-            False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0
-        )
-        assert self.match_flag(feature_flag1_with_disabled, "307") == FeatureFlagMatch(
-            True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1
-        )
+        assert self.match_flag(feature_flag1, "307") == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+        assert self.match_flag(feature_flag1_with_disabled, "307") == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1)
 
         with snapshot_postgres_queries_context(self), self.assertNumQueries(5):
-            assert self.match_flag(feature_flag2, "307") == FeatureFlagMatch(
-                False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 8
-            )
+            assert self.match_flag(feature_flag2, "307") == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 8)
 
         # confirm it works with overrides as well, which are computed locally
-        assert self.match_flag(
-            feature_flag1, "307", property_value_overrides={"enabled": True, "string_enabled": True}
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
-        assert self.match_flag(
-            feature_flag1, "307", property_value_overrides={"enabled": "true", "string_enabled": "true"}
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
-        assert self.match_flag(
-            feature_flag1, "307", property_value_overrides={"enabled": False, "string_enabled": True}
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
-        assert self.match_flag(
-            feature_flag1, "307", property_value_overrides={"enabled": "true", "string_enabled": "false"}
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
-        assert self.match_flag(
-            feature_flag1, "307", property_value_overrides={"enabled": False, "string_enabled": False}
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
-        assert self.match_flag(
-            feature_flag1, "307", property_value_overrides={"enabled": "false", "string_enabled": "false"}
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert self.match_flag(feature_flag1, "307", property_value_overrides={"enabled": True, "string_enabled": True}) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+        assert self.match_flag(feature_flag1, "307", property_value_overrides={"enabled": "true", "string_enabled": "true"}) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+        assert self.match_flag(feature_flag1, "307", property_value_overrides={"enabled": False, "string_enabled": True}) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+        assert self.match_flag(feature_flag1, "307", property_value_overrides={"enabled": "true", "string_enabled": "false"}) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+        assert self.match_flag(feature_flag1, "307", property_value_overrides={"enabled": False, "string_enabled": False}) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert self.match_flag(feature_flag1, "307", property_value_overrides={"enabled": "false", "string_enabled": "false"}) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
         # confirm it works with overrides as well, which are computed locally
-        assert self.match_flag(
-            feature_flag1_with_disabled, "307", property_value_overrides={"disabled": True, "string_disabled": True}
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
-        assert self.match_flag(
-            feature_flag1_with_disabled, "307", property_value_overrides={"disabled": "true", "string_disabled": "true"}
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
-        assert self.match_flag(
-            feature_flag1_with_disabled, "307", property_value_overrides={"disabled": False, "string_disabled": True}
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 1)
-        assert self.match_flag(
-            feature_flag1_with_disabled,
-            "307",
-            property_value_overrides={"disabled": "true", "string_disabled": "false"},
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 1)
-        assert self.match_flag(
-            feature_flag1_with_disabled, "307", property_value_overrides={"disabled": False, "string_disabled": False}
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1)
-        assert self.match_flag(
-            feature_flag1_with_disabled,
-            "307",
-            property_value_overrides={"disabled": "false", "string_disabled": "false"},
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1)
+        assert self.match_flag(feature_flag1_with_disabled, "307", property_value_overrides={"disabled": True, "string_disabled": True}) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert self.match_flag(feature_flag1_with_disabled, "307", property_value_overrides={"disabled": "true", "string_disabled": "true"}) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert self.match_flag(feature_flag1_with_disabled, "307", property_value_overrides={"disabled": False, "string_disabled": True}) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 1)
+        assert self.match_flag(feature_flag1_with_disabled, "307", property_value_overrides={"disabled": "true", "string_disabled": "false"}) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 1)
+        assert self.match_flag(feature_flag1_with_disabled, "307", property_value_overrides={"disabled": False, "string_disabled": False}) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1)
+        assert self.match_flag(feature_flag1_with_disabled, "307", property_value_overrides={"disabled": "false", "string_disabled": "false"}) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1)
 
         # confirm it works with overrides as well, which are computed locally
-        assert self.match_flag(
-            feature_flag2, "307", property_value_overrides={"disabled": True, "string_disabled": True}
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
-        assert self.match_flag(
-            feature_flag2, "307", property_value_overrides={"string_disabled": True}
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 5)
-        assert self.match_flag(
-            feature_flag2, "307", property_value_overrides={"disabled": "true", "string_disabled": "true"}
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
-        assert self.match_flag(
-            feature_flag2, "307", property_value_overrides={"disabled": False, "string_disabled": True}
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 5)
-        assert self.match_flag(
-            feature_flag2, "307", property_value_overrides={"disabled": "true", "string_disabled": "false"}
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
-        assert self.match_flag(
-            feature_flag2, "307", property_value_overrides={"disabled": False, "string_disabled": False}
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 8)
-        assert self.match_flag(
-            feature_flag2, "307", property_value_overrides={"disabled": "false", "string_disabled": "false"}
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 8)
+        assert self.match_flag(feature_flag2, "307", property_value_overrides={"disabled": True, "string_disabled": True}) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert self.match_flag(feature_flag2, "307", property_value_overrides={"string_disabled": True}) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 5)
+        assert self.match_flag(feature_flag2, "307", property_value_overrides={"disabled": "true", "string_disabled": "true"}) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert self.match_flag(feature_flag2, "307", property_value_overrides={"disabled": False, "string_disabled": True}) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 5)
+        assert self.match_flag(feature_flag2, "307", property_value_overrides={"disabled": "true", "string_disabled": "false"}) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert self.match_flag(feature_flag2, "307", property_value_overrides={"disabled": False, "string_disabled": False}) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 8)
+        assert self.match_flag(feature_flag2, "307", property_value_overrides={"disabled": "false", "string_disabled": "false"}) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 8)
 
     def test_non_existing_key_passes_is_not_check(self):
         Person.objects.create(
@@ -1612,18 +1432,12 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             },
         )
 
-        assert self.match_flag(feature_flag, "307") == FeatureFlagMatch(
-            True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0
-        )
+        assert self.match_flag(feature_flag, "307") == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
         # person doesn't exist, meaning the property doesn't exist, so it should pass the is_not check
-        assert self.match_flag(feature_flag, "308") == FeatureFlagMatch(
-            True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0
-        )
+        assert self.match_flag(feature_flag, "308") == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
-        assert self.match_flag(feature_flag, "309") == FeatureFlagMatch(
-            False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0
-        )
+        assert self.match_flag(feature_flag, "309") == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
 
     @snapshot_postgres_queries
     def test_db_matches_independent_of_string_or_number_type(self):
@@ -1688,58 +1502,36 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             },
         )
 
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "307").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "307").get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
         # don't require explicit type correctness for overrides when you're already at /decide
-        assert FeatureFlagMatcher(
-            self.team.id, self.project.id, [feature_flag], "307", property_value_overrides={"Distinct Id": 307}
-        ).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "307", property_value_overrides={"Distinct Id": 307}).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
         # test with a flag where the property is a number
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag2], "307").get_match(
-            feature_flag2
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag2], "307").get_match(feature_flag2) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
-        assert FeatureFlagMatcher(
-            self.team.id, self.project.id, [feature_flag2], "307", property_value_overrides={"Distinct Id": 307}
-        ).get_match(feature_flag2) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag2], "307", property_value_overrides={"Distinct Id": 307}).get_match(feature_flag2) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
         # test with a flag where the property is a non-array number
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag3], "307").get_match(
-            feature_flag3
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag3], "307").get_match(feature_flag3) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
     def test_rollout_percentage(self):
         feature_flag = self.create_feature_flag(filters={"groups": [{"rollout_percentage": 50}]})
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 0)
 
     def test_empty_group(self):
         feature_flag = self.create_feature_flag(filters={"groups": [{}]})
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
     def test_null_rollout_percentage(self):
         feature_flag = self.create_feature_flag(filters={"groups": [{"properties": [], "rollout_percentage": None}]})
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
     def test_zero_rollout_percentage(self):
         feature_flag = self.create_feature_flag(filters={"groups": [{"properties": [], "rollout_percentage": 0}]})
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 0)
 
     def test_complicated_flag(self):
         Person.objects.create(
@@ -1767,15 +1559,9 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             }
         )
 
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "test_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1)
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 1)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "test_id").get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 1)
 
     def test_super_condition_matches_boolean(self):
         Person.objects.create(
@@ -1827,15 +1613,9 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             },
         )
 
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "test_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0)
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 2)
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 2)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "test_id").get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 2)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 2)
 
     def test_super_condition_matches_string(self):
         Person.objects.create(
@@ -1888,9 +1668,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         with snapshot_postgres_queries_context(self):
-            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "test_id").get_match(
-                feature_flag
-            ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "test_id").get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0)
 
     def test_super_condition_matches_and_false(self):
         Person.objects.create(
@@ -1942,15 +1720,9 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             },
         )
 
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "test_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0)
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 2)
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 2)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "test_id").get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 2)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 2)
 
     def test_super_condition_is_not_set(self):
         Person.objects.create(
@@ -2002,15 +1774,9 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             },
         )
 
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "test_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1)
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 2)
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 2)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "test_id").get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 2)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 2)
 
     def test_super_condition_promoted(self):
         Person.objects.create(
@@ -2056,15 +1822,9 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         # Rollout to everyone
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "test_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0)
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0)
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "test_id").get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0)
 
     def test_super_condition_rolled_out_to_50(self):
         Person.objects.create(
@@ -2110,15 +1870,9 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         # Rollout to everyone
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "test_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 0)
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0)
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "test_id").get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 0)
 
     def test_super_condition_with_override_properties(self):
         Person.objects.create(
@@ -2170,24 +1924,12 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             },
         )
 
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "test_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0)
-        assert FeatureFlagMatcher(
-            self.team.id, self.project.id, [feature_flag], "test_id", property_value_overrides={"is_enabled": True}
-        ).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0)
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 2)
-        assert FeatureFlagMatcher(
-            self.team.id, self.project.id, [feature_flag], "example_id", property_value_overrides={"is_enabled": True}
-        ).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0)
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 2)
-        assert FeatureFlagMatcher(
-            self.team.id, self.project.id, [feature_flag], "another_id", property_value_overrides={"is_enabled": True}
-        ).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "test_id").get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "test_id", property_value_overrides={"is_enabled": True}).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 2)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id", property_value_overrides={"is_enabled": True}).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 2)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id", property_value_overrides={"is_enabled": True}).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0)
 
     def test_super_condition_with_override_properties_with_property_not_ingested(self):
         Person.objects.create(
@@ -2239,24 +1981,12 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             },
         )
 
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "test_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1)
-        assert FeatureFlagMatcher(
-            self.team.id, self.project.id, [feature_flag], "test_id", property_value_overrides={"is_enabled": True}
-        ).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0)
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 2)
-        assert FeatureFlagMatcher(
-            self.team.id, self.project.id, [feature_flag], "example_id", property_value_overrides={"is_enabled": True}
-        ).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0)
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 2)
-        assert FeatureFlagMatcher(
-            self.team.id, self.project.id, [feature_flag], "another_id", property_value_overrides={"is_enabled": True}
-        ).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "test_id").get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "test_id", property_value_overrides={"is_enabled": True}).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 2)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id", property_value_overrides={"is_enabled": True}).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 2)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id", property_value_overrides={"is_enabled": True}).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0)
 
     @pytest.mark.skip("TODO: We're going to the database for now, but we should be able to do this in memory.")
     def test_super_condition_with_override_properties_doesnt_make_database_requests(self):
@@ -2288,16 +2018,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         with self.assertNumQueries(0), snapshot_postgres_queries_context(self):
-            assert FeatureFlagMatcher(
-                self.team.id, self.project.id, [feature_flag], "test_id", property_value_overrides={"is_enabled": True}
-            ).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0)
-            assert FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag],
-                "example_id",
-                property_value_overrides={"is_enabled": True},
-            ).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "test_id", property_value_overrides={"is_enabled": True}).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id", property_value_overrides={"is_enabled": True}).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0)
 
     def test_flag_with_variant_overrides(self):
         Person.objects.create(
@@ -2346,16 +2068,10 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         # would've been `third-variant` if not for the override
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "test_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(True, "second-variant", FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "test_id").get_match(feature_flag) == FeatureFlagMatch(True, "second-variant", FeatureFlagMatchReason.CONDITION_MATCH, 0)
         # would've been `second-variant` if not for the override
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(True, "first-variant", FeatureFlagMatchReason.CONDITION_MATCH, 1)
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 1)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag) == FeatureFlagMatch(True, "first-variant", FeatureFlagMatchReason.CONDITION_MATCH, 1)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 1)
 
     def test_flag_with_clashing_variant_overrides(self):
         Person.objects.create(
@@ -2416,15 +2132,9 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             }
         )
 
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "test_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(True, "second-variant", FeatureFlagMatchReason.CONDITION_MATCH, 0)
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(True, "second-variant", FeatureFlagMatchReason.CONDITION_MATCH, 0)
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 2)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "test_id").get_match(feature_flag) == FeatureFlagMatch(True, "second-variant", FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag) == FeatureFlagMatch(True, "second-variant", FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 2)
 
     def test_flag_with_invalid_variant_overrides(self):
         Person.objects.create(
@@ -2473,16 +2183,10 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         # would've been `third-variant` if not for the override
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "test_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(True, "third-variant", FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "test_id").get_match(feature_flag) == FeatureFlagMatch(True, "third-variant", FeatureFlagMatchReason.CONDITION_MATCH, 0)
         # would've been `second-variant` if not for the override
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(True, "second-variant", FeatureFlagMatchReason.CONDITION_MATCH, 1)
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 1)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag) == FeatureFlagMatch(True, "second-variant", FeatureFlagMatchReason.CONDITION_MATCH, 1)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 1)
 
     def test_flag_with_multiple_variant_overrides(self):
         Person.objects.create(
@@ -2534,15 +2238,9 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             }
         )
 
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "test_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(True, "second-variant", FeatureFlagMatchReason.CONDITION_MATCH, 1)
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(True, "third-variant", FeatureFlagMatchReason.CONDITION_MATCH, 2)
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(True, "second-variant", FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "test_id").get_match(feature_flag) == FeatureFlagMatch(True, "second-variant", FeatureFlagMatchReason.CONDITION_MATCH, 1)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag) == FeatureFlagMatch(True, "third-variant", FeatureFlagMatchReason.CONDITION_MATCH, 2)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag) == FeatureFlagMatch(True, "second-variant", FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
     def test_multiple_flags(self):
         Person.objects.create(
@@ -2684,31 +2382,19 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             ).get_matches_with_details()
 
         assert matches == {
-            "one": True,
-            "always_match": True,
-            "group_match": True,
-            "variant": "first-variant",
-            "group_property_match": True,
-            "never_match": False,
-            "group_no_match": False,
-            "group_property_different_match": False,
-            # never_match and group_no_match don't match
-            # group_property_different_match doesn't match because we're dealing with a different group key
-        }
+                "one": True,
+                "always_match": True,
+                "group_match": True,
+                "variant": "first-variant",
+                "group_property_match": True,
+                "never_match": False,
+                "group_no_match": False,
+                "group_property_different_match": False,
+                # never_match and group_no_match don't match
+                # group_property_different_match doesn't match because we're dealing with a different group key
+            }
 
-        assert reasons == {
-            "one": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0},
-            "always_match": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0},
-            "group_match": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0},
-            "variant": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0},
-            "group_property_match": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0},
-            "never_match": {"reason": FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, "condition_index": 0},
-            "group_no_match": {"reason": FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, "condition_index": 0},
-            "group_property_different_match": {
-                "reason": FeatureFlagMatchReason.NO_CONDITION_MATCH,
-                "condition_index": 0,
-            },
-        }
+        assert reasons == {"one": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0}, "always_match": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0}, "group_match": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0}, "variant": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0}, "group_property_match": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0}, "never_match": {"reason": FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, "condition_index": 0}, "group_no_match": {"reason": FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, "condition_index": 0}, "group_property_different_match": {"reason": FeatureFlagMatchReason.NO_CONDITION_MATCH, "condition_index": 0}}
 
         assert payloads == {"variant": {"color": "blue"}}
 
@@ -2737,29 +2423,20 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         assert payloads == {"variant": {"color": "blue"}}
 
         assert matches == {
-            "one": True,
-            "always_match": True,
-            "variant": "first-variant",
-            "group_property_different_match": True,
-            "never_match": False,
-            "group_no_match": False,
-            "group_match": False,
-            "group_property_match": False,
-            # never_match and group_no_match don't match
-            # group_match doesn't match because no project (group type index 1) given.
-            # group_property_match doesn't match because we're dealing with a different group key
-        }
+                "one": True,
+                "always_match": True,
+                "variant": "first-variant",
+                "group_property_different_match": True,
+                "never_match": False,
+                "group_no_match": False,
+                "group_match": False,
+                "group_property_match": False,
+                # never_match and group_no_match don't match
+                # group_match doesn't match because no project (group type index 1) given.
+                # group_property_match doesn't match because we're dealing with a different group key
+            }
 
-        assert reasons == {
-            "one": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0},
-            "always_match": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0},
-            "group_match": {"reason": FeatureFlagMatchReason.NO_GROUP_TYPE, "condition_index": None},
-            "variant": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0},
-            "group_property_different_match": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0},
-            "never_match": {"reason": FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, "condition_index": 0},
-            "group_no_match": {"reason": FeatureFlagMatchReason.NO_GROUP_TYPE, "condition_index": None},
-            "group_property_match": {"reason": FeatureFlagMatchReason.NO_CONDITION_MATCH, "condition_index": 0},
-        }
+        assert reasons == {"one": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0}, "always_match": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0}, "group_match": {"reason": FeatureFlagMatchReason.NO_GROUP_TYPE, "condition_index": None}, "variant": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0}, "group_property_different_match": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0}, "never_match": {"reason": FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, "condition_index": 0}, "group_no_match": {"reason": FeatureFlagMatchReason.NO_GROUP_TYPE, "condition_index": None}, "group_property_match": {"reason": FeatureFlagMatchReason.NO_CONDITION_MATCH, "condition_index": 0}}
 
     def test_multi_property_filters(self):
         Person.objects.create(
@@ -2782,16 +2459,10 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             }
         )
         with self.assertNumQueries(4):
-            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(
-                feature_flag
-            ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
         with self.assertNumQueries(4):
-            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(
-                feature_flag
-            ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1)
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "false_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 1)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "false_id").get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 1)
 
     def test_multi_property_filters_with_override_properties(self):
         Person.objects.create(
@@ -2814,27 +2485,15 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             }
         )
         with self.assertNumQueries(4):
-            assert FeatureFlagMatcher(
-                self.team.id, self.project.id, [feature_flag], "example_id", property_value_overrides={}
-            ).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id", property_value_overrides={}).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
             # can be computed locally
-            assert FeatureFlagMatcher(
-                self.team.id, self.project.id, [feature_flag], "example_id", property_value_overrides={"email": "bzz"}
-            ).get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 1)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id", property_value_overrides={"email": "bzz"}).get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 1)
 
         with self.assertNumQueries(4):
-            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "random_id").get_match(
-                feature_flag
-            ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 1)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "random_id").get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 1)
 
             # can be computed locally
-            assert FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag],
-                "random_id",
-                property_value_overrides={"email": "example@example.com"},
-            ).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "random_id", property_value_overrides={"email": "example@example.com"}).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1)
 
     def test_multi_property_filters_with_override_group_properties(self):
         self.create_groups()
@@ -2866,61 +2525,19 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         cache.group_type_index_to_name  # noqa: B018
 
         with self.assertNumQueries(12):
-            assert FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag],
-                "example1_id",
-                cache=cache,
-                groups={"organization": "foo"},
-                group_property_value_overrides={},
-            ).get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example1_id", cache=cache, groups={"organization": "foo"}, group_property_value_overrides={}).get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
             # can be computed using the db, with help from the overrides
-            assert FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag],
-                "example2_id",
-                cache=cache,
-                groups={"organization": "foo"},
-                group_property_value_overrides={"organization": {"not_ingested": "example.com"}},
-            ).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example2_id", cache=cache, groups={"organization": "foo"}, group_property_value_overrides={"organization": {"not_ingested": "example.com"}}).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
             # name property is incorrect, since different group
-            assert FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag],
-                "example3_id",
-                cache=cache,
-                groups={"organization": "bar"},
-                group_property_value_overrides={"organization": {"not_ingested": "example.com"}},
-            ).get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example3_id", cache=cache, groups={"organization": "bar"}, group_property_value_overrides={"organization": {"not_ingested": "example.com"}}).get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
 
         with self.assertNumQueries(0):
-            assert FeatureFlagMatcher(
-                self.team.id, self.project.id, [feature_flag], "random_id", cache=cache
-            ).get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_GROUP_TYPE)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "random_id", cache=cache).get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_GROUP_TYPE)
 
             # can be computed locally
-            assert FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag],
-                "random_id",
-                cache=cache,
-                groups={"organization": "foo"},
-                group_property_value_overrides={"organization": {"not_ingested": "example.com", "name": "foo.inc"}},
-            ).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "random_id", cache=cache, groups={"organization": "foo"}, group_property_value_overrides={"organization": {"not_ingested": "example.com", "name": "foo.inc"}}).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
             # even if the group property stored in db is different
-            assert FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag],
-                "random_id",
-                cache=cache,
-                groups={"organization": "bar"},
-                group_property_value_overrides={"organization": {"not_ingested": "example.com", "name": "foo.inc"}},
-            ).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "random_id", cache=cache, groups={"organization": "bar"}, group_property_value_overrides={"organization": {"not_ingested": "example.com", "name": "foo.inc"}}).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
     def test_override_properties_where_person_doesnt_exist_yet(self):
         feature_flag = self.create_feature_flag(
@@ -2940,30 +2557,14 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             }
         )
         with self.assertNumQueries(0):
-            assert FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag],
-                "example_id",
-                property_value_overrides={"email": "tim@posthog.com"},
-            ).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
-            assert FeatureFlagMatcher(
-                self.team.id, self.project.id, [feature_flag], "example_id", property_value_overrides={"email": "bzz"}
-            ).get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 1)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id", property_value_overrides={"email": "tim@posthog.com"}).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id", property_value_overrides={"email": "bzz"}).get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 1)
 
         with self.assertNumQueries(4):
-            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "random_id").get_match(
-                feature_flag
-            ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 1)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "random_id").get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 1)
 
         with self.assertNumQueries(0):
-            assert FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag],
-                "random_id",
-                property_value_overrides={"email": "example@example.com"},
-            ).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "random_id", property_value_overrides={"email": "example@example.com"}).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1)
 
     def test_override_properties_where_person_doesnt_exist_yet_multiple_conditions(self):
         feature_flag = self.create_feature_flag(
@@ -2982,55 +2583,21 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         with self.assertNumQueries(8):
             # None in both because all conditions don't match
             # and user doesn't exist yet
-            assert FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag],
-                "example_id",
-                property_value_overrides={"email": "tim@posthog.com"},
-            ).get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
-            assert FeatureFlagMatcher(
-                self.team.id, self.project.id, [feature_flag], "example_id", property_value_overrides={"email": "bzz"}
-            ).get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id", property_value_overrides={"email": "tim@posthog.com"}).get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id", property_value_overrides={"email": "bzz"}).get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
 
         with self.assertNumQueries(4):
-            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "random_id").get_match(
-                feature_flag
-            ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "random_id").get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
 
         with self.assertNumQueries(0):
             # Both of these match properties, but second one is outside rollout %.
-            assert FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag],
-                "random_id_without_rollout",
-                property_value_overrides={"email": "tim@posthog.com", "another_prop": "slow", "blah": "blah"},
-            ).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
-            assert FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag],
-                "random_id_within_rollout",
-                property_value_overrides={"email": "tim@posthog.com", "another_prop": "slow", "blah": "blah"},
-            ).get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "random_id_without_rollout", property_value_overrides={"email": "tim@posthog.com", "another_prop": "slow", "blah": "blah"}).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "random_id_within_rollout", property_value_overrides={"email": "tim@posthog.com", "another_prop": "slow", "blah": "blah"}).get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 0)
 
         with self.assertNumQueries(0):
             # These don't match properties
-            assert FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag],
-                "random_id_without_rollout",
-                property_value_overrides={"email": "tim@posthog.com", "another_prop": "slow2", "blah": "blah"},
-            ).get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
-            assert FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag],
-                "random_id_without_rollout",
-                property_value_overrides={"email": "tim2@posthog.com", "another_prop": "slow", "blah": "blah"},
-            ).get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "random_id_without_rollout", property_value_overrides={"email": "tim@posthog.com", "another_prop": "slow2", "blah": "blah"}).get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "random_id_without_rollout", property_value_overrides={"email": "tim2@posthog.com", "another_prop": "slow", "blah": "blah"}).get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
 
     def test_multi_property_filters_with_override_properties_with_is_not_set(self):
         Person.objects.create(
@@ -3048,26 +2615,14 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             filters={"groups": [{"properties": [{"key": "email", "operator": "is_not_set"}]}]}
         )
         with self.assertNumQueries(5):
-            assert FeatureFlagMatcher(
-                self.team.id, self.project.id, [feature_flag], "example_id", property_value_overrides={}
-            ).get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id", property_value_overrides={}).get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
         with self.assertNumQueries(0):
-            assert FeatureFlagMatcher(
-                self.team.id, self.project.id, [feature_flag], "example_id", property_value_overrides={"email": "bzz"}
-            ).get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id", property_value_overrides={"email": "bzz"}).get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
 
         with self.assertNumQueries(5):
-            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "random_id").get_match(
-                feature_flag
-            ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "random_id").get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
         with self.assertNumQueries(0):
-            assert FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag],
-                "random_id",
-                property_value_overrides={"email": "example@example.com"},
-            ).get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "random_id", property_value_overrides={"email": "example@example.com"}).get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
 
     def test_non_existing_person_with_is_not_set(self):
         feature_flag = self.create_feature_flag(
@@ -3076,16 +2631,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
         # one extra query to check existence
         with self.assertNumQueries(5):
-            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "not-seen-person").get_match(
-                feature_flag
-            ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
-            assert FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag],
-                "not-seen-person",
-                property_value_overrides={"email": "example@example.com"},
-            ).get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "not-seen-person").get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "not-seen-person", property_value_overrides={"email": "example@example.com"}).get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
 
     def test_is_not_equal_with_non_existing_person(self):
         feature_flag = self.create_feature_flag(
@@ -3102,24 +2649,10 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
         # one extra query to check existence
         with self.assertNumQueries(5):
-            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "not-seen-person").get_match(
-                feature_flag
-            ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "not-seen-person").get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
-            assert FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag],
-                "not-seen-person",
-                property_value_overrides={"$initial_utm_source": "fb"},
-            ).get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
-            assert FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag],
-                "not-seen-person",
-                property_value_overrides={"$initial_utm_source": "fbx"},
-            ).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "not-seen-person", property_value_overrides={"$initial_utm_source": "fb"}).get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "not-seen-person", property_value_overrides={"$initial_utm_source": "fbx"}).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
     def test_is_not_set_operator_with_overrides(self):
         Person.objects.create(
@@ -3143,56 +2676,28 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
         # no extra query to check existence because it doesn't matter - since not a pure condition
         with self.assertNumQueries(4):
-            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1], "not-seen-person").get_match(
-                feature_flag1
-            ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1], "not-seen-person").get_match(feature_flag1) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
         # still goes to DB because no company override, and then fails because person doesn't exist
         with self.assertNumQueries(4):
-            assert FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag1],
-                "not-seen-person",
-                property_value_overrides={"email": "example@example.com"},
-            ).get_match(feature_flag1) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1], "not-seen-person", property_value_overrides={"email": "example@example.com"}).get_match(feature_flag1) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
         # :TRICKY: For optimising queries, we're not supporting this case yet - because it should be pretty
         # rare in practice: One property is overridden, another property doesn't exist, and the person doesn't exist yet either
         # This will get sorted in the rewrite.
         #
         # goes to DB because no email override, and then FAILS because person doesn't exist (should pass ideally)
         with self.assertNumQueries(4):
-            assert FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag1],
-                "not-seen-person",
-                property_value_overrides={"company": "x.com"},
-            ).get_match(feature_flag1) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1], "not-seen-person", property_value_overrides={"company": "x.com"}).get_match(feature_flag1) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
         # doesn't go to DB
         with self.assertNumQueries(0):
-            assert FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag1],
-                "not-seen-person",
-                property_value_overrides={"company": "x.com", "email": "k"},
-            ).get_match(feature_flag1) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1], "not-seen-person", property_value_overrides={"company": "x.com", "email": "k"}).get_match(feature_flag1) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
 
         # now dealing with existing person
         with self.assertNumQueries(4):
-            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1], "another_id").get_match(
-                feature_flag1
-            ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1], "another_id").get_match(feature_flag1) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
         # since not all conditions are available in overrides, goes to DB, but then correctly matches is_not_set condition
         # using the given override
         with self.assertNumQueries(4):
-            assert FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag1],
-                "another_id",
-                property_value_overrides={"email": "example@example.com"},
-            ).get_match(feature_flag1) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1], "another_id", property_value_overrides={"email": "example@example.com"}).get_match(feature_flag1) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
 
     def test_is_not_set_operator_with_pure_multiple_conditions(self):
         Person.objects.create(
@@ -3217,45 +2722,25 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
         # 1 extra query to get existence clause
         with self.assertNumQueries(5):
-            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1], "not-seen-person").get_match(
-                feature_flag1
-            ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1], "not-seen-person").get_match(feature_flag1) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
         with self.assertNumQueries(0):
-            assert FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag1],
-                "not-seen-person",
-                property_value_overrides={"email": "x"},
-            ).get_match(feature_flag1) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 1)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1], "not-seen-person", property_value_overrides={"email": "x"}).get_match(feature_flag1) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 1)
 
         with self.assertNumQueries(0):
-            assert FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag1],
-                "not-seen-person",
-                property_value_overrides={"email": "example.com"},
-            ).get_match(feature_flag1) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1], "not-seen-person", property_value_overrides={"email": "example.com"}).get_match(feature_flag1) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1)
 
         # now dealing with existing person
         # one extra query to check existence
         with self.assertNumQueries(5):
-            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1], "another_id").get_match(
-                feature_flag1
-            ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1], "another_id").get_match(feature_flag1) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1)
 
         with self.assertNumQueries(0):
-            assert FeatureFlagMatcher(
-                self.team.id, self.project.id, [feature_flag1], "another_id", property_value_overrides={"email": "x"}
-            ).get_match(feature_flag1) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 1)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1], "another_id", property_value_overrides={"email": "x"}).get_match(feature_flag1) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 1)
 
         # without email, person exists though, should thus return True
         with self.assertNumQueries(5):
-            assert FeatureFlagMatcher(
-                self.team.id, self.project.id, [feature_flag1], "another_id_without_email"
-            ).get_match(feature_flag1) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1], "another_id_without_email").get_match(feature_flag1) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
     def test_is_not_set_operator_with_groups(self):
         self.create_groups()
@@ -3347,70 +2832,32 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
         # one extra query for existence clause
         with self.assertNumQueries(9):
-            assert FeatureFlagMatcher(
-                self.team.id, self.project.id, [feature_flag], "", {"organization": "target_group"}
-            ).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "", {"organization": "target_group"}).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
         with self.assertNumQueries(9):
-            assert FeatureFlagMatcher(
-                self.team.id, self.project.id, [feature_flag], "", {"organization": "foo"}
-            ).get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "", {"organization": "foo"}).get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
         with self.assertNumQueries(9):
-            assert FeatureFlagMatcher(
-                self.team.id, self.project.id, [feature_flag], "", {"organization": "unknown-new-org"}
-            ).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "", {"organization": "unknown-new-org"}).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
         # now with overrides - only query to get group type mappings
         with self.assertNumQueries(4):
-            assert FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag],
-                "",
-                {"organization": "target_group"},
-                group_property_value_overrides={"organization": {"name": "x"}},
-            ).get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "", {"organization": "target_group"}, group_property_value_overrides={"organization": {"name": "x"}}).get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
         with self.assertNumQueries(4):
-            assert FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag],
-                "",
-                {"organization": "unknown-new-org"},
-                group_property_value_overrides={"organization": {"name": "x"}},
-            ).get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "", {"organization": "unknown-new-org"}, group_property_value_overrides={"organization": {"name": "x"}}).get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
 
         # now queries with additional flags - check if existence queries are made for different group types / persons
 
         # no extra query for second group type because groups not passed in
         with self.assertNumQueries(9):
-            assert FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag, feature_flag_different_group],
-                "",
-                {"organization": "target_group"},
-            ).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag, feature_flag_different_group], "", {"organization": "target_group"}).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
         # no extra query for second group type because unknown group not passed in
         with self.assertNumQueries(9):
-            assert FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag, feature_flag_unknown_group_type],
-                "",
-                {"organization": "target_group"},
-            ).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag, feature_flag_unknown_group_type], "", {"organization": "target_group"}).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
         # 4 extra query to query group (including setting timeout)
         # second extra query to check existence
         with self.assertNumQueries(11):
-            assert FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag, feature_flag_different_group],
-                "",
-                {"organization": "target_group", "project": "shazam"},
-            ).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag, feature_flag_different_group], "", {"organization": "target_group", "project": "shazam"}).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
         # override means one less query to fetch group property values
         # TODO: We still make a query for existence check, but this is unnecessary. Consider optimising.
@@ -3423,44 +2870,21 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 {"organization": "target_group", "project": "shazam"},
                 group_property_value_overrides={"project": {"name": "x"}},
             )
-            assert matcher.get_match(feature_flag) == FeatureFlagMatch(
-                True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0
-            )
-            assert matcher.get_match(feature_flag_different_group) == FeatureFlagMatch(
-                False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0
-            )
+            assert matcher.get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+            assert matcher.get_match(feature_flag_different_group) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
 
         # 9 queries same as before for groups, 4 extra for person existence check (including timeouts), 1 extra for person query
         with self.assertNumQueries(11):
-            assert FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag, feature_flag_with_person_is_not_set],
-                "random_id",
-                {"organization": "target_group"},
-            ).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag, feature_flag_with_person_is_not_set], "random_id", {"organization": "target_group"}).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
         # 9 queries same as before for groups, 1 extra for person existence check, no person query because overrides
         # TODO: We still make a query for existence check, but this is unnecessary. Consider optimising.
         with self.assertNumQueries(10):
-            assert FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag, feature_flag_with_person_is_not_set],
-                "random_id",
-                {"organization": "target_group"},
-                property_value_overrides={"email": "x"},
-            ).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag, feature_flag_with_person_is_not_set], "random_id", {"organization": "target_group"}, property_value_overrides={"email": "x"}).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
         # no existence check for person because flag has not is_not_set condition
         with self.assertNumQueries(10):
-            assert FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag, feature_flag_with_no_person_is_not_set],
-                "random_id",
-                {"organization": "target_group"},
-            ).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag, feature_flag_with_no_person_is_not_set], "random_id", {"organization": "target_group"}).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
     def test_cohort_cache_no_unnecessary_queries(self):
         cohort1 = Cohort.objects.create(
@@ -3542,13 +2966,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         with self.assertNumQueries(8):
             # single query for all cohorts
             # no team queries
-            assert FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag1, feature_flag2, feature_flag3],
-                "example_id",
-                property_value_overrides={},
-            ).get_match(feature_flag1) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1, feature_flag2, feature_flag3], "example_id", property_value_overrides={}).get_match(feature_flag1) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
     def test_cohort_filters_with_override_properties(self):
         cohort1 = Cohort.objects.create(
@@ -3600,49 +3018,23 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         with self.assertNumQueries(8):
-            assert FeatureFlagMatcher(
-                self.team.id, self.project.id, [feature_flag1, feature_flag2], "example_id", property_value_overrides={}
-            ).get_match(feature_flag1) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1, feature_flag2], "example_id", property_value_overrides={}).get_match(feature_flag1) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
         with self.assertNumQueries(7):
             # no local computation because cohort lookup is required
             # no postgres person query required here to get the person, because email is sufficient
-            assert FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag1, feature_flag2],
-                "example_id",
-                property_value_overrides={"email": "bzz"},
-            ).get_match(feature_flag1) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1, feature_flag2], "example_id", property_value_overrides={"email": "bzz"}).get_match(feature_flag1) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
 
         with self.assertNumQueries(7):
             # no postgres query required here to get the person
-            assert FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag1, feature_flag2],
-                "example_id",
-                property_value_overrides={"email": "neil@posthog.com"},
-            ).get_match(feature_flag1) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1, feature_flag2], "example_id", property_value_overrides={"email": "neil@posthog.com"}).get_match(feature_flag1) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
         with self.assertNumQueries(7):
             # Random person doesn't yet exist, but still should resolve thanks to overrides
-            assert FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag1, feature_flag2],
-                "random_id",
-                property_value_overrides={"email": "xxx"},
-            ).get_match(feature_flag2) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1, feature_flag2], "random_id", property_value_overrides={"email": "xxx"}).get_match(feature_flag2) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
 
         with self.assertNumQueries(7):
-            assert FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag1, feature_flag2],
-                "random_id",
-                property_value_overrides={"email": "example@posthog.com"},
-            ).get_match(feature_flag2) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1, feature_flag2], "random_id", property_value_overrides={"email": "example@posthog.com"}).get_match(feature_flag2) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
     def test_cohort_filters_with_override_id_property(self):
         cohort1 = Cohort.objects.create(
@@ -3674,41 +3066,21 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         with self.assertNumQueries(8):
-            assert FeatureFlagMatcher(
-                self.team.id, self.project.id, [feature_flag1], "example_id", property_value_overrides={}
-            ).get_match(feature_flag1) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1], "example_id", property_value_overrides={}).get_match(feature_flag1) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
         with self.assertNumQueries(7):
             # no local computation because cohort lookup is required
             # no postgres person query required here to get the person, because email is sufficient
             # property id override shouldn't confuse the matcher
-            assert FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag1],
-                "example_id",
-                property_value_overrides={"id": "example_id", "email": "bzz"},
-            ).get_match(feature_flag1) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1], "example_id", property_value_overrides={"id": "example_id", "email": "bzz"}).get_match(feature_flag1) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
 
         with self.assertNumQueries(7):
             # no postgres query required here to get the person
-            assert FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag1],
-                "example_id",
-                property_value_overrides={"id": "second_id", "email": "neil@posthog.com"},
-            ).get_match(feature_flag1) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1], "example_id", property_value_overrides={"id": "second_id", "email": "neil@posthog.com"}).get_match(feature_flag1) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
         with self.assertNumQueries(8):
             # postgres query required here to get the person
-            assert FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag1],
-                "example_id",
-                property_value_overrides={"id": "second_id"},
-            ).get_match(feature_flag1) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1], "example_id", property_value_overrides={"id": "second_id"}).get_match(feature_flag1) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
     @pytest.mark.skip("This case is not supported yet")
     def test_complex_cohort_filter_with_override_properties(self):
@@ -3753,19 +3125,11 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         with self.assertNumQueries(5):
-            assert FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag1],
-                "example_id",
-                property_value_overrides={"email": "neil@posthog.com"},
-            ).get_match(feature_flag1) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1], "example_id", property_value_overrides={"email": "neil@posthog.com"}).get_match(feature_flag1) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
         with self.assertNumQueries(5):
             # no local computation because cohort lookup is required
-            assert FeatureFlagMatcher(
-                self.team.id, self.project.id, [feature_flag1], "example_id", property_value_overrides={"email": "bzz"}
-            ).get_match(feature_flag1) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1], "example_id", property_value_overrides={"email": "bzz"}).get_match(feature_flag1) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
 
     def test_cohort_filters_with_multiple_OR_override_properties(self):
         cohort1 = Cohort.objects.create(
@@ -3814,19 +3178,11 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         with self.assertNumQueries(8):
-            assert FeatureFlagMatcher(
-                self.team.id, self.project.id, [feature_flag1], "example_id", property_value_overrides={}
-            ).get_match(feature_flag1) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1], "example_id", property_value_overrides={}).get_match(feature_flag1) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
         with self.assertNumQueries(8):
             # no local computation because cohort lookup is required
-            assert FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag1],
-                "example_id",
-                property_value_overrides={"email": "neil@posthog.com"},
-            ).get_match(feature_flag1) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1], "example_id", property_value_overrides={"email": "neil@posthog.com"}).get_match(feature_flag1) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
     def test_user_in_cohort(self):
         Person.objects.create(
@@ -3855,12 +3211,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             filters={"groups": [{"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}]}]}
         )
 
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id_1").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id_1").get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
 
     def test_cohort_expansion_returns_same_result_as_regular_flag(self):
         Person.objects.create(
@@ -3922,15 +3274,9 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             },
         )
 
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id_4").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 0)
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id_5").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id_4").get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id_5").get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
 
         matches = []
         for i in range(1, 7):
@@ -3967,12 +3313,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             filters={"groups": [{"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}]}]}
         )
 
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id_1").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "3").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id_1").get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "3").get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
 
     def test_user_in_cohort_without_calculation(self):
         Person.objects.create(
@@ -3999,21 +3341,13 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             filters={"groups": [{"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}]}]}
         )
 
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id_1").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id_1").get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
 
     def test_legacy_rollout_percentage(self):
         feature_flag = self.create_feature_flag(rollout_percentage=50)
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 0)
 
     def test_legacy_property_filters(self):
         Person.objects.create(
@@ -4029,12 +3363,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         feature_flag = self.create_feature_flag(
             filters={"properties": [{"key": "email", "value": "tim@posthog.com"}]},
         )
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
 
     def test_legacy_rollout_and_property_filter(self):
         Person.objects.create(
@@ -4057,15 +3387,9 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             filters={"properties": [{"key": "email", "value": "tim@posthog.com", "type": "person"}]},
         )
         with self.assertNumQueries(4):
-            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(
-                feature_flag
-            ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 0)
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "id_number_3").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "id_number_3").get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
 
     def test_legacy_user_in_cohort(self):
         Person.objects.create(
@@ -4094,12 +3418,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             filters={"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}]}
         )
 
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id_2").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id_2").get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
 
     def test_variants(self):
         feature_flag = self.create_feature_flag(
@@ -4127,21 +3447,9 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             }
         )
 
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "11").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(
-            True, variant="first-variant", reason=FeatureFlagMatchReason.CONDITION_MATCH, condition_index=0
-        )
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(
-            True, variant="second-variant", reason=FeatureFlagMatchReason.CONDITION_MATCH, condition_index=0
-        )
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "3").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(
-            True, variant="third-variant", reason=FeatureFlagMatchReason.CONDITION_MATCH, condition_index=0
-        )
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "11").get_match(feature_flag) == FeatureFlagMatch(True, variant="first-variant", reason=FeatureFlagMatchReason.CONDITION_MATCH, condition_index=0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag) == FeatureFlagMatch(True, variant="second-variant", reason=FeatureFlagMatchReason.CONDITION_MATCH, condition_index=0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "3").get_match(feature_flag) == FeatureFlagMatch(True, variant="third-variant", reason=FeatureFlagMatchReason.CONDITION_MATCH, condition_index=0)
 
     def test_flag_by_groups_with_rollout_100(self):
         self.create_groups()
@@ -4152,18 +3460,10 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             }
         )
 
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "").get_match(
-            feature_flag
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_GROUP_TYPE)
-        assert FeatureFlagMatcher(
-            self.team.id, self.project.id, [feature_flag], "", {"unknown": "group_key"}
-        ).get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_GROUP_TYPE)
-        assert FeatureFlagMatcher(
-            self.team.id, self.project.id, [feature_flag], "", {"organization": "group_key"}
-        ).get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_GROUP_TYPE)
-        assert FeatureFlagMatcher(
-            self.team.id, self.project.id, [feature_flag], "", {"project": "group_key"}
-        ).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "").get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_GROUP_TYPE)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "", {"unknown": "group_key"}).get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_GROUP_TYPE)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "", {"organization": "group_key"}).get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_GROUP_TYPE)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "", {"project": "group_key"}).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
     def test_flag_by_groups_with_rollout_50(self):
         self.create_groups()
@@ -4174,12 +3474,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             }
         )
 
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "", {"project": "1"}).get_match(
-            feature_flag
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 0)
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "", {"project": "4"}).get_match(
-            feature_flag
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "", {"project": "1"}).get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "", {"project": "4"}).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
     def test_flag_by_group_properties(self):
         self.create_groups()
@@ -4200,12 +3496,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 ],
             }
         )
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "", {"organization": "foo"}).get_match(
-            feature_flag
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
-        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "", {"organization": "bar"}).get_match(
-            feature_flag
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "", {"organization": "foo"}).get_match(feature_flag) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "", {"organization": "bar"}).get_match(feature_flag) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
 
     def create_groups(self):
         create_group_type_mapping_without_created_at(
@@ -4288,9 +3580,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             },
         )
 
-        assert self.match_flag(feature_flag1, "307") == FeatureFlagMatch(
-            True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0
-        )
+        assert self.match_flag(feature_flag1, "307") == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
     def test_numeric_operator(self):
         Person.objects.create(
@@ -4427,26 +3717,14 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             },
         )
 
-        assert self.match_flag(feature_flag1, "307") == FeatureFlagMatch(
-            False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0
-        )
-        assert self.match_flag(feature_flag2, "307") == FeatureFlagMatch(
-            True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0
-        )
-        assert self.match_flag(feature_flag3, "307") == FeatureFlagMatch(
-            True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0
-        )
-        assert self.match_flag(feature_flag4, "307") == FeatureFlagMatch(
-            True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0
-        )
+        assert self.match_flag(feature_flag1, "307") == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+        assert self.match_flag(feature_flag2, "307") == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert self.match_flag(feature_flag3, "307") == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert self.match_flag(feature_flag4, "307") == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
         # even though we can parse as a number, only do string comparison
-        assert self.match_flag(feature_flag5, "307") == FeatureFlagMatch(
-            True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0
-        )
-        assert self.match_flag(feature_flag6, "307") == FeatureFlagMatch(
-            False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0
-        )
+        assert self.match_flag(feature_flag5, "307") == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert self.match_flag(feature_flag6, "307") == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
 
     def test_numeric_operator_with_groups_and_person_flags(self):
         Person.objects.create(
@@ -4633,74 +3911,27 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             },
         )
 
-        assert self.match_flag(
-            feature_flag1, "307", groups={"organization": "foo", "project": "foo-project"}
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
-        assert self.match_flag(
-            feature_flag2, "307", groups={"organization": "foo", "project": "foo-project"}
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
-        assert self.match_flag(
-            feature_flag3, "307", groups={"organization": "foo", "project": "foo-project"}
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
-        assert self.match_flag(
-            feature_flag4, "307", groups={"organization": "foo", "project": "foo-project"}
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert self.match_flag(feature_flag1, "307", groups={"organization": "foo", "project": "foo-project"}) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+        assert self.match_flag(feature_flag2, "307", groups={"organization": "foo", "project": "foo-project"}) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert self.match_flag(feature_flag3, "307", groups={"organization": "foo", "project": "foo-project"}) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert self.match_flag(feature_flag4, "307", groups={"organization": "foo", "project": "foo-project"}) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
         # even though we can parse as a number, only do string comparison
-        assert self.match_flag(
-            feature_flag5, "307", groups={"organization": "foo", "project": "foo-project"}
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
-        assert self.match_flag(
-            feature_flag6, "307", groups={"organization": "foo", "project": "foo-project"}
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+        assert self.match_flag(feature_flag5, "307", groups={"organization": "foo", "project": "foo-project"}) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert self.match_flag(feature_flag6, "307", groups={"organization": "foo", "project": "foo-project"}) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
 
         # Make sure clashes on property name doesn't affect computation
         with snapshot_postgres_queries_context(self, replace_all_numbers=False):
-            assert FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag1, feature_flag2, feature_flag4_person],
-                "307",
-                groups={"organization": "foo", "project": "foo-project"},
-            ).get_matches_with_details()[1] == {
-                "random1": {"condition_index": 0, "reason": FeatureFlagMatchReason.NO_CONDITION_MATCH},
-                "random2": {"condition_index": 0, "reason": FeatureFlagMatchReason.CONDITION_MATCH},
-                "random4_person": {"condition_index": 0, "reason": FeatureFlagMatchReason.CONDITION_MATCH},
-            }
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1, feature_flag2, feature_flag4_person], "307", groups={"organization": "foo", "project": "foo-project"}).get_matches_with_details()[1] == {"random1": {"condition_index": 0, "reason": FeatureFlagMatchReason.NO_CONDITION_MATCH}, "random2": {"condition_index": 0, "reason": FeatureFlagMatchReason.CONDITION_MATCH}, "random4_person": {"condition_index": 0, "reason": FeatureFlagMatchReason.CONDITION_MATCH}}
 
         # handle overrides in group properties
-        assert self.match_flag(
-            feature_flag1,
-            "307",
-            groups={"organization": "foo", "project": "foo-project"},
-            group_property_value_overrides={"organization": {"number": 200}, "project": {"number": 1}},
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert self.match_flag(feature_flag1, "307", groups={"organization": "foo", "project": "foo-project"}, group_property_value_overrides={"organization": {"number": 200}, "project": {"number": 1}}) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
         # string '30' > string '100' (lexicographically)
-        assert self.match_flag(
-            feature_flag1,
-            "307",
-            groups={"organization": "foo", "project": "foo-project"},
-            group_property_value_overrides={"organization": {"number": "30"}, "project": {"number": 1}},
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
-        assert self.match_flag(
-            feature_flag1,
-            "307",
-            groups={"organization": "foo", "project": "foo-project"},
-            group_property_value_overrides={"organization": {"number": "01323"}, "project": {"number": 1}},
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
-        assert self.match_flag(
-            feature_flag1,
-            "307",
-            groups={"organization": "foo", "project": "foo-project"},
-            group_property_value_overrides={"organization": {"number": 0}, "project": {"number": 1}},
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
-        assert self.match_flag(
-            feature_flag2,
-            "307",
-            groups={"organization": "foo", "project": "foo-project"},
-            group_property_value_overrides={"organization": {"number": "0"}, "project": {"number": 19.999999}},
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert self.match_flag(feature_flag1, "307", groups={"organization": "foo", "project": "foo-project"}, group_property_value_overrides={"organization": {"number": "30"}, "project": {"number": 1}}) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert self.match_flag(feature_flag1, "307", groups={"organization": "foo", "project": "foo-project"}, group_property_value_overrides={"organization": {"number": "01323"}, "project": {"number": 1}}) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+        assert self.match_flag(feature_flag1, "307", groups={"organization": "foo", "project": "foo-project"}, group_property_value_overrides={"organization": {"number": 0}, "project": {"number": 1}}) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+        assert self.match_flag(feature_flag2, "307", groups={"organization": "foo", "project": "foo-project"}, group_property_value_overrides={"organization": {"number": "0"}, "project": {"number": 19.999999}}) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
     def test_numeric_operator_with_cohorts_and_nested_cohorts(self):
         Person.objects.create(
@@ -4740,9 +3971,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             },
         )
 
-        assert self.match_flag(feature_flag1, "307") == FeatureFlagMatch(
-            False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0
-        )
+        assert self.match_flag(feature_flag1, "307") == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
 
         cohort2 = Cohort.objects.create(
             team=self.team,
@@ -4776,9 +4005,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             },
         )
 
-        assert self.match_flag(feature_flag2, "307") == FeatureFlagMatch(
-            True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0
-        )
+        assert self.match_flag(feature_flag2, "307") == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
         cohort_nest = Cohort.objects.create(
             team=self.team,
@@ -4833,19 +4060,11 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             },
         )
 
-        assert self.match_flag(feature_flag3, "307") == FeatureFlagMatch(
-            True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0
-        )
+        assert self.match_flag(feature_flag3, "307") == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
         # Make sure clashes on property name doesn't affect computation
         with snapshot_postgres_queries_context(self, replace_all_numbers=False):
-            assert FeatureFlagMatcher(
-                self.team.id, self.project.id, [feature_flag1, feature_flag2, feature_flag3], "307"
-            ).get_matches_with_details()[1] == {
-                "random1": {"condition_index": 0, "reason": FeatureFlagMatchReason.NO_CONDITION_MATCH},
-                "random2": {"condition_index": 0, "reason": FeatureFlagMatchReason.CONDITION_MATCH},
-                "random3": {"condition_index": 0, "reason": FeatureFlagMatchReason.CONDITION_MATCH},
-            }
+            assert FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1, feature_flag2, feature_flag3], "307").get_matches_with_details()[1] == {"random1": {"condition_index": 0, "reason": FeatureFlagMatchReason.NO_CONDITION_MATCH}, "random2": {"condition_index": 0, "reason": FeatureFlagMatchReason.CONDITION_MATCH}, "random3": {"condition_index": 0, "reason": FeatureFlagMatchReason.CONDITION_MATCH}}
 
     @snapshot_postgres_queries
     def test_with_sql_injection_properties_and_other_aliases(self):
@@ -4926,9 +4145,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             },
         )
 
-        assert self.match_flag(feature_flag1, "307") == FeatureFlagMatch(
-            True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1
-        )
+        assert self.match_flag(feature_flag1, "307") == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1)
 
     @freeze_time("2022-05-01")
     def test_relative_date_operator(self):
@@ -5033,32 +4250,20 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             },
         )
 
-        assert self.match_flag(feature_flag1, "307") == FeatureFlagMatch(
-            True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0
-        )
+        assert self.match_flag(feature_flag1, "307") == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
-        assert self.match_flag(feature_flag2, "307") == FeatureFlagMatch(
-            True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0
-        )
+        assert self.match_flag(feature_flag2, "307") == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
         # now move current date to 2022-05-02
         with freeze_time("2022-05-02T08:00:00-10:00"):
-            assert self.match_flag(feature_flag2, "307") == FeatureFlagMatch(
-                False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0
-            )
+            assert self.match_flag(feature_flag2, "307") == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
 
-        assert self.match_flag(feature_flag3, "307") == FeatureFlagMatch(
-            False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0
-        )
+        assert self.match_flag(feature_flag3, "307") == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
         # :TRICKY: String matching means invalid props can be appropriately targeted
-        assert self.match_flag(feature_flag4_invalid_prop, "307") == FeatureFlagMatch(
-            True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0
-        )
+        assert self.match_flag(feature_flag4_invalid_prop, "307") == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
         # invalid flags never return True
-        assert self.match_flag(feature_flag5_invalid_flag, "307") == FeatureFlagMatch(
-            False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0
-        )
+        assert self.match_flag(feature_flag5_invalid_flag, "307") == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
 
         # try matching all together, invalids don't interfere with regular flags
         featureFlags, _, payloads, errors, _ = FeatureFlagMatcher(
@@ -5068,49 +4273,21 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             "307",
         ).get_matches_with_details()
 
-        assert featureFlags == {
-            "random1": True,
-            "random2": True,
-            "random3": False,
-            "random4": True,
-            "random5": False,
-        }, {
-            "random1": {"condition_index": 0, "reason": FeatureFlagMatchReason.CONDITION_MATCH},
-            "random2": {"condition_index": 0, "reason": FeatureFlagMatchReason.CONDITION_MATCH},
-            "random3": {"condition_index": 0, "reason": FeatureFlagMatchReason.NO_CONDITION_MATCH},
-            "random4": {"condition_index": 0, "reason": FeatureFlagMatchReason.CONDITION_MATCH},
-            "random5": {"condition_index": 0, "reason": FeatureFlagMatchReason.NO_CONDITION_MATCH},
-        }
+        assert featureFlags == {"random1": True, "random2": True, "random3": False, "random4": True, "random5": False}, {"random1": {"condition_index": 0, "reason": FeatureFlagMatchReason.CONDITION_MATCH}, "random2": {"condition_index": 0, "reason": FeatureFlagMatchReason.CONDITION_MATCH}, "random3": {"condition_index": 0, "reason": FeatureFlagMatchReason.NO_CONDITION_MATCH}, "random4": {"condition_index": 0, "reason": FeatureFlagMatchReason.CONDITION_MATCH}, "random5": {"condition_index": 0, "reason": FeatureFlagMatchReason.NO_CONDITION_MATCH}}
         assert payloads == {}
         assert not errors
 
         # confirm it works with overrides as well, which are computed locally
-        assert self.match_flag(
-            feature_flag1, "307", property_value_overrides={"date_1": "2021-01-04"}
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
-        assert self.match_flag(
-            feature_flag1, "307", property_value_overrides={"date_1": "2023-01-04"}
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
-        assert self.match_flag(
-            feature_flag1, "307", property_value_overrides={"date_1": "2022-04-30T08:01:00-10:00"}
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
-        assert self.match_flag(
-            feature_flag1, "307", property_value_overrides={"date_1": "2022-04-30T07:59:00-10:00"}
-        ) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert self.match_flag(feature_flag1, "307", property_value_overrides={"date_1": "2021-01-04"}) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+        assert self.match_flag(feature_flag1, "307", property_value_overrides={"date_1": "2023-01-04"}) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+        assert self.match_flag(feature_flag1, "307", property_value_overrides={"date_1": "2022-04-30T08:01:00-10:00"}) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+        assert self.match_flag(feature_flag1, "307", property_value_overrides={"date_1": "2022-04-30T07:59:00-10:00"}) == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
 
         # test with invalid date
-        assert self.match_flag(
-            feature_flag1, "307", property_value_overrides={"date_1": "bazinga"}
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
-        assert self.match_flag(
-            feature_flag5_invalid_flag, "307", property_value_overrides={"date_1": "2022-04-30T07:59:00-10:00"}
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
-        assert self.match_flag(
-            feature_flag5_invalid_flag, "307", property_value_overrides={"date_1": "2022-04-30"}
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
-        assert self.match_flag(
-            feature_flag5_invalid_flag, "307", property_value_overrides={"date_1": datetime.now()}
-        ) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+        assert self.match_flag(feature_flag1, "307", property_value_overrides={"date_1": "bazinga"}) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+        assert self.match_flag(feature_flag5_invalid_flag, "307", property_value_overrides={"date_1": "2022-04-30T07:59:00-10:00"}) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+        assert self.match_flag(feature_flag5_invalid_flag, "307", property_value_overrides={"date_1": "2022-04-30"}) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
+        assert self.match_flag(feature_flag5_invalid_flag, "307", property_value_overrides={"date_1": datetime.now()}) == FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0)
 
     def test_date_string_property_matching_iso8601(self):
         """Test that date string properties in ISO8601 format are correctly compared with is_date_after operator.
@@ -5150,9 +4327,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
         # This should NOT match because 19:17 is NOT after 19:37
         simple_match = self.match_flag(simple_flag, "test_user_123")
-        assert not simple_match.match, (
-            f"Flag should NOT match: 19:17:07 is not after 19:37:00. Got: {simple_match}"
-        )
+        assert not simple_match.match, f"Flag should NOT match: 19:17:07 is not after 19:37:00. Got: {simple_match}"
 
         # Now test the full multivariate scenario
         Person.objects.create(
@@ -5445,11 +4620,7 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
         flags, reasons, payloads, _ = get_all_feature_flags(self.team, "other_id", {}, "example_id")
         assert flags == {"beta-feature": True, "multivariate-flag": "first-variant", "default-flag": True}
 
-        assert reasons == {
-            "beta-feature": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0},
-            "multivariate-flag": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0},
-            "default-flag": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0},
-        }
+        assert reasons == {"beta-feature": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0}, "multivariate-flag": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0}, "default-flag": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0}}
 
         assert payloads == {}
 
@@ -6847,9 +6018,7 @@ class TestFeatureFlagMatcherConsistency(BaseTest):
             if results[i]:
                 assert feature_flag_match == FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
             else:
-                assert feature_flag_match == FeatureFlagMatch(
-                    False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 0
-                )
+                assert feature_flag_match == FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 0)
 
     def test_multivariate_flag_consistency(self):
         feature_flag = FeatureFlag.objects.create(
@@ -7902,13 +7071,6 @@ class TestFeatureFlagMatcherConsistency(BaseTest):
             ).get_match(feature_flag)
 
             if results[i]:
-                assert feature_flag_match == FeatureFlagMatch(
-                    True,
-                    variant=cast(str, results[i]),
-                    reason=FeatureFlagMatchReason.CONDITION_MATCH,
-                    condition_index=0,
-                )
+                assert feature_flag_match == FeatureFlagMatch(True, variant=cast(str, results[i]), reason=FeatureFlagMatchReason.CONDITION_MATCH, condition_index=0)
             else:
-                assert feature_flag_match == FeatureFlagMatch(
-                    False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 0
-                )
+                assert feature_flag_match == FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 0)

@@ -993,10 +993,7 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
 
     def test_get_property_string_expr(self):
         string_expr = get_property_string_expr("events", "some_non_mat_prop", "'some_non_mat_prop'", "properties")
-        assert string_expr == (
-            "replaceRegexpAll(JSONExtractRaw(properties, 'some_non_mat_prop'), '^\"|\"$', '')",
-            False,
-        )
+        assert string_expr == ("replaceRegexpAll(JSONExtractRaw(properties, 'some_non_mat_prop'), '^\"|\"$', '')", False)
 
         string_expr = get_property_string_expr(
             "events",
@@ -1005,10 +1002,7 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
             "properties",
             table_alias="e",
         )
-        assert string_expr == (
-            "replaceRegexpAll(JSONExtractRaw(e.properties, 'some_non_mat_prop'), '^\"|\"$', '')",
-            False,
-        )
+        assert string_expr == ("replaceRegexpAll(JSONExtractRaw(e.properties, 'some_non_mat_prop'), '^\"|\"$', '')", False)
 
         materialize("events", "some_mat_prop")
         string_expr = get_property_string_expr("events", "some_mat_prop", "'some_mat_prop'", "properties")

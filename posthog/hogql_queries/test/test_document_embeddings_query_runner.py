@@ -255,8 +255,4 @@ class TestDocumentEmbeddingsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(response, DocumentSimilarityQueryResponse)
         assert len(response.results) >= 1
         top_result = response.results[0].result
-        assert not (
-            top_result.product == origin_document.product
-            and top_result.document_type == origin_document.document_type
-            and top_result.document_id == origin_document.document_id
-        )
+        assert not (top_result.product == origin_document.product and top_result.document_type == origin_document.document_type and top_result.document_id == origin_document.document_id)

@@ -149,18 +149,7 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
         cohort = Cohort.objects.get(pk=cohort_id)
         people = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
         assert cohort.errors_calculating == 0
-        assert people.count() == 1, {
-            "a": sync_execute(
-                "select person_id from person_static_cohort where team_id = {} and cohort_id = {} ".format(
-                    self.team.id, cohort.pk
-                )
-            ),
-            "b": sync_execute(
-                "select person_id from person_static_cohort FINAL where team_id = {} and cohort_id = {} ".format(
-                    self.team.id, cohort.pk
-                )
-            ),
-        }
+        assert people.count() == 1, {"a": sync_execute("select person_id from person_static_cohort where team_id = {} and cohort_id = {} ".format(self.team.id, cohort.pk)), "b": sync_execute("select person_id from person_static_cohort FINAL where team_id = {} and cohort_id = {} ".format(self.team.id, cohort.pk))}
         assert cohort.count == 1
 
     @patch("posthog.tasks.calculate_cohort.insert_cohort_from_insight_filter.delay")
@@ -264,18 +253,7 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
         cohort = Cohort.objects.get(pk=cohort_id)
         people = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
         assert cohort.errors_calculating == 0
-        assert people.count() == 1, {
-            "a": sync_execute(
-                "select person_id from person_static_cohort where team_id = {} and cohort_id = {} ".format(
-                    self.team.id, cohort.pk
-                )
-            ),
-            "b": sync_execute(
-                "select person_id from person_static_cohort FINAL where team_id = {} and cohort_id = {} ".format(
-                    self.team.id, cohort.pk
-                )
-            ),
-        }
+        assert people.count() == 1, {"a": sync_execute("select person_id from person_static_cohort where team_id = {} and cohort_id = {} ".format(self.team.id, cohort.pk)), "b": sync_execute("select person_id from person_static_cohort FINAL where team_id = {} and cohort_id = {} ".format(self.team.id, cohort.pk))}
         assert cohort.count == 1
 
     @patch("posthog.tasks.calculate_cohort.insert_cohort_from_insight_filter.delay")

@@ -1,10 +1,9 @@
-import pytest
-
 from posthog.temporal.data_imports.sources.stripe.constants import CUSTOMER_RESOURCE_NAME, INVOICE_RESOURCE_NAME
 
 from products.revenue_analytics.backend.views.schemas.customer import SCHEMA as CUSTOMER_SCHEMA
 from products.revenue_analytics.backend.views.sources.stripe.customer import build
 from products.revenue_analytics.backend.views.sources.test.stripe.base import StripeSourceBaseTest
+import pytest
 
 
 class TestCustomerStripeBuilder(StripeSourceBaseTest):

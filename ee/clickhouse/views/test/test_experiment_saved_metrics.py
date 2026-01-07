@@ -35,10 +35,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert (
-            response.json()["detail"]
-            == "Metric query kind must be 'ExperimentMetric', 'ExperimentTrendsQuery' or 'ExperimentFunnelsQuery'"
-        )
+        assert response.json()["detail"] == "Metric query kind must be 'ExperimentMetric', 'ExperimentTrendsQuery' or 'ExperimentFunnelsQuery'"
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiment_saved_metrics/",
@@ -51,10 +48,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert (
-            response.json()["detail"]
-            == "Metric query kind must be 'ExperimentMetric', 'ExperimentTrendsQuery' or 'ExperimentFunnelsQuery'"
-        )
+        assert response.json()["detail"] == "Metric query kind must be 'ExperimentMetric', 'ExperimentTrendsQuery' or 'ExperimentFunnelsQuery'"
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiment_saved_metrics/",
@@ -66,10 +60,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert (
-            response.json()["detail"]
-            == "Metric query kind must be 'ExperimentMetric', 'ExperimentTrendsQuery' or 'ExperimentFunnelsQuery'"
-        )
+        assert response.json()["detail"] == "Metric query kind must be 'ExperimentMetric', 'ExperimentTrendsQuery' or 'ExperimentFunnelsQuery'"
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiment_saved_metrics/",
@@ -121,10 +112,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["name"] == "Test Experiment saved metric"
         assert response.json()["description"] == "Test description"
-        assert response.json()["query"] == {
-            "kind": "ExperimentTrendsQuery",
-            "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
-        }
+        assert response.json()["query"] == {"kind": "ExperimentTrendsQuery", "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]}}
         assert response.json()["created_by"]["id"] == self.user.pk
         assert response.json()["tags"] == ["tag1"]
         # Generate experiment to have saved metric
@@ -160,10 +148,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         assert experiment_to_saved_metric.metadata == {"type": "secondary"}
         saved_metric = Experiment.objects.get(pk=exp_id).saved_metrics.first()
         assert saved_metric.id == saved_metric_id
-        assert saved_metric.query == {
-            "kind": "ExperimentTrendsQuery",
-            "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
-        }
+        assert saved_metric.query == {"kind": "ExperimentTrendsQuery", "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]}}
 
         # Now try updating saved metric
         response = self.client.patch(
@@ -180,19 +165,13 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["name"] == "Test Experiment saved metric 2"
-        assert response.json()["query"] == {
-            "kind": "ExperimentTrendsQuery",
-            "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageleave"}]},
-        }
+        assert response.json()["query"] == {"kind": "ExperimentTrendsQuery", "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageleave"}]}}
 
         # make sure experiment in question was updated as well
         assert Experiment.objects.get(pk=exp_id).saved_metrics.count() == 1
         saved_metric = Experiment.objects.get(pk=exp_id).saved_metrics.first()
         assert saved_metric.id == saved_metric_id
-        assert saved_metric.query == {
-            "kind": "ExperimentTrendsQuery",
-            "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageleave"}]},
-        }
+        assert saved_metric.query == {"kind": "ExperimentTrendsQuery", "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageleave"}]}}
         assert saved_metric.name == "Test Experiment saved metric 2"
         assert saved_metric.description == "Test description 2"
 
@@ -247,10 +226,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert (
-            "ExperimentMetric metric_type must be 'mean', 'funnel', 'ratio', or 'retention'"
-            in response.json()["detail"]
-        )
+        assert "ExperimentMetric metric_type must be 'mean', 'funnel', 'ratio', or 'retention'" in response.json()["detail"]
 
     def test_create_saved_metric_with_experiment_metric_ratio(self):
         response = self.client.post(

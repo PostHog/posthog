@@ -1,10 +1,9 @@
 import base64
 import hashlib
 from datetime import timedelta
-from typing import cast
+from typing import Optional, cast
 from urllib.parse import parse_qs, quote, urlencode, urlparse, urlunparse
 
-import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 
@@ -27,6 +26,7 @@ from posthog.models.oauth import (
     OAuthRefreshToken,
 )
 from posthog.models.team.team import Team
+import pytest
 
 
 def generate_rsa_key() -> str:
@@ -147,7 +147,7 @@ class TestOAuthAPI(APIBaseTest):
             url, data=urlencode(body), content_type="application/x-www-form-urlencoded", headers=headers
         )
 
-    def replace_param_in_url(self, url: str, param: str, value: str | None = None) -> str:
+    def replace_param_in_url(self, url: str, param: str, value: Optional[str] = None) -> str:
         """
         Return `url` with the query parameter `param` replaced by `value`.
         If `value` is None, the parameter is removed entirely.
@@ -458,10 +458,7 @@ class TestOAuthAPI(APIBaseTest):
 
         assert not serializer.is_valid()
         assert "scoped_organizations" in serializer.errors
-        assert (
-            serializer.errors["scoped_organizations"][0]
-            == "scoped_organizations is not allowed when access_level is all"
-        )
+        assert serializer.errors["scoped_organizations"][0] == "scoped_organizations is not allowed when access_level is all"
 
     def test_invalid_scoped_teams_with_organization_access_level(self):
         data = {
@@ -484,10 +481,7 @@ class TestOAuthAPI(APIBaseTest):
         serializer = OAuthAuthorizationSerializer(data=data, context={"user": self.user})
         assert not serializer.is_valid()
         assert "scoped_organizations" in serializer.errors
-        assert (
-            serializer.errors["scoped_organizations"][0]
-            == "scoped_organizations is required when access_level is organization"
-        )
+        assert serializer.errors["scoped_organizations"][0] == "scoped_organizations is required when access_level is organization"
 
     def test_missing_scoped_teams_with_team_access_level(self):
         data = {
@@ -870,9 +864,7 @@ class TestOAuthAPI(APIBaseTest):
 
         assert not serializer.is_valid()
         assert "scoped_organizations" in serializer.errors
-        assert f"You must be a member of organization '{other_org.id}'" in str(
-            serializer.errors["scoped_organizations"][0]
-        )
+        assert f"You must be a member of organization '{other_org.id}'" in str(serializer.errors["scoped_organizations"][0])
 
     def test_cannot_scope_to_unauthorized_team(self):
         from posthog.models import Organization

@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Optional
 from uuid import uuid4
 
 from django.conf import settings
@@ -64,7 +65,7 @@ SELECT
 
 
 def _sensible_first_timestamp(
-    first_timestamp: str | datetime | None, last_timestamp: str | datetime | None
+    first_timestamp: Optional[str | datetime], last_timestamp: Optional[str | datetime]
 ) -> str:
     """
     Normalise the first timestamp to be used in the session replay summary.
@@ -89,7 +90,7 @@ def _sensible_first_timestamp(
 
 
 def _sensible_last_timestamp(
-    first_timestamp: str | datetime | None, last_timestamp: str | datetime | None
+    first_timestamp: Optional[str | datetime], last_timestamp: Optional[str | datetime]
 ) -> str:
     """
     Normalise the last timestamp to be used in the session replay summary.
@@ -115,24 +116,24 @@ def _sensible_last_timestamp(
 
 def produce_replay_summary(
     team_id: int,
-    session_id: str | None = None,
-    distinct_id: str | None = None,
-    first_timestamp: str | datetime | None = None,
-    last_timestamp: str | datetime | None = None,
-    first_url: str | None | None = "https://not-provided-by-test.com",
+    session_id: Optional[str] = None,
+    distinct_id: Optional[str] = None,
+    first_timestamp: Optional[str | datetime] = None,
+    last_timestamp: Optional[str | datetime] = None,
+    first_url: Optional[str | None] = "https://not-provided-by-test.com",
     all_urls: list[str] | None = None,
-    click_count: int | None = None,
-    keypress_count: int | None = None,
-    mouse_activity_count: int | None = None,
-    active_milliseconds: float | None = None,
-    console_log_count: int | None = None,
-    console_warn_count: int | None = None,
-    console_error_count: int | None = None,
+    click_count: Optional[int] = None,
+    keypress_count: Optional[int] = None,
+    mouse_activity_count: Optional[int] = None,
+    active_milliseconds: Optional[float] = None,
+    console_log_count: Optional[int] = None,
+    console_warn_count: Optional[int] = None,
+    console_error_count: Optional[int] = None,
     log_messages: dict[str, list[str]] | None = None,
     snapshot_source: str | None = None,
     snapshot_library: str | None = None,
-    kafka_timestamp: datetime | None = None,
-    size: int | None = None,
+    kafka_timestamp: Optional[datetime] = None,
+    size: Optional[int] = None,
     *,
     ensure_analytics_event_in_session: bool = True,
     block_urls: list[str] | None = None,

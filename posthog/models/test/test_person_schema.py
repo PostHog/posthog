@@ -31,17 +31,11 @@ class TestPersonSchemaConsistency(TestCase):
 
     def test_posthog_person_exists(self):
         """Verify posthog_person table exists in persons_db after Rust sqlx migrations."""
-        assert table_exists("posthog_person"), (
-            "posthog_person table does not exist in persons_db. "
-            "Rust sqlx migrations from rust/persons_migrations/ should have created and renamed it."
-        )
+        assert table_exists("posthog_person"), "posthog_person table does not exist in persons_db. " "Rust sqlx migrations from rust/persons_migrations/ should have created and renamed it."
 
     def test_person_table_configuration(self):
         """Verify Person model uses the configured table name."""
-        assert Person._meta.db_table == settings.PERSON_TABLE_NAME, (
-            f"Person model db_table '{Person._meta.db_table}' "
-            f"does not match configured PERSON_TABLE_NAME '{settings.PERSON_TABLE_NAME}'"
-        )
+        assert Person._meta.db_table == settings.PERSON_TABLE_NAME, f"Person model db_table '{Person._meta.db_table}' " f"does not match configured PERSON_TABLE_NAME '{settings.PERSON_TABLE_NAME}'"
 
     @pytest.mark.skip(reason="This test should only be enabled if the PersonQuerySet is used")
     def test_person_queryset_enforces_team_id(self):

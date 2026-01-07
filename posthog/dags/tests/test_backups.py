@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime, timedelta
 from functools import partial
+from typing import Optional
 from uuid import UUID
 
 import pytest
@@ -169,7 +170,7 @@ def run_backup_test(
             "SYSTEM FLUSH LOGS",
         )
 
-    def get_backup_status(client: Client, run_id: str) -> str | None:
+    def get_backup_status(client: Client, run_id: str) -> Optional[str]:
         client.execute("SYSTEM FLUSH LOGS")
         rows = client.execute(
             """

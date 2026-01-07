@@ -91,10 +91,7 @@ class TestEntities(ClickhouseTestMixin, NonAtomicBaseTest):
         property_vals = await self.toolkit.retrieve_entity_property_values({"person": ["property_no_values"]})
         assert "person" in property_vals
         assert "property_no_values" in "\n".join(property_vals.get("person", []))
-        assert any(
-            "The property does not have any values in the taxonomy." in str(val)
-            for val in property_vals.get("person", [])
-        )
+        assert any("The property does not have any values in the taxonomy." in str(val) for val in property_vals.get("person", []))
 
     async def test_person_property_values_mixed(self):
         result = await self.toolkit._get_entity_names()
@@ -105,10 +102,7 @@ class TestEntities(ClickhouseTestMixin, NonAtomicBaseTest):
 
         assert "person" in property_vals
         assert "property_no_values" in "\n".join(property_vals.get("person", []))
-        assert any(
-            "The property does not have any values in the taxonomy." in str(val)
-            for val in property_vals.get("person", [])
-        )
+        assert any("The property does not have any values in the taxonomy." in str(val) for val in property_vals.get("person", []))
         assert "name" in "\n".join(property_vals.get("person", []))
         assert any("Test User" in str(val) for val in property_vals.get("person", []))
 
@@ -126,23 +120,14 @@ class TestEntities(ClickhouseTestMixin, NonAtomicBaseTest):
 
         assert "person" in property_vals
         assert "property_no_values" in "\n".join(property_vals.get("person", []))
-        assert any(
-            "The property does not have any values in the taxonomy." in str(val)
-            for val in property_vals.get("person", [])
-        )
+        assert any("The property does not have any values in the taxonomy." in str(val) for val in property_vals.get("person", []))
         assert "session" in property_vals
         assert "$session_duration" in "\n".join(property_vals.get("session", []))
         assert "$channel_type" in "\n".join(property_vals.get("session", []))
         assert "nonexistent_property" in "\n".join(property_vals.get("session", []))
-        assert any(
-            "values:\n- '30'\n- '146'\n- '2'\n- and many more distinct values\n" in str(val)
-            for val in property_vals.get("session", [])
-        )
+        assert any("values:\n- '30'\n- '146'\n- '2'\n- and many more distinct values\n" in str(val) for val in property_vals.get("session", []))
         assert any("Direct" in str(val) for val in property_vals.get("session", []))
-        assert any(
-            "The property nonexistent_property does not exist in the taxonomy." in str(val)
-            for val in property_vals.get("session", [])
-        )
+        assert any("The property nonexistent_property does not exist in the taxonomy." in str(val) for val in property_vals.get("session", []))
 
     async def test_retrieve_entity_property_values_batching(self):
         """Test that when more than 6 entities are processed, they are sent in batches of 6"""
@@ -170,11 +155,7 @@ class TestEntities(ClickhouseTestMixin, NonAtomicBaseTest):
             assert len(result) == 8
             for entity in entities:
                 assert entity in result
-                assert result[entity] == [
-                    "values:\n- '30'\n- '146'\n- '2'\n- and many more distinct values\n",
-                    "Direct",
-                    "The property nonexistent_property does not exist in the taxonomy.",
-                ]
+                assert result[entity] == ["values:\n- '30'\n- '146'\n- '2'\n- and many more distinct values\n", "Direct", "The property nonexistent_property does not exist in the taxonomy."]
 
             # Verify that _handle_entity_batch was called twice:
             # - First batch: entities 0-5 (6 entities)

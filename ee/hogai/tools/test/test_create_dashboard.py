@@ -1,7 +1,6 @@
 from typing import cast
 from uuid import uuid4
 
-import pytest
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -12,6 +11,7 @@ from ee.hogai.tool_errors import MaxToolFatalError
 from ee.hogai.tools.create_dashboard import CreateDashboardTool
 from ee.hogai.utils.types import AssistantState, InsightQuery, PartialAssistantState
 from ee.hogai.utils.types.base import NodePath
+import pytest
 
 
 class TestCreateDashboardTool(ClickhouseTestMixin, NonAtomicBaseTest):

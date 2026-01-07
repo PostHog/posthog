@@ -29,10 +29,7 @@ class TestServiceVersionRequirement(TestCase):
         try:
             ServiceVersionRequirement(service="kea", supported_version="==2.5.0")
         except Exception as e:
-            assert (
-                str(e)
-                == "service kea cannot be used to specify a version requirement. service should be one of clickhouse, postgresql, redis"
-            )
+            assert str(e) == "service kea cannot be used to specify a version requirement. service should be one of clickhouse, postgresql, redis"
 
     def test_service_versions(self):
         version1 = version_requirement.version_string_to_semver("14")

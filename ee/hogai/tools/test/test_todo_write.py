@@ -1,9 +1,9 @@
 from typing import Any
 
-import pytest
 from posthog.test.base import BaseTest
 
 from ee.hogai.tools.todo_write import TodoItem, TodoWriteTool
+import pytest
 
 
 class TestTodoWriteTool(BaseTest):

@@ -84,6 +84,4 @@ class TestSQLAgentNode(BaseTest):
             assert assistant_message.tool_calls is not None
             assert assistant_message.tool_calls is not None
             assert len(assistant_message.tool_calls) == 1
-            assert assistant_message.tool_calls[0] == AssistantToolCall(
-                id="xyz", name="execute_sql", args={"query": query}
-            )
+            assert assistant_message.tool_calls[0] == AssistantToolCall(id="xyz", name="execute_sql", args={"query": query})

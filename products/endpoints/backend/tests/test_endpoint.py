@@ -573,12 +573,8 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         assert "test_query_1" in query_timestamps, f"test_query_1 not found in results: {results}"
         assert "test_query_2" in query_timestamps, f"test_query_2 not found in results: {results}"
-        assert datetime.fromisoformat(query_timestamps["test_query_1"]) is not None, (
-            f"Invalid timestamp format for test_query_1: {query_timestamps['test_query_1']}"
-        )
-        assert datetime.fromisoformat(query_timestamps["test_query_2"]) is not None, (
-            f"Invalid timestamp format for test_query_2: {query_timestamps['test_query_2']}"
-        )
+        assert datetime.fromisoformat(query_timestamps["test_query_1"]) is not None, f"Invalid timestamp format for test_query_1: {query_timestamps['test_query_1']}"
+        assert datetime.fromisoformat(query_timestamps["test_query_2"]) is not None, f"Invalid timestamp format for test_query_2: {query_timestamps['test_query_2']}"
 
     def test_get_last_execution_times_with_nonexistent_query(self):
         """Test getting last execution times with a nonexistent query."""

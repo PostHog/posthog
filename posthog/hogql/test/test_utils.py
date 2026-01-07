@@ -1,8 +1,8 @@
-import pytest
 from posthog.test.base import BaseTest
 
 from posthog.hogql import ast
 from posthog.hogql.utils import deserialize_hx_ast
+import pytest
 
 
 class TestUtils(BaseTest):

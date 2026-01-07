@@ -1,6 +1,3 @@
-import re
-
-import pytest
 from posthog.test.base import BaseTest
 
 from django.db.utils import IntegrityError
@@ -9,6 +6,7 @@ from parameterized import parameterized
 
 from posthog.models import Dashboard, Insight, Team
 from posthog.models.insight import generate_insight_filters_hash
+import pytest
 
 
 class TestInsightModel(BaseTest):

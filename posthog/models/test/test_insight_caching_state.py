@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Optional, cast
 
 from posthog.test.base import BaseTest
 
@@ -106,7 +106,7 @@ class TestInsightCachingState(BaseTest):
 
         assert self.get_caching_state() is None
 
-    def get_caching_state(self) -> InsightCachingState | None:
+    def get_caching_state(self) -> Optional[InsightCachingState]:
         query_set = InsightCachingState.objects.filter(team_id=self.team.pk)
         assert len(query_set) in (0, 1)
         return query_set.first()

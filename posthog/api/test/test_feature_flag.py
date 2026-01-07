@@ -1,5 +1,6 @@
 import json
 from datetime import UTC, datetime, timedelta
+from typing import Optional
 
 import pytest
 from freezegun.api import freeze_time
@@ -130,12 +131,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "invalid_input",
-            "detail": "Property group expressions of type email cannot contain more than 10 values.",
-            "attr": "filters",
-        }
+        assert response.json() == {"type": "validation_error", "code": "invalid_input", "detail": "Property group expressions of type email cannot contain more than 10 values.", "attr": "filters"}
 
     def test_cant_create_flag_with_duplicate_key(self):
         FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
@@ -146,12 +142,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             {"name": "Beta feature", "key": "red_button"},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "unique",
-            "detail": "There is already a feature flag with this key.",
-            "attr": "key",
-        }
+        assert response.json() == {"type": "validation_error", "code": "unique", "detail": "There is already a feature flag with this key.", "attr": "key"}
         assert FeatureFlag.objects.count() == count
 
     @parameterized.expand(
@@ -172,12 +163,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             {"name": "Beta feature", "key": key},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "invalid_key",
-            "detail": "Only letters, numbers, hyphens (-) & underscores (_) are allowed.",
-            "attr": "key",
-        }
+        assert response.json() == {"type": "validation_error", "code": "invalid_key", "detail": "Only letters, numbers, hyphens (-) & underscores (_) are allowed.", "attr": "key"}
         assert FeatureFlag.objects.count() == count
 
     def test_cant_create_flag_with_key_too_long(self):
@@ -190,12 +176,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             {"name": "Beta feature", "key": key},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "max_length",
-            "detail": "Ensure this field has no more than 400 characters.",
-            "attr": "key",
-        }
+        assert response.json() == {"type": "validation_error", "code": "max_length", "detail": "Ensure this field has no more than 400 characters.", "attr": "key"}
         assert FeatureFlag.objects.count() == count
 
     def test_cant_create_flag_with_invalid_filters(self):
@@ -227,12 +208,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 },
             )
             assert response.status_code == status.HTTP_400_BAD_REQUEST
-            assert response.json() == {
-                "type": "validation_error",
-                "code": "invalid_value",
-                "detail": f"Invalid value for operator {operator}: ['@posthog.com']",
-                "attr": "filters",
-            }
+            assert response.json() == {"type": "validation_error", "code": "invalid_value", "detail": f"Invalid value for operator {operator}: ['@posthog.com']", "attr": "filters"}
 
         assert FeatureFlag.objects.count() == count
 
@@ -276,12 +252,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             {"name": "Beta feature", "key": "red_button"},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "unique",
-            "detail": "There is already a feature flag with this key.",
-            "attr": "key",
-        }
+        assert response.json() == {"type": "validation_error", "code": "unique", "detail": "There is already a feature flag with this key.", "attr": "key"}
         another_feature_flag.refresh_from_db()
         assert another_feature_flag.key == "some-feature"
 
@@ -626,9 +597,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json().get("type") == "validation_error"
-        assert (
-            response.json().get("detail") == "Invalid variant definitions: Variant rollout percentages must sum to 100."
-        )
+        assert response.json().get("detail") == "Invalid variant definitions: Variant rollout percentages must sum to 100."
 
     def test_cant_create_multivariate_feature_flag_with_variant_rollout_gt_100(self):
         response = self.client.post(
@@ -663,9 +632,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json().get("type") == "validation_error"
-        assert (
-            response.json().get("detail") == "Invalid variant definitions: Variant rollout percentages must sum to 100."
-        )
+        assert response.json().get("detail") == "Invalid variant definitions: Variant rollout percentages must sum to 100."
 
     def test_cant_update_multivariate_feature_flag_with_variant_rollout_not_100(self):
         # Create initial flag
@@ -709,9 +676,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Verify error response
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json().get("type") == "validation_error"
-        assert (
-            response.json().get("detail") == "Invalid variant definitions: Variant rollout percentages must sum to 100."
-        )
+        assert response.json().get("detail") == "Invalid variant definitions: Variant rollout percentages must sum to 100."
 
         # Verify flag wasn't updated
         feature_flag = FeatureFlag.objects.get(id=feature_flag_id)
@@ -722,12 +687,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         count = FeatureFlag.objects.count()
         response = self.client.post(f"/api/projects/{self.team.id}/feature_flags/", format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "required",
-            "detail": "This field is required.",
-            "attr": "key",
-        }
+        assert response.json() == {"type": "validation_error", "code": "required", "detail": "This field is required.", "attr": "key"}
         assert FeatureFlag.objects.count() == count
 
     def test_cant_create_multivariate_feature_flag_with_invalid_variant_overrides(self):
@@ -1115,10 +1075,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
             assert response.status_code == status.HTTP_409_CONFLICT
             assert response.json().get("type") == "server_error"
-            assert (
-                response.json().get("detail")
-                == "The feature flag was updated by different_user@posthog.com since you started editing it. Please refresh and try again."
-            )
+            assert response.json().get("detail") == "The feature flag was updated by different_user@posthog.com since you started editing it. Please refresh and try again."
 
             # Grab the feature flag and assert created_by is original user and last_modified_by is different user
             feature_flag = FeatureFlag.objects.get(id=flag_id)
@@ -1504,23 +1461,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             assert feature_flag.usage_dashboard is not None, "Usage dashboard was not created"
             insights = feature_flag.usage_dashboard.insights
             total_volume_insight = insights.get(name="Feature Flag Called Total Volume")
-            assert (
-                total_volume_insight.description
-                == "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated"
-            )
-            assert (
-                total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"]
-                == "a-feature-flag-that-is-updated"
-            )
+            assert total_volume_insight.description == "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated"
+            assert total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"] == "a-feature-flag-that-is-updated"
             unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
-            assert (
-                unique_users_insight.description
-                == "Shows the number of unique user calls made on feature flag per variant with key: a-feature-flag-that-is-updated"
-            )
-            assert (
-                unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"]
-                == "a-feature-flag-that-is-updated"
-            )
+            assert unique_users_insight.description == "Shows the number of unique user calls made on feature flag per variant with key: a-feature-flag-that-is-updated"
+            assert unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"] == "a-feature-flag-that-is-updated"
 
             # Update the feature flag key
             response = self.client.patch(
@@ -1648,23 +1593,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert feature_flag.usage_dashboard is not None, "Usage dashboard was not created"
         insights = feature_flag.usage_dashboard.insights
         total_volume_insight = insights.get(name="Feature Flag Called Total Volume")
-        assert (
-            total_volume_insight.description
-            == "Shows the number of total calls made on feature flag with key: a-new-feature-flag-key"
-        )
-        assert (
-            total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"]
-            == "a-new-feature-flag-key"
-        )
+        assert total_volume_insight.description == "Shows the number of total calls made on feature flag with key: a-new-feature-flag-key"
+        assert total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"] == "a-new-feature-flag-key"
         unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
-        assert (
-            unique_users_insight.description
-            == "Shows the number of unique user calls made on feature flag per variant with key: a-new-feature-flag-key"
-        )
-        assert (
-            unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"]
-            == "a-new-feature-flag-key"
-        )
+        assert unique_users_insight.description == "Shows the number of unique user calls made on feature flag per variant with key: a-new-feature-flag-key"
+        assert unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"] == "a-new-feature-flag-key"
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_updating_feature_flag_key_does_not_update_insight_with_changed_description(self, mock_capture):
@@ -1684,23 +1617,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             assert feature_flag.usage_dashboard is not None, "Usage dashboard was not created"
             insights = feature_flag.usage_dashboard.insights
             total_volume_insight = insights.get(name="Feature Flag Called Total Volume")
-            assert (
-                total_volume_insight.description
-                == "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated"
-            )
-            assert (
-                total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"]
-                == "a-feature-flag-that-is-updated"
-            )
+            assert total_volume_insight.description == "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated"
+            assert total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"] == "a-feature-flag-that-is-updated"
             unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
-            assert (
-                unique_users_insight.description
-                == "Shows the number of unique user calls made on feature flag per variant with key: a-feature-flag-that-is-updated"
-            )
-            assert (
-                unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"]
-                == "a-feature-flag-that-is-updated"
-            )
+            assert unique_users_insight.description == "Shows the number of unique user calls made on feature flag per variant with key: a-feature-flag-that-is-updated"
+            assert unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"] == "a-feature-flag-that-is-updated"
             total_volume_insight.name = "This is a changed description"
             total_volume_insight.save()
 
@@ -1737,23 +1658,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         insights = feature_flag.usage_dashboard.insights
         assert insights.filter(name="Feature Flag Called Total Volume").first() is None
         total_volume_insight = insights.get(name="This is a changed description")
-        assert (
-            total_volume_insight.description
-            == "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated"
-        )
-        assert (
-            total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"]
-            == "a-feature-flag-that-is-updated"
-        )
+        assert total_volume_insight.description == "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated"
+        assert total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"] == "a-feature-flag-that-is-updated"
         unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
-        assert (
-            unique_users_insight.description
-            == "Shows the number of unique user calls made on feature flag per variant with key: a-new-feature-flag-key"
-        )
-        assert (
-            unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"]
-            == "a-new-feature-flag-key"
-        )
+        assert unique_users_insight.description == "Shows the number of unique user calls made on feature flag per variant with key: a-new-feature-flag-key"
+        assert unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"] == "a-new-feature-flag-key"
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_updating_feature_flag_key_does_not_update_insight_with_changed_filter(self, mock_capture):
@@ -1773,23 +1682,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             assert feature_flag.usage_dashboard is not None, "Usage dashboard was not created"
             insights = feature_flag.usage_dashboard.insights
             total_volume_insight = insights.get(name="Feature Flag Called Total Volume")
-            assert (
-                total_volume_insight.description
-                == "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated"
-            )
-            assert (
-                total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"]
-                == "a-feature-flag-that-is-updated"
-            )
+            assert total_volume_insight.description == "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated"
+            assert total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"] == "a-feature-flag-that-is-updated"
             unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
-            assert (
-                unique_users_insight.description
-                == "Shows the number of unique user calls made on feature flag per variant with key: a-feature-flag-that-is-updated"
-            )
-            assert (
-                unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"]
-                == "a-feature-flag-that-is-updated"
-            )
+            assert unique_users_insight.description == "Shows the number of unique user calls made on feature flag per variant with key: a-feature-flag-that-is-updated"
+            assert unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"] == "a-feature-flag-that-is-updated"
             total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"] = (
                 "something_unexpected"
             )
@@ -1827,23 +1724,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert feature_flag.usage_dashboard is not None, "Usage dashboard was not created"
         insights = feature_flag.usage_dashboard.insights
         total_volume_insight = insights.get(name="Feature Flag Called Total Volume")
-        assert (
-            total_volume_insight.description
-            == "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated"
-        )
-        assert (
-            total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"]
-            == "something_unexpected"
-        )
+        assert total_volume_insight.description == "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated"
+        assert total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"] == "something_unexpected"
         unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
-        assert (
-            unique_users_insight.description
-            == "Shows the number of unique user calls made on feature flag per variant with key: a-new-feature-flag-key"
-        )
-        assert (
-            unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"]
-            == "a-new-feature-flag-key"
-        )
+        assert unique_users_insight.description == "Shows the number of unique user calls made on feature flag per variant with key: a-new-feature-flag-key"
+        assert unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"] == "a-new-feature-flag-key"
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_updating_feature_flag_key_does_not_update_insight_with_removed_filter(self, mock_capture):
@@ -1863,23 +1748,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             assert feature_flag.usage_dashboard is not None, "Usage dashboard was not created"
             insights = feature_flag.usage_dashboard.insights
             total_volume_insight = insights.get(name="Feature Flag Called Total Volume")
-            assert (
-                total_volume_insight.description
-                == "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated"
-            )
-            assert (
-                total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"]
-                == "a-feature-flag-that-is-updated"
-            )
+            assert total_volume_insight.description == "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated"
+            assert total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"] == "a-feature-flag-that-is-updated"
             unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
-            assert (
-                unique_users_insight.description
-                == "Shows the number of unique user calls made on feature flag per variant with key: a-feature-flag-that-is-updated"
-            )
-            assert (
-                unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"]
-                == "a-feature-flag-that-is-updated"
-            )
+            assert unique_users_insight.description == "Shows the number of unique user calls made on feature flag per variant with key: a-feature-flag-that-is-updated"
+            assert unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"] == "a-feature-flag-that-is-updated"
             # clear the values from total_volume_insight.query["source"]["properties"]["values"]
             total_volume_insight.query["source"]["properties"]["values"] = []
             total_volume_insight.save()
@@ -1916,20 +1789,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert feature_flag.usage_dashboard is not None, "Usage dashboard was not created"
         insights = feature_flag.usage_dashboard.insights
         total_volume_insight = insights.get(name="Feature Flag Called Total Volume")
-        assert (
-            total_volume_insight.description
-            == "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated"
-        )
+        assert total_volume_insight.description == "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated"
         assert total_volume_insight.query["source"]["properties"]["values"] == []
         unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
-        assert (
-            unique_users_insight.description
-            == "Shows the number of unique user calls made on feature flag per variant with key: a-new-feature-flag-key"
-        )
-        assert (
-            unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"]
-            == "a-new-feature-flag-key"
-        )
+        assert unique_users_insight.description == "Shows the number of unique user calls made on feature flag per variant with key: a-new-feature-flag-key"
+        assert unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"] == "a-new-feature-flag-key"
 
     def test_hard_deleting_feature_flag_is_forbidden(self):
         new_user = User.objects.create_and_join(self.organization, "new_annotations@posthog.com", None)
@@ -2264,22 +2128,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert first_page_response.status_code == status.HTTP_200_OK
         first_page_json = first_page_response.json()
 
-        assert [log_item["detail"]["name"] for log_item in first_page_json["results"]] == [
-            "14",
-            "13",
-            "12",
-            "11",
-            "10",
-            "9",
-            "8",
-            "7",
-            "6",
-            "5",
-        ]
-        assert (
-            first_page_json["next"]
-            == f"http://testserver/api/projects/{self.team.id}/feature_flags/activity?page=2&limit=10"
-        )
+        assert [log_item["detail"]["name"] for log_item in first_page_json["results"]] == ["14", "13", "12", "11", "10", "9", "8", "7", "6", "5"]
+        assert first_page_json["next"] == f"http://testserver/api/projects/{self.team.id}/feature_flags/activity?page=2&limit=10"
         assert first_page_json["previous"] is None
 
         # check the second page of data
@@ -2289,10 +2139,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         assert [log_item["detail"]["name"] for log_item in second_page_json["results"]] == ["4", "3", "2", "1", "0"]
         assert second_page_json["next"] is None
-        assert (
-            second_page_json["previous"]
-            == f"http://testserver/api/projects/{self.team.id}/feature_flags/activity?page=1&limit=10"
-        )
+        assert second_page_json["previous"] == f"http://testserver/api/projects/{self.team.id}/feature_flags/activity?page=1&limit=10"
 
     def test_paging_specific_feature_flag_activity(self):
         create_response = self.client.post(f"/api/projects/{self.team.id}/feature_flags/", {"name": "ff", "key": "0"})
@@ -2313,22 +2160,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert first_page_response.status_code == status.HTTP_200_OK
         first_page_json = first_page_response.json()
 
-        assert [log_item["detail"]["name"] for log_item in first_page_json["results"]] == [
-            "14",
-            "13",
-            "12",
-            "11",
-            "10",
-            "9",
-            "8",
-            "7",
-            "6",
-            "5",
-        ]
-        assert (
-            first_page_json["next"]
-            == f"http://testserver/api/projects/{self.team.id}/feature_flags/{flag_id}/activity?page=2&limit=10"
-        )
+        assert [log_item["detail"]["name"] for log_item in first_page_json["results"]] == ["14", "13", "12", "11", "10", "9", "8", "7", "6", "5"]
+        assert first_page_json["next"] == f"http://testserver/api/projects/{self.team.id}/feature_flags/{flag_id}/activity?page=2&limit=10"
         assert first_page_json["previous"] is None
 
         # check the second page of data
@@ -2338,10 +2171,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         assert [log_item["detail"]["name"] for log_item in second_page_json["results"]] == ["4", "3", "2", "1", "0"]
         assert second_page_json["next"] is None
-        assert (
-            second_page_json["previous"]
-            == f"http://testserver/api/projects/{self.team.id}/feature_flags/{flag_id}/activity?page=1&limit=10"
-        )
+        assert second_page_json["previous"] == f"http://testserver/api/projects/{self.team.id}/feature_flags/{flag_id}/activity?page=1&limit=10"
 
     def test_get_flags_with_specified_token(self):
         _, _, user = User.objects.bootstrap("Test", "team2@posthog.com", None)
@@ -2735,79 +2565,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert len(tiles) == 2
         assert tiles[0].insight is not None
         assert tiles[0].insight.name == "Feature Flag Called Total Volume"
-        assert tiles[0].insight.query == {
-            "kind": "InsightVizNode",
-            "source": {
-                "kind": "TrendsQuery",
-                "series": [{"kind": "EventsNode", "name": "$feature_flag_called", "event": "$feature_flag_called"}],
-                "interval": "day",
-                "dateRange": {"date_from": "-30d", "explicitDate": False},
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {"key": "$feature_flag", "type": "event", "value": "alpha-feature", "operator": "exact"}
-                            ],
-                        }
-                    ],
-                },
-                "trendsFilter": {
-                    "display": "ActionsLineGraph",
-                    "showLegend": False,
-                    "yAxisScaleType": "linear",
-                    "showValuesOnSeries": False,
-                    "smoothingIntervals": 1,
-                    "showPercentStackView": False,
-                    "aggregationAxisFormat": "numeric",
-                    "showAlertThresholdLines": False,
-                },
-                "breakdownFilter": {"breakdown": "$feature_flag_response", "breakdown_type": "event"},
-                "filterTestAccounts": False,
-            },
-        }
+        assert tiles[0].insight.query == {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "name": "$feature_flag_called", "event": "$feature_flag_called"}], "interval": "day", "dateRange": {"date_from": "-30d", "explicitDate": False}, "properties": {"type": "AND", "values": [{"type": "AND", "values": [{"key": "$feature_flag", "type": "event", "value": "alpha-feature", "operator": "exact"}]}]}, "trendsFilter": {"display": "ActionsLineGraph", "showLegend": False, "yAxisScaleType": "linear", "showValuesOnSeries": False, "smoothingIntervals": 1, "showPercentStackView": False, "aggregationAxisFormat": "numeric", "showAlertThresholdLines": False}, "breakdownFilter": {"breakdown": "$feature_flag_response", "breakdown_type": "event"}, "filterTestAccounts": False}}
         assert tiles[1].insight is not None
         assert tiles[1].insight.name == "Feature Flag calls made by unique users per variant"
-        assert tiles[1].insight.query == {
-            "kind": "InsightVizNode",
-            "source": {
-                "kind": "TrendsQuery",
-                "series": [
-                    {
-                        "kind": "EventsNode",
-                        "math": "dau",
-                        "name": "$feature_flag_called",
-                        "event": "$feature_flag_called",
-                    }
-                ],
-                "interval": "day",
-                "dateRange": {"date_from": "-30d", "explicitDate": False},
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {"key": "$feature_flag", "type": "event", "value": "alpha-feature", "operator": "exact"}
-                            ],
-                        }
-                    ],
-                },
-                "trendsFilter": {
-                    "display": "ActionsTable",
-                    "showLegend": False,
-                    "yAxisScaleType": "linear",
-                    "showValuesOnSeries": False,
-                    "smoothingIntervals": 1,
-                    "showPercentStackView": False,
-                    "aggregationAxisFormat": "numeric",
-                    "showAlertThresholdLines": False,
-                },
-                "breakdownFilter": {"breakdown": "$feature_flag_response", "breakdown_type": "event"},
-                "filterTestAccounts": False,
-            },
-        }
+        assert tiles[1].insight.query == {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "math": "dau", "name": "$feature_flag_called", "event": "$feature_flag_called"}], "interval": "day", "dateRange": {"date_from": "-30d", "explicitDate": False}, "properties": {"type": "AND", "values": [{"type": "AND", "values": [{"key": "$feature_flag", "type": "event", "value": "alpha-feature", "operator": "exact"}]}]}, "trendsFilter": {"display": "ActionsTable", "showLegend": False, "yAxisScaleType": "linear", "showValuesOnSeries": False, "smoothingIntervals": 1, "showPercentStackView": False, "aggregationAxisFormat": "numeric", "showAlertThresholdLines": False}, "breakdownFilter": {"breakdown": "$feature_flag_response", "breakdown_type": "event"}, "filterTestAccounts": False}}
 
         # now enable enriched analytics
         instance.has_enriched_analytics = True
@@ -2832,165 +2593,18 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert len(tiles) == 4
         assert tiles[0].insight is not None
         assert tiles[0].insight.name == "Feature Flag Called Total Volume"
-        assert tiles[0].insight.query == {
-            "kind": "InsightVizNode",
-            "source": {
-                "kind": "TrendsQuery",
-                "series": [{"kind": "EventsNode", "name": "$feature_flag_called", "event": "$feature_flag_called"}],
-                "interval": "day",
-                "dateRange": {"date_from": "-30d", "explicitDate": False},
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {"key": "$feature_flag", "type": "event", "value": "alpha-feature", "operator": "exact"}
-                            ],
-                        }
-                    ],
-                },
-                "trendsFilter": {
-                    "display": "ActionsLineGraph",
-                    "showLegend": False,
-                    "yAxisScaleType": "linear",
-                    "showValuesOnSeries": False,
-                    "smoothingIntervals": 1,
-                    "showPercentStackView": False,
-                    "aggregationAxisFormat": "numeric",
-                    "showAlertThresholdLines": False,
-                },
-                "breakdownFilter": {"breakdown": "$feature_flag_response", "breakdown_type": "event"},
-                "filterTestAccounts": False,
-            },
-        }
+        assert tiles[0].insight.query == {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "name": "$feature_flag_called", "event": "$feature_flag_called"}], "interval": "day", "dateRange": {"date_from": "-30d", "explicitDate": False}, "properties": {"type": "AND", "values": [{"type": "AND", "values": [{"key": "$feature_flag", "type": "event", "value": "alpha-feature", "operator": "exact"}]}]}, "trendsFilter": {"display": "ActionsLineGraph", "showLegend": False, "yAxisScaleType": "linear", "showValuesOnSeries": False, "smoothingIntervals": 1, "showPercentStackView": False, "aggregationAxisFormat": "numeric", "showAlertThresholdLines": False}, "breakdownFilter": {"breakdown": "$feature_flag_response", "breakdown_type": "event"}, "filterTestAccounts": False}}
         assert tiles[1].insight is not None
         assert tiles[1].insight.name == "Feature Flag calls made by unique users per variant"
-        assert tiles[1].insight.query == {
-            "kind": "InsightVizNode",
-            "source": {
-                "kind": "TrendsQuery",
-                "series": [
-                    {
-                        "kind": "EventsNode",
-                        "math": "dau",
-                        "name": "$feature_flag_called",
-                        "event": "$feature_flag_called",
-                    }
-                ],
-                "interval": "day",
-                "dateRange": {"date_from": "-30d", "explicitDate": False},
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {"key": "$feature_flag", "type": "event", "value": "alpha-feature", "operator": "exact"}
-                            ],
-                        }
-                    ],
-                },
-                "trendsFilter": {
-                    "display": "ActionsTable",
-                    "showLegend": False,
-                    "yAxisScaleType": "linear",
-                    "showValuesOnSeries": False,
-                    "smoothingIntervals": 1,
-                    "showPercentStackView": False,
-                    "aggregationAxisFormat": "numeric",
-                    "showAlertThresholdLines": False,
-                },
-                "breakdownFilter": {"breakdown": "$feature_flag_response", "breakdown_type": "event"},
-                "filterTestAccounts": False,
-            },
-        }
+        assert tiles[1].insight.query == {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "math": "dau", "name": "$feature_flag_called", "event": "$feature_flag_called"}], "interval": "day", "dateRange": {"date_from": "-30d", "explicitDate": False}, "properties": {"type": "AND", "values": [{"type": "AND", "values": [{"key": "$feature_flag", "type": "event", "value": "alpha-feature", "operator": "exact"}]}]}, "trendsFilter": {"display": "ActionsTable", "showLegend": False, "yAxisScaleType": "linear", "showValuesOnSeries": False, "smoothingIntervals": 1, "showPercentStackView": False, "aggregationAxisFormat": "numeric", "showAlertThresholdLines": False}, "breakdownFilter": {"breakdown": "$feature_flag_response", "breakdown_type": "event"}, "filterTestAccounts": False}}
 
         # enriched insights
         assert tiles[2].insight is not None
         assert tiles[2].insight.name == "Feature Interaction Total Volume"
-        assert tiles[2].insight.query == {
-            "kind": "InsightVizNode",
-            "source": {
-                "kind": "TrendsQuery",
-                "series": [
-                    {"kind": "EventsNode", "name": "Feature Interaction - Total", "event": "$feature_interaction"},
-                    {
-                        "kind": "EventsNode",
-                        "math": "dau",
-                        "name": "Feature Interaction - Unique users",
-                        "event": "$feature_interaction",
-                    },
-                ],
-                "interval": "day",
-                "dateRange": {"date_from": "-30d", "explicitDate": False},
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {"key": "feature_flag", "type": "event", "value": "alpha-feature", "operator": "exact"}
-                            ],
-                        }
-                    ],
-                },
-                "trendsFilter": {
-                    "display": "ActionsLineGraph",
-                    "showLegend": False,
-                    "yAxisScaleType": "linear",
-                    "showValuesOnSeries": False,
-                    "smoothingIntervals": 1,
-                    "showPercentStackView": False,
-                    "aggregationAxisFormat": "numeric",
-                    "showAlertThresholdLines": False,
-                },
-                "breakdownFilter": {"breakdown_type": "event"},
-                "filterTestAccounts": False,
-            },
-        }
+        assert tiles[2].insight.query == {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "name": "Feature Interaction - Total", "event": "$feature_interaction"}, {"kind": "EventsNode", "math": "dau", "name": "Feature Interaction - Unique users", "event": "$feature_interaction"}], "interval": "day", "dateRange": {"date_from": "-30d", "explicitDate": False}, "properties": {"type": "AND", "values": [{"type": "AND", "values": [{"key": "feature_flag", "type": "event", "value": "alpha-feature", "operator": "exact"}]}]}, "trendsFilter": {"display": "ActionsLineGraph", "showLegend": False, "yAxisScaleType": "linear", "showValuesOnSeries": False, "smoothingIntervals": 1, "showPercentStackView": False, "aggregationAxisFormat": "numeric", "showAlertThresholdLines": False}, "breakdownFilter": {"breakdown_type": "event"}, "filterTestAccounts": False}}
         assert tiles[3].insight is not None
         assert tiles[3].insight.name == "Feature Viewed Total Volume"
-        assert tiles[3].insight.query == {
-            "kind": "InsightVizNode",
-            "source": {
-                "kind": "TrendsQuery",
-                "series": [
-                    {"kind": "EventsNode", "name": "Feature View - Total", "event": "$feature_view"},
-                    {
-                        "kind": "EventsNode",
-                        "math": "dau",
-                        "name": "Feature View - Unique users",
-                        "event": "$feature_view",
-                    },
-                ],
-                "interval": "day",
-                "dateRange": {"date_from": "-30d", "explicitDate": False},
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {"key": "feature_flag", "type": "event", "value": "alpha-feature", "operator": "exact"}
-                            ],
-                        }
-                    ],
-                },
-                "trendsFilter": {
-                    "display": "ActionsLineGraph",
-                    "showLegend": False,
-                    "yAxisScaleType": "linear",
-                    "showValuesOnSeries": False,
-                    "smoothingIntervals": 1,
-                    "showPercentStackView": False,
-                    "aggregationAxisFormat": "numeric",
-                    "showAlertThresholdLines": False,
-                },
-                "breakdownFilter": {"breakdown_type": "event"},
-                "filterTestAccounts": False,
-            },
-        }
+        assert tiles[3].insight.query == {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "name": "Feature View - Total", "event": "$feature_view"}, {"kind": "EventsNode", "math": "dau", "name": "Feature View - Unique users", "event": "$feature_view"}], "interval": "day", "dateRange": {"date_from": "-30d", "explicitDate": False}, "properties": {"type": "AND", "values": [{"type": "AND", "values": [{"key": "feature_flag", "type": "event", "value": "alpha-feature", "operator": "exact"}]}]}, "trendsFilter": {"display": "ActionsLineGraph", "showLegend": False, "yAxisScaleType": "linear", "showValuesOnSeries": False, "smoothingIntervals": 1, "showPercentStackView": False, "aggregationAxisFormat": "numeric", "showAlertThresholdLines": False}, "breakdownFilter": {"breakdown_type": "event"}, "filterTestAccounts": False}}
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     @patch("posthog.api.feature_flag.report_user_action")
@@ -3320,35 +2934,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         sorted_flags = sorted(response_data["flags"], key=lambda x: x["key"])
 
-        assert {
-            "name": "Alpha feature",
-            "key": "alpha-feature",
-            "filters": {
-                "groups": [
-                    {
-                        "variant": "test",
-                        "properties": [{"key": "id", "type": "cohort", "value": cohort_valid_for_ff.pk}],
-                        "rollout_percentage": 100,
-                    },
-                    {
-                        "variant": "test",
-                        "properties": [
-                            {"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains"}
-                        ],
-                        "rollout_percentage": 100,
-                    },
-                ],
-                "multivariate": {
-                    "variants": [
-                        {"key": "control", "name": "", "rollout_percentage": 100},
-                        {"key": "test", "name": "", "rollout_percentage": 0},
-                    ]
-                },
-            },
-            "deleted": False,
-            "active": True,
-            "ensure_experience_continuity": False,
-        }.items() <= sorted_flags[0].items()
+        assert {"name": "Alpha feature", "key": "alpha-feature", "filters": {"groups": [{"variant": "test", "properties": [{"key": "id", "type": "cohort", "value": cohort_valid_for_ff.pk}], "rollout_percentage": 100}, {"variant": "test", "properties": [{"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains"}], "rollout_percentage": 100}], "multivariate": {"variants": [{"key": "control", "name": "", "rollout_percentage": 100}, {"key": "test", "name": "", "rollout_percentage": 0}]}}, "deleted": False, "active": True, "ensure_experience_continuity": False}.items() <= sorted_flags[0].items()
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_local_evaluation_for_static_cohorts(self, mock_capture):
@@ -3416,28 +3002,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         sorted_flags = sorted(response_data["flags"], key=lambda x: x["key"])
 
-        assert {
-            "name": "Alpha feature",
-            "key": "alpha-feature",
-            "filters": {
-                "groups": [
-                    {
-                        "rollout_percentage": 20,
-                        "properties": [{"key": "id", "type": "cohort", "value": cohort_valid_for_ff.pk}],
-                    }
-                ],
-                "multivariate": {
-                    "variants": [
-                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
-                    ]
-                },
-            },
-            "deleted": False,
-            "active": True,
-            "ensure_experience_continuity": False,
-        }.items() <= sorted_flags[0].items()
+        assert {"name": "Alpha feature", "key": "alpha-feature", "filters": {"groups": [{"rollout_percentage": 20, "properties": [{"key": "id", "type": "cohort", "value": cohort_valid_for_ff.pk}]}], "multivariate": {"variants": [{"key": "first-variant", "name": "First Variant", "rollout_percentage": 50}, {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25}, {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25}]}}, "deleted": False, "active": True, "ensure_experience_continuity": False}.items() <= sorted_flags[0].items()
 
         assert response_data["cohorts"] == {}
 
@@ -3578,69 +3143,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         sorted_flags = sorted(response_data["flags"], key=lambda x: x["key"])
 
-        assert response_data["cohorts"] == {
-            str(cohort_valid_for_ff.pk): {
-                "type": "OR",
-                "values": [
-                    {
-                        "type": "OR",
-                        "values": [
-                            {"key": "$some_prop", "type": "person", "value": "nomatchihope"},
-                            {"key": "$some_prop2", "type": "person", "value": "nomatchihope2"},
-                        ],
-                    }
-                ],
-            },
-            str(cohort2.pk): {
-                "type": "OR",
-                "values": [
-                    {
-                        "type": "OR",
-                        "values": [
-                            {"key": "$some_prop", "type": "person", "value": "nomatchihope"},
-                            {"key": "$some_prop2", "type": "person", "value": "nomatchihope2"},
-                            {"key": "id", "type": "cohort", "value": cohort_valid_for_ff.pk, "negation": True},
-                        ],
-                    }
-                ],
-            },
-        }
+        assert response_data["cohorts"] == {str(cohort_valid_for_ff.pk): {"type": "OR", "values": [{"type": "OR", "values": [{"key": "$some_prop", "type": "person", "value": "nomatchihope"}, {"key": "$some_prop2", "type": "person", "value": "nomatchihope2"}]}]}, str(cohort2.pk): {"type": "OR", "values": [{"type": "OR", "values": [{"key": "$some_prop", "type": "person", "value": "nomatchihope"}, {"key": "$some_prop2", "type": "person", "value": "nomatchihope2"}, {"key": "id", "type": "cohort", "value": cohort_valid_for_ff.pk, "negation": True}]}]}}
 
-        assert {
-            "name": "Alpha feature",
-            "key": "alpha-feature",
-            "filters": {
-                "groups": [
-                    {"rollout_percentage": 20, "properties": [{"key": "id", "type": "cohort", "value": cohort2.pk}]}
-                ],
-                "multivariate": {
-                    "variants": [
-                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
-                    ]
-                },
-            },
-            "deleted": False,
-            "active": True,
-            "ensure_experience_continuity": False,
-        }.items() <= sorted_flags[0].items()
+        assert {"name": "Alpha feature", "key": "alpha-feature", "filters": {"groups": [{"rollout_percentage": 20, "properties": [{"key": "id", "type": "cohort", "value": cohort2.pk}]}], "multivariate": {"variants": [{"key": "first-variant", "name": "First Variant", "rollout_percentage": 50}, {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25}, {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25}]}}, "deleted": False, "active": True, "ensure_experience_continuity": False}.items() <= sorted_flags[0].items()
 
-        assert {
-            "name": "Alpha feature",
-            "key": "alpha-feature-2",
-            "filters": {
-                "groups": [
-                    {
-                        "properties": [{"key": "id", "type": "cohort", "value": cohort_valid_for_ff.pk}],
-                        "rollout_percentage": 20,
-                    }
-                ]
-            },
-            "deleted": False,
-            "active": True,
-            "ensure_experience_continuity": False,
-        }.items() <= sorted_flags[1].items()
+        assert {"name": "Alpha feature", "key": "alpha-feature-2", "filters": {"groups": [{"properties": [{"key": "id", "type": "cohort", "value": cohort_valid_for_ff.pk}], "rollout_percentage": 20}]}, "deleted": False, "active": True, "ensure_experience_continuity": False}.items() <= sorted_flags[1].items()
 
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_local_evaluation_billing_analytics(self):
@@ -3807,11 +3314,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             response_data = response.json()
 
             # Verify the error response structure
-            assert response_data == {
-                "type": "quota_limited",
-                "detail": "You have exceeded your feature flag request quota",
-                "code": "payment_required",
-            }
+            assert response_data == {"type": "quota_limited", "detail": "You have exceeded your feature flag request quota", "code": "payment_required"}
 
     @patch("posthog.api.feature_flag.settings.DECIDE_FEATURE_FLAG_QUOTA_CHECK", True)
     def test_local_evaluation_not_quota_limited(self):
@@ -4081,12 +3584,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         response_data = response.json()
         assert len(response_data) == 4
 
-        assert response_data == {
-            "alpha-feature": {"value": False, "evaluation": {"reason": "out_of_rollout_bound", "condition_index": 0}},
-            "beta-feature": {"value": False, "evaluation": {"reason": "no_condition_match", "condition_index": 0}},
-            "group-feature": {"value": False, "evaluation": {"reason": "no_group_type", "condition_index": None}},
-            "inactive-flag": {"value": False, "evaluation": {"reason": "disabled", "condition_index": None}},
-        }
+        assert response_data == {"alpha-feature": {"value": False, "evaluation": {"reason": "out_of_rollout_bound", "condition_index": 0}}, "beta-feature": {"value": False, "evaluation": {"reason": "no_condition_match", "condition_index": 0}}, "group-feature": {"value": False, "evaluation": {"reason": "no_group_type", "condition_index": None}}, "inactive-flag": {"value": False, "evaluation": {"reason": "disabled", "condition_index": None}}}
 
         # with person having beta-property for beta-feature
         # also matches alpha-feature as within rollout bounds
@@ -4101,15 +3599,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         response_data = response.json()
         assert len(response_data) == 4
 
-        assert response_data == {
-            "alpha-feature": {
-                "value": "first-variant",
-                "evaluation": {"reason": "condition_match", "condition_index": 0},
-            },
-            "beta-feature": {"value": True, "evaluation": {"reason": "condition_match", "condition_index": 0}},
-            "group-feature": {"value": False, "evaluation": {"reason": "no_group_type", "condition_index": None}},
-            "inactive-flag": {"value": False, "evaluation": {"reason": "disabled", "condition_index": None}},
-        }
+        assert response_data == {"alpha-feature": {"value": "first-variant", "evaluation": {"reason": "condition_match", "condition_index": 0}}, "beta-feature": {"value": True, "evaluation": {"reason": "condition_match", "condition_index": 0}}, "group-feature": {"value": False, "evaluation": {"reason": "no_group_type", "condition_index": None}}, "inactive-flag": {"value": False, "evaluation": {"reason": "disabled", "condition_index": None}}}
 
         # with groups
         response = self.client.get(
@@ -4123,12 +3613,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         response_data = response.json()
         assert len(response_data) == 4
 
-        assert response_data == {
-            "alpha-feature": {"value": False, "evaluation": {"reason": "out_of_rollout_bound", "condition_index": 0}},
-            "beta-feature": {"value": False, "evaluation": {"reason": "no_condition_match", "condition_index": 0}},
-            "group-feature": {"value": True, "evaluation": {"reason": "condition_match", "condition_index": 0}},
-            "inactive-flag": {"value": False, "evaluation": {"reason": "disabled", "condition_index": None}},
-        }
+        assert response_data == {"alpha-feature": {"value": False, "evaluation": {"reason": "out_of_rollout_bound", "condition_index": 0}}, "beta-feature": {"value": False, "evaluation": {"reason": "no_condition_match", "condition_index": 0}}, "group-feature": {"value": True, "evaluation": {"reason": "condition_match", "condition_index": 0}}, "inactive-flag": {"value": False, "evaluation": {"reason": "disabled", "condition_index": None}}}
 
     def test_validation_person_properties(self):
         person_request = self._create_flag_with_properties(
@@ -4155,12 +3640,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             [{"key": "id", "value": 5}],
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
-        assert event_request.json() == {
-            "type": "validation_error",
-            "code": "invalid_input",
-            "detail": "Filters are not valid (can only use person, cohort, and flag properties)",
-            "attr": "filters",
-        }
+        assert event_request.json() == {"type": "validation_error", "code": "invalid_input", "detail": "Filters are not valid (can only use person, cohort, and flag properties)", "attr": "filters"}
 
         groups_request = self._create_flag_with_properties(
             "illegal-groups-flag",
@@ -4174,12 +3654,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             ],
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
-        assert groups_request.json() == {
-            "type": "validation_error",
-            "code": "invalid_input",
-            "detail": "Filters are not valid (can only use person, cohort, and flag properties)",
-            "attr": "filters",
-        }
+        assert groups_request.json() == {"type": "validation_error", "code": "invalid_input", "detail": "Filters are not valid (can only use person, cohort, and flag properties)", "attr": "filters"}
 
     def test_create_flag_with_invalid_date(self):
         resp = self._create_flag_with_properties(
@@ -4195,12 +3670,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
 
-        assert {
-            "type": "validation_error",
-            "code": "invalid_date",
-            "detail": "Invalid date value: 6hed",
-            "attr": "filters",
-        }.items() <= resp.json().items()
+        assert {"type": "validation_error", "code": "invalid_date", "detail": "Invalid date value: 6hed", "attr": "filters"}.items() <= resp.json().items()
 
         resp = self._create_flag_with_properties(
             "date-flag",
@@ -4215,12 +3685,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
 
-        assert {
-            "type": "validation_error",
-            "code": "invalid_date",
-            "detail": "Invalid date value: 1234-02-993284",
-            "attr": "filters",
-        }.items() <= resp.json().items()
+        assert {"type": "validation_error", "code": "invalid_date", "detail": "Invalid date value: 1234-02-993284", "attr": "filters"}.items() <= resp.json().items()
 
     def test_creating_feature_flag_with_non_existant_cohort(self):
         cohort_request = self._create_flag_with_properties(
@@ -4229,12 +3694,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
 
-        assert {
-            "type": "validation_error",
-            "code": "cohort_does_not_exist",
-            "detail": "Cohort with id 5151 does not exist",
-            "attr": "filters",
-        }.items() <= cohort_request.json().items()
+        assert {"type": "validation_error", "code": "cohort_does_not_exist", "detail": "Cohort with id 5151 does not exist", "attr": "filters"}.items() <= cohort_request.json().items()
 
     def test_validation_payloads(self):
         self._create_flag_with_properties(
@@ -4425,12 +3885,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
 
-        assert {
-            "type": "validation_error",
-            "code": "behavioral_cohort_found",
-            "detail": "Cohort 'cohort2' with filters on events cannot be used in feature flags.",
-            "attr": "filters",
-        }.items() <= cohort_request.json().items()
+        assert {"type": "validation_error", "code": "behavioral_cohort_found", "detail": "Cohort 'cohort2' with filters on events cannot be used in feature flags.", "attr": "filters"}.items() <= cohort_request.json().items()
 
         cohort_request = self._create_flag_with_properties(
             "cohort-flag",
@@ -4462,12 +3917,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-        assert {
-            "type": "validation_error",
-            "code": "behavioral_cohort_found",
-            "detail": "Cohort 'cohort2' with filters on events cannot be used in feature flags.",
-            "attr": "filters",
-        }.items() <= response.json().items()
+        assert {"type": "validation_error", "code": "behavioral_cohort_found", "detail": "Cohort 'cohort2' with filters on events cannot be used in feature flags.", "attr": "filters"}.items() <= response.json().items()
 
     def test_creating_feature_flag_with_nested_behavioral_cohort(self):
         cohort_not_valid_for_ff = Cohort.objects.create(
@@ -4519,12 +3969,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
 
-        assert {
-            "type": "validation_error",
-            "code": "behavioral_cohort_found",
-            "detail": "Cohort 'cohort-behavioural' with filters on events cannot be used in feature flags.",
-            "attr": "filters",
-        }.items() <= cohort_request.json().items()
+        assert {"type": "validation_error", "code": "behavioral_cohort_found", "detail": "Cohort 'cohort-behavioural' with filters on events cannot be used in feature flags.", "attr": "filters"}.items() <= cohort_request.json().items()
 
         cohort_request = self._create_flag_with_properties(
             "cohort-flag",
@@ -4532,12 +3977,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
 
-        assert {
-            "type": "validation_error",
-            "code": "behavioral_cohort_found",
-            "detail": "Cohort 'cohort-behavioural' with filters on events cannot be used in feature flags.",
-            "attr": "filters",
-        }.items() <= cohort_request.json().items()
+        assert {"type": "validation_error", "code": "behavioral_cohort_found", "detail": "Cohort 'cohort-behavioural' with filters on events cannot be used in feature flags.", "attr": "filters"}.items() <= cohort_request.json().items()
 
     def test_validation_group_properties(self):
         groups_request = self._create_flag_with_properties(
@@ -4567,12 +4007,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             aggregation_group_type_index=3,
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
-        assert illegal_groups_request.json() == {
-            "type": "validation_error",
-            "code": "invalid_input",
-            "detail": "Filters are not valid (can only use group properties)",
-            "attr": "filters",
-        }
+        assert illegal_groups_request.json() == {"type": "validation_error", "code": "invalid_input", "detail": "Filters are not valid (can only use group properties)", "attr": "filters"}
 
         person_request = self._create_flag_with_properties(
             "person-flag",
@@ -4587,12 +4022,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             aggregation_group_type_index=0,
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
-        assert person_request.json() == {
-            "type": "validation_error",
-            "code": "invalid_input",
-            "detail": "Filters are not valid (can only use group properties)",
-            "attr": "filters",
-        }
+        assert person_request.json() == {"type": "validation_error", "code": "invalid_input", "detail": "Filters are not valid (can only use group properties)", "attr": "filters"}
 
     def test_validation_empty_groups(self):
         """Test that creating a flag with empty groups raises validation error"""
@@ -4602,12 +4032,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "invalid_input",
-            "detail": "Feature flags must have at least one condition set (group).",
-            "attr": "filters",
-        }
+        assert response.json() == {"type": "validation_error", "code": "invalid_input", "detail": "Feature flags must have at least one condition set (group).", "attr": "filters"}
 
     def test_validation_groups_with_empty_properties_allowed(self):
         """Test that creating a flag with groups having empty properties but valid rollout is allowed"""
@@ -4646,7 +4071,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self,
         name: str,
         properties,
-        team_id: int | None = None,
+        team_id: Optional[int] = None,
         expected_status: int = status.HTTP_201_CREATED,
         **kwargs,
     ):
@@ -4667,8 +4092,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     def _get_feature_flag_activity(
         self,
-        flag_id: int | None = None,
-        team_id: int | None = None,
+        flag_id: Optional[int] = None,
+        team_id: Optional[int] = None,
         expected_status: int = status.HTTP_200_OK,
     ):
         if team_id is None:
@@ -4685,7 +4110,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             return None
         return activity.json()
 
-    def assert_feature_flag_activity(self, flag_id: int | None, expected: list[dict]):
+    def assert_feature_flag_activity(self, flag_id: Optional[int], expected: list[dict]):
         activity_response = self._get_feature_flag_activity(flag_id)
 
         activity: list[dict] = activity_response["results"]
@@ -5375,11 +4800,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert {
-            "type": "validation_error",
-            "code": "invalid_input",
-            "detail": "Cannot change this flag to a group-based when linked to an Early Access Feature.",
-        }.items() <= response.json().items()
+        assert {"type": "validation_error", "code": "invalid_input", "detail": "Cannot change this flag to a group-based when linked to an Early Access Feature."}.items() <= response.json().items()
 
     def test_cant_create_flag_with_data_that_fails_to_query(self):
         Person.objects.create(
@@ -5418,12 +4839,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 },
             )
             assert response.status_code == status.HTTP_400_BAD_REQUEST
-            assert response.json() == {
-                "type": "validation_error",
-                "code": "invalid_input",
-                "detail": "Can't evaluate flag - please check release conditions",
-                "attr": None,
-            }
+            assert response.json() == {"type": "validation_error", "code": "invalid_input", "detail": "Can't evaluate flag - please check release conditions", "attr": None}
 
     def test_cant_create_flag_with_group_data_that_fails_to_query(self):
         create_group_type_mapping_without_created_at(
@@ -5469,12 +4885,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 },
             )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "invalid_input",
-            "detail": "Can't evaluate flag - please check release conditions",
-            "attr": None,
-        }
+        assert response.json() == {"type": "validation_error", "code": "invalid_input", "detail": "Can't evaluate flag - please check release conditions", "attr": None}
 
     def test_feature_flag_includes_cohort_names(self):
         cohort = Cohort.objects.create(
@@ -5500,12 +4911,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             f"/api/projects/{self.team.id}/feature_flags/{response.json()['id']}/",
         )
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["filters"]["groups"][0]["properties"][0] == {
-            "key": "id",
-            "type": "cohort",
-            "value": cohort.pk,
-            "cohort_name": "test_cohort",
-        }
+        assert response.json()["filters"]["groups"][0]["properties"][0] == {"key": "id", "type": "cohort", "value": cohort.pk, "cohort_name": "test_cohort"}
 
     def test_create_feature_flag_in_specific_folder(self):
         response = self.client.post(
@@ -5526,9 +4932,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         fs_entry = FileSystem.objects.filter(team=self.team, ref=str(flag_id), type="feature_flag").first()
         assert fs_entry, "No FileSystem entry found for this feature flag."
-        assert "Special Folder/Flags" in fs_entry.path, (
-            f"Expected 'Special Folder/Flags' in path, got: '{fs_entry.path}'"
-        )
+        assert (
+            "Special Folder/Flags" in fs_entry.path
+        ), f"Expected 'Special Folder/Flags' in path, got: '{fs_entry.path}'"
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_updating_feature_flag_key_updates_super_groups(self, mock_capture):
@@ -6021,10 +5427,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert data["flags"][0]["key"] == "test-flag-cohort"
         assert len(data["cohorts"]) == 1  # Should contain the cohort
         assert str(cohort.id) in data["cohorts"]
-        assert data["cohorts"][str(cohort.id)] == {
-            "type": "OR",
-            "values": [{"type": "AND", "values": [{"key": "email", "value": "test@example.com", "type": "person"}]}],
-        }
+        assert data["cohorts"][str(cohort.id)] == {"type": "OR", "values": [{"type": "AND", "values": [{"key": "email", "value": "test@example.com", "type": "person"}]}]}
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_local_evaluation_functionality(self, mock_on_commit):
@@ -6133,9 +5536,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         # Check that response has transformed filters (should contain person properties)
         properties = flag["filters"]["groups"][0]["properties"]
-        assert any(prop.get("type") == "person" for prop in properties), (
-            "Response should have transformed cohort to person properties"
-        )
+        assert any(prop.get("type") == "person" for prop in properties), "Response should have transformed cohort to person properties"
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_local_evaluation_cache_invalidation_on_feature_flag_delete(self, mock_on_commit):
@@ -7687,11 +7088,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
         response_json = response.json()
-        assert {
-            "type": "validation_error",
-            "code": "invalid_input",
-            "detail": "Invalid group type index for feature flag condition.",
-        }.items() <= response_json.items()
+        assert {"type": "validation_error", "code": "invalid_input", "detail": "Invalid group type index for feature flag condition."}.items() <= response_json.items()
 
 
 class QueryTimeoutWrapper:
@@ -8962,14 +8359,12 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
         super().setUpTestData()
 
     def assert_expected_response(
-        self, feature_flag_id: int, expected_status: FeatureFlagStatus, expected_reason: str | None = None
+        self, feature_flag_id: int, expected_status: FeatureFlagStatus, expected_reason: Optional[str] = None
     ):
         response = self.client.get(
             f"/api/projects/{self.team.id}/feature_flags/{feature_flag_id}/status",
         )
-        assert response.status_code == (
-            status.HTTP_404_NOT_FOUND if expected_status == FeatureFlagStatus.UNKNOWN else status.HTTP_200_OK
-        )
+        assert response.status_code == (status.HTTP_404_NOT_FOUND if expected_status == FeatureFlagStatus.UNKNOWN else status.HTTP_200_OK)
         response_data = response.json()
         assert response_data.get("status") == expected_status
         if expected_reason is not None:

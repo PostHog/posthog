@@ -35,9 +35,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         response = self.client.get("/api/projects/", headers={"authorization": f"Bearer {personal_api_key}"})
 
         assert response.status_code == status.HTTP_200_OK
-        assert {project["id"] for project in response.json()["results"]} == {team_in_other_org.project.id}, (
-            "Only the project belonging to the scoped organization should be listed, the other one should be excluded"
-        )
+        assert {project["id"] for project in response.json()["results"]} == {team_in_other_org.project.id}, "Only the project belonging to the scoped organization should be listed, the other one should be excluded"
 
     def test_cannot_create_second_demo_project(self):
         # Create first demo project
@@ -51,10 +49,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         response = self.client.post("/api/projects/", {"name": "Second Demo", "is_demo": True})
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert (
-            response.json()["detail"]
-            == "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
-        )
+        assert response.json()["detail"] == "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
 
     def test_project_creation_without_feature(self):
         # Organization without the ORGANIZATIONS_PROJECTS feature (has 1 project already)
@@ -66,10 +61,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         response = self.client.post("/api/projects/", {"name": "New Project"})
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert (
-            response.json()["detail"]
-            == "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
-        )
+        assert response.json()["detail"] == "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
 
     def test_project_creation_with_limited_feature(self):
         # Set project limit to 2
@@ -91,10 +83,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         # Cannot create third project
         response = self.client.post("/api/projects/", {"name": "Third Project"})
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert (
-            response.json()["detail"]
-            == "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
-        )
+        assert response.json()["detail"] == "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
 
     def test_project_creation_with_unlimited_feature(self):
         # Set unlimited projects
@@ -137,10 +126,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         # Should not be able to create another project
         response = self.client.post("/api/projects/", {"name": "Project 1001"})
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert (
-            response.json()["detail"]
-            == "You have reached the maximum limit of 1500 projects per organization. Contact support if you'd like access to more projects."
-        )
+        assert response.json()["detail"] == "You have reached the maximum limit of 1500 projects per organization. Contact support if you'd like access to more projects."
 
     def test_demo_projects_not_counted_toward_limit(self):
         # Set project limit to 2

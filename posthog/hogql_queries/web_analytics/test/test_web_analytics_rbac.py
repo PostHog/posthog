@@ -1,4 +1,3 @@
-import pytest
 from posthog.test.base import APIBaseTest
 
 from posthog.schema import DateRange, WebOverviewQuery
@@ -6,6 +5,7 @@ from posthog.schema import DateRange, WebOverviewQuery
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
 from posthog.rbac.user_access_control import UserAccessControlError
+import pytest
 
 try:
     from ee.models.rbac.access_control import AccessControl

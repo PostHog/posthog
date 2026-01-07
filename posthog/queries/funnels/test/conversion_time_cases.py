@@ -167,20 +167,16 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
             assert result[1]["count"] == 2
             assert result[1]["average_conversion_time"] == 600
 
-            assert sorted(self._get_actor_ids_at_step(filter, 1)) == sorted(
-                [
+            assert sorted(self._get_actor_ids_at_step(filter, 1)) == sorted([
                     people["stopped_after_signup1"].uuid,
                     people["stopped_after_signup2"].uuid,
                     people["stopped_after_signup3"].uuid,
-                ]
-            )
+                ])
 
-            assert sorted(self._get_actor_ids_at_step(filter, 2)) == sorted(
-                [
+            assert sorted(self._get_actor_ids_at_step(filter, 2)) == sorted([
                     people["stopped_after_signup1"].uuid,
                     people["stopped_after_signup3"].uuid,
-                ]
-            )
+                ])
 
             filter = filter.shallow_clone({"funnel_window_interval": 5, "funnel_window_interval_unit": "minute"})
 
@@ -192,13 +188,11 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
             assert result4[1]["count"] == 1
             assert result4[1]["average_conversion_time"] == 300
 
-            assert sorted(self._get_actor_ids_at_step(filter, 1)) == sorted(
-                [
+            assert sorted(self._get_actor_ids_at_step(filter, 1)) == sorted([
                     people["stopped_after_signup1"].uuid,
                     people["stopped_after_signup2"].uuid,
                     people["stopped_after_signup3"].uuid,
-                ]
-            )
+                ])
 
             assert sorted(self._get_actor_ids_at_step(filter, 2)) == sorted([people["stopped_after_signup1"].uuid])
 

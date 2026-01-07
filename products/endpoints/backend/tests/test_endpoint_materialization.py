@@ -89,9 +89,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         assert saved_query.sync_frequency_interval == timedelta(hours=24)
 
         # Verify ModelPath was created
-        assert DataWarehouseModelPath.objects.filter(team=self.team, saved_query=saved_query).exists(), (
-            "DataWarehouseModelPath should be created for the saved_query"
-        )
+        assert DataWarehouseModelPath.objects.filter(team=self.team, saved_query=saved_query).exists(), "DataWarehouseModelPath should be created for the saved_query"
 
     def test_update_sync_frequency_updates_saved_query_sync_interval(self):
         """Test that updating sync_frequency updates the SavedQuery's sync_interval."""
@@ -562,9 +560,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
                 format="json",
             )
 
-            assert mock_execute.call_count == 2, (
-                "Cache from before query update should be stale (older than new materialization)"
-            )
+            assert mock_execute.call_count == 2, "Cache from before query update should be stale (older than new materialization)"
             assert response.json()["results"] == [[2]], "Should return fresh results after query update, not old cache"
 
     def test_materialized_endpoint_applies_filters_override(self):

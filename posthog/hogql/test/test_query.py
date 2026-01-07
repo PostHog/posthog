@@ -222,10 +222,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 self.team,
                 pretty=False,
             )
-            assert (
-                response.hogql
-                == "SELECT event, e.timestamp, e.pdi.distinct_id, pdi.person_id FROM events AS e LIMIT 10"
-            )
+            assert response.hogql == "SELECT event, e.timestamp, e.pdi.distinct_id, pdi.person_id FROM events AS e LIMIT 10"
             assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
             assert response.results[0][0] == "random event"
             assert response.results[0][2] == "bla"
@@ -241,10 +238,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 self.team,
                 pretty=False,
             )
-            assert (
-                response.hogql
-                == "SELECT pdi.distinct_id, pdi.person.created_at FROM person_distinct_ids AS pdi LIMIT 10"
-            )
+            assert response.hogql == "SELECT pdi.distinct_id, pdi.person.created_at FROM person_distinct_ids AS pdi LIMIT 10"
             assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
             assert response.results[0][0] == "bla"
             assert response.results[0][1] == datetime.datetime(2020, 1, 10, 0, 0, tzinfo=datetime.UTC)
@@ -259,10 +253,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 self.team,
                 pretty=False,
             )
-            assert (
-                response.hogql
-                == "SELECT pdi.distinct_id, pdi.person.properties.sneaky_mail FROM person_distinct_ids AS pdi LIMIT 10"
-            )
+            assert response.hogql == "SELECT pdi.distinct_id, pdi.person.properties.sneaky_mail FROM person_distinct_ids AS pdi LIMIT 10"
             assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
             assert response.results[0][0] == "bla"
             assert response.results[0][1] == "tim@posthog.com"
@@ -739,14 +730,14 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
             )
             assert response.results == [
-                (
-                    "",  # empty string
-                    None,  # null
-                    None,  # undefined
-                    "0",  # zero string
-                    "0",  # zero number (not typecast)
-                )
-            ]
+                    (
+                        "",  # empty string
+                        None,  # null
+                        None,  # undefined
+                        "0",  # zero string
+                        "0",  # zero number (not typecast)
+                    )
+                ]
 
     def test_window_functions_simple(self):
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
@@ -1068,28 +1059,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 pretty=False,
             )
-            assert (
-                f"SELECT "
-                f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '') AS string, "
-                f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s, %(hogql_val_2)s), ''), 'null'), '^\"|\"$', ''), "
-                f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_3)s, %(hogql_val_4)s), ''), 'null'), '^\"|\"$', ''), "
-                f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_5)s, %(hogql_val_6)s, %(hogql_val_7)s), ''), 'null'), '^\"|\"$', ''), "
-                f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_8)s, %(hogql_val_9)s, %(hogql_val_10)s), ''), 'null'), '^\"|\"$', ''), "
-                f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_11)s, %(hogql_val_12)s, %(hogql_val_13)s), ''), 'null'), '^\"|\"$', ''), "
-                f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_14)s, %(hogql_val_15)s, %(hogql_val_16)s), ''), 'null'), '^\"|\"$', ''), "
-                f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_17)s, %(hogql_val_18)s, %(hogql_val_19)s, %(hogql_val_20)s), ''), 'null'), '^\"|\"$', ''), "
-                f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_21)s, %(hogql_val_22)s, %(hogql_val_23)s, %(hogql_val_24)s), ''), 'null'), '^\"|\"$', ''), "
-                f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_25)s, %(hogql_val_26)s, %(hogql_val_27)s, %(hogql_val_28)s, %(hogql_val_29)s), ''), 'null'), '^\"|\"$', ''), "
-                f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_30)s, %(hogql_val_31)s, %(hogql_val_32)s, %(hogql_val_33)s, %(hogql_val_34)s), ''), 'null'), '^\"|\"$', ''), "
-                f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_35)s, %(hogql_val_36)s, %(hogql_val_37)s, %(hogql_val_38)s, %(hogql_val_39)s), ''), 'null'), '^\"|\"$', ''), "
-                f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_40)s, %(hogql_val_41)s, %(hogql_val_42)s), ''), 'null'), '^\"|\"$', ''), "
-                f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_43)s, %(hogql_val_44)s, %(hogql_val_45)s), ''), 'null'), '^\"|\"$', '') "
-                f"FROM events "
-                f"WHERE and(equals(events.team_id, {self.team.pk}), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_46)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_47)s), 0)) "
-                f"LIMIT 100 "
-                f"SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
-                == response.clickhouse
-            )
+            assert f"SELECT " f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '') AS string, " f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s, %(hogql_val_2)s), ''), 'null'), '^\"|\"$', ''), " f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_3)s, %(hogql_val_4)s), ''), 'null'), '^\"|\"$', ''), " f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_5)s, %(hogql_val_6)s, %(hogql_val_7)s), ''), 'null'), '^\"|\"$', ''), " f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_8)s, %(hogql_val_9)s, %(hogql_val_10)s), ''), 'null'), '^\"|\"$', ''), " f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_11)s, %(hogql_val_12)s, %(hogql_val_13)s), ''), 'null'), '^\"|\"$', ''), " f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_14)s, %(hogql_val_15)s, %(hogql_val_16)s), ''), 'null'), '^\"|\"$', ''), " f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_17)s, %(hogql_val_18)s, %(hogql_val_19)s, %(hogql_val_20)s), ''), 'null'), '^\"|\"$', ''), " f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_21)s, %(hogql_val_22)s, %(hogql_val_23)s, %(hogql_val_24)s), ''), 'null'), '^\"|\"$', ''), " f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_25)s, %(hogql_val_26)s, %(hogql_val_27)s, %(hogql_val_28)s, %(hogql_val_29)s), ''), 'null'), '^\"|\"$', ''), " f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_30)s, %(hogql_val_31)s, %(hogql_val_32)s, %(hogql_val_33)s, %(hogql_val_34)s), ''), 'null'), '^\"|\"$', ''), " f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_35)s, %(hogql_val_36)s, %(hogql_val_37)s, %(hogql_val_38)s, %(hogql_val_39)s), ''), 'null'), '^\"|\"$', ''), " f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_40)s, %(hogql_val_41)s, %(hogql_val_42)s), ''), 'null'), '^\"|\"$', ''), " f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_43)s, %(hogql_val_44)s, %(hogql_val_45)s), ''), 'null'), '^\"|\"$', '') " f"FROM events " f"WHERE and(equals(events.team_id, {self.team.pk}), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_46)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_47)s), 0)) " f"LIMIT 100 " f"SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0" == response.clickhouse
             assert response.results[0] == tuple(random_uuid for x in alternatives)
 
     def test_property_access_with_arrays_zero_index_error(self):
@@ -1119,22 +1089,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
         )
 
-        assert response.results == [
-            (
-                (
-                    datetime.datetime(2020, 1, 1, 0, 0, tzinfo=datetime.UTC),
-                    datetime.datetime(2020, 1, 2, 0, 0, tzinfo=datetime.UTC),
-                ),
-                datetime.datetime(2020, 1, 1, 0, 0, tzinfo=datetime.UTC),
-                datetime.datetime(2020, 1, 2, 0, 0, tzinfo=datetime.UTC),
-                (
-                    datetime.datetime(2019, 12, 31, 0, 0, tzinfo=datetime.UTC),
-                    datetime.datetime(2020, 1, 2, 0, 0, tzinfo=datetime.UTC),
-                ),
-                datetime.datetime(2019, 12, 31, 0, 0, tzinfo=datetime.UTC),
-                datetime.datetime(2020, 1, 2, 0, 0, tzinfo=datetime.UTC),
-            )
-        ]
+        assert response.results == [((datetime.datetime(2020, 1, 1, 0, 0, tzinfo=datetime.UTC), datetime.datetime(2020, 1, 2, 0, 0, tzinfo=datetime.UTC)), datetime.datetime(2020, 1, 1, 0, 0, tzinfo=datetime.UTC), datetime.datetime(2020, 1, 2, 0, 0, tzinfo=datetime.UTC), (datetime.datetime(2019, 12, 31, 0, 0, tzinfo=datetime.UTC), datetime.datetime(2020, 1, 2, 0, 0, tzinfo=datetime.UTC)), datetime.datetime(2019, 12, 31, 0, 0, tzinfo=datetime.UTC), datetime.datetime(2020, 1, 2, 0, 0, tzinfo=datetime.UTC))]
 
     def test_null_equality(self):
         expected = [
@@ -1319,22 +1274,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         query = "SELECT number from numbers(assumeNotNull(dateDiff('day', toStartOfDay(toDateTime('2011-12-31 00:00:00')), toDateTime('2012-01-14 23:59:59'))))"
         response = execute_hogql_query(query, team=self.team)
-        assert response.results == [
-            (0,),
-            (1,),
-            (2,),
-            (3,),
-            (4,),
-            (5,),
-            (6,),
-            (7,),
-            (8,),
-            (9,),
-            (10,),
-            (11,),
-            (12,),
-            (13,),
-        ]
+        assert response.results == [(0,), (1,), (2,), (3,), (4,), (5,), (6,), (7,), (8,), (9,), (10,), (11,), (12,), (13,)]
 
     def test_events_table_error_if_function(self):
         query = "SELECT * from events(1, 4)"
@@ -1461,10 +1401,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 filters=filters,
                 pretty=False,
             )
-            assert (
-                response.hogql
-                == f"SELECT event, distinct_id FROM events AS e WHERE equals(properties.random_uuid, '{random_uuid}') LIMIT 100"
-            )
+            assert response.hogql == f"SELECT event, distinct_id FROM events AS e WHERE equals(properties.random_uuid, '{random_uuid}') LIMIT 100"
             assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
             assert len(response.results) == 2
 
@@ -1588,20 +1525,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     def test_sortable_semver(self):
         query = "SELECT arrayJoin(['0.0.0.0.1000', '0.9', '0.2354.2', '1.0.0', '1.1.0', '1.2.0', '1.9.233434.10', '1.10.0', '1.1000.0', '2.0.0', '2.2.0.betabac', '2.2.1']) AS semver ORDER BY sortableSemVer(semver) DESC"
         response = execute_hogql_query(query, team=self.team)
-        assert response.results == [
-            ("2.2.1",),
-            ("2.2.0.betabac",),
-            ("2.0.0",),
-            ("1.1000.0",),
-            ("1.10.0",),
-            ("1.9.233434.10",),
-            ("1.2.0",),
-            ("1.1.0",),
-            ("1.0.0",),
-            ("0.2354.2",),
-            ("0.9",),
-            ("0.0.0.0.1000",),
-        ]
+        assert response.results == [("2.2.1",), ("2.2.0.betabac",), ("2.0.0",), ("1.1000.0",), ("1.10.0",), ("1.9.233434.10",), ("1.2.0",), ("1.1.0",), ("1.0.0",), ("0.2354.2",), ("0.9",), ("0.0.0.0.1000",)]
 
     def test_sortable_semver_output(self):
         query = "SELECT sortableSemVer('1.2.3.4.15bac.16')"

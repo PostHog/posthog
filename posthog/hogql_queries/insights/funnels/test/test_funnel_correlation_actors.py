@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Any, cast
+from typing import Any, Optional, cast
 from uuid import UUID
 
 from freezegun import freeze_time
@@ -37,12 +37,12 @@ FORMAT_TIME = "%Y-%m-%d 00:00:00"
 def get_actors(
     filters: dict[str, Any],
     team: Team,
-    funnelCorrelationType: FunnelCorrelationResultsType | None = FunnelCorrelationResultsType.EVENTS,
+    funnelCorrelationType: Optional[FunnelCorrelationResultsType] = FunnelCorrelationResultsType.EVENTS,
     funnelCorrelationNames=None,
-    funnelCorrelationPersonConverted: bool | None = None,
-    funnelCorrelationPersonEntity: EventsNode | None = None,
+    funnelCorrelationPersonConverted: Optional[bool] = None,
+    funnelCorrelationPersonEntity: Optional[EventsNode] = None,
     funnelCorrelationPropertyValues=None,
-    includeRecordings: bool | None = True,
+    includeRecordings: Optional[bool] = True,
 ):
     funnels_query = cast(FunnelsQuery, filter_to_query(filters))
     funnel_actors_query = FunnelsActorsQuery(source=funnels_query, includeRecordings=includeRecordings)
@@ -201,9 +201,7 @@ class TestFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
             funnelCorrelationPersonEntity=EventsNode(event="positively_related"),
         )
 
-        assert sorted([str(val[1]["id"]) for val in serialized_actors]) == sorted(
-            [*success_target_persons, str(person_fail.uuid)]
-        )
+        assert sorted([str(val[1]["id"]) for val in serialized_actors]) == sorted([*success_target_persons, str(person_fail.uuid)])
 
         # test all negatively_related
         serialized_actors = get_actors(
@@ -213,9 +211,7 @@ class TestFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
             funnelCorrelationPersonEntity=EventsNode(event="negatively_related"),
         )
 
-        assert sorted([str(val[1]["id"]) for val in serialized_actors]) == sorted(
-            [*failure_target_persons, str(person_succ.uuid)]
-        )
+        assert sorted([str(val[1]["id"]) for val in serialized_actors]) == sorted([*failure_target_persons, str(person_succ.uuid)])
 
     # @patch("posthog.tasks.calculate_cohort.insert_cohort_from_insight_filter.delay")
     # def test_create_funnel_correlation_cohort(self, _insert_cohort_from_insight_filter):
@@ -367,18 +363,7 @@ class TestFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert results[0][1]["id"] == p1.uuid
-        assert list(results[0][2]) == [
-            {
-                "events": [
-                    {
-                        "timestamp": timezone.now() + timedelta(minutes=3),
-                        "uuid": UUID("21111111-1111-1111-1111-111111111111"),
-                        "window_id": "w2",
-                    }
-                ],
-                "session_id": "s2",
-            }
-        ]
+        assert list(results[0][2]) == [{"events": [{"timestamp": timezone.now() + timedelta(minutes=3), "uuid": UUID("21111111-1111-1111-1111-111111111111"), "window_id": "w2"}], "session_id": "s2"}]
 
         # Drop off filter
         filters = {
@@ -400,18 +385,7 @@ class TestFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert results[0][1]["id"] == p1.uuid
-        assert list(results[0][2]) == [
-            {
-                "events": [
-                    {
-                        "timestamp": timezone.now() + timedelta(minutes=3),
-                        "uuid": UUID("21111111-1111-1111-1111-111111111111"),
-                        "window_id": "w2",
-                    }
-                ],
-                "session_id": "s2",
-            }
-        ]
+        assert list(results[0][2]) == [{"events": [{"timestamp": timezone.now() + timedelta(minutes=3), "uuid": UUID("21111111-1111-1111-1111-111111111111"), "window_id": "w2"}], "session_id": "s2"}]
 
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-02 00:00:00.000Z")
@@ -469,18 +443,7 @@ class TestFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert results[0][1]["id"] == p1.uuid
-        assert list(results[0][2]) == [
-            {
-                "events": [
-                    {
-                        "timestamp": timezone.now() + timedelta(minutes=3),
-                        "uuid": UUID("21111111-1111-1111-1111-111111111111"),
-                        "window_id": "w2",
-                    }
-                ],
-                "session_id": "s2",
-            }
-        ]
+        assert list(results[0][2]) == [{"events": [{"timestamp": timezone.now() + timedelta(minutes=3), "uuid": UUID("21111111-1111-1111-1111-111111111111"), "window_id": "w2"}], "session_id": "s2"}]
 
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-02 00:00:00.000Z")
@@ -581,18 +544,7 @@ class TestFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
 
         assert len(results) == 1
         assert results[0][1]["id"] == p1.uuid
-        assert list(results[0][2]) == [
-            {
-                "events": [
-                    {
-                        "timestamp": timezone.now() + timedelta(minutes=3),
-                        "uuid": UUID("31111111-1111-1111-1111-111111111111"),
-                        "window_id": "w2",
-                    }
-                ],
-                "session_id": "s2",
-            }
-        ]
+        assert list(results[0][2]) == [{"events": [{"timestamp": timezone.now() + timedelta(minutes=3), "uuid": UUID("31111111-1111-1111-1111-111111111111"), "window_id": "w2"}], "session_id": "s2"}]
 
         # Drop off filter
         results = get_actors(
@@ -611,15 +563,4 @@ class TestFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert results[0][1]["id"] == p2.uuid
-        assert list(results[0][2]) == [
-            {
-                "events": [
-                    {
-                        "timestamp": timezone.now(),
-                        "uuid": UUID("51111111-1111-1111-1111-111111111111"),
-                        "window_id": "w1",
-                    }
-                ],
-                "session_id": "s3",
-            }
-        ]
+        assert list(results[0][2]) == [{"events": [{"timestamp": timezone.now(), "uuid": UUID("51111111-1111-1111-1111-111111111111"), "window_id": "w1"}], "session_id": "s3"}]

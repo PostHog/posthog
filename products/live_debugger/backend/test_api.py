@@ -64,15 +64,12 @@ class TestLiveDebuggerBreakpointAPI(APIBaseTest):
             )
             assert response2.status_code != status.HTTP_201_CREATED
 
-        assert (
-            LiveDebuggerBreakpoint.objects.filter(
+        assert LiveDebuggerBreakpoint.objects.filter(
                 team=self.team,
                 repository=data["repository"],
                 filename=data["filename"],
                 line_number=data["line_number"],  # type: ignore
-            ).count()
-            == 1
-        )
+            ).count() == 1
 
     def test_create_breakpoint_same_file_different_repo_succeeds(self):
         """Test that same filename/line can exist in different repositories"""

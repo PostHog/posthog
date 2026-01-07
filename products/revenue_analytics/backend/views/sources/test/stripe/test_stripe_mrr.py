@@ -1,9 +1,9 @@
-import pytest
 from freezegun import freeze_time
 
 from products.revenue_analytics.backend.views.schemas.mrr import SCHEMA as MRR_SCHEMA
 from products.revenue_analytics.backend.views.sources.stripe.mrr import build
 from products.revenue_analytics.backend.views.sources.test.stripe.base import StripeSourceBaseTest
+import pytest
 
 
 class TestMRRStripeBuilder(StripeSourceBaseTest):

@@ -1,11 +1,9 @@
-import re
-
-import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
 from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery, HogQLRealtimeCohortQuery
 from posthog.models import Cohort
+import pytest
 
 
 class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
@@ -60,10 +58,7 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
 
         # If the optimization worked, there should be no INTERSECT in the query
         assert "INTERSECT DISTINCT" not in query_str
-        assert (
-            "and(isNotNull(persons.properties___email), ifNull(ilike(toString(persons.properties___email), %(hogql_val_8)s), 0), ifNull(notILike(toString(persons.properties___email), %(hogql_val_9)s), 1))"
-            in query_str
-        )
+        assert "and(isNotNull(persons.properties___email), ifNull(ilike(toString(persons.properties___email), %(hogql_val_8)s), 0), ifNull(notILike(toString(persons.properties___email), %(hogql_val_9)s), 1))" in query_str
 
     @patch("posthoganalytics.feature_enabled", return_value=False)
     def test_optimization_disabled_when_feature_flag_off(self, mock_feature_enabled: MagicMock) -> None:

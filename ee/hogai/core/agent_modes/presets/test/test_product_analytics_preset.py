@@ -90,6 +90,4 @@ class TestProductAnalyticsAgentNode(BaseTest):
             assert assistant_message.tool_calls is not None
             assert assistant_message.tool_calls is not None
             assert len(assistant_message.tool_calls) == 1
-            assert assistant_message.tool_calls[0] == AssistantToolCall(
-                id="xyz", name="create_insight", args={"query_description": "Foobar", "query_kind": insight_type}
-            )
+            assert assistant_message.tool_calls[0] == AssistantToolCall(id="xyz", name="create_insight", args={"query_description": "Foobar", "query_kind": insight_type})

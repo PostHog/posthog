@@ -1390,7 +1390,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                     team=self.team,
                     event="$pageview",
                     distinct_id=f"user_control_{i}",
-                    timestamp=f"2020-01-02T12:0{j + 1}:00Z",
+                    timestamp=f"2020-01-02T12:0{j+1}:00Z",
                     properties={feature_flag_property: "control"},
                 )
 
@@ -1414,7 +1414,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                     team=self.team,
                     event="$pageview",
                     distinct_id=f"user_test_{i}",
-                    timestamp=f"2020-01-02T12:0{j + 1}:00Z",
+                    timestamp=f"2020-01-02T12:0{j+1}:00Z",
                     properties={feature_flag_property: "test"},
                 )
 
@@ -1540,7 +1540,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                     team=self.team,
                     event="$pageview",
                     distinct_id=f"user_control_only_{i}",
-                    timestamp=f"2020-01-02T12:0{j + 1}:00Z",
+                    timestamp=f"2020-01-02T12:0{j+1}:00Z",
                     properties={feature_flag_property: "control"},
                 )
 
@@ -1564,7 +1564,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                     team=self.team,
                     event="$pageview",
                     distinct_id=f"user_test_only_{i}",
-                    timestamp=f"2020-01-02T12:0{j + 1}:00Z",
+                    timestamp=f"2020-01-02T12:0{j+1}:00Z",
                     properties={feature_flag_property: "test"},
                 )
 
@@ -1671,16 +1671,10 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         assert test_variant is not None
 
         # Verify the expected behavior based on multiple_variant_handling setting
-        assert control_variant.sum == expected_results["control_count"], (
-            f"Control count mismatch for {handling_name} handling"
-        )
+        assert control_variant.sum == expected_results["control_count"], f"Control count mismatch for {handling_name} handling"
         assert test_variant.sum == expected_results["test_count"], f"Test count mismatch for {handling_name} handling"
-        assert control_variant.number_of_samples == expected_results["control_exposure"], (
-            f"Control exposure mismatch for {handling_name} handling"
-        )
-        assert test_variant.number_of_samples == expected_results["test_exposure"], (
-            f"Test exposure mismatch for {handling_name} handling"
-        )
+        assert control_variant.number_of_samples == expected_results["control_exposure"], f"Control exposure mismatch for {handling_name} handling"
+        assert test_variant.number_of_samples == expected_results["test_exposure"], f"Test exposure mismatch for {handling_name} handling"
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -2083,7 +2077,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                     team=self.team,
                     event="purchase",
                     distinct_id=f"user_control_{i}",
-                    timestamp=f"2020-01-0{2 + j}T12:01:00Z",  # Different timestamps
+                    timestamp=f"2020-01-0{2+j}T12:01:00Z",  # Different timestamps
                     properties={
                         feature_flag_property: "control",
                         "price": 50 + (i * 10) + j,
@@ -2112,7 +2106,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                     team=self.team,
                     event="purchase",
                     distinct_id=f"user_test_{i}",
-                    timestamp=f"2020-01-0{2 + j}T12:01:00Z",  # Different timestamps
+                    timestamp=f"2020-01-0{2+j}T12:01:00Z",  # Different timestamps
                     properties={
                         feature_flag_property: "test",
                         "price": 60 + (i * 10) + j,

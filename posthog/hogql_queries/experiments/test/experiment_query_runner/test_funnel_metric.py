@@ -618,12 +618,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
             test_variant = result.variant_results[0]
             assert test_variant is not None
 
-            assert {
-                "control_success": int(control_variant.sum),
-                "control_failure": int(control_variant.number_of_samples - control_variant.sum),
-                "test_success": int(test_variant.sum),
-                "test_failure": int(test_variant.number_of_samples - test_variant.sum),
-            } == expected_results
+            assert {"control_success": int(control_variant.sum), "control_failure": int(control_variant.number_of_samples - control_variant.sum), "test_success": int(test_variant.sum), "test_failure": int(test_variant.number_of_samples - test_variant.sum)} == expected_results
 
     @mark.skip("Funnel metrics on data warehouse tables are not supported yet")
     @snapshot_clickhouse_queries

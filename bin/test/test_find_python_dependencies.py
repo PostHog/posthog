@@ -86,10 +86,7 @@ class TestFindPythonDependencies(unittest.TestCase):
             "posthog.temporal.subscriptions",
             [changed_file],
         )
-        assert affected == should_be_affected, (
-            f"Expected {changed_file} to {'affect' if should_be_affected else 'NOT affect'} "
-            f"the worker, but got affected={affected}"
-        )
+        assert affected == should_be_affected, f"Expected {changed_file} to {'affect' if should_be_affected else 'NOT affect'} " f"the worker, but got affected={affected}"
 
     def test_multiple_changes_one_affects(self):
         affected, matching = check_if_changes_affect_entrypoint(

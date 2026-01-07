@@ -439,9 +439,7 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             },
         ).json()
         assert len(action_response["results"][0]["people"]) == 2
-        assert sorted(p["id"] for p in action_response["results"][0]["people"]) == sorted(
-            [str(person1.uuid), str(person2.uuid)]
-        )
+        assert sorted(p["id"] for p in action_response["results"][0]["people"]) == sorted([str(person1.uuid), str(person2.uuid)])
         self.assertEntityResponseEqual(action_response["results"], event_response["results"], remove=[])
 
     def test_week_interval(self):
@@ -996,18 +994,7 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
                 "include_recordings": "true",
             },
         ).json()
-        assert people["results"][0]["people"][0]["matched_recordings"] == [
-            {
-                "session_id": "s1",
-                "events": [
-                    {
-                        "window_id": "w1",
-                        "timestamp": "2020-01-09T12:00:00Z",
-                        "uuid": "693402ed-590e-4737-ba26-93ebf18121bd",
-                    }
-                ],
-            }
-        ]
+        assert people["results"][0]["people"][0]["matched_recordings"] == [{"session_id": "s1", "events": [{"window_id": "w1", "timestamp": "2020-01-09T12:00:00Z", "uuid": "693402ed-590e-4737-ba26-93ebf18121bd"}]}]
 
     @snapshot_clickhouse_queries
     def test_trends_people_endpoint_filters_search(self):
