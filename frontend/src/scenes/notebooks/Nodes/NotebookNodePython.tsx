@@ -169,7 +169,9 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePythonAttribute
     return (
         <div data-attr="notebook-node-python" className="flex h-full flex-col gap-2">
             <div className="p-3 overflow-y-auto h-full">
-                <pre className="text-xs font-mono whitespace-pre-wrap">{attributes.code}</pre>
+                <pre className="text-xs font-mono whitespace-pre-wrap">
+                    We should show the execution results for the code here: {attributes.code}
+                </pre>
             </div>
             {exportedGlobals.length > 0 ? (
                 <div className="flex items-start flex-wrap gap-2 text-xs text-muted border-t p-2">
@@ -197,15 +199,14 @@ const Settings = ({
     updateAttributes,
 }: NotebookNodeAttributeProperties<NotebookNodePythonAttributes>): JSX.Element => {
     return (
-        <div className="p-3">
-            <CodeEditorResizeable
-                language="python"
-                value={attributes.code}
-                onChange={(value) => updateAttributes({ code: value ?? '' })}
-                allowManualResize={false}
-                minHeight={160}
-            />
-        </div>
+        <CodeEditorResizeable
+            language="python"
+            value={attributes.code}
+            onChange={(value) => updateAttributes({ code: value ?? '' })}
+            allowManualResize={false}
+            minHeight={160}
+            embedded
+        />
     )
 }
 
