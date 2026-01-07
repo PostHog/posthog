@@ -107,6 +107,7 @@ export const passkeySettingsLogic = kea<passkeySettingsLogicType>([
                 setError: (_, { error }) => error,
                 clearError: () => null,
                 beginRegistration: () => null,
+                verifyPasskeySuccess: () => null,
             },
         ],
         deleteModalId: [
@@ -217,6 +218,9 @@ export const passkeySettingsLogic = kea<passkeySettingsLogicType>([
                             }
                         )
 
+                        // Load passkeys so the new passkey appears in the list even if verification fails
+                        actions.loadPasskeys()
+
                         // Step 4: Begin verification
                         actions.setRegistrationStep('verifying')
 
@@ -247,6 +251,8 @@ export const passkeySettingsLogic = kea<passkeySettingsLogicType>([
                     } catch (e: any) {
                         actions.setRegistrationStep('idle')
                         actions.setError(getPasskeyErrorMessage(e, 'Failed to register passkey. Please try again.'))
+                        // Load passkeys in case the passkey was created but verification failed
+                        actions.loadPasskeys()
                         throw e
                     }
                 },
