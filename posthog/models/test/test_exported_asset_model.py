@@ -1,9 +1,11 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 
-from posthog.models.exported_asset import ExportedAsset
+from parameterized import parameterized
+
+from posthog.models.exported_asset import SEVEN_DAYS, SIX_MONTHS, TWELVE_MONTHS, ExportedAsset
 
 
 class TestExportedAssetModel(APIBaseTest):
@@ -73,3 +75,74 @@ class TestExportedAssetModel(APIBaseTest):
             asset_that_is_not_expired,
             asset_that_has_no_expiry,
         ]
+
+
+class TestExportedAssetExpiresAfter(APIBaseTest):
+    @parameterized.expand(
+        [
+            (ExportedAsset.ExportFormat.PNG, SIX_MONTHS),
+            (ExportedAsset.ExportFormat.PDF, SIX_MONTHS),
+            (ExportedAsset.ExportFormat.CSV, SEVEN_DAYS),
+            (ExportedAsset.ExportFormat.XLSX, SEVEN_DAYS),
+            (ExportedAsset.ExportFormat.MP4, TWELVE_MONTHS),
+            (ExportedAsset.ExportFormat.WEBM, TWELVE_MONTHS),
+            (ExportedAsset.ExportFormat.GIF, TWELVE_MONTHS),
+        ]
+    )
+    @freeze_time("2024-06-15T10:30:00Z")
+    def test_auto_sets_expires_after_based_on_format(self, export_format: str, expected_delta: timedelta) -> None:
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=export_format,
+        )
+
+        expected_expiry = (datetime(2024, 6, 15, tzinfo=UTC) + expected_delta).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        assert asset.expires_after == expected_expiry
+
+    @freeze_time("2024-06-15T10:30:00Z")
+    def test_respects_explicit_expires_after(self) -> None:
+        custom_expiry = datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC)
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            expires_after=custom_expiry,
+        )
+
+        assert asset.expires_after == custom_expiry
+
+    @freeze_time("2024-06-15T10:30:00Z")
+    def test_partial_save_sets_expires_after_if_missing(self) -> None:
+        asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+        )
+        asset.expires_after = None
+        asset.save()
+        asset.expires_after = None
+        asset.save(update_fields=["expires_after"])
+
+        asset.exception = "some error"
+        asset.save(update_fields=["exception"])
+
+        asset.refresh_from_db()
+        expected_expiry = (datetime(2024, 6, 15, tzinfo=UTC) + SIX_MONTHS).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        assert asset.expires_after == expected_expiry
+
+    @freeze_time("2024-06-15T10:30:00Z")
+    def test_partial_save_does_not_overwrite_existing_expires_after(self) -> None:
+        custom_expiry = datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC)
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            expires_after=custom_expiry,
+        )
+
+        asset.exception = "some error"
+        asset.save(update_fields=["exception"])
+
+        asset.refresh_from_db()
+        assert asset.expires_after == custom_expiry
