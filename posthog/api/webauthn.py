@@ -2,9 +2,13 @@ import json
 import uuid
 from typing import Any, cast
 
-from django.contrib.auth import login
+from django.contrib.auth import authenticate, login
+from django.contrib.auth.signals import user_login_failed
+from django.http.response import JsonResponse
 
 import structlog
+from axes.exceptions import AxesBackendPermissionDenied
+from axes.handlers.proxy import AxesProxyHandler
 from rest_framework import permissions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -26,6 +30,7 @@ from webauthn.helpers.structs import (
     UserVerificationRequirement,
 )
 
+from posthog.api.authentication import axes_locked_out
 from posthog.auth import (
     SessionAuthentication,
     WebAuthnAuthenticationResponse,
@@ -130,6 +135,7 @@ class WebAuthnRegistrationViewSet(viewsets.ViewSet):
 
         # Get challenge from session
         challenge_b64 = request.session.pop(WEBAUTHN_REGISTRATION_CHALLENGE_KEY, None)
+        request.session.save()
 
         if not challenge_b64:
             return Response(
@@ -227,15 +233,14 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
         return Response(json.loads(options_to_json(options)))
 
     @action(detail=False, methods=["POST"], url_path="complete")
-    def complete(self, request: Request) -> Response:
+    def complete(self, request: Request) -> Response | JsonResponse:
         """
         Complete passkey login by verifying the assertion.
 
         Uses WebauthnBackend to verify the credential and authenticate the user.
         """
-        from django.contrib.auth import authenticate
-
         challenge = request.session.pop(WEBAUTHN_LOGIN_CHALLENGE_KEY, None)
+        request.session.save()
 
         if not challenge:
             return Response(
@@ -278,8 +283,26 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
         # Track if user was already authenticated (for re-auth detection)
         was_authenticated_before_login_attempt = request.user is not None and request.user.is_authenticated
 
+        # Extract user early for axes lockout checking
+        user = self._extract_user_from_user_handle(user_handle_b64)
+
+        # If we can't extract user from userHandle, return generic error
+        if not user:
+            return Response(
+                {"error": "Authentication failed. Please check your passkey and try again."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Check axes lockout before attempting authentication
+        if lockout_response := self._check_axes_lockout(request, user):
+            return lockout_response
+
+        # Check SSO enforcement before attempting authentication
+        if sso_enforcement_response := self._check_sso_enforcement(user):
+            return sso_enforcement_response
+
         try:
-            user = authenticate(
+            authenticated_user = authenticate(
                 request=request,
                 credential_id=credential_id,
                 challenge=challenge,
@@ -287,22 +310,18 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
                 backend=WebauthnBackend,  # no reason to use password or social auth backends
             )
 
-            if not user:
+            if not authenticated_user:
+                # Authentication failed - record failure with axes
+                if lockout_response := self._handle_authentication_failure(request, user):
+                    return lockout_response
+
                 return Response(
                     {"error": "Authentication failed. Please check your passkey and try again."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            # Check SSO enforcement
-            sso_enforcement = OrganizationDomain.objects.get_sso_enforcement_for_email_address(user.email)
-            if sso_enforcement:
-                return Response(
-                    {"error": f"You can only login with SSO for this account ({sso_enforcement})."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
             # Login the user with the WebauthnBackend
-            login(request, user, backend="posthog.auth.WebauthnBackend")
+            login(request, authenticated_user, backend="posthog.auth.WebauthnBackend")
 
             # Passkey bypasses 2FA
             set_two_factor_verified_in_session(request)
@@ -310,16 +329,69 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
             request.session["reauth"] = "true" if was_authenticated_before_login_attempt else "false"
             request.session.save()
 
-            report_user_logged_in(user, social_provider="passkey")
+            report_user_logged_in(cast(User, authenticated_user), social_provider="passkey")
 
             return Response({"success": True})
 
+        except AxesBackendPermissionDenied:
+            return axes_locked_out(request)
         except Exception as e:
             logger.exception("webauthn_login_error", error=str(e))
             return Response(
                 {"error": f"Login failed"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+    def _extract_user_from_user_handle(self, user_handle_b64: str) -> User | None:
+        """Extract user from base64url-encoded userHandle (UUID bytes)."""
+        try:
+            user_handle_bytes = base64url_to_bytes(user_handle_b64)
+            user_uuid = uuid.UUID(bytes=user_handle_bytes)
+            return User.objects.filter(uuid=user_uuid).first()
+        except Exception:
+            return None
+
+    def _check_sso_enforcement(self, user: User) -> Response | None:
+        """Check SSO enforcement for the user. Returns SSO error response if enforced, None otherwise."""
+        sso_enforcement = OrganizationDomain.objects.get_sso_enforcement_for_email_address(user.email)
+        if sso_enforcement:
+            return Response(
+                {"error": f"You can only login with SSO for this account ({sso_enforcement})."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return None
+
+    def _check_axes_lockout(self, request: Request, user: User) -> JsonResponse | None:
+        """Check if axes has locked out this user/IP. Returns lockout response if locked, None otherwise."""
+        axes_request = getattr(request, "_request", request)
+        axes_credentials = {"username": user.email}
+
+        if AxesProxyHandler.is_locked(axes_request, credentials=axes_credentials):
+            return axes_locked_out(request)
+        return None
+
+    def _handle_authentication_failure(self, request: Request, user: User | None) -> JsonResponse | None:
+        """Record authentication failure with axes. Returns lockout response if triggered, None otherwise."""
+        if not user:
+            return None
+
+        axes_request = getattr(request, "_request", request)
+        axes_credentials = {"username": user.email}
+
+        try:
+            user_login_failed.send(
+                sender=WebauthnBackend,
+                credentials=axes_credentials,
+                request=axes_request,
+            )
+            # Check if this failure triggered a lockout
+            if AxesProxyHandler.is_locked(axes_request, credentials=axes_credentials):
+                return axes_locked_out(request)
+        except Exception:
+            # If axes recording fails, log but continue with generic error
+            logger.warning("webauthn_axes_recording_failed", exc_info=True)
+
+        return None
 
 
 def get_authenticator_type(transports: list[str]) -> str:
@@ -464,6 +536,7 @@ class WebAuthnCredentialViewSet(viewsets.ViewSet):
 
         challenge_b64 = request.session.pop(WEBAUTHN_VERIFICATION_CHALLENGE_KEY, None)
         session_credential_id = request.session.pop(WEBAUTHN_REGISTRATION_CREDENTIAL_ID_KEY, None)
+        request.session.save()
 
         if not challenge_b64 or not session_credential_id:
             return Response(
@@ -510,11 +583,6 @@ class WebAuthnCredentialViewSet(viewsets.ViewSet):
             credential.verified = True
             credential.counter = verification.new_sign_count
             credential.save()
-
-            # Clean up session
-            del request.session[WEBAUTHN_VERIFICATION_CHALLENGE_KEY]
-            del request.session[WEBAUTHN_REGISTRATION_CREDENTIAL_ID_KEY]
-            request.session.save()
 
             logger.info("webauthn_credential_verify_complete", user_id=user.pk, credential_id=credential.pk)
 

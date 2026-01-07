@@ -1,6 +1,6 @@
 import time
 import datetime
-from typing import Any, Optional, cast
+from typing import Any, Optional, TypedDict, cast
 from uuid import uuid4
 
 from django.conf import settings
@@ -67,6 +67,12 @@ USER_AUTH_METHOD_MISMATCH = Counter(
     "A user successfully authenticated with a different method than the one they're required to use",
     labelnames=["login_method", "sso_enforced_method", "user_uuid"],
 )
+
+
+class WebauthnCredentialPrecheck(TypedDict):
+    id: str
+    type: str
+    transports: list[str]
 
 
 @receiver(user_logged_in)
@@ -290,7 +296,7 @@ class LoginSerializer(serializers.Serializer):
 class LoginPrecheckSerializer(serializers.Serializer):
     email = serializers.EmailField()
 
-    def to_representation(self, instance: dict[str, Any]) -> dict[str, Any]:
+    def to_representation(self, instance: dict[str, str | list[WebauthnCredentialPrecheck]]) -> dict[str, Any]:
         return instance
 
     def create(self, validated_data: dict[str, str]) -> Any:
