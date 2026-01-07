@@ -28,7 +28,10 @@ from structlog.contextvars import bind_contextvars
 from posthog.batch_exports.service import BackfillDetails, BatchExportField, BatchExportModel, BatchExportSchema
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import (
+    ClickHouseCheckQueryStatusError,
+    ClickHouseClient,
     ClickHouseClientTimeoutError,
+    ClickHouseError,
     ClickHouseQueryNotFound,
     ClickHouseQueryStatus,
     get_client,
@@ -501,56 +504,74 @@ async def _write_batch_export_record_batches_to_internal_stage(
                 await _delete_all_from_bucket_with_prefix(
                     bucket_name=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET, key_prefix=base_s3_staging_folder
                 )
-            except Exception as e:
+            except Exception:
                 logger.exception(
                     "Unexpected error occurred while deleting existing objects from internal S3 staging bucket",
-                    exc_info=e,
                 )
                 raise
 
-            start_time = time.monotonic()
-            query_id = uuid.uuid4()
-            logger.info("Executing insert into internal stage query", query_id=str(query_id))
             try:
-                await client.execute_query(
-                    query, query_parameters=query_parameters, query_id=str(query_id), timeout=300
-                )
-            except ClickHouseClientTimeoutError:
-                logger.warning(
-                    "Timed-out waiting for insert into S3. Will attempt to check query status before continuing",
-                    query_id=str(query_id),
-                )
-                # Sometimes we can't find the query in the query log, so make sure we retry a few times
-                num_attempts = 5
-                check_query = make_retryable_with_exponential_backoff(
-                    client.acheck_query,
-                    max_attempts=num_attempts,
-                    max_retry_delay=1,
-                    retryable_exceptions=(ClickHouseQueryNotFound,),
-                )
-
-                try:
-                    status = await check_query(str(query_id), raise_on_error=True)
-                    while status == ClickHouseQueryStatus.RUNNING:
-                        await asyncio.sleep(10)
-                        status = await check_query(str(query_id), raise_on_error=True)
-                except ClickHouseQueryNotFound:
-                    logger.exception(
-                        f"Query not found in query log after {num_attempts} attempts",
-                        query_id=str(query_id),
-                    )
-                    try:
-                        await client.acancel_query(str(query_id))
-                    except Exception as cancel_error:
-                        logger.warning("Failed to cancel query", query_id=str(query_id), error=str(cancel_error))
-                    raise
-
-            except Exception as e:
+                await _execute_query(client, query, query_parameters)
+            except ClickHouseError:
                 logger.exception(
-                    "Unexpected error occurred while writing record batches to internal S3 staging bucket",
-                    exc_info=e,
+                    "ClickHouse error occurred while writing record batches to internal S3 staging bucket",
                 )
                 raise
 
-            execution_time = time.monotonic() - start_time
-            logger.info("Query completed successfully", query_id=str(query_id), query_duration_seconds=execution_time)
+
+async def _execute_query(client: ClickHouseClient, query: str, query_parameters: dict[str, typing.Any]) -> None:
+    """Execute the batch exports query and wait for it to complete.
+
+    If the query takes longer than 300 seconds, we time out and wait for the query to complete by checking the query log
+    and process list.
+    If the query fails, we will raise an error.
+    """
+    query_id = uuid.uuid4()
+    logger = LOGGER.bind(query_id=str(query_id))
+    start_time = time.monotonic()
+    logger.info("Executing insert into internal stage query")
+    try:
+        await client.execute_query(query, query_parameters=query_parameters, query_id=str(query_id), timeout=300)
+    except ClickHouseClientTimeoutError:
+        logger.warning(
+            "Timed-out waiting for insert into S3. Will attempt to check query status and wait for completion",
+            timeout=300,
+        )
+        await _wait_for_query_completion(client, str(query_id))
+
+    execution_time = time.monotonic() - start_time
+    logger.info("Query completed successfully", query_duration_seconds=execution_time)
+
+
+async def _wait_for_query_completion(client: ClickHouseClient, query_id: str) -> None:
+    """Wait for the query to complete by checking the query log and process list.
+
+    If checking for the query status fails for some reason, we attempt to cancel the original query and raise an error.
+
+    Raises:
+        ClickHouseQueryNotFound: If the query is not found in the query log or process list after a number of retries.
+        ClickHouseCheckQueryStatusError: If an error occurs while checking the query status after a number of retries.
+        ClickHouseError: If the query were are trying to check has failed.
+    """
+    logger = LOGGER.bind(query_id=query_id)
+    num_attempts = 5
+    # Sometimes this check can fail, especially when ClickHouse is under heavy load, so we retry a few times
+    check_query = make_retryable_with_exponential_backoff(
+        client.acheck_query,
+        max_attempts=num_attempts,
+        max_retry_delay=1,
+        retryable_exceptions=(ClickHouseQueryNotFound, ClickHouseCheckQueryStatusError),
+    )
+
+    try:
+        status = await check_query(query_id, raise_on_error=True)
+        while status == ClickHouseQueryStatus.RUNNING:
+            await asyncio.sleep(10)
+            status = await check_query(query_id, raise_on_error=True)
+    except (ClickHouseQueryNotFound, ClickHouseCheckQueryStatusError):
+        logger.exception("Wait for query failed", num_attempts=num_attempts)
+        try:
+            await client.acancel_query(query_id)
+        except Exception:
+            logger.warning("Failed to cancel query", exc_info=True)
+        raise

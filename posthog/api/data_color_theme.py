@@ -1,5 +1,6 @@
 from django.db.models import Q
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.response import Response
@@ -66,6 +67,7 @@ class DataColorThemeSerializer(PublicDataColorThemeSerializer):
         return super().create(validated_data, *args, **kwargs)
 
 
+@extend_schema(tags=["dashboards"])
 class DataColorThemeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "project"
     queryset = DataColorTheme.objects.all().order_by("-created_at")

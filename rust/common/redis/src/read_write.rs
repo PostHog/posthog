@@ -345,6 +345,15 @@ impl Client for ReadWriteClient {
         }
     }
 
+    async fn set_bytes(
+        &self,
+        k: String,
+        v: Vec<u8>,
+        ttl_seconds: Option<u64>,
+    ) -> Result<(), CustomRedisError> {
+        self.writer.set_bytes(k, v, ttl_seconds).await
+    }
+
     async fn set(&self, k: String, v: String) -> Result<(), CustomRedisError> {
         self.writer.set(k, v).await
     }

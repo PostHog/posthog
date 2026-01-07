@@ -11,7 +11,6 @@ mock-client = ["common-s3/mock-client"]
 anyhow = { workspace = true }
 aws-config = { workspace = true }
 aws-sdk-s3 = { workspace = true }
-common-compression = { path = "../compression" }
 common-metrics = { path = "../metrics" }
 common-redis = { path = "../redis" }
 common-s3 = { path = "../s3" }

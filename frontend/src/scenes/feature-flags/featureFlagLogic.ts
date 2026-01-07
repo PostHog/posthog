@@ -46,6 +46,7 @@ import {
     Breadcrumb,
     CohortType,
     EarlyAccessFeatureType,
+    FeatureFlagBucketingIdentifier,
     FeatureFlagEvaluationRuntime,
     FeatureFlagGroupType,
     FeatureFlagStatusResponse,
@@ -115,6 +116,7 @@ export const NEW_FLAG: FeatureFlagType = {
     version: 0,
     last_modified_by: null,
     evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
+    bucketing_identifier: null,
     evaluation_tags: [],
     _should_create_usage_dashboard: true,
 }
@@ -355,6 +357,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setAccessDeniedToFeatureFlag: true,
         toggleFeatureFlagActive: (active: boolean) => ({ active }),
         submitFeatureFlagWithValidation: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
+        setBucketingIdentifier: (bucketingIdentifier: FeatureFlagBucketingIdentifier | null) => ({
+            bucketingIdentifier,
+        }),
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
@@ -440,6 +445,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     return {
                         ...state,
                         is_remote_configuration: enabled,
+                    }
+                },
+                setBucketingIdentifier: (state, { bucketingIdentifier }) => {
+                    if (!state) {
+                        return state
+                    }
+
+                    return {
+                        ...state,
+                        bucketing_identifier: bucketingIdentifier,
                     }
                 },
                 resetEncryptedPayload: (state) => {
