@@ -169,6 +169,7 @@ export const FEATURE_FLAGS = {
     CHRISTMAS_OVERRIDE: 'christmas-override', // owner: #team-growth, overrides the checks for Christmas to return true when this is enabled
 
     // Feature flags used to control opt-in for different behaviors, should not be removed
+    AI_UX: 'ai-ux-improvements', // owner: #team-platform-ux, small improvements to the ai experience
     CONTROL_SUPPORT_LOGIN: 'control_support_login', // owner: #team-security, used to control whether users can opt out of support impersonation
     AUDIT_LOGS_ACCESS: 'audit-logs-access', // owner: #team-platform-features, used to control access to audit logs
     CUSTOM_CSS_THEMES: 'custom-css-themes', // owner: #team-growth, used to enable custom CSS for teams who want to have fun
