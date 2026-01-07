@@ -1,8 +1,10 @@
 import { useMountedLogic, useValues } from 'kea'
+import { useMemo, useState } from 'react'
 
 import { IconCornerDownRight } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
 
+import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 
@@ -16,10 +18,186 @@ type NotebookNodePythonAttributes = {
     globalsAnalysisHash?: string | null
 }
 
+type PythonNodeSummary = {
+    nodeId: string
+    code: string
+    globalsUsed: string[]
+    pythonIndex: number
+}
+
+type VariableUsage = {
+    nodeId: string
+    pythonIndex: number
+    lineNumber: number
+    lineText: string
+}
+
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+const collectPythonNodes = (content?: JSONContent | null): PythonNodeSummary[] => {
+    if (!content || typeof content !== 'object') {
+        return []
+    }
+
+    const nodes: PythonNodeSummary[] = []
+
+    const walk = (node: any): void => {
+        if (!node || typeof node !== 'object') {
+            return
+        }
+        if (node.type === NotebookNodeType.Python) {
+            const attrs = node.attrs ?? {}
+            nodes.push({
+                nodeId: attrs.nodeId ?? '',
+                code: typeof attrs.code === 'string' ? attrs.code : '',
+                globalsUsed: Array.isArray(attrs.globalsUsed) ? attrs.globalsUsed : [],
+                pythonIndex: nodes.length + 1,
+            })
+        }
+        if (Array.isArray(node.content)) {
+            node.content.forEach(walk)
+        }
+    }
+
+    walk(content)
+    return nodes
+}
+
+const findVariableUsages = (code: string, variableName: string): { lineNumber: number; lineText: string }[] => {
+    if (!code) {
+        return []
+    }
+    const lines = code.split('\n')
+    const regex = new RegExp(`\\b${escapeRegExp(variableName)}\\b`)
+    return lines.flatMap((lineText, index) => {
+        if (regex.test(lineText)) {
+            return [{ lineNumber: index + 1, lineText }]
+        }
+        return []
+    })
+}
+
+const VariableUsageOverlay = ({
+    name,
+    type,
+    usages,
+}: {
+    name: string
+    type: string
+    usages: VariableUsage[]
+}): JSX.Element => {
+    const groupedUsages = usages.reduce<Record<string, { pythonIndex: number; lines: VariableUsage[] }>>(
+        (acc, usage) => {
+            if (!acc[usage.nodeId]) {
+                acc[usage.nodeId] = { pythonIndex: usage.pythonIndex, lines: [] }
+            }
+            acc[usage.nodeId].lines.push(usage)
+            return acc
+        },
+        {}
+    )
+
+    const groupedUsageEntries = Object.entries(groupedUsages)
+        .map(([, value]) => ({
+            pythonIndex: value.pythonIndex,
+            lines: value.lines.sort((a, b) => a.lineNumber - b.lineNumber),
+        }))
+        .sort((a, b) => a.pythonIndex - b.pythonIndex)
+
+    return (
+        <div className="p-2 text-xs max-w-[320px]">
+            <div className="flex items-center justify-between gap-2">
+                <span className="font-semibold text-default font-mono">{name}</span>
+                <span className="text-muted">Type: {type || 'unknown'}</span>
+            </div>
+            {groupedUsageEntries.length > 0 ? (
+                <div className="mt-2">
+                    <div className="text-muted text-[10px] uppercase tracking-wide">Used in</div>
+                    <div className="mt-1 space-y-2 max-h-48 overflow-y-auto">
+                        {groupedUsageEntries.map((usage) => (
+                            <div key={`usage-${usage.pythonIndex}`} className="space-y-1">
+                                <div className="text-muted">Python cell {usage.pythonIndex}</div>
+                                <div className="space-y-1">
+                                    {usage.lines.map((line) => (
+                                        <div key={`line-${usage.pythonIndex}-${line.lineNumber}`} className="font-mono">
+                                            <span className="text-muted mr-2">{line.lineNumber}.</span>
+                                            <code className="whitespace-pre-wrap text-default">{line.lineText}</code>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            ) : (
+                <div className="mt-2 text-muted">Not used in later cells.</div>
+            )}
+        </div>
+    )
+}
+
+const VariableDependencyBadge = ({
+    name,
+    type,
+    usages,
+}: {
+    name: string
+    type: string
+    usages: VariableUsage[]
+}): JSX.Element => {
+    const [popoverVisible, setPopoverVisible] = useState(false)
+    const isUsedDownstream = usages.length > 0
+
+    return (
+        <Popover
+            onClickOutside={() => setPopoverVisible(false)}
+            visible={popoverVisible}
+            placement="bottom-start"
+            overlay={<VariableUsageOverlay name={name} type={type} usages={usages} />}
+        >
+            <button
+                type="button"
+                onClick={() => setPopoverVisible((visible) => !visible)}
+                className="rounded border border-border px-1.5 py-0.5 text-xs font-mono bg-bg-light text-default hover:bg-bg-light/80 transition"
+            >
+                <span className={isUsedDownstream ? 'font-semibold' : undefined}>{name}</span>
+                {isUsedDownstream ? <span className="text-muted"> → {usages.length}</span> : null}
+            </button>
+        </Popover>
+    )
+}
+
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodePythonAttributes>): JSX.Element | null => {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
-    const { expanded } = useValues(nodeLogic)
+    const { expanded, notebookLogic } = useValues(nodeLogic)
+    const { content } = useValues(notebookLogic)
     const exportedGlobals = attributes.globalsExportedWithTypes ?? []
+
+    const pythonNodes = useMemo(() => collectPythonNodes(content), [content])
+    const currentNodeIndex = pythonNodes.findIndex((node) => node.nodeId === attributes.nodeId)
+    const downstreamNodes = currentNodeIndex >= 0 ? pythonNodes.slice(currentNodeIndex + 1) : []
+
+    const usageByVariable = useMemo(() => {
+        const usageMap: Record<string, VariableUsage[]> = {}
+
+        exportedGlobals.forEach(({ name }) => {
+            const usages = downstreamNodes.flatMap((node) => {
+                if (!node.globalsUsed.includes(name)) {
+                    return []
+                }
+                return findVariableUsages(node.code, name).map((line) => ({
+                    nodeId: node.nodeId,
+                    pythonIndex: node.pythonIndex,
+                    lineNumber: line.lineNumber,
+                    lineText: line.lineText,
+                }))
+            })
+
+            usageMap[name] = usages
+        })
+
+        return usageMap
+    }, [downstreamNodes, exportedGlobals])
 
     if (!expanded) {
         return null
@@ -37,11 +215,12 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePythonAttribute
                     </span>
                     <div className="flex flex-wrap gap-1">
                         {exportedGlobals.map(({ name, type }) => (
-                            <Tooltip key={name} title={`Type: ${type || 'unknown'}`}>
-                                <span className="rounded border border-border px-1.5 py-0.5 text-xs font-mono bg-bg-light text-default">
-                                    {name}
-                                </span>
-                            </Tooltip>
+                            <VariableDependencyBadge
+                                key={name}
+                                name={name}
+                                type={type}
+                                usages={usageByVariable[name] ?? []}
+                            />
                         ))}
                     </div>
                 </div>
