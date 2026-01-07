@@ -48,6 +48,40 @@ const DEFAULT_SEVERITY_LEVELS = [] as LogsQuery['severityLevels']
 
 const isValidSeverityLevel = (level: string): level is LogSeverityLevel =>
     VALID_SEVERITY_LEVELS.includes(level as LogSeverityLevel)
+
+const hashString = (str: string): number => {
+    let hash = 0
+    for (let i = 0; i < str.length; i++) {
+        hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0
+    }
+    return Math.abs(hash)
+}
+
+const getServiceColors = (names: string[], colorVars: readonly string[]): Map<string, string> => {
+    const colorCount = colorVars.length
+    const serviceNames = names.filter((n) => n !== 'Other')
+
+    const withPreference = serviceNames
+        .map((name) => ({ name, preferred: hashString(name) % colorCount }))
+        .sort((a, b) => a.preferred - b.preferred || a.name.localeCompare(b.name))
+
+    const usedIndices = new Set<number>()
+    const colorMap = new Map<string, string>()
+
+    for (const { name, preferred } of withPreference) {
+        let index = preferred
+        let attempts = 0
+        while (usedIndices.has(index) && attempts < colorCount) {
+            index = (index + 1) % colorCount
+            attempts++
+        }
+        usedIndices.add(index)
+        colorMap.set(name, colorVars[index])
+    }
+
+    colorMap.set('Other', 'muted')
+    return colorMap
+}
 const DEFAULT_SERVICE_NAMES = [] as LogsQuery['serviceNames']
 const DEFAULT_HIGHLIGHTED_LOG_ID = null as string | null
 const DEFAULT_ORDER_BY = 'latest' as LogsQuery['orderBy']
@@ -669,14 +703,15 @@ export const logsLogic = kea<logsLogicType>([
                     {} as Record<string, number[]>
                 )
 
+                const serviceColorMap = getServiceColors(Object.keys(accumulated), dataColorVars)
+
                 const data = Object.entries(accumulated)
-                    .sort(([a], [b]) => a.localeCompare(b))
-                    .map(([name, values], index) => ({
+                    .map(([name, values]) => ({
                         name,
                         values: values as number[],
                         color:
                             sparklineBreakdownBy === 'service'
-                                ? dataColorVars[index % dataColorVars.length]
+                                ? serviceColorMap.get(name) || 'muted'
                                 : {
                                       fatal: 'danger-dark',
                                       error: 'danger',
