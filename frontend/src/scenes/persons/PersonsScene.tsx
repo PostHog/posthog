@@ -16,7 +16,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { OnboardingStepKey } from '~/types'
+import { CustomerProfileScope, OnboardingStepKey } from '~/types'
 
 import { FeedbackBanner } from 'products/customer_analytics/frontend/components/FeedbackBanner'
 import { customerProfileConfigLogic } from 'products/customer_analytics/frontend/customerProfileConfigLogic'
@@ -42,7 +42,7 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
     const { setQuery } = useActions(personsSceneLogic)
     const { resetDeletedDistinctId } = useAsyncActions(personsSceneLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { loadConfigs } = useActions(customerProfileConfigLogic({ scope: 'person' }))
+    const { loadConfigs } = useActions(customerProfileConfigLogic({ scope: CustomerProfileScope.PERSON }))
 
     useOnMountEffect(() => {
         loadConfigs()

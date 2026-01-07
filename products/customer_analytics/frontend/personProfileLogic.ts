@@ -187,7 +187,7 @@ export const personProfileLogic = kea<personProfileLogicType>([
             }
 
             const config = {
-                scope: 'person' as const,
+                scope: CustomerProfileScope.PERSON,
                 content: values.profileLocalContent.map((node) => ({
                     type: node.type,
                     title: node.attrs?.title || node.title,
