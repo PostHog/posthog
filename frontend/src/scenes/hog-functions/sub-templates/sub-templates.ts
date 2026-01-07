@@ -462,7 +462,12 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Posts a message to Discord when an issue is spiking',
             inputs: {
                 content: {
-                    value: '**📈 {event.properties.name} spiking:** {event.properties.description}',
+                    value: `**📈 Issue spiking: {event.properties.name}**
+
+{event.properties.description}
+
+**View issue:** {project.url}/error_tracking/{event.distinct_id}
+**Project:** {project.name}`,
                 },
             },
         },
@@ -483,7 +488,6 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                         {
                             type: 'context',
                             elements: [
-                                { type: 'plain_text', text: 'Status: {event.properties.status}' },
                                 { type: 'mrkdwn', text: 'Project: <{project.url}|{project.name}>' },
                                 { type: 'mrkdwn', text: 'Alert: <{source.url}|{source.name}>' },
                             ],
@@ -493,7 +497,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             type: 'actions',
                             elements: [
                                 {
-                                    url: '{project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}',
+                                    url: '{project.url}/error_tracking/{event.distinct_id}',
                                     text: { text: 'View Issue', type: 'plain_text' },
                                     type: 'button',
                                 },
