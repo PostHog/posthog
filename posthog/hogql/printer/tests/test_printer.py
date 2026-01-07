@@ -2722,7 +2722,7 @@ class TestPrinter(BaseTest):
     def test_can_call_parametric_function_from_placeholder(self):
         printed = self._print("SELECT arrayReduce({f}, [1, 2, 3])", placeholders={"f": ast.Constant(value="sum")})
         assert printed == (
-            "SELECT arrayReduce(%(hogql_val_0)s, [1, 2, 3]) AS `arrayReduce('sum', [1, 2, " "3])` LIMIT 50000"
+            "SELECT arrayReduce(%(hogql_val_0)s, [1, 2, 3]) AS `arrayReduce('sum', [1, 2, 3])` LIMIT 50000"
         )
 
     def test_fails_on_parametric_function_with_no_arguments(self):
