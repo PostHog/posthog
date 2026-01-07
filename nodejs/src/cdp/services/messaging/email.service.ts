@@ -143,7 +143,8 @@ export class EmailService {
             : htmlWithTracking
 
         const sendEmailParams: AWS.SES.SendEmailRequest = {
-            Source: params.from.name ? `"${params.from.name}" <${params.from.email}>` : params.from.email,
+            Source: params.from.email,
+            ReturnPath: params.from.email,
             Destination: {
                 ToAddresses: [params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email],
             },
