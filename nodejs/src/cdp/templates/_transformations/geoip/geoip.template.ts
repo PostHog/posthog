@@ -35,7 +35,8 @@ if (event.properties?.$geoip_disable or empty(event.properties?.$ip)) {
     return event
 }
 let ip := event.properties.$ip
-if (ip == '127.0.0.1') {
+// Check for localhost and common private network IPs
+if (ip == '127.0.0.1' or substring(ip, 1, 8) == '192.168.') {
     print('spoofing ip for local development', ip)
     ip := '89.160.20.129'
 }
