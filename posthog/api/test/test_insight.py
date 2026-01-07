@@ -80,6 +80,21 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         super().setUp()
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
 
+    @parameterized.expand(
+        [
+            ("trend", "/api/projects/{team_id}/insights/trend/"),
+            ("funnel", "/api/projects/{team_id}/insights/funnel/"),
+        ]
+    )
+    def test_legacy_insight_endpoints_blocked_with_feature_flag(self, _name: str, path: str) -> None:
+        with patch("posthog.api.insight.posthoganalytics.feature_enabled", return_value=True) as mock_feature_enabled:
+            response = self.client.get(path.format(team_id=self.team.id))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["detail"], "Legacy insight endpoints are not available for this user.")
+        mock_feature_enabled.assert_called_once()
+        self.assertEqual(mock_feature_enabled.call_args[0][0], "legacy-insight-endpoints-disabled")
+
     def test_get_insight_items(self) -> None:
         filter_dict = {
             "events": [{"id": "$pageview"}],
