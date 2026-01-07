@@ -146,7 +146,7 @@ jobs:
                   path: dist
 
             - name: Publish package to PyPI
-              uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc # release/v1
+              uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # v1.13.0
 
             # Use GitHub app token so Actions run after commiting changes
             - name: Get app token
