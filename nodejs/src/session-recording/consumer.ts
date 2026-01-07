@@ -20,6 +20,7 @@ import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restr
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { PromiseScheduler } from '../utils/promise-scheduler'
+import { Limiter } from '../utils/token-bucket'
 import { captureIngestionWarning } from '../worker/ingestion/utils'
 import {
     KAFKA_CONSUMER_GROUP_ID,
@@ -208,6 +209,10 @@ export class SessionRecordingIngester {
             : new BlackholeSessionBatchFileStorage()
 
         const sessionTracker = new SessionTracker(this.redisPool)
+        const sessionLimiter = new Limiter(
+            this.hub.SESSION_RECORDING_NEW_SESSION_BUCKET_CAPACITY,
+            this.hub.SESSION_RECORDING_NEW_SESSION_BUCKET_REPLENISH_RATE
+        )
 
         this.sessionBatchManager = new SessionBatchManager({
             maxBatchSizeBytes: this.hub.SESSION_RECORDING_MAX_BATCH_SIZE_KB * 1024,
@@ -218,6 +223,7 @@ export class SessionRecordingIngester {
             metadataStore,
             consoleLogStore,
             sessionTracker,
+            sessionLimiter,
             sessionRateLimitEnabled: this.hub.SESSION_RECORDING_NEW_SESSION_RATE_LIMIT_ENABLED,
         })
     }

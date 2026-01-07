@@ -2,7 +2,7 @@ import { DateTime } from 'luxon'
 import { validate as uuidValidate } from 'uuid'
 
 import { parseJSON } from '../../utils/json-parse'
-import { NewSessionLimiter } from '../../utils/token-bucket'
+import { Limiter } from '../../utils/token-bucket'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { ParsedMessageData, SnapshotEvent } from '../kafka/types'
 import { MessageWithTeam } from '../teams/types'
@@ -134,12 +134,6 @@ jest.mock('./metrics', () => ({
     },
 }))
 
-jest.mock('../../utils/token-bucket', () => ({
-    NewSessionLimiter: {
-        consume: jest.fn().mockReturnValue(true),
-    },
-}))
-
 jest.mock('./blackhole-session-batch-writer')
 jest.mock('./snappy-session-recorder', () => ({
     SnappySessionRecorder: jest
@@ -158,6 +152,7 @@ describe('SessionBatchRecorder', () => {
     let mockMetadataStore: jest.Mocked<SessionMetadataStore>
     let mockConsoleLogStore: jest.Mocked<SessionConsoleLogStore>
     let mockSessionTracker: jest.Mocked<SessionTracker>
+    let mockSessionLimiter: jest.Mocked<Limiter>
 
     beforeEach(() => {
         jest.clearAllMocks()
@@ -198,12 +193,17 @@ describe('SessionBatchRecorder', () => {
             trackSession: jest.fn().mockResolvedValue(false),
         } as unknown as jest.Mocked<SessionTracker>
 
+        mockSessionLimiter = {
+            consume: jest.fn().mockReturnValue(true),
+        } as unknown as jest.Mocked<Limiter>
+
         recorder = new SessionBatchRecorder(
             mockOffsetManager,
             mockStorage,
             mockMetadataStore,
             mockConsoleLogStore,
             mockSessionTracker,
+            mockSessionLimiter,
             Number.MAX_SAFE_INTEGER
         )
     })
@@ -1424,6 +1424,7 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockSessionTracker,
+                mockSessionLimiter,
                 Number.MAX_SAFE_INTEGER
             )
             await recorder.record(message)
@@ -1623,6 +1624,7 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockSessionTracker,
+                mockSessionLimiter,
                 3
             )
 
@@ -1649,6 +1651,7 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockSessionTracker,
+                mockSessionLimiter,
                 2
             )
 
@@ -1678,6 +1681,7 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockSessionTracker,
+                mockSessionLimiter,
                 1
             )
 
@@ -1700,6 +1704,7 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockSessionTracker,
+                mockSessionLimiter,
                 1
             )
 
@@ -1725,6 +1730,7 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockSessionTracker,
+                mockSessionLimiter,
                 2
             )
 
@@ -1760,6 +1766,7 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockSessionTracker,
+                mockSessionLimiter,
                 2
             )
 
@@ -1795,6 +1802,7 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockSessionTracker,
+                mockSessionLimiter,
                 1
             )
 
@@ -1824,6 +1832,7 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockSessionTracker,
+                mockSessionLimiter,
                 1
             )
 
@@ -1855,6 +1864,7 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockSessionTracker,
+                mockSessionLimiter,
                 2
             )
 
@@ -1883,6 +1893,7 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockSessionTracker,
+                mockSessionLimiter,
                 1
             )
 
@@ -1910,6 +1921,7 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockSessionTracker,
+                mockSessionLimiter,
                 1
             )
 
@@ -1938,6 +1950,7 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockSessionTracker,
+                mockSessionLimiter,
                 1
             )
 
@@ -1973,8 +1986,8 @@ describe('SessionBatchRecorder', () => {
 
         beforeEach(() => {
             jest.clearAllMocks()
-            // Reset NewSessionLimiter mock to default (allow all)
-            jest.mocked(NewSessionLimiter.consume).mockReturnValue(true)
+            // Reset mock limiter to default (allow all)
+            mockSessionLimiter.consume.mockReturnValue(true)
 
             // Create a recorder with rate limiting enabled
             recorder = new SessionBatchRecorder(
@@ -1983,6 +1996,7 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockSessionTracker,
+                mockSessionLimiter,
                 Number.MAX_SAFE_INTEGER,
                 true // sessionRateLimitEnabled = true
             )
@@ -1993,7 +2007,7 @@ describe('SessionBatchRecorder', () => {
             mockSessionTracker.trackSession.mockResolvedValue(true)
 
             // Make limiter deny the new session
-            jest.mocked(NewSessionLimiter.consume).mockReturnValue(false)
+            mockSessionLimiter.consume.mockReturnValue(false)
 
             const message = createMessage('session1', [
                 { type: EventType.FullSnapshot, timestamp: 1000, data: { source: 1 } },
@@ -2008,7 +2022,7 @@ describe('SessionBatchRecorder', () => {
         it('should track offset when new session is rate limited and rate limiting is enabled', async () => {
             mockSessionTracker.trackSession.mockResolvedValue(true)
 
-            jest.mocked(NewSessionLimiter.consume).mockReturnValue(false)
+            mockSessionLimiter.consume.mockReturnValue(false)
 
             const message = createMessage(
                 'session1',
@@ -2024,7 +2038,7 @@ describe('SessionBatchRecorder', () => {
         it('should increment new sessions rate limited metric', async () => {
             mockSessionTracker.trackSession.mockResolvedValue(true)
 
-            jest.mocked(NewSessionLimiter.consume).mockReturnValue(false)
+            mockSessionLimiter.consume.mockReturnValue(false)
 
             const message = createMessage('session1', [
                 { type: EventType.FullSnapshot, timestamp: 1000, data: { source: 1 } },
@@ -2038,7 +2052,7 @@ describe('SessionBatchRecorder', () => {
         it('should allow new session when limiter allows', async () => {
             mockSessionTracker.trackSession.mockResolvedValue(true)
 
-            jest.mocked(NewSessionLimiter.consume).mockReturnValue(true)
+            mockSessionLimiter.consume.mockReturnValue(true)
 
             const message = createMessage('session1', [
                 { type: EventType.FullSnapshot, timestamp: 1000, data: { source: 1 } },
@@ -2061,7 +2075,7 @@ describe('SessionBatchRecorder', () => {
 
             await recorder.record(message)
 
-            expect(NewSessionLimiter.consume).toHaveBeenCalledWith('42', 1)
+            expect(mockSessionLimiter.consume).toHaveBeenCalledWith('42', 1)
         })
 
         it('should consume 0 tokens when session is not new', async () => {
@@ -2075,7 +2089,7 @@ describe('SessionBatchRecorder', () => {
             await recorder.record(message)
 
             // Limiter is called with 0 tokens for existing sessions
-            expect(NewSessionLimiter.consume).toHaveBeenCalledWith('1', 0)
+            expect(mockSessionLimiter.consume).toHaveBeenCalledWith('1', 0)
         })
 
         describe('rate limiting disabled (metrics only)', () => {
@@ -2088,6 +2102,7 @@ describe('SessionBatchRecorder', () => {
                     mockMetadataStore,
                     mockConsoleLogStore,
                     mockSessionTracker,
+                    mockSessionLimiter,
                     Number.MAX_SAFE_INTEGER,
                     false // sessionRateLimitEnabled = false
                 )
@@ -2095,7 +2110,7 @@ describe('SessionBatchRecorder', () => {
 
             it('should process message when rate limited but rate limiting is disabled', async () => {
                 mockSessionTracker.trackSession.mockResolvedValue(true)
-                jest.mocked(NewSessionLimiter.consume).mockReturnValue(false)
+                mockSessionLimiter.consume.mockReturnValue(false)
 
                 const message = createMessage('session1', [
                     { type: EventType.FullSnapshot, timestamp: 1000, data: { source: 1 } },
@@ -2109,7 +2124,7 @@ describe('SessionBatchRecorder', () => {
 
             it('should still increment rate limited metric when rate limiting is disabled', async () => {
                 mockSessionTracker.trackSession.mockResolvedValue(true)
-                jest.mocked(NewSessionLimiter.consume).mockReturnValue(false)
+                mockSessionLimiter.consume.mockReturnValue(false)
 
                 const message = createMessage('session1', [
                     { type: EventType.FullSnapshot, timestamp: 1000, data: { source: 1 } },
@@ -2122,7 +2137,7 @@ describe('SessionBatchRecorder', () => {
 
             it('should not track offset early when rate limiting is disabled', async () => {
                 mockSessionTracker.trackSession.mockResolvedValue(true)
-                jest.mocked(NewSessionLimiter.consume).mockReturnValue(false)
+                mockSessionLimiter.consume.mockReturnValue(false)
 
                 const message = createMessage(
                     'session1',

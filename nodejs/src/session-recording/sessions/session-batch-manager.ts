@@ -1,4 +1,5 @@
 import { logger } from '../../utils/logger'
+import { Limiter } from '../../utils/token-bucket'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { SessionBatchFileStorage } from './session-batch-file-storage'
 import { SessionBatchRecorder } from './session-batch-recorder'
@@ -23,6 +24,8 @@ export interface SessionBatchManagerConfig {
     consoleLogStore: SessionConsoleLogStore
     /** Session tracker for new session detection */
     sessionTracker: SessionTracker
+    /** Token bucket limiter for new session rate limiting */
+    sessionLimiter: Limiter
     /** When true, rate limiting will drop messages that exceed the limit */
     sessionRateLimitEnabled: boolean
 }
@@ -72,6 +75,7 @@ export class SessionBatchManager {
     private readonly consoleLogStore: SessionConsoleLogStore
     private lastFlushTime: number
     private readonly sessionTracker: SessionTracker
+    private readonly sessionLimiter: Limiter
     private readonly sessionRateLimitEnabled: boolean
 
     constructor(config: SessionBatchManagerConfig) {
@@ -83,6 +87,7 @@ export class SessionBatchManager {
         this.metadataStore = config.metadataStore
         this.consoleLogStore = config.consoleLogStore
         this.sessionTracker = config.sessionTracker
+        this.sessionLimiter = config.sessionLimiter
         this.sessionRateLimitEnabled = config.sessionRateLimitEnabled
 
         this.currentBatch = new SessionBatchRecorder(
@@ -91,6 +96,7 @@ export class SessionBatchManager {
             this.metadataStore,
             this.consoleLogStore,
             this.sessionTracker,
+            this.sessionLimiter,
             this.maxEventsPerSessionPerBatch,
             this.sessionRateLimitEnabled
         )
@@ -116,6 +122,7 @@ export class SessionBatchManager {
             this.metadataStore,
             this.consoleLogStore,
             this.sessionTracker,
+            this.sessionLimiter,
             this.maxEventsPerSessionPerBatch,
             this.sessionRateLimitEnabled
         )

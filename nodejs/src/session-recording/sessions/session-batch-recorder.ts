@@ -1,7 +1,7 @@
 import { v7 as uuidv7 } from 'uuid'
 
 import { logger } from '../../utils/logger'
-import { NewSessionLimiter } from '../../utils/token-bucket'
+import { Limiter } from '../../utils/token-bucket'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { MessageWithTeam } from '../teams/types'
 import { SessionBatchMetrics } from './metrics'
@@ -74,6 +74,7 @@ export class SessionBatchRecorder {
         private readonly metadataStore: SessionMetadataStore,
         private readonly consoleLogStore: SessionConsoleLogStore,
         private readonly sessionTracker: SessionTracker,
+        private readonly sessionLimiter: Limiter,
         maxEventsPerSessionPerBatch: number = Number.MAX_SAFE_INTEGER,
         sessionRateLimitEnabled: boolean = false
     ) {
@@ -97,7 +98,7 @@ export class SessionBatchRecorder {
 
         // Check if this is a new session and whether it should be rate limited
         const isNewSession = await this.sessionTracker.trackSession(teamId, sessionId)
-        const isAllowed = NewSessionLimiter.consume(String(teamId), isNewSession ? 1 : 0)
+        const isAllowed = this.sessionLimiter.consume(String(teamId), isNewSession ? 1 : 0)
 
         if (!isAllowed) {
             logger.debug('🔁', 'session_batch_recorder_new_session_rate_limited', {

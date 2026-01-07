@@ -1,3 +1,4 @@
+import { Limiter } from '../../utils/token-bucket'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch-file-storage'
 import { SessionBatchManager } from './session-batch-manager'
@@ -18,6 +19,7 @@ describe('SessionBatchManager', () => {
     let mockMetadataStore: jest.Mocked<SessionMetadataStore>
     let mockConsoleLogStore: jest.Mocked<SessionConsoleLogStore>
     let mockSessionTracker: jest.Mocked<SessionTracker>
+    let mockSessionLimiter: jest.Mocked<Limiter>
 
     const createMockBatch = (): jest.Mocked<SessionBatchRecorder> =>
         ({
@@ -62,6 +64,10 @@ describe('SessionBatchManager', () => {
             trackSession: jest.fn().mockResolvedValue(false),
         } as unknown as jest.Mocked<SessionTracker>
 
+        mockSessionLimiter = {
+            consume: jest.fn().mockReturnValue(true),
+        } as unknown as jest.Mocked<Limiter>
+
         manager = new SessionBatchManager({
             maxBatchSizeBytes: 100,
             maxBatchAgeMs: 1000,
@@ -71,6 +77,7 @@ describe('SessionBatchManager', () => {
             metadataStore: mockMetadataStore,
             consoleLogStore: mockConsoleLogStore,
             sessionTracker: mockSessionTracker,
+            sessionLimiter: mockSessionLimiter,
             sessionRateLimitEnabled: false,
         })
     })
@@ -90,6 +97,7 @@ describe('SessionBatchManager', () => {
             mockMetadataStore,
             mockConsoleLogStore,
             mockSessionTracker,
+            mockSessionLimiter,
             Number.MAX_SAFE_INTEGER,
             false
         )
@@ -170,6 +178,7 @@ describe('SessionBatchManager', () => {
                 metadataStore: mockMetadataStore,
                 consoleLogStore: mockConsoleLogStore,
                 sessionTracker: mockSessionTracker,
+                sessionLimiter: mockSessionLimiter,
                 sessionRateLimitEnabled: false,
             })
 
@@ -179,6 +188,7 @@ describe('SessionBatchManager', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockSessionTracker,
+                mockSessionLimiter,
                 500,
                 false
             )
@@ -194,6 +204,7 @@ describe('SessionBatchManager', () => {
                 metadataStore: mockMetadataStore,
                 consoleLogStore: mockConsoleLogStore,
                 sessionTracker: mockSessionTracker,
+                sessionLimiter: mockSessionLimiter,
                 sessionRateLimitEnabled: false,
             })
 
@@ -205,6 +216,7 @@ describe('SessionBatchManager', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockSessionTracker,
+                mockSessionLimiter,
                 250,
                 false
             )
@@ -220,6 +232,7 @@ describe('SessionBatchManager', () => {
                 metadataStore: mockMetadataStore,
                 consoleLogStore: mockConsoleLogStore,
                 sessionTracker: mockSessionTracker,
+                sessionLimiter: mockSessionLimiter,
                 sessionRateLimitEnabled: false,
             })
 
@@ -229,6 +242,7 @@ describe('SessionBatchManager', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockSessionTracker,
+                mockSessionLimiter,
                 0,
                 false
             )
@@ -244,6 +258,7 @@ describe('SessionBatchManager', () => {
                 metadataStore: mockMetadataStore,
                 consoleLogStore: mockConsoleLogStore,
                 sessionTracker: mockSessionTracker,
+                sessionLimiter: mockSessionLimiter,
                 sessionRateLimitEnabled: false,
             })
 
@@ -253,6 +268,7 @@ describe('SessionBatchManager', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockSessionTracker,
+                mockSessionLimiter,
                 Number.MAX_SAFE_INTEGER,
                 false
             )

@@ -27,6 +27,7 @@ import { DateTime } from 'luxon'
 import snappy from 'snappy'
 
 import { parseJSON } from '../../utils/json-parse'
+import { Limiter } from '../../utils/token-bucket'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { MessageWithTeam } from '../teams/types'
 import { SessionBatchFileStorage, SessionBatchFileWriter, WriteSessionData } from './session-batch-file-storage'
@@ -48,6 +49,7 @@ describe('session recording integration', () => {
     let mockStorage: jest.Mocked<SessionBatchFileStorage>
     let mockWriter: jest.Mocked<SessionBatchFileWriter>
     let mockMetadataStore: jest.Mocked<SessionMetadataStore>
+    let mockSessionLimiter: jest.Mocked<Limiter>
     let mockConsoleLogStore: jest.Mocked<SessionConsoleLogStore>
     let mockSessionTracker: jest.Mocked<SessionTracker>
     let batchBuffer: Uint8Array
@@ -99,12 +101,17 @@ describe('session recording integration', () => {
             trackSession: jest.fn().mockResolvedValue(false),
         } as unknown as jest.Mocked<SessionTracker>
 
+        mockSessionLimiter = {
+            consume: jest.fn().mockReturnValue(true),
+        } as unknown as jest.Mocked<Limiter>
+
         recorder = new SessionBatchRecorder(
             mockOffsetManager,
             mockStorage,
             mockMetadataStore,
             mockConsoleLogStore,
-            mockSessionTracker
+            mockSessionTracker,
+            mockSessionLimiter
         )
     })
 

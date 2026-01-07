@@ -75,8 +75,3 @@ export const ConfiguredLimiter: Limiter = new Limiter(
 export const IngestionWarningLimiter: Limiter = new Limiter(1, 1.0 / 3600)
 
 export const LoggingLimiter: Limiter = new Limiter(1, 1.0 / 60)
-
-export const NewSessionLimiter: Limiter = new Limiter(
-    defaultConfig.SESSION_RECORDING_NEW_SESSION_BUCKET_CAPACITY,
-    defaultConfig.SESSION_RECORDING_NEW_SESSION_BUCKET_REPLENISH_RATE
-)

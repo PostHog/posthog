@@ -1,11 +1,14 @@
 import { logger } from '../../utils/logger'
-import { NewSessionLimiter } from '../../utils/token-bucket'
+import { Limiter } from '../../utils/token-bucket'
 import { MessageWithTeam } from '../teams/types'
 import { SessionBatchMetrics } from './metrics'
 import { SessionTracker } from './session-tracker'
 
 export class SessionFilter {
-    constructor(private readonly sessionTracker: SessionTracker) {}
+    constructor(
+        private readonly sessionTracker: SessionTracker,
+        private readonly sessionLimiter: Limiter
+    ) {}
 
     public async filterBatch(messages: MessageWithTeam[]): Promise<MessageWithTeam[]> {
         // First pass: identify which sessions are rate limited
@@ -24,7 +27,7 @@ export class SessionFilter {
             const isNewSession = await this.sessionTracker.trackSession(teamId, sessionId)
 
             if (isNewSession) {
-                const isAllowed = NewSessionLimiter.consume(String(teamId), 1)
+                const isAllowed = this.sessionLimiter.consume(String(teamId), 1)
                 if (!isAllowed) {
                     rateLimitedSessions.add(sessionKey)
                     SessionBatchMetrics.incrementNewSessionsRateLimited()
