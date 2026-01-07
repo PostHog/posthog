@@ -1145,12 +1145,11 @@ class HogQLPrinter(Visitor[str]):
                 if isinstance(type.table_type, ast.VirtualTableType):
                     return self.visit(ast.AsteriskType(table_type=ast.TableType(table=resolved_field)))
                 else:
-                    assert isinstance(type.table_type, ast.TableAliasType)
                     return self.visit(
                         ast.AsteriskType(
                             table_type=ast.TableAliasType(
                                 table_type=ast.TableType(table=resolved_field),
-                                alias=type.table_type.alias,
+                                alias=cast(ast.Alias, type.table_type).alias,
                             )
                         )
                     )
