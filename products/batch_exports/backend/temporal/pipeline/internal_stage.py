@@ -564,14 +564,14 @@ async def _wait_for_query_completion(client: ClickHouseClient, query_id: str) ->
     )
 
     try:
-        status = await check_query(str(query_id), raise_on_error=True)
+        status = await check_query(query_id, raise_on_error=True)
         while status == ClickHouseQueryStatus.RUNNING:
             await asyncio.sleep(10)
-            status = await check_query(str(query_id), raise_on_error=True)
+            status = await check_query(query_id, raise_on_error=True)
     except (ClickHouseQueryNotFound, ClickHouseCheckQueryStatusError):
         logger.exception("Wait for query failed", num_attempts=num_attempts)
         try:
-            await client.acancel_query(str(query_id))
+            await client.acancel_query(query_id)
         except Exception:
             logger.warning("Failed to cancel query", exc_info=True)
         raise
