@@ -1443,8 +1443,8 @@ def insert_cohort_actors_into_ch(cohort: Cohort, existing_cohort_id: int, team_i
             "from_cohort_id": existing_cohort.pk,
             "version": existing_cohort.version,
         }
-    filter_data = {"from_cohort_id": existing_cohort_id}
-    context = Filter(data={{filter_data}}, team=cohort.team).hogql_context
+    context = HogQLContext(within_non_hogql_query=True, team_id=cohort.team.pk, team=cohort.team)
+    context.modifiers.personsOnEventsMode = cohort.team.person_on_events_mode
 
     insert_actors_into_cohort_by_query(cohort, query, params, context, team_id=team_id)
 
