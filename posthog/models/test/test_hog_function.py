@@ -327,6 +327,87 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
         transformations = HogFunction.objects.filter(team=team, type="transformation")
         assert transformations.count() == 0
 
+    @patch("posthog.plugins.plugin_server_api.get_hog_function_templates")
+    def test_geoip_transformation_fallback_when_sync_fails(self, mock_get_templates):
+        # Mock sync failure
+        mock_get_templates.side_effect = Exception("Network error")
+
+        with self.settings(DISABLE_MMDB=False):
+            team = Team.objects.create_with_data(
+                organization=self.org, name="Test Team Fallback", initiating_user=self.user
+            )
+
+        # Should have created using fallback method
+        transformations = HogFunction.objects.filter(team=team, type="transformation")
+        assert transformations.count() == 1
+        geoip = transformations.first()
+        assert geoip
+        assert geoip.name == "GeoIP"
+        assert geoip.description == "Enrich events with GeoIP data"
+        assert geoip.icon_url == "/static/transformations/geoip.png"
+        assert geoip.enabled
+        assert geoip.execution_order == 1
+        assert geoip.template_id == "plugin-posthog-plugin-geoip"  # Old plugin template ID
+        assert geoip.hog == "return event"  # Simple hog code for fallback
+
+    @patch("posthog.plugins.plugin_server_api.get_hog_function_templates")
+    def test_geoip_transformation_fallback_when_template_not_found(self, mock_get_templates):
+        # Mock empty response (no templates)
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = []
+        mock_get_templates.return_value = mock_response
+
+        with self.settings(DISABLE_MMDB=False):
+            team = Team.objects.create_with_data(
+                organization=self.org, name="Test Team No Template", initiating_user=self.user
+            )
+
+        # Should have created using fallback method
+        transformations = HogFunction.objects.filter(team=team, type="transformation")
+        assert transformations.count() == 1
+        geoip = transformations.first()
+        assert geoip
+        assert geoip.name == "GeoIP"
+        assert geoip.description == "Enrich events with GeoIP data"
+        assert geoip.template_id == "plugin-posthog-plugin-geoip"
+
+    @patch("posthog.plugins.plugin_server_api.get_hog_function_templates")
+    def test_geoip_transformation_fallback_when_hog_code_invalid(self, mock_get_templates):
+        # Mock template with invalid Hog code that will fail validation
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = [
+            {
+                "id": "template-geoip",
+                "name": "GeoIP",
+                "description": "Adds geoip data to the event",
+                "type": "transformation",
+                "code": "invalid {{ hog code that will fail",  # Invalid code
+                "inputs_schema": [],
+                "status": "stable",
+                "free": True,
+                "category": ["Custom"],
+                "code_language": "hog",
+                "icon_url": "/static/transformations/geoip.png",
+            }
+        ]
+        mock_get_templates.return_value = mock_response
+
+        with self.settings(DISABLE_MMDB=False):
+            team = Team.objects.create_with_data(
+                organization=self.org, name="Test Team Invalid Code", initiating_user=self.user
+            )
+
+        # Should have created using fallback method due to validation failure
+        transformations = HogFunction.objects.filter(team=team, type="transformation")
+        assert transformations.count() == 1
+        geoip = transformations.first()
+        assert geoip
+        assert geoip.name == "GeoIP"
+        assert geoip.template_id == "plugin-posthog-plugin-geoip"  # Fallback template
+        assert geoip.hog == "return event"  # Simple valid code
+
     def test_hog_function_file_system(self):
         hog_function_3 = HogFunction.objects.create(
             name="func 3",

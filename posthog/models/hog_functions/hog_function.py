@@ -9,6 +9,7 @@ from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
 
 import structlog
+from prometheus_client import Counter
 
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.action.action import Action
@@ -32,6 +33,19 @@ if TYPE_CHECKING:
 DEFAULT_STATE = {"state": 0, "tokens": 0}
 
 logger = structlog.get_logger(__name__)
+
+# Metrics
+GEOIP_CREATION_FAILED_COUNTER = Counter(
+    "posthog_geoip_transformation_creation_failed_total",
+    "Number of times GeoIP transformation creation failed for new teams",
+    labelnames=["failure_reason"],
+)
+
+GEOIP_CREATION_COUNTER = Counter(
+    "posthog_geoip_transformation_creation_total",
+    "Number of GeoIP transformations created for new teams",
+    labelnames=["creation_method"],
+)
 
 
 class HogFunctionState(enum.Enum):
@@ -272,16 +286,52 @@ def team_inject_web_apps_changd(sender, instance, created=None, **kwargs):
         sync_team_inject_web_apps(instance.team)
 
 
+def _create_geoip_transformation_fallback(team: Team, initiating_user=None) -> Optional[HogFunction]:
+    """
+    Fallback method to create GeoIP transformation using the old plugin-based approach.
+    Used when the template-based approach fails.
+    """
+    try:
+        hog_function = HogFunction.objects.create(
+            team=team,
+            created_by=initiating_user,
+            template_id="plugin-posthog-plugin-geoip",
+            type="transformation",
+            name="GeoIP",
+            description="Enrich events with GeoIP data",
+            icon_url="/static/transformations/geoip.png",
+            hog="return event",
+            inputs_schema=[],
+            enabled=True,
+            execution_order=1,
+        )
+        logger.info(
+            "Successfully created GeoIP transformation using fallback method",
+            team_id=team.id,
+            hog_function_id=hog_function.id,
+        )
+        GEOIP_CREATION_COUNTER.labels(creation_method="plugin_fallback").inc()
+        return hog_function
+    except Exception as e:
+        logger.exception(
+            "Failed to create GeoIP transformation using fallback method",
+            team_id=team.id,
+            error=str(e),
+        )
+        GEOIP_CREATION_FAILED_COUNTER.labels(failure_reason="fallback_failed").inc()
+        return None
+
+
 @receiver(models.signals.post_save, sender=Team)
 def enabled_default_hog_functions_for_new_team(sender, instance: Team, created: bool, **kwargs):
-    if settings.DISABLE_MMDB or not created:
-        return
-
     # New way: Create GeoIP transformation from template
     from posthog.api.hog_function import HogFunctionSerializer
     from posthog.cdp.templates.hog_function_template import sync_template_to_db
     from posthog.models.hog_function_template import HogFunctionTemplate
     from posthog.plugins.plugin_server_api import get_hog_function_templates
+
+    if settings.DISABLE_MMDB or not created:
+        return
 
     # try and get the geoip template from db (might not exist yet, e.g. for local dev & hobby deploy)
     template = HogFunctionTemplate.get_template("template-geoip")
@@ -304,7 +354,8 @@ def enabled_default_hog_functions_for_new_team(sender, instance: Team, created: 
                 team_id=instance.id,
                 error=str(e),
             )
-            return
+            GEOIP_CREATION_FAILED_COUNTER.labels(failure_reason="sync_failed").inc()
+            # Don't return here, continue to check if template exists anyway for fallback solution
 
     template = HogFunctionTemplate.get_template("template-geoip")
 
@@ -335,20 +386,19 @@ def enabled_default_hog_functions_for_new_team(sender, instance: Team, created: 
         )
 
         if serializer.is_valid():
-            hog_function = serializer.save()
-            logger.info(
-                "Successfully created GeoIP transformation for new team",
-                team_id=instance.id,
-                hog_function_id=hog_function.id,
-            )
+            serializer.save()
+            GEOIP_CREATION_COUNTER.labels(creation_method="template").inc()
         else:
             logger.error(
                 "Failed to create default GeoIP transformation during team creation",
                 team_id=instance.id,
                 errors=serializer.errors,
             )
+            GEOIP_CREATION_FAILED_COUNTER.labels(failure_reason="serializer_invalid").inc()
+
+            # Fallback to old way of creating GeoIP transformation
+            _create_geoip_transformation_fallback(instance, kwargs.get("initiating_user"))
     else:
-        logger.warning(
-            "GeoIP template not found, skipping automatic creation",
-            team_id=instance.id,
-        )
+        GEOIP_CREATION_FAILED_COUNTER.labels(failure_reason="template_not_found").inc()
+        # Fallback to old way when template not found
+        _create_geoip_transformation_fallback(instance, kwargs.get("initiating_user"))
