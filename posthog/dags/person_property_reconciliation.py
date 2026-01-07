@@ -15,7 +15,6 @@ from typing import Any
 
 import dagster
 import psycopg2
-import psycopg2.errors
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.cluster import ClickhouseCluster
@@ -24,15 +23,12 @@ from posthog.dags.common import JobOwners
 from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_PERSON
 
-MAX_RETRY_ATTEMPTS = 5
-
 
 class PersonPropertyReconciliationConfig(dagster.Config):
     """Configuration for the person property reconciliation job."""
 
     bug_window_start: str  # ISO format: "2024-12-01T00:00:00Z"
     bug_window_end: str  # ISO format: "2024-12-15T00:00:00Z"
-    batch_size: int = 500  # Persons per batch within a team
     team_ids: list[int] | None = None  # Optional: filter to specific teams
     dry_run: bool = False  # Log changes without applying
 
@@ -70,8 +66,6 @@ def get_person_property_updates_from_clickhouse(
     team_id: int,
     bug_window_start: str,
     bug_window_end: str,
-    last_person_id: str | None,
-    limit: int,
 ) -> list[PersonPropertyUpdates]:
     """
     Query ClickHouse to get property updates per person that differ from current state.
@@ -82,85 +76,96 @@ def get_person_property_updates_from_clickhouse(
     3. Compares with current person properties in ClickHouse
     4. Returns only persons where properties differ or are missing
 
-    Returns a list of PersonPropertyUpdates for persons needing reconciliation.
+    Returns:
+        set_diff: Array of (key, value, timestamp) tuples for $set properties that differ
+        set_once_diff: Array of (key, value, timestamp) tuples for $set_once properties missing
     """
-    pagination_filter = "AND merged.person_id > %(last_person_id)s" if last_person_id else ""
-
-    query = f"""
+    query = """
     SELECT
-        merged.person_id,
-        merged.merged_keys AS set_keys,
-        merged.merged_vals AS set_vals,
-        merged.merged_timestamps AS set_timestamps,
-        merged.set_once_keys,
-        merged.set_once_vals,
-        merged.set_once_timestamps,
-        arrayMap(x -> x.1, JSONExtractKeysAndValues(p.person_properties, 'String')) AS person_keys,
-        arrayMap(x -> x.2, JSONExtractKeysAndValues(p.person_properties, 'String')) AS person_vals,
-        arrayFilter(
+        with_person_props.person_id,
+        -- For $set: only include properties where the key exists in person properties AND the value differs
+        arrayMap(i -> (set_keys[i], set_values[i], set_timestamps[i]), arrayFilter(
             i -> (
-                indexOf(person_keys, set_keys[i]) > 0
-                AND set_vals[i] != person_vals[indexOf(person_keys, set_keys[i])]
+                indexOf(keys2, set_keys[i]) > 0
+                AND set_values[i] != vals2[indexOf(keys2, set_keys[i])]
             ),
             arrayEnumerate(set_keys)
-        ) AS differing_set_indices,
+        )) AS set_diff,
+        -- For $set_once: only include properties where the key does NOT exist in person properties
         arrayFilter(
-            i -> indexOf(person_keys, merged.set_once_keys[i]) = 0,
-            arrayEnumerate(merged.set_once_keys)
-        ) AS missing_set_once_indices
+            kv -> indexOf(keys2, kv.1) = 0,
+            arrayMap(i -> (set_once_keys[i], set_once_values[i], set_once_timestamps[i]), arrayEnumerate(set_once_keys))
+        ) AS set_once_diff
     FROM (
         SELECT
-            person_id,
-            groupArrayIf(key, prop_type = 'set') AS merged_keys,
-            groupArrayIf(value, prop_type = 'set') AS merged_vals,
-            groupArrayIf(kv_timestamp, prop_type = 'set') AS merged_timestamps,
-            groupArrayIf(key, prop_type = 'set_once') AS set_once_keys,
-            groupArrayIf(value, prop_type = 'set_once') AS set_once_vals,
-            groupArrayIf(kv_timestamp, prop_type = 'set_once') AS set_once_timestamps
+            merged.person_id,
+            merged.set_keys,
+            merged.set_values,
+            merged.set_timestamps,
+            merged.set_once_keys,
+            merged.set_once_values,
+            merged.set_once_timestamps,
+            arrayMap(x -> x.1, JSONExtractKeysAndValues(p.person_properties, 'String')) AS keys2,
+            arrayMap(x -> x.2, JSONExtractKeysAndValues(p.person_properties, 'String')) AS vals2
         FROM (
+            -- Extract separate arrays from grouped tuples, split by prop_type
+            -- We group into tuples first to ensure array alignment
             SELECT
-                if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) AS person_id,
-                kv_tuple.2 AS key,
-                kv_tuple.1 AS prop_type,
-                if(kv_tuple.1 = 'set', argMax(kv_tuple.3, e.timestamp), argMin(kv_tuple.3, e.timestamp)) AS value,
-                if(kv_tuple.1 = 'set', max(e.timestamp), min(e.timestamp)) AS kv_timestamp
-            FROM events e
-            LEFT OUTER JOIN (
+                person_id,
+                arrayMap(x -> x.1, arrayFilter(x -> x.4 = 'set', grouped_props)) AS set_keys,
+                arrayMap(x -> x.2, arrayFilter(x -> x.4 = 'set', grouped_props)) AS set_values,
+                arrayMap(x -> x.3, arrayFilter(x -> x.4 = 'set', grouped_props)) AS set_timestamps,
+                arrayMap(x -> x.1, arrayFilter(x -> x.4 = 'set_once', grouped_props)) AS set_once_keys,
+                arrayMap(x -> x.2, arrayFilter(x -> x.4 = 'set_once', grouped_props)) AS set_once_values,
+                arrayMap(x -> x.3, arrayFilter(x -> x.4 = 'set_once', grouped_props)) AS set_once_timestamps
+            FROM (
                 SELECT
-                    argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                    person_distinct_id_overrides.distinct_id AS distinct_id
-                FROM person_distinct_id_overrides
-                WHERE equals(person_distinct_id_overrides.team_id, %(team_id)s)
-                GROUP BY person_distinct_id_overrides.distinct_id
-                HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)
-            ) AS overrides ON e.distinct_id = overrides.distinct_id
-            ARRAY JOIN
-                arrayConcat(
-                    arrayMap(x -> tuple('set', x.1, x.2), JSONExtractKeysAndValues(e.properties, '$set', 'String')),
-                    arrayMap(x -> tuple('set_once', x.1, x.2), JSONExtractKeysAndValues(e.properties, '$set_once', 'String'))
-                ) AS kv_tuple
-            WHERE e.team_id = %(team_id)s
-              AND e.timestamp >= %(bug_window_start)s
-              AND e.timestamp < %(bug_window_end)s
-              AND (JSONExtractString(e.properties, '$set') != '' OR JSONExtractString(e.properties, '$set_once') != '')
-            GROUP BY person_id, kv_tuple.2, kv_tuple.1
-        )
-        GROUP BY person_id
-    ) AS merged
-    INNER JOIN (
-        SELECT
-            id,
-            argMax(properties, version) as person_properties
-        FROM person
-        WHERE team_id = %(team_id)s
-          AND _timestamp >= %(bug_window_start)s
-          AND _timestamp < %(bug_window_end)s
-        GROUP BY id
-    ) AS p ON p.id = merged.person_id
-    WHERE (length(differing_set_indices) > 0 OR length(missing_set_once_indices) > 0)
-        {pagination_filter}
-    ORDER BY merged.person_id
-    LIMIT %(limit)s
+                    person_id,
+                    groupArray(tuple(key, value, kv_timestamp, prop_type)) AS grouped_props
+                FROM (
+                    SELECT
+                        if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) AS person_id,
+                        kv_tuple.2 AS key,
+                        kv_tuple.1 AS prop_type,
+                        if(kv_tuple.1 = 'set', argMax(kv_tuple.3, e.timestamp), argMin(kv_tuple.3, e.timestamp)) AS value,
+                        if(kv_tuple.1 = 'set', max(e.timestamp), min(e.timestamp)) AS kv_timestamp
+                    FROM events e
+                    LEFT OUTER JOIN (
+                        SELECT
+                            argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                            person_distinct_id_overrides.distinct_id AS distinct_id
+                        FROM person_distinct_id_overrides
+                        WHERE equals(person_distinct_id_overrides.team_id, %(team_id)s)
+                        GROUP BY person_distinct_id_overrides.distinct_id
+                        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)
+                    ) AS overrides ON e.distinct_id = overrides.distinct_id
+                    ARRAY JOIN
+                        arrayConcat(
+                            arrayMap(x -> tuple('set', x.1, x.2), JSONExtractKeysAndValues(e.properties, '$set', 'String')),
+                            arrayMap(x -> tuple('set_once', x.1, x.2), JSONExtractKeysAndValues(e.properties, '$set_once', 'String'))
+                        ) AS kv_tuple
+                    WHERE e.team_id = %(team_id)s
+                      AND e.timestamp > %(bug_window_start)s
+                      AND e.timestamp < %(bug_window_end)s
+                      AND (JSONExtractString(e.properties, '$set') != '' OR JSONExtractString(e.properties, '$set_once') != '')
+                    GROUP BY person_id, kv_tuple.2, kv_tuple.1
+                )
+                GROUP BY person_id
+            )
+        ) AS merged
+        INNER JOIN (
+            SELECT
+                id,
+                argMax(properties, version) as person_properties
+            FROM person
+            WHERE team_id = %(team_id)s
+              AND _timestamp > %(bug_window_start)s
+              AND _timestamp < %(bug_window_end)s
+            GROUP BY id
+        ) AS p ON p.id = merged.person_id
+    ) AS with_person_props
+    WHERE length(set_diff) > 0 OR length(set_once_diff) > 0
+    ORDER BY with_person_props.person_id
     SETTINGS
         readonly=2,
         max_execution_time=1200,
@@ -180,56 +185,37 @@ def get_person_property_updates_from_clickhouse(
         "team_id": team_id,
         "bug_window_start": bug_window_start,
         "bug_window_end": bug_window_end,
-        "last_person_id": last_person_id or "00000000-0000-0000-0000-000000000000",
-        "limit": limit,
     }
 
     rows = sync_execute(query, params)
 
     results: list[PersonPropertyUpdates] = []
     for row in rows:
-        (
-            person_id,
-            set_keys,
-            set_vals,
-            set_timestamps,
-            set_once_keys,
-            set_once_vals,
-            set_once_timestamps,
-            _person_keys,
-            _person_vals,
-            differing_set_indices,
-            missing_set_once_indices,
-        ) = row
+        person_id, set_diff, set_once_diff = row
 
         updates: list[PropertyUpdate] = []
 
-        # Add differing $set properties
-        for idx in differing_set_indices:
-            # ClickHouse arrays are 1-indexed, Python is 0-indexed
-            i = idx - 1
-            if 0 <= i < len(set_keys):
-                updates.append(
-                    PropertyUpdate(
-                        key=set_keys[i],
-                        value=set_vals[i],
-                        timestamp=set_timestamps[i],
-                        operation="set",
-                    )
+        # Add differing $set properties (tuples of key, value, timestamp)
+        for key, value, timestamp in set_diff:
+            updates.append(
+                PropertyUpdate(
+                    key=key,
+                    value=value,
+                    timestamp=timestamp,
+                    operation="set",
                 )
+            )
 
-        # Add missing $set_once properties
-        for idx in missing_set_once_indices:
-            i = idx - 1
-            if 0 <= i < len(set_once_keys):
-                updates.append(
-                    PropertyUpdate(
-                        key=set_once_keys[i],
-                        value=set_once_vals[i],
-                        timestamp=set_once_timestamps[i],
-                        operation="set_once",
-                    )
+        # Add missing $set_once properties (tuples of key, value, timestamp)
+        for key, value, timestamp in set_once_diff:
+            updates.append(
+                PropertyUpdate(
+                    key=key,
+                    value=value,
+                    timestamp=timestamp,
+                    operation="set_once",
                 )
+            )
 
         if updates:
             results.append(PersonPropertyUpdates(person_id=str(person_id), updates=updates))
@@ -519,7 +505,6 @@ def reconcile_team_chunk(
     Reconcile person properties for all affected persons in a team.
     """
     team_id = chunk
-    batch_size = config.batch_size
     chunk_id = f"team_{team_id}"
     job_name = context.run.job_name
 
@@ -530,158 +515,95 @@ def reconcile_team_chunk(
     total_persons_processed = 0
     total_persons_updated = 0
     total_persons_skipped = 0
-    last_person_id: str | None = None
 
     try:
+        start_time = time.time()
+
+        # Query ClickHouse for all persons with property updates in this team
+        person_property_updates = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=config.bug_window_start,
+            bug_window_end=config.bug_window_end,
+        )
+
+        if not person_property_updates:
+            context.log.info(f"No persons to reconcile for team_id={team_id}")
+            return {
+                "team_id": team_id,
+                "persons_processed": 0,
+                "persons_updated": 0,
+                "persons_skipped": 0,
+            }
+
+        context.log.info(f"Processing {len(person_property_updates)} persons for team_id={team_id}")
+
         with database.cursor() as cursor:
             cursor.execute("SET application_name = 'person_property_reconciliation'")
             cursor.execute("SET lock_timeout = '5s'")
             cursor.execute("SET statement_timeout = '30min'")
             cursor.execute("SET synchronous_commit = off")
 
-            retry_attempt = 0
-            while True:
-                try:
-                    batch_start_time = time.time()
+            # Process each person with version check and retry
+            persons_to_publish = []
+            for person_updates in person_property_updates:
+                success, person_data = update_person_with_version_check(
+                    cursor=cursor,
+                    team_id=team_id,
+                    person_uuid=person_updates.person_id,
+                    property_updates=person_updates.updates,
+                    dry_run=config.dry_run,
+                )
 
-                    # Query ClickHouse for persons with property updates in this team
-                    person_property_updates = get_person_property_updates_from_clickhouse(
-                        team_id=team_id,
-                        bug_window_start=config.bug_window_start,
-                        bug_window_end=config.bug_window_end,
-                        last_person_id=last_person_id,
-                        limit=batch_size,
-                    )
+                if not success:
+                    context.log.warning(f"Failed to update person after retries: {person_updates.person_id}")
+                    total_persons_skipped += 1
+                elif person_data:
+                    # Successfully updated - queue for Kafka publishing
+                    persons_to_publish.append(person_data)
+                    total_persons_updated += 1
+                else:
+                    # No changes needed
+                    total_persons_skipped += 1
 
-                    if not person_property_updates:
-                        break
+                total_persons_processed += 1
 
-                    last_person_id = person_property_updates[-1].person_id
-
-                    context.log.info(
-                        f"Processing batch of {len(person_property_updates)} persons for team_id={team_id}"
-                    )
-
-                    # Process each person with version check and retry
-                    persons_to_publish = []
-                    for person_updates in person_property_updates:
-                        success, person_data = update_person_with_version_check(
-                            cursor=cursor,
-                            team_id=team_id,
-                            person_uuid=person_updates.person_id,
-                            property_updates=person_updates.updates,
-                            dry_run=config.dry_run,
-                        )
-
-                        if not success:
-                            context.log.warning(f"Failed to update person after retries: {person_updates.person_id}")
-                            total_persons_skipped += 1
-                        elif person_data:
-                            # Successfully updated - queue for Kafka publishing
-                            persons_to_publish.append(person_data)
-                            total_persons_updated += 1
-                        else:
-                            # No changes needed
-                            total_persons_skipped += 1
-
-                        total_persons_processed += 1
-
-                    # Publish to Kafka
-                    if persons_to_publish and not config.dry_run:
-                        for person_data in persons_to_publish:
-                            try:
-                                publish_person_to_kafka(person_data)
-                            except Exception as kafka_error:
-                                context.log.warning(
-                                    f"Failed to publish person to Kafka: {person_data['id']}, error: {kafka_error}"
-                                )
-                        context.log.info(
-                            f"Applied {len(persons_to_publish)} updates for team_id={team_id} (PG + Kafka)"
-                        )
-                    elif persons_to_publish and config.dry_run:
-                        context.log.info(
-                            f"[DRY RUN] Would apply {len(persons_to_publish)} updates for team_id={team_id}"
-                        )
-
-                    # Track metrics
-                    batch_duration = time.time() - batch_start_time
+            # Publish to Kafka
+            if persons_to_publish and not config.dry_run:
+                for person_data in persons_to_publish:
                     try:
-                        metrics_client.increment(
-                            "person_property_reconciliation_persons_processed_total",
-                            labels={"job_name": job_name, "chunk_id": chunk_id},
-                            value=float(len(person_property_updates)),
-                        ).result()
-                        metrics_client.increment(
-                            "person_property_reconciliation_batch_duration_seconds_total",
-                            labels={"job_name": job_name, "chunk_id": chunk_id},
-                            value=batch_duration,
-                        ).result()
-                    except Exception:
-                        pass
-
-                    retry_attempt = 0
-
-                except Exception as batch_error:
-                    try:
-                        cursor.execute("ROLLBACK")
-                    except Exception:
-                        pass
-
-                    # Handle deadlock/serialization failures with retry
-                    serialization_failure_class = getattr(psycopg2.errors, "SerializationFailure", None)
-                    is_serialization_failure = (
-                        serialization_failure_class is not None and isinstance(batch_error, serialization_failure_class)
-                    ) or (isinstance(batch_error, psycopg2.Error) and getattr(batch_error, "pgcode", None) == "40001")
-
-                    deadlock_detected_class = getattr(psycopg2.errors, "DeadlockDetected", None)
-                    is_deadlock = (
-                        deadlock_detected_class is not None and isinstance(batch_error, deadlock_detected_class)
-                    ) or (isinstance(batch_error, psycopg2.Error) and getattr(batch_error, "pgcode", None) == "40P01")
-
-                    if (is_serialization_failure or is_deadlock) and retry_attempt < MAX_RETRY_ATTEMPTS:
-                        retry_attempt += 1
+                        publish_person_to_kafka(person_data)
+                    except Exception as kafka_error:
                         context.log.warning(
-                            f"Retryable error for team_id={team_id}: {batch_error}. Retry {retry_attempt}/{MAX_RETRY_ATTEMPTS}"
+                            f"Failed to publish person to Kafka: {person_data['id']}, error: {kafka_error}"
                         )
-                        time.sleep(1)
-                        continue
+                context.log.info(f"Applied {len(persons_to_publish)} updates for team_id={team_id} (PG + Kafka)")
+            elif persons_to_publish and config.dry_run:
+                context.log.info(f"[DRY RUN] Would apply {len(persons_to_publish)} updates for team_id={team_id}")
 
-                    error_msg = (
-                        f"Failed to process batch for team_id={team_id}, last_person_id={last_person_id}: {batch_error}"
-                    )
-                    context.log.exception(error_msg)
+        # Track metrics
+        duration = time.time() - start_time
+        try:
+            metrics_client.increment(
+                "person_property_reconciliation_persons_processed_total",
+                labels={"job_name": job_name, "chunk_id": chunk_id},
+                value=float(total_persons_processed),
+            ).result()
+            metrics_client.increment(
+                "person_property_reconciliation_duration_seconds_total",
+                labels={"job_name": job_name, "chunk_id": chunk_id},
+                value=duration,
+            ).result()
+        except Exception:
+            pass
 
-                    try:
-                        metrics_client.increment(
-                            "person_property_reconciliation_error",
-                            labels={"job_name": job_name, "chunk_id": chunk_id, "reason": "batch_failed"},
-                            value=1.0,
-                        ).result()
-                    except Exception:
-                        pass
-
-                    raise dagster.Failure(
-                        description=error_msg,
-                        metadata={
-                            "team_id": dagster.MetadataValue.int(team_id),
-                            "last_person_id": dagster.MetadataValue.text(
-                                str(last_person_id) if last_person_id else "N/A"
-                            ),
-                            "error_message": dagster.MetadataValue.text(str(batch_error)),
-                            "persons_processed_before_failure": dagster.MetadataValue.int(total_persons_processed),
-                        },
-                    ) from batch_error
-
-    except dagster.Failure:
-        raise
     except Exception as e:
-        error_msg = f"Unexpected error for team_id={team_id}: {e}"
+        error_msg = f"Error for team_id={team_id}: {e}"
         context.log.exception(error_msg)
 
         try:
             metrics_client.increment(
                 "person_property_reconciliation_error",
-                labels={"job_name": job_name, "chunk_id": chunk_id, "reason": "unexpected_error"},
+                labels={"job_name": job_name, "chunk_id": chunk_id, "reason": "error"},
                 value=1.0,
             ).result()
         except Exception:
