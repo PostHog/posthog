@@ -162,9 +162,6 @@ async def import_replay_clickhouse_rows(input: ImportContext) -> None:
 
     logger.info(f"Importing {len(rows)} replay event rows")
 
-    ch_query_id = str(uuid4())
-    logger.info(f"Inserting into ClickHouse with query_id: {ch_query_id}")
-
     try:
         async with get_client() as client:
             for idx, row in enumerate(rows):
@@ -192,8 +189,9 @@ async def import_replay_clickhouse_rows(input: ImportContext) -> None:
                     }
                 )
                 full_query = REPLAY_INSERT_QUERY + "\n" + json_row
+                ch_query_id = str(uuid4())
                 await client.execute_query(full_query, query_id=ch_query_id)
-                logger.info(f"Inserted row {idx + 1}/{len(rows)}")
+                logger.info(f"Inserted row {idx + 1}/{len(rows)} with query_id: {ch_query_id}")
     except Exception:
         logger.exception("Failed to import replay event rows")
         raise
@@ -236,9 +234,6 @@ async def import_event_clickhouse_rows(input: ImportContext) -> None:
         ) VALUES
     """
 
-    ch_query_id = str(uuid4())
-    logger.info(f"Inserting into ClickHouse with query_id: {ch_query_id}")
-
     try:
         async with get_client() as client:
             for idx, row in enumerate(rows):
@@ -254,8 +249,9 @@ async def import_event_clickhouse_rows(input: ImportContext) -> None:
                     row["person_properties"],
                     row["elements_chain"],
                 )
+                ch_query_id = str(uuid4())
                 await client.execute_query(query, row_tuple, query_id=ch_query_id)
-                logger.info(f"Inserted row {idx + 1}/{len(rows)}")
+                logger.info(f"Inserted row {idx + 1}/{len(rows)} with query_id: {ch_query_id}")
     except Exception:
         logger.exception("Failed to import event rows")
         raise
