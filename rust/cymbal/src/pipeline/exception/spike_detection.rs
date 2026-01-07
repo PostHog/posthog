@@ -44,6 +44,22 @@ pub struct SpikingIssue {
     pub current_bucket_value: i64,
 }
 
+/// Bucket data for a single issue
+struct IssueBuckets {
+    issue_id: Uuid,
+    /// Exception counts per bucket, ordered from most recent to oldest
+    values: Vec<Option<i64>>,
+}
+
+/// Bucket data for a single team
+struct TeamBuckets {
+    team_id: i32,
+    /// Total exception counts per bucket across all issues in this team, ordered from most recent to oldest
+    exception_counts: Vec<Option<i64>>,
+    /// Number of unique issues that had exceptions in each bucket, ordered from most recent to oldest
+    unique_issue_counts: Vec<u64>,
+}
+
 fn round_datetime_to_minutes(datetime: DateTime<Utc>, minutes: i64) -> DateTime<Utc> {
     assert!(minutes > 0, "minutes must be > 0");
     let bucket_seconds = minutes * 60;
@@ -363,27 +379,18 @@ async fn get_spiking_issues(
         .into_iter()
         .collect();
 
-    let (issue_values, team_values, team_issue_counts) =
+    let (issue_buckets, team_buckets) =
         fetch_bucket_data(redis, &issue_ids, &unique_team_ids, &bucket_timestamps).await?;
 
-    let buckets_count = bucket_timestamps.len();
-    let team_baselines: HashMap<i32, f64> = compute_team_baselines(
-        &unique_team_ids,
-        &team_values,
-        &team_issue_counts,
-        buckets_count,
-    );
+    let team_baselines: HashMap<i32, f64> = compute_team_baselines(&team_buckets);
 
-    let spiking = issue_ids
+    let spiking = issue_buckets
         .iter()
-        .enumerate()
-        .filter_map(|(issue_idx, issue_id)| {
-            let issue = issues_by_id.get(issue_id)?;
-            let start_idx = issue_idx * buckets_count;
-            let buckets = &issue_values[start_idx..start_idx + buckets_count];
+        .filter_map(|bucket| {
+            let issue = issues_by_id.get(&bucket.issue_id)?;
 
-            let current_value = buckets[0].unwrap_or(0);
-            let historical = &buckets[1..];
+            let current_value = bucket.values[0].unwrap_or(0);
+            let historical = &bucket.values[1..];
             let team_baseline = *team_baselines.get(&issue.team_id).unwrap_or(&0.0);
             let baseline = compute_issue_baseline(historical, team_baseline);
 
@@ -407,7 +414,7 @@ async fn fetch_bucket_data(
     issue_ids: &[Uuid],
     team_ids: &[i32],
     timestamps: &[String],
-) -> Result<(Vec<Option<i64>>, Vec<Option<i64>>, Vec<u64>), common_redis::CustomRedisError> {
+) -> Result<(Vec<IssueBuckets>, Vec<TeamBuckets>), common_redis::CustomRedisError> {
     let issue_keys: Vec<String> = issue_ids
         .iter()
         .flat_map(|id| timestamps.iter().map(move |ts| issue_bucket_key(id, ts)))
@@ -433,26 +440,44 @@ async fn fetch_bucket_data(
         .collect();
 
     let buckets_count = timestamps.len();
-    let issue_values = all_values[..issue_ids.len() * buckets_count].to_vec();
-    let team_values = all_values[issue_ids.len() * buckets_count..].to_vec();
 
-    Ok((issue_values, team_values, team_issue_counts))
-}
-
-fn compute_team_baselines(
-    team_ids: &[i32],
-    team_values: &[Option<i64>],
-    team_issue_counts: &[u64],
-    buckets_count: usize,
-) -> HashMap<i32, f64> {
-    team_ids
+    let issue_buckets: Vec<IssueBuckets> = issue_ids
         .iter()
         .enumerate()
-        .map(|(idx, team_id)| {
+        .map(|(idx, id)| {
             let start = idx * buckets_count;
-            let exceptions = &team_values[start..start + buckets_count];
-            let issues = &team_issue_counts[start..start + buckets_count];
-            (*team_id, compute_team_baseline(exceptions, issues))
+            IssueBuckets {
+                issue_id: *id,
+                values: all_values[start..start + buckets_count].to_vec(),
+            }
+        })
+        .collect();
+
+    let team_buckets: Vec<TeamBuckets> = team_ids
+        .iter()
+        .enumerate()
+        .map(|(idx, id)| {
+            let start = idx * buckets_count;
+            let values_start = issue_ids.len() * buckets_count + start;
+            TeamBuckets {
+                team_id: *id,
+                exception_counts: all_values[values_start..values_start + buckets_count].to_vec(),
+                unique_issue_counts: team_issue_counts[start..start + buckets_count].to_vec(),
+            }
+        })
+        .collect();
+
+    Ok((issue_buckets, team_buckets))
+}
+
+fn compute_team_baselines(team_buckets: &[TeamBuckets]) -> HashMap<i32, f64> {
+    team_buckets
+        .iter()
+        .map(|bucket| {
+            (
+                bucket.team_id,
+                compute_team_baseline(&bucket.exception_counts, &bucket.unique_issue_counts),
+            )
         })
         .collect()
 }
