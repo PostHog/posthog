@@ -191,6 +191,7 @@ TEAM_CONFIG_FIELDS = (
     "onboarding_tasks",
     "base_currency",
     "web_analytics_pre_aggregated_tables_enabled",
+    "web_analytics_event_types",
     "experiment_recalculation_time",
     "receive_org_level_activity_logs",
     "business_model",
@@ -647,6 +648,26 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                     )
             except OrganizationMembership.DoesNotExist:
                 raise exceptions.PermissionDenied("You must be a member of this organization.")
+
+        return value
+
+    @staticmethod
+    def validate_web_analytics_event_types(value) -> list[str] | None:
+        if value is None:
+            return None
+
+        if not isinstance(value, list):
+            raise exceptions.ValidationError("Must provide a list of event types.")
+
+        valid_types = {"$pageview", "$screen"}
+        for event_type in value:
+            if event_type not in valid_types:
+                raise exceptions.ValidationError(
+                    f"Invalid event type: {event_type}. Must be one of: {', '.join(sorted(valid_types))}"
+                )
+
+        if len(value) == 0:
+            raise exceptions.ValidationError("At least one event type must be selected.")
 
         return value
 

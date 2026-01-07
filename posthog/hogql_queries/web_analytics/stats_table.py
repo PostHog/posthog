@@ -583,10 +583,31 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
 
         return f"{breakdown_value}-{row[3]}"  # Fourth value is the aggregation value
 
+    def _get_path_breakdown_expr(self) -> ast.Expr:
+        event_types = self.configured_event_types
+
+        if "$pageview" in event_types and "$screen" not in event_types:
+            # Only pageviews - use $pathname with path cleaning
+            return self._apply_path_cleaning(ast.Field(chain=["events", "properties", "$pathname"]))
+        elif "$screen" in event_types and "$pageview" not in event_types:
+            # Only screen events - use $screen_name (no path cleaning for mobile screens)
+            return ast.Field(chain=["events", "properties", "$screen_name"])
+        else:
+            # Both enabled (default) - use COALESCE($pathname, $screen_name)
+            return self._apply_path_cleaning(
+                ast.Call(
+                    name="coalesce",
+                    args=[
+                        ast.Field(chain=["events", "properties", "$pathname"]),
+                        ast.Field(chain=["events", "properties", "$screen_name"]),
+                    ],
+                )
+            )
+
     def _counts_breakdown_value(self):
         match self.query.breakdownBy:
             case WebStatsBreakdown.PAGE:
-                return self._apply_path_cleaning(ast.Field(chain=["events", "properties", "$pathname"]))
+                return self._get_path_breakdown_expr()
             case WebStatsBreakdown.INITIAL_PAGE:
                 return self._apply_path_cleaning(ast.Field(chain=["session", "$entry_pathname"]))
             case WebStatsBreakdown.EXIT_PAGE:
