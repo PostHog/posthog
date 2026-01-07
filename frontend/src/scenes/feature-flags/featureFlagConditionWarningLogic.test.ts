@@ -113,8 +113,7 @@ describe('featureFlagConditionWarningLogic', () => {
             logic.mount()
 
             expectLogic(logic).toMatchValues({
-                warning:
-                    'This flag cannot be evaluated in client environments. Release conditions contain unsupported regex patterns (lookahead).',
+                warning: 'This flag cannot be evaluated locally. Unsupported features: lookahead in regex.',
             })
         })
 
@@ -135,8 +134,7 @@ describe('featureFlagConditionWarningLogic', () => {
             logic.mount()
 
             expectLogic(logic).toMatchValues({
-                warning:
-                    'This flag cannot be evaluated in client environments. Release conditions contain unsupported regex patterns (lookahead).',
+                warning: 'This flag cannot be evaluated locally. Unsupported features: lookahead in regex.',
             })
         })
     })
@@ -159,8 +157,7 @@ describe('featureFlagConditionWarningLogic', () => {
             logic.mount()
 
             expectLogic(logic).toMatchValues({
-                warning:
-                    'This flag cannot be evaluated in client environments. Release conditions contain unsupported regex patterns (lookbehind).',
+                warning: 'This flag cannot be evaluated locally. Unsupported features: lookbehind in regex.',
             })
         })
 
@@ -181,8 +178,7 @@ describe('featureFlagConditionWarningLogic', () => {
             logic.mount()
 
             expectLogic(logic).toMatchValues({
-                warning:
-                    'This flag cannot be evaluated in client environments. Release conditions contain unsupported regex patterns (lookbehind).',
+                warning: 'This flag cannot be evaluated locally. Unsupported features: lookbehind in regex.',
             })
         })
     })
@@ -209,7 +205,7 @@ describe('featureFlagConditionWarningLogic', () => {
 
                 expectLogic(logic).toMatchValues({
                     warning:
-                        'This flag cannot be evaluated in client environments. Release conditions contain unsupported regex patterns (backreferences).',
+                        'This flag cannot be evaluated locally. Unsupported features: backreferences in regex.',
                 })
 
                 logic.unmount()
@@ -256,10 +252,10 @@ describe('featureFlagConditionWarningLogic', () => {
             logic.mount()
 
             const warning = logic.values.warning as string
-            expect(warning).toContain('This flag cannot be evaluated in client environments')
-            expect(warning).toContain('lookahead')
-            expect(warning).toContain('lookbehind')
-            expect(warning).toContain('backreferences')
+            expect(warning).toContain('This flag cannot be evaluated locally')
+            expect(warning).toContain('lookahead in regex')
+            expect(warning).toContain('lookbehind in regex')
+            expect(warning).toContain('backreferences in regex')
         })
 
         it('reports features from multiple properties', () => {
@@ -291,9 +287,9 @@ describe('featureFlagConditionWarningLogic', () => {
             logic.mount()
 
             const warning = logic.values.warning as string
-            expect(warning).toContain('lookahead')
-            expect(warning).toContain('lookbehind')
-            expect(warning).toContain('backreferences')
+            expect(warning).toContain('lookahead in regex')
+            expect(warning).toContain('lookbehind in regex')
+            expect(warning).toContain('backreferences in regex')
         })
     })
 
@@ -348,8 +344,7 @@ describe('featureFlagConditionWarningLogic', () => {
             logic.mount()
 
             expectLogic(logic).toMatchValues({
-                warning:
-                    'This flag cannot be evaluated in client environments. Release conditions contain unsupported regex patterns (lookahead).',
+                warning: 'This flag cannot be evaluated locally. Unsupported features: lookahead in regex.',
             })
         })
     })
@@ -372,8 +367,7 @@ describe('featureFlagConditionWarningLogic', () => {
             logic.mount()
 
             expectLogic(logic).toMatchValues({
-                warning:
-                    'This flag cannot be evaluated in client environments. Release conditions contain unsupported regex patterns (lookahead).',
+                warning: 'This flag cannot be evaluated locally. Unsupported features: lookahead in regex.',
             })
         })
     })
@@ -396,19 +390,47 @@ describe('featureFlagConditionWarningLogic', () => {
             logic.mount()
 
             expectLogic(logic).toMatchValues({
-                warning:
-                    'This flag cannot be evaluated in client environments. It uses: is_not_set operator.',
+                warning: 'This flag cannot be evaluated locally. Unsupported features: is_not_set operator.',
             })
         })
     })
 
     describe('client runtime - static cohorts', () => {
+        it('warns when static cohort is used', () => {
+            const properties: AnyPropertyFilter[] = [
+                {
+                    key: 'id',
+                    type: PropertyFilterType.Cohort,
+                    value: 1,
+                    operator: PropertyOperator.In,
+                },
+            ]
+
+            const logic = featureFlagConditionWarningLogic({
+                properties,
+                evaluationRuntime: FeatureFlagEvaluationRuntime.CLIENT,
+            })
+
+            logic.mount()
+
+            // Override cohortsById to include a static cohort
+            const mockCohortsById = {
+                1: { id: 1, name: 'Test Static Cohort', is_static: true },
+            }
+            logic.cache.cohortsById = mockCohortsById
+
+            expectLogic(logic).toMatchValues({
+                warning: 'This flag cannot be evaluated locally. Unsupported features: static cohorts.',
+            })
+        })
+
         it('does not warn when cohort is not loaded yet', () => {
             const properties: AnyPropertyFilter[] = [
                 {
                     key: 'id',
                     type: PropertyFilterType.Cohort,
                     value: 1,
+                    operator: PropertyOperator.In,
                 },
             ]
 
@@ -417,6 +439,34 @@ describe('featureFlagConditionWarningLogic', () => {
                 evaluationRuntime: FeatureFlagEvaluationRuntime.CLIENT,
             })
             logic.mount()
+
+            expectLogic(logic).toMatchValues({
+                warning: undefined,
+            })
+        })
+
+        it('does not warn for non-static cohorts', () => {
+            const properties: AnyPropertyFilter[] = [
+                {
+                    key: 'id',
+                    type: PropertyFilterType.Cohort,
+                    value: 1,
+                    operator: PropertyOperator.In,
+                },
+            ]
+
+            const logic = featureFlagConditionWarningLogic({
+                properties,
+                evaluationRuntime: FeatureFlagEvaluationRuntime.CLIENT,
+            })
+
+            logic.mount()
+
+            // Override cohortsById to include a non-static cohort
+            const mockCohortsById = {
+                1: { id: 1, name: 'Test Dynamic Cohort', is_static: false },
+            }
+            logic.cache.cohortsById = mockCohortsById
 
             expectLogic(logic).toMatchValues({
                 warning: undefined,

@@ -36,19 +36,18 @@ export const featureFlagConditionWarningLogic = kea<featureFlagConditionWarningL
                     return
                 }
 
-                const unsupportedRegexFeatures = new Set<string>()
-                const localEvaluationIssues = new Set<string>()
+                const issues: string[] = []
 
                 properties.forEach((property) => {
                     if (isPropertyFilterWithOperator(property) && property.operator === 'is_not_set') {
-                        localEvaluationIssues.add('is_not_set operator')
+                        issues.push('is_not_set operator')
                     }
 
                     if (property.type === PropertyFilterType.Cohort) {
                         const cohortId = property.value
                         const cohort = cohortsById[cohortId]
                         if (cohort?.is_static) {
-                            localEvaluationIssues.add('static cohorts')
+                            issues.push('static cohorts')
                         }
                     }
 
@@ -56,28 +55,26 @@ export const featureFlagConditionWarningLogic = kea<featureFlagConditionWarningL
                         const pattern = String(property.value)
 
                         if (REGEX_LOOKAHEAD.test(pattern)) {
-                            unsupportedRegexFeatures.add('lookahead')
+                            issues.push('lookahead in regex')
                         }
 
                         if (REGEX_LOOKBEHIND.test(pattern)) {
-                            unsupportedRegexFeatures.add('lookbehind')
+                            issues.push('lookbehind in regex')
                         }
 
                         if (REGEX_BACKREFERENCE.test(pattern)) {
-                            unsupportedRegexFeatures.add('backreferences')
+                            issues.push('backreferences in regex')
                         }
                     }
                 })
 
-                if (unsupportedRegexFeatures.size > 0) {
-                    return `This flag cannot be evaluated in client environments. Release conditions contain unsupported regex patterns (${Array.from(unsupportedRegexFeatures).join(', ')}).`
+                if (issues.length === 0) {
+                    return undefined
                 }
 
-                if (localEvaluationIssues.size > 0) {
-                    return `This flag cannot be evaluated in client environments. It uses: ${Array.from(localEvaluationIssues).join(', ')}.`
-                }
+                const uniqueIssues = [...new Set(issues)]
 
-                return undefined
+                return `This flag cannot be evaluated locally. Unsupported features: ${uniqueIssues.join(', ')}.`
             },
         ],
     }),
