@@ -305,11 +305,6 @@ def _create_geoip_transformation_fallback(team: Team, initiating_user=None) -> O
             enabled=True,
             execution_order=1,
         )
-        logger.info(
-            "Successfully created GeoIP transformation using fallback method",
-            team_id=team.id,
-            hog_function_id=hog_function.id,
-        )
         GEOIP_CREATION_COUNTER.labels(creation_method="plugin_fallback").inc()
         return hog_function
     except Exception as e:
