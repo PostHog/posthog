@@ -28,6 +28,7 @@ import products.conversations.backend.api as conversations
 import products.live_debugger.backend.api as live_debugger
 import products.revenue_analytics.backend.api as revenue_analytics
 import products.early_access_features.backend.api as early_access_feature
+import products.customer_analytics.backend.api.views as customer_analytics
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 from products.data_warehouse.backend.api import (
     data_modeling_job,
@@ -79,6 +80,7 @@ from ee.api.vercel import vercel_installation, vercel_product, vercel_proxy, ver
 
 from ..heatmaps.heatmaps_api import HeatmapScreenshotViewSet, HeatmapViewSet, LegacyHeatmapViewSet, SavedHeatmapViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
+from ..session_recordings.session_recording_external_reference_api import SessionRecordingExternalReferenceViewSet
 from ..session_recordings.session_recording_playlist_api import SessionRecordingPlaylistViewSet
 from ..taxonomy import property_definition_api
 from . import (
@@ -138,6 +140,7 @@ from .file_system import file_system, file_system_shortcut, persisted_folder, us
 from .llm_prompt import LLMPromptViewSet
 from .oauth_application import OAuthApplicationPublicMetadataViewSet
 from .session import SessionViewSet
+from .web_analytics_filter_preset import WebAnalyticsFilterPresetViewSet
 
 
 @decorators.api_view(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"])
@@ -301,6 +304,13 @@ register_grandfathered_environment_nested_viewset(
     r"ingestion_warnings",
     ingestion_warnings.IngestionWarningsViewSet,
     "environment_ingestion_warnings",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"customer_profile_configs",
+    customer_analytics.CustomerProfileConfigViewSet,
+    "environment_customer_profile_configs",
     ["team_id"],
 )
 
@@ -620,6 +630,13 @@ environment_sessions_recordings_router, legacy_project_session_recordings_router
         "environment_session_recordings",
         ["team_id"],
     )
+)
+
+environments_router.register(
+    r"session_recording_external_references",
+    SessionRecordingExternalReferenceViewSet,
+    "environment_session_recording_external_references",
+    ["team_id"],
 )
 
 register_grandfathered_environment_nested_viewset(
@@ -949,6 +966,12 @@ environments_router.register(
     r"web_vitals",
     web_vitals.WebVitalsViewSet,
     "environment_web_vitals",
+    ["team_id"],
+)
+environments_router.register(
+    r"web_analytics_filter_presets",
+    WebAnalyticsFilterPresetViewSet,
+    "environment_web_analytics_filter_preset",
     ["team_id"],
 )
 
