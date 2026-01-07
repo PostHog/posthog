@@ -330,6 +330,7 @@ def enabled_default_hog_functions_for_new_team(sender, instance: Team, created: 
 
     # try and get the geoip template from db (might not exist yet, e.g. for local dev & hobby deploy)
     template = HogFunctionTemplate.get_template("template-geoip")
+
     # if it does not exist sync it to the db
     if not template:
         logger.info("GeoIP template not found in DB, attempting to sync")
@@ -340,7 +341,7 @@ def enabled_default_hog_functions_for_new_team(sender, instance: Team, created: 
                 templates = response.json()
                 for template_data in templates:
                     if template_data.get("id") == "template-geoip":
-                        # sync template to db
+                        # sync template to db, which returns the created template
                         template = sync_template_to_db(template_data)
                         break
         except Exception as e:
@@ -350,9 +351,7 @@ def enabled_default_hog_functions_for_new_team(sender, instance: Team, created: 
                 error=str(e),
             )
             GEOIP_CREATION_FAILED_COUNTER.labels(failure_reason="sync_failed").inc()
-            # Don't return here, continue to check if template exists anyway for fallback solution
-
-    template = HogFunctionTemplate.get_template("template-geoip")
+            # template remains None, will use fallback
 
     if template:
         # Create a serializer data dictionary from the template
