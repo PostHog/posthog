@@ -299,7 +299,6 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
                     raise serializers.ValidationError("The query was modified by someone else.")
 
             if sync_frequency == "never":
-                pause_saved_query_schedule(str(locked_instance.id))
                 locked_instance.sync_frequency_interval = None
                 validated_data["sync_frequency_interval"] = None
             elif sync_frequency:
@@ -367,22 +366,22 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
                     .first()
                 )
                 self.context["activity_log"] = latest_activity_log
-            if sync_frequency and sync_frequency != "never":
+            # update the temporal schedule if it exists
+            view_id = str(view.id)
+            temporal_schedule_exists = saved_query_workflow_exists(view_id)
+            if temporal_schedule_exists:
                 try:
-                    view.setup_model_paths()
+                    if sync_frequency == "never":
+                        pause_saved_query_schedule(view_id)
+                    elif sync_frequency:
+                        sync_saved_query_workflow(view, create=not temporal_schedule_exists)
                 except Exception as e:
-                    posthoganalytics.capture_exception(e)
-                    logger.exception("Failed to update model path when updating view %s", view.name)
-
-                # update the temporal schedule if the view is materialized
-                if view.is_materialized:
-                    try:
-                        sync_saved_query_workflow(view, create=not saved_query_workflow_exists(str(view.id)))
-                    except Exception as e:
-                        capture_exception(e)
-                        logger.exception(
-                            "Failed to update schedule when updating sync frequency for view %s", view.name
-                        )
+                    capture_exception(e)
+                    logger.exception(
+                        "Failed to update temporal schedule when updating view: view=%s sync_frequency=%s",
+                        view.name,
+                        sync_frequency,
+                    )
 
         return view
 
