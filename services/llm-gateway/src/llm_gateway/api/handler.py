@@ -115,10 +115,7 @@ async def handle_llm_request(
     except Exception as e:
         PROVIDER_ERRORS.labels(provider=provider_config.name, error_type=type(e).__name__).inc()
         capture_exception(e, {"provider": provider_config.name, "model": model, "user_id": user.user_id})
-        logger.exception(
-            f"Error in {provider_config.endpoint_name} endpoint: {e}",
-            request_data=request_data,
-        )
+        logger.exception(f"Error in {provider_config.endpoint_name} endpoint: {e}")
         status_code = getattr(e, "status_code", 500)
         raise HTTPException(
             status_code=status_code,
@@ -175,10 +172,7 @@ async def _handle_streaming_request(
             status_code = str(getattr(e, "status_code", 500))
             error = e
             capture_exception(e, {"provider": provider_config.name, "model": model, "streaming": True})
-            logger.exception(
-                f"Streaming error in {provider_config.endpoint_name} endpoint: {e}",
-                request_data=request_data,
-            )
+            logger.exception(f"Streaming error in {provider_config.endpoint_name} endpoint: {e}")
             raise
         finally:
             ACTIVE_STREAMS.labels(provider=provider_config.name, model=model).dec()

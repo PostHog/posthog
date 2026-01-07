@@ -26,7 +26,7 @@ class TestMetricsConfiguration:
             pytest.param(TOKENS_OUTPUT, {"provider", "model"}, id="tokens_output"),
             pytest.param(RATE_LIMIT_EXCEEDED, {"scope"}, id="rate_limit_exceeded"),
             pytest.param(PROVIDER_ERRORS, {"provider", "error_type"}, id="provider_errors"),
-            pytest.param(ACTIVE_STREAMS, {"provider"}, id="active_streams"),
+            pytest.param(ACTIVE_STREAMS, {"provider", "model"}, id="active_streams"),
             pytest.param(DB_POOL_SIZE, {"state"}, id="db_pool_size"),
             pytest.param(PROVIDER_LATENCY, {"provider", "model"}, id="provider_latency"),
         ],
@@ -75,11 +75,11 @@ class TestMetricsRecording:
         assert PROVIDER_ERRORS.labels(provider="anthropic", error_type="TimeoutError")._value.get() == initial_value + 1
 
     def test_active_streams_can_increment_and_decrement(self) -> None:
-        ACTIVE_STREAMS.labels(provider="openai").set(0)
-        ACTIVE_STREAMS.labels(provider="openai").inc()
-        assert ACTIVE_STREAMS.labels(provider="openai")._value.get() == 1
-        ACTIVE_STREAMS.labels(provider="openai").dec()
-        assert ACTIVE_STREAMS.labels(provider="openai")._value.get() == 0
+        ACTIVE_STREAMS.labels(provider="openai", model="gpt-4").set(0)
+        ACTIVE_STREAMS.labels(provider="openai", model="gpt-4").inc()
+        assert ACTIVE_STREAMS.labels(provider="openai", model="gpt-4")._value.get() == 1
+        ACTIVE_STREAMS.labels(provider="openai", model="gpt-4").dec()
+        assert ACTIVE_STREAMS.labels(provider="openai", model="gpt-4")._value.get() == 0
 
     def test_db_pool_size_tracks_connection_states(self) -> None:
         DB_POOL_SIZE.labels(state="idle").set(5)
