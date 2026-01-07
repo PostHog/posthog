@@ -167,7 +167,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
                     {
                         key: availableOnboardingProducts[productKey as keyof typeof availableOnboardingProducts]?.scene,
                         name: stepKeyToTitle(stepKey),
-                        path: urls.onboarding(productKey ?? '', stepKey),
+                        path: urls.onboarding({ productKey: productKey ?? undefined, stepKey }),
                         iconType: 'action',
                     },
                 ]
@@ -406,6 +406,12 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 actions.setStepKey(step)
             } else {
                 actions.resetStepKey()
+            }
+        },
+        '/onboarding': () => {
+            // Clear productKey when on the product selection page
+            if (values.productKey !== null) {
+                actions.setProductKey(null)
             }
         },
     })),

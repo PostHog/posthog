@@ -3793,6 +3793,22 @@ class WebVitalsPercentile(StrEnum):
     P99 = "p99"
 
 
+class WebsiteBrowsingHistoryProdInterest(StrEnum):
+    PRODUCT_ANALYTICS = "product-analytics"
+    WEB_ANALYTICS = "web-analytics"
+    SESSION_REPLAY = "session-replay"
+    FEATURE_FLAGS = "feature-flags"
+    EXPERIMENTS = "experiments"
+    ERROR_TRACKING = "error-tracking"
+    SURVEYS = "surveys"
+    DATA_WAREHOUSE = "data-warehouse"
+    LLM_ANALYTICS = "llm-analytics"
+    REVENUE_ANALYTICS = "revenue-analytics"
+    WORKFLOWS = "workflows"
+    LOGS = "logs"
+    ENDPOINTS = "endpoints"
+
+
 class Scale(StrEnum):
     LINEAR = "linear"
     LOGARITHMIC = "logarithmic"

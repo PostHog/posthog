@@ -1089,6 +1089,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         layout: {
                             colSpanClassName: 'md:col-span-full',
                             orderWhenLargeClassName: 'xxl:order-0',
+                            className: '-mt-2',
                         },
                         query: {
                             kind: NodeKind.WebOverviewQuery,

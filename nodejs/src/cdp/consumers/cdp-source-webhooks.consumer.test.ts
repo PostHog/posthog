@@ -272,14 +272,39 @@ describe('SourceWebhooksConsumer', () => {
                 await insertHogFlow(hub.postgres, hogFlow)
             })
 
-            it('should schedule workflow run for $scheduled_at', async () => {
+            it('should schedule workflow run for scheduled_at on trigger', async () => {
                 const scheduledAt = '2025-01-02T12:00:00.000Z'
+                const scheduledHogFlow = new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withSimpleWorkflow({
+                        trigger: {
+                            type: 'schedule',
+                            template_id: incomingWebhookTemplate.id,
+                            scheduled_at: scheduledAt,
+                            inputs: {
+                                event: {
+                                    value: 'my-event',
+                                    bytecode: await compileHog(`return f'my-event'`),
+                                },
+                                distinct_id: {
+                                    value: '{request.body.distinct_id}',
+                                    bytecode: await compileHog(`return f'{request.body.distinct_id}'`),
+                                },
+                                method: {
+                                    value: 'POST',
+                                    bytecode: await compileHog(`return f'POST'`),
+                                },
+                            },
+                        },
+                    })
+                    .build()
+                await insertHogFlow(hub.postgres, scheduledHogFlow)
+
                 const res = await doPostRequest({
-                    webhookId: hogFlow.id,
+                    webhookId: scheduledHogFlow.id,
                     body: {
                         event: 'my-event',
                         distinct_id: 'test-distinct-id',
-                        $scheduled_at: scheduledAt,
                     },
                 })
                 expect(res.status).toEqual(201)

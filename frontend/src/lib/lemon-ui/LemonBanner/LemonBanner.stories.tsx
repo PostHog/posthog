@@ -43,6 +43,12 @@ Error.args = { type: 'error', children: 'This spacecraft has exploded. Too late.
 export const Success: Story = WideTemplate.bind({})
 Success.args = { type: 'success', children: 'This spacecraft has recovered. Phew!' }
 
+export const AI: Story = WideTemplate.bind({})
+AI.args = {
+    type: 'ai',
+    children: 'Based on your goals, we recommend Product Analytics and Session Replay to understand user behavior.',
+}
+
 export const Closable: Story = WideTemplate.bind({})
 Closable.args = {
     type: 'info',
