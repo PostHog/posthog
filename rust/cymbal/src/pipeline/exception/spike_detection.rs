@@ -19,6 +19,7 @@ const SPIKE_ALERT_COOLDOWN_SECONDS: usize = 10 * 60;
 
 const ISSUE_SPIKING_EVENT: &str = "$error_tracking_issue_spiking";
 const MIN_HISTORICAL_BUCKETS_FOR_ISSUE_BASELINE: usize = 1;
+const MIN_SPIKE_THRESHOLD: i64 = 500;
 
 fn issue_bucket_key(issue_id: &Uuid, timestamp: &str) -> String {
     format!("issue-buckets:{issue_id}-{timestamp}")
@@ -319,11 +320,10 @@ fn compute_issue_baseline(historical_buckets: &[Option<i64>], team_baseline: f64
 }
 
 fn is_spiking(current_value: i64, baseline: f64) -> bool {
-    if baseline == 0.0 {
-        current_value > 0
-    } else {
-        current_value as f64 > baseline * SPIKE_MULTIPLIER
+    if current_value < MIN_SPIKE_THRESHOLD {
+        return false;
     }
+    current_value as f64 > baseline * SPIKE_MULTIPLIER
 }
 
 async fn get_spiking_issues(
@@ -549,40 +549,40 @@ mod tests {
         );
     }
 
-    // ISSUE BUCKETS (most recent first): 100, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-    // TEAM BUCKETS (most recent first):  10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10
-    // Issue baseline = 11/11 = 1 (excludes current bucket), current = 100, spike threshold = 10, so SPIKING
+    // ISSUE BUCKETS (most recent first): 500, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10
+    // TEAM BUCKETS (most recent first):  100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100
+    // Issue baseline = 110/11 = 10 (excludes current bucket), current = 500, spike threshold = 100, so SPIKING
     #[tokio::test]
     async fn test_full_history_spike() {
         let mut ctx = TestContext::new();
         ctx.setup_issue_buckets(&[
-            Some(100),
-            Some(1),
-            Some(1),
-            Some(1),
-            Some(1),
-            Some(1),
-            Some(1),
-            Some(1),
-            Some(1),
-            Some(1),
-            Some(1),
-            Some(1),
+            Some(500),
+            Some(10),
+            Some(10),
+            Some(10),
+            Some(10),
+            Some(10),
+            Some(10),
+            Some(10),
+            Some(10),
+            Some(10),
+            Some(10),
+            Some(10),
         ]);
         ctx.setup_team_buckets(
             &[
-                Some(10),
-                Some(10),
-                Some(10),
-                Some(10),
-                Some(10),
-                Some(10),
-                Some(10),
-                Some(10),
-                Some(10),
-                Some(10),
-                Some(10),
-                Some(10),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
             ],
             &[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
         );
@@ -590,8 +590,8 @@ mod tests {
         let result = ctx.get_spiking().await;
 
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0].computed_baseline, 1.0);
-        assert_eq!(result[0].current_bucket_value, 100);
+        assert_eq!(result[0].computed_baseline, 10.0);
+        assert_eq!(result[0].current_bucket_value, 500);
     }
 
     // ISSUE BUCKETS (most recent first): 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10
@@ -637,28 +637,28 @@ mod tests {
         assert!(result.is_empty());
     }
 
-    // ISSUE BUCKETS (most recent first): 150, 1
-    // TEAM BUCKETS (most recent first):  10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10
-    // 1 historical bucket - uses issue baseline = 1/1 = 1
-    // Current = 150, spike threshold = 10, so SPIKING
+    // ISSUE BUCKETS (most recent first): 600, 10
+    // TEAM BUCKETS (most recent first):  100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100
+    // 1 historical bucket - uses issue baseline = 10/1 = 10
+    // Current = 600, spike threshold = 100, so SPIKING
     #[tokio::test]
     async fn test_two_buckets_spike() {
         let mut ctx = TestContext::new();
-        ctx.setup_issue_buckets(&[Some(150), Some(1)]);
+        ctx.setup_issue_buckets(&[Some(600), Some(10)]);
         ctx.setup_team_buckets(
             &[
-                Some(10),
-                Some(10),
-                Some(10),
-                Some(10),
-                Some(10),
-                Some(10),
-                Some(10),
-                Some(10),
-                Some(10),
-                Some(10),
-                Some(10),
-                Some(10),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
             ],
             &[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
         );
@@ -666,8 +666,8 @@ mod tests {
         let result = ctx.get_spiking().await;
 
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0].computed_baseline, 1.0);
-        assert_eq!(result[0].current_bucket_value, 150);
+        assert_eq!(result[0].computed_baseline, 10.0);
+        assert_eq!(result[0].current_bucket_value, 600);
     }
 
     // ISSUE BUCKETS (most recent first): 50, 10
@@ -701,14 +701,14 @@ mod tests {
         assert!(result.is_empty());
     }
 
-    // ISSUE BUCKETS (most recent first): 150
+    // ISSUE BUCKETS (most recent first): 550
     // TEAM BUCKETS (most recent first):  10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10 (1 unique issue each)
     // 0 historical buckets -> falls back to team baseline = 120 exceptions / 12 unique issues = 10
-    // Current = 150, spike threshold = 100, so SPIKING
+    // Current = 550, spike threshold = 100, so SPIKING
     #[tokio::test]
     async fn test_one_bucket_spike_team_based() {
         let mut ctx = TestContext::new();
-        ctx.setup_issue_buckets(&[Some(150)]);
+        ctx.setup_issue_buckets(&[Some(550)]);
         ctx.setup_team_buckets(
             &[
                 Some(10),
@@ -731,7 +731,7 @@ mod tests {
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].computed_baseline, 10.0);
-        assert_eq!(result[0].current_bucket_value, 150);
+        assert_eq!(result[0].current_bucket_value, 550);
     }
 
     // ISSUE BUCKETS (most recent first): 50
@@ -795,15 +795,15 @@ mod tests {
         assert!(result.is_empty());
     }
 
-    // ISSUE BUCKETS (most recent first): 100
+    // ISSUE BUCKETS (most recent first): 600
     // TEAM BUCKETS (most recent first):  20, 15, 12, 8 (unique issues: 2, 3, 4, 2)
     // Per-bucket rates: 20/2=10, 15/3=5, 12/4=3, 8/2=4
     // Team baseline = average(10, 5, 3, 4) = 22/4 = 5.5
-    // Current = 100, spike threshold = 55, so SPIKING
+    // Current = 600, spike threshold = 55, so SPIKING
     #[tokio::test]
     async fn test_team_baseline_average_of_rates() {
         let mut ctx = TestContext::new();
-        ctx.setup_issue_buckets(&[Some(100)]);
+        ctx.setup_issue_buckets(&[Some(600)]);
         ctx.setup_team_buckets(&[Some(20), Some(15), Some(12), Some(8)], &[2, 3, 4, 2]);
 
         let result = ctx.get_spiking().await;
@@ -813,14 +813,14 @@ mod tests {
     }
 
     // Multi-team, multi-issue stress test
-    // Team 1: buckets [10, 20, 30] with issue counts [2, 4, 6] -> rates [5, 5, 5] -> baseline = 5
-    // Team 2: buckets [40, 60] with issue counts [2, 3] -> rates [20, 20] -> baseline = 20
+    // Team 1: buckets [100, 200, 300] with issue counts [2, 4, 6] -> rates [50, 50, 50] -> baseline = 50
+    // Team 2: buckets [400, 600] with issue counts [2, 3] -> rates [200, 200] -> baseline = 200
     //
-    // Issue A (team 1): no history -> team baseline 5, current=60 -> spikes (60 > 50)
-    // Issue B (team 1): history [2, 2] -> own baseline 2, current=30 -> spikes (30 > 20)
-    // Issue C (team 2): no history -> team baseline 20, current=100 -> NOT spiking (100 < 200)
-    // Issue D (team 2): history [10] -> own baseline 10, current=50 -> NOT spiking (50 < 100)
-    // Issue E (team 2): no history -> team baseline 20, current=300 -> spikes (300 > 200)
+    // Issue A (team 1): no history -> team baseline 50, current=600 -> spikes (600 > 500)
+    // Issue B (team 1): history [20, 20] -> own baseline 20, current=550 -> spikes (550 > 200)
+    // Issue C (team 2): no history -> team baseline 200, current=100 -> NOT spiking
+    // Issue D (team 2): history [100] -> own baseline 100, current=50 -> NOT spiking
+    // Issue E (team 2): no history -> team baseline 200, current=2500 -> spikes (2500 > 2000)
     #[tokio::test]
     async fn test_multi_team_multi_issue() {
         let mut redis = MockRedisClient::new();
@@ -860,16 +860,16 @@ mod tests {
             .collect();
 
         // Setup issue buckets
-        // Issue A: current=60, no history
-        redis.mget_ret(&issue_bucket_key(&issue_a, &timestamps[0]), Some(bytes(60)));
+        // Issue A: current=600, no history
+        redis.mget_ret(&issue_bucket_key(&issue_a, &timestamps[0]), Some(bytes(600)));
         for ts in &timestamps[1..] {
             redis.mget_ret(&issue_bucket_key(&issue_a, ts), None);
         }
 
-        // Issue B: current=30, history=[2, 2]
-        redis.mget_ret(&issue_bucket_key(&issue_b, &timestamps[0]), Some(bytes(30)));
-        redis.mget_ret(&issue_bucket_key(&issue_b, &timestamps[1]), Some(bytes(2)));
-        redis.mget_ret(&issue_bucket_key(&issue_b, &timestamps[2]), Some(bytes(2)));
+        // Issue B: current=550, history=[20, 20]
+        redis.mget_ret(&issue_bucket_key(&issue_b, &timestamps[0]), Some(bytes(550)));
+        redis.mget_ret(&issue_bucket_key(&issue_b, &timestamps[1]), Some(bytes(20)));
+        redis.mget_ret(&issue_bucket_key(&issue_b, &timestamps[2]), Some(bytes(20)));
         for ts in &timestamps[3..] {
             redis.mget_ret(&issue_bucket_key(&issue_b, ts), None);
         }
@@ -883,27 +883,27 @@ mod tests {
             redis.mget_ret(&issue_bucket_key(&issue_c, ts), None);
         }
 
-        // Issue D: current=50, history=[10]
+        // Issue D: current=50, history=[100]
         redis.mget_ret(&issue_bucket_key(&issue_d, &timestamps[0]), Some(bytes(50)));
-        redis.mget_ret(&issue_bucket_key(&issue_d, &timestamps[1]), Some(bytes(10)));
+        redis.mget_ret(&issue_bucket_key(&issue_d, &timestamps[1]), Some(bytes(100)));
         for ts in &timestamps[2..] {
             redis.mget_ret(&issue_bucket_key(&issue_d, ts), None);
         }
 
-        // Issue E: current=300, no history
+        // Issue E: current=2500, no history
         redis.mget_ret(
             &issue_bucket_key(&issue_e, &timestamps[0]),
-            Some(bytes(300)),
+            Some(bytes(2500)),
         );
         for ts in &timestamps[1..] {
             redis.mget_ret(&issue_bucket_key(&issue_e, ts), None);
         }
 
-        // Setup team 1 buckets: [10, 20, 30, None...] with issue counts [2, 4, 6, 0...]
-        // Rates: 10/2=5, 20/4=5, 30/6=5 -> average = 5
-        redis.mget_ret(&team_bucket_key(team_1, &timestamps[0]), Some(bytes(10)));
-        redis.mget_ret(&team_bucket_key(team_1, &timestamps[1]), Some(bytes(20)));
-        redis.mget_ret(&team_bucket_key(team_1, &timestamps[2]), Some(bytes(30)));
+        // Setup team 1 buckets: [100, 200, 300, None...] with issue counts [2, 4, 6, 0...]
+        // Rates: 100/2=50, 200/4=50, 300/6=50 -> average = 50
+        redis.mget_ret(&team_bucket_key(team_1, &timestamps[0]), Some(bytes(100)));
+        redis.mget_ret(&team_bucket_key(team_1, &timestamps[1]), Some(bytes(200)));
+        redis.mget_ret(&team_bucket_key(team_1, &timestamps[2]), Some(bytes(300)));
         for ts in &timestamps[3..] {
             redis.mget_ret(&team_bucket_key(team_1, ts), None);
         }
@@ -914,10 +914,10 @@ mod tests {
             redis.scard_ret(&team_issue_set_key(team_1, ts), Ok(0));
         }
 
-        // Setup team 2 buckets: [40, 60, None...] with issue counts [2, 3, 0...]
-        // Rates: 40/2=20, 60/3=20 -> average = 20
-        redis.mget_ret(&team_bucket_key(team_2, &timestamps[0]), Some(bytes(40)));
-        redis.mget_ret(&team_bucket_key(team_2, &timestamps[1]), Some(bytes(60)));
+        // Setup team 2 buckets: [400, 600, None...] with issue counts [2, 3, 0...]
+        // Rates: 400/2=200, 600/3=200 -> average = 200
+        redis.mget_ret(&team_bucket_key(team_2, &timestamps[0]), Some(bytes(400)));
+        redis.mget_ret(&team_bucket_key(team_2, &timestamps[1]), Some(bytes(600)));
         for ts in &timestamps[2..] {
             redis.mget_ret(&team_bucket_key(team_2, ts), None);
         }
@@ -941,28 +941,28 @@ mod tests {
         let result_map: HashMap<Uuid, &SpikingIssue> =
             result.iter().map(|s| (s.issue_id, s)).collect();
 
-        // Issue A: team baseline 5, current 60
+        // Issue A: team baseline 50, current 600
         let spike_a = result_map.get(&issue_a).expect("Issue A should spike");
         assert_eq!(spike_a.team_id, team_1);
-        assert_eq!(spike_a.computed_baseline, 5.0);
-        assert_eq!(spike_a.current_bucket_value, 60);
+        assert_eq!(spike_a.computed_baseline, 50.0);
+        assert_eq!(spike_a.current_bucket_value, 600);
 
-        // Issue B: own baseline 2 (from history [2,2]), current 30
+        // Issue B: own baseline 20 (from history [20,20]), current 550
         let spike_b = result_map.get(&issue_b).expect("Issue B should spike");
         assert_eq!(spike_b.team_id, team_1);
-        assert_eq!(spike_b.computed_baseline, 2.0);
-        assert_eq!(spike_b.current_bucket_value, 30);
+        assert_eq!(spike_b.computed_baseline, 20.0);
+        assert_eq!(spike_b.current_bucket_value, 550);
 
-        // Issue C should NOT be in results (100 < 20*10=200)
+        // Issue C should NOT be in results
         assert!(!result_map.contains_key(&issue_c));
 
-        // Issue D should NOT be in results (50 < 10*10=100)
+        // Issue D should NOT be in results
         assert!(!result_map.contains_key(&issue_d));
 
-        // Issue E: team baseline 20, current 300
+        // Issue E: team baseline 200, current 2500
         let spike_e = result_map.get(&issue_e).expect("Issue E should spike");
         assert_eq!(spike_e.team_id, team_2);
-        assert_eq!(spike_e.computed_baseline, 20.0);
-        assert_eq!(spike_e.current_bucket_value, 300);
+        assert_eq!(spike_e.computed_baseline, 200.0);
+        assert_eq!(spike_e.current_bucket_value, 2500);
     }
 }
