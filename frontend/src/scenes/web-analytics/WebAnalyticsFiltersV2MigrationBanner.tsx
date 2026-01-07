@@ -26,8 +26,8 @@ export const WebAnalyticsFiltersV2MigrationBanner = (): JSX.Element | null => {
                 onClick: () => router.actions.push(urls.settings('user-feature-previews')),
             }}
         >
-            Looking for the new filters experience? It is now a part of the Web Analytics Filters V2 early access
-            feature! Enable it in feature previews to restore the experience and add some more fun features!
+            The new filter experience has been move to early access! Enable the Web Analytics Filters V2 feature preview
+            to restore the experience.
         </LemonBanner>
     )
 }
