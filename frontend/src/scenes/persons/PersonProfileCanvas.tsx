@@ -8,7 +8,7 @@ import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { AnyPropertyFilter, CustomerProfileScope, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { CustomerProfileMenu } from 'products/customer_analytics/frontend/components/CustomerProfileMenu'
-import { personProfileLogic } from 'products/customer_analytics/frontend/personProfileLogic'
+import { customerProfileLogic } from 'products/customer_analytics/frontend/customerProfileLogic'
 
 type PersonProfileCanvasProps = {
     person: PersonType
@@ -17,10 +17,19 @@ type PersonProfileCanvasProps = {
 const PersonProfileCanvas = ({ person }: PersonProfileCanvasProps): JSX.Element | null => {
     const id = person.id
     const distinctId = person.distinct_ids[0]
-    const { reportPersonProfileViewed } = useActions(eventUsageLogic)
-    const { content } = useValues(personProfileLogic({ personId: id, distinctId }))
     const shortId = `canvas-${id}`
     const mode = 'canvas'
+    const { reportPersonProfileViewed } = useActions(eventUsageLogic)
+    const customerProfileLogicProps = {
+        attrs: {
+            personId: id,
+            distinctId,
+        },
+        scope: CustomerProfileScope.PERSON,
+        key: `person-${id}`,
+        canvasShortId: shortId,
+    }
+    const { content } = useValues(customerProfileLogic(customerProfileLogicProps))
 
     const personFilter: AnyPropertyFilter[] = [
         {
@@ -37,9 +46,9 @@ const PersonProfileCanvas = ({ person }: PersonProfileCanvasProps): JSX.Element 
 
     return (
         <BindLogic logic={notebookLogic} props={{ shortId, mode, canvasFiltersOverride: personFilter }}>
-            <BindLogic logic={personProfileLogic} props={{ personId: id, distinctId }}>
+            <BindLogic logic={customerProfileLogic} props={customerProfileLogicProps}>
                 <div className="flex items-start">
-                    <CustomerProfileMenu scope={CustomerProfileScope.PERSON} content={content} />
+                    <CustomerProfileMenu />
                 </div>
                 <Notebook
                     editable={false}
