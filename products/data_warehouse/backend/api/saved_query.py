@@ -376,7 +376,7 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
                 except Exception as e:
                     capture_exception(e)
                     logger.exception(
-                        "Failed to update temporal schedule when updating sync frequency for view %s to value %s",
+                        "Failed to update temporal schedule when updating view: view=%s sync_frequency=%s",
                         view.name,
                         sync_frequency,
                     )
