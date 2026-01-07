@@ -278,3 +278,37 @@ class TestImageExporter(APIBaseTest):
             assert (
                 call_kwargs["variables_override"] == expected_variables
             ), "variables_override should match the transformed dashboard variables"
+
+    @patch("posthog.tasks.exports.image_exporter._screenshot_asset")
+    @patch("posthog.tasks.exports.image_exporter.open", new_callable=mock_open, read_data=b"image_data")
+    @patch("os.remove")
+    def test_export_includes_tile_filter_overrides(self, *args: Any) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Dashboard with Tile Filters")
+        insight = Insight.objects.create(
+            team=self.team,
+            name="Test Insight",
+            query={"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "SELECT 1"}},
+        )
+        tile_filters = {"date_from": "-7d", "properties": [{"key": "$browser", "value": "Chrome"}]}
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight, filters_overrides=tile_filters)
+
+        exported_asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            dashboard=dashboard,
+            insight=insight,
+        )
+
+        with patch("posthog.tasks.exports.image_exporter.calculate_for_query_based_insight") as mock_calculate:
+            mock_calculate.return_value = make_insight_result("test_key")
+
+            with self.settings(OBJECT_STORAGE_ENABLED=False):
+                image_exporter.export_image(exported_asset)
+
+            assert mock_calculate.call_count == 1
+            call_kwargs = mock_calculate.call_args[1]
+
+            assert "tile_filters_override" in call_kwargs, "tile_filters_override parameter missing"
+            assert (
+                call_kwargs["tile_filters_override"] == tile_filters
+            ), "tile_filters_override should match tile filters"
