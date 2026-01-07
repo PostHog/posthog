@@ -18,6 +18,7 @@ import nh3
 import structlog
 import posthoganalytics
 from axes.decorators import axes_dispatch
+from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from nanoid import generate
 from posthoganalytics import capture_exception
@@ -25,6 +26,8 @@ from prometheus_client import Counter
 from rest_framework import exceptions, filters, request, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
+
+from posthog.schema import ProductKey
 
 from posthog.api.action import ActionSerializer, ActionStepJSONSerializer
 from posthog.api.feature_flag import (
@@ -899,6 +902,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 return feature_flag_serializer.save()
 
 
+@extend_schema(tags=[ProductKey.SURVEYS])
 class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "survey"
     queryset = Survey.objects.select_related(
