@@ -1,4 +1,5 @@
-import { actions, kea, path, reducers } from 'kea'
+import { actions, kea, listeners, path, reducers } from 'kea'
+import posthog from 'posthog-js'
 
 import { ParsedLogMessage } from 'products/logs/frontend/types'
 
@@ -15,6 +16,17 @@ export const logDetailsModalLogic = kea<logDetailsModalLogicType>([
         setJsonParseAllFields: (enabled: boolean) => ({ enabled }),
         setActiveTab: (tab: LogDetailsTab) => ({ tab }),
     }),
+
+    listeners(({ values }) => ({
+        openLogDetails: () => {
+            if (!values.isOpen) {
+                posthog.capture('logs details opened')
+            }
+        },
+        setActiveTab: ({ tab }) => {
+            posthog.capture('logs details tab changed', { tab })
+        },
+    })),
 
     reducers({
         selectedLog: [
