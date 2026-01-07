@@ -256,6 +256,17 @@ def _get_email_from_id_token(id_token: str) -> tuple[str, dict]:
             logger.error("admin_oauth2_token_too_old", iat=iat, now=now, age_seconds=int(now - iat))
             return "", {}
 
+        # Validate hosted domain if configured
+        if settings.ADMIN_AUTH_GOOGLE_ALLOWED_DOMAINS:
+            hd = payload.get("hd")
+            if not hd or hd not in settings.ADMIN_AUTH_GOOGLE_ALLOWED_DOMAINS:
+                logger.error(
+                    "admin_oauth2_domain_not_allowed",
+                    hd=hd,
+                    allowed=settings.ADMIN_AUTH_GOOGLE_ALLOWED_DOMAINS,
+                )
+                return "", {}
+
         # email should always be verified, but simple sanity check doesn't hurt
         if payload.get("email_verified"):
             return payload.get("email", "").lower(), payload
