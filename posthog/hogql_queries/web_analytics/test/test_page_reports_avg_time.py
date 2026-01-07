@@ -43,6 +43,10 @@ class TestPageReportsTimeOnPage(ClickhouseTestMixin, APIBaseTest):
 
         def calculate_p90(values: list[float]) -> float:
             values = [v for v in values if v is not None]
+
+            if len(values) == 0:
+                return None
+
             return np.percentile(values, 90)
 
         results = {}
