@@ -36,7 +36,6 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.property import property_to_expr
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.insight import capture_legacy_api_call
 from posthog.api.person import get_funnel_actor_class
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -470,11 +469,7 @@ class CohortSerializer(serializers.ModelSerializer):
         return value
 
     def _handle_static(self, cohort: Cohort, context: dict, validated_data: dict, person_ids: list[str] | None) -> None:
-        from posthog.tasks.calculate_cohort import (
-            insert_cohort_from_feature_flag,
-            insert_cohort_from_insight_filter,
-            insert_cohort_from_query,
-        )
+        from posthog.tasks.calculate_cohort import insert_cohort_from_feature_flag, insert_cohort_from_query
 
         request = self.context["request"]
         if request.FILES.get("csv") or person_ids is not None:
@@ -493,13 +488,9 @@ class CohortSerializer(serializers.ModelSerializer):
         elif validated_data.get("query"):
             insert_cohort_from_query.delay(cohort.pk, self.context["team_id"])
         else:
-            filter_data = request.GET.dict()
-            existing_cohort_id = context.get("from_cohort_id")
-            if existing_cohort_id:
-                filter_data = {**filter_data, "from_cohort_id": existing_cohort_id}
-            if filter_data:
-                capture_legacy_api_call(request, self.context["get_team"]())
-                insert_cohort_from_insight_filter.delay(cohort.pk, filter_data, self.context["team_id"])
+            raise ValidationError(
+                "Invalid source for static cohort. Requires a csv, feature flag, existing cohort or query."
+            )
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Cohort:
         request = self.context["request"]

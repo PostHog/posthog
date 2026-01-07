@@ -2654,41 +2654,6 @@ email@example.org,
         new_cohort.refresh_from_db()
         self.assertEqual(new_cohort.count, 2)
 
-    @patch("posthog.tasks.calculate_cohort.insert_cohort_from_insight_filter.delay")
-    def test_duplicating_static_cohort_sets_is_calculating(self, mock_insert_cohort):
-        """Test that is_calculating is set to True when duplicating static cohort via async task"""
-        p1 = _create_person(distinct_ids=["p1"], team_id=self.team.pk)
-        p2 = _create_person(distinct_ids=["p2"], team_id=self.team.pk)
-
-        flush_persons_and_events()
-
-        # Create static cohort
-        cohort = Cohort.objects.create(
-            team=self.team,
-            name="static cohort A",
-            is_static=True,
-        )
-        cohort.insert_users_list_by_uuid([str(p1.uuid), str(p2.uuid)], team_id=self.team.pk)
-
-        # Duplicate static cohort as static
-        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.pk}/duplicate_as_static_cohort")
-        self.assertEqual(response.status_code, 200, response.content)
-
-        new_cohort_id = response.json()["id"]
-        new_cohort = Cohort.objects.get(pk=new_cohort_id)
-
-        # Verify is_calculating is True immediately (before async task completes)
-        self.assertTrue(
-            new_cohort.is_calculating, "is_calculating should be True while async duplication is in progress"
-        )
-
-        # Verify the async task was called with correct parameters
-        mock_insert_cohort.assert_called_once()
-        call_args = mock_insert_cohort.call_args
-        self.assertEqual(call_args[0][0], new_cohort_id)  # cohort_id
-        self.assertEqual(call_args[0][1]["from_cohort_id"], cohort.pk)  # filter_data contains source cohort
-        self.assertEqual(call_args[0][2], self.team.pk)  # team_id
-
     def test_duplicating_dynamic_cohort_as_dynamic(self):
         _create_person(
             distinct_ids=["p1"],
