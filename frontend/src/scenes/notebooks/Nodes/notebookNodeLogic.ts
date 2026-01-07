@@ -152,7 +152,10 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         // TODO: Fix the typing of nodeAttributes
         children: [(s) => [s.nodeAttributes], (nodeAttributes): NotebookNodeResource[] => nodeAttributes.children],
 
-        exportedGlobals: [(s) => [s.nodeAttributes], (nodeAttributes) => nodeAttributes.globalsExportedWithTypes ?? []],
+        exportedGlobals: [
+            (s) => [s.nodeAttributes],
+            (nodeAttributes): { name: string; type: string }[] => nodeAttributes.globalsExportedWithTypes ?? [],
+        ],
 
         pythonNodeIndex: [
             (s) => [s.pythonNodeSummaries, s.nodeId],

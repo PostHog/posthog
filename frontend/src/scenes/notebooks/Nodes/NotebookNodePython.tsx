@@ -11,7 +11,7 @@ import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } 
 import { VariableUsage } from './notebookNodeContent'
 import { notebookNodeLogic } from './notebookNodeLogic'
 
-type NotebookNodePythonAttributes = {
+export type NotebookNodePythonAttributes = {
     code: string
     globalsUsed?: string[]
     globalsExportedWithTypes?: { name: string; type: string }[]
