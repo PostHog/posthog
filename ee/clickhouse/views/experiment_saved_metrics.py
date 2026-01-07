@@ -26,10 +26,6 @@ from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
 from ee.api.rbac.access_control import AccessControlViewSetMixin
 
-from ee.api.rbac.access_control import AccessControlViewSetMixin
-
-from ee.api.rbac.access_control import AccessControlViewSetMixin
-
 
 class ExperimentToSavedMetricSerializer(serializers.ModelSerializer):
     query = serializers.JSONField(source="saved_metric.query", read_only=True)
