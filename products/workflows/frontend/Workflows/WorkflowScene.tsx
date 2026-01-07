@@ -6,7 +6,6 @@ import { SpinnerOverlay } from '@posthog/lemon-ui'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -14,9 +13,9 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { ActivityScope } from '~/types'
 
 import { Workflow } from './Workflow'
+import { WorkflowLogs } from './WorkflowLogs'
 import { WorkflowMetrics } from './WorkflowMetrics'
 import { WorkflowSceneHeader } from './WorkflowSceneHeader'
-import { renderWorkflowLogMessage } from './logs/log-utils'
 import { workflowLogic } from './workflowLogic'
 import { WorkflowSceneLogicProps, WorkflowTab, workflowSceneLogic } from './workflowSceneLogic'
 
@@ -36,7 +35,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const editTemplateId = searchParams.editTemplateId as string | undefined
 
     const logic = workflowLogic({ id: props.id, templateId, editTemplateId })
-    const { workflowLoading, workflow, originalWorkflow } = useValues(logic)
+    const { workflowLoading, originalWorkflow } = useValues(logic)
 
     if (!originalWorkflow && workflowLoading) {
         return <SpinnerOverlay sceneLevel />
@@ -56,18 +55,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         {
             label: 'Logs',
             key: 'logs',
-            content: (
-                <LogsViewer
-                    sourceType="hog_flow"
-                    /**
-                     * If we're rendering tabs, props.id is guaranteed to be
-                     * defined and not "new" (see return statement below)
-                     */
-                    sourceId={props.id!}
-                    instanceLabel="workflow run"
-                    renderMessage={(m) => renderWorkflowLogMessage(workflow, m)}
-                />
-            ),
+            content: <WorkflowLogs id={props.id!} />,
         },
         {
             label: 'Metrics',

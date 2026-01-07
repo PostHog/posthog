@@ -50,12 +50,14 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
     }
 
     private createHogFlowInvocation({
+        batchJobId,
         hogFlow,
         team,
         personId,
         distinctId,
         defaultVariables,
     }: {
+        batchJobId: string
         hogFlow: HogFlow
         team: Team
         personId: string
@@ -79,7 +81,7 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
                 variables: defaultVariables,
             },
             teamId: hogFlow.team_id,
-            functionId: hogFlow.id,
+            functionId: batchJobId,
             hogFlow,
             person: invocationGlobals.person,
             filterGlobals,
@@ -155,6 +157,7 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
                 },
                 onPerson: ({ personId, distinctId }) => {
                     const invocation = this.createHogFlowInvocation({
+                        batchJobId: batchHogFlowRequest.batchJobId,
                         hogFlow,
                         team,
                         personId,

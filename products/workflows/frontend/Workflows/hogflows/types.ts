@@ -57,6 +57,17 @@ export const HogFlowTemplateSchema = HogFlowSchema.omit({ status: true }).extend
     scope: z.enum(['team', 'global']).optional().nullable(),
 })
 
+export const HogFlowBatchJobSchema = z.object({
+    id: z.string(),
+    team_id: z.number(),
+    hog_flow_id: z.string(),
+    variables: z.record(z.any()),
+    status: z.enum(['waiting', 'queued', 'active', 'completed', 'cancelled', 'failed']),
+    scheduled_at: z.string().nullable(),
+    created_at: z.string(),
+    updated_at: z.string(),
+})
+
 // NOTE: these are purposefully exported as interfaces to support kea typegen
 export interface HogFlow extends z.infer<typeof HogFlowSchema> {
     created_by?: UserBasicType | null
@@ -75,5 +86,9 @@ export type HogFlowActionValidationResult = CyclotronJobInputsValidationResult &
 }
 
 export interface HogFlowTemplate extends z.infer<typeof HogFlowTemplateSchema> {
+    created_by?: UserBasicType | null
+}
+
+export interface HogFlowBatchJob extends z.infer<typeof HogFlowBatchJobSchema> {
     created_by?: UserBasicType | null
 }
