@@ -1,6 +1,8 @@
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
+from posthog.models import Organization, OrganizationMembership, User
 from posthog.models.organization_domain import OrganizationDomain
 
 from ee.api.scim.auth import generate_scim_token
@@ -110,3 +112,57 @@ class TestSCIMAPI(APILicensedTest):
         response = self.client.get(f"/scim/v2/{self.domain.id}/Groups")
         assert response.status_code == status.HTTP_200_OK
         assert "Resources" in response.json()
+
+    def _create_user_in_other_org(self):
+        other_org = Organization.objects.create(name="OtherCorp")
+        other_user = User.objects.create(
+            email="alice@othercorp.com",
+            first_name="Alice",
+            last_name="Original",
+        )
+        OrganizationMembership.objects.create(
+            user=other_user,
+            organization=other_org,
+            level=OrganizationMembership.Level.MEMBER,
+        )
+        return other_user
+
+    @parameterized.expand(["get", "put", "patch", "delete"])
+    def test_scim_user_detail_rejects_cross_tenant_access(self, method: str):
+        other_user = self._create_user_in_other_org()
+        self.client.credentials(**self.scim_headers)
+
+        url = f"/scim/v2/{self.domain.id}/Users/{other_user.id}"
+
+        if method == "get":
+            response = self.client.get(url)
+        elif method == "put":
+            response = self.client.put(
+                url,
+                {
+                    "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+                    "userName": "changed@example.com",
+                    "name": {"givenName": "Changed", "familyName": "User"},
+                    "emails": [{"value": "changed@example.com", "primary": True}],
+                    "active": True,
+                },
+                format="json",
+            )
+        elif method == "patch":
+            response = self.client.patch(
+                url,
+                {
+                    "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                    "Operations": [{"op": "replace", "path": "emails", "value": [{"value": "changed@example.com"}]}],
+                },
+                format="json",
+            )
+        elif method == "delete":
+            response = self.client.delete(url)
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+        other_user.refresh_from_db()
+        assert other_user.email == "alice@othercorp.com"
+        assert other_user.first_name == "Alice"
+        assert User.objects.filter(id=other_user.id).exists()

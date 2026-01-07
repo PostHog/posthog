@@ -111,14 +111,35 @@ export const urls = {
     signup: (): string => '/signup',
     verifyEmail: (userUuid: string = '', token: string = ''): string =>
         `/verify_email${userUuid ? `/${userUuid}` : ''}${token ? `/${token}` : ''}`,
+    vercelLinkError: (): string => '/integrations/vercel/link-error',
     inviteSignup: (id: string): string => `/signup/${id}`,
-    products: (): string => '/products',
-    useCaseSelection: (): string => '/onboarding/use-case',
-    onboardingCoupon: (campaign: string): string => `/onboarding/coupons/${campaign}`,
-    onboarding: (productKey: string, stepKey?: OnboardingStepKey, sdk?: SDKKey): string =>
-        `/onboarding/${productKey}${stepKey ? '?step=' + stepKey : ''}${
-            sdk && stepKey ? '&sdk=' + sdk : sdk ? '?sdk=' + sdk : ''
-        }`,
+    onboarding: ({
+        campaign,
+        productKey,
+        stepKey,
+        sdk,
+    }: {
+        campaign?: string
+        productKey?: string
+        stepKey?: OnboardingStepKey
+        sdk?: SDKKey
+    } = {}): string => {
+        if (campaign) {
+            return `/onboarding/coupons/${campaign}`
+        }
+
+        const params = new URLSearchParams()
+        if (stepKey) {
+            params.set('step', stepKey)
+        }
+        if (sdk) {
+            params.set('sdk', sdk)
+        }
+
+        const base = `/onboarding${productKey ? `/${productKey}` : ''}`
+        const queryString = params.toString()
+        return `${base}${queryString ? `?${queryString}` : ''}`
+    },
     // Cloud only
     organizationBilling: (products?: ProductKey[]): string =>
         `/organization/billing${products && products.length ? `?products=${products.join(',')}` : ''}`,

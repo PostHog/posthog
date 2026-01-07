@@ -67,13 +67,18 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
     logger.info('🤔', `Connecting to ingestion Redis...`)
     const redisPool = createRedisPoolFromConfig({
         connection: serverConfig.INGESTION_REDIS_HOST
-            ? { url: serverConfig.INGESTION_REDIS_HOST, options: { port: serverConfig.INGESTION_REDIS_PORT } }
+            ? {
+                  url: serverConfig.INGESTION_REDIS_HOST,
+                  options: { port: serverConfig.INGESTION_REDIS_PORT },
+                  name: 'ingestion-redis',
+              }
             : serverConfig.POSTHOG_REDIS_HOST
               ? {
                     url: serverConfig.POSTHOG_REDIS_HOST,
                     options: { port: serverConfig.POSTHOG_REDIS_PORT, password: serverConfig.POSTHOG_REDIS_PASSWORD },
+                    name: 'ingestion-redis',
                 }
-              : { url: serverConfig.REDIS_URL },
+              : { url: serverConfig.REDIS_URL, name: 'ingestion-redis' },
         poolMinSize: serverConfig.REDIS_POOL_MIN_SIZE,
         poolMaxSize: serverConfig.REDIS_POOL_MAX_SIZE,
     })
@@ -82,8 +87,12 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
     logger.info('🤔', `Connecting to cookieless Redis...`)
     const cookielessRedisPool = createRedisPoolFromConfig({
         connection: serverConfig.COOKIELESS_REDIS_HOST
-            ? { url: serverConfig.COOKIELESS_REDIS_HOST, options: { port: serverConfig.COOKIELESS_REDIS_PORT ?? 6379 } }
-            : { url: serverConfig.REDIS_URL },
+            ? {
+                  url: serverConfig.COOKIELESS_REDIS_HOST,
+                  options: { port: serverConfig.COOKIELESS_REDIS_PORT ?? 6379 },
+                  name: 'cookieless-redis',
+              }
+            : { url: serverConfig.REDIS_URL, name: 'cookieless-redis' },
         poolMinSize: serverConfig.REDIS_POOL_MIN_SIZE,
         poolMaxSize: serverConfig.REDIS_POOL_MAX_SIZE,
     })
@@ -96,8 +105,9 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
             ? {
                   url: serverConfig.POSTHOG_REDIS_HOST,
                   options: { port: serverConfig.POSTHOG_REDIS_PORT, password: serverConfig.POSTHOG_REDIS_PASSWORD },
+                  name: 'posthog-redis',
               }
-            : { url: serverConfig.REDIS_URL },
+            : { url: serverConfig.REDIS_URL, name: 'posthog-redis' },
         poolMinSize: serverConfig.REDIS_POOL_MIN_SIZE,
         poolMaxSize: serverConfig.REDIS_POOL_MAX_SIZE,
     })

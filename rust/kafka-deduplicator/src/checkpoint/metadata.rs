@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use tracing::info;
 
+use crate::utils::format_store_path;
+
 // filename of metadata tracking file in each remote checkpoint attempt directory
 pub const METADATA_FILENAME: &str = "metadata.json";
 // hour-scoped prefix of TIMESTAMP_FORMAT used to pull
@@ -113,9 +115,12 @@ impl CheckpointMetadata {
     /// will host the imported checkpoint files. Example:
     /// <local_store_base_path>/<topic_name>_<partition_number>/<checkpoint_unix_epoch_millis>
     pub fn get_store_path(&self, local_store_base_path: &Path) -> PathBuf {
-        local_store_base_path
-            .join(format!("{}_{}", self.topic, self.partition))
-            .join(self.attempt_timestamp.timestamp_millis().to_string())
+        format_store_path(
+            local_store_base_path,
+            &self.topic,
+            self.partition,
+            self.attempt_timestamp,
+        )
     }
 
     /// Get relative path to metadata file for this checkpoint attempt,
@@ -469,5 +474,31 @@ mod tests {
             .join(format!("{topic}_{partition}"))
             .join(timestamp_millis.to_string());
         assert_eq!(tmp_store_path, tmp_expected);
+    }
+
+    #[test]
+    fn test_get_store_path_with_slashes_in_topic() {
+        let attempt_timestamp = Utc::now();
+        let timestamp_millis = attempt_timestamp.timestamp_millis();
+        let topic = "org/team/events";
+        let partition = 0;
+
+        let metadata = CheckpointMetadata::new(
+            topic.to_string(),
+            partition,
+            attempt_timestamp,
+            1234567890,
+            100,
+            50,
+        );
+
+        let base_path = Path::new("/data/stores");
+        let store_path = metadata.get_store_path(base_path);
+
+        // Slashes in topic should be replaced with underscores for filesystem safety
+        let expected = base_path
+            .join("org_team_events_0")
+            .join(timestamp_millis.to_string());
+        assert_eq!(store_path, expected);
     }
 }
