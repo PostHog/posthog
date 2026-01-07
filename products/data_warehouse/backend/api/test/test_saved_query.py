@@ -412,6 +412,19 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(response.status_code, 201)
         saved_query = response.json()
 
+        # materialize the query
+        with (
+            patch("products.data_warehouse.backend.data_load.saved_query_service.sync_saved_query_workflow"),
+            patch(
+                "products.data_warehouse.backend.data_load.saved_query_service.saved_query_workflow_exists",
+                return_value=False,
+            ),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}/materialize",
+            )
+            assert response.status_code == 200
+
         with patch(
             "products.data_warehouse.backend.api.saved_query.pause_saved_query_schedule"
         ) as mock_pause_saved_query_schedule:
