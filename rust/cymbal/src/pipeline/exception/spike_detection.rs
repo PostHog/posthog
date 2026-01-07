@@ -366,15 +366,17 @@ async fn get_spiking_issues(
     let (issue_values, team_values, team_issue_counts) =
         fetch_bucket_data(redis, &issue_ids, &unique_team_ids, &bucket_timestamps).await?;
 
-    let team_baselines = compute_team_baselines(&unique_team_ids, &team_values, &team_issue_counts);
+    let buckets_count = bucket_timestamps.len();
+    let team_baselines: HashMap<i32, f64> =
+        compute_team_baselines(&unique_team_ids, &team_values, &team_issue_counts, buckets_count);
 
     let spiking = issue_ids
         .iter()
         .enumerate()
         .filter_map(|(issue_idx, issue_id)| {
             let issue = issues_by_id.get(issue_id)?;
-            let start_idx = issue_idx * NUM_BUCKETS;
-            let buckets = &issue_values[start_idx..start_idx + NUM_BUCKETS];
+            let start_idx = issue_idx * buckets_count;
+            let buckets = &issue_values[start_idx..start_idx + buckets_count];
 
             let current_value = buckets[0].unwrap_or(0);
             let historical = &buckets[1..];
@@ -426,8 +428,9 @@ async fn fetch_bucket_data(
         .map(|opt| opt.and_then(|bytes| std::str::from_utf8(&bytes).ok()?.parse().ok()))
         .collect();
 
-    let issue_values = all_values[..issue_ids.len() * NUM_BUCKETS].to_vec();
-    let team_values = all_values[issue_ids.len() * NUM_BUCKETS..].to_vec();
+    let buckets_count = timestamps.len();
+    let issue_values = all_values[..issue_ids.len() * buckets_count].to_vec();
+    let team_values = all_values[issue_ids.len() * buckets_count..].to_vec();
 
     Ok((issue_values, team_values, team_issue_counts))
 }
@@ -436,14 +439,15 @@ fn compute_team_baselines(
     team_ids: &[i32],
     team_values: &[Option<i64>],
     team_issue_counts: &[u64],
+    buckets_count: usize,
 ) -> HashMap<i32, f64> {
     team_ids
         .iter()
         .enumerate()
         .map(|(idx, team_id)| {
-            let start = idx * NUM_BUCKETS;
-            let exceptions = &team_values[start..start + NUM_BUCKETS];
-            let issues = &team_issue_counts[start..start + NUM_BUCKETS];
+            let start = idx * buckets_count;
+            let exceptions = &team_values[start..start + buckets_count];
+            let issues = &team_issue_counts[start..start + buckets_count];
             (*team_id, compute_team_baseline(exceptions, issues))
         })
         .collect()
