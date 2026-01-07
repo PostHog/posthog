@@ -7,6 +7,8 @@ import { SessionTracker } from './session-tracker'
 jest.mock('./metrics', () => ({
     SessionBatchMetrics: {
         incrementNewSessionsDetected: jest.fn(),
+        incrementSessionTrackerCacheHit: jest.fn(),
+        incrementSessionTrackerCacheMiss: jest.fn(),
     },
 }))
 
@@ -96,6 +98,85 @@ describe('SessionTracker', () => {
 
             const expectedTTL = 48 * 60 * 60
             expect(mockRedisClient.set).toHaveBeenCalledWith(expect.any(String), '1', 'EX', expectedTTL, 'NX')
+        })
+    })
+
+    describe('local cache', () => {
+        it('should return false from cache without calling Redis on second call', async () => {
+            mockRedisClient.set = jest.fn().mockResolvedValue('OK')
+            sessionTracker = new SessionTracker(mockRedisPool)
+
+            // First call should hit Redis
+            const isNew1 = await sessionTracker.trackSession(1, 'session-123')
+            expect(isNew1).toBe(true)
+            expect(mockRedisClient.set).toHaveBeenCalledTimes(1)
+            expect(SessionBatchMetrics.incrementSessionTrackerCacheMiss).toHaveBeenCalledTimes(1)
+
+            // Second call should use cache
+            const isNew2 = await sessionTracker.trackSession(1, 'session-123')
+            expect(isNew2).toBe(false)
+            expect(mockRedisClient.set).toHaveBeenCalledTimes(1) // Still only 1 call
+            expect(SessionBatchMetrics.incrementSessionTrackerCacheHit).toHaveBeenCalledTimes(1)
+        })
+
+        it('should cache sessions separately per team', async () => {
+            mockRedisClient.set = jest.fn().mockResolvedValue('OK')
+            sessionTracker = new SessionTracker(mockRedisPool)
+
+            await sessionTracker.trackSession(1, 'session-123')
+            await sessionTracker.trackSession(2, 'session-123')
+
+            // Both should have hit Redis (different teams)
+            expect(mockRedisClient.set).toHaveBeenCalledTimes(2)
+            expect(SessionBatchMetrics.incrementSessionTrackerCacheMiss).toHaveBeenCalledTimes(2)
+
+            // Now both should be cached
+            await sessionTracker.trackSession(1, 'session-123')
+            await sessionTracker.trackSession(2, 'session-123')
+
+            expect(mockRedisClient.set).toHaveBeenCalledTimes(2) // No additional calls
+            expect(SessionBatchMetrics.incrementSessionTrackerCacheHit).toHaveBeenCalledTimes(2)
+        })
+
+        it('should hit Redis again after cache TTL expires', async () => {
+            mockRedisClient.set = jest.fn().mockResolvedValue(null) // Session already exists
+            const shortCacheTtlMs = 50 // 50ms TTL for testing
+            sessionTracker = new SessionTracker(mockRedisPool, shortCacheTtlMs)
+
+            // First call
+            await sessionTracker.trackSession(1, 'session-123')
+            expect(mockRedisClient.set).toHaveBeenCalledTimes(1)
+
+            // Second call within TTL - should use cache
+            await sessionTracker.trackSession(1, 'session-123')
+            expect(mockRedisClient.set).toHaveBeenCalledTimes(1)
+
+            // Wait for TTL to expire
+            await new Promise((resolve) => setTimeout(resolve, shortCacheTtlMs + 10))
+
+            // Third call after TTL - should hit Redis again
+            await sessionTracker.trackSession(1, 'session-123')
+            expect(mockRedisClient.set).toHaveBeenCalledTimes(2)
+        })
+
+        it('should cache both new and existing sessions', async () => {
+            sessionTracker = new SessionTracker(mockRedisPool)
+
+            // New session
+            mockRedisClient.set = jest.fn().mockResolvedValue('OK')
+            await sessionTracker.trackSession(1, 'new-session')
+            expect(mockRedisClient.set).toHaveBeenCalledTimes(1)
+
+            // Existing session
+            mockRedisClient.set = jest.fn().mockResolvedValue(null)
+            await sessionTracker.trackSession(1, 'existing-session')
+            expect(mockRedisClient.set).toHaveBeenCalledTimes(1)
+
+            // Both should now be cached
+            mockRedisClient.set = jest.fn()
+            await sessionTracker.trackSession(1, 'new-session')
+            await sessionTracker.trackSession(1, 'existing-session')
+            expect(mockRedisClient.set).not.toHaveBeenCalled()
         })
     })
 })

@@ -78,6 +78,16 @@ export class SessionBatchMetrics {
         help: 'Number of new sessions that were rate limited',
     })
 
+    private static readonly sessionTrackerCacheHit = new Counter({
+        name: 'recording_blob_ingestion_v2_session_tracker_cache_hit_total',
+        help: 'Number of session tracker local cache hits (avoided Redis call)',
+    })
+
+    private static readonly sessionTrackerCacheMiss = new Counter({
+        name: 'recording_blob_ingestion_v2_session_tracker_cache_miss_total',
+        help: 'Number of session tracker local cache misses (required Redis call)',
+    })
+
     public static incrementBatchesFlushed(): void {
         this.batchesFlushed.inc()
     }
@@ -137,5 +147,13 @@ export class SessionBatchMetrics {
 
     public static incrementNewSessionsRateLimited(count: number = 1): void {
         this.newSessionsRateLimited.inc(count)
+    }
+
+    public static incrementSessionTrackerCacheHit(count: number = 1): void {
+        this.sessionTrackerCacheHit.inc(count)
+    }
+
+    public static incrementSessionTrackerCacheMiss(count: number = 1): void {
+        this.sessionTrackerCacheMiss.inc(count)
     }
 }
