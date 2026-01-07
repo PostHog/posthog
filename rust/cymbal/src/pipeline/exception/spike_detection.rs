@@ -39,10 +39,7 @@ fn cooldown_key(issue_id: &Uuid) -> String {
 
 #[derive(Debug, Clone)]
 pub struct SpikingIssue {
-    pub issue_id: Uuid,
-    pub team_id: i32,
-    pub name: Option<String>,
-    pub description: Option<String>,
+    pub issue: Issue,
     pub computed_baseline: f64,
     pub current_bucket_value: i64,
 }
@@ -198,7 +195,7 @@ async fn emit_spiking_events(context: &AppContext, spiking: Vec<SpikingIssue>) {
     let spiking: Vec<SpikingIssue> = match &allowed_team_ids {
         Some(ids) => spiking
             .into_iter()
-            .filter(|s| ids.contains(&s.team_id))
+            .filter(|s| ids.contains(&s.issue.team_id))
             .collect(),
         None => spiking,
     };
@@ -209,7 +206,7 @@ async fn emit_spiking_events(context: &AppContext, spiking: Vec<SpikingIssue>) {
 
     let cooldown_items: Vec<(String, String)> = spiking
         .iter()
-        .map(|s| (cooldown_key(&s.issue_id), "1".to_string()))
+        .map(|s| (cooldown_key(&s.issue.id), "1".to_string()))
         .collect();
     let lock_results = match context
         .issue_buckets_redis_client
@@ -237,10 +234,10 @@ async fn emit_spiking_events(context: &AppContext, spiking: Vec<SpikingIssue>) {
         .iter()
         .filter_map(|spike| {
             let mut event =
-                InternalEventEvent::new(ISSUE_SPIKING_EVENT, spike.issue_id, Utc::now(), None);
-            event.insert_prop("name", spike.name.clone()).ok()?;
+                InternalEventEvent::new(ISSUE_SPIKING_EVENT, spike.issue.id, Utc::now(), None);
+            event.insert_prop("name", spike.issue.name.clone()).ok()?;
             event
-                .insert_prop("description", spike.description.clone())
+                .insert_prop("description", spike.issue.description.clone())
                 .ok()?;
             event
                 .insert_prop("computed_baseline", spike.computed_baseline)
@@ -249,9 +246,9 @@ async fn emit_spiking_events(context: &AppContext, spiking: Vec<SpikingIssue>) {
                 .insert_prop("current_bucket_value", spike.current_bucket_value)
                 .ok()?;
             Some((
-                spike.issue_id,
+                spike.issue.id,
                 InternalEvent {
-                    team_id: spike.team_id,
+                    team_id: spike.issue.team_id,
                     event,
                     person: None,
                 },
@@ -382,10 +379,7 @@ async fn get_spiking_issues(
 
             if is_spiking(current_value, baseline) {
                 Some(SpikingIssue {
-                    issue_id: *issue_id,
-                    team_id: issue.team_id,
-                    name: issue.name.clone(),
-                    description: issue.description.clone(),
+                    issue: issue.clone(),
                     computed_baseline: baseline,
                     current_bucket_value: current_value,
                 })
@@ -964,17 +958,17 @@ mod tests {
         assert_eq!(result.len(), 3);
 
         let result_map: HashMap<Uuid, &SpikingIssue> =
-            result.iter().map(|s| (s.issue_id, s)).collect();
+            result.iter().map(|s| (s.issue.id, s)).collect();
 
         // Issue A: team baseline 50, current 600
         let spike_a = result_map.get(&issue_a).expect("Issue A should spike");
-        assert_eq!(spike_a.team_id, team_1);
+        assert_eq!(spike_a.issue.team_id, team_1);
         assert_eq!(spike_a.computed_baseline, 50.0);
         assert_eq!(spike_a.current_bucket_value, 600);
 
         // Issue B: own baseline 20 (from history [20,20]), current 550
         let spike_b = result_map.get(&issue_b).expect("Issue B should spike");
-        assert_eq!(spike_b.team_id, team_1);
+        assert_eq!(spike_b.issue.team_id, team_1);
         assert_eq!(spike_b.computed_baseline, 20.0);
         assert_eq!(spike_b.current_bucket_value, 550);
 
@@ -986,7 +980,7 @@ mod tests {
 
         // Issue E: team baseline 200, current 2500
         let spike_e = result_map.get(&issue_e).expect("Issue E should spike");
-        assert_eq!(spike_e.team_id, team_2);
+        assert_eq!(spike_e.issue.team_id, team_2);
         assert_eq!(spike_e.computed_baseline, 200.0);
         assert_eq!(spike_e.current_bucket_value, 2500);
     }
