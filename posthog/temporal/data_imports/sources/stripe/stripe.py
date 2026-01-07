@@ -251,7 +251,7 @@ class StripePermissionError(Exception):
         super().__init__(message)
 
 
-def validate_credentials(api_key: str) -> bool:
+def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool:
     """
     Validates Stripe API credentials and checks permissions for all required resources.
     This function will:
@@ -279,6 +279,9 @@ def validate_credentials(api_key: str) -> bool:
     ]
 
     missing_permissions = {}
+
+    if table_name:
+        resources_to_check = [r for r in resources_to_check if r.get("name") == table_name]
 
     for resource in resources_to_check:
         try:

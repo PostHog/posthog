@@ -65,7 +65,7 @@ class TemplateSource(SimpleSource[Config]):  # rename this class and replace `Co
         )
 
     def validate_credentials(
-        self, config: Config, team_id: int
+        self, config: Config, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:  # replace `Config` with the generated class
         return (
             True,
