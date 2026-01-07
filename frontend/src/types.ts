@@ -1257,6 +1257,7 @@ export interface RecordingUniversalFilters {
     duration: RecordingDurationFilter[]
     filter_test_accounts?: boolean
     filter_group: UniversalFiltersGroup
+    session_ids?: string[]
     order?: RecordingsQuery['order']
     order_direction?: RecordingsQuery['order_direction']
     limit?: RecordingsQuery['limit']

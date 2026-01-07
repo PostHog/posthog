@@ -319,6 +319,7 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
         filter_test_accounts: universalFilters.filter_test_accounts,
         operand: universalFilters.filter_group.type,
         limit: universalFilters.limit,
+        session_ids: universalFilters.session_ids,
     }
 }
 
