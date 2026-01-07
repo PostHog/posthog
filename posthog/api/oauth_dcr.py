@@ -3,6 +3,10 @@ OAuth 2.0 Dynamic Client Registration (RFC 7591)
 
 Allows MCP clients to register themselves without prior authentication.
 This is required by the MCP OAuth specification for seamless client onboarding.
+
+Note: We only support PUBLIC clients (token_endpoint_auth_method: "none").
+MCP clients run on user devices and cannot securely store a client_secret.
+Security is provided by PKCE (required for all OAuth flows).
 """
 
 from typing import Any
@@ -10,6 +14,7 @@ from typing import Any
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 
+import structlog
 from oauth2_provider.models import AbstractApplication
 from rest_framework import serializers, status
 from rest_framework.request import Request
@@ -18,6 +23,8 @@ from rest_framework.views import APIView
 
 from posthog.models.oauth import OAuthApplication
 from posthog.rate_limit import IPThrottle
+
+logger = structlog.get_logger(__name__)
 
 
 class DCRBurstThrottle(IPThrottle):
@@ -63,10 +70,10 @@ class DCRRequestSerializer(serializers.Serializer):
         help_text="OAuth response types the client will use",
     )
     token_endpoint_auth_method = serializers.ChoiceField(
-        choices=["none", "client_secret_post"],
+        choices=["none"],
         required=False,
         default="none",
-        help_text="How the client authenticates at the token endpoint",
+        help_text="How the client authenticates at the token endpoint (only 'none' supported for public clients)",
     )
 
 
@@ -97,20 +104,13 @@ class DynamicClientRegistrationView(APIView):
         data = serializer.validated_data
         now = timezone.now()
 
-        # Determine client type based on auth method
-        # "none" = public client (no secret), "client_secret_post" = confidential
-        auth_method = data.get("token_endpoint_auth_method", "none")
-        client_type = (
-            AbstractApplication.CLIENT_PUBLIC if auth_method == "none" else AbstractApplication.CLIENT_CONFIDENTIAL
-        )
-
         # Create the OAuth application
         # Model's clean() validates redirect URIs (HTTPS, loopback, custom schemes)
         try:
             app = OAuthApplication.objects.create(
                 name=data.get("client_name", "MCP Client"),
                 redirect_uris=" ".join(data["redirect_uris"]),
-                client_type=client_type,
+                client_type=AbstractApplication.CLIENT_PUBLIC,
                 authorization_grant_type=AbstractApplication.GRANT_AUTHORIZATION_CODE,
                 algorithm="RS256",
                 skip_authorization=False,
@@ -134,11 +134,12 @@ class DynamicClientRegistrationView(APIView):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        except Exception as e:
+        except Exception:
+            logger.exception("dcr_client_creation_failed")
             return Response(
                 {
                     "error": "server_error",
-                    "error_description": f"Failed to create client: {e!s}",
+                    "error_description": "Failed to create client",
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
@@ -149,7 +150,7 @@ class DynamicClientRegistrationView(APIView):
             "redirect_uris": data["redirect_uris"],
             "grant_types": data.get("grant_types", ["authorization_code"]),
             "response_types": data.get("response_types", ["code"]),
-            "token_endpoint_auth_method": auth_method,
+            "token_endpoint_auth_method": "none",
             "client_id_issued_at": int(now.timestamp()),
         }
 
