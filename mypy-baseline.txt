@@ -802,6 +802,7 @@ posthog/test/test_health.py:0: error: Incompatible return value type (got "_Monk
 posthog/test/test_middleware.py:0: error: Incompatible types in assignment (expression has type "Client", variable has type "APIClient")  [assignment]
 posthog/test/test_middleware.py:0: error: Incompatible types in assignment (expression has type "Client", variable has type "APIClient")  [assignment]
 posthog/test/test_middleware.py:0: error: Incompatible types in assignment (expression has type "Client", variable has type "APIClient")  [assignment]
+posthog/test/test_middleware.py:0: error: Incompatible types in assignment (expression has type "Client", variable has type "APIClient")  [assignment]
 posthog/test/test_middleware.py:0: error: Item "HttpResponse" of "HttpResponse | None" has no attribute "url"  [union-attr]
 posthog/test/test_middleware.py:0: error: Item "None" of "HttpResponse | None" has no attribute "status_code"  [union-attr]
 posthog/test/test_middleware.py:0: error: Item "None" of "HttpResponse | None" has no attribute "url"  [union-attr]
