@@ -5,7 +5,7 @@ import { LemonCollapse, LemonDivider, ProfilePicture, Spinner, Tooltip } from '@
 
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { TZLabel } from 'lib/components/TZLabel'
-import { WarningHog } from 'lib/components/hedgehogs'
+import { ListHog, SleepingHog } from 'lib/components/hedgehogs'
 import { dayjs } from 'lib/dayjs'
 import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 
@@ -66,7 +66,7 @@ function BatchRunInfo({ job }: { job: any }): JSX.Element {
 
     const logsSection = isFutureJob ? (
         <div className="flex flex-col w-full bg-surface-primary rounded py-8 items-center text-center">
-            <WarningHog width="w-full" height="80" className="mb-4" />
+            <SleepingHog width="100" height="100" className="mb-4" />
             <h2 className="text-xl leading-tight">This job hasn't started yet</h2>
             <p className="text-sm text-balance text-tertiary">
                 Once the job starts executing, logs will start to appear here.
@@ -84,9 +84,10 @@ function BatchRunInfo({ job }: { job: any }): JSX.Element {
     return (
         <div className="flex flex-col gap-2">
             <div className="flex flex-col gap-2 items-start">
-                <span className="text-muted">Filters</span>
+                <span className="text-muted">Job filters</span>
                 <PropertyFiltersDisplay filters={job.filters.properties} />
             </div>
+            <span className="text-muted">Logs</span>
             {logsSection}
         </div>
     )
@@ -106,7 +107,7 @@ function WorkflowBatchRunLogs({ id }: WorkflowLogsProps): JSX.Element {
     if (!futureJobs.length && !pastJobs.length) {
         return (
             <div className="flex flex-col bg-surface-primary rounded px-4 py-8 items-center text-center mx-auto">
-                <WarningHog width="100" height="100" className="mb-4" />
+                <ListHog width="100" height="100" className="mb-4" />
                 <h2 className="text-xl leading-tight">No batch workflow jobs have been run yet</h2>
                 <p className="text-sm text-balance text-tertiary">
                     Once a batch workflow job is triggered, execution logs will appear here.
