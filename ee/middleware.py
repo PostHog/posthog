@@ -1,3 +1,4 @@
+import time
 import hashlib
 import secrets
 from collections.abc import Callable
@@ -245,6 +246,15 @@ def _get_email_from_id_token(id_token: str) -> tuple[str, dict]:
             audience=settings.ADMIN_AUTH_GOOGLE_OAUTH2_KEY,
             issuer="https://accounts.google.com",
         )
+
+        # Validate token age - reject tokens older than 5 minutes
+        iat = payload.get("iat", 0)
+        now = time.time()
+        max_age = 300  # 5 minutes
+
+        if now - iat > max_age:
+            logger.error("admin_oauth2_token_too_old", iat=iat, now=now, age_seconds=int(now - iat))
+            return "", {}
 
         # email should always be verified, but simple sanity check doesn't hurt
         if payload.get("email_verified"):
