@@ -12,7 +12,7 @@ class EvaluationType(models.TextChoices):
 class OutputType(models.TextChoices):
     """What type of result is expected"""
 
-    BOOLEAN = "boolean", "Boolean (True/False)"
+    BOOLEAN = "boolean", "Boolean (Pass/Fail)"
 
 
 class LLMJudgeConfig(BaseModel):
