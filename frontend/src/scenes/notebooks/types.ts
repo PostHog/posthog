@@ -112,7 +112,6 @@ export type NodeWrapperProps<T extends CustomNotebookNodeAttributes> = Omit<Note
         autoHideMetadata?: boolean
         /** Expand the node if the component is clicked */
         expandOnClick?: boolean
-        settingsIcon?: JSX.Element | 'filter' | 'gear'
     }
 
 export type NotebookNodeAttributes<T extends CustomNotebookNodeAttributes> = T & {
