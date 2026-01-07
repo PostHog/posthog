@@ -539,7 +539,6 @@ mod tests {
         #[case(FlagError::RowNotFound, 500, "row_not_found")]
         #[case(FlagError::RedisDataParsingError, 503, "redis_parsing_error")]
         #[case(FlagError::DeserializeFiltersError, 500, "deserialize_filters_error")]
-        #[case(FlagError::CacheUpdateError, 500, "cache_update_error")]
         #[case(FlagError::RedisUnavailable, 503, "redis_unavailable")]
         #[case(FlagError::DatabaseUnavailable, 503, "database_unavailable")]
         #[case(FlagError::TimeoutError(None), 503, "timeout")]
