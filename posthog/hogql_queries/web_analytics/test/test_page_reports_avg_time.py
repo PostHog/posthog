@@ -4,11 +4,20 @@ from dataclasses import dataclass
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 
+import numpy as np
 from parameterized import parameterized
 
-from posthog.schema import DateRange, HogQLFilters, HogQLQuery
+from posthog.schema import (
+    DateRange,
+    EventsNode,
+    IntervalType,
+    PropertyFilterType,
+    PropertyMathType,
+    PropertyOperator,
+    TrendsQuery,
+)
 
-from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.models.utils import uuid7
 
 
@@ -17,37 +26,31 @@ class PageViewProperties:
     pathname: str
     timestamp: str
     scroll: float = 0
-    duration: float = 0
+    duration: float | None = 0
 
 
-class TestPageReportsAvgTimeOnPage(ClickhouseTestMixin, APIBaseTest):
+class TestPageReportsTimeOnPage(ClickhouseTestMixin, APIBaseTest):
     QUERY_TIMESTAMP = "2025-12-29"
 
     def _calculate_pageview_statistics(self, groups_of_pageviews: list[list[PageViewProperties]]):
-        per_path_session_avgs: defaultdict[str, list[float]] = defaultdict(list)
+        per_path_durations: defaultdict[str, list[float]] = defaultdict(list)
         total_view_counts: defaultdict[str, int] = defaultdict(int)
 
         for session_pageviews in groups_of_pageviews:
-            session_totals: defaultdict[str, dict[str, int | float]] = defaultdict(
-                lambda: {"count": 0, "duration_sum": 0.0}
-            )
-
             for page_view in session_pageviews:
-                entry = session_totals[page_view.pathname]
-                entry["count"] += 1
-                entry["duration_sum"] += page_view.duration
+                per_path_durations[page_view.pathname].append(page_view.duration)
                 total_view_counts[page_view.pathname] += 1
 
-            for path, vals in session_totals.items():
-                session_avg = vals["duration_sum"] / vals["count"]
-                per_path_session_avgs[path].append(session_avg)
+        def calculate_p90(values: list[float]) -> float:
+            values = [v for v in values if v is not None]
+            return np.percentile(values, 90)
 
         results = {}
-        for path, session_avgs in per_path_session_avgs.items():
+        for path, durations in per_path_durations.items():
             results[path] = {
-                "session_count": len(session_avgs),
+                "session_count": len(groups_of_pageviews),
                 "view_count": total_view_counts[path],
-                "avg_duration": sum(session_avgs) / len(session_avgs),
+                "p90_duration": calculate_p90(durations),
             }
 
         return results
@@ -107,55 +110,53 @@ class TestPageReportsAvgTimeOnPage(ClickhouseTestMixin, APIBaseTest):
                 )
         return person_result
 
-    def _create_avg_time_on_page_query(
+    def _create_p90_time_on_page_trends_query(
         self,
         pathname: str,
         date_from: str,
         date_to: str,
-        interval: str = "day",
-    ) -> HogQLQuery:
-        interval_functions = {
-            "second": "toStartOfSecond",
-            "minute": "toStartOfMinute",
-            "hour": "toStartOfHour",
-            "day": "toStartOfDay",
-            "week": "toStartOfWeek",
-            "month": "toStartOfMonth",
-        }
-        interval_fn = interval_functions.get(interval, "toStartOfDay")
-
-        return HogQLQuery(
-            query=f"""
-SELECT
-    {interval_fn}(ts) as period,
-    avg(session_avg_duration) as avg_time_on_page
-FROM (
-    SELECT
-        session.session_id as session_id,
-        min(session.$start_timestamp) as ts,
-        avg(toFloat(events.properties.$prev_pageview_duration)) as session_avg_duration
-    FROM events
-    WHERE
-        events.event IN ('$pageview', '$pageleave', '$screen')
-        AND events.properties.$prev_pageview_pathname = {{pathname}}
-    GROUP BY session.session_id
-)
-GROUP BY period
-ORDER BY period""",
-            filters=HogQLFilters(
-                dateRange=DateRange(date_from=date_from, date_to=date_to),
-            ),
-            values={
-                "pathname": pathname,
-            },
+        interval: IntervalType = IntervalType.DAY,
+    ) -> TrendsQuery:
+        return TrendsQuery(
+            series=[
+                EventsNode(
+                    math=PropertyMathType.P90,
+                    math_property="$prev_pageview_duration",
+                    properties=[
+                        {
+                            "type": PropertyFilterType.EVENT_METADATA,
+                            "key": "event",
+                            "operator": PropertyOperator.IN_,
+                            "value": ["$pageview", "$pageleave", "$screen"],
+                        },
+                        {
+                            "type": PropertyFilterType.EVENT,
+                            "key": "$prev_pageview_pathname",
+                            "operator": PropertyOperator.EXACT,
+                            "value": pathname,
+                        },
+                        {
+                            "type": PropertyFilterType.EVENT,
+                            "key": "$prev_pageview_duration",
+                            "operator": PropertyOperator.IS_SET,
+                            "value": PropertyOperator.IS_SET,
+                        },
+                    ],
+                ),
+            ],
+            interval=interval,
+            dateRange=DateRange(date_from=date_from, date_to=date_to),
         )
 
-    def _run_avg_time_query(self, pathname: str, date_from: str, date_to: str, interval: str = "day"):
-        query = self._create_avg_time_on_page_query(pathname, date_from, date_to, interval)
-        runner = HogQLQueryRunner(team=self.team, query=query)
+    def _run_p90_time_query(
+        self, pathname: str, date_from: str, date_to: str, interval: IntervalType = IntervalType.DAY
+    ):
+        flush_persons_and_events()
+        query = self._create_p90_time_on_page_trends_query(pathname, date_from, date_to, interval)
+        runner = TrendsQueryRunner(team=self.team, query=query)
         return runner.calculate()
 
-    def test_single_session_averages_all_durations(self):
+    def test_single_session_p90_all_durations(self):
         page_views = [
             PageViewProperties(pathname="/a", timestamp="2025-12-02T12:00:00", duration=10),
             PageViewProperties(pathname="/a", timestamp="2025-12-02T12:00:10", duration=5),
@@ -164,18 +165,18 @@ ORDER BY period""",
         ]
 
         self._create_pageviews("p1", page_views)
-        flush_persons_and_events()
 
         stats = self._calculate_pageview_statistics([page_views])
 
         with freeze_time(self.QUERY_TIMESTAMP):
-            response = self._run_avg_time_query("/a", "all", "2025-12-15")
+            response = self._run_p90_time_query("/a", "all", "2025-12-15")
 
-        assert len(response.results) == 1
-        assert response.results[0][1] == stats["/a"]["avg_duration"]
-        assert stats["/a"]["avg_duration"] == (10 + 5 + 30 + 60) / 4
+        result_data = response.results[0]["data"]
 
-    def test_multiple_sessions_averages_per_session_then_across(self):
+        self.assertAlmostEqual(result_data[0], stats["/a"]["p90_duration"], places=2)
+        self.assertAlmostEqual(stats["/a"]["p90_duration"], 51.0, places=2)
+
+    def test_multiple_sessions_p90_across_all_durations(self):
         p1_page_views = [
             PageViewProperties(pathname="/a", timestamp="2025-12-02T12:00:00", duration=30),
             PageViewProperties(pathname="/a", timestamp="2025-12-02T12:00:10", duration=20),
@@ -192,18 +193,18 @@ ORDER BY period""",
         self._create_pageviews("p1", p1_page_views)
         self._create_pageviews("p2", p2_page_views)
         self._create_pageviews("p3", p3_page_views)
-        flush_persons_and_events()
 
         stats = self._calculate_pageview_statistics([p1_page_views, p2_page_views, p3_page_views])
 
         with freeze_time(self.QUERY_TIMESTAMP):
-            response = self._run_avg_time_query("/a", "all", "2025-12-15")
+            response = self._run_p90_time_query("/a", "all", "2025-12-15")
 
-        assert len(response.results) == 1
-        self.assertAlmostEqual(response.results[0][1], stats["/a"]["avg_duration"], places=2)
-        self.assertAlmostEqual(stats["/a"]["avg_duration"], 29.166666, places=2)
+        result_data = response.results[0]["data"]
 
-    def test_only_sessions_visiting_path_affect_average(self):
+        self.assertAlmostEqual(result_data[0], stats["/a"]["p90_duration"], places=2)
+        self.assertAlmostEqual(stats["/a"]["p90_duration"], 50.0, places=2)
+
+    def test_only_sessions_visiting_path_affect_p90(self):
         p1_page_views = [
             PageViewProperties(pathname="/a", timestamp="2025-12-02T12:00:00", duration=25),
             PageViewProperties(pathname="/a", timestamp="2025-12-02T12:00:25", duration=40),
@@ -220,18 +221,18 @@ ORDER BY period""",
         self._create_pageviews("p1", p1_page_views)
         self._create_pageviews("p2", p2_page_views)
         self._create_pageviews("p3", p3_page_views)
-        flush_persons_and_events()
 
         stats = self._calculate_pageview_statistics([p1_page_views, p2_page_views, p3_page_views])
 
         with freeze_time(self.QUERY_TIMESTAMP):
-            response = self._run_avg_time_query("/a", "all", "2025-12-15")
+            response = self._run_p90_time_query("/a", "all", "2025-12-15")
 
-        assert len(response.results) == 1
-        assert response.results[0][1] == stats["/a"]["avg_duration"]
-        assert stats["/a"]["avg_duration"] == 27.5
+        result_data = response.results[0]["data"]
 
-    def test_multiple_paths_in_session(self):
+        self.assertAlmostEqual(result_data[0], stats["/a"]["p90_duration"], places=2)
+        self.assertAlmostEqual(stats["/a"]["p90_duration"], 36.4, places=2)
+
+    def test_multiple_paths_in_session_p90(self):
         p1_page_views = [
             PageViewProperties(pathname="/a", timestamp="2025-12-02T12:00:00", duration=30),
             PageViewProperties(pathname="/b", timestamp="2025-12-02T12:00:30", duration=20),
@@ -255,16 +256,16 @@ ORDER BY period""",
         self._create_pageviews("p2", p2_page_views)
         self._create_pageviews("p3", p3_page_views)
         self._create_pageviews("p4", p4_page_views)
-        flush_persons_and_events()
 
         stats = self._calculate_pageview_statistics([p1_page_views, p2_page_views, p3_page_views, p4_page_views])
 
         with freeze_time(self.QUERY_TIMESTAMP):
-            response = self._run_avg_time_query("/a", "all", "2025-12-15")
+            response = self._run_p90_time_query("/a", "all", "2025-12-15")
 
-        assert len(response.results) == 1
-        self.assertAlmostEqual(response.results[0][1], stats["/a"]["avg_duration"], places=2)
-        self.assertAlmostEqual(stats["/a"]["avg_duration"], 23.33, places=2)
+        result_data = response.results[0]["data"]
+
+        self.assertAlmostEqual(result_data[0], stats["/a"]["p90_duration"], places=2)
+        self.assertAlmostEqual(stats["/a"]["p90_duration"], 37.0, places=2)
 
     def test_no_results_for_nonexistent_pathname(self):
         page_views = [
@@ -274,11 +275,14 @@ ORDER BY period""",
         flush_persons_and_events()
 
         with freeze_time(self.QUERY_TIMESTAMP):
-            response = self._run_avg_time_query("/nonexistent", "all", "2025-12-15")
+            response = self._run_p90_time_query("/nonexistent", "all", "2025-12-15")
 
-        assert len(response.results) == 0
+        result_data = response.results[0]["data"]
 
-    def test_multiple_days_groups_by_period(self):
+        for result in result_data:
+            self.assertEqual(result, 0.0)
+
+    def test_multiple_days_groups_by_period_p90(self):
         p1_day1 = [
             PageViewProperties(pathname="/a", timestamp="2025-12-02T12:00:00", duration=10),
             PageViewProperties(pathname="/a", timestamp="2025-12-02T12:00:10", duration=20),
@@ -294,28 +298,63 @@ ORDER BY period""",
         self._create_pageviews("p1", p1_day1)
         self._create_pageviews("p2", p2_day1)
         self._create_pageviews("p1b", p1_day2)
-        flush_persons_and_events()
 
         day1_stats = self._calculate_pageview_statistics([p1_day1, p2_day1])
         day2_stats = self._calculate_pageview_statistics([p1_day2])
 
         with freeze_time(self.QUERY_TIMESTAMP):
-            response = self._run_avg_time_query("/a", "all", "2025-12-15")
+            response = self._run_p90_time_query("/a", "all", "2025-12-15")
 
-        assert len(response.results) == 2
-        self.assertAlmostEqual(response.results[0][1], day1_stats["/a"]["avg_duration"], places=2)
-        self.assertAlmostEqual(response.results[1][1], day2_stats["/a"]["avg_duration"], places=2)
+        result_data = response.results[0]["data"]
 
-    @parameterized.expand(["day", "week", "month"])
-    def test_interval_grouping(self, interval: str):
+        self.assertAlmostEqual(result_data[0], day1_stats["/a"]["p90_duration"], places=2)
+        self.assertAlmostEqual(result_data[1], day2_stats["/a"]["p90_duration"], places=2)
+
+    @parameterized.expand([IntervalType.DAY, IntervalType.WEEK, IntervalType.MONTH])
+    def test_interval_grouping_p90(self, interval: IntervalType):
         page_views = [
             PageViewProperties(pathname="/a", timestamp="2025-12-02T12:00:00", duration=10),
         ]
         self._create_pageviews("p1", page_views)
         flush_persons_and_events()
 
-        with freeze_time(self.QUERY_TIMESTAMP):
-            response = self._run_avg_time_query("/a", "all", "2025-12-15", interval=interval)
+        stats = self._calculate_pageview_statistics([page_views])
 
-        assert len(response.results) >= 1
-        assert response.results[0][1] == 10.0
+        with freeze_time(self.QUERY_TIMESTAMP):
+            response = self._run_p90_time_query("/a", "all", "2025-12-15", interval=interval)
+
+        result_data = response.results[0]["data"]
+
+        self.assertAlmostEqual(result_data[0], stats["/a"]["p90_duration"], places=2)
+
+    def test_null_prev_pageview_duration_excluded_from_p90(self):
+        p1_page_views = [
+            PageViewProperties(pathname="/start", timestamp="2025-12-02T12:00:00", duration=None),
+            PageViewProperties(pathname="/a", timestamp="2025-12-02T12:01:40", duration=50),
+        ]
+        p2_page_views = [
+            PageViewProperties(pathname="/start", timestamp="2025-12-02T12:02:00", duration=80),
+            PageViewProperties(pathname="/a", timestamp="2025-12-02T12:03:20", duration=50),
+        ]
+        p3_page_views = [
+            PageViewProperties(pathname="/start", timestamp="2025-12-02T12:04:00", duration=60),
+            PageViewProperties(pathname="/a", timestamp="2025-12-02T12:05:00", duration=50),
+        ]
+        p4_page_views = [
+            PageViewProperties(pathname="/start", timestamp="2025-12-02T12:06:00", duration=40),
+            PageViewProperties(pathname="/a", timestamp="2025-12-02T12:06:40", duration=50),
+        ]
+
+        self._create_pageviews("p1", p1_page_views)
+        self._create_pageviews("p2", p2_page_views)
+        self._create_pageviews("p3", p3_page_views)
+        self._create_pageviews("p4", p4_page_views)
+
+        stats = self._calculate_pageview_statistics([p1_page_views, p2_page_views, p3_page_views, p4_page_views])
+
+        with freeze_time(self.QUERY_TIMESTAMP):
+            response = self._run_p90_time_query("/start", "all", "2025-12-15")
+
+        result_data = response.results[0]["data"]
+
+        self.assertAlmostEqual(result_data[0], stats["/start"]["p90_duration"], places=2)

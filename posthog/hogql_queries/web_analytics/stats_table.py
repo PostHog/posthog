@@ -163,6 +163,8 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                     "bounce_breakdown_value": self._bounce_entry_pathname_breakdown(),
                     "current_period": self._current_period_expression(),
                     "previous_period": self._previous_period_expression(),
+                    "avg_current_period": self._current_period_expression("timestamp"),
+                    "avg_previous_period": self._previous_period_expression("timestamp"),
                     "inside_periods": self._periods_expression(),
                 },
             )
