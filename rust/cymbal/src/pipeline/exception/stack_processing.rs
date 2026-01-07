@@ -226,7 +226,7 @@ mod test {
         pipeline::exception::stack_processing::remap_exception_type_and_module,
         symbol_store::{
             chunk_id::ChunkIdFetcher, hermesmap::HermesMapProvider, proguard::ProguardProvider,
-            saving::SymbolSetRecord, sourcemap::SourcemapProvider, Catalog, S3Client,
+            saving::SymbolSetRecord, sourcemap::SourcemapProvider, Catalog, MockS3Client,
         },
     };
 
@@ -253,7 +253,7 @@ mod test {
 
         record.save(&db).await.unwrap();
 
-        let mut client = S3Client::default();
+        let mut client = MockS3Client::default();
 
         client
             .expect_get()

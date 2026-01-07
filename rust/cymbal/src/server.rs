@@ -1,17 +1,12 @@
 use std::{future::ready, sync::Arc};
 
-use axum::{
-    extract::State,
-    response::IntoResponse,
-    routing::{get, post},
-    Router,
-};
+use axum::{extract::State, response::IntoResponse, routing::get, Router};
 use common_metrics::{serve, setup_metrics_routes};
 use health::HealthStatus;
 use reqwest::StatusCode;
 use tracing::info;
 
-use crate::{app_context::AppContext, config::Config, router::process_exception_list};
+use crate::{app_context::AppContext, config::Config, router::processing_router};
 
 async fn index() -> &'static str {
     "error tracking service"
@@ -27,16 +22,13 @@ async fn not_found() -> impl IntoResponse {
 
 pub async fn start_server(config: &Config, context: Arc<AppContext>) -> () {
     let config = config.clone();
+
     let router = Router::<Arc<AppContext>>::new()
-        .route("/", get(index))
-        .route(
-            "/:team_id/exception_list/process",
-            post(process_exception_list),
-        )
+        .nest("/", processing_router())
         .route("/_readiness", get(index))
         .route("/_liveness", get(liveness))
         .fallback(not_found)
-        .with_state(context.clone());
+        .with_state(context);
 
     let router = setup_metrics_routes(router);
     let bind = format!("{}:{}", config.host, config.port);

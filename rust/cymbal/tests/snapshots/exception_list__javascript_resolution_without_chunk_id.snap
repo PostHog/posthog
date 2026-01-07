@@ -1,0 +1,52 @@
+---
+source: cymbal/tests/exception_list.rs
+expression: body.0
+---
+[
+  {
+    "id": "REDACTED",
+    "type": "CustomError",
+    "value": "Custom error message",
+    "stacktrace": {
+      "type": "resolved",
+      "frames": [
+        {
+          "raw_id": "2c9fcb311eaf187f8c0d5cec46b66471a73b2ff003bbaf6c7170f03d141b4d4f8d3f76232ac201259ea81d22fcde989ddd6dd98c53f4d461420965e66009afaf/0",
+          "mangled_name": "onClick",
+          "in_app": true,
+          "resolved_name": "onClick",
+          "lang": "javascript",
+          "resolved": true,
+          "synthetic": false,
+          "suspicious": false,
+          "junk_drawer": {
+            "raw_frame": {
+              "filename": "main.js",
+              "function": "onClick",
+              "in_app": true,
+              "synthetic": false
+            }
+          }
+        },
+        {
+          "raw_id": "2c9fcb311eaf187f8c0d5cec46b66471a73b2ff003bbaf6c7170f03d141b4d4f8d3f76232ac201259ea81d22fcde989ddd6dd98c53f4d461420965e66009afaf/0",
+          "mangled_name": "onClick",
+          "in_app": true,
+          "resolved_name": "onClick",
+          "lang": "javascript",
+          "resolved": true,
+          "synthetic": false,
+          "suspicious": false,
+          "junk_drawer": {
+            "raw_frame": {
+              "filename": "main.js",
+              "function": "onClick",
+              "in_app": true,
+              "synthetic": false
+            }
+          }
+        }
+      ]
+    }
+  }
+]

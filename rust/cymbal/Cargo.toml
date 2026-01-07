@@ -44,11 +44,13 @@ regex = { workspace = true }
 once_cell = { workspace = true }
 futures.workspace = true
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+tower.workspace = true
+
 
 [dev-dependencies]
 httpmock = { workspace = true }
 mockall = { workspace = true }
-
+insta = { version = "1.46.0", features = ["json", "redactions"] }
 
 [lints]
 workspace = true

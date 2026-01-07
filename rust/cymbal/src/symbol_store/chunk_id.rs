@@ -11,19 +11,20 @@ use tracing::error;
 use crate::{
     error::{FrameError, UnhandledError},
     metric_consts::{CHUNK_ID_FAILURE_FETCHED, CHUNK_ID_NOT_FOUND},
+    symbol_store::BlobClient,
 };
 
-use super::{saving::SymbolSetRecord, Fetcher, Parser, S3Client};
+use super::{saving::SymbolSetRecord, Fetcher, Parser};
 
 pub struct ChunkIdFetcher<Parser> {
     pub inner: Parser,
-    pub client: Arc<S3Client>,
+    pub client: Arc<dyn BlobClient>,
     pub pool: PgPool,
     pub bucket: String,
 }
 
 impl<P> ChunkIdFetcher<P> {
-    pub fn new(inner: P, client: Arc<S3Client>, pool: PgPool, bucket: String) -> Self {
+    pub fn new(inner: P, client: Arc<dyn BlobClient>, pool: PgPool, bucket: String) -> Self {
         Self {
             inner,
             client,
@@ -221,7 +222,7 @@ mod test {
             proguard::ProguardProvider,
             saving::SymbolSetRecord,
             sourcemap::{OwnedSourceMapCache, SourcemapProvider},
-            Catalog, Provider, S3Client,
+            Catalog, MockS3Client, Provider,
         },
         types::{RawErrProps, Stacktrace},
     };
@@ -288,7 +289,7 @@ mod test {
 
         record.save(&db).await.unwrap();
 
-        let mut client = S3Client::default();
+        let mut client = MockS3Client::default();
 
         client
             .expect_get()
@@ -329,7 +330,7 @@ mod test {
 
         record.save(&db).await.unwrap();
 
-        let mut client = S3Client::default();
+        let mut client = MockS3Client::default();
 
         client
             .expect_get()

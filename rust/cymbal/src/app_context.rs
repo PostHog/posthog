@@ -26,7 +26,7 @@ use crate::{
         proguard::ProguardProvider,
         saving::Saving,
         sourcemap::SourcemapProvider,
-        Catalog, S3Client,
+        BlobClient, Catalog, S3Client,
     },
     teams::TeamManager,
 };
