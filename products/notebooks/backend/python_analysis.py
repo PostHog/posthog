@@ -1,4 +1,5 @@
 import ast
+import hashlib
 from dataclasses import dataclass
 from typing import Any
 
@@ -303,6 +304,10 @@ def analyze_python_globals(code: str) -> PythonGlobalsAnalysis:
     )
 
 
+def compute_globals_analysis_hash(code: str) -> str:
+    return hashlib.sha256(code.encode("utf-8")).hexdigest()
+
+
 def annotate_python_nodes(content: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(content, dict):
         return content
@@ -317,13 +322,23 @@ def annotate_python_nodes(content: dict[str, Any]) -> dict[str, Any]:
             if isinstance(attrs, dict):
                 code = attrs.get("code", "")
                 if isinstance(code, str):
-                    analysis = analyze_python_globals(code)
-                    attrs = {
-                        **attrs,
-                        "globalsUsed": analysis.used,
-                        "globalsExportedWithTypes": analysis.exported_with_types,
-                    }
-                    node = {**node, "attrs": attrs}
+                    code_hash = compute_globals_analysis_hash(code)
+                    existing_hash = attrs.get("globalsAnalysisHash")
+                    has_cached_analysis = (
+                        isinstance(existing_hash, str)
+                        and existing_hash == code_hash
+                        and "globalsUsed" in attrs
+                        and "globalsExportedWithTypes" in attrs
+                    )
+                    if not has_cached_analysis:
+                        analysis = analyze_python_globals(code)
+                        attrs = {
+                            **attrs,
+                            "globalsUsed": analysis.used,
+                            "globalsExportedWithTypes": analysis.exported_with_types,
+                            "globalsAnalysisHash": code_hash,
+                        }
+                        node = {**node, "attrs": attrs}
 
         content_nodes = node.get("content")
         if isinstance(content_nodes, list):
