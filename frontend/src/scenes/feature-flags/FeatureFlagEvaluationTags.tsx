@@ -20,27 +20,28 @@ const syncEvaluationTags = (tags: string[], evaluationTags: string[]): string[] 
 interface FeatureFlagEvaluationTagsProps {
     tags: string[]
     evaluationTags: string[]
-    onChange?: (tags: string[], evaluationTags: string[]) => void
-    onSave?: (tags: string[], evaluationTags: string[]) => void
     tagsAvailable?: string[]
-    staticOnly?: boolean
     className?: string
     flagId?: number | string | null
     /** Differentiates multiple instances for the same flag (e.g., 'sidebar' vs 'form') */
     context: 'sidebar' | 'form' | 'static'
+    /** Form mode: parent handles persistence. Mutually exclusive with onSave. */
+    onChange?: (tags: string[], evaluationTags: string[]) => void
+    /** Sidebar mode: component handles persistence. Mutually exclusive with onChange. */
+    onSave?: (tags: string[], evaluationTags: string[]) => void
 }
 
 export function FeatureFlagEvaluationTags({
     tags,
     evaluationTags,
-    onChange,
-    onSave,
     tagsAvailable,
-    staticOnly = false,
     className,
     flagId,
     context,
+    onChange,
+    onSave,
 }: FeatureFlagEvaluationTagsProps): JSX.Element {
+    const staticOnly = context === 'static'
     const logic = featureFlagEvaluationTagsLogic({ flagId, context, tags, evaluationTags })
     const { isEditing, localTags, localEvaluationTags } = useValues(logic)
     const { setIsEditing, setLocalTags, setLocalEvaluationTags, saveTagsAndEvaluationTags, cancelEditing } =
@@ -121,7 +122,7 @@ export function FeatureFlagEvaluationTags({
                     </div>
                 )}
 
-                {!onChange && onSave && (
+                {onSave && !onChange && (
                     <div className="flex gap-1">
                         <ButtonPrimitive
                             type="button"
