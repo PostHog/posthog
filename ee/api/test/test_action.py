@@ -24,23 +24,23 @@ class TestActionApi(APIBaseTest):
         )
 
         response = self.client.post(f"/api/projects/{self.team.id}/actions/", data={"name": "user signed up"})
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()["tags"], [])
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["tags"] == []
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/actions/{response.json()['id']}",
             data={"name": "user signed up", "tags": ["hello", "random"]},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(set(response.json()["tags"]), {"hello", "random"})
+        assert response.status_code == status.HTTP_200_OK
+        assert set(response.json()["tags"]) == {"hello", "random"}
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/actions/{response.json()['id']}",
             data={"name": "user signed up", "tags": []},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["tags"], [])
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["tags"] == []
 
     def test_create_action_with_tags(self):
         from ee.models.license import License, LicenseManager
@@ -58,8 +58,8 @@ class TestActionApi(APIBaseTest):
                 "tags": ["nightly", "is", "a", "good", "girl"],
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(set(response.json()["tags"]), {"nightly", "is", "a", "good", "girl"})
+        assert response.status_code == status.HTTP_201_CREATED
+        assert set(response.json()["tags"]) == {"nightly", "is", "a", "good", "girl"}
 
     def test_actions_does_not_nplus1(self):
         from ee.models.license import License, LicenseManager
@@ -83,9 +83,9 @@ class TestActionApi(APIBaseTest):
         # + access control queries
         with self.assertNumQueries(34):
             response = self.client.get(f"/api/projects/{self.team.id}/actions")
-        self.assertEqual(response.json()["results"][0]["tags"][0], "tag")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["results"]), 20)
+        assert response.json()["results"][0]["tags"][0] == "tag"
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 20
 
     def test_actions_no_duplicate_tags(self):
         from ee.models.license import License, LicenseManager
@@ -100,4 +100,4 @@ class TestActionApi(APIBaseTest):
             data={"name": "user signed up", "tags": ["a", "b", "a"]},
         )
 
-        self.assertListEqual(sorted(response.json()["tags"]), ["a", "b"])
+        assert sorted(response.json()["tags"]) == ["a", "b"]

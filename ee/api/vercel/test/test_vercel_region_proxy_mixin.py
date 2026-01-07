@@ -386,7 +386,7 @@ class TestVercelRegionProxyMixin(VercelTestBase):
                                 mock_super_dispatch.assert_called_once()
                     elif expected_action == "404":
                         # We're in the EU region with missing installation
-                        with self.assertRaises(exceptions.NotFound):
+                        with pytest.raises(exceptions.NotFound):
                             self.test_viewset.dispatch(request, *[], **{})
                     else:
                         # We're in the US region with a valid installation

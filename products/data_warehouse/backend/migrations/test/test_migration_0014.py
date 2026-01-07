@@ -161,7 +161,7 @@ class MatViewCredentialDeletionMigrationTest(NonAtomicTestMigrations):
     def test_materialized_view_tables_have_credential_nulled(self, table_key, expected_credential):
         """Tables referenced by saved queries should have credential_id set to NULL"""
         table = self.DataWarehouseTable.objects.get(id=self.tables[table_key].id)
-        self.assertEqual(table.credential_id, expected_credential)
+        assert table.credential_id == expected_credential
 
     @parameterized.expand(
         [
@@ -173,16 +173,16 @@ class MatViewCredentialDeletionMigrationTest(NonAtomicTestMigrations):
         """Tables not referenced by saved queries should keep their credentials"""
         table = self.DataWarehouseTable.objects.get(id=self.tables[table_key].id)
         expected_credential_id = self.credentials[credential_key].id if credential_key else None
-        self.assertEqual(table.credential_id, expected_credential_id)
+        assert table.credential_id == expected_credential_id
 
     def test_all_credentials_still_exist(self):
         """All credentials should still exist after migration"""
-        self.assertEqual(self.DataWarehouseCredential.objects.count(), 3)
+        assert self.DataWarehouseCredential.objects.count() == 3
 
     def test_all_tables_still_exist(self):
         """All tables should still exist after migration"""
-        self.assertEqual(self.DataWarehouseTable.objects.count(), 5)
+        assert self.DataWarehouseTable.objects.count() == 5
 
     def test_all_saved_queries_still_exist(self):
         """All saved queries should still exist after migration"""
-        self.assertEqual(self.DataWarehouseSavedQuery.objects.count(), 3)
+        assert self.DataWarehouseSavedQuery.objects.count() == 3

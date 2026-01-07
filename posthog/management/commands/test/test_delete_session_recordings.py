@@ -2,6 +2,7 @@ import os
 import tempfile
 from io import StringIO
 
+import pytest
 from posthog.test.base import BaseTest
 
 from django.core.management import call_command
@@ -161,37 +162,37 @@ class TestDeleteSessionRecordingsCommand(BaseTest):
         assert SessionRecording.objects.filter(team=self.team, deleted=True).count() == 2
 
     def test_raises_error_when_no_input_provided(self):
-        with self.assertRaises(CommandError) as cm:
+        with pytest.raises(CommandError) as cm:
             call_command(
                 "delete_session_recordings",
                 f"--team-id={self.team.id}",
             )
-        assert "Must provide either --session-ids or --csv-file" in str(cm.exception)
+        assert "Must provide either --session-ids or --csv-file" in str(cm.value)
 
     def test_raises_error_when_both_inputs_provided(self):
-        with self.assertRaises(CommandError) as cm:
+        with pytest.raises(CommandError) as cm:
             call_command(
                 "delete_session_recordings",
                 f"--team-id={self.team.id}",
                 "--session-ids=session1",
                 "--csv-file=/tmp/test.csv",
             )
-        assert "Provide only one of --session-ids or --csv-file" in str(cm.exception)
+        assert "Provide only one of --session-ids or --csv-file" in str(cm.value)
 
     def test_raises_error_for_nonexistent_team(self):
-        with self.assertRaises(CommandError) as cm:
+        with pytest.raises(CommandError) as cm:
             call_command(
                 "delete_session_recordings",
                 "--team-id=999999",
                 "--session-ids=session1",
             )
-        assert "Team with ID 999999 does not exist" in str(cm.exception)
+        assert "Team with ID 999999 does not exist" in str(cm.value)
 
     def test_raises_error_for_nonexistent_csv_file(self):
-        with self.assertRaises(CommandError) as cm:
+        with pytest.raises(CommandError) as cm:
             call_command(
                 "delete_session_recordings",
                 f"--team-id={self.team.id}",
                 "--csv-file=/nonexistent/path/to/file.csv",
             )
-        assert "CSV file not found" in str(cm.exception)
+        assert "CSV file not found" in str(cm.value)

@@ -8,7 +8,7 @@ import threading
 from collections.abc import Callable, Generator, Iterator
 from contextlib import ExitStack, contextmanager
 from functools import wraps
-from typing import Any, Optional, Union
+from typing import Any, Union
 
 import pytest
 import unittest
@@ -556,7 +556,7 @@ class ErrorResponsesMixin:
         "attr": None,
     }
 
-    def not_found_response(self, message: str = "Not found.") -> dict[str, Optional[str]]:
+    def not_found_response(self, message: str = "Not found.") -> dict[str, str | None]:
         return {
             "type": "invalid_request",
             "code": "not_found",
@@ -566,7 +566,7 @@ class ErrorResponsesMixin:
 
     def permission_denied_response(
         self, message: str = "You do not have permission to perform this action."
-    ) -> dict[str, Optional[str]]:
+    ) -> dict[str, str | None]:
         return {
             "type": "authentication_error",
             "code": "permission_denied",
@@ -574,7 +574,7 @@ class ErrorResponsesMixin:
             "attr": None,
         }
 
-    def method_not_allowed_response(self, method: str) -> dict[str, Optional[str]]:
+    def method_not_allowed_response(self, method: str) -> dict[str, str | None]:
         return {
             "type": "invalid_request",
             "code": "method_not_allowed",
@@ -586,7 +586,7 @@ class ErrorResponsesMixin:
         self,
         message: str = "Authentication credentials were not provided.",
         code: str = "not_authenticated",
-    ) -> dict[str, Optional[str]]:
+    ) -> dict[str, str | None]:
         return {
             "type": "authentication_error",
             "code": code,
@@ -598,8 +598,8 @@ class ErrorResponsesMixin:
         self,
         message: str = "Malformed request",
         code: str = "invalid_input",
-        attr: Optional[str] = None,
-    ) -> dict[str, Optional[str]]:
+        attr: str | None = None,
+    ) -> dict[str, str | None]:
         return {
             "type": "validation_error",
             "code": code,
@@ -610,8 +610,8 @@ class ErrorResponsesMixin:
 
 class PostHogTestCase(SimpleTestCase):
     CONFIG_ORGANIZATION_NAME: str = "Test"
-    CONFIG_EMAIL: Optional[str] = "user1@posthog.com"
-    CONFIG_PASSWORD: Optional[str] = "testpassword12345"
+    CONFIG_EMAIL: str | None = "user1@posthog.com"
+    CONFIG_PASSWORD: str | None = "testpassword12345"
     CONFIG_API_TOKEN: str = "token123"
     CONFIG_AUTO_LOGIN: bool = True
     # Most test cases can run with class data level setup. This means that test data gets set up once per class,
@@ -629,7 +629,7 @@ class PostHogTestCase(SimpleTestCase):
     user: User = None
     organization_membership: OrganizationMembership = None
 
-    def _create_user(self, email: str, password: Optional[str] = None, first_name: str = "", **kwargs) -> User:
+    def _create_user(self, email: str, password: str | None = None, first_name: str = "", **kwargs) -> User:
         return User.objects.create_and_join(self.organization, email, password, first_name, **kwargs)
 
     @classmethod
@@ -668,13 +668,13 @@ class PostHogTestCase(SimpleTestCase):
 
     def validate_basic_html(self, html_message, site_url, preheader=None):
         # absolute URLs are used
-        self.assertIn(f"{site_url}/static/posthog-logo.png", html_message)
+        assert f"{site_url}/static/posthog-logo.png" in html_message
 
         # CSS is inlined
-        self.assertIn('style="display: none;', html_message)
+        assert 'style="display: none;' in html_message
 
         if preheader:
-            self.assertIn(preheader, html_message)
+            assert preheader in html_message
 
     @contextmanager
     def is_cloud(self, value: bool):
@@ -769,15 +769,11 @@ class MemoryLeakTestMixin:
         avg_memory_increase_factor = (
             avg_memory_test_increase_b / avg_memory_priming_increase_b if avg_memory_priming_increase_b else 0
         )
-        self.assertLessEqual(
-            avg_memory_test_increase_b,
-            self.MEMORY_INCREASE_PER_PARSE_LIMIT_B,
-            f"Possible memory leak - exceeded {self.MEMORY_INCREASE_PER_PARSE_LIMIT_B}-byte limit of incremental memory per parse",
+        assert avg_memory_test_increase_b <= self.MEMORY_INCREASE_PER_PARSE_LIMIT_B, (
+            f"Possible memory leak - exceeded {self.MEMORY_INCREASE_PER_PARSE_LIMIT_B}-byte limit of incremental memory per parse"
         )
-        self.assertLessEqual(
-            avg_memory_increase_factor,
-            self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT,
-            f"Possible memory leak - exceeded {self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT * 100:.2f}% limit of incremental memory per parse",
+        assert avg_memory_increase_factor <= self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT, (
+            f"Possible memory leak - exceeded {self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT * 100:.2f}% limit of incremental memory per parse"
         )
 
 
@@ -860,7 +856,7 @@ class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
         organization.members.add(user)
         return user
 
-    def complete_email_mfa(self, email: str, user: Optional[Any] = None):
+    def complete_email_mfa(self, email: str, user: Any | None = None):
         if user is None:
             user = User.objects.get(email=email)
 
@@ -873,7 +869,7 @@ class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
     def assertEntityResponseEqual(self, response1, response2, remove=("action", "label", "persons_urls", "filter")):
         stripped_response1 = stripResponse(response1, remove=remove)
         stripped_response2 = stripResponse(response2, remove=remove)
-        self.assertDictEqual(stripped_response1[0], stripped_response2[0])
+        assert stripped_response1[0] == stripped_response2[0]
 
     @contextmanager
     def assertFasterThan(self, duration_ms: float):
@@ -945,7 +941,7 @@ def also_test_with_materialized_columns(
     event_properties=None,
     person_properties=None,
     verify_no_jsonextract=True,
-    is_nullable: Optional[list] = None,
+    is_nullable: list | None = None,
 ):
     """
     Runs the test twice on clickhouse - once verifying it works normally, once with materialized columns.
@@ -989,7 +985,7 @@ def also_test_with_materialized_columns(
 
             if verify_no_jsonextract:
                 for sql in sqls:
-                    self.assertNotIn("JSONExtract", sql)
+                    assert "JSONExtract" not in sql
 
         # To add the test, we inspect the frame this function was called in and add the test there
         frame_locals: Any = inspect.currentframe().f_back.f_locals
@@ -1031,7 +1027,7 @@ def snapshot_postgres_queries_context(
     replace_all_numbers: bool = True,
     using: str = "default",
     capture_all_queries: bool = False,
-    custom_query_matcher: Optional[Callable] = None,
+    custom_query_matcher: Callable | None = None,
 ):
     """
     Captures and snapshots select queries from test using `syrupy` library.
@@ -1112,13 +1108,13 @@ class BaseTestMigrations(QueryMatchingTest):
 
     migrate_from: str
     migrate_to: str
-    apps: Optional[Any] = None
+    apps: Any | None = None
     assert_snapshots = False
 
     def setUp(self):
-        assert hasattr(self, "migrate_from") and hasattr(
-            self, "migrate_to"
-        ), "TestCase '{}' must define migrate_from and migrate_to properties".format(type(self).__name__)
+        assert hasattr(self, "migrate_from") and hasattr(self, "migrate_to"), (
+            "TestCase '{}' must define migrate_from and migrate_to properties".format(type(self).__name__)
+        )
         migrate_from = [(self.app, self.migrate_from)]
         migrate_to = [(self.app, self.migrate_to)]
         executor = MigrationExecutor(connection)

@@ -1,6 +1,7 @@
 import math
-from typing import Literal, Optional, cast
+from typing import Literal, cast
 
+import pytest
 from posthog.test.base import BaseTest, MemoryLeakTestMixin
 
 from posthog.hogql import ast
@@ -43,14 +44,14 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
 
         maxDiff = None
 
-        def _string_template(self, template: str, placeholders: Optional[dict[str, ast.Expr]] = None) -> ast.Expr:
+        def _string_template(self, template: str, placeholders: dict[str, ast.Expr] | None = None) -> ast.Expr:
             return clear_locations(parse_string_template(template, placeholders=placeholders, backend=backend))
 
-        def _expr(self, expr: str, placeholders: Optional[dict[str, ast.Expr]] = None) -> ast.Expr:
+        def _expr(self, expr: str, placeholders: dict[str, ast.Expr] | None = None) -> ast.Expr:
             return clear_locations(parse_expr(expr, placeholders=placeholders, backend=backend))
 
         def _select(
-            self, query: str, placeholders: Optional[dict[str, ast.Expr]] = None
+            self, query: str, placeholders: dict[str, ast.Expr] | None = None
         ) -> ast.SelectQuery | ast.SelectSetQuery | ast.HogQLXTag:
             return cast(
                 ast.SelectQuery | ast.SelectSetQuery | ast.HogQLXTag,
@@ -61,993 +62,551 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             return cast(ast.Program, clear_locations(cast(ast.Expr, parse_program(program, backend=backend))))
 
         def test_numbers(self):
-            self.assertEqual(self._expr("1"), ast.Constant(value=1))
-            self.assertEqual(self._expr("1.2"), ast.Constant(value=1.2))
-            self.assertEqual(self._expr("-1"), ast.Constant(value=-1))
-            self.assertEqual(self._expr("-1.1"), ast.Constant(value=-1.1))
-            self.assertEqual(self._expr("0"), ast.Constant(value=0))
-            self.assertEqual(self._expr("0.0"), ast.Constant(value=0))
-            self.assertEqual(self._expr("-inf"), ast.Constant(value=float("-inf")))
-            self.assertEqual(self._expr("inf"), ast.Constant(value=float("inf")))
+            assert self._expr("1") == ast.Constant(value=1)
+            assert self._expr("1.2") == ast.Constant(value=1.2)
+            assert self._expr("-1") == ast.Constant(value=-1)
+            assert self._expr("-1.1") == ast.Constant(value=-1.1)
+            assert self._expr("0") == ast.Constant(value=0)
+            assert self._expr("0.0") == ast.Constant(value=0)
+            assert self._expr("-inf") == ast.Constant(value=float("-inf"))
+            assert self._expr("inf") == ast.Constant(value=float("inf"))
             # nan-s don't like to be compared
             parsed_nan = self._expr("nan")
-            self.assertTrue(isinstance(parsed_nan, ast.Constant))
-            self.assertTrue(math.isnan(cast(ast.Constant, parsed_nan).value))
-            self.assertEqual(self._expr("1e-18"), ast.Constant(value=1e-18))
-            self.assertEqual(self._expr("2.34e+20"), ast.Constant(value=2.34e20))
+            assert isinstance(parsed_nan, ast.Constant)
+            assert math.isnan(cast(ast.Constant, parsed_nan).value)
+            assert self._expr("1e-18") == ast.Constant(value=1e-18)
+            assert self._expr("2.34e+20") == ast.Constant(value=2.34e20)
 
         def test_booleans(self):
-            self.assertEqual(self._expr("true"), ast.Constant(value=True))
-            self.assertEqual(self._expr("TRUE"), ast.Constant(value=True))
-            self.assertEqual(self._expr("false"), ast.Constant(value=False))
+            assert self._expr("true") == ast.Constant(value=True)
+            assert self._expr("TRUE") == ast.Constant(value=True)
+            assert self._expr("false") == ast.Constant(value=False)
 
         def test_null(self):
-            self.assertEqual(self._expr("null"), ast.Constant(value=None))
+            assert self._expr("null") == ast.Constant(value=None)
 
         def test_nullish(self):
-            self.assertEqual(
-                self._expr("1 ?? 2"),
-                ast.Call(
-                    name="ifNull",
-                    args=[
-                        ast.Constant(value=1),
-                        ast.Constant(value=2),
-                    ],
-                ),
-            )
+            assert self._expr("1 ?? 2") == ast.Call(name="ifNull", args=[ast.Constant(value=1), ast.Constant(value=2)])
 
         def test_null_property(self):
-            self.assertEqual(
-                self._expr("a?.b"),
-                ast.ArrayAccess(
-                    array=ast.Field(chain=["a"]),
-                    property=ast.Constant(value="b"),
-                    nullish=True,
-                ),
+            assert self._expr("a?.b") == ast.ArrayAccess(
+                array=ast.Field(chain=["a"]), property=ast.Constant(value="b"), nullish=True
             )
 
         def test_null_tuple(self):
-            self.assertEqual(
-                self._expr("a?.1"),
-                ast.TupleAccess(
-                    tuple=ast.Field(chain=["a"]),
-                    index=1,
-                    nullish=True,
-                ),
-            )
+            assert self._expr("a?.1") == ast.TupleAccess(tuple=ast.Field(chain=["a"]), index=1, nullish=True)
 
         def test_null_property_nested(self):
-            self.assertEqual(
-                self._expr("a?.b?.['c']"),
-                ast.ArrayAccess(
-                    array=ast.ArrayAccess(array=ast.Field(chain=["a"]), property=ast.Constant(value="b"), nullish=True),
-                    property=ast.Constant(value="c"),
-                    nullish=True,
-                ),
+            assert self._expr("a?.b?.['c']") == ast.ArrayAccess(
+                array=ast.ArrayAccess(array=ast.Field(chain=["a"]), property=ast.Constant(value="b"), nullish=True),
+                property=ast.Constant(value="c"),
+                nullish=True,
             )
 
         def test_conditional(self):
-            self.assertEqual(
-                self._expr("1 > 2 ? 1 : 2"),
-                ast.Call(
-                    name="if",
-                    args=[
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.Gt,
-                            left=ast.Constant(value=1),
-                            right=ast.Constant(value=2),
-                        ),
-                        ast.Constant(value=1),
-                        ast.Constant(value=2),
-                    ],
-                ),
+            assert self._expr("1 > 2 ? 1 : 2") == ast.Call(
+                name="if",
+                args=[
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Gt, left=ast.Constant(value=1), right=ast.Constant(value=2)
+                    ),
+                    ast.Constant(value=1),
+                    ast.Constant(value=2),
+                ],
             )
 
         def test_arrays(self):
-            self.assertEqual(self._expr("[]"), ast.Array(exprs=[]))
-            self.assertEqual(self._expr("[1]"), ast.Array(exprs=[ast.Constant(value=1)]))
-            self.assertEqual(
-                self._expr("[1, avg()]"),
-                ast.Array(exprs=[ast.Constant(value=1), ast.Call(name="avg", args=[])]),
+            assert self._expr("[]") == ast.Array(exprs=[])
+            assert self._expr("[1]") == ast.Array(exprs=[ast.Constant(value=1)])
+            assert self._expr("[1, avg()]") == ast.Array(exprs=[ast.Constant(value=1), ast.Call(name="avg", args=[])])
+            assert self._expr("[1,]") == ast.Array(exprs=[ast.Constant(value=1)])
+            assert self._expr("[1, avg(),]") == ast.Array(exprs=[ast.Constant(value=1), ast.Call(name="avg", args=[])])
+            assert self._expr("properties['value']") == ast.ArrayAccess(
+                array=ast.Field(chain=["properties"]), property=ast.Constant(value="value")
             )
-            self.assertEqual(self._expr("[1,]"), ast.Array(exprs=[ast.Constant(value=1)]))
-            self.assertEqual(
-                self._expr("[1, avg(),]"),
-                ast.Array(exprs=[ast.Constant(value=1), ast.Call(name="avg", args=[])]),
+            assert self._expr("properties[(select 'value')]") == ast.ArrayAccess(
+                array=ast.Field(chain=["properties"]), property=ast.SelectQuery(select=[ast.Constant(value="value")])
             )
-            self.assertEqual(
-                self._expr("properties['value']"),
-                ast.ArrayAccess(
-                    array=ast.Field(chain=["properties"]),
-                    property=ast.Constant(value="value"),
-                ),
-            )
-            self.assertEqual(
-                self._expr("properties[(select 'value')]"),
-                ast.ArrayAccess(
-                    array=ast.Field(chain=["properties"]),
-                    property=ast.SelectQuery(select=[ast.Constant(value="value")]),
-                ),
-            )
-            self.assertEqual(
-                self._expr("[1,2,3][1]"),
-                ast.ArrayAccess(
-                    array=ast.Array(
-                        exprs=[
-                            ast.Constant(value=1),
-                            ast.Constant(value=2),
-                            ast.Constant(value=3),
-                        ]
-                    ),
-                    property=ast.Constant(value=1),
-                ),
+            assert self._expr("[1,2,3][1]") == ast.ArrayAccess(
+                array=ast.Array(exprs=[ast.Constant(value=1), ast.Constant(value=2), ast.Constant(value=3)]),
+                property=ast.Constant(value=1),
             )
 
         def test_tuples(self):
-            self.assertEqual(
-                self._expr("(1, avg())"),
-                ast.Tuple(exprs=[ast.Constant(value=1), ast.Call(name="avg", args=[])]),
-            )
-            self.assertEqual(
-                self._expr("(1, avg(),)"),
-                ast.Tuple(exprs=[ast.Constant(value=1), ast.Call(name="avg", args=[])]),
-            )
-            self.assertEqual(
-                self._expr("(1,)"),
-                ast.Tuple(exprs=[ast.Constant(value=1)]),
-            )
+            assert self._expr("(1, avg())") == ast.Tuple(exprs=[ast.Constant(value=1), ast.Call(name="avg", args=[])])
+            assert self._expr("(1, avg(),)") == ast.Tuple(exprs=[ast.Constant(value=1), ast.Call(name="avg", args=[])])
+            assert self._expr("(1,)") == ast.Tuple(exprs=[ast.Constant(value=1)])
             # needs at least two values to be a tuple
-            self.assertEqual(self._expr("(1)"), ast.Constant(value=1))
+            assert self._expr("(1)") == ast.Constant(value=1)
 
         def test_lambdas(self):
-            self.assertEqual(
-                self._expr("(x, y) -> x * y"),
-                ast.Lambda(
-                    args=["x", "y"],
-                    expr=ast.ArithmeticOperation(
-                        op=ast.ArithmeticOperationOp.Mult,
-                        left=ast.Field(chain=["x"]),
-                        right=ast.Field(chain=["y"]),
-                    ),
+            assert self._expr("(x, y) -> x * y") == ast.Lambda(
+                args=["x", "y"],
+                expr=ast.ArithmeticOperation(
+                    op=ast.ArithmeticOperationOp.Mult, left=ast.Field(chain=["x"]), right=ast.Field(chain=["y"])
                 ),
             )
-            self.assertEqual(
-                self._expr("x, y -> x * y"),
-                ast.Lambda(
-                    args=["x", "y"],
-                    expr=ast.ArithmeticOperation(
-                        op=ast.ArithmeticOperationOp.Mult,
-                        left=ast.Field(chain=["x"]),
-                        right=ast.Field(chain=["y"]),
-                    ),
+            assert self._expr("x, y -> x * y") == ast.Lambda(
+                args=["x", "y"],
+                expr=ast.ArithmeticOperation(
+                    op=ast.ArithmeticOperationOp.Mult, left=ast.Field(chain=["x"]), right=ast.Field(chain=["y"])
                 ),
             )
-            self.assertEqual(
-                self._expr("(x) -> x * y"),
-                ast.Lambda(
-                    args=["x"],
-                    expr=ast.ArithmeticOperation(
-                        op=ast.ArithmeticOperationOp.Mult,
-                        left=ast.Field(chain=["x"]),
-                        right=ast.Field(chain=["y"]),
-                    ),
+            assert self._expr("(x) -> x * y") == ast.Lambda(
+                args=["x"],
+                expr=ast.ArithmeticOperation(
+                    op=ast.ArithmeticOperationOp.Mult, left=ast.Field(chain=["x"]), right=ast.Field(chain=["y"])
                 ),
             )
-            self.assertEqual(
-                self._expr("x -> x * y"),
-                ast.Lambda(
-                    args=["x"],
-                    expr=ast.ArithmeticOperation(
-                        op=ast.ArithmeticOperationOp.Mult,
-                        left=ast.Field(chain=["x"]),
-                        right=ast.Field(chain=["y"]),
-                    ),
+            assert self._expr("x -> x * y") == ast.Lambda(
+                args=["x"],
+                expr=ast.ArithmeticOperation(
+                    op=ast.ArithmeticOperationOp.Mult, left=ast.Field(chain=["x"]), right=ast.Field(chain=["y"])
                 ),
             )
-            self.assertEqual(
-                self._expr("arrayMap(x -> x * 2)"),
-                ast.Call(
-                    name="arrayMap",
-                    args=[
-                        ast.Lambda(
-                            args=["x"],
-                            expr=ast.ArithmeticOperation(
-                                op=ast.ArithmeticOperationOp.Mult,
-                                left=ast.Field(chain=["x"]),
-                                right=ast.Constant(value=2),
-                            ),
-                        )
-                    ],
-                ),
-            )
-            self.assertEqual(
-                self._expr("arrayMap((x) -> x * 2)"),
-                ast.Call(
-                    name="arrayMap",
-                    args=[
-                        ast.Lambda(
-                            args=["x"],
-                            expr=ast.ArithmeticOperation(
-                                op=ast.ArithmeticOperationOp.Mult,
-                                left=ast.Field(chain=["x"]),
-                                right=ast.Constant(value=2),
-                            ),
-                        )
-                    ],
-                ),
-            )
-            self.assertEqual(
-                self._expr("arrayMap((x, y) -> x * y)"),
-                ast.Call(
-                    name="arrayMap",
-                    args=[
-                        ast.Lambda(
-                            args=["x", "y"],
-                            expr=ast.ArithmeticOperation(
-                                op=ast.ArithmeticOperationOp.Mult,
-                                left=ast.Field(chain=["x"]),
-                                right=ast.Field(chain=["y"]),
-                            ),
-                        )
-                    ],
-                ),
-            )
-
-        def test_lambda_blocks(self):
-            self.assertEqual(
-                self._expr("(x, y) -> { print('hello'); return x * y }"),
-                ast.Lambda(
-                    args=["x", "y"],
-                    expr=ast.Block(
-                        declarations=[
-                            ast.ExprStatement(expr=ast.Call(name="print", args=[ast.Constant(value="hello")])),
-                            ast.ReturnStatement(
-                                expr=ast.ArithmeticOperation(
-                                    op=ast.ArithmeticOperationOp.Mult,
-                                    left=ast.Field(chain=["x"]),
-                                    right=ast.Field(chain=["y"]),
-                                )
-                            ),
-                        ]
-                    ),
-                ),
-            )
-
-        def test_call_expr(self):
-            self.assertEqual(
-                self._expr("asd.asd(123)"),
-                ast.ExprCall(
-                    expr=ast.Field(chain=["asd", "asd"]),
-                    args=[ast.Constant(value=123)],
-                ),
-            )
-            self.assertEqual(
-                self._expr("asd['asd'](123)"),
-                ast.ExprCall(
-                    expr=ast.ArrayAccess(array=ast.Field(chain=["asd"]), property=ast.Constant(value="asd")),
-                    args=[ast.Constant(value=123)],
-                ),
-            )
-            self.assertEqual(
-                self._expr("(x -> x * 2)(3)"),
-                ast.ExprCall(
-                    expr=ast.Lambda(
+            assert self._expr("arrayMap(x -> x * 2)") == ast.Call(
+                name="arrayMap",
+                args=[
+                    ast.Lambda(
                         args=["x"],
                         expr=ast.ArithmeticOperation(
                             op=ast.ArithmeticOperationOp.Mult, left=ast.Field(chain=["x"]), right=ast.Constant(value=2)
                         ),
-                    ),
-                    args=[ast.Constant(value=3)],
-                ),
+                    )
+                ],
             )
-
-        def test_call_expr_sql(self):
-            self.assertEqual(
-                self._expr("asd.asd(select 1)"),
-                ast.ExprCall(
-                    expr=ast.Field(chain=["asd", "asd"]),
-                    args=[ast.SelectQuery(select=[ast.Constant(value=1)])],
-                ),
-            )
-            self.assertEqual(
-                self._expr("sql(select 1)"),
-                ast.Call(
-                    name="sql",
-                    args=[ast.SelectQuery(select=[ast.Constant(value=1)])],
-                ),
-            )
-
-        def test_strings(self):
-            self.assertEqual(self._expr("'null'"), ast.Constant(value="null"))
-            self.assertEqual(self._expr("'n''ull'"), ast.Constant(value="n'ull"))
-            self.assertEqual(self._expr("'n''''ull'"), ast.Constant(value="n''ull"))
-            self.assertEqual(self._expr("'n\null'"), ast.Constant(value="n\null"))  # newline passed into string
-            self.assertEqual(self._expr("'n\\null'"), ast.Constant(value="n\null"))  # slash and 'n' passed into string
-            self.assertEqual(self._expr("'n\\\\ull'"), ast.Constant(value="n\\ull"))  # slash and 'n' passed into string
-
-        def test_arithmetic_operations(self):
-            self.assertEqual(
-                self._expr("1 + 2"),
-                ast.ArithmeticOperation(
-                    left=ast.Constant(value=1),
-                    right=ast.Constant(value=2),
-                    op=ast.ArithmeticOperationOp.Add,
-                ),
-            )
-            self.assertEqual(
-                self._expr("1 + -2"),
-                ast.ArithmeticOperation(
-                    left=ast.Constant(value=1),
-                    right=ast.Constant(value=-2),
-                    op=ast.ArithmeticOperationOp.Add,
-                ),
-            )
-            self.assertEqual(
-                self._expr("1 - 2"),
-                ast.ArithmeticOperation(
-                    left=ast.Constant(value=1),
-                    right=ast.Constant(value=2),
-                    op=ast.ArithmeticOperationOp.Sub,
-                ),
-            )
-            self.assertEqual(
-                self._expr("1 * 2"),
-                ast.ArithmeticOperation(
-                    left=ast.Constant(value=1),
-                    right=ast.Constant(value=2),
-                    op=ast.ArithmeticOperationOp.Mult,
-                ),
-            )
-            self.assertEqual(
-                self._expr("1 / 2"),
-                ast.ArithmeticOperation(
-                    left=ast.Constant(value=1),
-                    right=ast.Constant(value=2),
-                    op=ast.ArithmeticOperationOp.Div,
-                ),
-            )
-            self.assertEqual(
-                self._expr("1 % 2"),
-                ast.ArithmeticOperation(
-                    left=ast.Constant(value=1),
-                    right=ast.Constant(value=2),
-                    op=ast.ArithmeticOperationOp.Mod,
-                ),
-            )
-            self.assertEqual(
-                self._expr("1 + 2 + 2"),
-                ast.ArithmeticOperation(
-                    left=ast.ArithmeticOperation(
-                        left=ast.Constant(value=1),
-                        right=ast.Constant(value=2),
-                        op=ast.ArithmeticOperationOp.Add,
-                    ),
-                    right=ast.Constant(value=2),
-                    op=ast.ArithmeticOperationOp.Add,
-                ),
-            )
-            self.assertEqual(
-                self._expr("1 * 1 * 2"),
-                ast.ArithmeticOperation(
-                    left=ast.ArithmeticOperation(
-                        left=ast.Constant(value=1),
-                        right=ast.Constant(value=1),
-                        op=ast.ArithmeticOperationOp.Mult,
-                    ),
-                    right=ast.Constant(value=2),
-                    op=ast.ArithmeticOperationOp.Mult,
-                ),
-            )
-            self.assertEqual(
-                self._expr("1 + 1 * 2"),
-                ast.ArithmeticOperation(
-                    left=ast.Constant(value=1),
-                    right=ast.ArithmeticOperation(
-                        left=ast.Constant(value=1),
-                        right=ast.Constant(value=2),
-                        op=ast.ArithmeticOperationOp.Mult,
-                    ),
-                    op=ast.ArithmeticOperationOp.Add,
-                ),
-            )
-            self.assertEqual(
-                self._expr("1 * 1 + 2"),
-                ast.ArithmeticOperation(
-                    left=ast.ArithmeticOperation(
-                        left=ast.Constant(value=1),
-                        right=ast.Constant(value=1),
-                        op=ast.ArithmeticOperationOp.Mult,
-                    ),
-                    right=ast.Constant(value=2),
-                    op=ast.ArithmeticOperationOp.Add,
-                ),
-            )
-
-        def test_math_comparison_operations(self):
-            self.assertEqual(
-                self._expr("1 = 2"),
-                ast.CompareOperation(
-                    left=ast.Constant(value=1),
-                    right=ast.Constant(value=2),
-                    op=ast.CompareOperationOp.Eq,
-                ),
-            )
-            self.assertEqual(
-                self._expr("1 == 2"),
-                ast.CompareOperation(
-                    left=ast.Constant(value=1),
-                    right=ast.Constant(value=2),
-                    op=ast.CompareOperationOp.Eq,
-                ),
-            )
-            self.assertEqual(
-                self._expr("1 != 2"),
-                ast.CompareOperation(
-                    left=ast.Constant(value=1),
-                    right=ast.Constant(value=2),
-                    op=ast.CompareOperationOp.NotEq,
-                ),
-            )
-            self.assertEqual(
-                self._expr("1 < 2"),
-                ast.CompareOperation(
-                    left=ast.Constant(value=1),
-                    right=ast.Constant(value=2),
-                    op=ast.CompareOperationOp.Lt,
-                ),
-            )
-            self.assertEqual(
-                self._expr("1 <= 2"),
-                ast.CompareOperation(
-                    left=ast.Constant(value=1),
-                    right=ast.Constant(value=2),
-                    op=ast.CompareOperationOp.LtEq,
-                ),
-            )
-            self.assertEqual(
-                self._expr("1 > 2"),
-                ast.CompareOperation(
-                    left=ast.Constant(value=1),
-                    right=ast.Constant(value=2),
-                    op=ast.CompareOperationOp.Gt,
-                ),
-            )
-            self.assertEqual(
-                self._expr("1 >= 2"),
-                ast.CompareOperation(
-                    left=ast.Constant(value=1),
-                    right=ast.Constant(value=2),
-                    op=ast.CompareOperationOp.GtEq,
-                ),
-            )
-
-        def test_null_comparison_operations(self):
-            self.assertEqual(
-                self._expr("1 is null"),
-                ast.CompareOperation(
-                    left=ast.Constant(value=1),
-                    right=ast.Constant(value=None),
-                    op=ast.CompareOperationOp.Eq,
-                ),
-            )
-            self.assertEqual(
-                self._expr("1 is not null"),
-                ast.CompareOperation(
-                    left=ast.Constant(value=1),
-                    right=ast.Constant(value=None),
-                    op=ast.CompareOperationOp.NotEq,
-                ),
-            )
-
-        def test_like_comparison_operations(self):
-            self.assertEqual(
-                self._expr("1 like 'a%sd'"),
-                ast.CompareOperation(
-                    left=ast.Constant(value=1),
-                    right=ast.Constant(value="a%sd"),
-                    op=ast.CompareOperationOp.Like,
-                ),
-            )
-            self.assertEqual(
-                self._expr("1 not like 'a%sd'"),
-                ast.CompareOperation(
-                    left=ast.Constant(value=1),
-                    right=ast.Constant(value="a%sd"),
-                    op=ast.CompareOperationOp.NotLike,
-                ),
-            )
-            self.assertEqual(
-                self._expr("1 ilike 'a%sd'"),
-                ast.CompareOperation(
-                    left=ast.Constant(value=1),
-                    right=ast.Constant(value="a%sd"),
-                    op=ast.CompareOperationOp.ILike,
-                ),
-            )
-            self.assertEqual(
-                self._expr("1 not ilike 'a%sd'"),
-                ast.CompareOperation(
-                    left=ast.Constant(value=1),
-                    right=ast.Constant(value="a%sd"),
-                    op=ast.CompareOperationOp.NotILike,
-                ),
-            )
-
-        def test_and_or(self):
-            self.assertEqual(
-                self._expr("true or false"),
-                ast.Or(exprs=[ast.Constant(value=True), ast.Constant(value=False)]),
-            )
-            self.assertEqual(
-                self._expr("true and false"),
-                ast.And(exprs=[ast.Constant(value=True), ast.Constant(value=False)]),
-            )
-            self.assertEqual(
-                self._expr("true and not false"),
-                ast.And(
-                    exprs=[
-                        ast.Constant(value=True),
-                        ast.Not(expr=ast.Constant(value=False)),
-                    ],
-                ),
-            )
-            self.assertEqual(
-                self._expr("true or false or not true or 2"),
-                ast.Or(
-                    exprs=[
-                        ast.Constant(value=True),
-                        ast.Constant(value=False),
-                        ast.Not(expr=ast.Constant(value=True)),
-                        ast.Constant(value=2),
-                    ],
-                ),
-            )
-            self.assertEqual(
-                self._expr("true or false and not true or 2"),
-                ast.Or(
-                    exprs=[
-                        ast.Constant(value=True),
-                        ast.And(
-                            exprs=[
-                                ast.Constant(value=False),
-                                ast.Not(expr=ast.Constant(value=True)),
-                            ],
+            assert self._expr("arrayMap((x) -> x * 2)") == ast.Call(
+                name="arrayMap",
+                args=[
+                    ast.Lambda(
+                        args=["x"],
+                        expr=ast.ArithmeticOperation(
+                            op=ast.ArithmeticOperationOp.Mult, left=ast.Field(chain=["x"]), right=ast.Constant(value=2)
                         ),
-                        ast.Constant(value=2),
-                    ],
-                ),
+                    )
+                ],
+            )
+            assert self._expr("arrayMap((x, y) -> x * y)") == ast.Call(
+                name="arrayMap",
+                args=[
+                    ast.Lambda(
+                        args=["x", "y"],
+                        expr=ast.ArithmeticOperation(
+                            op=ast.ArithmeticOperationOp.Mult, left=ast.Field(chain=["x"]), right=ast.Field(chain=["y"])
+                        ),
+                    )
+                ],
             )
 
-        def test_unary_operations(self):
-            self.assertEqual(
-                self._expr("not true"),
-                ast.Not(expr=ast.Constant(value=True)),
-            )
-
-        def test_parens(self):
-            self.assertEqual(
-                self._expr("(1)"),
-                ast.Constant(value=1),
-            )
-            self.assertEqual(
-                self._expr("(1 + 1)"),
-                ast.ArithmeticOperation(
-                    left=ast.Constant(value=1),
-                    right=ast.Constant(value=1),
-                    op=ast.ArithmeticOperationOp.Add,
-                ),
-            )
-            self.assertEqual(
-                self._expr("1 + (1 + 1)"),
-                ast.ArithmeticOperation(
-                    left=ast.Constant(value=1),
-                    right=ast.ArithmeticOperation(
-                        left=ast.Constant(value=1),
-                        right=ast.Constant(value=1),
-                        op=ast.ArithmeticOperationOp.Add,
-                    ),
-                    op=ast.ArithmeticOperationOp.Add,
-                ),
-            )
-
-        def test_field_access(self):
-            self.assertEqual(
-                self._expr("event"),
-                ast.Field(chain=["event"]),
-            )
-            self.assertEqual(
-                self._expr("event like '$%'"),
-                ast.CompareOperation(
-                    left=ast.Field(chain=["event"]),
-                    right=ast.Constant(value="$%"),
-                    op=ast.CompareOperationOp.Like,
-                ),
-            )
-
-        def test_property_access(self):
-            self.assertEqual(
-                self._expr("properties.something == 1"),
-                ast.CompareOperation(
-                    left=ast.Field(chain=["properties", "something"]),
-                    right=ast.Constant(value=1),
-                    op=ast.CompareOperationOp.Eq,
-                ),
-            )
-            self.assertEqual(
-                self._expr("properties.something"),
-                ast.Field(chain=["properties", "something"]),
-            )
-            self.assertEqual(
-                self._expr("properties.$something"),
-                ast.Field(chain=["properties", "$something"]),
-            )
-            self.assertEqual(
-                self._expr("person.properties.something"),
-                ast.Field(chain=["person", "properties", "something"]),
-            )
-            self.assertEqual(
-                self._expr("this.can.go.on.for.miles"),
-                ast.Field(chain=["this", "can", "go", "on", "for", "miles"]),
-            )
-
-        def test_calls(self):
-            self.assertEqual(
-                self._expr("avg()"),
-                ast.Call(name="avg", args=[]),
-            )
-            self.assertEqual(
-                self._expr("avg(1,2,3)"),
-                ast.Call(
-                    name="avg",
-                    args=[
-                        ast.Constant(value=1),
-                        ast.Constant(value=2),
-                        ast.Constant(value=3),
-                    ],
-                ),
-            )
-
-        def test_calls_with_params(self):
-            self.assertEqual(
-                self._expr("quantile(0.95)(foo)"),
-                ast.Call(
-                    name="quantile",
-                    args=[ast.Field(chain=["foo"])],
-                    params=[ast.Constant(value=0.95)],
-                ),
-            )
-
-        def test_alias(self):
-            self.assertEqual(
-                self._expr("1 as asd"),
-                ast.Alias(alias="asd", expr=ast.Constant(value=1)),
-            )
-            self.assertEqual(
-                self._expr("1 as `asd`"),
-                ast.Alias(alias="asd", expr=ast.Constant(value=1)),
-            )
-            self.assertEqual(
-                self._expr("1 as `🍄`"),
-                ast.Alias(alias="🍄", expr=ast.Constant(value=1)),
-            )
-            self.assertEqual(
-                self._expr("(1 as b) as `🍄`"),
-                ast.Alias(alias="🍄", expr=ast.Alias(alias="b", expr=ast.Constant(value=1))),
-            )
-
-        def test_expr_with_ignored_sql_comment(self):
-            self.assertEqual(
-                self._expr("1 -- asd"),
-                ast.Constant(value=1),
-            )
-            self.assertEqual(
-                self._expr("1 -- 'asd'"),
-                ast.Constant(value=1),
-            )
-            self.assertEqual(
-                self._expr("1 -- '🍄'"),
-                ast.Constant(value=1),
-            )
-
-        def test_placeholders(self):
-            self.assertEqual(
-                self._expr("{foo}"),
-                ast.Placeholder(expr=ast.Field(chain=["foo"])),
-            )
-            self.assertEqual(
-                self._expr("{foo}", {"foo": ast.Constant(value="bar")}),
-                ast.Constant(value="bar"),
-            )
-            self.assertEqual(
-                self._expr("timestamp < {timestamp}", {"timestamp": ast.Constant(value=123)}),
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Lt,
-                    left=ast.Field(chain=["timestamp"]),
-                    right=ast.Constant(value=123),
-                ),
-            )
-            self.assertEqual(
-                self._expr("timestamp={timestamp}", {"timestamp": ast.Constant(value=123)}),
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=["timestamp"]),
-                    right=ast.Constant(value=123),
-                ),
-            )
-
-        def test_intervals(self):
-            self.assertEqual(
-                self._expr("interval 1 month"),
-                ast.Call(name="toIntervalMonth", args=[ast.Constant(value=1)]),
-            )
-            self.assertEqual(
-                self._expr("interval '1 month'"),
-                ast.Call(name="toIntervalMonth", args=[ast.Constant(value=1)]),
-            )
-            self.assertEqual(
-                self._expr("now() - interval 1 week"),
-                ast.ArithmeticOperation(
-                    op=ast.ArithmeticOperationOp.Sub,
-                    left=ast.Call(name="now", args=[]),
-                    right=ast.Call(name="toIntervalWeek", args=[ast.Constant(value=1)]),
-                ),
-            )
-            self.assertEqual(
-                self._expr("now() - interval '1 week'"),
-                ast.ArithmeticOperation(
-                    op=ast.ArithmeticOperationOp.Sub,
-                    left=ast.Call(name="now", args=[]),
-                    right=ast.Call(name="toIntervalWeek", args=[ast.Constant(value=1)]),
-                ),
-            )
-            self.assertEqual(
-                self._expr("interval event year"),
-                ast.Call(name="toIntervalYear", args=[ast.Field(chain=["event"])]),
-            )
-
-        def test_select_columns(self):
-            self.assertEqual(
-                self._select("select 1"),
-                ast.SelectQuery(select=[ast.Constant(value=1)]),
-            )
-            self.assertEqual(
-                self._select("select 1, 4, 'string'"),
-                ast.SelectQuery(
-                    select=[
-                        ast.Constant(value=1),
-                        ast.Constant(value=4),
-                        ast.Constant(value="string"),
+        def test_lambda_blocks(self):
+            assert self._expr("(x, y) -> { print('hello'); return x * y }") == ast.Lambda(
+                args=["x", "y"],
+                expr=ast.Block(
+                    declarations=[
+                        ast.ExprStatement(expr=ast.Call(name="print", args=[ast.Constant(value="hello")])),
+                        ast.ReturnStatement(
+                            expr=ast.ArithmeticOperation(
+                                op=ast.ArithmeticOperationOp.Mult,
+                                left=ast.Field(chain=["x"]),
+                                right=ast.Field(chain=["y"]),
+                            )
+                        ),
                     ]
                 ),
             )
 
-        def test_select_columns_distinct(self):
-            self.assertEqual(
-                self._select("select distinct 1"),
-                ast.SelectQuery(select=[ast.Constant(value=1)], distinct=True),
+        def test_call_expr(self):
+            assert self._expr("asd.asd(123)") == ast.ExprCall(
+                expr=ast.Field(chain=["asd", "asd"]), args=[ast.Constant(value=123)]
+            )
+            assert self._expr("asd['asd'](123)") == ast.ExprCall(
+                expr=ast.ArrayAccess(array=ast.Field(chain=["asd"]), property=ast.Constant(value="asd")),
+                args=[ast.Constant(value=123)],
+            )
+            assert self._expr("(x -> x * 2)(3)") == ast.ExprCall(
+                expr=ast.Lambda(
+                    args=["x"],
+                    expr=ast.ArithmeticOperation(
+                        op=ast.ArithmeticOperationOp.Mult, left=ast.Field(chain=["x"]), right=ast.Constant(value=2)
+                    ),
+                ),
+                args=[ast.Constant(value=3)],
             )
 
-        def test_select_where(self):
-            self.assertEqual(
-                self._select("select 1 where true"),
-                ast.SelectQuery(select=[ast.Constant(value=1)], where=ast.Constant(value=True)),
+        def test_call_expr_sql(self):
+            assert self._expr("asd.asd(select 1)") == ast.ExprCall(
+                expr=ast.Field(chain=["asd", "asd"]), args=[ast.SelectQuery(select=[ast.Constant(value=1)])]
             )
-            self.assertEqual(
-                self._select("select 1 where 1 == 2"),
-                ast.SelectQuery(
-                    select=[ast.Constant(value=1)],
-                    where=ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Constant(value=1),
-                        right=ast.Constant(value=2),
-                    ),
+            assert self._expr("sql(select 1)") == ast.Call(
+                name="sql", args=[ast.SelectQuery(select=[ast.Constant(value=1)])]
+            )
+
+        def test_strings(self):
+            assert self._expr("'null'") == ast.Constant(value="null")
+            assert self._expr("'n''ull'") == ast.Constant(value="n'ull")
+            assert self._expr("'n''''ull'") == ast.Constant(value="n''ull")
+            assert self._expr("'n\null'") == ast.Constant(value="n\null")  # newline passed into string
+            assert self._expr("'n\\null'") == ast.Constant(value="n\null")  # slash and 'n' passed into string
+            assert self._expr("'n\\\\ull'") == ast.Constant(value="n\\ull")  # slash and 'n' passed into string
+
+        def test_arithmetic_operations(self):
+            assert self._expr("1 + 2") == ast.ArithmeticOperation(
+                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.ArithmeticOperationOp.Add
+            )
+            assert self._expr("1 + -2") == ast.ArithmeticOperation(
+                left=ast.Constant(value=1), right=ast.Constant(value=-2), op=ast.ArithmeticOperationOp.Add
+            )
+            assert self._expr("1 - 2") == ast.ArithmeticOperation(
+                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.ArithmeticOperationOp.Sub
+            )
+            assert self._expr("1 * 2") == ast.ArithmeticOperation(
+                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.ArithmeticOperationOp.Mult
+            )
+            assert self._expr("1 / 2") == ast.ArithmeticOperation(
+                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.ArithmeticOperationOp.Div
+            )
+            assert self._expr("1 % 2") == ast.ArithmeticOperation(
+                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.ArithmeticOperationOp.Mod
+            )
+            assert self._expr("1 + 2 + 2") == ast.ArithmeticOperation(
+                left=ast.ArithmeticOperation(
+                    left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.ArithmeticOperationOp.Add
+                ),
+                right=ast.Constant(value=2),
+                op=ast.ArithmeticOperationOp.Add,
+            )
+            assert self._expr("1 * 1 * 2") == ast.ArithmeticOperation(
+                left=ast.ArithmeticOperation(
+                    left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.ArithmeticOperationOp.Mult
+                ),
+                right=ast.Constant(value=2),
+                op=ast.ArithmeticOperationOp.Mult,
+            )
+            assert self._expr("1 + 1 * 2") == ast.ArithmeticOperation(
+                left=ast.Constant(value=1),
+                right=ast.ArithmeticOperation(
+                    left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.ArithmeticOperationOp.Mult
+                ),
+                op=ast.ArithmeticOperationOp.Add,
+            )
+            assert self._expr("1 * 1 + 2") == ast.ArithmeticOperation(
+                left=ast.ArithmeticOperation(
+                    left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.ArithmeticOperationOp.Mult
+                ),
+                right=ast.Constant(value=2),
+                op=ast.ArithmeticOperationOp.Add,
+            )
+
+        def test_math_comparison_operations(self):
+            assert self._expr("1 = 2") == ast.CompareOperation(
+                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.Eq
+            )
+            assert self._expr("1 == 2") == ast.CompareOperation(
+                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.Eq
+            )
+            assert self._expr("1 != 2") == ast.CompareOperation(
+                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.NotEq
+            )
+            assert self._expr("1 < 2") == ast.CompareOperation(
+                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.Lt
+            )
+            assert self._expr("1 <= 2") == ast.CompareOperation(
+                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.LtEq
+            )
+            assert self._expr("1 > 2") == ast.CompareOperation(
+                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.Gt
+            )
+            assert self._expr("1 >= 2") == ast.CompareOperation(
+                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.GtEq
+            )
+
+        def test_null_comparison_operations(self):
+            assert self._expr("1 is null") == ast.CompareOperation(
+                left=ast.Constant(value=1), right=ast.Constant(value=None), op=ast.CompareOperationOp.Eq
+            )
+            assert self._expr("1 is not null") == ast.CompareOperation(
+                left=ast.Constant(value=1), right=ast.Constant(value=None), op=ast.CompareOperationOp.NotEq
+            )
+
+        def test_like_comparison_operations(self):
+            assert self._expr("1 like 'a%sd'") == ast.CompareOperation(
+                left=ast.Constant(value=1), right=ast.Constant(value="a%sd"), op=ast.CompareOperationOp.Like
+            )
+            assert self._expr("1 not like 'a%sd'") == ast.CompareOperation(
+                left=ast.Constant(value=1), right=ast.Constant(value="a%sd"), op=ast.CompareOperationOp.NotLike
+            )
+            assert self._expr("1 ilike 'a%sd'") == ast.CompareOperation(
+                left=ast.Constant(value=1), right=ast.Constant(value="a%sd"), op=ast.CompareOperationOp.ILike
+            )
+            assert self._expr("1 not ilike 'a%sd'") == ast.CompareOperation(
+                left=ast.Constant(value=1), right=ast.Constant(value="a%sd"), op=ast.CompareOperationOp.NotILike
+            )
+
+        def test_and_or(self):
+            assert self._expr("true or false") == ast.Or(exprs=[ast.Constant(value=True), ast.Constant(value=False)])
+            assert self._expr("true and false") == ast.And(exprs=[ast.Constant(value=True), ast.Constant(value=False)])
+            assert self._expr("true and not false") == ast.And(
+                exprs=[ast.Constant(value=True), ast.Not(expr=ast.Constant(value=False))]
+            )
+            assert self._expr("true or false or not true or 2") == ast.Or(
+                exprs=[
+                    ast.Constant(value=True),
+                    ast.Constant(value=False),
+                    ast.Not(expr=ast.Constant(value=True)),
+                    ast.Constant(value=2),
+                ]
+            )
+            assert self._expr("true or false and not true or 2") == ast.Or(
+                exprs=[
+                    ast.Constant(value=True),
+                    ast.And(exprs=[ast.Constant(value=False), ast.Not(expr=ast.Constant(value=True))]),
+                    ast.Constant(value=2),
+                ]
+            )
+
+        def test_unary_operations(self):
+            assert self._expr("not true") == ast.Not(expr=ast.Constant(value=True))
+
+        def test_parens(self):
+            assert self._expr("(1)") == ast.Constant(value=1)
+            assert self._expr("(1 + 1)") == ast.ArithmeticOperation(
+                left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.ArithmeticOperationOp.Add
+            )
+            assert self._expr("1 + (1 + 1)") == ast.ArithmeticOperation(
+                left=ast.Constant(value=1),
+                right=ast.ArithmeticOperation(
+                    left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.ArithmeticOperationOp.Add
+                ),
+                op=ast.ArithmeticOperationOp.Add,
+            )
+
+        def test_field_access(self):
+            assert self._expr("event") == ast.Field(chain=["event"])
+            assert self._expr("event like '$%'") == ast.CompareOperation(
+                left=ast.Field(chain=["event"]), right=ast.Constant(value="$%"), op=ast.CompareOperationOp.Like
+            )
+
+        def test_property_access(self):
+            assert self._expr("properties.something == 1") == ast.CompareOperation(
+                left=ast.Field(chain=["properties", "something"]),
+                right=ast.Constant(value=1),
+                op=ast.CompareOperationOp.Eq,
+            )
+            assert self._expr("properties.something") == ast.Field(chain=["properties", "something"])
+            assert self._expr("properties.$something") == ast.Field(chain=["properties", "$something"])
+            assert self._expr("person.properties.something") == ast.Field(chain=["person", "properties", "something"])
+            assert self._expr("this.can.go.on.for.miles") == ast.Field(
+                chain=["this", "can", "go", "on", "for", "miles"]
+            )
+
+        def test_calls(self):
+            assert self._expr("avg()") == ast.Call(name="avg", args=[])
+            assert self._expr("avg(1,2,3)") == ast.Call(
+                name="avg", args=[ast.Constant(value=1), ast.Constant(value=2), ast.Constant(value=3)]
+            )
+
+        def test_calls_with_params(self):
+            assert self._expr("quantile(0.95)(foo)") == ast.Call(
+                name="quantile", args=[ast.Field(chain=["foo"])], params=[ast.Constant(value=0.95)]
+            )
+
+        def test_alias(self):
+            assert self._expr("1 as asd") == ast.Alias(alias="asd", expr=ast.Constant(value=1))
+            assert self._expr("1 as `asd`") == ast.Alias(alias="asd", expr=ast.Constant(value=1))
+            assert self._expr("1 as `🍄`") == ast.Alias(alias="🍄", expr=ast.Constant(value=1))
+            assert self._expr("(1 as b) as `🍄`") == ast.Alias(
+                alias="🍄", expr=ast.Alias(alias="b", expr=ast.Constant(value=1))
+            )
+
+        def test_expr_with_ignored_sql_comment(self):
+            assert self._expr("1 -- asd") == ast.Constant(value=1)
+            assert self._expr("1 -- 'asd'") == ast.Constant(value=1)
+            assert self._expr("1 -- '🍄'") == ast.Constant(value=1)
+
+        def test_placeholders(self):
+            assert self._expr("{foo}") == ast.Placeholder(expr=ast.Field(chain=["foo"]))
+            assert self._expr("{foo}", {"foo": ast.Constant(value="bar")}) == ast.Constant(value="bar")
+            assert self._expr(
+                "timestamp < {timestamp}", {"timestamp": ast.Constant(value=123)}
+            ) == ast.CompareOperation(
+                op=ast.CompareOperationOp.Lt, left=ast.Field(chain=["timestamp"]), right=ast.Constant(value=123)
+            )
+            assert self._expr("timestamp={timestamp}", {"timestamp": ast.Constant(value=123)}) == ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["timestamp"]), right=ast.Constant(value=123)
+            )
+
+        def test_intervals(self):
+            assert self._expr("interval 1 month") == ast.Call(name="toIntervalMonth", args=[ast.Constant(value=1)])
+            assert self._expr("interval '1 month'") == ast.Call(name="toIntervalMonth", args=[ast.Constant(value=1)])
+            assert self._expr("now() - interval 1 week") == ast.ArithmeticOperation(
+                op=ast.ArithmeticOperationOp.Sub,
+                left=ast.Call(name="now", args=[]),
+                right=ast.Call(name="toIntervalWeek", args=[ast.Constant(value=1)]),
+            )
+            assert self._expr("now() - interval '1 week'") == ast.ArithmeticOperation(
+                op=ast.ArithmeticOperationOp.Sub,
+                left=ast.Call(name="now", args=[]),
+                right=ast.Call(name="toIntervalWeek", args=[ast.Constant(value=1)]),
+            )
+            assert self._expr("interval event year") == ast.Call(
+                name="toIntervalYear", args=[ast.Field(chain=["event"])]
+            )
+
+        def test_select_columns(self):
+            assert self._select("select 1") == ast.SelectQuery(select=[ast.Constant(value=1)])
+            assert self._select("select 1, 4, 'string'") == ast.SelectQuery(
+                select=[ast.Constant(value=1), ast.Constant(value=4), ast.Constant(value="string")]
+            )
+
+        def test_select_columns_distinct(self):
+            assert self._select("select distinct 1") == ast.SelectQuery(select=[ast.Constant(value=1)], distinct=True)
+
+        def test_select_where(self):
+            assert self._select("select 1 where true") == ast.SelectQuery(
+                select=[ast.Constant(value=1)], where=ast.Constant(value=True)
+            )
+            assert self._select("select 1 where 1 == 2") == ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                where=ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq, left=ast.Constant(value=1), right=ast.Constant(value=2)
                 ),
             )
 
         def test_select_prewhere(self):
-            self.assertEqual(
-                self._select("select 1 prewhere true"),
-                ast.SelectQuery(select=[ast.Constant(value=1)], prewhere=ast.Constant(value=True)),
+            assert self._select("select 1 prewhere true") == ast.SelectQuery(
+                select=[ast.Constant(value=1)], prewhere=ast.Constant(value=True)
             )
-            self.assertEqual(
-                self._select("select 1 prewhere 1 == 2"),
-                ast.SelectQuery(
-                    select=[ast.Constant(value=1)],
-                    prewhere=ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Constant(value=1),
-                        right=ast.Constant(value=2),
-                    ),
+            assert self._select("select 1 prewhere 1 == 2") == ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                prewhere=ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq, left=ast.Constant(value=1), right=ast.Constant(value=2)
                 ),
             )
 
         def test_select_having(self):
-            self.assertEqual(
-                self._select("select 1 having true"),
-                ast.SelectQuery(select=[ast.Constant(value=1)], having=ast.Constant(value=True)),
+            assert self._select("select 1 having true") == ast.SelectQuery(
+                select=[ast.Constant(value=1)], having=ast.Constant(value=True)
             )
-            self.assertEqual(
-                self._select("select 1 having 1 == 2"),
-                ast.SelectQuery(
-                    select=[ast.Constant(value=1)],
-                    having=ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Constant(value=1),
-                        right=ast.Constant(value=2),
-                    ),
+            assert self._select("select 1 having 1 == 2") == ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                having=ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq, left=ast.Constant(value=1), right=ast.Constant(value=2)
                 ),
             )
 
         def test_select_complex_wheres(self):
-            self.assertEqual(
-                self._select("select 1 prewhere 2 != 3 where 1 == 2 having 'string' like '%a%'"),
-                ast.SelectQuery(
-                    select=[ast.Constant(value=1)],
-                    where=ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Constant(value=1),
-                        right=ast.Constant(value=2),
-                    ),
-                    prewhere=ast.CompareOperation(
-                        op=ast.CompareOperationOp.NotEq,
-                        left=ast.Constant(value=2),
-                        right=ast.Constant(value=3),
-                    ),
-                    having=ast.CompareOperation(
-                        op=ast.CompareOperationOp.Like,
-                        left=ast.Constant(value="string"),
-                        right=ast.Constant(value="%a%"),
-                    ),
+            assert self._select("select 1 prewhere 2 != 3 where 1 == 2 having 'string' like '%a%'") == ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                where=ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq, left=ast.Constant(value=1), right=ast.Constant(value=2)
+                ),
+                prewhere=ast.CompareOperation(
+                    op=ast.CompareOperationOp.NotEq, left=ast.Constant(value=2), right=ast.Constant(value=3)
+                ),
+                having=ast.CompareOperation(
+                    op=ast.CompareOperationOp.Like, left=ast.Constant(value="string"), right=ast.Constant(value="%a%")
                 ),
             )
 
         def test_select_from(self):
-            self.assertEqual(
-                self._select("select 1 from events"),
-                ast.SelectQuery(
-                    select=[ast.Constant(value=1)],
-                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            assert self._select("select 1 from events") == ast.SelectQuery(
+                select=[ast.Constant(value=1)], select_from=ast.JoinExpr(table=ast.Field(chain=["events"]))
+            )
+            assert self._select("select 1 from events as e") == ast.SelectQuery(
+                select=[ast.Constant(value=1)], select_from=ast.JoinExpr(table=ast.Field(chain=["events"]), alias="e")
+            )
+            assert self._select("select 1 from events e") == ast.SelectQuery(
+                select=[ast.Constant(value=1)], select_from=ast.JoinExpr(table=ast.Field(chain=["events"]), alias="e")
+            )
+            assert self._select("select 1 from complex.table") == ast.SelectQuery(
+                select=[ast.Constant(value=1)], select_from=ast.JoinExpr(table=ast.Field(chain=["complex", "table"]))
+            )
+            assert self._select("select 1 from complex.table as a") == ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["complex", "table"]), alias="a"),
+            )
+            assert self._select("select 1 from complex.table a") == ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["complex", "table"]), alias="a"),
+            )
+            assert self._select("select 1 from (select 1 from events)") == ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(
+                    table=ast.SelectQuery(
+                        select=[ast.Constant(value=1)], select_from=ast.JoinExpr(table=ast.Field(chain=["events"]))
+                    )
                 ),
             )
-            self.assertEqual(
-                self._select("select 1 from events as e"),
-                ast.SelectQuery(
-                    select=[ast.Constant(value=1)],
-                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"]), alias="e"),
-                ),
-            )
-            self.assertEqual(
-                self._select("select 1 from events e"),
-                ast.SelectQuery(
-                    select=[ast.Constant(value=1)],
-                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"]), alias="e"),
-                ),
-            )
-            self.assertEqual(
-                self._select("select 1 from complex.table"),
-                ast.SelectQuery(
-                    select=[ast.Constant(value=1)],
-                    select_from=ast.JoinExpr(table=ast.Field(chain=["complex", "table"])),
-                ),
-            )
-            self.assertEqual(
-                self._select("select 1 from complex.table as a"),
-                ast.SelectQuery(
-                    select=[ast.Constant(value=1)],
-                    select_from=ast.JoinExpr(table=ast.Field(chain=["complex", "table"]), alias="a"),
-                ),
-            )
-            self.assertEqual(
-                self._select("select 1 from complex.table a"),
-                ast.SelectQuery(
-                    select=[ast.Constant(value=1)],
-                    select_from=ast.JoinExpr(table=ast.Field(chain=["complex", "table"]), alias="a"),
-                ),
-            )
-            self.assertEqual(
-                self._select("select 1 from (select 1 from events)"),
-                ast.SelectQuery(
-                    select=[ast.Constant(value=1)],
-                    select_from=ast.JoinExpr(
-                        table=ast.SelectQuery(
-                            select=[ast.Constant(value=1)],
-                            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                        )
+            assert self._select("select 1 from (select 1 from events) as sq") == ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(
+                    table=ast.SelectQuery(
+                        select=[ast.Constant(value=1)], select_from=ast.JoinExpr(table=ast.Field(chain=["events"]))
                     ),
-                ),
-            )
-            self.assertEqual(
-                self._select("select 1 from (select 1 from events) as sq"),
-                ast.SelectQuery(
-                    select=[ast.Constant(value=1)],
-                    select_from=ast.JoinExpr(
-                        table=ast.SelectQuery(
-                            select=[ast.Constant(value=1)],
-                            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                        ),
-                        alias="sq",
-                    ),
+                    alias="sq",
                 ),
             )
 
         def test_select_from_placeholder(self):
-            self.assertEqual(
-                self._select("select 1 from {placeholder}"),
-                ast.SelectQuery(
-                    select=[ast.Constant(value=1)],
-                    select_from=ast.JoinExpr(table=ast.Placeholder(expr=ast.Field(chain=["placeholder"]))),
-                ),
+            assert self._select("select 1 from {placeholder}") == ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.Placeholder(expr=ast.Field(chain=["placeholder"]))),
             )
-            self.assertEqual(
-                self._select(
-                    "select 1 from {placeholder}",
-                    {"placeholder": ast.Field(chain=["events"])},
-                ),
-                ast.SelectQuery(
-                    select=[ast.Constant(value=1)],
-                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                ),
+            assert self._select(
+                "select 1 from {placeholder}", {"placeholder": ast.Field(chain=["events"])}
+            ) == ast.SelectQuery(
+                select=[ast.Constant(value=1)], select_from=ast.JoinExpr(table=ast.Field(chain=["events"]))
             )
 
         def test_select_from_join(self):
-            self.assertEqual(
-                self._select("select 1 from events JOIN events2 ON 1"),
-                ast.SelectQuery(
-                    select=[ast.Constant(value=1)],
-                    select_from=ast.JoinExpr(
-                        table=ast.Field(chain=["events"]),
+            assert self._select("select 1 from events JOIN events2 ON 1") == ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(
+                    table=ast.Field(chain=["events"]),
+                    next_join=ast.JoinExpr(
+                        join_type="JOIN",
+                        table=ast.Field(chain=["events2"]),
+                        constraint=ast.JoinConstraint(expr=ast.Constant(value=1), constraint_type="ON"),
+                    ),
+                ),
+            )
+            assert self._select("select * from events LEFT OUTER JOIN events2 ON 1") == ast.SelectQuery(
+                select=[ast.Field(chain=["*"])],
+                select_from=ast.JoinExpr(
+                    table=ast.Field(chain=["events"]),
+                    next_join=ast.JoinExpr(
+                        join_type="LEFT OUTER JOIN",
+                        table=ast.Field(chain=["events2"]),
+                        constraint=ast.JoinConstraint(expr=ast.Constant(value=1), constraint_type="ON"),
+                    ),
+                ),
+            )
+            assert self._select(
+                "select 1 from events LEFT OUTER JOIN events2 ON 1 ANY RIGHT JOIN events3 ON 2"
+            ) == ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(
+                    table=ast.Field(chain=["events"]),
+                    next_join=ast.JoinExpr(
+                        join_type="LEFT OUTER JOIN",
+                        table=ast.Field(chain=["events2"]),
+                        constraint=ast.JoinConstraint(expr=ast.Constant(value=1), constraint_type="ON"),
                         next_join=ast.JoinExpr(
-                            join_type="JOIN",
-                            table=ast.Field(chain=["events2"]),
-                            constraint=ast.JoinConstraint(expr=ast.Constant(value=1), constraint_type="ON"),
+                            join_type="RIGHT ANY JOIN",
+                            table=ast.Field(chain=["events3"]),
+                            constraint=ast.JoinConstraint(expr=ast.Constant(value=2), constraint_type="ON"),
                         ),
                     ),
                 ),
             )
-            self.assertEqual(
-                self._select("select * from events LEFT OUTER JOIN events2 ON 1"),
-                ast.SelectQuery(
-                    select=[ast.Field(chain=["*"])],
-                    select_from=ast.JoinExpr(
-                        table=ast.Field(chain=["events"]),
-                        next_join=ast.JoinExpr(
-                            join_type="LEFT OUTER JOIN",
-                            table=ast.Field(chain=["events2"]),
-                            constraint=ast.JoinConstraint(expr=ast.Constant(value=1), constraint_type="ON"),
-                        ),
-                    ),
-                ),
-            )
-            self.assertEqual(
-                self._select("select 1 from events LEFT OUTER JOIN events2 ON 1 ANY RIGHT JOIN events3 ON 2"),
-                ast.SelectQuery(
-                    select=[ast.Constant(value=1)],
-                    select_from=ast.JoinExpr(
-                        table=ast.Field(chain=["events"]),
-                        next_join=ast.JoinExpr(
-                            join_type="LEFT OUTER JOIN",
-                            table=ast.Field(chain=["events2"]),
-                            constraint=ast.JoinConstraint(expr=ast.Constant(value=1), constraint_type="ON"),
-                            next_join=ast.JoinExpr(
-                                join_type="RIGHT ANY JOIN",
-                                table=ast.Field(chain=["events3"]),
-                                constraint=ast.JoinConstraint(expr=ast.Constant(value=2), constraint_type="ON"),
-                            ),
-                        ),
-                    ),
-                ),
-            )
-            self.assertEqual(
-                self._select("select 1 from events JOIN events2 USING 1"),
-                ast.SelectQuery(
-                    select=[ast.Constant(value=1)],
-                    select_from=ast.JoinExpr(
-                        table=ast.Field(chain=["events"]),
-                        next_join=ast.JoinExpr(
-                            join_type="JOIN",
-                            table=ast.Field(chain=["events2"]),
-                            constraint=ast.JoinConstraint(expr=ast.Constant(value=1), constraint_type="USING"),
-                        ),
+            assert self._select("select 1 from events JOIN events2 USING 1") == ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(
+                    table=ast.Field(chain=["events"]),
+                    next_join=ast.JoinExpr(
+                        join_type="JOIN",
+                        table=ast.Field(chain=["events2"]),
+                        constraint=ast.JoinConstraint(expr=ast.Constant(value=1), constraint_type="USING"),
                     ),
                 ),
             )
@@ -1064,43 +623,40 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 """,
                 self.team,
             )
-            self.assertEqual(
-                node,
-                ast.SelectQuery(
-                    select=[
-                        ast.Field(chain=["event"]),
-                        ast.Field(chain=["timestamp"]),
-                        ast.Field(chain=["e", "distinct_id"]),
-                        ast.Field(chain=["p", "id"]),
-                        ast.Field(chain=["p", "properties", "email"]),
-                    ],
-                    select_from=ast.JoinExpr(
-                        table=ast.Field(chain=["events"]),
-                        alias="e",
+            assert node == ast.SelectQuery(
+                select=[
+                    ast.Field(chain=["event"]),
+                    ast.Field(chain=["timestamp"]),
+                    ast.Field(chain=["e", "distinct_id"]),
+                    ast.Field(chain=["p", "id"]),
+                    ast.Field(chain=["p", "properties", "email"]),
+                ],
+                select_from=ast.JoinExpr(
+                    table=ast.Field(chain=["events"]),
+                    alias="e",
+                    next_join=ast.JoinExpr(
+                        join_type="LEFT JOIN",
+                        table=ast.Field(chain=["person_distinct_id"]),
+                        alias="pdi",
+                        constraint=ast.JoinConstraint(
+                            expr=ast.CompareOperation(
+                                op=ast.CompareOperationOp.Eq,
+                                left=ast.Field(chain=["pdi", "distinct_id"]),
+                                right=ast.Field(chain=["e", "distinct_id"]),
+                            ),
+                            constraint_type="ON",
+                        ),
                         next_join=ast.JoinExpr(
                             join_type="LEFT JOIN",
-                            table=ast.Field(chain=["person_distinct_id"]),
-                            alias="pdi",
+                            table=ast.Field(chain=["persons"]),
+                            alias="p",
                             constraint=ast.JoinConstraint(
                                 expr=ast.CompareOperation(
                                     op=ast.CompareOperationOp.Eq,
-                                    left=ast.Field(chain=["pdi", "distinct_id"]),
-                                    right=ast.Field(chain=["e", "distinct_id"]),
+                                    left=ast.Field(chain=["p", "id"]),
+                                    right=ast.Field(chain=["pdi", "person_id"]),
                                 ),
                                 constraint_type="ON",
-                            ),
-                            next_join=ast.JoinExpr(
-                                join_type="LEFT JOIN",
-                                table=ast.Field(chain=["persons"]),
-                                alias="p",
-                                constraint=ast.JoinConstraint(
-                                    expr=ast.CompareOperation(
-                                        op=ast.CompareOperationOp.Eq,
-                                        left=ast.Field(chain=["p", "id"]),
-                                        right=ast.Field(chain=["pdi", "person_id"]),
-                                    ),
-                                    constraint_type="ON",
-                                ),
                             ),
                         ),
                     ),
@@ -1108,323 +664,205 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             )
 
         def test_select_from_cross_join(self):
-            self.assertEqual(
-                self._select("select 1 from events CROSS JOIN events2"),
-                ast.SelectQuery(
-                    select=[ast.Constant(value=1)],
-                    select_from=ast.JoinExpr(
-                        table=ast.Field(chain=["events"]),
-                        next_join=ast.JoinExpr(
-                            join_type="CROSS JOIN",
-                            table=ast.Field(chain=["events2"]),
-                        ),
+            assert self._select("select 1 from events CROSS JOIN events2") == ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(
+                    table=ast.Field(chain=["events"]),
+                    next_join=ast.JoinExpr(join_type="CROSS JOIN", table=ast.Field(chain=["events2"])),
+                ),
+            )
+            assert self._select("select 1 from events CROSS JOIN events2 CROSS JOIN events3") == ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(
+                    table=ast.Field(chain=["events"]),
+                    next_join=ast.JoinExpr(
+                        join_type="CROSS JOIN",
+                        table=ast.Field(chain=["events2"]),
+                        next_join=ast.JoinExpr(join_type="CROSS JOIN", table=ast.Field(chain=["events3"])),
                     ),
                 ),
             )
-            self.assertEqual(
-                self._select("select 1 from events CROSS JOIN events2 CROSS JOIN events3"),
-                ast.SelectQuery(
-                    select=[ast.Constant(value=1)],
-                    select_from=ast.JoinExpr(
-                        table=ast.Field(chain=["events"]),
-                        next_join=ast.JoinExpr(
-                            join_type="CROSS JOIN",
-                            table=ast.Field(chain=["events2"]),
-                            next_join=ast.JoinExpr(
-                                join_type="CROSS JOIN",
-                                table=ast.Field(chain=["events3"]),
-                            ),
-                        ),
-                    ),
-                ),
-            )
-            self.assertEqual(
-                self._select("select 1 from events, events2 CROSS JOIN events3"),
-                ast.SelectQuery(
-                    select=[ast.Constant(value=1)],
-                    select_from=ast.JoinExpr(
-                        table=ast.Field(chain=["events"]),
-                        next_join=ast.JoinExpr(
-                            join_type="CROSS JOIN",
-                            table=ast.Field(chain=["events2"]),
-                            next_join=ast.JoinExpr(
-                                join_type="CROSS JOIN",
-                                table=ast.Field(chain=["events3"]),
-                            ),
-                        ),
+            assert self._select("select 1 from events, events2 CROSS JOIN events3") == ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(
+                    table=ast.Field(chain=["events"]),
+                    next_join=ast.JoinExpr(
+                        join_type="CROSS JOIN",
+                        table=ast.Field(chain=["events2"]),
+                        next_join=ast.JoinExpr(join_type="CROSS JOIN", table=ast.Field(chain=["events3"])),
                     ),
                 ),
             )
 
         def test_select_array_join(self):
-            self.assertEqual(
-                self._select("select a from events ARRAY JOIN [1,2,3] as a"),
-                ast.SelectQuery(
-                    select=[ast.Field(chain=["a"])],
-                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                    array_join_op="ARRAY JOIN",
-                    array_join_list=[
-                        ast.Alias(
-                            expr=ast.Array(
-                                exprs=[
-                                    ast.Constant(value=1),
-                                    ast.Constant(value=2),
-                                    ast.Constant(value=3),
-                                ]
-                            ),
-                            alias="a",
-                        )
-                    ],
-                ),
+            assert self._select("select a from events ARRAY JOIN [1,2,3] as a") == ast.SelectQuery(
+                select=[ast.Field(chain=["a"])],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                array_join_op="ARRAY JOIN",
+                array_join_list=[
+                    ast.Alias(
+                        expr=ast.Array(exprs=[ast.Constant(value=1), ast.Constant(value=2), ast.Constant(value=3)]),
+                        alias="a",
+                    )
+                ],
             )
-            self.assertEqual(
-                self._select("select a from events INNER ARRAY JOIN [1,2,3] as a"),
-                ast.SelectQuery(
-                    select=[ast.Field(chain=["a"])],
-                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                    array_join_op="INNER ARRAY JOIN",
-                    array_join_list=[
-                        ast.Alias(
-                            expr=ast.Array(
-                                exprs=[
-                                    ast.Constant(value=1),
-                                    ast.Constant(value=2),
-                                    ast.Constant(value=3),
-                                ]
-                            ),
-                            alias="a",
-                        )
-                    ],
-                ),
+            assert self._select("select a from events INNER ARRAY JOIN [1,2,3] as a") == ast.SelectQuery(
+                select=[ast.Field(chain=["a"])],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                array_join_op="INNER ARRAY JOIN",
+                array_join_list=[
+                    ast.Alias(
+                        expr=ast.Array(exprs=[ast.Constant(value=1), ast.Constant(value=2), ast.Constant(value=3)]),
+                        alias="a",
+                    )
+                ],
             )
-            self.assertEqual(
-                self._select("select 1, b from events LEFT ARRAY JOIN [1,2,3] as a, [4,5,6] AS b"),
-                ast.SelectQuery(
-                    select=[ast.Constant(value=1), ast.Field(chain=["b"])],
-                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                    array_join_op="LEFT ARRAY JOIN",
-                    array_join_list=[
-                        ast.Alias(
-                            expr=ast.Array(
-                                exprs=[
-                                    ast.Constant(value=1),
-                                    ast.Constant(value=2),
-                                    ast.Constant(value=3),
-                                ]
-                            ),
-                            alias="a",
-                        ),
-                        ast.Alias(
-                            expr=ast.Array(
-                                exprs=[
-                                    ast.Constant(value=4),
-                                    ast.Constant(value=5),
-                                    ast.Constant(value=6),
-                                ]
-                            ),
-                            alias="b",
-                        ),
-                    ],
-                ),
+            assert self._select(
+                "select 1, b from events LEFT ARRAY JOIN [1,2,3] as a, [4,5,6] AS b"
+            ) == ast.SelectQuery(
+                select=[ast.Constant(value=1), ast.Field(chain=["b"])],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                array_join_op="LEFT ARRAY JOIN",
+                array_join_list=[
+                    ast.Alias(
+                        expr=ast.Array(exprs=[ast.Constant(value=1), ast.Constant(value=2), ast.Constant(value=3)]),
+                        alias="a",
+                    ),
+                    ast.Alias(
+                        expr=ast.Array(exprs=[ast.Constant(value=4), ast.Constant(value=5), ast.Constant(value=6)]),
+                        alias="b",
+                    ),
+                ],
             )
 
         def test_select_array_join_errors(self):
-            with self.assertRaises(ExposedHogQLError) as e:
+            with pytest.raises(ExposedHogQLError) as e:
                 self._select("select a from events ARRAY JOIN [1,2,3]")
-            self.assertEqual(str(e.exception), "ARRAY JOIN arrays must have an alias")
-            self.assertEqual(e.exception.start, 32)
-            self.assertEqual(e.exception.end, 39)
+            assert str(e.value) == "ARRAY JOIN arrays must have an alias"
+            assert e.value.start == 32
+            assert e.value.end == 39
 
-            with self.assertRaises(ExposedHogQLError) as e:
+            with pytest.raises(ExposedHogQLError) as e:
                 self._select("select a ARRAY JOIN [1,2,3]")
-            self.assertEqual(
-                str(e.exception),
-                "Using ARRAY JOIN without a FROM clause is not permitted",
-            )
-            self.assertEqual(e.exception.start, 0)
-            self.assertEqual(e.exception.end, 27)
+            assert str(e.value) == "Using ARRAY JOIN without a FROM clause is not permitted"
+            assert e.value.start == 0
+            assert e.value.end == 27
 
         def test_select_group_by(self):
-            self.assertEqual(
-                self._select("select 1 from events GROUP BY 1, event"),
-                ast.SelectQuery(
-                    select=[ast.Constant(value=1)],
-                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                    group_by=[ast.Constant(value=1), ast.Field(chain=["event"])],
-                ),
+            assert self._select("select 1 from events GROUP BY 1, event") == ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                group_by=[ast.Constant(value=1), ast.Field(chain=["event"])],
             )
 
         def test_order_by(self):
-            self.assertEqual(
-                parse_order_expr("1 ASC"),
-                ast.OrderExpr(
-                    expr=ast.Constant(value=1, start=0, end=1),
-                    order="ASC",
-                    start=0,
-                    end=5,
-                ),
+            assert parse_order_expr("1 ASC") == ast.OrderExpr(
+                expr=ast.Constant(value=1, start=0, end=1), order="ASC", start=0, end=5
             )
-            self.assertEqual(
-                parse_order_expr("event"),
-                ast.OrderExpr(
-                    expr=ast.Field(chain=["event"], start=0, end=5),
-                    order="ASC",
-                    start=0,
-                    end=5,
-                ),
+            assert parse_order_expr("event") == ast.OrderExpr(
+                expr=ast.Field(chain=["event"], start=0, end=5), order="ASC", start=0, end=5
             )
-            self.assertEqual(
-                parse_order_expr("timestamp DESC"),
-                ast.OrderExpr(
-                    expr=ast.Field(chain=["timestamp"], start=0, end=9),
-                    order="DESC",
-                    start=0,
-                    end=14,
-                ),
+            assert parse_order_expr("timestamp DESC") == ast.OrderExpr(
+                expr=ast.Field(chain=["timestamp"], start=0, end=9), order="DESC", start=0, end=14
             )
             # Note that the parser will skip anything after `--`, so the `DESC` behind will not be parsed
-            self.assertEqual(
-                parse_order_expr("timestamp -- a comment DESC"),
-                ast.OrderExpr(
-                    expr=ast.Field(chain=["timestamp"], start=0, end=9),
-                    order="ASC",
-                    start=0,
-                    end=9,
-                ),
+            assert parse_order_expr("timestamp -- a comment DESC") == ast.OrderExpr(
+                expr=ast.Field(chain=["timestamp"], start=0, end=9), order="ASC", start=0, end=9
             )
 
         def test_select_order_by(self):
-            self.assertEqual(
-                self._select("select 1 from events ORDER BY 1 ASC, event, timestamp DESC"),
-                ast.SelectQuery(
-                    select=[ast.Constant(value=1)],
-                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                    order_by=[
-                        ast.OrderExpr(expr=ast.Constant(value=1), order="ASC"),
-                        ast.OrderExpr(expr=ast.Field(chain=["event"]), order="ASC"),
-                        ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC"),
-                    ],
-                ),
+            assert self._select("select 1 from events ORDER BY 1 ASC, event, timestamp DESC") == ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                order_by=[
+                    ast.OrderExpr(expr=ast.Constant(value=1), order="ASC"),
+                    ast.OrderExpr(expr=ast.Field(chain=["event"]), order="ASC"),
+                    ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC"),
+                ],
             )
 
         def test_select_limit_offset(self):
-            self.assertEqual(
-                self._select("select 1 from events LIMIT 1"),
-                ast.SelectQuery(
-                    select=[ast.Constant(value=1)],
-                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                    limit=ast.Constant(value=1),
+            assert self._select("select 1 from events LIMIT 1") == ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                limit=ast.Constant(value=1),
+            )
+            assert self._select("select 1 from events LIMIT 1 OFFSET 3") == ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                limit=ast.Constant(value=1),
+                offset=ast.Constant(value=3),
+            )
+            assert self._select("select 1 from events OFFSET 3") == ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                limit=None,
+                offset=ast.Constant(value=3),
+            )
+            assert self._select("select 1 from events ORDER BY 1 LIMIT 1 WITH TIES") == ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                order_by=[ast.OrderExpr(expr=ast.Constant(value=1), order="ASC")],
+                limit=ast.Constant(value=1),
+                limit_with_ties=True,
+                offset=None,
+            )
+            assert self._select("select 1 from events ORDER BY 1 LIMIT 1, 3 WITH TIES") == ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                order_by=[ast.OrderExpr(expr=ast.Constant(value=1), order="ASC")],
+                limit=ast.Constant(value=1),
+                limit_with_ties=True,
+                offset=ast.Constant(value=3),
+            )
+            assert self._select("select 1 from events LIMIT 1 BY event LIMIT 2 OFFSET 3") == ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                limit=ast.Constant(value=2),
+                offset=ast.Constant(value=3),
+                limit_by=ast.LimitByExpr(n=ast.Constant(value=1), exprs=[ast.Field(chain=["event"])]),
+            )
+            assert self._select("select 1 from events LIMIT 1 OFFSET 4 BY event LIMIT 2") == ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                limit=ast.Constant(value=2),
+                limit_by=ast.LimitByExpr(
+                    n=ast.Constant(value=1), offset_value=ast.Constant(value=4), exprs=[ast.Field(chain=["event"])]
                 ),
             )
-            self.assertEqual(
-                self._select("select 1 from events LIMIT 1 OFFSET 3"),
-                ast.SelectQuery(
-                    select=[ast.Constant(value=1)],
-                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                    limit=ast.Constant(value=1),
-                    offset=ast.Constant(value=3),
+            assert self._select("select 1 from events LIMIT 4, 1 BY event LIMIT 2") == ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                limit=ast.Constant(value=2),
+                limit_by=ast.LimitByExpr(
+                    n=ast.Constant(value=1), offset_value=ast.Constant(value=4), exprs=[ast.Field(chain=["event"])]
                 ),
             )
-            self.assertEqual(
-                self._select("select 1 from events OFFSET 3"),
-                ast.SelectQuery(
-                    select=[ast.Constant(value=1)],
-                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                    limit=None,
-                    offset=ast.Constant(value=3),
-                ),
-            )
-            self.assertEqual(
-                self._select("select 1 from events ORDER BY 1 LIMIT 1 WITH TIES"),
-                ast.SelectQuery(
-                    select=[ast.Constant(value=1)],
-                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                    order_by=[ast.OrderExpr(expr=ast.Constant(value=1), order="ASC")],
-                    limit=ast.Constant(value=1),
-                    limit_with_ties=True,
-                    offset=None,
-                ),
-            )
-            self.assertEqual(
-                self._select("select 1 from events ORDER BY 1 LIMIT 1, 3 WITH TIES"),
-                ast.SelectQuery(
-                    select=[ast.Constant(value=1)],
-                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                    order_by=[ast.OrderExpr(expr=ast.Constant(value=1), order="ASC")],
-                    limit=ast.Constant(value=1),
-                    limit_with_ties=True,
-                    offset=ast.Constant(value=3),
-                ),
-            )
-            self.assertEqual(
-                self._select("select 1 from events LIMIT 1 BY event LIMIT 2 OFFSET 3"),
-                ast.SelectQuery(
-                    select=[ast.Constant(value=1)],
-                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                    limit=ast.Constant(value=2),
-                    offset=ast.Constant(value=3),
-                    limit_by=ast.LimitByExpr(n=ast.Constant(value=1), exprs=[ast.Field(chain=["event"])]),
-                ),
-            )
-            self.assertEqual(
-                self._select("select 1 from events LIMIT 1 OFFSET 4 BY event LIMIT 2"),
-                ast.SelectQuery(
-                    select=[ast.Constant(value=1)],
-                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                    limit=ast.Constant(value=2),
-                    limit_by=ast.LimitByExpr(
-                        n=ast.Constant(value=1), offset_value=ast.Constant(value=4), exprs=[ast.Field(chain=["event"])]
-                    ),
-                ),
-            )
-            self.assertEqual(
-                self._select("select 1 from events LIMIT 4, 1 BY event LIMIT 2"),
-                ast.SelectQuery(
-                    select=[ast.Constant(value=1)],
-                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                    limit=ast.Constant(value=2),
-                    limit_by=ast.LimitByExpr(
-                        n=ast.Constant(value=1), offset_value=ast.Constant(value=4), exprs=[ast.Field(chain=["event"])]
-                    ),
-                ),
-            )
-            self.assertEqual(
-                self._select("select 1 from events LIMIT 1 OFFSET 4 BY event LIMIT 2 OFFSET 5"),
-                ast.SelectQuery(
-                    select=[ast.Constant(value=1)],
-                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                    limit=ast.Constant(value=2),
-                    offset=ast.Constant(value=5),
-                    limit_by=ast.LimitByExpr(
-                        n=ast.Constant(value=1), offset_value=ast.Constant(value=4), exprs=[ast.Field(chain=["event"])]
-                    ),
+            assert self._select("select 1 from events LIMIT 1 OFFSET 4 BY event LIMIT 2 OFFSET 5") == ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                limit=ast.Constant(value=2),
+                offset=ast.Constant(value=5),
+                limit_by=ast.LimitByExpr(
+                    n=ast.Constant(value=1), offset_value=ast.Constant(value=4), exprs=[ast.Field(chain=["event"])]
                 ),
             )
 
         def test_select_placeholders(self):
-            self.assertEqual(
-                self._select("select 1 where 1 == {hogql_val_1}"),
-                ast.SelectQuery(
-                    select=[ast.Constant(value=1)],
-                    where=ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Constant(value=1),
-                        right=ast.Placeholder(expr=ast.Field(chain=["hogql_val_1"])),
-                    ),
+            assert self._select("select 1 where 1 == {hogql_val_1}") == ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                where=ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Constant(value=1),
+                    right=ast.Placeholder(expr=ast.Field(chain=["hogql_val_1"])),
                 ),
             )
-            self.assertEqual(
-                self._select(
-                    "select 1 where 1 == {hogql_val_1}",
-                    {"hogql_val_1": ast.Constant(value="bar")},
-                ),
-                ast.SelectQuery(
-                    select=[ast.Constant(value=1)],
-                    where=ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Constant(value=1),
-                        right=ast.Constant(value="bar"),
-                    ),
+            assert self._select(
+                "select 1 where 1 == {hogql_val_1}", {"hogql_val_1": ast.Constant(value="bar")}
+            ) == ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                where=ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq, left=ast.Constant(value=1), right=ast.Constant(value="bar")
                 ),
             )
 
@@ -1449,258 +887,187 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     ),
                 )
             )
-            self.assertEqual(actual, expected)
+            assert actual == expected
 
         def test_select_union_all(self):
-            self.assertEqual(
-                self._select("select 1 union all select 2 union all select 3"),
-                ast.SelectSetQuery(
-                    initial_select_query=ast.SelectQuery(select=[ast.Constant(value=1)]),
-                    subsequent_select_queries=[
-                        SelectSetNode(set_operator="UNION ALL", select_query=query)
-                        for query in (
-                            ast.SelectQuery(select=[ast.Constant(value=2)]),
-                            ast.SelectQuery(select=[ast.Constant(value=3)]),
-                        )
-                    ],
-                ),
+            assert self._select("select 1 union all select 2 union all select 3") == ast.SelectSetQuery(
+                initial_select_query=ast.SelectQuery(select=[ast.Constant(value=1)]),
+                subsequent_select_queries=[
+                    SelectSetNode(set_operator="UNION ALL", select_query=query)
+                    for query in (
+                        ast.SelectQuery(select=[ast.Constant(value=2)]),
+                        ast.SelectQuery(select=[ast.Constant(value=3)]),
+                    )
+                ],
             )
 
         def test_nested_selects(self):
-            self.assertEqual(
-                self._select("(select 1 intersect select 2) union all (select 3 except select 4)"),
-                SelectSetQuery(
-                    initial_select_query=SelectSetQuery(
-                        initial_select_query=SelectQuery(select=[Constant(value=1)]),
-                        subsequent_select_queries=[
-                            SelectSetNode(
-                                select_query=SelectQuery(
-                                    select=[Constant(value=2)],
-                                ),
-                                set_operator="INTERSECT",
-                            )
-                        ],
-                    ),
+            assert self._select("(select 1 intersect select 2) union all (select 3 except select 4)") == SelectSetQuery(
+                initial_select_query=SelectSetQuery(
+                    initial_select_query=SelectQuery(select=[Constant(value=1)]),
                     subsequent_select_queries=[
-                        SelectSetNode(
-                            select_query=SelectSetQuery(
-                                initial_select_query=SelectQuery(
-                                    select=[Constant(value=3)],
-                                ),
-                                subsequent_select_queries=[
-                                    SelectSetNode(
-                                        select_query=SelectQuery(select=[Constant(value=4)]), set_operator="EXCEPT"
-                                    )
-                                ],
-                            ),
-                            set_operator="UNION ALL",
-                        )
+                        SelectSetNode(select_query=SelectQuery(select=[Constant(value=2)]), set_operator="INTERSECT")
                     ],
                 ),
+                subsequent_select_queries=[
+                    SelectSetNode(
+                        select_query=SelectSetQuery(
+                            initial_select_query=SelectQuery(select=[Constant(value=3)]),
+                            subsequent_select_queries=[
+                                SelectSetNode(
+                                    select_query=SelectQuery(select=[Constant(value=4)]), set_operator="EXCEPT"
+                                )
+                            ],
+                        ),
+                        set_operator="UNION ALL",
+                    )
+                ],
             )
 
         def test_sample_clause(self):
-            self.assertEqual(
-                self._select("select 1 from events sample 1/10 offset 999"),
-                ast.SelectQuery(
-                    select=[ast.Constant(value=1)],
-                    select_from=ast.JoinExpr(
-                        table=ast.Field(chain=["events"]),
-                        sample=ast.SampleExpr(
-                            offset_value=ast.RatioExpr(left=ast.Constant(value=999)),
-                            sample_value=ast.RatioExpr(left=ast.Constant(value=1), right=ast.Constant(value=10)),
-                        ),
+            assert self._select("select 1 from events sample 1/10 offset 999") == ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(
+                    table=ast.Field(chain=["events"]),
+                    sample=ast.SampleExpr(
+                        offset_value=ast.RatioExpr(left=ast.Constant(value=999)),
+                        sample_value=ast.RatioExpr(left=ast.Constant(value=1), right=ast.Constant(value=10)),
                     ),
                 ),
             )
 
-            self.assertEqual(
-                self._select("select 1 from events sample 0.1 offset 999"),
-                ast.SelectQuery(
-                    select=[ast.Constant(value=1)],
-                    select_from=ast.JoinExpr(
-                        table=ast.Field(chain=["events"]),
-                        sample=ast.SampleExpr(
-                            offset_value=ast.RatioExpr(left=ast.Constant(value=999)),
-                            sample_value=ast.RatioExpr(
-                                left=ast.Constant(value=0.1),
-                            ),
-                        ),
+            assert self._select("select 1 from events sample 0.1 offset 999") == ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(
+                    table=ast.Field(chain=["events"]),
+                    sample=ast.SampleExpr(
+                        offset_value=ast.RatioExpr(left=ast.Constant(value=999)),
+                        sample_value=ast.RatioExpr(left=ast.Constant(value=0.1)),
                     ),
                 ),
             )
 
-            self.assertEqual(
-                self._select("select 1 from events sample 10 offset 1/2"),
-                ast.SelectQuery(
-                    select=[ast.Constant(value=1)],
-                    select_from=ast.JoinExpr(
-                        table=ast.Field(chain=["events"]),
-                        sample=ast.SampleExpr(
-                            offset_value=ast.RatioExpr(left=ast.Constant(value=1), right=ast.Constant(value=2)),
-                            sample_value=ast.RatioExpr(
-                                left=ast.Constant(value=10),
-                            ),
-                        ),
+            assert self._select("select 1 from events sample 10 offset 1/2") == ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(
+                    table=ast.Field(chain=["events"]),
+                    sample=ast.SampleExpr(
+                        offset_value=ast.RatioExpr(left=ast.Constant(value=1), right=ast.Constant(value=2)),
+                        sample_value=ast.RatioExpr(left=ast.Constant(value=10)),
                     ),
                 ),
             )
 
-            self.assertEqual(
-                self._select("select 1 from events sample 10"),
-                ast.SelectQuery(
-                    select=[ast.Constant(value=1)],
-                    select_from=ast.JoinExpr(
-                        table=ast.Field(chain=["events"]),
-                        sample=ast.SampleExpr(
-                            sample_value=ast.RatioExpr(
-                                left=ast.Constant(value=10),
-                            ),
-                        ),
-                    ),
+            assert self._select("select 1 from events sample 10") == ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(
+                    table=ast.Field(chain=["events"]),
+                    sample=ast.SampleExpr(sample_value=ast.RatioExpr(left=ast.Constant(value=10))),
                 ),
             )
 
         def test_select_with_columns(self):
-            self.assertEqual(
-                self._select("with event as boo select boo from events"),
-                ast.SelectQuery(
-                    ctes={
-                        "boo": ast.CTE(
-                            name="boo",
-                            expr=ast.Field(chain=["event"]),
-                            cte_type="column",
-                        )
-                    },
-                    select=[ast.Field(chain=["boo"])],
-                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                ),
+            assert self._select("with event as boo select boo from events") == ast.SelectQuery(
+                ctes={"boo": ast.CTE(name="boo", expr=ast.Field(chain=["event"]), cte_type="column")},
+                select=[ast.Field(chain=["boo"])],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             )
-            self.assertEqual(
-                self._select("with count() as kokku select kokku from events"),
-                ast.SelectQuery(
-                    ctes={
-                        "kokku": ast.CTE(
-                            name="kokku",
-                            expr=ast.Call(name="count", args=[]),
-                            cte_type="column",
-                        )
-                    },
-                    select=[ast.Field(chain=["kokku"])],
-                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                ),
+            assert self._select("with count() as kokku select kokku from events") == ast.SelectQuery(
+                ctes={"kokku": ast.CTE(name="kokku", expr=ast.Call(name="count", args=[]), cte_type="column")},
+                select=[ast.Field(chain=["kokku"])],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             )
 
         def test_select_with_subqueries(self):
-            self.assertEqual(
-                self._select("with customers as (select 'yes' from events) select * from customers"),
-                ast.SelectQuery(
-                    ctes={
-                        "customers": ast.CTE(
-                            name="customers",
-                            expr=ast.SelectQuery(
-                                select=[ast.Constant(value="yes")],
-                                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                            ),
-                            cte_type="subquery",
-                        )
-                    },
-                    select=[ast.Field(chain=["*"])],
-                    select_from=ast.JoinExpr(table=ast.Field(chain=["customers"])),
-                ),
+            assert self._select(
+                "with customers as (select 'yes' from events) select * from customers"
+            ) == ast.SelectQuery(
+                ctes={
+                    "customers": ast.CTE(
+                        name="customers",
+                        expr=ast.SelectQuery(
+                            select=[ast.Constant(value="yes")],
+                            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                        ),
+                        cte_type="subquery",
+                    )
+                },
+                select=[ast.Field(chain=["*"])],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["customers"])),
             )
 
         def test_select_with_mixed(self):
-            self.assertEqual(
-                self._select("with happy as (select 'yes' from events), ':(' as sad select sad from happy"),
-                ast.SelectQuery(
-                    ctes={
-                        "happy": ast.CTE(
-                            name="happy",
-                            expr=ast.SelectQuery(
-                                select=[ast.Constant(value="yes")],
-                                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                            ),
-                            cte_type="subquery",
+            assert self._select(
+                "with happy as (select 'yes' from events), ':(' as sad select sad from happy"
+            ) == ast.SelectQuery(
+                ctes={
+                    "happy": ast.CTE(
+                        name="happy",
+                        expr=ast.SelectQuery(
+                            select=[ast.Constant(value="yes")],
+                            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
                         ),
-                        "sad": ast.CTE(name="sad", expr=ast.Constant(value=":("), cte_type="column"),
-                    },
-                    select=[ast.Field(chain=["sad"])],
-                    select_from=ast.JoinExpr(table=ast.Field(chain=["happy"])),
-                ),
+                        cte_type="subquery",
+                    ),
+                    "sad": ast.CTE(name="sad", expr=ast.Constant(value=":("), cte_type="column"),
+                },
+                select=[ast.Field(chain=["sad"])],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["happy"])),
             )
 
         def test_ctes_subquery_recursion(self):
             query = "with users as (select event, timestamp as tt from events ), final as ( select tt from users ) select * from final"
-            self.assertEqual(
-                self._select(query),
-                ast.SelectQuery(
-                    ctes={
-                        "users": ast.CTE(
-                            name="users",
-                            expr=ast.SelectQuery(
-                                select=[
-                                    ast.Field(chain=["event"]),
-                                    ast.Alias(alias="tt", expr=ast.Field(chain=["timestamp"])),
-                                ],
-                                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                            ),
-                            cte_type="subquery",
+            assert self._select(query) == ast.SelectQuery(
+                ctes={
+                    "users": ast.CTE(
+                        name="users",
+                        expr=ast.SelectQuery(
+                            select=[
+                                ast.Field(chain=["event"]),
+                                ast.Alias(alias="tt", expr=ast.Field(chain=["timestamp"])),
+                            ],
+                            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
                         ),
-                        "final": ast.CTE(
-                            name="final",
-                            expr=ast.SelectQuery(
-                                select=[ast.Field(chain=["tt"])],
-                                select_from=ast.JoinExpr(table=ast.Field(chain=["users"])),
-                            ),
-                            cte_type="subquery",
+                        cte_type="subquery",
+                    ),
+                    "final": ast.CTE(
+                        name="final",
+                        expr=ast.SelectQuery(
+                            select=[ast.Field(chain=["tt"])], select_from=ast.JoinExpr(table=ast.Field(chain=["users"]))
                         ),
-                    },
-                    select=[ast.Field(chain=["*"])],
-                    select_from=ast.JoinExpr(table=ast.Field(chain=["final"])),
-                ),
+                        cte_type="subquery",
+                    ),
+                },
+                select=[ast.Field(chain=["*"])],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["final"])),
             )
 
         def test_case_when(self):
-            self.assertEqual(
-                self._expr("case when 1 then 2 else 3 end"),
-                ast.Call(
-                    name="if",
-                    args=[
-                        ast.Constant(value=1),
-                        ast.Constant(value=2),
-                        ast.Constant(value=3),
-                    ],
-                ),
+            assert self._expr("case when 1 then 2 else 3 end") == ast.Call(
+                name="if", args=[ast.Constant(value=1), ast.Constant(value=2), ast.Constant(value=3)]
             )
 
         def test_case_when_many(self):
-            self.assertEqual(
-                self._expr("case when 1 then 2 when 3 then 4 else 5 end"),
-                ast.Call(
-                    name="multiIf",
-                    args=[
-                        ast.Constant(value=1),
-                        ast.Constant(value=2),
-                        ast.Constant(value=3),
-                        ast.Constant(value=4),
-                        ast.Constant(value=5),
-                    ],
-                ),
+            assert self._expr("case when 1 then 2 when 3 then 4 else 5 end") == ast.Call(
+                name="multiIf",
+                args=[
+                    ast.Constant(value=1),
+                    ast.Constant(value=2),
+                    ast.Constant(value=3),
+                    ast.Constant(value=4),
+                    ast.Constant(value=5),
+                ],
             )
 
         def test_case_when_case(self):
-            self.assertEqual(
-                self._expr("case 0 when 1 then 2 when 3 then 4 else 5 end"),
-                ast.Call(
-                    name="transform",
-                    args=[
-                        ast.Constant(value=0),
-                        ast.Array(exprs=[ast.Constant(value=1), ast.Constant(value=3)]),
-                        ast.Array(exprs=[ast.Constant(value=2), ast.Constant(value=4)]),
-                        ast.Constant(value=5),
-                    ],
-                ),
+            assert self._expr("case 0 when 1 then 2 when 3 then 4 else 5 end") == ast.Call(
+                name="transform",
+                args=[
+                    ast.Constant(value=0),
+                    ast.Array(exprs=[ast.Constant(value=1), ast.Constant(value=3)]),
+                    ast.Array(exprs=[ast.Constant(value=2), ast.Constant(value=4)]),
+                    ast.Constant(value=5),
+                ],
             )
 
         def test_window_functions(self):
@@ -1731,7 +1098,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             )
-            self.assertEqual(expr, expected)
+            assert expr == expected
 
         def test_window_functions_call_arg(self):
             query = "SELECT quantiles(0.0, 0.25, 0.5, 0.75, 1.0)(distinct distinct_id) over () as values FROM events"
@@ -1757,7 +1124,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             )
-            self.assertEqual(expr, expected)
+            assert expr == expected
 
         def test_window_functions_with_window(self):
             query = "SELECT person.id, min(timestamp) over win1 AS timestamp FROM events WINDOW win1 as (PARTITION by person.id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)"
@@ -1785,7 +1152,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     )
                 },
             )
-            self.assertEqual(expr, expected)
+            assert expr == expected
 
         def test_reserved_keyword_alias_error(self):
             query = f"SELECT 0 AS trUE FROM events"
@@ -1794,8 +1161,8 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 '"trUE" cannot be an alias or identifier, as it\'s a reserved keyword',
             ) as e:
                 self._select(query)
-            self.assertEqual(e.exception.start, 7)
-            self.assertEqual(e.exception.end, 16)
+            assert e.exception.start == 7
+            assert e.exception.end == 16
 
         def test_malformed_sql(self):
             query = "SELEC 2"
@@ -1804,8 +1171,8 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 "mismatched input 'SELEC' expecting {SELECT, WITH, '{', '(', '<'}",
             ) as e:
                 self._select(query)
-            self.assertEqual(e.exception.start, 0)
-            self.assertEqual(e.exception.end, 7)
+            assert e.exception.start == 0
+            assert e.exception.end == 7
 
         def test_visit_hogqlx_tag(self):
             node = self._select("select event from <HogQLQuery query='select event from events' />")
@@ -1886,18 +1253,18 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             )
 
             # With mismatched closing tag
-            with self.assertRaises(ExposedHogQLError) as e:
+            with pytest.raises(ExposedHogQLError) as e:
                 self._select(
                     "select event from <OuterQuery q='b'><HogQLQuery query='select event from events' /></HogQLQuery>"
                 )
-            assert str(e.exception) == "Opening and closing HogQLX tags must match. Got OuterQuery and HogQLQuery"
+            assert str(e.value) == "Opening and closing HogQLX tags must match. Got OuterQuery and HogQLQuery"
 
             # With mismatched closing tag
-            with self.assertRaises(ExposedHogQLError) as e:
+            with pytest.raises(ExposedHogQLError) as e:
                 self._select(
                     "select event from <OuterQuery children='b'><HogQLQuery query='select event from events' /></OuterQuery>"
                 )
-            assert str(e.exception) == "Can't have a HogQLX tag with both children and a 'children' attribute"
+            assert str(e.value) == "Can't have a HogQLX tag with both children and a 'children' attribute"
 
         def test_visit_hogqlx_tag_alias(self):
             node = self._select("select event from <HogQLQuery query='select event from events' /> as a")
@@ -1997,17 +1364,9 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             node = self._select("select <span>Hello World</span> from events")
             assert isinstance(node, ast.SelectQuery)
             tag = cast(ast.HogQLXTag, node.select[0])
-            self.assertEqual(
-                tag,
-                ast.HogQLXTag(
-                    kind="span",
-                    attributes=[
-                        ast.HogQLXAttribute(
-                            name="children",
-                            value=[ast.Constant(value="Hello World")],
-                        )
-                    ],
-                ),
+            assert tag == ast.HogQLXTag(
+                kind="span",
+                attributes=[ast.HogQLXAttribute(name="children", value=[ast.Constant(value="Hello World")])],
             )
 
         def test_visit_hogqlx_text_and_expr_children(self):
@@ -2016,20 +1375,13 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             node = self._select("select <span>Hello {event}</span> from events")
             assert isinstance(node, ast.SelectQuery)
             tag = cast(ast.HogQLXTag, node.select[0])
-            self.assertEqual(
-                tag,
-                ast.HogQLXTag(
-                    kind="span",
-                    attributes=[
-                        ast.HogQLXAttribute(
-                            name="children",
-                            value=[
-                                ast.Constant(value="Hello "),
-                                ast.Field(chain=["event"]),
-                            ],
-                        )
-                    ],
-                ),
+            assert tag == ast.HogQLXTag(
+                kind="span",
+                attributes=[
+                    ast.HogQLXAttribute(
+                        name="children", value=[ast.Constant(value="Hello "), ast.Field(chain=["event"])]
+                    )
+                ],
             )
 
         # 1. <strong>hello world <strong>banana</strong></strong>
@@ -2038,28 +1390,20 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             assert isinstance(node, ast.SelectQuery)
             tag = cast(ast.HogQLXTag, node.select[0])
 
-            self.assertEqual(
-                tag,
-                ast.HogQLXTag(
-                    kind="strong",
-                    attributes=[
-                        ast.HogQLXAttribute(
-                            name="children",
-                            value=[
-                                ast.Constant(value="hello world "),
-                                ast.HogQLXTag(
-                                    kind="strong",
-                                    attributes=[
-                                        ast.HogQLXAttribute(
-                                            name="children",
-                                            value=[ast.Constant(value="banana")],
-                                        )
-                                    ],
-                                ),
-                            ],
-                        )
-                    ],
-                ),
+            assert tag == ast.HogQLXTag(
+                kind="strong",
+                attributes=[
+                    ast.HogQLXAttribute(
+                        name="children",
+                        value=[
+                            ast.Constant(value="hello world "),
+                            ast.HogQLXTag(
+                                kind="strong",
+                                attributes=[ast.HogQLXAttribute(name="children", value=[ast.Constant(value="banana")])],
+                            ),
+                        ],
+                    )
+                ],
             )
 
         # 2. <em />
@@ -2069,7 +1413,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             tag = cast(ast.HogQLXTag, node.select[0])
 
             # A self-closing element has no “children” attribute at all.
-            self.assertEqual(tag, ast.HogQLXTag(kind="em", attributes=[]))
+            assert tag == ast.HogQLXTag(kind="em", attributes=[])
 
         # 3. <strong>{event} <em>asd</em></strong>
         def test_visit_hogqlx_expr_text_and_tag_children(self) -> None:
@@ -2077,38 +1421,27 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             assert isinstance(node, ast.SelectQuery)
             tag = cast(ast.HogQLXTag, node.select[0])
 
-            self.assertEqual(
-                tag,
-                ast.HogQLXTag(
-                    kind="strong",
-                    attributes=[
-                        ast.HogQLXAttribute(
-                            name="children",
-                            value=[
-                                ast.Field(chain=["event"]),
-                                ast.Constant(value=" "),
-                                ast.HogQLXTag(
-                                    kind="em",
-                                    attributes=[
-                                        ast.HogQLXAttribute(
-                                            name="children",
-                                            value=[ast.Constant(value="asd")],
-                                        )
-                                    ],
-                                ),
-                            ],
-                        )
-                    ],
-                ),
+            assert tag == ast.HogQLXTag(
+                kind="strong",
+                attributes=[
+                    ast.HogQLXAttribute(
+                        name="children",
+                        value=[
+                            ast.Field(chain=["event"]),
+                            ast.Constant(value=" "),
+                            ast.HogQLXTag(
+                                kind="em",
+                                attributes=[ast.HogQLXAttribute(name="children", value=[ast.Constant(value="asd")])],
+                            ),
+                        ],
+                    )
+                ],
             )
 
         # 4. <strong><a href="…">Hello <em>{event}</em></a>{'a'}</strong>
         def test_visit_hogqlx_mixed_nested_attributes(self) -> None:
             node = self._select(
-                "select <strong>"
-                "<a href='https://google.com'>Hello <em>{event}</em></a>"
-                "{'a'}"
-                "</strong> from events"
+                "select <strong><a href='https://google.com'>Hello <em>{event}</em></a>{'a'}</strong> from events"
             )
             assert isinstance(node, ast.SelectQuery)
             outer = cast(ast.HogQLXTag, node.select[0])
@@ -2149,57 +1482,37 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ],
             )
 
-            self.assertEqual(outer, expected)
+            assert outer == expected
 
         # Regression tests: “<” operator vs HOGQLX-tag opener
         def test_lt_vs_tags_and_comments(self):
             # 1. Plain operator – no whitespace
-            self.assertEqual(
-                self._expr("a<b"),
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Lt,
-                    left=ast.Field(chain=["a"]),
-                    right=ast.Field(chain=["b"]),
-                ),
+            assert self._expr("a<b") == ast.CompareOperation(
+                op=ast.CompareOperationOp.Lt, left=ast.Field(chain=["a"]), right=ast.Field(chain=["b"])
             )
 
             # 2. Operator with unusual spacing: the ‘b+c’ part must be parsed first,
             #    so we use a small arithmetic expression on the RHS.
-            self.assertEqual(
-                self._expr("a <b +c"),
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Lt,
-                    left=ast.Field(chain=["a"]),
-                    right=ast.ArithmeticOperation(
-                        op=ast.ArithmeticOperationOp.Add,
-                        left=ast.Field(chain=["b"]),
-                        right=ast.Field(chain=["c"]),
-                    ),
+            assert self._expr("a <b +c") == ast.CompareOperation(
+                op=ast.CompareOperationOp.Lt,
+                left=ast.Field(chain=["a"]),
+                right=ast.ArithmeticOperation(
+                    op=ast.ArithmeticOperationOp.Add, left=ast.Field(chain=["b"]), right=ast.Field(chain=["c"])
                 ),
             )
 
             # 3. Trailing whitespace after RHS – still an operator
-            self.assertEqual(
-                self._expr("a < timestamp "),
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Lt,
-                    left=ast.Field(chain=["a"]),
-                    right=ast.Field(chain=["timestamp"]),
-                ),
+            assert self._expr("a < timestamp ") == ast.CompareOperation(
+                op=ast.CompareOperationOp.Lt, left=ast.Field(chain=["a"]), right=ast.Field(chain=["timestamp"])
             )
 
             # 4. Same, but with an end-of-line comment that must be ignored
-            self.assertEqual(
-                self._expr("a < timestamp // comment\n"),
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Lt,
-                    left=ast.Field(chain=["a"]),
-                    right=ast.Field(chain=["timestamp"]),
-                ),
+            assert self._expr("a < timestamp // comment\n") == ast.CompareOperation(
+                op=ast.CompareOperationOp.Lt, left=ast.Field(chain=["a"]), right=ast.Field(chain=["timestamp"])
             )
 
             # 5. Sequence that *is* a tag: `<b …`  → should now fail to parse
-            with self.assertRaises(SyntaxError):
+            with pytest.raises(SyntaxError):
                 self._expr("a <b c")
 
         def test_program_while_lt_with_space_and_comment(self):
@@ -2229,7 +1542,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     )
                 ],
             )
-            self.assertEqual(program, expected)
+            assert program == expected
 
         def test_select_extract_as_function(self):
             node = self._select("select extract('string', 'other string') from events")
@@ -2404,7 +1717,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     ),
                 ]
             )
-            self.assertEqual(program, expected)
+            assert program == expected
 
         def test_program_variable_reassignment(self):
             code = "let a := 3; a := 4;"
@@ -2427,7 +1740,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     ),
                 ],
             )
-            self.assertEqual(program, expected)
+            assert program == expected
 
         def test_program_variable_declarations_with_sql_expr(self):
             code = """
@@ -2501,7 +1814,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     ),
                 ]
             )
-            self.assertEqual(program, expected)
+            assert program == expected
 
         def test_program_if(self):
             code = """
@@ -2538,7 +1851,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ],
             )
 
-            self.assertEqual(program, expected)
+            assert program == expected
 
         def test_program_while(self):
             code = """
@@ -2564,7 +1877,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ],
             )
 
-            self.assertEqual(program, expected)
+            assert program == expected
 
         def test_program_function(self):
             code = """
@@ -2585,7 +1898,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     )
                 ],
             )
-            self.assertEqual(program, expected)
+            assert program == expected
 
         def test_program_functions(self):
             # test both "fn" (deprecated) and "fun"
@@ -2657,7 +1970,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     ),
                 ],
             )
-            self.assertEqual(program, expected)
+            assert program == expected
 
         def test_program_array(self):
             code = "let a := [1, 2, 3];"
@@ -2684,7 +1997,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     )
                 ],
             )
-            self.assertEqual(program, expected)
+            assert program == expected
 
         def test_program_dict(self):
             code = "let a := {};"
@@ -2703,7 +2016,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ],
             )
 
-            self.assertEqual(program, expected)
+            assert program == expected
 
             code = "let a := {1: 2, 'a': [3, 4], g: true};"
             program = self._program(code)
@@ -2746,7 +2059,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     )
                 ],
             )
-            self.assertEqual(program, expected)
+            assert program == expected
 
         def test_program_simple_return(self):
             code = "return"
@@ -2754,7 +2067,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             expected = Program(
                 declarations=[ast.ReturnStatement(expr=None)],
             )
-            self.assertEqual(program, expected)
+            assert program == expected
 
         def test_program_simple_return_twice(self):
             code = "return;return"
@@ -2762,7 +2075,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             expected = Program(
                 declarations=[ast.ReturnStatement(expr=None), ast.ReturnStatement(expr=None)],
             )
-            self.assertEqual(program, expected)
+            assert program == expected
 
         def test_program_exceptions_throw_simple(self):
             code = "return"
@@ -2770,7 +2083,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             expected = Program(
                 declarations=[ast.ReturnStatement(expr=None)],
             )
-            self.assertEqual(program, expected)
+            assert program == expected
 
         def test_program_exceptions_try_catch_blocks(self):
             code = "try { 1 } catch (e) { 2 }"
@@ -2783,7 +2096,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     )
                 ]
             )
-            self.assertEqual(program, expected)
+            assert program == expected
 
         def test_program_exceptions_try_finally_simple(self):
             code = "try {1 } finally { 2 }"
@@ -2797,7 +2110,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     )
                 ]
             )
-            self.assertEqual(program, expected)
+            assert program == expected
 
         def test_program_exceptions_try_catch_finally(self):
             code = "try {1} catch (e) {2} finally {3}"
@@ -2811,7 +2124,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     )
                 ]
             )
-            self.assertEqual(program, expected)
+            assert program == expected
 
         def test_program_exceptions_try_alone(self):
             # This parses, but will throw later when printing bytecode.
@@ -2824,7 +2137,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     )
                 ]
             )
-            self.assertEqual(program, expected)
+            assert program == expected
 
         def test_program_exceptions_try_catch_type(self):
             code = "try {1} catch (e: DodgyError) {2}"
@@ -2840,7 +2153,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     )
                 ]
             )
-            self.assertEqual(program, expected)
+            assert program == expected
 
         def test_program_exceptions_try_catch_multiple(self):
             code = "try {1} catch (e: DodgyError) {2}  catch (e: FishyError) {3}"
@@ -2857,7 +2170,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     )
                 ]
             )
-            self.assertEqual(program, expected)
+            assert program == expected
 
         def test_program_exceptions_try_catch_multiple_plain(self):
             code = "try {1} catch (e: DodgyError) {2}  catch (e: FishyError) {3} catch {4}"
@@ -2875,12 +2188,12 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     )
                 ]
             )
-            self.assertEqual(program, expected)
+            assert program == expected
 
         def test_pop_empty_stack(self):
-            with self.assertRaises(SyntaxError) as e:
+            with pytest.raises(SyntaxError) as e:
                 self._select("select } from events")
-            self.assertEqual(str(e.exception), "Unmatched curly bracket")
+            assert str(e.value) == "Unmatched curly bracket"
 
         def test_for_in_loops(self):
             code = """
@@ -2901,7 +2214,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     )
                 ]
             )
-            self.assertEqual(program, expected)
+            assert program == expected
 
             code = """
                 for (let key, value in [1, 2, 3]) {
@@ -2921,23 +2234,21 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     )
                 ]
             )
-            self.assertEqual(program, expected)
+            assert program == expected
 
         def test_trailing_semicolon_select(self):
-            self.assertEqual(self._select("SELECT 1;"), self._select("SELECT 1"))
+            assert self._select("SELECT 1;") == self._select("SELECT 1")
 
-            self.assertEqual(self._select("SELECT 1 FROM events;"), self._select("SELECT 1 FROM events"))
+            assert self._select("SELECT 1 FROM events;") == self._select("SELECT 1 FROM events")
 
-            self.assertEqual(
-                self._select("SELECT * FROM events WHERE timestamp > now();"),
-                self._select("SELECT * FROM events WHERE timestamp > now()"),
+            assert self._select("SELECT * FROM events WHERE timestamp > now();") == self._select(
+                "SELECT * FROM events WHERE timestamp > now()"
             )
 
-            self.assertEqual(
-                self._select("SELECT e.event FROM events e JOIN persons p ON e.person_id = p.id;"),
-                self._select("SELECT e.event FROM events e JOIN persons p ON e.person_id = p.id"),
+            assert self._select("SELECT e.event FROM events e JOIN persons p ON e.person_id = p.id;") == self._select(
+                "SELECT e.event FROM events e JOIN persons p ON e.person_id = p.id"
             )
 
-            self.assertEqual(self._select("SELECT 1 UNION ALL SELECT 2;"), self._select("SELECT 1 UNION ALL SELECT 2"))
+            assert self._select("SELECT 1 UNION ALL SELECT 2;") == self._select("SELECT 1 UNION ALL SELECT 2")
 
     return TestParser

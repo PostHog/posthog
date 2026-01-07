@@ -34,7 +34,7 @@ class TestGetFormResponseMessage(BaseTest):
 
         result = runner._get_form_response_message(saved_state)
 
-        self.assertIsNone(result)
+        assert result is None
 
     def test_returns_none_when_no_latest_message(self):
         runner = self._create_runner_with_message(None)
@@ -42,7 +42,7 @@ class TestGetFormResponseMessage(BaseTest):
 
         result = runner._get_form_response_message(saved_state)
 
-        self.assertIsNone(result)
+        assert result is None
 
     def test_returns_none_when_latest_message_is_not_human_message(self):
         runner = self._create_runner_with_message(
@@ -63,7 +63,7 @@ class TestGetFormResponseMessage(BaseTest):
 
         result = runner._get_form_response_message(saved_state)
 
-        self.assertIsNone(result)
+        assert result is None
 
     def test_returns_none_when_no_form_answers_in_ui_context(self):
         runner = self._create_runner_with_message(HumanMessage(content="My answer"))
@@ -75,7 +75,7 @@ class TestGetFormResponseMessage(BaseTest):
 
         result = runner._get_form_response_message(saved_state)
 
-        self.assertIsNone(result)
+        assert result is None
 
     def test_returns_none_when_no_create_form_tool_call(self):
         runner = self._create_runner_with_message(
@@ -89,7 +89,7 @@ class TestGetFormResponseMessage(BaseTest):
 
         result = runner._get_form_response_message(saved_state)
 
-        self.assertIsNone(result)
+        assert result is None
 
     def test_creates_tool_call_message_with_form_answers(self):
         user_content = "What is your name: John\nWhat is your role: Engineer"
@@ -119,18 +119,15 @@ class TestGetFormResponseMessage(BaseTest):
 
         result = runner._get_form_response_message(saved_state)
 
-        self.assertIsNotNone(result)
-        self.assertIsInstance(result, AssistantToolCallMessage)
+        assert result is not None
         assert isinstance(result, AssistantToolCallMessage)
-        self.assertEqual(result.content, user_content)
-        self.assertEqual(result.tool_call_id, tool_call_id)
-        self.assertIsNotNone(result.ui_payload)
+        assert isinstance(result, AssistantToolCallMessage)
+        assert result.content == user_content
+        assert result.tool_call_id == tool_call_id
         assert result.ui_payload is not None
-        self.assertIn("create_form", result.ui_payload)
-        self.assertEqual(
-            result.ui_payload["create_form"]["answers"],
-            {"name": "John", "role": "Engineer"},
-        )
+        assert result.ui_payload is not None
+        assert "create_form" in result.ui_payload
+        assert result.ui_payload["create_form"]["answers"] == {"name": "John", "role": "Engineer"}
 
     def test_builds_correct_ui_payload_structure(self):
         user_content = "Pick a color: Blue"
@@ -157,10 +154,10 @@ class TestGetFormResponseMessage(BaseTest):
 
         result = runner._get_form_response_message(saved_state)
 
-        self.assertIsNotNone(result)
+        assert result is not None
         assert isinstance(result, AssistantToolCallMessage)
         assert result.ui_payload is not None
-        self.assertEqual(result.ui_payload, {"create_form": {"answers": {"color": "Blue"}}})
+        assert result.ui_payload == {"create_form": {"answers": {"color": "Blue"}}}
 
     def test_returns_none_with_empty_form_answers_dict(self):
         user_content = "What is your name: John"
@@ -183,4 +180,4 @@ class TestGetFormResponseMessage(BaseTest):
 
         result = runner._get_form_response_message(saved_state)
 
-        self.assertIsNone(result)
+        assert result is None

@@ -11,35 +11,8 @@ class TeatActivityLog(TestCase):
             new={"change_field": "bar", "new_field": "bar"},
         )
 
-        self.assertEqual(len(changes), 3)
+        assert len(changes) == 3
 
-        self.assertIn(
-            Change(
-                type="Plugin",
-                action="changed",
-                field="change_field",
-                before="foo",
-                after="bar",
-            ),
-            changes,
-        )
-        self.assertIn(
-            Change(
-                type="Plugin",
-                action="created",
-                field="new_field",
-                before=None,
-                after="bar",
-            ),
-            changes,
-        )
-        self.assertIn(
-            Change(
-                type="Plugin",
-                action="deleted",
-                field="delete_field",
-                before="foo",
-                after=None,
-            ),
-            changes,
-        )
+        assert Change(type="Plugin", action="changed", field="change_field", before="foo", after="bar") in changes
+        assert Change(type="Plugin", action="created", field="new_field", before=None, after="bar") in changes
+        assert Change(type="Plugin", action="deleted", field="delete_field", before="foo", after=None) in changes

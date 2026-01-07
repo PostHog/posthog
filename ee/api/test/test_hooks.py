@@ -38,7 +38,7 @@ class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
         hook_id = "abc123"
         Hook.objects.create(id=hook_id, user=self.user, team=self.team, resource_id=20)
         response = self.client.delete(f"/api/projects/{self.team.id}/hooks/{hook_id}")
-        self.assertEqual(response.status_code, 204)
+        assert response.status_code == 204
 
     def test_invalid_target(self):
         data = {
@@ -46,7 +46,7 @@ class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
             "event": "action_performed",
         }
         response = self.client.post(f"/api/projects/{self.team.id}/hooks/", data)
-        self.assertEqual(response.status_code, 400)
+        assert response.status_code == 400
 
     def test_create_hog_function_via_hook(self):
         data = {

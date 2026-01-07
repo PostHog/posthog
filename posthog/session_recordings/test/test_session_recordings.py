@@ -701,10 +701,10 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             team_id=another_team.pk,
         )
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/id_no_team_leaking")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/id_no_team_leaking/snapshots")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, response.json())
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
 
     def test_session_recording_with_no_person(self):
         produce_replay_summary(
@@ -718,24 +718,21 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/id_no_person")
         response_data = response.json()
 
-        self.assertEqual(
-            response_data["person"],
-            {
-                "id": None,
-                "name": None,
-                "distinct_ids": ["d1"],
-                "properties": {},
-                "created_at": None,
-                "uuid": response_data["person"]["uuid"],
-            },
-        )
+        assert response_data["person"] == {
+            "id": None,
+            "name": None,
+            "distinct_ids": ["d1"],
+            "properties": {},
+            "created_at": None,
+            "uuid": response_data["person"]["uuid"],
+        }
 
     def test_session_recording_doesnt_exist(self):
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/non_existent_id")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/non_existent_id/snapshots")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_request_to_another_teams_endpoint_returns_401(self):
         org = Organization.objects.create(name="Separate Org")
@@ -747,7 +744,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             team_id=another_team.pk,
         )
         response = self.client.get(f"/api/projects/{another_team.pk}/session_recordings/id_no_team_leaking")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     @parameterized.expand(
         [
@@ -811,10 +808,10 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     def test_delete_session_recording(self):
         self.produce_replay_summary("user", "1", now() - relativedelta(days=1), team_id=self.team.pk)
         response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings/1")
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
         # Trying to delete same recording again returns 404
         response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings/1")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_get_matching_events_for_must_not_send_multiple_session_ids(self) -> None:
         query_params = [

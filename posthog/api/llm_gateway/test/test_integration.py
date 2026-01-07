@@ -38,15 +38,15 @@ class TestAnthropicIntegration(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertIn("id", data)
-        self.assertEqual(data["type"], "message")
-        self.assertEqual(data["role"], "assistant")
-        self.assertIn("content", data)
-        self.assertIn("usage", data)
-        self.assertGreater(data["usage"]["input_tokens"], 0)
-        self.assertGreater(data["usage"]["output_tokens"], 0)
+        assert "id" in data
+        assert data["type"] == "message"
+        assert data["role"] == "assistant"
+        assert "content" in data
+        assert "usage" in data
+        assert data["usage"]["input_tokens"] > 0
+        assert data["usage"]["output_tokens"] > 0
 
     def test_anthropic_with_system_prompt(self):
         response = self.client.post(
@@ -60,10 +60,10 @@ class TestAnthropicIntegration(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(data["type"], "message")
-        self.assertIn("content", data)
+        assert data["type"] == "message"
+        assert "content" in data
 
     def test_anthropic_with_temperature(self):
         response = self.client.post(
@@ -77,9 +77,9 @@ class TestAnthropicIntegration(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(data["type"], "message")
+        assert data["type"] == "message"
 
     def test_anthropic_streaming(self):
         response = self.client.post(
@@ -93,8 +93,8 @@ class TestAnthropicIntegration(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response["Content-Type"], "text/event-stream")
+        assert response.status_code == status.HTTP_200_OK
+        assert response["Content-Type"] == "text/event-stream"
 
     def test_anthropic_with_stop_sequence(self):
         response = self.client.post(
@@ -108,9 +108,9 @@ class TestAnthropicIntegration(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertIn("stop_reason", data)
+        assert "stop_reason" in data
 
     def test_anthropic_invalid_model(self):
         response = self.client.post(
@@ -123,8 +123,8 @@ class TestAnthropicIntegration(APIBaseTest):
             format="json",
         )
 
-        self.assertIn(response.status_code, [status.HTTP_400_BAD_REQUEST, status.HTTP_500_INTERNAL_SERVER_ERROR])
-        self.assertIn("error", response.json())
+        assert response.status_code in [status.HTTP_400_BAD_REQUEST, status.HTTP_500_INTERNAL_SERVER_ERROR]
+        assert "error" in response.json()
 
 
 @SKIP_IF_NO_OPENAI_KEY
@@ -148,15 +148,15 @@ class TestOpenAIIntegration(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertIn("id", data)
-        self.assertEqual(data["object"], "chat.completion")
-        self.assertIn("choices", data)
-        self.assertGreater(len(data["choices"]), 0)
-        self.assertIn("usage", data)
-        self.assertGreater(data["usage"]["prompt_tokens"], 0)
-        self.assertGreater(data["usage"]["completion_tokens"], 0)
+        assert "id" in data
+        assert data["object"] == "chat.completion"
+        assert "choices" in data
+        assert len(data["choices"]) > 0
+        assert "usage" in data
+        assert data["usage"]["prompt_tokens"] > 0
+        assert data["usage"]["completion_tokens"] > 0
 
     def test_openai_with_system_message(self):
         response = self.client.post(
@@ -171,9 +171,9 @@ class TestOpenAIIntegration(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(data["object"], "chat.completion")
+        assert data["object"] == "chat.completion"
 
     def test_openai_with_temperature(self):
         response = self.client.post(
@@ -187,9 +187,9 @@ class TestOpenAIIntegration(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(data["object"], "chat.completion")
+        assert data["object"] == "chat.completion"
 
     def test_openai_streaming(self):
         response = self.client.post(
@@ -202,8 +202,8 @@ class TestOpenAIIntegration(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response["Content-Type"], "text/event-stream")
+        assert response.status_code == status.HTTP_200_OK
+        assert response["Content-Type"] == "text/event-stream"
 
     def test_openai_with_max_tokens(self):
         response = self.client.post(
@@ -216,9 +216,9 @@ class TestOpenAIIntegration(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(data["choices"][0]["finish_reason"], "length")
+        assert data["choices"][0]["finish_reason"] == "length"
 
     def test_openai_with_stop_sequence(self):
         response = self.client.post(
@@ -231,9 +231,9 @@ class TestOpenAIIntegration(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertIn("choices", data)
+        assert "choices" in data
 
     def test_openai_with_seed(self):
         response = self.client.post(
@@ -246,9 +246,9 @@ class TestOpenAIIntegration(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertIn("system_fingerprint", data)
+        assert "system_fingerprint" in data
 
     def test_openai_invalid_model(self):
         response = self.client.post(
@@ -260,5 +260,5 @@ class TestOpenAIIntegration(APIBaseTest):
             format="json",
         )
 
-        self.assertIn(response.status_code, [status.HTTP_400_BAD_REQUEST, status.HTTP_500_INTERNAL_SERVER_ERROR])
-        self.assertIn("error", response.json())
+        assert response.status_code in [status.HTTP_400_BAD_REQUEST, status.HTTP_500_INTERNAL_SERVER_ERROR]
+        assert "error" in response.json()

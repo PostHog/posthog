@@ -66,16 +66,16 @@ class TestConversationSerializers(APIBaseTest):
 
             # Check that only the expected messages are included
             filtered_messages = data["messages"]
-            self.assertEqual(len(filtered_messages), 3)
+            assert len(filtered_messages) == 3
 
             # First message should be the AssistantMessage with content
-            self.assertEqual(filtered_messages[0]["content"], "This message has content")
+            assert filtered_messages[0]["content"] == "This message has content"
 
             # Second message should be the AssistantToolCallMessage with UI payload
-            self.assertEqual(filtered_messages[1]["ui_payload"], {"some": "data"})
+            assert filtered_messages[1]["ui_payload"] == {"some": "data"}
 
             # Third message should be the AssistantToolCallMessage without UI payload
-            self.assertEqual(filtered_messages[2]["ui_payload"], None)
+            assert filtered_messages[2]["ui_payload"] is None
 
     def test_get_messages_handles_validation_errors_and_sets_unsupported_content(self):
         """Gracefully fall back to an empty list when the stored state fails validation, and set has_unsupported_content."""
@@ -97,8 +97,8 @@ class TestConversationSerializers(APIBaseTest):
                 },
             ).data
 
-        self.assertEqual(data["messages"], [])
-        self.assertTrue(data["has_unsupported_content"])
+        assert data["messages"] == []
+        assert data["has_unsupported_content"]
 
     def test_has_unsupported_content_on_other_errors(self):
         """On non-validation errors, has_unsupported_content should be False."""
@@ -117,8 +117,8 @@ class TestConversationSerializers(APIBaseTest):
                 },
             ).data
 
-        self.assertEqual(data["messages"], [])
-        self.assertFalse(data["has_unsupported_content"])
+        assert data["messages"] == []
+        assert not data["has_unsupported_content"]
 
     def test_has_unsupported_content_on_success(self):
         """On successful message fetch, has_unsupported_content should be False."""
@@ -143,8 +143,8 @@ class TestConversationSerializers(APIBaseTest):
                 },
             ).data
 
-        self.assertEqual(len(data["messages"]), 1)
-        self.assertFalse(data["has_unsupported_content"])
+        assert len(data["messages"]) == 1
+        assert not data["has_unsupported_content"]
 
     def test_agent_mode_defaults_when_missing(self):
         conversation = Conversation.objects.create(
@@ -168,7 +168,7 @@ class TestConversationSerializers(APIBaseTest):
                 },
             ).data
 
-        self.assertEqual(data["agent_mode"], AgentMode.PRODUCT_ANALYTICS.value)
+        assert data["agent_mode"] == AgentMode.PRODUCT_ANALYTICS.value
 
     def test_agent_mode_returns_state_value(self):
         conversation = Conversation.objects.create(
@@ -192,7 +192,7 @@ class TestConversationSerializers(APIBaseTest):
                 },
             ).data
 
-        self.assertEqual(data["agent_mode"], AgentMode.SQL.value)
+        assert data["agent_mode"] == AgentMode.SQL.value
 
     def test_caching_prevents_duplicate_operations(self):
         """This is to test that the caching works correctly as to not incurring in unnecessary operations (We would do a DRF call per field call)."""
@@ -225,7 +225,7 @@ class TestConversationSerializers(APIBaseTest):
             _ = serializer.data["has_unsupported_content"]
 
         # aget_state should only be called once though
-        self.assertEqual(mock_get_state.call_count, 1)
+        assert mock_get_state.call_count == 1
 
 
 class TestConversationSerializerArtifactEnrichment(APIBaseTest):
@@ -271,11 +271,11 @@ class TestConversationSerializerArtifactEnrichment(APIBaseTest):
             ).data
 
             # The message should be enriched as an ArtifactMessage
-            self.assertEqual(len(data["messages"]), 1)
+            assert len(data["messages"]) == 1
             enriched_msg = data["messages"][0]
-            self.assertEqual(enriched_msg["type"], "ai/artifact")
-            self.assertEqual(enriched_msg["artifact_id"], artifact.short_id)
-            self.assertEqual(enriched_msg["content"]["name"], "Chart Name")
+            assert enriched_msg["type"] == "ai/artifact"
+            assert enriched_msg["artifact_id"] == artifact.short_id
+            assert enriched_msg["content"]["name"] == "Chart Name"
 
     def test_artifact_ref_message_filtered_when_not_found(self):
         """Test that ArtifactRefMessage is filtered out when artifact not found in database."""
@@ -308,7 +308,7 @@ class TestConversationSerializerArtifactEnrichment(APIBaseTest):
             ).data
 
             # The message should be filtered out
-            self.assertEqual(len(data["messages"]), 0)
+            assert len(data["messages"]) == 0
 
     def test_mixed_messages_with_artifacts(self):
         """Test serialization with mixed message types including artifacts."""
@@ -350,8 +350,8 @@ class TestConversationSerializerArtifactEnrichment(APIBaseTest):
             ).data
 
             # Both messages should be included (AssistantMessage and enriched ArtifactMessage)
-            self.assertEqual(len(data["messages"]), 2)
-            self.assertEqual(data["messages"][0]["type"], "ai")
-            self.assertEqual(data["messages"][0]["content"], "Hello from assistant")
-            self.assertEqual(data["messages"][1]["type"], "ai/artifact")
-            self.assertEqual(data["messages"][1]["content"]["name"], "Mixed Chart")
+            assert len(data["messages"]) == 2
+            assert data["messages"][0]["type"] == "ai"
+            assert data["messages"][0]["content"] == "Hello from assistant"
+            assert data["messages"][1]["type"] == "ai/artifact"
+            assert data["messages"][1]["content"]["name"] == "Mixed Chart"

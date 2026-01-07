@@ -17,12 +17,12 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         response = self.client.get("/api/organizations/@current/members/")
         response_data = response.json()["results"]
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         instance = OrganizationMembership.objects.get(id=response_data[0]["id"])
         # self.user + first created user should be counted, second created user shouldn't as they're deactivated
-        self.assertEqual(len(response_data), 2)
-        self.assertEqual(response_data[0]["user"]["uuid"], str(instance.user.uuid))
-        self.assertEqual(response_data[0]["user"]["first_name"], instance.user.first_name)
+        assert len(response_data) == 2
+        assert response_data[0]["user"]["uuid"] == str(instance.user.uuid)
+        assert response_data[0]["user"]["first_name"] == instance.user.first_name
 
     # def test_list_organization_members_is_not_nplus1(self):
     #     self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
@@ -44,30 +44,30 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         user.join(organization=org)
 
         response = self.client.get(f"/api/organizations/{org.id}/members/")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json(), self.permission_denied_response())
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json() == self.permission_denied_response()
 
         # Even though there's no retrieve for invites, permissions are validated first
         response = self.client.get(f"/api/organizations/{org.id}/members/{user.uuid}")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json(), self.permission_denied_response())
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json() == self.permission_denied_response()
 
     @patch("posthoganalytics.capture")
     @patch("posthog.models.user.User.update_billing_organization_users")
     def test_delete_organization_member(self, mock_update_billing_organization_users, mock_capture):
         user = User.objects.create_and_join(self.organization, "test@x.com", None, "X")
         membership_queryset = OrganizationMembership.objects.filter(user=user, organization=self.organization)
-        self.assertTrue(membership_queryset.exists())
+        assert membership_queryset.exists()
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
         response = self.client.delete(f"/api/organizations/@current/members/{user.uuid}/")
-        self.assertEqual(response.status_code, 403)
-        self.assertTrue(membership_queryset.exists())
+        assert response.status_code == 403
+        assert membership_queryset.exists()
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         response = self.client.delete(f"/api/organizations/@current/members/{user.uuid}/")
-        self.assertEqual(response.status_code, 204)
-        self.assertFalse(membership_queryset.exists(), False)
+        assert response.status_code == 204
+        assert not membership_queryset.exists(), False
 
         mock_capture.assert_called_with(
             distinct_id=self.user.distinct_id,  # requesting user
@@ -95,11 +95,11 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
 
         # Initially, the user has no scoped API keys
         response = self.client.get(f"/api/organizations/@current/members/{user.uuid}/scoped_api_keys/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
-        self.assertEqual(response_data["has_keys"], False)
-        self.assertEqual(response_data["has_keys_active_last_week"], False)
-        self.assertEqual(response_data["keys"], [])
+        assert not response_data["has_keys"]
+        assert not response_data["has_keys_active_last_week"]
+        assert response_data["keys"] == []
 
         # Create a personal API key with scoped organizations
         from django.utils import timezone
@@ -117,15 +117,14 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
 
         # Check response with one inactive key
         response = self.client.get(f"/api/organizations/@current/members/{user.uuid}/scoped_api_keys/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
-        self.assertEqual(response_data["has_keys"], True)
-        self.assertEqual(response_data["has_keys_active_last_week"], False)
-        self.assertEqual(len(response_data["keys"]), 1)
-        self.assertEqual(response_data["keys"][0]["name"], "Old Org Key")
-        self.assertEqual(
-            response_data["keys"][0]["last_used_at"],
-            old_key.last_used_at.isoformat().replace("+00:00", "Z") if old_key.last_used_at else None,
+        assert response_data["has_keys"]
+        assert not response_data["has_keys_active_last_week"]
+        assert len(response_data["keys"]) == 1
+        assert response_data["keys"][0]["name"] == "Old Org Key"
+        assert response_data["keys"][0]["last_used_at"] == (
+            old_key.last_used_at.isoformat().replace("+00:00", "Z") if old_key.last_used_at else None
         )
 
         # Create a key that has been used recently - scoped to team
@@ -147,34 +146,31 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
 
         # Check response with all keys (one org-scoped, one team-scoped, one global)
         response = self.client.get(f"/api/organizations/@current/members/{user.uuid}/scoped_api_keys/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
-        self.assertEqual(response_data["has_keys"], True)
-        self.assertEqual(response_data["has_keys_active_last_week"], True)
-        self.assertEqual(len(response_data["keys"]), 3)
+        assert response_data["has_keys"]
+        assert response_data["has_keys_active_last_week"]
+        assert len(response_data["keys"]) == 3
 
         # Verify all keys are in the response with correct data
         key_names = [k["name"] for k in response_data["keys"]]
-        self.assertIn("Old Org Key", key_names)
-        self.assertIn("Team Key", key_names)
-        self.assertIn("Global Key", key_names)
+        assert "Old Org Key" in key_names
+        assert "Team Key" in key_names
+        assert "Global Key" in key_names
 
         # Find each key in the response and verify its last_used_at
         for key_data in response_data["keys"]:
             if key_data["name"] == "Old Org Key":
-                self.assertEqual(
-                    key_data["last_used_at"],
-                    old_key.last_used_at.isoformat().replace("+00:00", "Z") if old_key.last_used_at else None,
+                assert key_data["last_used_at"] == (
+                    old_key.last_used_at.isoformat().replace("+00:00", "Z") if old_key.last_used_at else None
                 )
             elif key_data["name"] == "Team Key":
-                self.assertEqual(
-                    key_data["last_used_at"],
-                    team_key.last_used_at.isoformat().replace("+00:00", "Z") if team_key.last_used_at else None,
+                assert key_data["last_used_at"] == (
+                    team_key.last_used_at.isoformat().replace("+00:00", "Z") if team_key.last_used_at else None
                 )
             elif key_data["name"] == "Global Key":
-                self.assertEqual(
-                    key_data["last_used_at"],
-                    global_key.last_used_at.isoformat().replace("+00:00", "Z") if global_key.last_used_at else None,
+                assert key_data["last_used_at"] == (
+                    global_key.last_used_at.isoformat().replace("+00:00", "Z") if global_key.last_used_at else None
                 )
 
         # Create a key with null scoped teams and organizations (also applies to all orgs/teams)
@@ -188,11 +184,11 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
 
         # Check response with all keys including the null scoped key
         response = self.client.get(f"/api/organizations/@current/members/{user.uuid}/scoped_api_keys/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
-        self.assertEqual(len(response_data["keys"]), 4)
+        assert len(response_data["keys"]) == 4
         key_names = [k["name"] for k in response_data["keys"]]
-        self.assertIn("Null Scoped Key", key_names)
+        assert "Null Scoped Key" in key_names
 
         # Test with a user who doesn't have scoped API keys for this organization or its teams
         other_org = Organization.objects.create(name="Other Org")
@@ -210,20 +206,20 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
 
         # The endpoint should return empty data since the API keys are not scoped to our organization or its teams
         response = self.client.get(f"/api/organizations/@current/members/{other_user.uuid}/scoped_api_keys/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
-        self.assertEqual(response_data["has_keys"], False)
-        self.assertEqual(response_data["has_keys_active_last_week"], False)
-        self.assertEqual(response_data["keys"], [])
+        assert not response_data["has_keys"]
+        assert not response_data["has_keys_active_last_week"]
+        assert response_data["keys"] == []
 
     @patch("posthoganalytics.capture")
     @patch("posthog.models.user.User.update_billing_organization_users")
     def test_leave_organization(self, mock_update_billing_organization_users, mock_capture):
         membership_queryset = OrganizationMembership.objects.filter(user=self.user, organization=self.organization)
-        self.assertEqual(membership_queryset.count(), 1)
+        assert membership_queryset.count() == 1
         response = self.client.delete(f"/api/organizations/@current/members/{self.user.uuid}/")
-        self.assertEqual(response.status_code, 204)
-        self.assertEqual(membership_queryset.count(), 0)
+        assert response.status_code == 204
+        assert membership_queryset.count() == 0
 
         mock_capture.assert_called_with(
             distinct_id=self.user.distinct_id,
@@ -251,38 +247,35 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         self.organization_membership.save()
         user = User.objects.create_user("test@x.com", None, "X")
         membership = OrganizationMembership.objects.create(user=user, organization=self.organization)
-        self.assertEqual(membership.level, OrganizationMembership.Level.MEMBER)
+        assert membership.level == OrganizationMembership.Level.MEMBER
         response = self.client.patch(
             f"/api/organizations/@current/members/{user.uuid}",
             {"level": OrganizationMembership.Level.ADMIN},
         )
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         updated_membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
-        self.assertEqual(updated_membership.level, OrganizationMembership.Level.ADMIN)
+        assert updated_membership.level == OrganizationMembership.Level.ADMIN
         response_data = response.json()
         response_data.pop("joined_at")
         response_data.pop("updated_at")
         response_data.pop("last_login")
-        self.assertDictEqual(
-            response_data,
-            {
-                "id": str(updated_membership.id),
-                "is_2fa_enabled": False,
-                "has_social_auth": False,
-                "user": {
-                    "id": user.id,
-                    "uuid": str(user.uuid),
-                    "distinct_id": str(user.distinct_id),
-                    "first_name": user.first_name,
-                    "last_name": user.last_name,
-                    "email": user.email,
-                    "is_email_verified": None,
-                    "hedgehog_config": None,
-                    "role_at_organization": None,
-                },
-                "level": OrganizationMembership.Level.ADMIN.value,
+        assert response_data == {
+            "id": str(updated_membership.id),
+            "is_2fa_enabled": False,
+            "has_social_auth": False,
+            "user": {
+                "id": user.id,
+                "uuid": str(user.uuid),
+                "distinct_id": str(user.distinct_id),
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "email": user.email,
+                "is_email_verified": None,
+                "hedgehog_config": None,
+                "role_at_organization": None,
             },
-        )
+            "level": OrganizationMembership.Level.ADMIN.value,
+        }
         assert mock_update_billing_organization_users.call_count == 1
         assert mock_update_billing_organization_users.call_args_list == [
             call(self.organization),
@@ -294,14 +287,14 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         self.organization_membership.save()
         user = User.objects.create_user("test@x.com", None, "X")
         membership = OrganizationMembership.objects.create(user=user, organization=self.organization)
-        self.assertEqual(membership.level, OrganizationMembership.Level.MEMBER)
+        assert membership.level == OrganizationMembership.Level.MEMBER
         response = self.client.patch(
             f"/api/organizations/@current/members/{user.uuid}",
             {"level": OrganizationMembership.Level.ADMIN},
         )
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         updated_membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
-        self.assertEqual(updated_membership.level, OrganizationMembership.Level.ADMIN)
+        assert updated_membership.level == OrganizationMembership.Level.ADMIN
 
         assert mock_update_billing_organization_users.call_count == 1
         assert mock_update_billing_organization_users.call_args_list == [
@@ -312,24 +305,21 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
     def test_change_organization_member_level_requires_admin(self, mock_update_billing_organization_users):
         user = User.objects.create_user("test@x.com", None, "X")
         membership = OrganizationMembership.objects.create(user=user, organization=self.organization)
-        self.assertEqual(membership.level, OrganizationMembership.Level.MEMBER)
+        assert membership.level == OrganizationMembership.Level.MEMBER
         response = self.client.patch(
             f"/api/organizations/@current/members/{user.uuid}/",
             {"level": OrganizationMembership.Level.ADMIN},
         )
 
         updated_membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
-        self.assertEqual(updated_membership.level, OrganizationMembership.Level.MEMBER)
-        self.assertDictEqual(
-            response.json(),
-            {
-                "attr": None,
-                "code": "permission_denied",
-                "detail": "You can only edit others if you are an admin.",
-                "type": "authentication_error",
-            },
-        )
-        self.assertEqual(response.status_code, 403)
+        assert updated_membership.level == OrganizationMembership.Level.MEMBER
+        assert response.json() == {
+            "attr": None,
+            "code": "permission_denied",
+            "detail": "You can only edit others if you are an admin.",
+            "type": "authentication_error",
+        }
+        assert response.status_code == 403
 
         assert mock_update_billing_organization_users.call_count == 0
 
@@ -341,17 +331,14 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
             {"level": OrganizationMembership.Level.MEMBER},
         )
         self.organization_membership.refresh_from_db()
-        self.assertEqual(self.organization_membership.level, OrganizationMembership.Level.ADMIN)
-        self.assertDictEqual(
-            response.json(),
-            {
-                "attr": None,
-                "code": "permission_denied",
-                "detail": "You can't change your own access level.",
-                "type": "authentication_error",
-            },
-        )
-        self.assertEqual(response.status_code, 403)
+        assert self.organization_membership.level == OrganizationMembership.Level.ADMIN
+        assert response.json() == {
+            "attr": None,
+            "code": "permission_denied",
+            "detail": "You can't change your own access level.",
+            "type": "authentication_error",
+        }
+        assert response.status_code == 403
 
     def test_add_another_owner(self):
         user = User.objects.create_user("test@x.com", None, "X")
@@ -366,14 +353,14 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         )
         self.organization_membership.refresh_from_db()
         membership.refresh_from_db()
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(self.organization_membership.level, OrganizationMembership.Level.OWNER)
-        self.assertEqual(membership.level, OrganizationMembership.Level.OWNER)
-        self.assertEqual(
+        assert response.status_code == 200
+        assert self.organization_membership.level == OrganizationMembership.Level.OWNER
+        assert membership.level == OrganizationMembership.Level.OWNER
+        assert (
             OrganizationMembership.objects.filter(
                 organization=self.organization, level=OrganizationMembership.Level.OWNER
-            ).count(),
-            2,
+            ).count()
+            == 2
         )
 
     def test_add_owner_only_if_owner(self):
@@ -389,18 +376,15 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         )
         self.organization_membership.refresh_from_db()
         membership.refresh_from_db()
-        self.assertDictEqual(
-            response.json(),
-            {
-                "attr": None,
-                "code": "permission_denied",
-                "detail": "You can only make another member owner if you're this organization's owner.",
-                "type": "authentication_error",
-            },
-        )
-        self.assertEqual(response.status_code, 403)
-        self.assertEqual(self.organization_membership.level, OrganizationMembership.Level.ADMIN)
-        self.assertEqual(membership.level, OrganizationMembership.Level.MEMBER)
+        assert response.json() == {
+            "attr": None,
+            "code": "permission_denied",
+            "detail": "You can only make another member owner if you're this organization's owner.",
+            "type": "authentication_error",
+        }
+        assert response.status_code == 403
+        assert self.organization_membership.level == OrganizationMembership.Level.ADMIN
+        assert membership.level == OrganizationMembership.Level.MEMBER
 
     def test_list_organization_members_filter_by_email(self):
         # Create additional users
@@ -411,7 +395,7 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         response = self.client.get("/api/organizations/@current/members/?email=specific@posthog.com")
         response_data = response.json()["results"]
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response_data), 1)
-        self.assertEqual(response_data[0]["user"]["email"], "specific@posthog.com")
-        self.assertEqual(response_data[0]["user"]["uuid"], str(user1.uuid))
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response_data) == 1
+        assert response_data[0]["user"]["email"] == "specific@posthog.com"
+        assert response_data[0]["user"]["uuid"] == str(user1.uuid)

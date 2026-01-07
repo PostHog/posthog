@@ -53,7 +53,7 @@ class TestChargeEventsBuilder(EventsSourceBaseTest):
         # Should use is_zero_decimal_in_stripe check
         # by comparing against a list of zero-decimal currencies
         # List is omitted here for brevity
-        self.assertIn("in(original_currency, [", purchase_sql)
+        assert "in(original_currency, [" in purchase_sql
         self.assertQueryMatchesSnapshot(purchase_sql, replace_all_numbers=True)
 
         # Subscription charge event has currencyAwareDecimal=False
@@ -62,7 +62,7 @@ class TestChargeEventsBuilder(EventsSourceBaseTest):
         subscription_sql = subscription_query.query.to_hogql()
 
         # Should use constant True for enable_currency_aware_divider
-        self.assertIn("true AS enable_currency_aware_divider", subscription_sql)
+        assert "true AS enable_currency_aware_divider" in subscription_sql
         self.assertQueryMatchesSnapshot(subscription_sql, replace_all_numbers=True)
 
     def test_with_team_base_currency(self):
@@ -74,4 +74,4 @@ class TestChargeEventsBuilder(EventsSourceBaseTest):
         query = build(handle)
 
         # Verify EUR is used as the base currency
-        self.assertIn("'EUR' AS currency", query.query.to_hogql())
+        assert "'EUR' AS currency" in query.query.to_hogql()

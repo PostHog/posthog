@@ -21,10 +21,10 @@ class TestMessageCategoryAPI(APIBaseTest):
         MessageCategory.objects.create(team=other_team, name="Team 2 Category", key="team2_cat")
 
         response = self.client.get(f"/api/environments/{self.team.id}/messaging_categories/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
-        self.assertEqual(len(response_data["results"]), 1)
-        self.assertEqual(response_data["results"][0]["name"], "Team 1 Category")
+        assert len(response_data["results"]) == 1
+        assert response_data["results"][0]["name"] == "Team 1 Category"
 
     def test_get_message_category(self):
         """
@@ -32,14 +32,14 @@ class TestMessageCategoryAPI(APIBaseTest):
         """
         category = MessageCategory.objects.create(team=self.team, name="My Category", key="my_cat")
         response = self.client.get(f"/api/environments/{self.team.id}/messaging_categories/{category.id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["name"], "My Category")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["name"] == "My Category"
 
         # Test getting a category from another team
         other_team = Team.objects.create(organization=self.organization)
         other_category = MessageCategory.objects.create(team=other_team, name="Other Category", key="other_cat")
         response = self.client.get(f"/api/environments/{self.team.id}/messaging_categories/{other_category.id}/")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_update_message_category(self):
         """
@@ -51,27 +51,27 @@ class TestMessageCategoryAPI(APIBaseTest):
         patch_response = self.client.patch(
             f"/api/environments/{self.team.id}/messaging_categories/{category.id}/", {"name": "Patched Name"}
         )
-        self.assertEqual(patch_response.status_code, status.HTTP_200_OK)
+        assert patch_response.status_code == status.HTTP_200_OK
         category.refresh_from_db()
-        self.assertEqual(category.name, "Patched Name")
+        assert category.name == "Patched Name"
 
         # PUT
         put_response = self.client.put(
             f"/api/environments/{self.team.id}/messaging_categories/{category.id}/",
             {"name": "Put Name", "key": "initial_key", "category_type": "marketing"},
         )
-        self.assertEqual(put_response.status_code, status.HTTP_200_OK)
+        assert put_response.status_code == status.HTTP_200_OK
         category.refresh_from_db()
-        self.assertEqual(category.name, "Put Name")
+        assert category.name == "Put Name"
 
         # Test PATCH without key field - should work
         patch_no_key_response = self.client.patch(
             f"/api/environments/{self.team.id}/messaging_categories/{category.id}/", {"name": "Patched Without Key"}
         )
-        self.assertEqual(patch_no_key_response.status_code, status.HTTP_200_OK)
+        assert patch_no_key_response.status_code == status.HTTP_200_OK
         category.refresh_from_db()
-        self.assertEqual(category.name, "Patched Without Key")
-        self.assertEqual(category.key, "initial_key")  # Key should remain unchanged
+        assert category.name == "Patched Without Key"
+        assert category.key == "initial_key"  # Key should remain unchanged
 
     def test_cannot_update_key_field(self):
         """
@@ -85,11 +85,11 @@ class TestMessageCategoryAPI(APIBaseTest):
             {"name": "Updated Name", "key": "new_key"},
         )
         # The request should fail and the key should not change
-        self.assertEqual(patch_response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("The key field cannot be updated after creation.", str(patch_response.json()))
+        assert patch_response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "The key field cannot be updated after creation." in str(patch_response.json())
         category.refresh_from_db()
-        self.assertEqual(category.name, "Test Category")
-        self.assertEqual(category.key, "original_key")
+        assert category.name == "Test Category"
+        assert category.key == "original_key"
 
         # Attempt to change key via PUT
         put_response = self.client.put(
@@ -97,11 +97,11 @@ class TestMessageCategoryAPI(APIBaseTest):
             {"name": "Put Updated Name", "key": "another_new_key", "category_type": "marketing"},
         )
         # The request should fail and the key should not change
-        self.assertEqual(put_response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("The key field cannot be updated after creation.", str(put_response.json()))
+        assert put_response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "The key field cannot be updated after creation." in str(put_response.json())
         category.refresh_from_db()
-        self.assertEqual(category.name, "Test Category")
-        self.assertEqual(category.key, "original_key")
+        assert category.name == "Test Category"
+        assert category.key == "original_key"
 
     def test_create_message_category(self):
         """
@@ -111,12 +111,12 @@ class TestMessageCategoryAPI(APIBaseTest):
             f"/api/environments/{self.team.id}/messaging_categories/",
             {"name": "New Category", "key": "new_cat", "category_type": "marketing"},
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         response_data = response.json()
         category = MessageCategory.objects.get(id=response_data["id"])
-        self.assertEqual(category.team, self.team)
-        self.assertEqual(category.created_by, self.user)
-        self.assertEqual(category.name, "New Category")
+        assert category.team == self.team
+        assert category.created_by == self.user
+        assert category.name == "New Category"
 
     def test_cant_create_category_with_duplicate_key(self):
         """
@@ -130,9 +130,9 @@ class TestMessageCategoryAPI(APIBaseTest):
             f"/api/environments/{self.team.id}/messaging_categories/",
             {"name": "Category 2", "key": "duplicate-key", "category_type": "marketing"},
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual("key", response.json()["attr"])
-        self.assertIn("already exists", response.json()["detail"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "key" == response.json()["attr"]
+        assert "already exists" in response.json()["detail"]
 
         # Verify it's possible to create with the same key for a different team
         other_team = Team.objects.create(organization=self.organization)
@@ -140,7 +140,7 @@ class TestMessageCategoryAPI(APIBaseTest):
             f"/api/environments/{other_team.id}/messaging_categories/",
             {"name": "Category 3", "key": "duplicate-key", "category_type": "marketing"},
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
     def test_delete_is_forbidden(self):
         """
@@ -148,7 +148,7 @@ class TestMessageCategoryAPI(APIBaseTest):
         """
         category = MessageCategory.objects.create(team=self.team, name="To Delete", key="to_delete")
         response = self.client.delete(f"/api/environments/{self.team.id}/messaging_categories/{category.id}/")
-        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
 
     def test_import_preferences_csv_missing_file(self):
         """Test CSV import fails when file is missing"""
@@ -158,8 +158,8 @@ class TestMessageCategoryAPI(APIBaseTest):
             format="multipart",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("No file provided", response.json()["error"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "No file provided" in response.json()["error"]
 
     def test_import_preferences_csv_wrong_file_type(self):
         """Test CSV import rejects non-CSV files"""
@@ -176,8 +176,8 @@ class TestMessageCategoryAPI(APIBaseTest):
             format="multipart",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("File must be a CSV", response.json()["error"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "File must be a CSV" in response.json()["error"]
 
     def test_import_preferences_csv_large_file(self):
         """Test CSV import handles large files"""
@@ -199,8 +199,8 @@ class TestMessageCategoryAPI(APIBaseTest):
             format="multipart",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("File too large", response.json()["error"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "File too large" in response.json()["error"]
 
     def test_import_preferences_csv_without_categories(self):
         """Test CSV import when no categories exist"""
@@ -224,9 +224,9 @@ class TestMessageCategoryAPI(APIBaseTest):
                 format="multipart",
             )
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(response.json()["status"], "failed")
-            self.assertIn("No categories found", response.json()["details"])
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["status"] == "failed"
+            assert "No categories found" in response.json()["details"]
 
     def test_import_endpoints_require_authentication(self):
         """Test that import endpoints require authentication"""
@@ -238,7 +238,7 @@ class TestMessageCategoryAPI(APIBaseTest):
             {"app_api_key": "test_key"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
         # Test CSV import endpoint
         csv_file = SimpleUploadedFile(
@@ -251,4 +251,4 @@ class TestMessageCategoryAPI(APIBaseTest):
             {"csv_file": csv_file},
             format="multipart",
         )
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED

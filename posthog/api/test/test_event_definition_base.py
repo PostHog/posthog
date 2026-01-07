@@ -122,14 +122,12 @@ class TestEventDefinitionGeneratorBase(BaseTest):
         events2, schema_map2 = self._build_schema(schema2_spec)
         hash2 = TestGenerator(version2).calculate_schema_hash(events2, schema_map2)  # type: ignore[arg-type]
 
-        self.assertEqual(
-            hash1 == hash2,
-            should_be_equal,
+        assert (hash1 == hash2) == should_be_equal, (
             f"{name} failed: Expected hashes to be {'equal' if should_be_equal else 'different'}\n"
             f"Hash 1: {hash1}\n"
             f"Hash 2: {hash2}\n"
             f"Schema 1: {schema1_spec}\n"
-            f"Schema 2: {schema2_spec}",
+            f"Schema 2: {schema2_spec}"
         )
 
     def _build_schema(

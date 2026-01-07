@@ -31,7 +31,7 @@ class TestFlagsRedisCache(BaseTest):
 
         # Verify data was written to shared cache
         cached_value = cache.get("test-key")
-        self.assertEqual(cached_value, test_data)
+        assert cached_value == test_data
 
     @override_settings(
         CACHES={
@@ -58,8 +58,8 @@ class TestFlagsRedisCache(BaseTest):
         shared_value = caches["default"].get("test-key")
         dedicated_value = caches[FLAGS_DEDICATED_CACHE_ALIAS].get("test-key")
 
-        self.assertEqual(shared_value, test_data)
-        self.assertEqual(dedicated_value, test_data)
+        assert shared_value == test_data
+        assert dedicated_value == test_data
 
     @override_settings(
         CACHES={
@@ -105,7 +105,7 @@ class TestFlagsRedisCache(BaseTest):
 
             # Shared cache should still have the data
             shared_value = shared_cache.get("test-key")
-            self.assertEqual(shared_value, test_data)
+            assert shared_value == test_data
 
             # Dedicated cache set should have been attempted
             mock_dedicated_cache.set.assert_called_once_with("test-key", test_data, 300)
@@ -143,12 +143,12 @@ class TestFlagsRedisCache(BaseTest):
         shared_data = caches["default"].get(f"team_feature_flags_{self.team.project_id}")
         dedicated_data = caches[FLAGS_DEDICATED_CACHE_ALIAS].get(f"team_feature_flags_{self.team.project_id}")
 
-        self.assertIsNotNone(shared_data)
-        self.assertIsNotNone(dedicated_data)
+        assert shared_data is not None
+        assert dedicated_data is not None
 
         # Verify the data is identical and correct
-        self.assertEqual(shared_data, dedicated_data)
+        assert shared_data == dedicated_data
         flags = json.loads(shared_data)
-        self.assertEqual(len(flags), 1)
-        self.assertEqual(flags[0]["key"], "test-flag")
-        self.assertTrue(flags[0]["active"])
+        assert len(flags) == 1
+        assert flags[0]["key"] == "test-flag"
+        assert flags[0]["active"]

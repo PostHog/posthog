@@ -45,12 +45,12 @@ class TestUtils(AsyncMigrationBaseTest):
         process_error(sm, "second error")
 
         sm.refresh_from_db()
-        self.assertEqual(sm.status, MigrationStatus.Errored)
-        self.assertGreater(sm.finished_at, datetime.now(UTC) - timedelta(hours=1))
+        assert sm.status == MigrationStatus.Errored
+        assert sm.finished_at > datetime.now(UTC) - timedelta(hours=1)
         errors = AsyncMigrationError.objects.filter(async_migration=sm).order_by("created_at")
-        self.assertEqual(errors.count(), 2)
-        self.assertEqual(errors[0].description, "some error")
-        self.assertEqual(errors[1].description, "second error")
+        assert errors.count() == 2
+        assert errors[0].description == "some error"
+        assert errors[1].description == "second error"
 
     @patch("posthog.tasks.async_migrations.run_async_migration.delay")
     def test_trigger_migration(self, mock_run_async_migration):
@@ -66,10 +66,10 @@ class TestUtils(AsyncMigrationBaseTest):
 
         sm.refresh_from_db()
         mock_app_control_revoke.assert_called_once()
-        self.assertEqual(sm.status, MigrationStatus.Errored)
+        assert sm.status == MigrationStatus.Errored
         errors = AsyncMigrationError.objects.filter(async_migration=sm)
-        self.assertEqual(errors.count(), 1)
-        self.assertEqual(errors[0].description, "Force stopped by user")
+        assert errors.count() == 1
+        assert errors[0].description == "Force stopped by user"
 
     def test_complete_migration(self):
         sm = create_async_migration()
@@ -77,14 +77,14 @@ class TestUtils(AsyncMigrationBaseTest):
 
         sm.refresh_from_db()
 
-        self.assertEqual(sm.status, MigrationStatus.CompletedSuccessfully)
-        self.assertGreater(sm.finished_at, datetime.now(UTC) - timedelta(hours=1))
+        assert sm.status == MigrationStatus.CompletedSuccessfully
+        assert sm.finished_at > datetime.now(UTC) - timedelta(hours=1)
 
-        self.assertEqual(sm.progress, 100)
+        assert sm.progress == 100
         errors = AsyncMigrationError.objects.filter(async_migration=sm)
-        self.assertEqual(errors.count(), 0)
+        assert errors.count() == 0
 
     def test_execute_on_each_shard(self):
         execute_on_each_shard("SELECT 1")
-        with self.assertRaises(Exception):
+        with pytest.raises(Exception):
             execute_on_each_shard("SELECT fail")

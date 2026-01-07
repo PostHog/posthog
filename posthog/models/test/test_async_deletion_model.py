@@ -46,7 +46,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
         AsyncEventDeletion().mark_deletions_done()
 
         deletion.refresh_from_db()
-        self.assertIsNotNone(deletion.delete_verified_at)
+        assert deletion.delete_verified_at is not None
 
     @snapshot_clickhouse_queries
     def test_mark_deletions_done_team_when_not_done(self):
@@ -62,7 +62,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
         AsyncEventDeletion().mark_deletions_done()
 
         deletion.refresh_from_db()
-        self.assertIsNone(deletion.delete_verified_at)
+        assert deletion.delete_verified_at is None
 
     @snapshot_clickhouse_queries
     def test_mark_deletions_done_person(self):
@@ -98,7 +98,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
         AsyncEventDeletion().mark_deletions_done()
 
         deletion.refresh_from_db()
-        self.assertIsNotNone(deletion.delete_verified_at)
+        assert deletion.delete_verified_at is not None
 
     @snapshot_clickhouse_queries
     def test_mark_deletions_done_person_when_not_done(self):
@@ -126,7 +126,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
         AsyncEventDeletion().mark_deletions_done()
 
         deletion.refresh_from_db()
-        self.assertIsNone(deletion.delete_verified_at)
+        assert deletion.delete_verified_at is None
 
     @snapshot_clickhouse_queries
     def test_mark_deletions_done_groups(self):
@@ -163,7 +163,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
         AsyncEventDeletion().mark_deletions_done()
 
         deletion.refresh_from_db()
-        self.assertIsNotNone(deletion.delete_verified_at)
+        assert deletion.delete_verified_at is not None
 
     @snapshot_clickhouse_queries
     def test_mark_deletions_done_groups_when_not_done(self):
@@ -186,7 +186,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
         AsyncEventDeletion().mark_deletions_done()
 
         deletion.refresh_from_db()
-        self.assertIsNone(deletion.delete_verified_at)
+        assert deletion.delete_verified_at is None
 
     @snapshot_clickhouse_alter_queries
     def test_delete_teams(self):
@@ -466,7 +466,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
 
     def assertRowCount(self, expected, table="events"):
         result = sync_execute(f"SELECT count() FROM {table}")[0][0]
-        self.assertEqual(result, expected)
+        assert result == expected
 
     def _insert_cohortpeople_row(self, team: Team, person_id: UUID, cohort_id: int, version: int = 0):
         sync_execute(

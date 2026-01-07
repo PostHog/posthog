@@ -60,7 +60,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
         }
         filter = Filter(data=data)
         _, serialized_results, _ = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
-        self.assertEqual(35, len(serialized_results))
+        assert 35 == len(serialized_results)
 
     def test_second_step(self):
         self._create_sample_data_multiple_dropoffs()
@@ -79,7 +79,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
         }
         filter = Filter(data=data)
         _, serialized_results, _ = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
-        self.assertEqual(10, len(serialized_results))
+        assert 10 == len(serialized_results)
 
     def test_second_step_dropoff(self):
         self._create_sample_data_multiple_dropoffs()
@@ -98,7 +98,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
         }
         filter = Filter(data=data)
         _, serialized_results, _ = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
-        self.assertEqual(25, len(serialized_results))
+        assert 25 == len(serialized_results)
 
     def test_third_step(self):
         self._create_sample_data_multiple_dropoffs()
@@ -117,7 +117,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
         }
         filter = Filter(data=data)
         _, serialized_results, _ = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
-        self.assertEqual(0, len(serialized_results))
+        assert 0 == len(serialized_results)
 
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-02 00:00:00.000Z")
@@ -183,8 +183,8 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             }
         )
         _, results, _ = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
-        self.assertEqual(results[0]["id"], p1.uuid)
-        self.assertEqual(results[0]["matched_recordings"], [])
+        assert results[0]["id"] == p1.uuid
+        assert results[0]["matched_recordings"] == []
 
         # Second event, with recording
         filter = Filter(
@@ -204,22 +204,19 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             }
         )
         _, results, _ = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
-        self.assertEqual(results[0]["id"], p1.uuid)
-        self.assertEqual(
-            results[0]["matched_recordings"],
-            [
-                {
-                    "session_id": "s2",
-                    "events": [
-                        {
-                            "uuid": UUID("21111111-1111-1111-1111-111111111111"),
-                            "timestamp": timezone.now() + timedelta(days=1),
-                            "window_id": "w2",
-                        }
-                    ],
-                }
-            ],
-        )
+        assert results[0]["id"] == p1.uuid
+        assert results[0]["matched_recordings"] == [
+            {
+                "session_id": "s2",
+                "events": [
+                    {
+                        "uuid": UUID("21111111-1111-1111-1111-111111111111"),
+                        "timestamp": timezone.now() + timedelta(days=1),
+                        "window_id": "w2",
+                    }
+                ],
+            }
+        ]
 
         # Third event dropoff, with recording
         filter = Filter(
@@ -239,19 +236,16 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             }
         )
         _, results, _ = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
-        self.assertEqual(results[0]["id"], p1.uuid)
-        self.assertEqual(
-            results[0]["matched_recordings"],
-            [
-                {
-                    "session_id": "s2",
-                    "events": [
-                        {
-                            "uuid": UUID("21111111-1111-1111-1111-111111111111"),
-                            "timestamp": timezone.now() + timedelta(days=1),
-                            "window_id": "w2",
-                        }
-                    ],
-                }
-            ],
-        )
+        assert results[0]["id"] == p1.uuid
+        assert results[0]["matched_recordings"] == [
+            {
+                "session_id": "s2",
+                "events": [
+                    {
+                        "uuid": UUID("21111111-1111-1111-1111-111111111111"),
+                        "timestamp": timezone.now() + timedelta(days=1),
+                        "window_id": "w2",
+                    }
+                ],
+            }
+        ]

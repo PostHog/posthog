@@ -105,10 +105,10 @@ class TestRefreshHogFlows(BaseTest):
         assert mock_reload.call_count == 4
 
         output = out.getvalue()
-        self.assertIn("Found 4 HogFlows to process", output)
-        self.assertIn("Processed: 4", output)
-        self.assertIn("Updated: 4", output)
-        self.assertIn("Errors: 0", output)
+        assert "Found 4 HogFlows to process" in output
+        assert "Processed: 4" in output
+        assert "Updated: 4" in output
+        assert "Errors: 0" in output
 
     @patch("posthog.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_refresh_by_team_id(self, mock_reload):
@@ -121,9 +121,9 @@ class TestRefreshHogFlows(BaseTest):
         assert mock_reload.call_count == 3
 
         output = out.getvalue()
-        self.assertIn(f"Processing HogFlows for team: {self.team.id}", output)
-        self.assertIn("Found 3 HogFlows to process", output)
-        self.assertIn("Updated: 3", output)
+        assert f"Processing HogFlows for team: {self.team.id}" in output
+        assert "Found 3 HogFlows to process" in output
+        assert "Updated: 3" in output
 
     @patch("posthog.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_refresh_by_hog_flow_id(self, mock_reload):
@@ -136,9 +136,9 @@ class TestRefreshHogFlows(BaseTest):
         assert mock_reload.call_count == 1
 
         output = out.getvalue()
-        self.assertIn(f"Processing single HogFlow: {self.hog_flow1.id}", output)
-        self.assertIn("Found 1 HogFlows to process", output)
-        self.assertIn("Updated: 1", output)
+        assert f"Processing single HogFlow: {self.hog_flow1.id}" in output
+        assert "Found 1 HogFlows to process" in output
+        assert "Updated: 1" in output
 
     @patch("posthog.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_nonexistent_team_id(self, mock_reload):
@@ -150,8 +150,8 @@ class TestRefreshHogFlows(BaseTest):
         assert mock_reload.call_count == 0
 
         output = out.getvalue()
-        self.assertIn("Found 0 HogFlows to process", output)
-        self.assertIn("No HogFlows found matching criteria", output)
+        assert "Found 0 HogFlows to process" in output
+        assert "No HogFlows found matching criteria" in output
 
     @patch("posthog.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_nonexistent_hog_flow_id(self, mock_reload):
@@ -165,8 +165,8 @@ class TestRefreshHogFlows(BaseTest):
         assert mock_reload.call_count == 0
 
         output = out.getvalue()
-        self.assertIn("Found 0 HogFlows to process", output)
-        self.assertIn("No HogFlows found matching criteria", output)
+        assert "Found 0 HogFlows to process" in output
+        assert "No HogFlows found matching criteria" in output
 
     @patch("posthog.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_page_size_option(self, mock_reload):
@@ -181,10 +181,10 @@ class TestRefreshHogFlows(BaseTest):
 
         output = out.getvalue()
         # Should see multiple page processing messages
-        self.assertIn("Processing page 1/2", output)
-        self.assertIn("Processing page 2/2", output)
-        self.assertIn("Processed: 4", output)
-        self.assertIn("Updated: 4", output)
+        assert "Processing page 1/2" in output
+        assert "Processing page 2/2" in output
+        assert "Processed: 4" in output
+        assert "Updated: 4" in output
 
     @patch("posthog.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_error_handling(self, mock_reload):
@@ -211,11 +211,11 @@ class TestRefreshHogFlows(BaseTest):
             # Should have attempted to process all 4 flows
             # But only 3 should succeed
             output = out.getvalue()
-            self.assertIn("Found 4 HogFlows to process", output)
-            self.assertIn("Processed: 4", output)
-            self.assertIn("Updated: 3", output)  # 3 successful
-            self.assertIn("Errors: 1", output)  # 1 failure
-            self.assertIn("Check logs for details on 1 errors encountered", output)
+            assert "Found 4 HogFlows to process" in output
+            assert "Processed: 4" in output
+            assert "Updated: 3" in output  # 3 successful
+            assert "Errors: 1" in output  # 1 failure
+            assert "Check logs for details on 1 errors encountered" in output
 
     @patch("posthog.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_bytecode_regeneration_on_conditional_branch(self, mock_reload):
@@ -288,7 +288,7 @@ class TestRefreshHogFlows(BaseTest):
         # Verify that the conditional branch initially has no bytecode
         initial_actions = test_flow.actions
         conditional_branch = next(a for a in initial_actions if a["type"] == "conditional_branch")
-        self.assertNotIn("bytecode", conditional_branch["config"]["conditions"][0]["filters"])
+        assert "bytecode" not in conditional_branch["config"]["conditions"][0]["filters"]
 
         out = StringIO()
         call_command("refresh_hog_flows", hog_flow_id=str(test_flow.id), stdout=out)
@@ -301,16 +301,16 @@ class TestRefreshHogFlows(BaseTest):
         updated_conditional_branch = next(a for a in updated_actions if a["type"] == "conditional_branch")
 
         # After save, the bytecode should be generated
-        self.assertIn("bytecode", updated_conditional_branch["config"]["conditions"][0]["filters"])
+        assert "bytecode" in updated_conditional_branch["config"]["conditions"][0]["filters"]
         bytecode = updated_conditional_branch["config"]["conditions"][0]["filters"]["bytecode"]
-        self.assertIsInstance(bytecode, list)
-        self.assertGreater(len(bytecode), 0)
+        assert isinstance(bytecode, list)
+        assert len(bytecode) > 0
 
         # Verify the command output
         output = out.getvalue()
-        self.assertIn("Found 1 HogFlows to process", output)
-        self.assertIn("Updated: 1", output)
-        self.assertIn("Errors: 0", output)
+        assert "Found 1 HogFlows to process" in output
+        assert "Updated: 1" in output
+        assert "Errors: 0" in output
 
     def test_remove_event_filters_from_single_condition(self):
         actions = [
@@ -335,11 +335,9 @@ class TestRefreshHogFlows(BaseTest):
         ]
         updated = remove_event_filters_from_conditionals(actions)
         filters = updated[0]["config"]["conditions"][0]["filters"]
-        self.assertNotIn("events", filters)
-        self.assertEqual(filters["source"], "events")
-        self.assertEqual(
-            filters["properties"], [{"key": "$browser", "type": "event", "value": "is_set", "operator": "is_set"}]
-        )
+        assert "events" not in filters
+        assert filters["source"] == "events"
+        assert filters["properties"] == [{"key": "$browser", "type": "event", "value": "is_set", "operator": "is_set"}]
 
     def test_remove_event_filters_does_not_fail_if_no_events(self):
         actions = [
@@ -363,11 +361,9 @@ class TestRefreshHogFlows(BaseTest):
         ]
         updated = remove_event_filters_from_conditionals(actions)
         filters = updated[0]["config"]["conditions"][0]["filters"]
-        self.assertNotIn("events", filters)
-        self.assertEqual(filters["source"], "events")
-        self.assertEqual(
-            filters["properties"], [{"key": "$browser", "type": "event", "value": "is_set", "operator": "is_set"}]
-        )
+        assert "events" not in filters
+        assert filters["source"] == "events"
+        assert filters["properties"] == [{"key": "$browser", "type": "event", "value": "is_set", "operator": "is_set"}]
 
     def test_remove_event_filters_multiple_conditions_and_actions(self):
         actions = [
@@ -392,7 +388,7 @@ class TestRefreshHogFlows(BaseTest):
         updated = remove_event_filters_from_conditionals(actions)
         cond1 = updated[0]["config"]["conditions"][0]["filters"]
         cond2 = updated[0]["config"]["conditions"][1]["filters"]
-        self.assertNotIn("events", cond1)
-        self.assertNotIn("events", cond2)
-        self.assertEqual(cond1, {"source": "events"})
-        self.assertEqual(cond2, {"source": "events"})
+        assert "events" not in cond1
+        assert "events" not in cond2
+        assert cond1 == {"source": "events"}
+        assert cond2 == {"source": "events"}

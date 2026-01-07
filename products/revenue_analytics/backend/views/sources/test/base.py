@@ -45,11 +45,11 @@ class RevenueAnalyticsViewSourceBaseTest(ClickhouseTestMixin, QueryMatchingTest,
             expected_key: Expected key value
             expected_prefix: Expected prefix value
         """
-        self.assertEqual(built_query.key, expected_key)
-        self.assertEqual(built_query.prefix, expected_prefix)
+        assert built_query.key == expected_key
+        assert built_query.prefix == expected_prefix
 
         if expected_test_comments != "<SENTINEL_VALUE>":
-            self.assertEqual(built_query.test_comments, expected_test_comments)
+            assert built_query.test_comments == expected_test_comments
 
     def assertQueryContainsFields(self, query: ast.Expr, schema: Schema):
         """
@@ -74,4 +74,4 @@ class RevenueAnalyticsViewSourceBaseTest(ClickhouseTestMixin, QueryMatchingTest,
             aliases = [field.alias for field in query.select if hasattr(field, "alias")]
 
             for expected, actual in zip(fields, aliases):
-                self.assertEqual(expected, actual, f"Field mismatch: expected {expected}, got {actual}")
+                assert expected == actual, f"Field mismatch: expected {expected}, got {actual}"

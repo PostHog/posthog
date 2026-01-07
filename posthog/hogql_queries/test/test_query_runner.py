@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 from freezegun import freeze_time
@@ -41,7 +41,7 @@ from products.revenue_analytics.backend.hogql_queries.test.data.structure import
 class TheTestQuery(BaseModel):
     kind: Literal["TestQuery"] = "TestQuery"
     some_attr: str
-    other_attr: Optional[list[Any]] = []
+    other_attr: list[Any] | None = []
 
 
 class TestQueryRunner(BaseTest):
@@ -69,7 +69,7 @@ class TestQueryRunner(BaseTest):
             def _refresh_frequency(self) -> timedelta:
                 return timedelta(minutes=4)
 
-            def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False, *args, **kwargs) -> bool:
+            def _is_stale(self, last_refresh: datetime | None, lazy: bool = False, *args, **kwargs) -> bool:
                 if not last_refresh:
                     raise ValueError("Cached results require a last_refresh")
 
@@ -86,14 +86,14 @@ class TestQueryRunner(BaseTest):
 
         runner = TestQueryRunner(query=TheTestQuery(some_attr="bla"), team=self.team)
 
-        self.assertEqual(runner.query, TheTestQuery(some_attr="bla"))
+        assert runner.query == TheTestQuery(some_attr="bla")
 
     def test_init_with_query_dict(self):
         TestQueryRunner = self.setup_test_query_runner_class()
 
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
 
-        self.assertEqual(runner.query, TheTestQuery(some_attr="bla"))
+        assert runner.query == TheTestQuery(some_attr="bla")
 
     def test_cache_payload(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -247,59 +247,59 @@ class TestQueryRunner(BaseTest):
         with freeze_time(datetime(2023, 2, 4, 13, 37, 42)):
             # in cache-only mode, returns cache miss response if uncached
             response = runner.run(execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
-            self.assertIsInstance(response, CacheMissResponse)
+            assert isinstance(response, CacheMissResponse)
 
             # returns fresh response if uncached
             response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
-            self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
-            self.assertEqual(response.is_cached, False)
-            self.assertEqual(response.last_refresh.isoformat(), "2023-02-04T13:37:42+00:00")
-            self.assertEqual(response.next_allowed_client_refresh.isoformat(), "2023-02-04T13:41:42+00:00")
+            assert isinstance(response, TheTestCachedBasicQueryResponse)
+            assert not response.is_cached
+            assert response.last_refresh.isoformat() == "2023-02-04T13:37:42+00:00"
+            assert response.next_allowed_client_refresh.isoformat() == "2023-02-04T13:41:42+00:00"
 
             # returns cached response afterwards
             response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
-            self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
-            self.assertEqual(response.is_cached, True)
+            assert isinstance(response, TheTestCachedBasicQueryResponse)
+            assert response.is_cached
 
             # return fresh response if refresh requested
             response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-            self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
-            self.assertEqual(response.is_cached, False)
+            assert isinstance(response, TheTestCachedBasicQueryResponse)
+            assert not response.is_cached
 
         with freeze_time(datetime(2023, 2, 4, 13, 37 + 11, 42)):
             # returns fresh response if stale
             response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
-            self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
-            self.assertEqual(response.is_cached, False)
+            assert isinstance(response, TheTestCachedBasicQueryResponse)
+            assert not response.is_cached
             mock_on_commit.assert_not_called()
 
         with freeze_time(datetime(2023, 2, 4, 13, 37 + 11 + 5, 42)):
             # returns cached response - does not kick off calculation in the background
             response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
-            self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
-            self.assertEqual(response.is_cached, True)
+            assert isinstance(response, TheTestCachedBasicQueryResponse)
+            assert response.is_cached
             mock_on_commit.assert_not_called()
 
         with freeze_time(datetime(2023, 2, 4, 13, 37 + 11 + 11, 42)):
             # returns cached response but kicks off calculation in the background
             response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
-            self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
-            self.assertEqual(response.is_cached, True)
+            assert isinstance(response, TheTestCachedBasicQueryResponse)
+            assert response.is_cached
             mock_on_commit.assert_called_once()
 
         with freeze_time(datetime(2023, 2, 4, 23, 55, 42)):
             # returns cached response for extended time
             response = runner.run(execution_mode=ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE)
-            self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
-            self.assertEqual(response.is_cached, True)
+            assert isinstance(response, TheTestCachedBasicQueryResponse)
+            assert response.is_cached
             mock_on_commit.assert_called_once()  # still once
 
         mock_on_commit.reset_mock()
         with freeze_time(datetime(2023, 2, 5, 23, 55, 42)):
             # returns cached response for extended time but finally kicks off calculation in the background
             response = runner.run(execution_mode=ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE)
-            self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
-            self.assertEqual(response.is_cached, True)
+            assert isinstance(response, TheTestCachedBasicQueryResponse)
+            assert response.is_cached
             mock_on_commit.assert_called_once()
 
     @mock.patch("django.db.transaction.on_commit")
@@ -311,32 +311,32 @@ class TestQueryRunner(BaseTest):
         with freeze_time(datetime(2023, 2, 4, 13, 37, 42)):
             # in cache-only mode, returns cache miss response if uncached
             response = runner.run(execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
-            self.assertIsInstance(response, CacheMissResponse)
+            assert isinstance(response, CacheMissResponse)
 
             response = runner.run(
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
             )
-            self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
-            self.assertEqual(response.is_cached, False)
-            self.assertEqual(response.last_refresh.isoformat(), "2023-02-04T13:37:42+00:00")
-            self.assertEqual(response.next_allowed_client_refresh.isoformat(), "2023-02-04T13:41:42+00:00")
+            assert isinstance(response, TheTestCachedBasicQueryResponse)
+            assert not response.is_cached
+            assert response.last_refresh.isoformat() == "2023-02-04T13:37:42+00:00"
+            assert response.next_allowed_client_refresh.isoformat() == "2023-02-04T13:41:42+00:00"
 
             # returns cached response afterwards
             response = runner.run(
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
             )
-            self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
-            self.assertEqual(response.is_cached, True)
+            assert isinstance(response, TheTestCachedBasicQueryResponse)
+            assert response.is_cached
 
         with freeze_time(datetime(2023, 2, 4, 13, 37 + 11, 42)):
             # returns fresh response if stale
             response = runner.run(
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
             )
-            self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
+            assert isinstance(response, TheTestCachedBasicQueryResponse)
             # Should kick off the calculation in the background
-            self.assertEqual(response.is_cached, True)
-            self.assertEqual(response.last_refresh.isoformat(), "2023-02-04T13:37:42+00:00")
+            assert response.is_cached
+            assert response.last_refresh.isoformat() == "2023-02-04T13:37:42+00:00"
             mock_on_commit.assert_called_once()
 
     def test_modifier_passthrough(self):
@@ -348,7 +348,7 @@ class TestQueryRunner(BaseTest):
             materialize("events", "$browser")
         except ModuleNotFoundError:
             # EE not available? Assume we're good
-            self.assertEqual(1 + 2, 3)
+            assert 1 + 2 == 3
             return
 
         runner = HogQLQueryRunner(
@@ -385,8 +385,8 @@ class TestQueryRunner(BaseTest):
         with freeze_time(datetime(2023, 2, 4, 13, 37, 42)):
             response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
 
-            self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
-            self.assertEqual(response.is_cached, False, "Should get a fresh response, not a cached one")
-            self.assertEqual(response.last_refresh.isoformat(), "2023-02-04T13:37:42+00:00")
+            assert isinstance(response, TheTestCachedBasicQueryResponse)
+            assert not response.is_cached, "Should get a fresh response, not a cached one"
+            assert response.last_refresh.isoformat() == "2023-02-04T13:37:42+00:00"
             mock_cache_manager.get_cache_data.assert_called_once()
             mock_cache_manager.set_cache_data.assert_called_once()

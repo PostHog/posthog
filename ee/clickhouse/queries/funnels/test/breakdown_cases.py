@@ -65,7 +65,7 @@ def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _cr
                     **(
                         {
                             "action_id": None,
-                            "name": f"Completed {order+1} step{'s' if order > 0 else ''}",
+                            "name": f"Completed {order + 1} step{'s' if order > 0 else ''}",
                         }
                         if Funnel == ClickhouseFunnelUnordered
                         else {}
@@ -164,14 +164,8 @@ def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _cr
             )
 
             # Querying persons when aggregating by persons should be ok, despite group breakdown
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 1, "finance"),
-                [people["person1"].uuid],
-            )
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 2, "finance"),
-                [people["person1"].uuid],
-            )
+            assert sorted(self._get_actor_ids_at_step(filter, 1, "finance")) == sorted([people["person1"].uuid])
+            assert sorted(self._get_actor_ids_at_step(filter, 2, "finance")) == sorted([people["person1"].uuid])
 
             self._assert_funnel_breakdown_result_is_correct(
                 result[1],
@@ -188,14 +182,10 @@ def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _cr
                 ],
             )
 
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 1, "technology"),
-                [people["person2"].uuid, people["person3"].uuid],
+            assert sorted(self._get_actor_ids_at_step(filter, 1, "technology")) == sorted(
+                [people["person2"].uuid, people["person3"].uuid]
             )
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 2, "technology"),
-                [people["person2"].uuid],
-            )
+            assert sorted(self._get_actor_ids_at_step(filter, 2, "technology")) == sorted([people["person2"].uuid])
 
         # TODO: Delete this test when moved to person-on-events
         @also_test_with_person_on_events_v2

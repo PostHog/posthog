@@ -23,7 +23,7 @@ class TestCohortTypeValidationSerializer(BaseTest):
         }
 
         serializer = CohortTypeValidationSerializer(data=data, team_id=self.team.id)
-        self.assertTrue(serializer.is_valid())
+        assert serializer.is_valid()
 
     def test_rejects_mismatched_cohort_type(self):
         """Should reject when provided type doesn't match filters"""
@@ -47,10 +47,10 @@ class TestCohortTypeValidationSerializer(BaseTest):
         }
 
         serializer = CohortTypeValidationSerializer(data=data, team_id=self.team.id)
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("cohort_type", serializer.errors)
-        self.assertIn("does not match the filters", str(serializer.errors["cohort_type"]))
-        self.assertIn("Expected type: 'behavioral'", str(serializer.errors["cohort_type"]))
+        assert not serializer.is_valid()
+        assert "cohort_type" in serializer.errors
+        assert "does not match the filters" in str(serializer.errors["cohort_type"])
+        assert "Expected type: 'behavioral'" in str(serializer.errors["cohort_type"])
 
     def test_static_cohort_type(self):
         """Static cohorts should validate as STATIC type"""
@@ -60,12 +60,12 @@ class TestCohortTypeValidationSerializer(BaseTest):
         }
 
         serializer = CohortTypeValidationSerializer(data=data, team_id=self.team.id)
-        self.assertTrue(serializer.is_valid())
+        assert serializer.is_valid()
 
         # Wrong type for static
         data["cohort_type"] = "behavioral"
         serializer = CohortTypeValidationSerializer(data=data, team_id=self.team.id)
-        self.assertFalse(serializer.is_valid())
+        assert not serializer.is_valid()
 
     def test_query_based_cohort_type(self):
         """Query-based cohorts should validate as ANALYTICAL type"""
@@ -75,12 +75,12 @@ class TestCohortTypeValidationSerializer(BaseTest):
         }
 
         serializer = CohortTypeValidationSerializer(data=data, team_id=self.team.id)
-        self.assertTrue(serializer.is_valid())
+        assert serializer.is_valid()
 
         # Wrong type for query-based
         data["cohort_type"] = "behavioral"
         serializer = CohortTypeValidationSerializer(data=data, team_id=self.team.id)
-        self.assertFalse(serializer.is_valid())
+        assert not serializer.is_valid()
 
     def test_analytical_behavioral_filters(self):
         """Analytical behavioral filters should validate as ANALYTICAL"""
@@ -102,7 +102,7 @@ class TestCohortTypeValidationSerializer(BaseTest):
         }
 
         serializer = CohortTypeValidationSerializer(data=data, team_id=self.team.id)
-        self.assertTrue(serializer.is_valid())
+        assert serializer.is_valid()
 
     def test_mixed_filters_highest_complexity(self):
         """Mixed filters should require the highest complexity type"""
@@ -131,16 +131,16 @@ class TestCohortTypeValidationSerializer(BaseTest):
         }
 
         serializer = CohortTypeValidationSerializer(data=data, team_id=self.team.id)
-        self.assertTrue(serializer.is_valid())
+        assert serializer.is_valid()
 
         # Should reject lower complexity types
         data["cohort_type"] = "behavioral"
         serializer = CohortTypeValidationSerializer(data=data, team_id=self.team.id)
-        self.assertFalse(serializer.is_valid())
+        assert not serializer.is_valid()
 
         data["cohort_type"] = "person_property"
         serializer = CohortTypeValidationSerializer(data=data, team_id=self.team.id)
-        self.assertFalse(serializer.is_valid())
+        assert not serializer.is_valid()
 
     def test_cohort_reference_inherits_type(self):
         """Cohort references should inherit the referenced cohort's type"""
@@ -180,12 +180,12 @@ class TestCohortTypeValidationSerializer(BaseTest):
         }
 
         serializer = CohortTypeValidationSerializer(data=data, team_id=self.team.id)
-        self.assertTrue(serializer.is_valid())
+        assert serializer.is_valid()
 
         # Should reject if we claim it's just person_property
         data["cohort_type"] = "person_property"
         serializer = CohortTypeValidationSerializer(data=data, team_id=self.team.id)
-        self.assertFalse(serializer.is_valid())
+        assert not serializer.is_valid()
 
     def test_circular_reference_detection(self):
         """Should detect circular cohort references"""
@@ -217,9 +217,9 @@ class TestCohortTypeValidationSerializer(BaseTest):
         }
 
         serializer = CohortTypeValidationSerializer(data=data, team_id=self.team.id)
-        self.assertFalse(serializer.is_valid())
+        assert not serializer.is_valid()
         # The error will be in non_field_errors since it happens during general validation
-        self.assertTrue(any("Circular cohort reference" in str(e) for e in serializer.errors.values()))
+        assert any("Circular cohort reference" in str(e) for e in serializer.errors.values())
 
     def test_missing_cohort_reference(self):
         """Should error when referencing non-existent cohorts"""
@@ -235,16 +235,16 @@ class TestCohortTypeValidationSerializer(BaseTest):
         }
 
         serializer = CohortTypeValidationSerializer(data=data, team_id=self.team.id)
-        self.assertFalse(serializer.is_valid())
-        self.assertTrue(any("not found" in str(e) for e in serializer.errors.values()))
+        assert not serializer.is_valid()
+        assert any("not found" in str(e) for e in serializer.errors.values())
 
     def test_empty_filters_error(self):
         """Should error for cohorts with no valid filters"""
         data = {"filters": {"properties": {"type": "AND", "values": []}}}
 
         serializer = CohortTypeValidationSerializer(data=data, team_id=self.team.id)
-        self.assertFalse(serializer.is_valid())
-        self.assertTrue(any("no valid filters" in str(e) for e in serializer.errors.values()))
+        assert not serializer.is_valid()
+        assert any("no valid filters" in str(e) for e in serializer.errors.values())
 
     def test_no_cohort_type_provided_passes_validation(self):
         """When no cohort_type is provided, validation should pass"""
@@ -258,9 +258,9 @@ class TestCohortTypeValidationSerializer(BaseTest):
         }
 
         serializer = CohortTypeValidationSerializer(data=data, team_id=self.team.id)
-        self.assertTrue(serializer.is_valid())
+        assert serializer.is_valid()
         # No cohort_type in validated_data since it wasn't provided
-        self.assertNotIn("cohort_type", serializer.validated_data)
+        assert "cohort_type" not in serializer.validated_data
 
     def test_nested_property_groups(self):
         """Should handle nested property groups correctly"""
@@ -283,9 +283,9 @@ class TestCohortTypeValidationSerializer(BaseTest):
         }
 
         serializer = CohortTypeValidationSerializer(data=data, team_id=self.team.id)
-        self.assertTrue(serializer.is_valid())
+        assert serializer.is_valid()
 
         # Should reject if claiming it's person_property when it has behavioral
         data["cohort_type"] = "person_property"
         serializer = CohortTypeValidationSerializer(data=data, team_id=self.team.id)
-        self.assertFalse(serializer.is_valid())
+        assert not serializer.is_valid()

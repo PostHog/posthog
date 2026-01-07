@@ -1,5 +1,5 @@
 import json
-from typing import Any, Optional
+from typing import Any
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
@@ -85,7 +85,7 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         sync_template_to_db(template_slack)
         sync_template_to_db(webhook_template)
 
-    def _create_slack_function(self, data: Optional[dict] = None):
+    def _create_slack_function(self, data: dict | None = None):
         payload = {
             "name": "Slack",
             "template_id": template_slack.id,
@@ -161,7 +161,7 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
                 },
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
         function_id = response.json()["id"]
 
         # Update it
@@ -169,15 +169,15 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
             f"/api/projects/{self.team.id}/hog_functions/{function_id}/",
             data={"name": "New name"},
         )
-        self.assertEqual(update_response.status_code, status.HTTP_200_OK, update_response.json())
-        self.assertEqual(update_response.json()["name"], "New name")
+        assert update_response.status_code == status.HTTP_200_OK, update_response.json()
+        assert update_response.json()["name"] == "New name"
 
         # Delete it
         delete_response = self.client.patch(
             f"/api/projects/{self.team.id}/hog_functions/{function_id}/",
             data={"deleted": True},
         )
-        self.assertEqual(delete_response.status_code, status.HTTP_200_OK, delete_response.json())
+        assert delete_response.status_code == status.HTTP_200_OK, delete_response.json()
 
 
 class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -198,13 +198,13 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     def _get_function_activity(
         self,
-        function_id: Optional[int] = None,
+        function_id: int | None = None,
     ) -> list:
         params: dict = {"scope": "HogFunction", "page": 1, "limit": 20}
         if function_id:
             params["item_id"] = function_id
         activity = self.client.get(f"/api/projects/{self.team.pk}/activity_log", data=params)
-        self.assertEqual(activity.status_code, status.HTTP_200_OK)
+        assert activity.status_code == status.HTTP_200_OK
         return activity.json().get("results")
 
     def _filter_expected_keys(self, actual_data, expected_structure):
@@ -2073,7 +2073,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             },
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
         hog_function_id = response.json()["id"]
 
         from posthog.models.file_system.file_system import FileSystem

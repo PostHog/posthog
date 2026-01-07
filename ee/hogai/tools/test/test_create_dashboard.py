@@ -1,6 +1,7 @@
 from typing import cast
 from uuid import uuid4
 
+import pytest
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -51,12 +52,12 @@ class TestCreateDashboardTool(ClickhouseTestMixin, NonAtomicBaseTest):
                     dashboard_name="Marketing Dashboard",
                 )
 
-                self.assertEqual(result, "")
-                self.assertIsNotNone(artifact)
+                assert result == ""
                 assert artifact is not None
-                self.assertEqual(len(artifact.messages), 1)
+                assert artifact is not None
+                assert len(artifact.messages) == 1
                 message = cast(AssistantMessage, artifact.messages[0])
-                self.assertEqual(message.content, "Dashboard created successfully with 3 insights")
+                assert message.content == "Dashboard created successfully with 3 insights"
 
     async def test_execute_updates_state_with_all_parameters(self):
         mock_result = PartialAssistantState(messages=[AssistantMessage(content="Test response")])
@@ -68,9 +69,9 @@ class TestCreateDashboardTool(ClickhouseTestMixin, NonAtomicBaseTest):
         ]
 
         async def mock_ainvoke(state):
-            self.assertEqual(state.search_insights_queries, insight_queries)
-            self.assertEqual(state.dashboard_name, "Executive Summary Q4")
-            self.assertEqual(state.root_tool_call_id, self.tool_call_id)
+            assert state.search_insights_queries == insight_queries
+            assert state.dashboard_name == "Executive Summary Q4"
+            assert state.root_tool_call_id == self.tool_call_id
             return mock_result
 
         mock_chain = MagicMock()
@@ -89,10 +90,10 @@ class TestCreateDashboardTool(ClickhouseTestMixin, NonAtomicBaseTest):
         insight_queries = [InsightQuery(name="Daily Active Users", description="Count of daily active users")]
 
         async def mock_ainvoke(state):
-            self.assertEqual(len(state.search_insights_queries), 1)
-            self.assertEqual(state.search_insights_queries[0].name, "Daily Active Users")
-            self.assertEqual(state.search_insights_queries[0].description, "Count of daily active users")
-            self.assertEqual(state.dashboard_name, "User Activity Dashboard")
+            assert len(state.search_insights_queries) == 1
+            assert state.search_insights_queries[0].name == "Daily Active Users"
+            assert state.search_insights_queries[0].description == "Count of daily active users"
+            assert state.dashboard_name == "User Activity Dashboard"
             return mock_result
 
         mock_chain = MagicMock()
@@ -105,8 +106,8 @@ class TestCreateDashboardTool(ClickhouseTestMixin, NonAtomicBaseTest):
                     dashboard_name="User Activity Dashboard",
                 )
 
-                self.assertEqual(result, "")
-                self.assertIsNotNone(artifact)
+                assert result == ""
+                assert artifact is not None
 
     async def test_execute_with_many_insight_queries(self):
         mock_result = PartialAssistantState(messages=[AssistantMessage(content="Large dashboard created")])
@@ -116,10 +117,10 @@ class TestCreateDashboardTool(ClickhouseTestMixin, NonAtomicBaseTest):
         ]
 
         async def mock_ainvoke(state):
-            self.assertEqual(len(state.search_insights_queries), 10)
-            self.assertEqual(state.search_insights_queries[0].name, "Insight 0")
-            self.assertEqual(state.search_insights_queries[9].name, "Insight 9")
-            self.assertEqual(state.dashboard_name, "Comprehensive Dashboard")
+            assert len(state.search_insights_queries) == 10
+            assert state.search_insights_queries[0].name == "Insight 0"
+            assert state.search_insights_queries[9].name == "Insight 9"
+            assert state.dashboard_name == "Comprehensive Dashboard"
             return mock_result
 
         mock_chain = MagicMock()
@@ -132,8 +133,8 @@ class TestCreateDashboardTool(ClickhouseTestMixin, NonAtomicBaseTest):
                     dashboard_name="Comprehensive Dashboard",
                 )
 
-                self.assertEqual(result, "")
-                self.assertIsNotNone(artifact)
+                assert result == ""
+                assert artifact is not None
 
     async def test_execute_returns_failure_message_when_result_is_none(self):
         async def mock_ainvoke(state):
@@ -144,14 +145,14 @@ class TestCreateDashboardTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         with patch("ee.hogai.chat_agent.dashboards.nodes.DashboardCreationNode"):
             with patch("ee.hogai.tools.create_dashboard.RunnableLambda", return_value=mock_chain):
-                with self.assertRaises(MaxToolFatalError) as context:
+                with pytest.raises(MaxToolFatalError) as context:
                     await self.tool._arun_impl(
                         search_insights_queries=[InsightQuery(name="Test", description="Test insight")],
                         dashboard_name="Test Dashboard",
                     )
 
-                error_message = str(context.exception)
-                self.assertIn("Dashboard creation failed", error_message)
+                error_message = str(context.value)
+                assert "Dashboard creation failed" in error_message
 
     async def test_execute_returns_failure_message_when_result_has_no_messages(self):
         mock_result = PartialAssistantState(messages=[])
@@ -164,14 +165,14 @@ class TestCreateDashboardTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         with patch("ee.hogai.chat_agent.dashboards.nodes.DashboardCreationNode"):
             with patch("ee.hogai.tools.create_dashboard.RunnableLambda", return_value=mock_chain):
-                with self.assertRaises(MaxToolFatalError) as context:
+                with pytest.raises(MaxToolFatalError) as context:
                     await self.tool._arun_impl(
                         search_insights_queries=[InsightQuery(name="Test", description="Test insight")],
                         dashboard_name="Test Dashboard",
                     )
 
-                error_message = str(context.exception)
-                self.assertIn("Dashboard creation failed", error_message)
+                error_message = str(context.value)
+                assert "Dashboard creation failed" in error_message
 
     async def test_execute_preserves_original_state(self):
         """Test that the original state is not modified when creating the copied state"""
@@ -197,8 +198,8 @@ class TestCreateDashboardTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         async def mock_ainvoke(state):
             # Verify the new state has updated values
-            self.assertEqual(state.search_insights_queries, new_queries)
-            self.assertEqual(state.dashboard_name, "New Dashboard")
+            assert state.search_insights_queries == new_queries
+            assert state.dashboard_name == "New Dashboard"
             return mock_result
 
         mock_chain = MagicMock()
@@ -212,9 +213,9 @@ class TestCreateDashboardTool(ClickhouseTestMixin, NonAtomicBaseTest):
                 )
 
         # Verify original state was not modified
-        self.assertEqual(original_state.search_insights_queries, original_queries)
-        self.assertEqual(original_state.dashboard_name, "Original Dashboard")
-        self.assertEqual(original_state.root_tool_call_id, self.tool_call_id)
+        assert original_state.search_insights_queries == original_queries
+        assert original_state.dashboard_name == "Original Dashboard"
+        assert original_state.root_tool_call_id == self.tool_call_id
 
     async def test_execute_with_complex_insight_descriptions(self):
         """Test that complex insight descriptions with special characters are handled correctly"""
@@ -232,9 +233,9 @@ class TestCreateDashboardTool(ClickhouseTestMixin, NonAtomicBaseTest):
         ]
 
         async def mock_ainvoke(state):
-            self.assertEqual(len(state.search_insights_queries), 2)
-            self.assertIn("@company.com", state.search_insights_queries[0].description)
-            self.assertIn("'premium'", state.search_insights_queries[1].description)
+            assert len(state.search_insights_queries) == 2
+            assert "@company.com" in state.search_insights_queries[0].description
+            assert "'premium'" in state.search_insights_queries[1].description
             return mock_result
 
         mock_chain = MagicMock()
@@ -247,5 +248,5 @@ class TestCreateDashboardTool(ClickhouseTestMixin, NonAtomicBaseTest):
                     dashboard_name="Complex Dashboard",
                 )
 
-                self.assertEqual(result, "")
-                self.assertIsNotNone(artifact)
+                assert result == ""
+                assert artifact is not None

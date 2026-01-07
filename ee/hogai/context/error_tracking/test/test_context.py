@@ -113,16 +113,16 @@ class TestErrorTrackingIssueContext(ClickhouseTestMixin, APIBaseTest):
         context = self._create_context(self.issue_id_one)
         issue = await context.aget_issue()
 
-        self.assertIsNotNone(issue)
         assert issue is not None
-        self.assertEqual(str(issue.id), self.issue_id_one)
-        self.assertEqual(issue.name, "TypeError: Cannot read property 'map' of undefined")
+        assert issue is not None
+        assert str(issue.id) == self.issue_id_one
+        assert issue.name == "TypeError: Cannot read property 'map' of undefined"
 
     async def test_aget_issue_returns_none_for_nonexistent(self):
         context = self._create_context("00000000-0000-0000-0000-000000000000")
         issue = await context.aget_issue()
 
-        self.assertIsNone(issue)
+        assert issue is None
 
     async def test_format_stacktrace_correctly(self):
         context = self._create_context(self.issue_id_one)
@@ -159,21 +159,21 @@ class TestErrorTrackingIssueContext(ClickhouseTestMixin, APIBaseTest):
         stacktrace = context.format_stacktrace(event)
 
         assert stacktrace is not None
-        self.assertIn("Exception 1: TypeError", stacktrace)
-        self.assertIn("Cannot read property 'map' of undefined", stacktrace)
-        self.assertIn("[IN-APP]", stacktrace)
-        self.assertIn("processData", stacktrace)
-        self.assertIn("src/utils/data.js:42:15", stacktrace)
-        self.assertIn("return data.map(item => item.value);", stacktrace)
+        assert "Exception 1: TypeError" in stacktrace
+        assert "Cannot read property 'map' of undefined" in stacktrace
+        assert "[IN-APP]" in stacktrace
+        assert "processData" in stacktrace
+        assert "src/utils/data.js:42:15" in stacktrace
+        assert "return data.map(item => item.value);" in stacktrace
 
     async def test_format_stacktrace_returns_none_for_empty_event(self):
         context = self._create_context(self.issue_id_one)
 
         stacktrace = context.format_stacktrace({})
-        self.assertIsNone(stacktrace)
+        assert stacktrace is None
 
         stacktrace = context.format_stacktrace(None)
-        self.assertIsNone(stacktrace)
+        assert stacktrace is None
 
     async def test_format_stacktrace_returns_none_for_empty_exception_list(self):
         context = self._create_context(self.issue_id_one)
@@ -181,13 +181,13 @@ class TestErrorTrackingIssueContext(ClickhouseTestMixin, APIBaseTest):
         event: dict = {"properties": {"$exception_list": []}}
         stacktrace = context.format_stacktrace(event)
 
-        self.assertIsNone(stacktrace)
+        assert stacktrace is None
 
     async def test_execute_and_format_returns_error_for_nonexistent_issue(self):
         context = self._create_context("00000000-0000-0000-0000-000000000000")
         result = await context.execute_and_format()
 
-        self.assertIn("not found", result)
+        assert "not found" in result
 
     @patch.object(ErrorTrackingIssueContext, "aget_first_event")
     async def test_execute_and_format_returns_formatted_context(self, mock_get_event):
@@ -215,10 +215,10 @@ class TestErrorTrackingIssueContext(ClickhouseTestMixin, APIBaseTest):
         context = self._create_context(self.issue_id_one)
         result = await context.execute_and_format()
 
-        self.assertIn("TypeError: Cannot read property 'map' of undefined", result)
-        self.assertIn("Issue ID:", result)
-        self.assertIn("Stack Trace", result)
-        self.assertIn("processData", result)
+        assert "TypeError: Cannot read property 'map' of undefined" in result
+        assert "Issue ID:" in result
+        assert "Stack Trace" in result
+        assert "processData" in result
 
     @patch.object(ErrorTrackingIssueContext, "aget_first_event")
     async def test_execute_and_format_uses_provided_name(self, mock_get_event):
@@ -246,7 +246,7 @@ class TestErrorTrackingIssueContext(ClickhouseTestMixin, APIBaseTest):
         context = self._create_context(self.issue_id_one, issue_name="Custom Issue Name")
         result = await context.execute_and_format()
 
-        self.assertIn("Custom Issue Name", result)
+        assert "Custom Issue Name" in result
 
     @patch.object(ErrorTrackingIssueContext, "aget_first_event")
     async def test_execute_and_format_returns_error_when_no_events(self, mock_get_event):
@@ -255,7 +255,7 @@ class TestErrorTrackingIssueContext(ClickhouseTestMixin, APIBaseTest):
         context = self._create_context(self.issue_id_one)
         result = await context.execute_and_format()
 
-        self.assertIn("No events found", result)
+        assert "No events found" in result
 
     @patch.object(ErrorTrackingIssueContext, "aget_first_event")
     async def test_execute_and_format_returns_error_when_no_stacktrace(self, mock_get_event):
@@ -264,4 +264,4 @@ class TestErrorTrackingIssueContext(ClickhouseTestMixin, APIBaseTest):
         context = self._create_context(self.issue_id_one)
         result = await context.execute_and_format()
 
-        self.assertIn("No stack trace available", result)
+        assert "No stack trace available" in result

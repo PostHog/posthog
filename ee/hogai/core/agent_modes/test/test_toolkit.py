@@ -52,11 +52,5 @@ class TestAgentToolkitManager(BaseTest):
             mock_create.assert_called_once()
             call_kwargs = mock_create.call_args.kwargs
 
-            self.assertEqual(
-                call_kwargs["positive_examples"],
-                [agent_positive, mode_positive],
-            )
-            self.assertEqual(
-                call_kwargs["negative_examples"],
-                [agent_negative, mode_negative],
-            )
+            assert call_kwargs["positive_examples"] == [agent_positive, mode_positive]
+            assert call_kwargs["negative_examples"] == [agent_negative, mode_negative]

@@ -191,74 +191,74 @@ class TestSnapshotLoader(BaseTest):
                 async_to_sync(loader.load_snapshots)()
 
         keys = [k for _, k in calls]
-        self.assertIn(f"pg/team_{team_id}.avro", keys)
-        self.assertIn(f"pg/property_defs_{team_id}.avro", keys)
-        self.assertIn(f"pg/group_mappings_{team_id}.avro", keys)
-        self.assertIn(f"pg/dw_tables_{team_id}.avro", keys)
-        self.assertIn(f"ch/event_taxonomy_{team_id}.avro", keys)
-        self.assertIn(f"ch/properties_taxonomy_{team_id}.avro", keys)
-        self.assertIn(f"ch/actors_property_taxonomy_{team_id}.avro", keys)
+        assert f"pg/team_{team_id}.avro" in keys
+        assert f"pg/property_defs_{team_id}.avro" in keys
+        assert f"pg/group_mappings_{team_id}.avro" in keys
+        assert f"pg/dw_tables_{team_id}.avro" in keys
+        assert f"ch/event_taxonomy_{team_id}.avro" in keys
+        assert f"ch/properties_taxonomy_{team_id}.avro" in keys
+        assert f"ch/actors_property_taxonomy_{team_id}.avro" in keys
 
     def test_restores_org_team_user(self):
         org, user, _dataset, team = self._load_with_mocks()
-        self.assertEqual(org.name, "PostHog")
-        self.assertEqual(team.organization_id, org.id)
-        self.assertEqual(team.id, 9990)
-        self.assertEqual(team.api_token, "team_9990")
+        assert org.name == "PostHog"
+        assert team.organization_id == org.id
+        assert team.id == 9990
+        assert team.api_token == "team_9990"
 
     def test_restores_models_counts(self):
         _org, _user, _dataset, team = self._load_with_mocks()
-        self.assertEqual(PropertyDefinition.objects.filter(team_id=team.id).count(), 2)
-        self.assertEqual(GroupTypeMapping.objects.filter(team_id=team.id).count(), 2)
-        self.assertEqual(DataWarehouseTable.objects.filter(team_id=team.id).count(), 2)
+        assert PropertyDefinition.objects.filter(team_id=team.id).count() == 2
+        assert GroupTypeMapping.objects.filter(team_id=team.id).count() == 2
+        assert DataWarehouseTable.objects.filter(team_id=team.id).count() == 2
 
     def test_loads_team_taxonomy_data_source(self):
         _org, _user, _dataset, team = self._load_with_mocks()
-        self.assertIn(team.id, TEAM_TAXONOMY_QUERY_DATA_SOURCE)
-        self.assertEqual([i.event for i in TEAM_TAXONOMY_QUERY_DATA_SOURCE[team.id]], ["$pageview", "$autocapture"])
+        assert team.id in TEAM_TAXONOMY_QUERY_DATA_SOURCE
+        assert [i.event for i in TEAM_TAXONOMY_QUERY_DATA_SOURCE[team.id]] == ["$pageview", "$autocapture"]
 
     def test_loads_event_taxonomy_data_source(self):
         _org, _user, _dataset, team = self._load_with_mocks()
-        self.assertIn("$pageview", EVENT_TAXONOMY_QUERY_DATA_SOURCE[team.id])
-        self.assertIn("$autocapture", EVENT_TAXONOMY_QUERY_DATA_SOURCE[team.id])
+        assert "$pageview" in EVENT_TAXONOMY_QUERY_DATA_SOURCE[team.id]
+        assert "$autocapture" in EVENT_TAXONOMY_QUERY_DATA_SOURCE[team.id]
         props = [i.property for i in EVENT_TAXONOMY_QUERY_DATA_SOURCE[team.id]["$pageview"]]
-        self.assertIn("$browser", props)
-        self.assertIn("$os", props)
+        assert "$browser" in props
+        assert "$os" in props
 
     def test_loads_actors_property_taxonomy_data_source_various_group_types(self):
         _org, _user, _dataset, team = self._load_with_mocks()
-        self.assertIn("person", ACTORS_PROPERTY_TAXONOMY_QUERY_DATA_SOURCE[team.id])
-        self.assertIn(0, ACTORS_PROPERTY_TAXONOMY_QUERY_DATA_SOURCE[team.id])
-        self.assertIn(1, ACTORS_PROPERTY_TAXONOMY_QUERY_DATA_SOURCE[team.id])
+        assert "person" in ACTORS_PROPERTY_TAXONOMY_QUERY_DATA_SOURCE[team.id]
+        assert 0 in ACTORS_PROPERTY_TAXONOMY_QUERY_DATA_SOURCE[team.id]
+        assert 1 in ACTORS_PROPERTY_TAXONOMY_QUERY_DATA_SOURCE[team.id]
 
     def test_runs_query_runner_patches(self):
         _org, _user, _dataset, team = self._load_with_mocks()
 
         # Team taxonomy
         team_resp = get_query_runner(TeamTaxonomyQuery(), team=team).calculate()
-        self.assertTrue(any(item.event == "$pageview" for item in team_resp.results))
+        assert any(item.event == "$pageview" for item in team_resp.results)
 
         # Event taxonomy by event
         event_resp = get_query_runner(EventTaxonomyQuery(event="$pageview", maxPropertyValues=5), team=team).calculate()
-        self.assertTrue(any(item.property == "$browser" for item in event_resp.results))
+        assert any(item.property == "$browser" for item in event_resp.results)
 
         # Actors property taxonomy for person
         actors_resp_person = get_query_runner(
             ActorsPropertyTaxonomyQuery(properties=["$browser"], groupTypeIndex=None),
             team=team,
         ).calculate()
-        self.assertEqual(actors_resp_person.results[0].sample_values, ["Safari"])
+        assert actors_resp_person.results[0].sample_values == ["Safari"]
 
         # Actors property taxonomy for group 0
         actors_resp_group0 = get_query_runner(
             ActorsPropertyTaxonomyQuery(properties=["$device"], groupTypeIndex=0),
             team=team,
         ).calculate()
-        self.assertEqual(actors_resp_group0.results[0].sample_values, ["Phone"])
+        assert actors_resp_group0.results[0].sample_values == ["Phone"]
 
         # Actors property taxonomy for group 1
         actors_resp_group1 = get_query_runner(
             ActorsPropertyTaxonomyQuery(properties=["$industry"], groupTypeIndex=1),
             team=team,
         ).calculate()
-        self.assertEqual(actors_resp_group1.results[0].sample_values, ["Tech"])
+        assert actors_resp_group1.results[0].sample_values == ["Tech"]

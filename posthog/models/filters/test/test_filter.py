@@ -1,8 +1,9 @@
 import json
 import datetime
 from collections.abc import Callable
-from typing import Any, Optional, cast
+from typing import Any, cast
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import (
     BaseTest,
@@ -24,13 +25,13 @@ from posthog.queries.base import properties_to_Q, property_group_to_Q
 class TestFilter(BaseTest):
     def test_old_style_properties(self):
         filter = Filter(data={"properties": {"$browser__is_not": "IE7", "$OS": "Mac"}})
-        self.assertEqual(cast(Property, filter.property_groups.values[0]).key, "$browser")
-        self.assertEqual(cast(Property, filter.property_groups.values[0]).operator, "is_not")
-        self.assertEqual(cast(Property, filter.property_groups.values[0]).value, "IE7")
-        self.assertEqual(cast(Property, filter.property_groups.values[0]).type, "event")
-        self.assertEqual(cast(Property, filter.property_groups.values[1]).key, "$OS")
-        self.assertEqual(cast(Property, filter.property_groups.values[1]).operator, None)
-        self.assertEqual(cast(Property, filter.property_groups.values[1]).value, "Mac")
+        assert cast(Property, filter.property_groups.values[0]).key == "$browser"
+        assert cast(Property, filter.property_groups.values[0]).operator == "is_not"
+        assert cast(Property, filter.property_groups.values[0]).value == "IE7"
+        assert cast(Property, filter.property_groups.values[0]).type == "event"
+        assert cast(Property, filter.property_groups.values[1]).key == "$OS"
+        assert cast(Property, filter.property_groups.values[1]).operator is None
+        assert cast(Property, filter.property_groups.values[1]).value == "Mac"
 
     def test_to_dict(self):
         filter = Filter(
@@ -45,8 +46,7 @@ class TestFilter(BaseTest):
                 "client_query_id": "123",
             }
         )
-        self.assertCountEqual(
-            list(filter.to_dict().keys()),
+        assert sorted(list(filter.to_dict().keys())) == sorted(
             [
                 "events",
                 "display",
@@ -59,7 +59,7 @@ class TestFilter(BaseTest):
                 "sampling_factor",
                 "search",
                 "breakdown_normalize_url",
-            ],
+            ]
         )
 
     def test_simplify_test_accounts(self):
@@ -77,71 +77,43 @@ class TestFilter(BaseTest):
 
         filter = Filter(data=data, team=self.team)
 
-        self.assertEqual(
-            filter.properties_to_dict(),
-            {
-                "properties": {
-                    "type": "AND",
-                    "values": [{"key": "attr", "value": "some_val", "type": "event"}],
-                }
-            },
-        )
-        self.assertTrue(filter.is_simplified)
+        assert filter.properties_to_dict() == {
+            "properties": {"type": "AND", "values": [{"key": "attr", "value": "some_val", "type": "event"}]}
+        }
+        assert filter.is_simplified
 
         filter = Filter(data={**data, FILTER_TEST_ACCOUNTS: True}, team=self.team)
 
-        self.assertEqual(
-            filter.properties_to_dict(),
-            {
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "email",
-                                    "value": "@posthog.com",
-                                    "operator": "not_icontains",
-                                    "type": "person",
-                                }
-                            ],
-                        },
-                        {
-                            "type": "AND",
-                            "values": [{"key": "attr", "value": "some_val", "type": "event"}],
-                        },
-                    ],
-                }
-            },
-        )
-        self.assertTrue(filter.is_simplified)
+        assert filter.properties_to_dict() == {
+            "properties": {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
+                        ],
+                    },
+                    {"type": "AND", "values": [{"key": "attr", "value": "some_val", "type": "event"}]},
+                ],
+            }
+        }
+        assert filter.is_simplified
 
-        self.assertEqual(
-            filter.simplify(self.team).properties_to_dict(),
-            {
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "email",
-                                    "value": "@posthog.com",
-                                    "operator": "not_icontains",
-                                    "type": "person",
-                                }
-                            ],
-                        },
-                        {
-                            "type": "AND",
-                            "values": [{"key": "attr", "value": "some_val", "type": "event"}],
-                        },
-                    ],
-                }
-            },
-        )
+        assert filter.simplify(self.team).properties_to_dict() == {
+            "properties": {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
+                        ],
+                    },
+                    {"type": "AND", "values": [{"key": "attr", "value": "some_val", "type": "event"}]},
+                ],
+            }
+        }
 
 
 def property_to_Q_test_factory(filter_persons: Callable, person_factory):
@@ -173,7 +145,7 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
             )
 
             results = filter_persons(filter, self.team)
-            self.assertEqual(len(results), 1)
+            assert len(results) == 1
 
         def test_multiple_equality_persons(self):
             person_factory(
@@ -207,7 +179,7 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
             )
 
             results = filter_persons(filter, self.team)
-            self.assertEqual(len(results), 2)
+            assert len(results) == 2
 
         def test_incomplete_data(self):
             filter = Filter(
@@ -221,7 +193,7 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
                     ]
                 }
             )
-            self.assertListEqual(filter.property_groups.values, [])
+            assert filter.property_groups.values == []
 
         def test_contains_persons(self):
             person_factory(
@@ -249,7 +221,7 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
             )
 
             results = filter_persons(filter, self.team)
-            self.assertEqual(len(results), 1)
+            assert len(results) == 1
 
         def test_regex_persons(self):
             p1_uuid = str(
@@ -274,7 +246,7 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
                 }
             )
             results = filter_persons(filter, self.team)
-            self.assertCountEqual(results, [p1_uuid])
+            assert sorted(results) == sorted([p1_uuid])
 
             filter = Filter(
                 data={
@@ -289,7 +261,7 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
                 }
             )
             results = filter_persons(filter, self.team)
-            self.assertCountEqual(results, [p1_uuid, p2_uuid])
+            assert sorted(results) == sorted([p1_uuid, p2_uuid])
 
         def test_invalid_regex_persons(self):
             person_factory(
@@ -315,7 +287,7 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
                     ]
                 }
             )
-            self.assertEqual(len(filter_persons(filter, self.team)), 0)
+            assert len(filter_persons(filter, self.team)) == 0
 
             filter = Filter(
                 data={
@@ -329,7 +301,7 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
                     ]
                 }
             )
-            self.assertEqual(len(filter_persons(filter, self.team)), 0)
+            assert len(filter_persons(filter, self.team)) == 0
 
         def test_is_not_persons(self):
             person_factory(
@@ -358,7 +330,7 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
                 }
             )
             results = filter_persons(filter, self.team)
-            self.assertCountEqual(results, [p2_uuid])
+            assert sorted(results) == sorted([p2_uuid])
 
         def test_does_not_contain_persons(self):
             person_factory(
@@ -389,7 +361,7 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
                 }
             )
             results = filter_persons(filter, self.team)
-            self.assertCountEqual(results, [p2_uuid, p3_uuid, p4_uuid])
+            assert sorted(results) == sorted([p2_uuid, p3_uuid, p4_uuid])
 
         def test_multiple_persons(self):
             p1_uuid = str(
@@ -419,7 +391,7 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
                 }
             )
             results = filter_persons(filter, self.team)
-            self.assertCountEqual(results, [p1_uuid])
+            assert sorted(results) == sorted([p1_uuid])
 
         def test_boolean_filters_persons(self):
             p1_uuid = str(
@@ -433,7 +405,7 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
 
             filter = Filter(data={"properties": [{"type": "person", "key": "is_first_user", "value": ["true"]}]})
             results = filter_persons(filter, self.team)
-            self.assertEqual(results, [p1_uuid])
+            assert results == [p1_uuid]
 
         def test_is_not_set_and_is_set_persons(self):
             p1_uuid = str(
@@ -458,7 +430,7 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
                 }
             )
             results = filter_persons(filter, self.team)
-            self.assertEqual(results, [p1_uuid])
+            assert results == [p1_uuid]
 
             filter = Filter(
                 data={
@@ -473,7 +445,7 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
                 }
             )
             results = filter_persons(filter, self.team)
-            self.assertEqual(results, [p2_uuid])
+            assert results == [p2_uuid]
 
         def test_is_not_true_false_persons(self):
             person_factory(
@@ -496,7 +468,7 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
                 }
             )
             results = filter_persons(filter, self.team)
-            self.assertEqual(results, [p2_uuid])
+            assert results == [p2_uuid]
 
         def test_is_date_before_persons(self):
             p1_uuid = str(
@@ -525,7 +497,7 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
                 }
             )
             results = filter_persons(filter, self.team)
-            self.assertEqual(results, [p1_uuid])
+            assert results == [p1_uuid]
 
         def test_json_object(self):
             p1_uuid = person_factory(
@@ -545,7 +517,7 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
                 }
             )
             results = filter_persons(filter, self.team)
-            self.assertEqual(results, [str(p1_uuid.uuid)])
+            assert results == [str(p1_uuid.uuid)]
 
         def test_filter_out_team_members_persons(self):
             person_factory(
@@ -572,7 +544,7 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
             filter = Filter(data={FILTER_TEST_ACCOUNTS: True}, team=self.team)
 
             results = filter_persons(filter, self.team)
-            self.assertEqual(results, [p2_uuid])
+            assert results == [p2_uuid]
 
     return TestPropertiesToQ
 
@@ -615,8 +587,8 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
         persons = persons.filter(team_id=self.team.pk)
         results = sorted([person.distinct_ids[0] for person in persons])
 
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0], "person3")
+        assert len(results) == 1
+        assert results[0] == "person3"
 
     def test_person_cohort_properties(self):
         person1_distinct_id = "person1"
@@ -639,7 +611,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                 .filter(properties_to_Q(self.team.pk, filter.property_groups.flat))
                 .exists()
             )
-        self.assertTrue(matched_person)
+        assert matched_person
 
     def test_person_cohort_properties_with_zero_value(self):
         person1_distinct_id = "person1"
@@ -662,7 +634,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                 .filter(properties_to_Q(self.team.pk, filter.property_groups.flat))
                 .exists()
             )
-        self.assertTrue(matched_person)
+        assert matched_person
 
     def test_person_cohort_properties_with_negation(self):
         person1_distinct_id = "example_id"
@@ -750,7 +722,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                 .filter(properties_to_Q(self.team.pk, filter.property_groups.flat))
                 .exists()
             )
-        self.assertTrue(matched_person)
+        assert matched_person
 
     def test_group_property_filters_direct(self):
         filter = Filter(
@@ -766,13 +738,10 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
             }
         )
         query_filter = properties_to_Q(self.team.pk, filter.property_groups.flat)
-        self.assertEqual(
-            query_filter,
-            Q(
-                Q(group_properties__some_prop=5)
-                & Q(group_properties__has_key="some_prop")
-                & ~Q(group_properties__some_prop=None)
-            ),
+        assert query_filter == Q(
+            Q(group_properties__some_prop=5)
+            & Q(group_properties__has_key="some_prop")
+            & ~Q(group_properties__some_prop=None)
         )
 
     def test_person_relative_date_parsing(self):
@@ -795,7 +764,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                 .filter(properties_to_Q(self.team.pk, filter.property_groups.flat))
                 .exists()
             )
-        self.assertTrue(matched_person)
+        assert matched_person
 
     def test_person_matching_greater_than_filter(self):
         person1_distinct_id = "example_id"
@@ -826,7 +795,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                 .filter(properties_to_Q(self.team.pk, filter.property_groups.flat))
                 .exists()
             )
-        self.assertTrue(matched_person)
+        assert matched_person
 
     def test_broken_person_filter_never_matching(self):
         person1_distinct_id = "example_id"
@@ -888,7 +857,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
         # This shouldn't pass because we have an AND condition with a broken lte operator
         # (we should never have a lte operator comparing against a list of values)
         # So this should never match
-        self.assertFalse(matched_person)
+        assert not matched_person
 
     def test_broken_condition_does_not_break_entire_filter(self):
         person1_distinct_id = "example_id"
@@ -952,7 +921,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                 .exists()
             )
         # This should now pass because the cohort filter still has one valid condition
-        self.assertTrue(matched_person)
+        assert matched_person
 
     def test_person_matching_real_filter(self):
         person1_distinct_id = "example_id"
@@ -1007,7 +976,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                 .filter(properties_to_Q(self.team.pk, filter.property_groups.flat))
                 .exists()
             )
-        self.assertTrue(matched_person)
+        assert matched_person
 
     def test_person_relative_date_parsing_with_override_property(self):
         person1_distinct_id = "example_id"
@@ -1035,7 +1004,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                 )
                 .exists()
             )
-        self.assertFalse(matched_person)
+        assert not matched_person
 
     @freeze_time("2021-04-06T10:00:00")
     def test_person_relative_date_parsing_with_invalid_date(self):
@@ -1063,7 +1032,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                 .exists()
             )
             # needs an exact match
-            self.assertFalse(matched_person)
+            assert not matched_person
 
         filter = Filter(
             data={
@@ -1080,10 +1049,10 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                 .filter(properties_to_Q(self.team.pk, filter.property_groups.flat))
                 .exists()
             )
-            self.assertFalse(matched_person)
+            assert not matched_person
 
     def _filter_with_date_range(
-        self, date_from: datetime.datetime, date_to: Optional[datetime.datetime] = None
+        self, date_from: datetime.datetime, date_to: datetime.datetime | None = None
     ) -> Filter:
         data = {
             "properties": [{"key": "some_prop", "value": 5, "type": "group", "group_type_index": 1}],
@@ -1125,10 +1094,10 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                 ]
             }
         )
-        self.assertEqual(len(filter_persons_with_annotation(filter, self.team)), 3)
+        assert len(filter_persons_with_annotation(filter, self.team)) == 3
 
         filter = Filter(data={"properties": [{"type": "person", "key": "$a_number", "value": 5}]})
-        self.assertEqual(len(filter_persons_with_annotation(filter, self.team)), 1)
+        assert len(filter_persons_with_annotation(filter, self.team)) == 1
 
         filter = Filter(
             data={
@@ -1142,7 +1111,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                 ]
             }
         )
-        self.assertEqual(len(filter_persons_with_annotation(filter, self.team)), 2)
+        assert len(filter_persons_with_annotation(filter, self.team)) == 2
 
     @snapshot_postgres_queries
     def test_icontains_with_array_value(self):
@@ -1175,7 +1144,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                 ]
             }
         )
-        self.assertEqual(len(filter_persons_with_annotation(filter, self.team)), 0)
+        assert len(filter_persons_with_annotation(filter, self.team)) == 0
 
         filter = Filter(
             data={
@@ -1189,11 +1158,11 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                 ]
             }
         )
-        self.assertEqual(len(filter_persons_with_annotation(filter, self.team)), 1)
+        assert len(filter_persons_with_annotation(filter, self.team)) == 1
 
 
 def filter_persons_with_property_group(
-    filter: Filter, team: Team, property_overrides: Optional[dict[str, Any]] = None
+    filter: Filter, team: Team, property_overrides: dict[str, Any] | None = None
 ) -> list[str]:
     if property_overrides is None:
         property_overrides = {}
@@ -1235,8 +1204,8 @@ class TestDjangoPropertyGroupToQ(BaseTest, QueryMatchingTest):
         )
 
         results = filter_persons_with_property_group(filter, self.team)
-        self.assertEqual(len(results), 2)
-        self.assertEqual(["person1", "person2"], results)
+        assert len(results) == 2
+        assert ["person1", "person2"] == results
 
     def test_multiple_properties_property_group_to_q(self):
         _create_person(
@@ -1273,8 +1242,8 @@ class TestDjangoPropertyGroupToQ(BaseTest, QueryMatchingTest):
         )
 
         results = filter_persons_with_property_group(filter, self.team)
-        self.assertEqual(len(results), 1)
-        self.assertEqual(["person1"], results)
+        assert len(results) == 1
+        assert ["person1"] == results
 
     def test_nested_property_group_to_q(self):
         _create_person(
@@ -1320,8 +1289,8 @@ class TestDjangoPropertyGroupToQ(BaseTest, QueryMatchingTest):
         )
 
         results = filter_persons_with_property_group(filter, self.team)
-        self.assertEqual(len(results), 2)
-        self.assertEqual(["person1", "person3"], results)
+        assert len(results) == 2
+        assert ["person1", "person3"] == results
 
     def test_property_group_to_q_with_property_overrides(self):
         _create_person(
@@ -1368,7 +1337,7 @@ class TestDjangoPropertyGroupToQ(BaseTest, QueryMatchingTest):
 
         results = filter_persons_with_property_group(filter, self.team, {"bla": 2})
         # all discarded because bla is neither 1 nor 3
-        self.assertEqual(len(results), 0)
+        assert len(results) == 0
 
     @snapshot_postgres_queries
     def test_property_group_to_q_with_cohorts(self):
@@ -1430,8 +1399,8 @@ class TestDjangoPropertyGroupToQ(BaseTest, QueryMatchingTest):
         )
 
         results = filter_persons_with_property_group(filter, self.team)
-        self.assertEqual(len(results), 2)
-        self.assertEqual(["person1", "person3"], results)
+        assert len(results) == 2
+        assert ["person1", "person3"] == results
 
     @snapshot_postgres_queries
     def test_property_group_to_q_with_negation_cohorts(self):
@@ -1544,8 +1513,8 @@ class TestDjangoPropertyGroupToQ(BaseTest, QueryMatchingTest):
         )
 
         results = filter_persons_with_property_group(filter, self.team)
-        self.assertEqual(len(results), 2)
-        self.assertEqual(["person5", "person6"], results)
+        assert len(results) == 2
+        assert ["person5", "person6"] == results
 
     @snapshot_postgres_queries
     def test_property_group_to_q_with_cohorts_no_match(self):
@@ -1607,8 +1576,8 @@ class TestDjangoPropertyGroupToQ(BaseTest, QueryMatchingTest):
         )
 
         results = filter_persons_with_property_group(filter, self.team)
-        self.assertEqual(len(results), 1)
-        self.assertEqual(["person3"], results)
+        assert len(results) == 1
+        assert ["person3"] == results
 
     def test_property_group_to_q_with_behavioural_cohort(self):
         _create_person(
@@ -1660,5 +1629,5 @@ class TestDjangoPropertyGroupToQ(BaseTest, QueryMatchingTest):
             }
         )
 
-        with self.assertRaises(ValueError):
+        with pytest.raises(ValueError):
             filter_persons_with_property_group(filter, self.team)

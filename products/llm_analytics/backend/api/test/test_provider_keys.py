@@ -37,7 +37,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
     def test_unauthenticated_user_cannot_access_provider_keys(self):
         self.client.logout()
         response = self.client.get(f"/api/environments/{self.team.id}/llm_analytics/provider_keys/")
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     @patch("products.llm_analytics.backend.api.provider_keys.validate_openai_key")
     def test_can_create_provider_key(self, mock_validate):
@@ -47,19 +47,19 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
             f"/api/environments/{self.team.id}/llm_analytics/provider_keys/",
             {"provider": "openai", "name": "My Key", "api_key": "sk-test-key-12345"},
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(LLMProviderKey.objects.count(), 1)
+        assert response.status_code == status.HTTP_201_CREATED
+        assert LLMProviderKey.objects.count() == 1
 
         key = LLMProviderKey.objects.first()
         assert key is not None
-        self.assertEqual(key.name, "My Key")
-        self.assertEqual(key.provider, "openai")
-        self.assertEqual(key.state, LLMProviderKey.State.OK)
-        self.assertEqual(key.team, self.team)
-        self.assertEqual(key.created_by, self.user)
+        assert key.name == "My Key"
+        assert key.provider == "openai"
+        assert key.state == LLMProviderKey.State.OK
+        assert key.team == self.team
+        assert key.created_by == self.user
 
-        self.assertEqual(response.data["api_key_masked"], "sk-t...2345")
-        self.assertNotIn("api_key", response.data)
+        assert response.data["api_key_masked"] == "sk-t...2345"
+        assert "api_key" not in response.data
         mock_validate.assert_called_once_with("sk-test-key-12345")
 
     @patch("products.llm_analytics.backend.api.provider_keys.validate_openai_key")
@@ -70,29 +70,29 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
             f"/api/environments/{self.team.id}/llm_analytics/provider_keys/",
             {"provider": "openai", "name": "My Key", "api_key": "sk-test-key-12345", "set_as_active": True},
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
         key = LLMProviderKey.objects.first()
         assert key is not None
 
         config = EvaluationConfig.objects.get(team=self.team)
-        self.assertEqual(config.active_provider_key, key)
+        assert config.active_provider_key == key
 
     def test_api_key_required_on_create(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/provider_keys/",
             {"provider": "openai", "name": "My Key"},
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("api_key", str(response.data))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "api_key" in str(response.data)
 
     def test_invalid_api_key_format_rejected(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/provider_keys/",
             {"provider": "openai", "name": "My Key", "api_key": "invalid-key"},
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("api_key", str(response.data))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "api_key" in str(response.data)
 
     @patch("products.llm_analytics.backend.api.provider_keys.validate_openai_key")
     def test_validation_failure_rejects_key(self, mock_validate):
@@ -102,9 +102,9 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
             f"/api/environments/{self.team.id}/llm_analytics/provider_keys/",
             {"provider": "openai", "name": "My Key", "api_key": "sk-test-invalid"},
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Invalid API key", str(response.data))
-        self.assertEqual(LLMProviderKey.objects.count(), 0)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Invalid API key" in str(response.data)
+        assert LLMProviderKey.objects.count() == 0
 
     @patch("products.llm_analytics.backend.api.provider_keys.validate_openai_key")
     def test_can_list_provider_keys(self, mock_validate):
@@ -128,12 +128,12 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         )
 
         response = self.client.get(f"/api/environments/{self.team.id}/llm_analytics/provider_keys/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data["results"]), 2)
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data["results"]) == 2
 
         names = [k["name"] for k in response.data["results"]]
-        self.assertIn("Key 1", names)
-        self.assertIn("Key 2", names)
+        assert "Key 1" in names
+        assert "Key 2" in names
 
     def test_can_retrieve_single_provider_key(self):
         key = LLMProviderKey.objects.create(
@@ -146,10 +146,10 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         )
 
         response = self.client.get(f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["name"], "My Key")
-        self.assertEqual(response.data["provider"], "openai")
-        self.assertEqual(response.data["api_key_masked"], "sk-t...2345")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["name"] == "My Key"
+        assert response.data["provider"] == "openai"
+        assert response.data["api_key_masked"] == "sk-t...2345"
 
     def test_can_update_provider_key_name(self):
         key = LLMProviderKey.objects.create(
@@ -165,10 +165,10 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
             f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/",
             {"name": "Updated Name"},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         key.refresh_from_db()
-        self.assertEqual(key.name, "Updated Name")
+        assert key.name == "Updated Name"
 
     @patch("products.llm_analytics.backend.api.provider_keys.validate_openai_key")
     def test_can_update_provider_key_api_key(self, mock_validate):
@@ -187,10 +187,10 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
             f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/",
             {"api_key": "sk-new-key-12345"},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         key.refresh_from_db()
-        self.assertEqual(key.encrypted_config["api_key"], "sk-new-key-12345")
+        assert key.encrypted_config["api_key"] == "sk-new-key-12345"
         mock_validate.assert_called_once_with("sk-new-key-12345")
 
     def test_can_delete_provider_key(self):
@@ -204,8 +204,8 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         )
 
         response = self.client.delete(f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/")
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertEqual(LLMProviderKey.objects.count(), 0)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert LLMProviderKey.objects.count() == 0
 
     def test_cannot_access_other_teams_provider_keys(self):
         other_team = _setup_team()
@@ -219,11 +219,11 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         )
 
         response = self.client.get(f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{other_key.id}/")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
         response = self.client.get(f"/api/environments/{self.team.id}/llm_analytics/provider_keys/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data["results"]), 0)
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data["results"]) == 0
 
     def test_cannot_delete_other_teams_provider_keys(self):
         other_team = _setup_team()
@@ -237,8 +237,8 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         )
 
         response = self.client.delete(f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{other_key.id}/")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-        self.assertEqual(LLMProviderKey.objects.filter(id=other_key.id).count(), 1)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert LLMProviderKey.objects.filter(id=other_key.id).count() == 1
 
     @patch("products.llm_analytics.backend.api.provider_keys.validate_openai_key")
     def test_can_validate_existing_key(self, mock_validate):
@@ -254,11 +254,11 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         )
 
         response = self.client.post(f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/validate/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["state"], "ok")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["state"] == "ok"
 
         key.refresh_from_db()
-        self.assertEqual(key.state, LLMProviderKey.State.OK)
+        assert key.state == LLMProviderKey.State.OK
 
     @patch("products.llm_analytics.backend.api.provider_keys.validate_openai_key")
     def test_validate_updates_state_on_failure(self, mock_validate):
@@ -274,13 +274,13 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         )
 
         response = self.client.post(f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/validate/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["state"], "invalid")
-        self.assertEqual(response.data["error_message"], "Invalid API key")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["state"] == "invalid"
+        assert response.data["error_message"] == "Invalid API key"
 
         key.refresh_from_db()
-        self.assertEqual(key.state, LLMProviderKey.State.INVALID)
-        self.assertEqual(key.error_message, "Invalid API key")
+        assert key.state == LLMProviderKey.State.INVALID
+        assert key.error_message == "Invalid API key"
 
     def test_validate_without_api_key_returns_error(self):
         key = LLMProviderKey.objects.create(
@@ -293,7 +293,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         )
 
         response = self.client.post(f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/validate/")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_keys_ordered_by_created_at_descending(self):
         key1 = LLMProviderKey.objects.create(
@@ -314,9 +314,9 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         )
 
         response = self.client.get(f"/api/environments/{self.team.id}/llm_analytics/provider_keys/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["results"][0]["id"], str(key2.id))
-        self.assertEqual(response.data["results"][1]["id"], str(key1.id))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["results"][0]["id"] == str(key2.id)
+        assert response.data["results"][1]["id"] == str(key1.id)
 
 
 class TestLLMProviderKeyValidationViewSet(APIBaseTest):
@@ -326,7 +326,7 @@ class TestLLMProviderKeyValidationViewSet(APIBaseTest):
             f"/api/environments/{self.team.id}/llm_analytics/provider_key_validations/",
             {"api_key": "sk-test"},
         )
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     @patch("products.llm_analytics.backend.api.provider_keys.validate_openai_key")
     def test_can_pre_validate_api_key(self, mock_validate):
@@ -336,9 +336,9 @@ class TestLLMProviderKeyValidationViewSet(APIBaseTest):
             f"/api/environments/{self.team.id}/llm_analytics/provider_key_validations/",
             {"api_key": "sk-test-key"},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["state"], "ok")
-        self.assertIsNone(response.data["error_message"])
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["state"] == "ok"
+        assert response.data["error_message"] is None
         mock_validate.assert_called_once_with("sk-test-key")
 
     @patch("products.llm_analytics.backend.api.provider_keys.validate_openai_key")
@@ -349,13 +349,13 @@ class TestLLMProviderKeyValidationViewSet(APIBaseTest):
             f"/api/environments/{self.team.id}/llm_analytics/provider_key_validations/",
             {"api_key": "sk-invalid-key"},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["state"], "invalid")
-        self.assertEqual(response.data["error_message"], "Invalid API key")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["state"] == "invalid"
+        assert response.data["error_message"] == "Invalid API key"
 
     def test_pre_validate_requires_api_key(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/provider_key_validations/",
             {},
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST

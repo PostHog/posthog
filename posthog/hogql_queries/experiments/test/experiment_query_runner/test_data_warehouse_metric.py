@@ -115,17 +115,17 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
             result = query_runner.calculate()
 
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_result = result.baseline
         assert control_result is not None
         test_result = result.variant_results[0]
         assert test_result is not None
 
-        self.assertEqual(control_result.number_of_samples, 1)
-        self.assertEqual(test_result.number_of_samples, 2)
-        self.assertEqual(control_result.sum, 6)
-        self.assertEqual(test_result.sum, 7)
+        assert control_result.number_of_samples == 1
+        assert test_result.number_of_samples == 2
+        assert control_result.sum == 6
+        assert test_result.sum == 7
 
     @snapshot_clickhouse_queries
     def test_query_runner_data_warehouse_count_metric(self):
@@ -182,17 +182,17 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
             result = query_runner.calculate()
 
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_result = result.baseline
         assert control_result is not None
         test_result = result.variant_results[0]
         assert test_result is not None
 
-        self.assertEqual(control_result.sum, 6)
-        self.assertEqual(test_result.sum, 7)
-        self.assertEqual(control_result.number_of_samples, 7)
-        self.assertEqual(test_result.number_of_samples, 9)
+        assert control_result.sum == 6
+        assert test_result.sum == 7
+        assert control_result.number_of_samples == 7
+        assert test_result.number_of_samples == 9
 
     @snapshot_clickhouse_queries
     def test_query_runner_data_warehouse_continuous_metric(self):
@@ -249,17 +249,17 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
             result = query_runner.calculate()
 
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_result = result.baseline
         assert control_result is not None
         test_result = result.variant_results[0]
         assert test_result is not None
 
-        self.assertEqual(control_result.sum, 650)
-        self.assertEqual(test_result.sum, 1150)
-        self.assertEqual(control_result.number_of_samples, 7)
-        self.assertEqual(test_result.number_of_samples, 9)
+        assert control_result.sum == 650
+        assert test_result.sum == 1150
+        assert control_result.number_of_samples == 7
+        assert test_result.number_of_samples == 9
 
     @parameterized.expand(
         [
@@ -507,7 +507,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                     "distinct_test_5",
                 ]
             )
-            self.assertEqual(cohort.people.count(), 6)
+            assert cohort.people.count() == 6
         elif name == "cohort_dynamic" and cohort:
             cohort.calculate_people_ch(pending_version=0)
 
@@ -518,30 +518,30 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
             result = query_runner.calculate()
 
             assert result.variant_results is not None
-            self.assertEqual(len(result.variant_results), 1)
+            assert len(result.variant_results) == 1
 
             control_result = result.baseline
             assert control_result is not None
             test_result = result.variant_results[0]
             assert test_result is not None
 
-            self.assertEqual(control_result.number_of_samples, filter_expected["control_absolute_exposure"])
-            self.assertEqual(test_result.number_of_samples, filter_expected["test_absolute_exposure"])
+            assert control_result.number_of_samples == filter_expected["control_absolute_exposure"]
+            assert test_result.number_of_samples == filter_expected["test_absolute_exposure"]
 
         else:
             with freeze_time("2023-01-07"):
                 result = query_runner.calculate()
 
             assert result.variant_results is not None
-            self.assertEqual(len(result.variant_results), 1)
+            assert len(result.variant_results) == 1
 
             control_result = result.baseline
             assert control_result is not None
             test_result = result.variant_results[0]
             assert test_result is not None
 
-            self.assertEqual(control_result.number_of_samples, filter_expected["control_absolute_exposure"])
-            self.assertEqual(test_result.number_of_samples, filter_expected["test_absolute_exposure"])
+            assert control_result.number_of_samples == filter_expected["control_absolute_exposure"]
+            assert test_result.number_of_samples == filter_expected["test_absolute_exposure"]
 
         # Run the query again without filtering
         metric = ExperimentMeanMetric(
@@ -568,15 +568,15 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
             result = query_runner.calculate()
 
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_result = result.baseline
         assert control_result is not None
         test_result = result.variant_results[0]
         assert test_result is not None
 
-        self.assertEqual(control_result.number_of_samples, 7)
-        self.assertEqual(test_result.number_of_samples, 10)
+        assert control_result.number_of_samples == 7
+        assert test_result.number_of_samples == 10
 
     @snapshot_clickhouse_queries
     def test_query_runner_with_data_warehouse_subscriptions_table(self):
@@ -656,17 +656,17 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
             result = query_runner.calculate()
 
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_result = result.baseline
         assert control_result is not None
         test_result = result.variant_results[0]
         assert test_result is not None
 
-        self.assertEqual(control_result.sum, 1)
-        self.assertEqual(test_result.sum, 3)
-        self.assertEqual(control_result.number_of_samples, 7)
-        self.assertEqual(test_result.number_of_samples, 9)
+        assert control_result.sum == 1
+        assert test_result.sum == 3
+        assert control_result.number_of_samples == 7
+        assert test_result.number_of_samples == 9
 
     @parameterized.expand(
         [
@@ -762,17 +762,17 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
             result = query_runner.calculate()
 
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_result = result.baseline
         assert control_result is not None
         test_result = result.variant_results[0]
         assert test_result is not None
 
-        self.assertEqual(control_result.sum, expected_results["control_count"])
-        self.assertEqual(test_result.sum, expected_results["test_count"])
-        self.assertEqual(control_result.number_of_samples, 7)
-        self.assertEqual(test_result.number_of_samples, 9)
+        assert control_result.sum == expected_results["control_count"]
+        assert test_result.sum == expected_results["test_count"]
+        assert control_result.number_of_samples == 7
+        assert test_result.number_of_samples == 9
 
     @snapshot_clickhouse_queries
     def test_query_runner_data_warehouse_metric_with_fixed_properties(self):
@@ -836,7 +836,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
             result = query_runner.calculate()
 
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_result = result.baseline
         assert control_result is not None
@@ -844,10 +844,10 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         assert test_result is not None
 
         # Should filter to only premium plan usage
-        self.assertEqual(control_result.sum, 500)
-        self.assertEqual(test_result.sum, 750)
-        self.assertEqual(control_result.number_of_samples, 7)
-        self.assertEqual(test_result.number_of_samples, 9)
+        assert control_result.sum == 500
+        assert test_result.sum == 750
+        assert control_result.number_of_samples == 7
+        assert test_result.number_of_samples == 9
 
     @snapshot_clickhouse_queries
     def test_query_runner_data_warehouse_metric_with_both_properties_and_fixed_properties(self):
@@ -916,7 +916,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
             result = query_runner.calculate()
 
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_result = result.baseline
         assert control_result is not None
@@ -924,10 +924,10 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         assert test_result is not None
 
         # Should filter to only premium plan AND us-west region
-        self.assertEqual(control_result.sum, 250)
-        self.assertEqual(test_result.sum, 375)
-        self.assertEqual(control_result.number_of_samples, 7)
-        self.assertEqual(test_result.number_of_samples, 9)
+        assert control_result.sum == 250
+        assert test_result.sum == 375
+        assert control_result.number_of_samples == 7
+        assert test_result.number_of_samples == 9
 
     @snapshot_clickhouse_queries
     def test_query_runner_data_warehouse_metric_with_no_properties(self):
@@ -987,7 +987,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
             result = query_runner.calculate()
 
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_result = result.baseline
         assert control_result is not None
@@ -995,10 +995,10 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         assert test_result is not None
 
         # Should include all data (no filters)
-        self.assertEqual(control_result.sum, 650)
-        self.assertEqual(test_result.sum, 1150)
-        self.assertEqual(control_result.number_of_samples, 7)
-        self.assertEqual(test_result.number_of_samples, 9)
+        assert control_result.sum == 650
+        assert test_result.sum == 1150
+        assert control_result.number_of_samples == 7
+        assert test_result.number_of_samples == 9
 
     @snapshot_clickhouse_queries
     def test_ratio_metric_with_different_join_keys(self):
@@ -1109,7 +1109,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
             result = query_runner.calculate()
 
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_result = result.baseline
         assert control_result is not None
@@ -1118,18 +1118,18 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         # Verify that the ratio metric has both numerator and denominator values
         # Numerator: sum of usage from usage table
-        self.assertIsNotNone(control_result.sum)
-        self.assertIsNotNone(test_result.sum)
+        assert control_result.sum is not None
+        assert test_result.sum is not None
 
         # Denominator: count of subscriptions from subscriptions table
-        self.assertIsNotNone(control_result.denominator_sum)
-        self.assertIsNotNone(test_result.denominator_sum)
+        assert control_result.denominator_sum is not None
+        assert test_result.denominator_sum is not None
 
         # Verify ratio-specific statistical fields
-        self.assertIsNotNone(control_result.denominator_sum_squares)
-        self.assertIsNotNone(test_result.denominator_sum_squares)
-        self.assertIsNotNone(control_result.numerator_denominator_sum_product)
-        self.assertIsNotNone(test_result.numerator_denominator_sum_product)
+        assert control_result.denominator_sum_squares is not None
+        assert test_result.denominator_sum_squares is not None
+        assert control_result.numerator_denominator_sum_product is not None
+        assert test_result.numerator_denominator_sum_product is not None
 
         # The test validates that queries with different join keys execute successfully
         # and produce ratio metric results with all required statistical fields

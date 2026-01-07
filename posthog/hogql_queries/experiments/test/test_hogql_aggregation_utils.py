@@ -15,23 +15,23 @@ class TestHogQLAggregationUtils(BaseTest):
         """Test that we can identify aggregation functions."""
 
         # Test aggregation functions
-        self.assertTrue(is_aggregation_function("sum"))
-        self.assertTrue(is_aggregation_function("avg"))
-        self.assertTrue(is_aggregation_function("count"))
-        self.assertTrue(is_aggregation_function("min"))
-        self.assertTrue(is_aggregation_function("max"))
+        assert is_aggregation_function("sum")
+        assert is_aggregation_function("avg")
+        assert is_aggregation_function("count")
+        assert is_aggregation_function("min")
+        assert is_aggregation_function("max")
 
         # Test case insensitive
-        self.assertTrue(is_aggregation_function("SUM"))
-        self.assertTrue(is_aggregation_function("AVG"))
-        self.assertTrue(is_aggregation_function("COUNT"))
+        assert is_aggregation_function("SUM")
+        assert is_aggregation_function("AVG")
+        assert is_aggregation_function("COUNT")
 
         # Test non-aggregation functions
-        self.assertFalse(is_aggregation_function("plus"))
-        self.assertFalse(is_aggregation_function("minus"))
-        self.assertFalse(is_aggregation_function("toFloat"))
-        self.assertFalse(is_aggregation_function("toString"))
-        self.assertFalse(is_aggregation_function("if"))
+        assert not is_aggregation_function("plus")
+        assert not is_aggregation_function("minus")
+        assert not is_aggregation_function("toFloat")
+        assert not is_aggregation_function("toString")
+        assert not is_aggregation_function("if")
 
     def test_extract_aggregation_and_inner_expr_with_aggregation(self):
         """Test extracting aggregation function and inner expression."""
@@ -40,55 +40,55 @@ class TestHogQLAggregationUtils(BaseTest):
         aggregation, inner_expr, params = extract_aggregation_and_inner_expr(
             "sum(properties.revenue - properties.expense)"
         )
-        self.assertEqual(aggregation, "sum")
-        self.assertIsInstance(inner_expr, ast.ArithmeticOperation)
-        self.assertIsNone(params)  # Non-parametric aggregation
+        assert aggregation == "sum"
+        assert isinstance(inner_expr, ast.ArithmeticOperation)
+        assert params is None  # Non-parametric aggregation
 
         # Test avg with field
         aggregation, inner_expr, params = extract_aggregation_and_inner_expr("avg(properties.price)")
-        self.assertEqual(aggregation, "avg")
-        self.assertIsInstance(inner_expr, ast.Field)
-        self.assertIsNone(params)
+        assert aggregation == "avg"
+        assert isinstance(inner_expr, ast.Field)
+        assert params is None
 
         # Test count with no arguments
         aggregation, inner_expr, params = extract_aggregation_and_inner_expr("count()")
-        self.assertEqual(aggregation, "count")
-        self.assertIsInstance(inner_expr, ast.Constant)
-        self.assertEqual(inner_expr.value, 1)  # type: ignore[attr-defined]
-        self.assertIsNone(params)
+        assert aggregation == "count"
+        assert isinstance(inner_expr, ast.Constant)
+        assert inner_expr.value == 1  # type: ignore[attr-defined]
+        assert params is None
 
         # Test min with field
         aggregation, inner_expr, params = extract_aggregation_and_inner_expr("min(properties.score)")
-        self.assertEqual(aggregation, "min")
-        self.assertIsInstance(inner_expr, ast.Field)
-        self.assertIsNone(params)
+        assert aggregation == "min"
+        assert isinstance(inner_expr, ast.Field)
+        assert params is None
 
         # Test max with field
         aggregation, inner_expr, params = extract_aggregation_and_inner_expr("max(properties.value)")
-        self.assertEqual(aggregation, "max")
-        self.assertIsInstance(inner_expr, ast.Field)
-        self.assertIsNone(params)
+        assert aggregation == "max"
+        assert isinstance(inner_expr, ast.Field)
+        assert params is None
 
     def test_extract_aggregation_and_inner_expr_without_aggregation(self):
         """Test extracting from non-aggregation expressions."""
 
         # Test simple field
         aggregation, inner_expr, params = extract_aggregation_and_inner_expr("properties.revenue")
-        self.assertIsNone(aggregation)
-        self.assertIsInstance(inner_expr, ast.Field)
-        self.assertIsNone(params)
+        assert aggregation is None
+        assert isinstance(inner_expr, ast.Field)
+        assert params is None
 
         # Test arithmetic operation
         aggregation, inner_expr, params = extract_aggregation_and_inner_expr("1 + 2")
-        self.assertIsNone(aggregation)
-        self.assertIsInstance(inner_expr, ast.ArithmeticOperation)
-        self.assertIsNone(params)
+        assert aggregation is None
+        assert isinstance(inner_expr, ast.ArithmeticOperation)
+        assert params is None
 
         # Test function call that's not an aggregation
         aggregation, inner_expr, params = extract_aggregation_and_inner_expr("toFloat(properties.value)")
-        self.assertIsNone(aggregation)
-        self.assertIsInstance(inner_expr, ast.Call)
-        self.assertIsNone(params)
+        assert aggregation is None
+        assert isinstance(inner_expr, ast.Call)
+        assert params is None
 
     def test_extract_aggregation_and_inner_expr_with_ast_input(self):
         """Test that the function works with AST nodes as input."""
@@ -98,9 +98,9 @@ class TestHogQLAggregationUtils(BaseTest):
 
         # Extract from AST
         aggregation, inner_expr, params = extract_aggregation_and_inner_expr(expr)
-        self.assertEqual(aggregation, "sum")
-        self.assertIsInstance(inner_expr, ast.Field)
-        self.assertIsNone(params)
+        assert aggregation == "sum"
+        assert isinstance(inner_expr, ast.Field)
+        assert params is None
 
     def test_build_aggregation_call(self):
         """Test building aggregation calls."""
@@ -110,42 +110,42 @@ class TestHogQLAggregationUtils(BaseTest):
         # Test building a sum aggregation
         agg_call = build_aggregation_call("sum", inner_expr)
 
-        self.assertIsInstance(agg_call, ast.Call)
-        self.assertEqual(agg_call.name, "sum")
-        self.assertEqual(len(agg_call.args), 1)
-        self.assertEqual(agg_call.args[0], inner_expr)
-        self.assertFalse(agg_call.distinct)
+        assert isinstance(agg_call, ast.Call)
+        assert agg_call.name == "sum"
+        assert len(agg_call.args) == 1
+        assert agg_call.args[0] == inner_expr
+        assert not agg_call.distinct
 
         # Test building with distinct
         agg_call_distinct = build_aggregation_call("count", inner_expr, distinct=True)
-        self.assertTrue(agg_call_distinct.distinct)
+        assert agg_call_distinct.distinct
 
     def test_extract_aggregation_with_params(self):
         """Test that parametric aggregations preserve their parameters."""
 
         # Test quantile with single parameter
         agg, inner, params = extract_aggregation_and_inner_expr("quantile(0.90)(properties.margin)")
-        self.assertEqual(agg, "quantile")
-        self.assertIsInstance(inner, ast.Field)
-        self.assertIsNotNone(params)
+        assert agg == "quantile"
+        assert isinstance(inner, ast.Field)
+        assert params is not None
         assert params is not None  # for mypy
-        self.assertEqual(len(params), 1)
-        self.assertIsInstance(params[0], ast.Constant)
+        assert len(params) == 1
+        assert isinstance(params[0], ast.Constant)
         assert isinstance(params[0], ast.Constant)  # for mypy
-        self.assertEqual(params[0].value, 0.90)
+        assert params[0].value == 0.9
 
         # Test quantile with different level
         agg, inner, params = extract_aggregation_and_inner_expr("quantile(0.50)(properties.value)")
-        self.assertEqual(agg, "quantile")
-        self.assertIsNotNone(params)
+        assert agg == "quantile"
+        assert params is not None
         assert params is not None  # for mypy
         assert isinstance(params[0], ast.Constant)  # for mypy
-        self.assertEqual(params[0].value, 0.50)
+        assert params[0].value == 0.5
 
         # Test non-parametric aggregation returns None for params
         agg, inner, params = extract_aggregation_and_inner_expr("sum(properties.revenue)")
-        self.assertEqual(agg, "sum")
-        self.assertIsNone(params)
+        assert agg == "sum"
+        assert params is None
 
     def test_build_aggregation_call_with_params(self):
         """Test that build_aggregation_call handles parametric functions."""
@@ -157,17 +157,17 @@ class TestHogQLAggregationUtils(BaseTest):
         result = build_aggregation_call("quantile", inner_expr, params=params)
 
         # Should produce: quantile(0.90)(properties.value)
-        self.assertIsInstance(result, ast.Call)
-        self.assertEqual(result.name, "quantile")
-        self.assertIsNotNone(result.params)
+        assert isinstance(result, ast.Call)
+        assert result.name == "quantile"
+        assert result.params is not None
         assert result.params is not None  # for mypy
-        self.assertEqual(len(result.params), 1)
+        assert len(result.params) == 1
         assert isinstance(result.params[0], ast.Constant)  # for mypy
-        self.assertEqual(result.params[0].value, 0.90)
-        self.assertEqual(result.args[0], inner_expr)
+        assert result.params[0].value == 0.9
+        assert result.args[0] == inner_expr
 
         # Test building without params (non-parametric aggregation)
         result_no_params = build_aggregation_call("sum", inner_expr, params=None)
-        self.assertIsInstance(result_no_params, ast.Call)
-        self.assertEqual(result_no_params.name, "sum")
-        self.assertIsNone(result_no_params.params)
+        assert isinstance(result_no_params, ast.Call)
+        assert result_no_params.name == "sum"
+        assert result_no_params.params is None

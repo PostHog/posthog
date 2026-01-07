@@ -25,9 +25,9 @@ class TestVectorSearchQueryRunner(ClickhouseTestMixin, APIBaseTest):
         bulk_create_pg_embeddings(vectors)
 
         response = VectorSearchQueryRunner(VectorSearchQuery(embedding=[1]), self.team).calculate()
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].id, "static_id")
-        self.assertEqual(response.results[0].distance, 0)
+        assert len(response.results) == 1
+        assert response.results[0].id == "static_id"
+        assert response.results[0].distance == 0
 
     def test_vector_search_only_returns_this_team_vectors(self):
         organization = Organization.objects.create(name="Org 2")
@@ -69,9 +69,9 @@ class TestVectorSearchQueryRunner(ClickhouseTestMixin, APIBaseTest):
         bulk_create_pg_embeddings(vectors)
 
         response = VectorSearchQueryRunner(VectorSearchQuery(embedding=[1]), self.team).calculate()
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].id, id1)
-        self.assertEqual(response.results[0].distance, 0)
+        assert len(response.results) == 1
+        assert response.results[0].id == id1
+        assert response.results[0].distance == 0
 
     def test_vector_search_returns_distances_in_ascending_order(self):
         id1, id2 = str(uuid.uuid4()), str(uuid.uuid4())
@@ -94,9 +94,9 @@ class TestVectorSearchQueryRunner(ClickhouseTestMixin, APIBaseTest):
         bulk_create_pg_embeddings(vectors)
 
         response = VectorSearchQueryRunner(VectorSearchQuery(embedding=[2, 4]), self.team).calculate()
-        self.assertEqual(len(response.results), 2)
-        self.assertEqual(response.results[0].id, id1)
-        self.assertEqual(response.results[1].id, id2)
+        assert len(response.results) == 2
+        assert response.results[0].id == id1
+        assert response.results[1].id == id2
 
     def test_vector_search_excludes_deleted_vectors(self):
         id1, id2 = str(uuid.uuid4()), str(uuid.uuid4())
@@ -120,8 +120,8 @@ class TestVectorSearchQueryRunner(ClickhouseTestMixin, APIBaseTest):
         bulk_create_pg_embeddings(vectors)
 
         response = VectorSearchQueryRunner(VectorSearchQuery(embedding=[2, 4]), self.team).calculate()
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].id, id2)
+        assert len(response.results) == 1
+        assert response.results[0].id == id2
 
     @pytest.mark.flaky(reruns=2)
     def test_vector_search_selects_max_version(self):
@@ -140,8 +140,8 @@ class TestVectorSearchQueryRunner(ClickhouseTestMixin, APIBaseTest):
         bulk_create_pg_embeddings(vectors)
 
         response = VectorSearchQueryRunner(query, self.team).calculate()
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].id, id)
+        assert len(response.results) == 1
+        assert response.results[0].id == id
 
         # Version 2
         vectors = [
@@ -156,9 +156,9 @@ class TestVectorSearchQueryRunner(ClickhouseTestMixin, APIBaseTest):
         bulk_create_pg_embeddings(vectors)
 
         response = VectorSearchQueryRunner(query, self.team).calculate()
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].id, id)
-        self.assertAlmostEqual(response.results[0].distance, 0.2, delta=0.05)  # 0.19999999999999996
+        assert len(response.results) == 1
+        assert response.results[0].id == id
+        assert response.results[0].distance == pytest.approx(0.2, abs=0.05)  # 0.19999999999999996
 
     def test_vector_search_saves_properties(self):
         query = VectorSearchQuery(embedding=[2, 4])
@@ -176,8 +176,8 @@ class TestVectorSearchQueryRunner(ClickhouseTestMixin, APIBaseTest):
         bulk_create_pg_embeddings(vectors)
 
         response = VectorSearchQueryRunner(query, self.team).calculate()
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].id, id)
+        assert len(response.results) == 1
+        assert response.results[0].id == id
 
     def test_vector_search_searches_by_the_embedding_version(self):
         """Test that vectors with older embedding versions are excluded from results."""
@@ -208,19 +208,19 @@ class TestVectorSearchQueryRunner(ClickhouseTestMixin, APIBaseTest):
         bulk_create_pg_embeddings(vectors_current, embedding_version=2)
 
         response = VectorSearchQueryRunner(VectorSearchQuery(embedding=[2, 4]), self.team).calculate()
-        self.assertEqual(len(response.results), 2)
+        assert len(response.results) == 2
 
         response = VectorSearchQueryRunner(
             VectorSearchQuery(embedding=[2, 4], embeddingVersion=1), self.team
         ).calculate()
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].id, id1)
+        assert len(response.results) == 1
+        assert response.results[0].id == id1
 
         response = VectorSearchQueryRunner(
             VectorSearchQuery(embedding=[2, 4], embeddingVersion=2), self.team
         ).calculate()
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].id, id2)
+        assert len(response.results) == 1
+        assert response.results[0].id == id2
 
     def test_vector_search_searches_if_the_embedding_version_is_not_specified(self):
         """Test that vectors without versions are handled."""
@@ -251,10 +251,10 @@ class TestVectorSearchQueryRunner(ClickhouseTestMixin, APIBaseTest):
         bulk_create_pg_embeddings(vectors_current, embedding_version=1)
 
         response = VectorSearchQueryRunner(VectorSearchQuery(embedding=[2, 4]), self.team).calculate()
-        self.assertEqual(len(response.results), 2)
+        assert len(response.results) == 2
 
         response = VectorSearchQueryRunner(
             VectorSearchQuery(embedding=[2, 4], embeddingVersion=1), self.team
         ).calculate()
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].id, id2)
+        assert len(response.results) == 1
+        assert response.results[0].id == id2

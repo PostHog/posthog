@@ -63,10 +63,7 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
-        self.assertEqual(
-            len(response.results or []),
-            1,
-        )
+        assert len(response.results or []) == 1
 
     def test_select_star_from_sessions(self):
         session_id = str(uuid7())
@@ -85,10 +82,7 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
-        self.assertEqual(
-            len(response.results or []),
-            1,
-        )
+        assert len(response.results or []) == 1
 
     @pytest.mark.skip(reason="doesn't work, didn't in V1 either so not a regression but should still be fixed")
     def test_select_event_sessions_star(self):
@@ -108,10 +102,7 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
-        self.assertEqual(
-            len(response.results or []),
-            1,
-        )
+        assert len(response.results or []) == 1
 
     def test_select_session_replay_session_duration(self):
         session_id = str(uuid7())
@@ -123,10 +114,7 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
-        self.assertEqual(
-            len(response.results or []),
-            0,  # just making sure the query runs
-        )
+        assert len(response.results or []) == 0
 
     def test_channel_type(self):
         session_id = str(uuid7())
@@ -146,10 +134,7 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
         )
 
         result = (response.results or [])[0]
-        self.assertEqual(
-            result[0],
-            "Paid Search",
-        )
+        assert result[0] == "Paid Search"
 
     # TODO: restore once #session_id_uuid is migrated properly
     # @parameterized.expand([[SessionsV2JoinMode.STRING], [SessionsV2JoinMode.UUID]])
@@ -195,10 +180,7 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
         )
 
         result = (response.results or [])[0]
-        self.assertEqual(
-            result[0],
-            "Paid Search",
-        )
+        assert result[0] == "Paid Search"
 
     def test_persons_and_sessions_on_events(self):
         p1 = _create_person(distinct_ids=["d1"], team=self.team)
@@ -228,8 +210,8 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
         )
 
         [row1, row2] = response.results or []
-        self.assertEqual(row1, (p1.uuid, "source1"))
-        self.assertEqual(row2, (p2.uuid, "source2"))
+        assert row1 == (p1.uuid, "source1")
+        assert row2 == (p2.uuid, "source2")
 
     def test_empty_counts(self):
         s1 = str(uuid7("2024-07-17"))
@@ -247,7 +229,7 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
                 "select uniqMerge(pageview_uniq), uniqMerge(autocapture_uniq), uniqMerge(screen_uniq) from raw_sessions",
             ),
         )
-        self.assertEqual(response.results or [], [(0, 0, 0)])
+        assert (response.results or []) == [(0, 0, 0)]
 
         response = self.__execute(
             parse_select(
@@ -255,7 +237,7 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
                 placeholders={"session_id": ast.Constant(value=s1)},
             ),
         )
-        self.assertEqual(response.results or [], [(0, 0, 0)])
+        assert (response.results or []) == [(0, 0, 0)]
 
     def test_counts(self):
         s1 = str(uuid7())
@@ -289,7 +271,7 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
                 placeholders={"session_id": ast.Constant(value=s1)},
             ),
         )
-        self.assertEqual(response.results or [], [(1, 2, 3)])
+        assert (response.results or []) == [(1, 2, 3)]
 
     def test_idempotent_event_counts(self):
         s1 = str(uuid7())
@@ -331,7 +313,7 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
                 placeholders={"session_id": ast.Constant(value=s1)},
             ),
         )
-        self.assertEqual(response.results or [], [(1, 1, 1)])
+        assert (response.results or []) == [(1, 1, 1)]
 
     def test_page_screen_autocapture_count_up_to(self):
         time = time_ns() // (10**6)
@@ -611,7 +593,7 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
         )
 
         [row1] = response.results or []
-        self.assertEqual(row1, ("https://example.com/2",))
+        assert row1 == ("https://example.com/2",)
 
     def test_lcp(self):
         s1 = str(uuid7("2024-10-01"))
@@ -725,90 +707,84 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
 class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
     def test_all(self):
         results = get_lazy_session_table_properties_v2(None)
-        self.assertEqual(
-            {r["id"] for r in results},
-            {
-                "$autocapture_count",
-                "$channel_type",
-                "$end_current_url",
-                "$end_hostname",
-                "$end_pathname",
-                "$end_timestamp",
-                "$entry__kx",
-                "$entry_current_url",
-                "$entry_dclid",
-                "$entry_fbclid",
-                "$entry_gad_source",
-                "$entry_gbraid",
-                "$entry_gclid",
-                "$entry_gclsrc",
-                "$entry_hostname",
-                "$entry_igshid",
-                "$entry_irclid",
-                "$entry_li_fat_id",
-                "$entry_mc_cid",
-                "$entry_msclkid",
-                "$entry_pathname",
-                "$entry_referring_domain",
-                "$entry_ttclid",
-                "$entry_twclid",
-                "$entry_utm_campaign",
-                "$entry_utm_content",
-                "$entry_utm_medium",
-                "$entry_utm_source",
-                "$entry_utm_term",
-                "$entry_wbraid",
-                "$is_bounce",
-                "$last_external_click_url",
-                "$pageview_count",
-                "$screen_count",
-                "$session_duration",
-                "$start_timestamp",
-                "$vitals_lcp",
-            },
-        )
-        self.assertEqual(
-            results[0],
-            {
-                "id": "$start_timestamp",
-                "is_numerical": False,
-                "is_seen_on_filtered_events": None,
-                "name": "$start_timestamp",
-                "property_type": PropertyType.Datetime,
-                "tags": [],
-            },
-        )
+        assert {r["id"] for r in results} == {
+            "$autocapture_count",
+            "$channel_type",
+            "$end_current_url",
+            "$end_hostname",
+            "$end_pathname",
+            "$end_timestamp",
+            "$entry__kx",
+            "$entry_current_url",
+            "$entry_dclid",
+            "$entry_fbclid",
+            "$entry_gad_source",
+            "$entry_gbraid",
+            "$entry_gclid",
+            "$entry_gclsrc",
+            "$entry_hostname",
+            "$entry_igshid",
+            "$entry_irclid",
+            "$entry_li_fat_id",
+            "$entry_mc_cid",
+            "$entry_msclkid",
+            "$entry_pathname",
+            "$entry_referring_domain",
+            "$entry_ttclid",
+            "$entry_twclid",
+            "$entry_utm_campaign",
+            "$entry_utm_content",
+            "$entry_utm_medium",
+            "$entry_utm_source",
+            "$entry_utm_term",
+            "$entry_wbraid",
+            "$is_bounce",
+            "$last_external_click_url",
+            "$pageview_count",
+            "$screen_count",
+            "$session_duration",
+            "$start_timestamp",
+            "$vitals_lcp",
+        }
+        assert results[0] == {
+            "id": "$start_timestamp",
+            "is_numerical": False,
+            "is_seen_on_filtered_events": None,
+            "name": "$start_timestamp",
+            "property_type": PropertyType.Datetime,
+            "tags": [],
+        }
 
     def test_source(self):
         results = get_lazy_session_table_properties_v2("source")
-        self.assertEqual(
-            results,
-            [
-                {
-                    "id": "$entry_utm_source",
-                    "is_numerical": False,
-                    "is_seen_on_filtered_events": None,
-                    "name": "$entry_utm_source",
-                    "property_type": PropertyType.String,
-                    "tags": [],
-                },
-                {
-                    "id": "$entry_gad_source",
-                    "is_numerical": False,
-                    "is_seen_on_filtered_events": None,
-                    "name": "$entry_gad_source",
-                    "property_type": PropertyType.String,
-                    "tags": [],
-                },
-            ],
-        )
+        assert results == [
+            {
+                "id": "$entry_utm_source",
+                "is_numerical": False,
+                "is_seen_on_filtered_events": None,
+                "name": "$entry_utm_source",
+                "property_type": PropertyType.String,
+                "tags": [],
+            },
+            {
+                "id": "$entry_gad_source",
+                "is_numerical": False,
+                "is_seen_on_filtered_events": None,
+                "name": "$entry_gad_source",
+                "property_type": PropertyType.String,
+                "tags": [],
+            },
+        ]
 
     def test_entry_utm(self):
         results = get_lazy_session_table_properties_v2("entry utm")
-        self.assertEqual(
-            [result["name"] for result in results],
-            ["$entry_utm_source", "$entry_utm_campaign", "$entry_utm_medium", "$entry_utm_term", "$entry_utm_content"],
-        )
+        assert [result["name"] for result in results] == [
+            "$entry_utm_source",
+            "$entry_utm_campaign",
+            "$entry_utm_medium",
+            "$entry_utm_term",
+            "$entry_utm_content",
+        ]
 
     def test_can_get_values_for_all(self):
         results = get_lazy_session_table_properties_v2(None)

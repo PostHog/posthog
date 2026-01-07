@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import Optional
 
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_APP_METRICS2
@@ -10,7 +9,7 @@ from posthog.models.event.util import format_clickhouse_timestamp
 def create_app_metric2(
     team_id: int,
     app_source: str,
-    timestamp: Optional[datetime] = None,
+    timestamp: datetime | None = None,
     app_source_id: str = "12345",
     instance_id: str = "54321",
     metric_kind: str = "success",

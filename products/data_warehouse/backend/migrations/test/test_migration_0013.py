@@ -1,5 +1,6 @@
 from typing import Any
 
+import pytest
 from posthog.test.base import NonAtomicTestMigrations
 
 from parameterized import parameterized
@@ -174,7 +175,7 @@ class DeletingCredentialsMigrationTest(NonAtomicTestMigrations):
     def test_tables_with_source_and_credential_have_credential_nulled(self, table_key, expected_credential):
         """Tables with both external_data_source_id and credential_id should have credential_id set to NULL"""
         table = self.DataWarehouseTable.objects.get(id=self.tables[table_key].id)
-        self.assertEqual(table.credential_id, expected_credential)
+        assert table.credential_id == expected_credential
 
     @parameterized.expand(
         [
@@ -186,13 +187,13 @@ class DeletingCredentialsMigrationTest(NonAtomicTestMigrations):
         """Tables without credential_id should remain unchanged"""
 
         table = self.DataWarehouseTable.objects.get(id=self.tables[table_key].id)
-        self.assertEqual(table.credential_id, expected_credential)
+        assert table.credential_id == expected_credential
 
     def test_table_without_source_keeps_credential(self):
         """Tables without external_data_source_id should keep their credential_id"""
 
         table = self.DataWarehouseTable.objects.get(id=self.tables["no_source_with_cred"].id)
-        self.assertEqual(table.credential_id, self.credentials["to_keep_1"].id)
+        assert table.credential_id == self.credentials["to_keep_1"].id
 
     @parameterized.expand(
         [
@@ -202,7 +203,7 @@ class DeletingCredentialsMigrationTest(NonAtomicTestMigrations):
     )
     def test_credentials_referenced_by_tables_with_source_are_deleted(self, credential_key):
         """Credentials referenced by tables with external_data_source_id should be deleted"""
-        with self.assertRaises(self.DataWarehouseCredential.DoesNotExist):
+        with pytest.raises(self.DataWarehouseCredential.DoesNotExist):
             self.DataWarehouseCredential.objects.get(id=self.credentials[credential_key].id)
 
     @parameterized.expand(
@@ -215,13 +216,13 @@ class DeletingCredentialsMigrationTest(NonAtomicTestMigrations):
     def test_credentials_not_referenced_or_without_source_are_kept(self, credential_key):
         """Credentials not referenced by tables with external_data_source_id should be kept"""
         credential = self.DataWarehouseCredential.objects.get(id=self.credentials[credential_key].id)
-        self.assertIsNotNone(credential)
+        assert credential is not None
 
     def test_all_table_counts(self):
         """Verify all tables still exist after migration"""
-        self.assertEqual(self.DataWarehouseTable.objects.count(), 6)
+        assert self.DataWarehouseTable.objects.count() == 6
 
     def test_credential_counts(self):
         """Verify correct number of credentials deleted"""
         # Started with 5 credentials, 2 should be deleted (to_delete_1 and to_delete_2)
-        self.assertEqual(self.DataWarehouseCredential.objects.count(), 3)
+        assert self.DataWarehouseCredential.objects.count() == 3

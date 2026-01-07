@@ -20,7 +20,7 @@ class KafkaClientTestCase(TestCase):
         producer.produce(topic=self.topic, data="any")
         producer.close()
         msg = next(consumer)
-        self.assertEqual(msg, "message 1 from test_topic topic")
+        assert msg == "message 1 from test_topic topic"
 
     def test_kafka_produce(self):
         producer = _KafkaProducer(test=False)
@@ -32,11 +32,11 @@ class KafkaClientTestCase(TestCase):
         consumer = build_kafka_consumer(topic=self.topic, auto_offset_reset="earliest", test=False)
         producer.produce(topic=self.topic, data=self.payload)
         payload = next(consumer)
-        self.assertEqual(payload.value, self.payload)
+        assert payload.value == self.payload
 
     def test_kafka_default_security_protocol(self):
         producer = _KafkaProducer(test=False)
-        self.assertEqual(producer.producer.config["security_protocol"], "PLAINTEXT")  # type: ignore
+        assert producer.producer.config["security_protocol"] == "PLAINTEXT"  # type: ignore
 
     @override_settings(
         KAFKA_SECURITY_PROTOCOL="SASL_PLAINTEXT",
@@ -57,7 +57,7 @@ class KafkaClientTestCase(TestCase):
         with patch.dict(kafka.KafkaProducer.DEFAULT_CONFIG, {"api_version": (2, 5, 0)}):
             producer = _KafkaProducer(test=False)
         for key, value in expected_sasl_config.items():
-            self.assertEqual(value, producer.producer.config[key])  # type: ignore
+            assert value == producer.producer.config[key]  # type: ignore
 
     @override_settings(
         KAFKA_SECURITY_PROTOCOL="SSL",
@@ -75,4 +75,4 @@ class KafkaClientTestCase(TestCase):
         with patch.dict(kafka.KafkaProducer.DEFAULT_CONFIG, {"api_version": (2, 5, 0)}):
             producer = _KafkaProducer(test=False)
         for key, value in expected_sasl_config.items():
-            self.assertEqual(value, producer.producer.config[key])  # type: ignore
+            assert value == producer.producer.config[key]  # type: ignore

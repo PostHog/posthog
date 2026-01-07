@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import BaseTest
 
 from pydantic import ValidationError
@@ -9,7 +10,7 @@ class TestSchema(BaseTest):
     def test_schema_series_properties_do_not_accept_arbitrary_strings(self):
         """If this test fails, check the schema of `series.properties[].type`. It must be an enum."""
 
-        with self.assertRaises(ValidationError):
+        with pytest.raises(ValidationError):
             AssistantTrendsQuery(
                 series=[
                     {
@@ -26,7 +27,7 @@ class TestSchema(BaseTest):
                 ]
             )
 
-        with self.assertRaises(ValidationError):
+        with pytest.raises(ValidationError):
             AssistantFunnelsQuery(
                 series=[
                     {
@@ -46,7 +47,7 @@ class TestSchema(BaseTest):
     def test_schema_properties_do_not_accept_arbitrary_strings(self):
         """If this test fails, check the schema of `properties[].type`. It must be an enum."""
 
-        with self.assertRaises(ValidationError):
+        with pytest.raises(ValidationError):
             AssistantTrendsQuery(
                 series=[{"event": "event"}],
                 properties=[
@@ -59,7 +60,7 @@ class TestSchema(BaseTest):
                 ],
             )
 
-        with self.assertRaises(ValidationError):
+        with pytest.raises(ValidationError):
             AssistantFunnelsQuery(
                 series=[{"event": "event"}, {"event": "event"}],
                 properties=[
@@ -72,7 +73,7 @@ class TestSchema(BaseTest):
                 ],
             )
 
-        with self.assertRaises(ValidationError):
+        with pytest.raises(ValidationError):
             AssistantRetentionQuery(
                 retentionFilter={
                     "returningEntity": {"name": "event"},

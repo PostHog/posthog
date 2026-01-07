@@ -1,7 +1,6 @@
 import json
 import uuid
 import random
-from typing import Optional
 
 from freezegun.api import freeze_time
 from posthog.test.base import (
@@ -49,15 +48,15 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
     def _get_timeline_result(
         self,
         *,
-        events: Optional[list] = None,
-        actions: Optional[list] = None,
-        properties: Optional[list] = None,
-        breakdown: Optional[str] = None,
-        breakdown_type: Optional[BreakdownType] = None,
-        date_from: Optional[str],
-        date_to: Optional[str],
+        events: list | None = None,
+        actions: list | None = None,
+        properties: list | None = None,
+        breakdown: str | None = None,
+        breakdown_type: BreakdownType | None = None,
+        date_from: str | None,
+        date_to: str | None,
         display: str = "ActionsTable",
-        interval: Optional[str] = None,
+        interval: str | None = None,
         expected_status: int = status.HTTP_200_OK,
     ) -> PropertiesTimelineResult:
         url = (
@@ -68,7 +67,7 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
             f"&breakdown={breakdown or ''}&breakdown_type={(breakdown_type or 'person') if breakdown else ''}"
         )
         properties_timeline = self.client.get(url)
-        self.assertEqual(properties_timeline.status_code, expected_status)
+        assert properties_timeline.status_code == expected_status
         return properties_timeline.json()
 
     @also_test_with_materialized_columns(**MATERIALIZED_COLUMN_KWARGS)
@@ -93,21 +92,18 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
             date_to="2020-01-05",
         )
 
-        self.assertEqual(
-            timeline,
-            {
-                "points": [
-                    {
-                        "properties": {"foo": "abc", "bar": 123},
-                        "relevant_event_count": 1,
-                        "timestamp": "2020-01-01T00:00:00Z",
-                    }
-                ],
-                "crucial_property_keys": ["bar"],
-                "effective_date_from": "2020-01-01T00:00:00+00:00",
-                "effective_date_to": "2020-01-05T23:59:59.999999+00:00",
-            },
-        )
+        assert timeline == {
+            "points": [
+                {
+                    "properties": {"foo": "abc", "bar": 123},
+                    "relevant_event_count": 1,
+                    "timestamp": "2020-01-01T00:00:00Z",
+                }
+            ],
+            "crucial_property_keys": ["bar"],
+            "effective_date_from": "2020-01-01T00:00:00+00:00",
+            "effective_date_to": "2020-01-05T23:59:59.999999+00:00",
+        }
 
     @also_test_with_materialized_columns(**MATERIALIZED_COLUMN_KWARGS)
     @snapshot_clickhouse_queries
@@ -131,15 +127,12 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
             date_to="2020-01-05",
         )
 
-        self.assertEqual(
-            timeline,
-            {
-                "points": [],  # No relevant events in range
-                "crucial_property_keys": ["bar"],
-                "effective_date_from": "2020-01-01T00:00:00+00:00",
-                "effective_date_to": "2020-01-05T23:59:59.999999+00:00",
-            },
-        )
+        assert timeline == {
+            "points": [],  # No relevant events in range
+            "crucial_property_keys": ["bar"],
+            "effective_date_from": "2020-01-01T00:00:00+00:00",
+            "effective_date_to": "2020-01-05T23:59:59.999999+00:00",
+        }
 
     @also_test_with_materialized_columns(**MATERIALIZED_COLUMN_KWARGS)
     @snapshot_clickhouse_queries
@@ -182,26 +175,23 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
             date_to="2020-01-05",
         )
 
-        self.assertEqual(
-            timeline,
-            {
-                "points": [
-                    {
-                        "properties": {"foo": "abc", "bar": 123},
-                        "relevant_event_count": 1,
-                        "timestamp": "2020-01-01T00:00:00Z",
-                    },
-                    {
-                        "properties": {"foo": "klm", "bar": 123},
-                        "relevant_event_count": 1,
-                        "timestamp": "2020-01-01T21:37:00Z",
-                    },
-                ],
-                "crucial_property_keys": ["bar", "foo"],
-                "effective_date_from": "2020-01-01T00:00:00+00:00",
-                "effective_date_to": "2020-01-05T23:59:59.999999+00:00",
-            },
-        )
+        assert timeline == {
+            "points": [
+                {
+                    "properties": {"foo": "abc", "bar": 123},
+                    "relevant_event_count": 1,
+                    "timestamp": "2020-01-01T00:00:00Z",
+                },
+                {
+                    "properties": {"foo": "klm", "bar": 123},
+                    "relevant_event_count": 1,
+                    "timestamp": "2020-01-01T21:37:00Z",
+                },
+            ],
+            "crucial_property_keys": ["bar", "foo"],
+            "effective_date_from": "2020-01-01T00:00:00+00:00",
+            "effective_date_to": "2020-01-05T23:59:59.999999+00:00",
+        }
 
     @also_test_with_materialized_columns(**MATERIALIZED_COLUMN_KWARGS)
     @snapshot_clickhouse_queries
@@ -231,26 +221,23 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
             date_to="2020-01-05",
         )
 
-        self.assertEqual(
-            timeline,
-            {
-                "points": [
-                    {
-                        "properties": {"foo": "abc", "bar": 123},
-                        "relevant_event_count": 1,
-                        "timestamp": "2020-01-01T00:00:00Z",
-                    },
-                    {
-                        "properties": {"foo": "klm", "bar": 123},
-                        "relevant_event_count": 1,
-                        "timestamp": "2020-01-01T21:37:00Z",
-                    },
-                ],
-                "crucial_property_keys": ["bar", "foo"],
-                "effective_date_from": "2020-01-01T00:00:00+00:00",
-                "effective_date_to": "2020-01-05T23:59:59.999999+00:00",
-            },
-        )
+        assert timeline == {
+            "points": [
+                {
+                    "properties": {"foo": "abc", "bar": 123},
+                    "relevant_event_count": 1,
+                    "timestamp": "2020-01-01T00:00:00Z",
+                },
+                {
+                    "properties": {"foo": "klm", "bar": 123},
+                    "relevant_event_count": 1,
+                    "timestamp": "2020-01-01T21:37:00Z",
+                },
+            ],
+            "crucial_property_keys": ["bar", "foo"],
+            "effective_date_from": "2020-01-01T00:00:00+00:00",
+            "effective_date_to": "2020-01-05T23:59:59.999999+00:00",
+        }
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(**MATERIALIZED_COLUMN_KWARGS)
@@ -287,31 +274,28 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
             date_to="2020-01-05",
         )
 
-        self.assertEqual(
-            timeline,
-            {
-                "points": [
-                    {
-                        "properties": {"foo": "abc", "bar": 456},
-                        "relevant_event_count": 1,
-                        "timestamp": "2020-01-02T00:00:00Z",
-                    },
-                    {
-                        "properties": {"foo": "abc", "bar": 123},
-                        "relevant_event_count": 1,
-                        "timestamp": "2020-01-03T00:00:00Z",
-                    },
-                    {
-                        "properties": {"foo": "abc", "bar": 456},
-                        "relevant_event_count": 1,
-                        "timestamp": "2020-01-04T00:00:00Z",
-                    },
-                ],
-                "crucial_property_keys": ["bar"],
-                "effective_date_from": "2020-01-01T00:00:00+00:00",
-                "effective_date_to": "2020-01-05T23:59:59.999999+00:00",
-            },
-        )
+        assert timeline == {
+            "points": [
+                {
+                    "properties": {"foo": "abc", "bar": 456},
+                    "relevant_event_count": 1,
+                    "timestamp": "2020-01-02T00:00:00Z",
+                },
+                {
+                    "properties": {"foo": "abc", "bar": 123},
+                    "relevant_event_count": 1,
+                    "timestamp": "2020-01-03T00:00:00Z",
+                },
+                {
+                    "properties": {"foo": "abc", "bar": 456},
+                    "relevant_event_count": 1,
+                    "timestamp": "2020-01-04T00:00:00Z",
+                },
+            ],
+            "crucial_property_keys": ["bar"],
+            "effective_date_from": "2020-01-01T00:00:00+00:00",
+            "effective_date_to": "2020-01-05T23:59:59.999999+00:00",
+        }
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(
@@ -354,31 +338,28 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
             interval="day",
         )
 
-        self.assertEqual(
-            timeline,
-            {
-                "points": [
-                    {
-                        "properties": {"foo": "abc", "bar": 456},
-                        "relevant_event_count": 1,
-                        "timestamp": "2020-01-02T00:00:00Z",
-                    },
-                    {
-                        "properties": {"foo": "abc", "bar": 123},
-                        "relevant_event_count": 1,
-                        "timestamp": "2020-01-02T07:00:00Z",
-                    },
-                    {
-                        "properties": {"foo": "abc", "bar": 456},
-                        "relevant_event_count": 1,
-                        "timestamp": "2020-01-02T14:00:00Z",
-                    },
-                ],
-                "crucial_property_keys": ["bar"],
-                "effective_date_from": "2020-01-02T00:00:00+00:00",
-                "effective_date_to": "2020-01-02T23:59:59.999999+00:00",
-            },
-        )
+        assert timeline == {
+            "points": [
+                {
+                    "properties": {"foo": "abc", "bar": 456},
+                    "relevant_event_count": 1,
+                    "timestamp": "2020-01-02T00:00:00Z",
+                },
+                {
+                    "properties": {"foo": "abc", "bar": 123},
+                    "relevant_event_count": 1,
+                    "timestamp": "2020-01-02T07:00:00Z",
+                },
+                {
+                    "properties": {"foo": "abc", "bar": 456},
+                    "relevant_event_count": 1,
+                    "timestamp": "2020-01-02T14:00:00Z",
+                },
+            ],
+            "crucial_property_keys": ["bar"],
+            "effective_date_from": "2020-01-02T00:00:00+00:00",
+            "effective_date_to": "2020-01-02T23:59:59.999999+00:00",
+        }
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(
@@ -419,31 +400,28 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
             interval="hour",
         )
 
-        self.assertEqual(
-            timeline,
-            {
-                "points": [
-                    {
-                        "properties": {"foo": "abc", "bar": 456},
-                        "relevant_event_count": 1,
-                        "timestamp": "2020-01-02T00:00:00Z",
-                    },
-                    {
-                        "properties": {"foo": "abc", "bar": 123},
-                        "relevant_event_count": 1,
-                        "timestamp": "2020-01-02T00:20:00Z",
-                    },
-                    {
-                        "properties": {"foo": "abc", "bar": 456},
-                        "relevant_event_count": 1,
-                        "timestamp": "2020-01-02T00:40:00Z",
-                    },
-                ],
-                "crucial_property_keys": ["bar"],
-                "effective_date_from": "2020-01-02T00:00:00+00:00",
-                "effective_date_to": "2020-01-02T01:00:00+00:00",
-            },
-        )
+        assert timeline == {
+            "points": [
+                {
+                    "properties": {"foo": "abc", "bar": 456},
+                    "relevant_event_count": 1,
+                    "timestamp": "2020-01-02T00:00:00Z",
+                },
+                {
+                    "properties": {"foo": "abc", "bar": 123},
+                    "relevant_event_count": 1,
+                    "timestamp": "2020-01-02T00:20:00Z",
+                },
+                {
+                    "properties": {"foo": "abc", "bar": 456},
+                    "relevant_event_count": 1,
+                    "timestamp": "2020-01-02T00:40:00Z",
+                },
+            ],
+            "crucial_property_keys": ["bar"],
+            "effective_date_from": "2020-01-02T00:00:00+00:00",
+            "effective_date_to": "2020-01-02T01:00:00+00:00",
+        }
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(
@@ -486,31 +464,28 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
             interval="month",
         )
 
-        self.assertEqual(
-            timeline,
-            {
-                "points": [
-                    {
-                        "properties": {"foo": "abc", "bar": 456},
-                        "relevant_event_count": 1,
-                        "timestamp": "2020-01-01T00:00:00Z",
-                    },
-                    {
-                        "properties": {"foo": "abc", "bar": 123},
-                        "relevant_event_count": 1,
-                        "timestamp": "2020-01-02T00:20:00Z",
-                    },
-                    {
-                        "properties": {"foo": "abc", "bar": 456},
-                        "relevant_event_count": 1,
-                        "timestamp": "2020-01-31T00:40:00Z",
-                    },
-                ],
-                "crucial_property_keys": ["bar"],
-                "effective_date_from": "2020-01-01T00:00:00+00:00",
-                "effective_date_to": "2020-01-31T23:59:59.999999+00:00",
-            },
-        )
+        assert timeline == {
+            "points": [
+                {
+                    "properties": {"foo": "abc", "bar": 456},
+                    "relevant_event_count": 1,
+                    "timestamp": "2020-01-01T00:00:00Z",
+                },
+                {
+                    "properties": {"foo": "abc", "bar": 123},
+                    "relevant_event_count": 1,
+                    "timestamp": "2020-01-02T00:20:00Z",
+                },
+                {
+                    "properties": {"foo": "abc", "bar": 456},
+                    "relevant_event_count": 1,
+                    "timestamp": "2020-01-31T00:40:00Z",
+                },
+            ],
+            "crucial_property_keys": ["bar"],
+            "effective_date_from": "2020-01-01T00:00:00+00:00",
+            "effective_date_to": "2020-01-31T23:59:59.999999+00:00",
+        }
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(
@@ -552,31 +527,28 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
                 date_to=None,
             )
 
-        self.assertEqual(
-            timeline,
-            {
-                "points": [
-                    {
-                        "properties": {"foo": "abc", "bar": 456},
-                        "relevant_event_count": 1,
-                        "timestamp": "2020-01-02T00:00:00Z",
-                    },
-                    {
-                        "properties": {"foo": "abc", "bar": 123},
-                        "relevant_event_count": 1,
-                        "timestamp": "2020-01-02T00:20:00Z",
-                    },
-                    {
-                        "properties": {"foo": "abc", "bar": 456},
-                        "relevant_event_count": 1,
-                        "timestamp": "2020-01-06T00:40:00Z",
-                    },
-                ],
-                "crucial_property_keys": ["bar"],
-                "effective_date_from": "2020-01-02T00:00:00+00:00",
-                "effective_date_to": "2020-01-09T23:59:59.999999+00:00",
-            },
-        )
+        assert timeline == {
+            "points": [
+                {
+                    "properties": {"foo": "abc", "bar": 456},
+                    "relevant_event_count": 1,
+                    "timestamp": "2020-01-02T00:00:00Z",
+                },
+                {
+                    "properties": {"foo": "abc", "bar": 123},
+                    "relevant_event_count": 1,
+                    "timestamp": "2020-01-02T00:20:00Z",
+                },
+                {
+                    "properties": {"foo": "abc", "bar": 456},
+                    "relevant_event_count": 1,
+                    "timestamp": "2020-01-06T00:40:00Z",
+                },
+            ],
+            "crucial_property_keys": ["bar"],
+            "effective_date_from": "2020-01-02T00:00:00+00:00",
+            "effective_date_to": "2020-01-09T23:59:59.999999+00:00",
+        }
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(**MATERIALIZED_COLUMN_KWARGS)
@@ -625,31 +597,28 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
             date_to="2020-01-05",
         )
 
-        self.assertEqual(
-            timeline,
-            {
-                "points": [
-                    {
-                        "properties": {"foo": "abc", "bar": 456},
-                        "relevant_event_count": 1,
-                        "timestamp": "2020-01-01T00:00:00Z",
-                    },
-                    {
-                        "properties": {"foo": "abc", "bar": 123},
-                        "relevant_event_count": 3,
-                        "timestamp": "2020-01-02T01:00:00Z",
-                    },
-                    {
-                        "properties": {"foo": "abc", "bar": 789},
-                        "relevant_event_count": 1,
-                        "timestamp": "2020-01-04T19:00:01Z",
-                    },
-                ],
-                "crucial_property_keys": ["bar"],
-                "effective_date_from": "2020-01-01T00:00:00+00:00",
-                "effective_date_to": "2020-01-05T23:59:59.999999+00:00",
-            },
-        )
+        assert timeline == {
+            "points": [
+                {
+                    "properties": {"foo": "abc", "bar": 456},
+                    "relevant_event_count": 1,
+                    "timestamp": "2020-01-01T00:00:00Z",
+                },
+                {
+                    "properties": {"foo": "abc", "bar": 123},
+                    "relevant_event_count": 3,
+                    "timestamp": "2020-01-02T01:00:00Z",
+                },
+                {
+                    "properties": {"foo": "abc", "bar": 789},
+                    "relevant_event_count": 1,
+                    "timestamp": "2020-01-04T19:00:01Z",
+                },
+            ],
+            "crucial_property_keys": ["bar"],
+            "effective_date_from": "2020-01-01T00:00:00+00:00",
+            "effective_date_to": "2020-01-05T23:59:59.999999+00:00",
+        }
 
     @snapshot_clickhouse_queries
     def test_timeline_for_existing_actor_with_six_events_but_only_two_relevant_changes_without_filters(self):
@@ -696,21 +665,18 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
             date_to="2020-01-05",
         )
 
-        self.assertEqual(
-            timeline,  # Without filters, NO changes are relevant
-            {
-                "points": [
-                    {
-                        "properties": {"foo": "abc", "bar": 456},
-                        "relevant_event_count": 5,
-                        "timestamp": "2020-01-01T00:00:00Z",
-                    },
-                ],
-                "crucial_property_keys": [],
-                "effective_date_from": "2020-01-01T00:00:00+00:00",
-                "effective_date_to": "2020-01-05T23:59:59.999999+00:00",
-            },
-        )
+        assert timeline == {
+            "points": [
+                {
+                    "properties": {"foo": "abc", "bar": 456},
+                    "relevant_event_count": 5,
+                    "timestamp": "2020-01-01T00:00:00Z",
+                },
+            ],
+            "crucial_property_keys": [],
+            "effective_date_from": "2020-01-01T00:00:00+00:00",
+            "effective_date_to": "2020-01-05T23:59:59.999999+00:00",
+        }
 
     @snapshot_clickhouse_queries
     def test_timeline_for_existing_actor_with_six_events_but_only_two_relevant_changes_without_events(self):
@@ -753,28 +719,25 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
             date_to="2020-01-05",
         )
 
-        self.assertEqual(
-            timeline,
-            {
-                "points": [
-                    {
-                        "properties": {"foo": "abc", "bar": 456},
-                        "relevant_event_count": 1,
-                        "timestamp": "2020-01-01T00:00:00Z",
-                    },
-                    {
-                        "properties": {"foo": "abc", "bar": 123},
-                        "relevant_event_count": 4,
-                        "timestamp": "2020-01-01T01:00:00Z",  # whatever event
-                    },
-                    {
-                        "properties": {"foo": "abc", "bar": 789},
-                        "relevant_event_count": 1,
-                        "timestamp": "2020-01-04T19:00:01Z",
-                    },
-                ],
-                "crucial_property_keys": ["bar"],
-                "effective_date_from": "2020-01-01T00:00:00+00:00",
-                "effective_date_to": "2020-01-05T23:59:59.999999+00:00",
-            },
-        )
+        assert timeline == {
+            "points": [
+                {
+                    "properties": {"foo": "abc", "bar": 456},
+                    "relevant_event_count": 1,
+                    "timestamp": "2020-01-01T00:00:00Z",
+                },
+                {
+                    "properties": {"foo": "abc", "bar": 123},
+                    "relevant_event_count": 4,
+                    "timestamp": "2020-01-01T01:00:00Z",  # whatever event
+                },
+                {
+                    "properties": {"foo": "abc", "bar": 789},
+                    "relevant_event_count": 1,
+                    "timestamp": "2020-01-04T19:00:01Z",
+                },
+            ],
+            "crucial_property_keys": ["bar"],
+            "effective_date_from": "2020-01-01T00:00:00+00:00",
+            "effective_date_to": "2020-01-05T23:59:59.999999+00:00",
+        }

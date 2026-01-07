@@ -1,6 +1,6 @@
 import json
 from collections.abc import Callable
-from typing import Any, Optional
+from typing import Any
 
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.parser import parse_expr, parse_program
@@ -22,7 +22,7 @@ class TestBytecodeExecute:
         return execute_bytecode(create_bytecode(parse_expr(expr)).bytecode, globals).result
 
     def _run_program(
-        self, code: str, functions: Optional[dict[str, Callable[..., Any]]] = None, globals: Optional[dict] = None
+        self, code: str, functions: dict[str, Callable[..., Any]] | None = None, globals: dict | None = None
     ) -> Any:
         if not globals:
             globals = {

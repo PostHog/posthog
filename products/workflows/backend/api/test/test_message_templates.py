@@ -32,7 +32,7 @@ class TestMessageTemplatesAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
 
         response_data = response.json()
-        self.assertEqual(len(response_data["results"]), 1)
+        assert len(response_data["results"]) == 1
 
         template = response_data["results"][0]
         assert template["id"] == str(self.message_template.id)

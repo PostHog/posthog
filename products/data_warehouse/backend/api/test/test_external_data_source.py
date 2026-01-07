@@ -98,12 +98,9 @@ class TestExternalDataSource(APIBaseTest):
         )
         payload = response.json()
 
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
         # number of schemas should match default schemas for Stripe
-        self.assertEqual(
-            ExternalDataSchema.objects.filter(source_id=payload["id"]).count(),
-            len(STRIPE_ENDPOINTS),
-        )
+        assert ExternalDataSchema.objects.filter(source_id=payload["id"]).count() == len(STRIPE_ENDPOINTS)
 
     def test_create_external_data_source_delete_on_missing_schemas(self):
         response = self.client.post(
@@ -167,7 +164,7 @@ class TestExternalDataSource(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
 
         # Try to create same type without prefix again
 
@@ -199,8 +196,8 @@ class TestExternalDataSource(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json(), {"message": "Source type already exists. Prefix is required"})
+        assert response.status_code == 400
+        assert response.json() == {"message": "Source type already exists. Prefix is required"}
 
         # Create with prefix
         response = self.client.post(
@@ -232,7 +229,7 @@ class TestExternalDataSource(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
 
         # Try to create same type with same prefix again
         response = self.client.post(
@@ -264,8 +261,8 @@ class TestExternalDataSource(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json(), {"message": "Prefix already exists"})
+        assert response.status_code == 400
+        assert response.json() == {"message": "Prefix already exists"}
 
     def test_create_external_data_source_incremental(self):
         response = self.client.post(
@@ -328,7 +325,7 @@ class TestExternalDataSource(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
 
     def test_create_external_data_source_incremental_missing_field(self):
         response = self.client.post(
@@ -517,8 +514,8 @@ class TestExternalDataSource(APIBaseTest):
             response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
         payload = response.json()
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(payload["results"]), 2)
+        assert response.status_code == 200
+        assert len(payload["results"]) == 2
 
     def test_dont_expose_job_inputs(self):
         self._create_external_data_source()
@@ -540,44 +537,38 @@ class TestExternalDataSource(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
         payload = response.json()
 
-        self.assertEqual(response.status_code, 200)
-        self.assertListEqual(
-            list(payload.keys()),
-            [
-                "id",
-                "created_at",
-                "created_by",
-                "status",
-                "source_type",
-                "latest_error",
-                "prefix",
-                "description",
-                "last_run_at",
-                "schemas",
-                "job_inputs",
-                "revenue_analytics_config",
-            ],
-        )
-        self.assertEqual(
-            payload["schemas"],
-            [
-                {
-                    "id": str(schema.pk),
-                    "incremental": False,
-                    "incremental_field": None,
-                    "incremental_field_type": None,
-                    "last_synced_at": schema.last_synced_at,
-                    "name": schema.name,
-                    "latest_error": schema.latest_error,
-                    "should_sync": schema.should_sync,
-                    "status": schema.status,
-                    "sync_type": schema.sync_type,
-                    "table": schema.table,
-                    "sync_frequency": sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval),
-                    "sync_time_of_day": schema.sync_time_of_day,
-                }
-            ],
-        )
+        assert response.status_code == 200
+        assert list(payload.keys()) == [
+            "id",
+            "created_at",
+            "created_by",
+            "status",
+            "source_type",
+            "latest_error",
+            "prefix",
+            "description",
+            "last_run_at",
+            "schemas",
+            "job_inputs",
+            "revenue_analytics_config",
+        ]
+        assert payload["schemas"] == [
+            {
+                "id": str(schema.pk),
+                "incremental": False,
+                "incremental_field": None,
+                "incremental_field_type": None,
+                "last_synced_at": schema.last_synced_at,
+                "name": schema.name,
+                "latest_error": schema.latest_error,
+                "should_sync": schema.should_sync,
+                "status": schema.status,
+                "sync_type": schema.sync_type,
+                "table": schema.table,
+                "sync_frequency": sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval),
+                "sync_time_of_day": schema.sync_time_of_day,
+            }
+        ]
 
     def test_delete_external_data_source(self):
         source = self._create_external_data_source()
@@ -599,9 +590,9 @@ class TestExternalDataSource(APIBaseTest):
 
         source.refresh_from_db()
 
-        self.assertEqual(mock_trigger.call_count, 1)
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(source.status, "Running")
+        assert mock_trigger.call_count == 1
+        assert response.status_code == 200
+        assert source.status == "Running"
 
     def test_database_schema(self):
         postgres_connection = psycopg.connect(
@@ -638,10 +629,10 @@ class TestExternalDataSource(APIBaseTest):
         )
         results = response.json()
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
         table_names = [table["table"] for table in results]
-        self.assertTrue("posthog_test" in table_names)
+        assert "posthog_test" in table_names
 
         with postgres_connection.cursor() as cursor:
             cursor.execute(
@@ -758,7 +749,7 @@ class TestExternalDataSource(APIBaseTest):
             )
             results = response.json()
 
-            self.assertEqual(response.status_code, 200)
+            assert response.status_code == 200
 
             table_names = [table["table"] for table in results]
             for table in STRIPE_ENDPOINTS:
@@ -820,8 +811,8 @@ class TestExternalDataSource(APIBaseTest):
                     "schema": "public",
                 },
             )
-            self.assertEqual(response.status_code, 400)
-            self.assertEqual(response.json(), {"message": "Hosts with internal IP addresses are not allowed"})
+            assert response.status_code == 400
+            assert response.json() == {"message": "Hosts with internal IP addresses are not allowed"}
 
         with override_settings(CLOUD_DEPLOYMENT="EU"):
             team_1 = Team.objects.create(id=1, organization=self.team.organization)
@@ -867,8 +858,8 @@ class TestExternalDataSource(APIBaseTest):
                     "schema": "public",
                 },
             )
-            self.assertEqual(response.status_code, 400)
-            self.assertEqual(response.json(), {"message": "Hosts with internal IP addresses are not allowed"})
+            assert response.status_code == 400
+            assert response.json() == {"message": "Hosts with internal IP addresses are not allowed"}
 
     def test_source_jobs(self):
         source = self._create_external_data_source()
@@ -1148,9 +1139,9 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         # Should succeed, not fail with "Required field 'auth' is missing"
-        assert (
-            patch_response.status_code == 200
-        ), f"Expected 200, got {patch_response.status_code}: {patch_response.json()}"
+        assert patch_response.status_code == 200, (
+            f"Expected 200, got {patch_response.status_code}: {patch_response.json()}"
+        )
 
         # Verify credentials are still intact
         source.refresh_from_db()
@@ -1372,9 +1363,9 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         # Should succeed, not fail with validation error
-        assert (
-            patch_response.status_code == 200
-        ), f"Expected 200, got {patch_response.status_code}: {patch_response.json()}"
+        assert patch_response.status_code == 200, (
+            f"Expected 200, got {patch_response.status_code}: {patch_response.json()}"
+        )
 
         # Verify credentials are preserved
         source.refresh_from_db()
@@ -1774,16 +1765,11 @@ class TestExternalDataSource(APIBaseTest):
                         },
                     },
                 )
-                self.assertEqual(
-                    response.status_code,
-                    400,
-                    f"Expected rejection for prefix '{prefix}' ({reason})",
-                )
+                assert response.status_code == 400, f"Expected rejection for prefix '{prefix}' ({reason})"
                 response_text = str(response.json()).lower()
                 # Different invalid prefixes return different error messages
-                self.assertTrue(
-                    "prefix" in response_text and ("letters" in response_text or "underscores" in response_text),
-                    f"Expected error message about prefix validation for '{prefix}' ({reason}), got: {response.json()}",
+                assert "prefix" in response_text and ("letters" in response_text or "underscores" in response_text), (
+                    f"Expected error message about prefix validation for '{prefix}' ({reason}), got: {response.json()}"
                 )
 
     def test_create_external_data_source_accepts_valid_prefix(self):
@@ -1816,8 +1802,4 @@ class TestExternalDataSource(APIBaseTest):
                         },
                     },
                 )
-                self.assertIn(
-                    response.status_code,
-                    [200, 201],
-                    f"Expected acceptance for valid prefix '{prefix}'",
-                )
+                assert response.status_code in [200, 201], f"Expected acceptance for valid prefix '{prefix}'"

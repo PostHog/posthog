@@ -1,3 +1,5 @@
+import pytest
+
 from posthog.temporal.data_imports.sources.stripe.constants import CHARGE_RESOURCE_NAME
 
 from products.revenue_analytics.backend.views.schemas.charge import SCHEMA as CHARGE_SCHEMA
@@ -76,7 +78,7 @@ class TestChargeStripeBuilder(StripeSourceBaseTest):
         """Test that build returns empty when source is None."""
         handle = self.create_stripe_handle_without_source()
 
-        with self.assertRaises(ValueError):
+        with pytest.raises(ValueError):
             build(handle)
 
     def test_charge_query_currency_conversion(self):
@@ -91,8 +93,8 @@ class TestChargeStripeBuilder(StripeSourceBaseTest):
 
         # Check for currency conversion functions in the query
         # The specific implementation may vary, but should include conversion logic
-        self.assertIn("currency", query_sql)
-        self.assertIn("EUR", query_sql)
+        assert "currency" in query_sql
+        assert "EUR" in query_sql
 
         # Print and snapshot for currency conversion case
         self.assertQueryMatchesSnapshot(query_sql, replace_all_numbers=True)

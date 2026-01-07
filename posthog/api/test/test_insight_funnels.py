@@ -29,11 +29,11 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
             },
         ).json()
 
-        self.assertEqual(len(response["result"]), 2)
-        self.assertEqual(response["result"][0]["name"], "Completed 1 step")
-        self.assertEqual(response["result"][1]["name"], "Completed 2 steps")
-        self.assertEqual(response["result"][0]["count"], 2)
-        self.assertEqual(response["result"][1]["count"], 2)
+        assert len(response["result"]) == 2
+        assert response["result"][0]["name"] == "Completed 1 step"
+        assert response["result"][1]["name"] == "Completed 2 steps"
+        assert response["result"][0]["count"] == 2
+        assert response["result"][1]["count"] == 2
 
     def test_funnel_strict_basic_post(self):
         journeys_for(
@@ -57,11 +57,11 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
             },
         ).json()
 
-        self.assertEqual(len(response["result"]), 2)
-        self.assertEqual(response["result"][0]["name"], "step one")
-        self.assertEqual(response["result"][1]["name"], "step two")
-        self.assertEqual(response["result"][0]["count"], 2)
-        self.assertEqual(response["result"][1]["count"], 1)
+        assert len(response["result"]) == 2
+        assert response["result"][0]["name"] == "step one"
+        assert response["result"][1]["name"] == "step two"
+        assert response["result"][0]["count"] == 2
+        assert response["result"][1]["count"] == 1
 
     def test_funnel_trends_basic_post(self):
         journeys_for(
@@ -95,9 +95,9 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
             },
         ).json()
 
-        self.assertEqual(len(response["result"]), 1)
-        self.assertEqual(response["result"][0]["count"], 7)
-        self.assertEqual(response["result"][0]["data"], [100, 100, 0, 0, 0, 0, 0])
+        assert len(response["result"]) == 1
+        assert response["result"][0]["count"] == 7
+        assert response["result"][0]["data"] == [100, 100, 0, 0, 0, 0, 0]
 
     def test_funnel_trends_unordered_basic_post(self):
         journeys_for(
@@ -132,9 +132,9 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
             },
         ).json()
 
-        self.assertEqual(len(response["result"]), 1)
-        self.assertEqual(response["result"][0]["count"], 7)
-        self.assertEqual(response["result"][0]["data"], [100, 100, 0, 0, 0, 0, 0])
+        assert len(response["result"]) == 1
+        assert response["result"][0]["count"] == 7
+        assert response["result"][0]["data"] == [100, 100, 0, 0, 0, 0, 0]
 
     def test_funnel_trends_basic_post_backwards_compatibility(self):
         journeys_for(
@@ -168,9 +168,9 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
             },
         ).json()
 
-        self.assertEqual(len(response["result"]), 1)
-        self.assertEqual(response["result"][0]["count"], 7)
-        self.assertEqual(response["result"][0]["data"], [100, 100, 0, 0, 0, 0, 0])
+        assert len(response["result"]) == 1
+        assert response["result"][0]["count"] == 7
+        assert response["result"][0]["data"] == [100, 100, 0, 0, 0, 0, 0]
 
     def test_funnel_trends_strict_basic_post(self):
         journeys_for(
@@ -211,9 +211,9 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
             },
         ).json()
 
-        self.assertEqual(len(response["result"]), 1)
-        self.assertEqual(response["result"][0]["count"], 7)
-        self.assertEqual(response["result"][0]["data"], [100, 50, 0, 0, 0, 0, 0])
+        assert len(response["result"]) == 1
+        assert response["result"][0]["count"] == 7
+        assert response["result"][0]["data"] == [100, 50, 0, 0, 0, 0, 0]
 
     @snapshot_clickhouse_queries
     def test_funnel_time_to_convert_auto_bins(self):
@@ -258,21 +258,14 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         response_data = response.json()
         response_data.pop("last_refresh")
-        self.assertEqual(
-            response_data,
-            response_data
-            | {
-                "is_cached": False,
-                "timezone": "UTC",
-                "result": {
-                    "bins": [[2220, 2], [42510, 0], [82800, 1]],
-                    "average_conversion_time": 29540,
-                },
-            },
-        )
+        assert response_data == response_data | {
+            "is_cached": False,
+            "timezone": "UTC",
+            "result": {"bins": [[2220, 2], [42510, 0], [82800, 1]], "average_conversion_time": 29540},
+        }
 
     @snapshot_clickhouse_queries
     def test_funnel_time_to_convert_auto_bins_strict(self):
@@ -317,21 +310,14 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         response_data = response.json()
         response_data.pop("last_refresh")
-        self.assertEqual(
-            response_data,
-            response_data
-            | {
-                "is_cached": False,
-                "timezone": "UTC",
-                "result": {
-                    "bins": [[2220.0, 2], [42510.0, 0], [82800.0, 1]],
-                    "average_conversion_time": 29540.0,
-                },
-            },
-        )
+        assert response_data == response_data | {
+            "is_cached": False,
+            "timezone": "UTC",
+            "result": {"bins": [[2220.0, 2], [42510.0, 0], [82800.0, 1]], "average_conversion_time": 29540.0},
+        }
 
     @snapshot_clickhouse_queries
     def test_funnel_time_to_convert_auto_bins_unordered(self):
@@ -376,21 +362,14 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         response_data = response.json()
         response_data.pop("last_refresh")
-        self.assertEqual(
-            response_data,
-            response_data
-            | {
-                "is_cached": False,
-                "timezone": "UTC",
-                "result": {
-                    "bins": [[2220.0, 2], [42510.0, 0], [82800.0, 1]],
-                    "average_conversion_time": 29540.0,
-                },
-            },
-        )
+        assert response_data == response_data | {
+            "is_cached": False,
+            "timezone": "UTC",
+            "result": {"bins": [[2220.0, 2], [42510.0, 0], [82800.0, 1]], "average_conversion_time": 29540.0},
+        }
 
     def test_funnel_invalid_action_handled(self):
         response = self.client.post(
@@ -398,11 +377,8 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
             {"actions": [{"id": 666, "type": "actions", "order": 0}, {"id": 666, "type": "actions", "order": 0}]},
         )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(
-            response.json(),
-            self.validation_error_response("Action ID 666 does not exist!"),
-        )
+        assert response.status_code == 400
+        assert response.json() == self.validation_error_response("Action ID 666 does not exist!")
 
     def test_funnel_basic_exclusions(self):
         journeys_for(
@@ -437,11 +413,11 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
             },
         ).json()
 
-        self.assertEqual(len(response["result"]), 2)
-        self.assertEqual(response["result"][0]["name"], "step one")
-        self.assertEqual(response["result"][1]["name"], "step two")
-        self.assertEqual(response["result"][0]["count"], 1)
-        self.assertEqual(response["result"][1]["count"], 1)
+        assert len(response["result"]) == 2
+        assert response["result"][0]["name"] == "step one"
+        assert response["result"][1]["name"] == "step two"
+        assert response["result"][0]["count"] == 1
+        assert response["result"][1]["count"] == 1
 
     def test_funnel_invalid_exclusions(self):
         journeys_for(
@@ -486,15 +462,12 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
             )
 
             if error:
-                self.assertEqual(response.status_code, 400)
-                self.assertEqual(
-                    response.json(),
-                    self.validation_error_response(
-                        "Exclusion steps cannot contain an event that's part of funnel steps."
-                    ),
+                assert response.status_code == 400
+                assert response.json() == self.validation_error_response(
+                    "Exclusion steps cannot contain an event that's part of funnel steps."
                 )
             else:
-                self.assertEqual(response.status_code, 200)
+                assert response.status_code == 200
 
     def test_single_property_breakdown(self):
         journeys_for(
@@ -551,30 +524,30 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
             f"/api/projects/{self.team.id}/insights/funnel?refresh=true",
             filter_with_breakdown,
         )
-        self.assertEqual(200, response.status_code)
+        assert 200 == response.status_code
 
         response_data = response.json()
         result = response_data["result"]
 
-        self.assertEqual(result[0][0]["name"], "$pageview")
-        self.assertEqual(result[0][0]["count"], 1)
-        self.assertEqual("Chrome", result[0][0]["breakdown"])
-        self.assertEqual("Chrome", result[0][0]["breakdown_value"])
+        assert result[0][0]["name"] == "$pageview"
+        assert result[0][0]["count"] == 1
+        assert "Chrome" == result[0][0]["breakdown"]
+        assert "Chrome" == result[0][0]["breakdown_value"]
 
-        self.assertEqual(result[0][1]["name"], "$pageleave")
-        self.assertEqual(result[0][1]["count"], 1)
-        self.assertEqual("Chrome", result[0][1]["breakdown"])
-        self.assertEqual("Chrome", result[0][1]["breakdown_value"])
+        assert result[0][1]["name"] == "$pageleave"
+        assert result[0][1]["count"] == 1
+        assert "Chrome" == result[0][1]["breakdown"]
+        assert "Chrome" == result[0][1]["breakdown_value"]
 
-        self.assertEqual(result[1][0]["name"], "$pageview")
-        self.assertEqual(result[1][0]["count"], 1)
-        self.assertEqual("Safari", result[1][0]["breakdown"])
-        self.assertEqual("Safari", result[1][0]["breakdown_value"])
+        assert result[1][0]["name"] == "$pageview"
+        assert result[1][0]["count"] == 1
+        assert "Safari" == result[1][0]["breakdown"]
+        assert "Safari" == result[1][0]["breakdown_value"]
 
-        self.assertEqual(result[1][1]["name"], "$pageleave")
-        self.assertEqual(result[1][1]["count"], 0)
-        self.assertEqual("Safari", result[1][1]["breakdown"])
-        self.assertEqual("Safari", result[1][1]["breakdown_value"])
+        assert result[1][1]["name"] == "$pageleave"
+        assert result[1][1]["count"] == 0
+        assert "Safari" == result[1][1]["breakdown"]
+        assert "Safari" == result[1][1]["breakdown_value"]
 
     @staticmethod
     def as_result(breakdown_properties: Union[str, list[str]]) -> dict[str, Any]:

@@ -18,9 +18,9 @@ class TestTaggedItemSerializerMixin(APIBaseTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["tags"], [])
-        self.assertEqual(Tag.objects.all().count(), 1)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["tags"] == []
+        assert Tag.objects.all().count() == 1
 
     def test_create_tags_on_non_ee_not_allowed(self):
         response = self.client.post(
@@ -28,9 +28,9 @@ class TestTaggedItemSerializerMixin(APIBaseTest):
             {"name": "Default", "pinned": "true", "tags": ["random", "hello"]},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()["tags"], [])
-        self.assertEqual(Tag.objects.all().count(), 0)
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["tags"] == []
+        assert Tag.objects.all().count() == 0
 
     def test_update_tags_on_non_ee_not_allowed(self):
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="private dashboard")
@@ -46,9 +46,9 @@ class TestTaggedItemSerializerMixin(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["tags"], [])
-        self.assertEqual(Tag.objects.all().count(), 1)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["tags"] == []
+        assert Tag.objects.all().count() == 1
 
     def test_undefined_tags_allows_other_props_to_update(self):
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="private dashboard")
@@ -62,24 +62,24 @@ class TestTaggedItemSerializerMixin(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["name"], "dashboard new name")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["name"] == "dashboard new name"
 
     def test_empty_tags_does_not_delete_tags(self):
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="private dashboard")
         tag = Tag.objects.create(name="random", team_id=self.team.id)
         dashboard.tagged_items.create(tag_id=tag.id)
 
-        self.assertEqual(TaggedItem.objects.all().count(), 1)
+        assert TaggedItem.objects.all().count() == 1
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard.id}",
             {"name": "dashboard new name", "tags": []},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["tags"], [])
-        self.assertEqual(Tag.objects.all().count(), 1)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["tags"] == []
+        assert Tag.objects.all().count() == 1
 
     def test_can_list_tags_on_non_ee_and_get_empty_list(self) -> None:
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="private dashboard")

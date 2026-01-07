@@ -224,12 +224,12 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
     def assertTraceEqual(self, trace: LLMTrace, expected_trace: dict):
         trace_dict = trace.model_dump()
         for key, value in expected_trace.items():
-            self.assertEqual(trace_dict[key], value, f"Field {key} does not match")
+            assert trace_dict[key] == value, f"Field {key} does not match"
 
     def assertEventEqual(self, event: LLMTraceEvent, expected_event: dict):
         event_dict = event.model_dump()
         for key, value in expected_event.items():
-            self.assertEqual(event_dict[key], value, f"Field {key} does not match")
+            assert event_dict[key] == value, f"Field {key} does not match"
 
     @freeze_time("2025-01-16T00:00:00Z")
     @snapshot_clickhouse_queries
@@ -262,7 +262,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         )
 
         response = TracesQueryRunner(team=self.team, query=TracesQuery()).calculate()
-        self.assertEqual(len(response.results), 2)
+        assert len(response.results) == 2
 
         trace = response.results[0]
         self.assertTraceEqual(
@@ -280,9 +280,9 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
                 "totalCost": 12.0,
             },
         )
-        self.assertEqual(trace.person.distinct_id, "person1")
+        assert trace.person.distinct_id == "person1"
         # Since these generation events don't have parent_id = trace_id, they are not root-level
-        self.assertEqual(len(trace.events), 0)
+        assert len(trace.events) == 0
 
         trace = response.results[1]
         self.assertTraceEqual(
@@ -298,10 +298,10 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
                 "totalCost": 6,
             },
         )
-        self.assertEqual(trace.person.distinct_id, "person2")
+        assert trace.person.distinct_id == "person2"
         # List view only returns summary events (metrics, feedback, and root-level events)
         # Since these generation events don't have parent_id = trace_id, they are not root-level
-        self.assertEqual(len(trace.events), 0)
+        assert len(trace.events) == 0
 
     # test_trace_id_filter removed - TracesQuery no longer supports traceId parameter
 
@@ -318,27 +318,27 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
                 timestamp=datetime(2025, 1, 15, i),
             )
         response = TracesQueryRunner(team=self.team, query=TracesQuery(limit=4, offset=0)).calculate()
-        self.assertEqual(response.hasMore, True)
-        self.assertEqual(len(response.results), 5)
-        self.assertEqual(response.results[0].id, "trace_10")
-        self.assertEqual(response.results[1].id, "trace_9")
-        self.assertEqual(response.results[2].id, "trace_8")
-        self.assertEqual(response.results[3].id, "trace_7")
-        self.assertEqual(response.results[4].id, "trace_6")
+        assert response.hasMore
+        assert len(response.results) == 5
+        assert response.results[0].id == "trace_10"
+        assert response.results[1].id == "trace_9"
+        assert response.results[2].id == "trace_8"
+        assert response.results[3].id == "trace_7"
+        assert response.results[4].id == "trace_6"
 
         response = TracesQueryRunner(team=self.team, query=TracesQuery(limit=4, offset=5)).calculate()
-        self.assertEqual(response.hasMore, True)
-        self.assertEqual(len(response.results), 5)
-        self.assertEqual(response.results[0].id, "trace_5")
-        self.assertEqual(response.results[1].id, "trace_4")
-        self.assertEqual(response.results[2].id, "trace_3")
-        self.assertEqual(response.results[3].id, "trace_2")
-        self.assertEqual(response.results[4].id, "trace_1")
+        assert response.hasMore
+        assert len(response.results) == 5
+        assert response.results[0].id == "trace_5"
+        assert response.results[1].id == "trace_4"
+        assert response.results[2].id == "trace_3"
+        assert response.results[3].id == "trace_2"
+        assert response.results[4].id == "trace_1"
 
         response = TracesQueryRunner(team=self.team, query=TracesQuery(limit=4, offset=10)).calculate()
-        self.assertEqual(response.hasMore, False)
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].id, "trace_0")
+        assert not response.hasMore
+        assert len(response.results) == 1
+        assert response.results[0].id == "trace_0"
 
     @freeze_time("2025-01-16T00:00:00Z")
     def test_maps_all_fields(self):
@@ -358,21 +358,18 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         )
 
         response = TracesQueryRunner(team=self.team, query=TracesQuery()).calculate()
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].id, "trace1")
-        self.assertEqual(response.results[0].totalLatency, 10.5)
-        self.assertEqual(len(response.results[0].events), 1)
-        self.assertLessEqual(
-            {
-                "$ai_latency": 10.5,
-                "$ai_provider": "posthog",
-                "$ai_model": "hog-destroyer",
-                "$ai_http_status": 200,
-                "$ai_base_url": "https://us.posthog.com",
-                "$ai_parent_id": "trace1",
-            }.items(),
-            response.results[0].events[0].properties.items(),
-        )
+        assert len(response.results) == 1
+        assert response.results[0].id == "trace1"
+        assert response.results[0].totalLatency == 10.5
+        assert len(response.results[0].events) == 1
+        assert {
+            "$ai_latency": 10.5,
+            "$ai_provider": "posthog",
+            "$ai_model": "hog-destroyer",
+            "$ai_http_status": 200,
+            "$ai_base_url": "https://us.posthog.com",
+            "$ai_parent_id": "trace1",
+        }.items() <= response.results[0].events[0].properties.items()
 
     @freeze_time("2025-01-01T00:00:00Z")
     def test_person_properties(self):
@@ -383,10 +380,10 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             team=self.team,
         )
         response = TracesQueryRunner(team=self.team, query=TracesQuery()).calculate()
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].person.created_at, "2025-01-01T00:00:00+00:00")
-        self.assertEqual(response.results[0].person.properties, {"email": "test@posthog.com"})
-        self.assertEqual(response.results[0].person.distinct_id, "person1")
+        assert len(response.results) == 1
+        assert response.results[0].person.created_at == "2025-01-01T00:00:00+00:00"
+        assert response.results[0].person.properties == {"email": "test@posthog.com"}
+        assert response.results[0].person.distinct_id == "person1"
 
     @freeze_time("2025-01-16T00:00:00Z")
     def test_date_range(self):
@@ -413,21 +410,21 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         response = TracesQueryRunner(
             team=self.team, query=TracesQuery(dateRange=DateRange(date_from="-1m"))
         ).calculate()
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].id, "trace1")
+        assert len(response.results) == 1
+        assert response.results[0].id == "trace1"
 
         response = TracesQueryRunner(
             team=self.team, query=TracesQuery(dateRange=DateRange(date_from="-2m"))
         ).calculate()
-        self.assertEqual(len(response.results), 2)
-        self.assertEqual(response.results[0].id, "trace1")
-        self.assertEqual(response.results[1].id, "trace2")
+        assert len(response.results) == 2
+        assert response.results[0].id == "trace1"
+        assert response.results[1].id == "trace2"
 
         response = TracesQueryRunner(
             team=self.team, query=TracesQuery(dateRange=DateRange(date_from="-3m", date_to="-2m"))
         ).calculate()
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].id, "trace3")
+        assert len(response.results) == 1
+        assert response.results[0].id == "trace3"
 
     def test_capture_range(self):
         _create_person(distinct_ids=["person1"], team=self.team)
@@ -448,8 +445,8 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             team=self.team,
             query=TracesQuery(dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z")),
         ).calculate()
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].id, "trace1")
+        assert len(response.results) == 1
+        assert response.results[0].id == "trace1"
 
         # Date is after the capture range
         _create_ai_generation_event(
@@ -468,8 +465,8 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             team=self.team,
             query=TracesQuery(dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z")),
         ).calculate()
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].id, "trace1")
+        assert len(response.results) == 1
+        assert response.results[0].id == "trace1"
 
         # Date is before the capture range
         _create_ai_generation_event(
@@ -488,8 +485,8 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             team=self.team,
             query=TracesQuery(dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z")),
         ).calculate()
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].id, "trace1")
+        assert len(response.results) == 1
+        assert response.results[0].id == "trace1"
 
     def test_event_property_filters(self):
         _create_person(distinct_ids=["person1"], team=self.team)
@@ -514,8 +511,8 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
                 properties=[EventPropertyFilter(key="foo", value="bar", operator=PropertyOperator.EXACT)],
             ),
         ).calculate()
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].id, "trace2")
+        assert len(response.results) == 1
+        assert response.results[0].id == "trace2"
 
     def test_person_property_filters(self):
         _create_person(distinct_ids=["person1"], team=self.team, properties={"foo": "bar"})
@@ -540,8 +537,8 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
                 properties=[PersonPropertyFilter(key="foo", value="bar", operator=PropertyOperator.EXACT)],
             ),
         ).calculate()
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].id, "trace1")
+        assert len(response.results) == 1
+        assert response.results[0].id == "trace1"
 
     def test_model_parameters(self):
         _create_person(distinct_ids=["person1"], team=self.team, properties={"foo": "bar"})
@@ -562,10 +559,10 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
                 dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
             ),
         ).calculate()
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].id, "trace1")
-        self.assertEqual(len(response.results[0].events), 1)
-        self.assertEqual(response.results[0].events[0].properties["$ai_model_parameters"], {"temperature": 0.5})
+        assert len(response.results) == 1
+        assert response.results[0].id == "trace1"
+        assert len(response.results[0].events) == 1
+        assert response.results[0].events[0].properties["$ai_model_parameters"] == {"temperature": 0.5}
 
     @snapshot_clickhouse_queries
     def test_properties_filter_with_multiple_events_in_group(self):
@@ -592,7 +589,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
                 dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
             ),
         ).calculate()
-        self.assertEqual(len(response.results), 1)
+        assert len(response.results) == 1
 
         response = TracesQueryRunner(
             team=self.team,
@@ -601,7 +598,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
                 dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
             ),
         ).calculate()
-        self.assertEqual(len(response.results), 1)
+        assert len(response.results) == 1
 
         response = TracesQueryRunner(
             team=self.team,
@@ -610,7 +607,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
                 dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
             ),
         ).calculate()
-        self.assertEqual(len(response.results), 0)
+        assert len(response.results) == 0
 
     @snapshot_clickhouse_queries
     def test_trace_property_filter_for_event_group(self):
@@ -646,7 +643,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
                 dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
             ),
         ).calculate()
-        self.assertEqual(len(response.results), 1)
+        assert len(response.results) == 1
 
         response = TracesQueryRunner(
             team=self.team,
@@ -655,7 +652,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
                 dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
             ),
         ).calculate()
-        self.assertEqual(len(response.results), 1)
+        assert len(response.results) == 1
 
         # Shouldn't return anything because there isn't such trace
         response = TracesQueryRunner(
@@ -668,7 +665,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
                 dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
             ),
         ).calculate()
-        self.assertEqual(len(response.results), 0)
+        assert len(response.results) == 0
 
     def test_trace_name_fallback(self):
         """
@@ -696,8 +693,8 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
                 dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
             ),
         ).calculate()
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].traceName, "runnable")
+        assert len(response.results) == 1
+        assert response.results[0].traceName == "runnable"
 
         _create_ai_generation_event(
             distinct_id="person1",
@@ -720,11 +717,11 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
                 dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
             ),
         ).calculate()
-        self.assertEqual(len(response.results), 2)  # Should return both traces
+        assert len(response.results) == 2  # Should return both traces
         # Find trace2 in the results
         trace2 = next((r for r in response.results if r.id == "trace2"), None)
         assert trace2 is not None
-        self.assertEqual(trace2.traceName, "bar")
+        assert trace2.traceName == "bar"
 
     def test_returns_metrics_and_feedback_events(self):
         _create_person(distinct_ids=["person1"], team=self.team)
@@ -759,12 +756,12 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
                 dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
             ),
         ).calculate()
-        self.assertEqual(len(response.results), 1)
+        assert len(response.results) == 1
         # List view only returns metrics, feedback, and root-level events
         # The generation event is not root-level (no parent_id = trace_id)
-        self.assertEqual(len(response.results[0].events), 2)
-        self.assertEqual(response.results[0].events[0].event, "$ai_metric")
-        self.assertEqual(response.results[0].events[1].event, "$ai_feedback")
+        assert len(response.results[0].events) == 2
+        assert response.results[0].events[0].event == "$ai_metric"
+        assert response.results[0].events[1].event == "$ai_feedback"
 
     def test_aggregates_full_trace_events_with_property_filters(self):
         trace_id = str(uuid.uuid4())
@@ -806,8 +803,8 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
                 dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
             ),
         ).calculate()
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].inputTokens, 2)
+        assert len(response.results) == 1
+        assert response.results[0].inputTokens == 2
 
         # With a property filter, should also return total latency of 2
         response = TracesQueryRunner(
@@ -817,8 +814,8 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
                 properties=[EventPropertyFilter(key="hay", value="needle", operator=PropertyOperator.EXACT)],
             ),
         ).calculate()
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].inputTokens, 2)
+        assert len(response.results) == 1
+        assert response.results[0].inputTokens == 2
 
     def test_removes_duplicate_events(self):
         """ClickHouse might sometimes return unmerged (duplicate) events."""
@@ -856,9 +853,9 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
                 dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
             ),
         ).calculate()
-        self.assertEqual(len(response.results), 1)
+        assert len(response.results) == 1
         # Generation events without parent_id = trace_id are not root-level, so not included
-        self.assertEqual(len(response.results[0].events), 0)
+        assert len(response.results[0].events) == 0
 
     def test_trace_name_from_trace_event(self):
         """Test that trace_name comes from $ai_trace events when they exist."""
@@ -892,9 +889,9 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             ),
         ).calculate()
 
-        self.assertEqual(len(response.results), 1)
+        assert len(response.results) == 1
         # Should use trace_name from trace event
-        self.assertEqual(response.results[0].traceName, "from_trace_event")
+        assert response.results[0].traceName == "from_trace_event"
 
     def test_trace_name_fallback_when_no_trace_events(self):
         """Test that trace_name falls back to generation events when no $ai_trace events exist."""
@@ -917,9 +914,9 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             ),
         ).calculate()
 
-        self.assertEqual(len(response.results), 1)
+        assert len(response.results) == 1
         # Should fall back to trace_name from generation events
-        self.assertEqual(response.results[0].traceName, "fallback_trace_name")
+        assert response.results[0].traceName == "fallback_trace_name"
 
     def test_trace_name_when_no_names_exist(self):
         """Test that trace_name is None when no names exist in either trace or generation events."""
@@ -952,9 +949,9 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             ),
         ).calculate()
 
-        self.assertEqual(len(response.results), 1)
+        assert len(response.results) == 1
         # Should be None when no names exist
-        self.assertIsNone(response.results[0].traceName)
+        assert response.results[0].traceName is None
 
     def test_trace_name_with_only_generation_events(self):
         """Test that trace_name works when only generation events exist (no trace events at all)."""
@@ -983,9 +980,9 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             ),
         ).calculate()
 
-        self.assertEqual(len(response.results), 1)
+        assert len(response.results) == 1
         # Should be None when no names exist in any events
-        self.assertIsNone(response.results[0].traceName)
+        assert response.results[0].traceName is None
 
     def test_mixed_type_parent_trace_comparison(self):
         """Test that parent_id and trace_id comparison works with mixed types (string vs float)."""
@@ -1046,13 +1043,13 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             ),
         ).calculate()
 
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].id, trace_id)
+        assert len(response.results) == 1
+        assert response.results[0].id == trace_id
 
         # Total latency should count all root-level items (where parent_id = trace_id)
         # With toString() fix: span1 (5.0) + span2 (3.0) + generation (2.0) = 10.0
         # All three have parent_id that equals trace_id when converted to string
-        self.assertEqual(response.results[0].totalLatency, 10.0)
+        assert response.results[0].totalLatency == 10.0
 
         # Query for full trace details
         response = TracesQueryRunner(
@@ -1062,9 +1059,9 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             ),
         ).calculate()
 
-        self.assertEqual(len(response.results), 1)
+        assert len(response.results) == 1
         # Should have all 3 events in the full trace
-        self.assertEqual(len(response.results[0].events), 3)
+        assert len(response.results[0].events) == 3
 
     def test_latency_missing_intermediate_levels(self):
         """
@@ -1135,9 +1132,9 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             query=TracesQuery(dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T01:00:00Z")),
         ).calculate()
 
-        self.assertEqual(len(response.results), 1)
+        assert len(response.results) == 1
         # Should sum all generation latencies: 100 + 150 + 200 = 450
-        self.assertEqual(response.results[0].totalLatency, 450.0)
+        assert response.results[0].totalLatency == 450.0
 
     @pytest.mark.skip(
         reason="This case is currently broken as is. Implementing a fix would require figuring out efficient trace tree traversal."
@@ -1196,9 +1193,9 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             query=TracesQuery(dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T01:00:00Z")),
         ).calculate()
 
-        self.assertEqual(len(response.results), 1)
+        assert len(response.results) == 1
         # Should sum: Span A (250) + Generation B1 (200) = 450
-        self.assertEqual(response.results[0].totalLatency, 450.0)
+        assert response.results[0].totalLatency == 450.0
 
     def test_latency_no_double_counting_when_parent_has_latency(self):
         """
@@ -1258,10 +1255,10 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             query=TracesQuery(dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T01:00:00Z")),
         ).calculate()
 
-        self.assertEqual(len(response.results), 1)
+        assert len(response.results) == 1
         # Should count: Span A (250) + Direct Generation (200) = 450
         # Should NOT double-count the children of Span A
-        self.assertEqual(response.results[0].totalLatency, 450.0)
+        assert response.results[0].totalLatency == 450.0
 
     def test_latency_no_span_id_automatic_leaves(self):
         """
@@ -1313,9 +1310,9 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             query=TracesQuery(dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T01:00:00Z")),
         ).calculate()
 
-        self.assertEqual(len(response.results), 1)
+        assert len(response.results) == 1
         # Should sum all generation latencies: 100 + 150 + 200 = 450
-        self.assertEqual(response.results[0].totalLatency, 450.0)
+        assert response.results[0].totalLatency == 450.0
 
     def test_latency_no_parent_id_root_leaves(self):
         """
@@ -1356,9 +1353,9 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             query=TracesQuery(dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T01:00:00Z")),
         ).calculate()
 
-        self.assertEqual(len(response.results), 1)
+        assert len(response.results) == 1
         # Should sum both root children: 100 + 150 = 250
-        self.assertEqual(response.results[0].totalLatency, 250.0)
+        assert response.results[0].totalLatency == 250.0
 
     def test_latency_mixed_span_id_presence(self):
         """
@@ -1412,9 +1409,9 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             query=TracesQuery(dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T01:00:00Z")),
         ).calculate()
 
-        self.assertEqual(len(response.results), 1)
+        assert len(response.results) == 1
         # Should sum: Span A (100) + Generation B (200) = 300, exclude Generation A1
-        self.assertEqual(response.results[0].totalLatency, 300.0)
+        assert response.results[0].totalLatency == 300.0
 
     @freeze_time("2025-01-16T00:00:00Z")
     def test_person_id_filter(self):
@@ -1437,20 +1434,20 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         )
 
         response = TracesQueryRunner(team=self.team, query=TracesQuery()).calculate()
-        self.assertEqual(len(response.results), 2)
+        assert len(response.results) == 2
 
         response = TracesQueryRunner(team=self.team, query=TracesQuery(personId=str(person1.uuid))).calculate()
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].id, "trace1")
-        self.assertEqual(response.results[0].person.uuid, str(person1.uuid))
+        assert len(response.results) == 1
+        assert response.results[0].id == "trace1"
+        assert response.results[0].person.uuid == str(person1.uuid)
 
         response = TracesQueryRunner(team=self.team, query=TracesQuery(personId=str(person2.uuid))).calculate()
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].id, "trace2")
-        self.assertEqual(response.results[0].person.uuid, str(person2.uuid))
+        assert len(response.results) == 1
+        assert response.results[0].id == "trace2"
+        assert response.results[0].person.uuid == str(person2.uuid)
 
         response = TracesQueryRunner(team=self.team, query=TracesQuery(personId=str(uuid.uuid4()))).calculate()
-        self.assertEqual(len(response.results), 0)
+        assert len(response.results) == 0
 
     @freeze_time("2025-01-16T00:00:00Z")
     @snapshot_clickhouse_queries
@@ -1488,30 +1485,30 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         )
 
         response = TracesQueryRunner(team=self.team, query=TracesQuery()).calculate()
-        self.assertEqual(len(response.results), 3)
+        assert len(response.results) == 3
 
         response = TracesQueryRunner(
             team=self.team, query=TracesQuery(groupKey=group_org_a, groupTypeIndex=0)
         ).calculate()
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].id, "trace_org_a")
+        assert len(response.results) == 1
+        assert response.results[0].id == "trace_org_a"
 
         response = TracesQueryRunner(
             team=self.team, query=TracesQuery(groupKey=group_org_b, groupTypeIndex=0)
         ).calculate()
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].id, "trace_org_b")
+        assert len(response.results) == 1
+        assert response.results[0].id == "trace_org_b"
 
         response = TracesQueryRunner(
             team=self.team, query=TracesQuery(groupKey=group_project_1, groupTypeIndex=1)
         ).calculate()
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].id, "trace_project_1")
+        assert len(response.results) == 1
+        assert response.results[0].id == "trace_project_1"
 
         response = TracesQueryRunner(
             team=self.team, query=TracesQuery(groupKey="nonexistent", groupTypeIndex=0)
         ).calculate()
-        self.assertEqual(len(response.results), 0)
+        assert len(response.results) == 0
 
     def test_embedding_only_trace_cost_aggregation(self):
         """Test that embedding-only traces properly aggregate costs in list view (regression test)."""
@@ -1539,24 +1536,24 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             query=TracesQuery(dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T01:00:00Z")),
         ).calculate()
 
-        self.assertEqual(len(response.results), 1)
+        assert len(response.results) == 1
         trace = response.results[0]
 
         # Verify costs are aggregated (not null)
         # "First text to embed" = 19 chars, "Second text to embed" = 20 chars
         expected_input_cost = 0.0039
-        self.assertIsNotNone(trace.inputCost)
-        self.assertEqual(trace.inputCost, expected_input_cost)
-        self.assertEqual(trace.totalCost, expected_input_cost)
+        assert trace.inputCost is not None
+        assert trace.inputCost == expected_input_cost
+        assert trace.totalCost == expected_input_cost
 
         # Embeddings typically don't set output cost/tokens, so they'll be None
-        self.assertIsNone(trace.outputCost)
-        self.assertIsNone(trace.outputTokens)
+        assert trace.outputCost is None
+        assert trace.outputTokens is None
 
         # Verify input tokens are aggregated
         expected_input_tokens = 39
-        self.assertIsNotNone(trace.inputTokens)
-        self.assertEqual(trace.inputTokens, expected_input_tokens)
+        assert trace.inputTokens is not None
+        assert trace.inputTokens == expected_input_tokens
 
     def test_export_limit_caps_at_max_traces_limit(self):
         """Test that export context caps limit at MAX_SELECT_TRACES_LIMIT_EXPORT."""
@@ -1565,7 +1562,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             query=TracesQuery(limit=50000),
             limit_context=LimitContext.EXPORT,
         )
-        self.assertEqual(runner.paginator.limit, MAX_SELECT_TRACES_LIMIT_EXPORT)
+        assert runner.paginator.limit == MAX_SELECT_TRACES_LIMIT_EXPORT
 
     def test_export_limit_respects_smaller_explicit_limit(self):
         """Test that export context respects explicit limits smaller than MAX_SELECT_TRACES_LIMIT_EXPORT."""
@@ -1574,7 +1571,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             query=TracesQuery(limit=100),
             limit_context=LimitContext.EXPORT,
         )
-        self.assertEqual(runner.paginator.limit, 100)
+        assert runner.paginator.limit == 100
 
     def test_export_limit_defaults_to_max_when_no_limit_specified(self):
         """Test that export context defaults to MAX_SELECT_TRACES_LIMIT_EXPORT when no limit is specified."""
@@ -1583,7 +1580,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             query=TracesQuery(),
             limit_context=LimitContext.EXPORT,
         )
-        self.assertEqual(runner.paginator.limit, MAX_SELECT_TRACES_LIMIT_EXPORT)
+        assert runner.paginator.limit == MAX_SELECT_TRACES_LIMIT_EXPORT
 
     def test_query_limit_uses_default_when_no_limit_specified(self):
         """Test that query context uses default (100) when no limit is specified."""
@@ -1592,7 +1589,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             query=TracesQuery(),
             limit_context=LimitContext.QUERY,
         )
-        self.assertEqual(runner.paginator.limit, 100)
+        assert runner.paginator.limit == 100
 
     def test_query_limit_respects_explicit_limit(self):
         """Test that query context respects explicit limits."""
@@ -1601,7 +1598,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             query=TracesQuery(limit=50),
             limit_context=LimitContext.QUERY,
         )
-        self.assertEqual(runner.paginator.limit, 50)
+        assert runner.paginator.limit == 50
 
     @freeze_time("2025-01-16T00:00:00Z")
     def test_export_returns_more_than_default_limit(self):
@@ -1623,7 +1620,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             limit_context=LimitContext.EXPORT,
         ).calculate()
 
-        self.assertEqual(len(response.results), 110)
+        assert len(response.results) == 110
 
     @freeze_time("2025-01-16T00:00:00Z")
     def test_random_order(self):
@@ -1642,16 +1639,16 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         # Default ordering (timestamp DESC) should return newest first
         response_default = TracesQueryRunner(team=self.team, query=TracesQuery(limit=5)).calculate()
         # Paginator returns limit+1 to determine hasMore
-        self.assertGreaterEqual(len(response_default.results), 5)
+        assert len(response_default.results) >= 5
         # Should be in descending timestamp order (newest first)
-        self.assertEqual(response_default.results[0].id, "trace_9")
-        self.assertEqual(response_default.results[1].id, "trace_8")
-        self.assertEqual(response_default.results[2].id, "trace_7")
+        assert response_default.results[0].id == "trace_9"
+        assert response_default.results[1].id == "trace_8"
+        assert response_default.results[2].id == "trace_7"
 
         # Random ordering should return different order
         response_random = TracesQueryRunner(team=self.team, query=TracesQuery(limit=5, randomOrder=True)).calculate()
         # Paginator returns limit+1 to determine hasMore
-        self.assertGreaterEqual(len(response_random.results), 5)
+        assert len(response_random.results) >= 5
 
         # Get IDs from random ordering
         random_ids = [trace.id for trace in response_random.results]
@@ -1660,7 +1657,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         # We can't assert they're definitely different due to randomness,
         # but we can assert all returned traces are valid
         for trace_id in random_ids:
-            self.assertTrue(trace_id.startswith("trace_"))
+            assert trace_id.startswith("trace_")
             trace_num = int(trace_id.split("_")[1])
-            self.assertGreaterEqual(trace_num, 0)
-            self.assertLess(trace_num, 10)
+            assert trace_num >= 0
+            assert trace_num < 10

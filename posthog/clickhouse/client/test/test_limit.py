@@ -2,6 +2,7 @@ import uuid
 import asyncio
 from collections.abc import Callable
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
@@ -34,7 +35,7 @@ class TestRateLimit(BaseTest):
 
     def test_rate_limit_fail(self):
         self.cancels.append(self.limit.use(is_api=True, team_id=8, task_id=17))
-        with self.assertRaises(ConcurrencyLimitExceeded):
+        with pytest.raises(ConcurrencyLimitExceeded):
             self.cancels.append(self.limit.use(True, 8, 18))
 
     def test_rate_limits_no_inference(self):
@@ -83,7 +84,7 @@ class TestRateLimit(BaseTest):
         result = 0
         with self.limit.run(is_api=True, team_id=9, task_id=17):
             result += 1
-            with self.assertRaises(ConcurrencyLimitExceeded):
+            with pytest.raises(ConcurrencyLimitExceeded):
                 with self.limit.run(is_api=True, team_id=9, task_id=18):
                     result += 2
                 result += 4
@@ -104,12 +105,12 @@ class TestRateLimit(BaseTest):
     def test_custom_rate_limit_fail(self):
         self.cancels.append(self.limit.use(is_api=True, team_id=8, task_id=17))
         self.cancels.append(self.limit.use(is_api=True, team_id=8, task_id=18, limit=2))
-        with self.assertRaises(ConcurrencyLimitExceeded):
+        with pytest.raises(ConcurrencyLimitExceeded):
             self.cancels.append(self.limit.use(True, 8, 19, limit=2))
 
     def test_exception(self):
         result = 0
-        with self.assertRaises(Exception):
+        with pytest.raises(Exception):
             result += 1
             with self.limit.run(is_api=True, team_id=9, task_id=17):
                 result += 2
@@ -145,7 +146,7 @@ class TestRateLimit(BaseTest):
 
         # Second task should retry and eventually fail due to timeout
         retry_limit.use(task_id=2)
-        with self.assertRaises(ConcurrencyLimitExceeded):
+        with pytest.raises(ConcurrencyLimitExceeded):
             with retry_limit.run(task_id=2):
                 pass
 
@@ -229,7 +230,7 @@ class TestOrgConcurrencyLimit(BaseTest):
             result = get_org_app_concurrency_limit(self.organization.id)
 
             # Should return None since no org-specific limit is configured
-            self.assertIsNone(result)
+            assert result is None
 
     @patch("posthog.clickhouse.client.limit.TEST", False)
     def test_org_limit_with_cache_miss_then_hit(self):
@@ -254,7 +255,7 @@ class TestOrgConcurrencyLimit(BaseTest):
             result = get_org_app_concurrency_limit(self.organization.id)
 
             # Should return the org limit
-            self.assertEqual(result, 50)
+            assert result == 50
             # Verify that setex was called to cache the result
             mock_redis.return_value.setex.assert_called_once_with(
                 f"org_app_concurrency_limit:{self.organization.id}", 3600, 50
@@ -267,7 +268,7 @@ class TestOrgConcurrencyLimit(BaseTest):
             result2 = get_org_app_concurrency_limit(self.organization.id)
 
             # Should return cached value
-            self.assertEqual(result2, 50)
+            assert result2 == 50
 
     @patch("posthog.clickhouse.client.limit.TEST", False)
     def test_org_limit_with_invalid_limit_values(self):
@@ -299,7 +300,7 @@ class TestOrgConcurrencyLimit(BaseTest):
                 self.organization.save()
 
                 result = get_org_app_concurrency_limit(self.organization.id)
-                self.assertIsNone(result)
+                assert result is None
 
     @patch("posthog.clickhouse.client.limit.TEST", False)
     def test_org_limit_exception_handling(self):
@@ -311,7 +312,7 @@ class TestOrgConcurrencyLimit(BaseTest):
             mock_redis.return_value.get.return_value = None
 
             result = get_org_app_concurrency_limit(uuid.uuid4())  # Non-existent org
-            self.assertIsNone(result)
+            assert result is None
 
 
 class TestMaterializedEndpointsRateLimiter(BaseTest):
@@ -323,7 +324,7 @@ class TestMaterializedEndpointsRateLimiter(BaseTest):
         rate_limiter = get_materialized_endpoints_rate_limiter()
 
         is_applicable = rate_limiter.applicable(team_id=self.team.id, is_materialized_endpoint=True)
-        self.assertTrue(is_applicable)
+        assert is_applicable
 
     @patch("posthog.clickhouse.client.limit.TEST", False)
     def test_rate_limiter_skips_for_non_materialized_endpoints(self):
@@ -333,7 +334,7 @@ class TestMaterializedEndpointsRateLimiter(BaseTest):
         rate_limiter = get_materialized_endpoints_rate_limiter()
 
         is_applicable = rate_limiter.applicable(team_id=self.team.id, is_materialized_endpoint=False)
-        self.assertFalse(is_applicable)
+        assert not is_applicable
 
     @patch("posthog.clickhouse.client.limit.TEST", False)
     def test_rate_limiter_skips_when_is_materialized_endpoint_not_provided(self):
@@ -343,7 +344,7 @@ class TestMaterializedEndpointsRateLimiter(BaseTest):
         rate_limiter = get_materialized_endpoints_rate_limiter()
 
         is_applicable = rate_limiter.applicable(team_id=self.team.id)
-        self.assertFalse(is_applicable)
+        assert not is_applicable
 
     @patch("posthog.clickhouse.client.limit.TEST", False)
     def test_rate_limiter_skips_without_team_id(self):
@@ -353,7 +354,7 @@ class TestMaterializedEndpointsRateLimiter(BaseTest):
         rate_limiter = get_materialized_endpoints_rate_limiter()
 
         is_applicable = rate_limiter.applicable(is_materialized_endpoint=True)
-        self.assertFalse(is_applicable)
+        assert not is_applicable
 
     @patch("posthog.clickhouse.client.limit.TEST", False)
     def test_rate_limiter_has_correct_max_concurrency(self):
@@ -362,7 +363,7 @@ class TestMaterializedEndpointsRateLimiter(BaseTest):
 
         rate_limiter = get_materialized_endpoints_rate_limiter()
 
-        self.assertEqual(rate_limiter.max_concurrency, 10)
+        assert rate_limiter.max_concurrency == 10
 
     @patch("posthog.clickhouse.client.limit.TEST", False)
     def test_rate_limiter_uses_team_based_task_key(self):
@@ -372,7 +373,7 @@ class TestMaterializedEndpointsRateLimiter(BaseTest):
         rate_limiter = get_materialized_endpoints_rate_limiter()
 
         task_name = rate_limiter.get_task_name(team_id=123)
-        self.assertEqual(task_name, "materialized_endpoints:query:per-team:123")
+        assert task_name == "materialized_endpoints:query:per-team:123"
 
     @patch("posthog.clickhouse.client.limit.TEST", False)
     def test_rate_limiter_enforces_concurrency_limit(self):
@@ -389,7 +390,7 @@ class TestMaterializedEndpointsRateLimiter(BaseTest):
                 acquired_slots.append(slot)
 
             # 11th request should fail
-            with self.assertRaises(ConcurrencyLimitExceeded):
+            with pytest.raises(ConcurrencyLimitExceeded):
                 rate_limiter.use(team_id=self.team.id, task_id="test-slot-overflow", is_materialized_endpoint=True)
         finally:
             # Clean up all acquired slots
@@ -443,7 +444,7 @@ class TestDashboardQueriesRateLimiter(BaseTest):
             is_applicable = rate_limiter.applicable(
                 org_id=str(self.organization.id), dashboard_id=123, team_id=self.team.id
             )
-            self.assertFalse(is_applicable)
+            assert not is_applicable
 
     @patch("posthog.clickhouse.client.limit.TEST", False)
     def test_rate_limiter_skips_for_temporal_workflows(self):
@@ -457,7 +458,7 @@ class TestDashboardQueriesRateLimiter(BaseTest):
                 is_applicable = rate_limiter.applicable(
                     org_id=str(self.organization.id), dashboard_id=123, team_id=self.team.id
                 )
-                self.assertFalse(is_applicable)
+                assert not is_applicable
 
     @patch("posthog.clickhouse.client.limit.TEST", False)
     def test_rate_limiter_skips_for_temporal_activity(self):
@@ -476,7 +477,7 @@ class TestDashboardQueriesRateLimiter(BaseTest):
         env = ActivityEnvironment()
         result = asyncio.run(env.run(check_rate_limiter_in_activity))
 
-        self.assertFalse(result, "Rate limiter should not apply in Temporal activity context")
+        assert not result, "Rate limiter should not apply in Temporal activity context"
 
     @patch("posthog.clickhouse.client.limit.TEST", False)
     def test_rate_limiter_applies_for_regular_requests(self):
@@ -490,7 +491,7 @@ class TestDashboardQueriesRateLimiter(BaseTest):
                 is_applicable = rate_limiter.applicable(
                     org_id=str(self.organization.id), dashboard_id=123, team_id=self.team.id
                 )
-                self.assertTrue(is_applicable)
+                assert is_applicable
 
     @patch("posthog.clickhouse.client.limit.TEST", False)
     def test_rate_limiter_skips_for_api_requests(self):
@@ -504,4 +505,4 @@ class TestDashboardQueriesRateLimiter(BaseTest):
                 is_applicable = rate_limiter.applicable(
                     org_id=str(self.organization.id), dashboard_id=123, team_id=self.team.id, is_api=True
                 )
-                self.assertFalse(is_applicable)
+                assert not is_applicable

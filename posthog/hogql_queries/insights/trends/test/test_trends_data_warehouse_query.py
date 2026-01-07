@@ -599,9 +599,9 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         with freeze_time("2023-01-07"):
             response = TrendsQueryRunner(team=self.team, query=trends_query).calculate()
 
-        self.assertEqual(1, len(response.results))
+        assert 1 == len(response.results)
 
-        self.assertEqual("2023-01-01", response.results[0]["days"][0])
+        assert "2023-01-01" == response.results[0]["days"][0]
 
     @override_settings(IN_UNIT_TESTING=True)
     @snapshot_clickhouse_queries
@@ -637,10 +637,10 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         with freeze_time("2023-01-07"):
             response = TrendsQueryRunner(team=self.team, query=trends_query).calculate()
 
-        self.assertEqual(2, len(response.results))
+        assert 2 == len(response.results)
 
-        self.assertEqual("2022-12-01", response.results[0]["days"][0])
-        self.assertEqual("2022-12-01", response.results[1]["days"][0])
+        assert "2022-12-01" == response.results[0]["days"][0]
+        assert "2022-12-01" == response.results[1]["days"][0]
 
     @override_settings(IN_UNIT_TESTING=True)
     @snapshot_clickhouse_queries

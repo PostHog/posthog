@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import BaseTest
 
 from django.core.exceptions import ValidationError
@@ -14,13 +15,13 @@ class TestTaggedItem(BaseTest):
         tag = Tag.objects.create(name="tag", team_id=self.team.id)
 
         # Before migration you can create duplicate tagged items
-        with self.assertRaises(ValidationError):
+        with pytest.raises(ValidationError):
             TaggedItem.objects.create(dashboard_id=dashboard.id, insight_id=insight.id, tag_id=tag.id)
 
     def test_at_least_one_constraint(self):
         tag = Tag.objects.create(name="tag", team_id=self.team.id)
 
-        with self.assertRaises(ValidationError):
+        with pytest.raises(ValidationError):
             TaggedItem.objects.create(tag_id=tag.id)
 
     def test_uniqueness_constraint_dashboard(self):
@@ -28,7 +29,7 @@ class TestTaggedItem(BaseTest):
         tag = Tag.objects.create(name="tag", team_id=self.team.id)
 
         TaggedItem.objects.create(dashboard_id=dashboard.id, tag_id=tag.id)
-        with self.assertRaises(ValidationError):
+        with pytest.raises(ValidationError):
             TaggedItem.objects.create(dashboard_id=dashboard.id, tag_id=tag.id)
 
     def test_uniqueness_constraint_insight(self):
@@ -38,7 +39,7 @@ class TestTaggedItem(BaseTest):
         tag = Tag.objects.create(name="tag", team_id=self.team.id)
 
         TaggedItem.objects.create(insight_id=insight.id, tag_id=tag.id)
-        with self.assertRaises(ValidationError):
+        with pytest.raises(ValidationError):
             TaggedItem.objects.create(insight_id=insight.id, tag_id=tag.id)
 
     def test_uniqueness_constraint_event_definition(self):
@@ -53,7 +54,7 @@ class TestTaggedItem(BaseTest):
             tag = Tag.objects.create(name="tag", team_id=self.team.id)
 
             TaggedItem.objects.create(event_definition_id=event_definition.id, tag_id=tag.id)
-            with self.assertRaises(ValidationError):
+            with pytest.raises(ValidationError):
                 TaggedItem.objects.create(event_definition_id=event_definition.id, tag_id=tag.id)
 
     def test_uniqueness_constraint_property_definition(self):
@@ -68,7 +69,7 @@ class TestTaggedItem(BaseTest):
             tag = Tag.objects.create(name="tag", team_id=self.team.id)
 
             TaggedItem.objects.create(property_definition_id=property_definition.id, tag_id=tag.id)
-            with self.assertRaises(ValidationError):
+            with pytest.raises(ValidationError):
                 TaggedItem.objects.create(property_definition_id=property_definition.id, tag_id=tag.id)
 
     def test_uniqueness_constraint_action(self):
@@ -76,5 +77,5 @@ class TestTaggedItem(BaseTest):
         tag = Tag.objects.create(name="tag", team_id=self.team.id)
 
         TaggedItem.objects.create(action_id=action.id, tag_id=tag.id)
-        with self.assertRaises(ValidationError):
+        with pytest.raises(ValidationError):
             TaggedItem.objects.create(action_id=action.id, tag_id=tag.id)

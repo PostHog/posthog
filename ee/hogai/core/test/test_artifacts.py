@@ -25,14 +25,14 @@ class TestDocumentBlocks(BaseTest):
     )
     def test_markdown_block_valid(self, _name: str, content: str, expected: str):
         block = MarkdownBlock(content=content)
-        self.assertEqual(block.type, "markdown")
-        self.assertEqual(block.content, expected)
+        assert block.type == "markdown"
+        assert block.content == expected
 
     def test_visualization_block_valid(self):
         query = AssistantTrendsQuery(series=[])
         block = VisualizationBlock(query=query)
-        self.assertEqual(block.type, "visualization")
-        self.assertEqual(block.query, query)
+        assert block.type == "visualization"
+        assert block.query == query
 
     @parameterized.expand(
         [
@@ -43,22 +43,22 @@ class TestDocumentBlocks(BaseTest):
     )
     def test_session_replay_block_valid(self, _name: str, session_id: str, timestamp_ms: int, title: str | None):
         block = SessionReplayBlock(session_id=session_id, timestamp_ms=timestamp_ms, title=title)
-        self.assertEqual(block.type, "session_replay")
-        self.assertEqual(block.session_id, session_id)
-        self.assertEqual(block.timestamp_ms, timestamp_ms)
-        self.assertEqual(block.title, title)
+        assert block.type == "session_replay"
+        assert block.session_id == session_id
+        assert block.timestamp_ms == timestamp_ms
+        assert block.title == title
 
     def test_session_replay_block_zero_timestamp_valid(self):
         # Timestamp validation happens at the application level, not schema level
         # since TypeScript schemas don't support numeric constraints
         block = SessionReplayBlock(session_id="session_123", timestamp_ms=0)
-        self.assertEqual(block.timestamp_ms, 0)
+        assert block.timestamp_ms == 0
 
 
 class TestDocumentArtifactContent(BaseTest):
     def test_empty_blocks(self):
         content = DocumentArtifactContent(blocks=[])
-        self.assertEqual(content.blocks, [])
+        assert content.blocks == []
 
     def test_mixed_blocks(self):
         query = AssistantTrendsQuery(series=[])
@@ -70,11 +70,11 @@ class TestDocumentArtifactContent(BaseTest):
         ]
         content = DocumentArtifactContent(blocks=blocks)
 
-        self.assertEqual(len(content.blocks), 4)
-        self.assertIsInstance(content.blocks[0], MarkdownBlock)
-        self.assertIsInstance(content.blocks[1], VisualizationBlock)
-        self.assertIsInstance(content.blocks[2], SessionReplayBlock)
-        self.assertIsInstance(content.blocks[3], MarkdownBlock)
+        assert len(content.blocks) == 4
+        assert isinstance(content.blocks[0], MarkdownBlock)
+        assert isinstance(content.blocks[1], VisualizationBlock)
+        assert isinstance(content.blocks[2], SessionReplayBlock)
+        assert isinstance(content.blocks[3], MarkdownBlock)
 
     def test_invalid_block_type(self):
         with pytest.raises(ValidationError):
@@ -92,20 +92,20 @@ class TestDocumentArtifactContent(BaseTest):
         serialized = original.model_dump()
         deserialized = DocumentArtifactContent.model_validate(serialized)
 
-        self.assertEqual(len(deserialized.blocks), 3)
+        assert len(deserialized.blocks) == 3
         block0 = deserialized.blocks[0]
         block1 = deserialized.blocks[1]
         block2 = deserialized.blocks[2]
         assert isinstance(block0, MarkdownBlock)
         assert isinstance(block1, VisualizationBlock)
         assert isinstance(block2, SessionReplayBlock)
-        self.assertEqual(block0.content, "# Title")
+        assert block0.content == "# Title"
         # Note: AssistantTrendsQuery may deserialize as TrendsQuery since both share kind="TrendsQuery"
         # and TrendsQuery appears first in the union. We verify the essential data is preserved.
         assert isinstance(block1.query, TrendsQuery | AssistantTrendsQuery)
-        self.assertEqual(block1.query.kind, query.kind)
-        self.assertEqual(block1.query.series, query.series)
-        self.assertEqual(block2.session_id, "sess")
+        assert block1.query.kind == query.kind
+        assert block1.query.series == query.series
+        assert block2.session_id == "sess"
 
 
 class TestVisualizationArtifactContent(BaseTest):
@@ -113,17 +113,17 @@ class TestVisualizationArtifactContent(BaseTest):
         trends = AssistantTrendsQuery(series=[])
         content = VisualizationArtifactContent(query=trends, name="Test Trends", description="Shows trend data")
 
-        self.assertEqual(content.query, trends)
-        self.assertEqual(content.name, "Test Trends")
-        self.assertEqual(content.description, "Shows trend data")
+        assert content.query == trends
+        assert content.name == "Test Trends"
+        assert content.description == "Shows trend data"
 
     def test_minimal_content(self):
         trends = AssistantTrendsQuery(series=[])
         content = VisualizationArtifactContent(query=trends)
 
-        self.assertEqual(content.query, trends)
-        self.assertIsNone(content.name)
-        self.assertIsNone(content.description)
+        assert content.query == trends
+        assert content.name is None
+        assert content.description is None
 
     def test_serialization_round_trip(self):
         original = VisualizationArtifactContent(
@@ -134,6 +134,6 @@ class TestVisualizationArtifactContent(BaseTest):
         serialized = original.model_dump()
         deserialized = VisualizationArtifactContent.model_validate(serialized)
 
-        self.assertEqual(deserialized.name, "My Chart")
-        self.assertEqual(deserialized.description, "Chart description")
-        self.assertIsNotNone(deserialized.query)
+        assert deserialized.name == "My Chart"
+        assert deserialized.description == "Chart description"
+        assert deserialized.query is not None

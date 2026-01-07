@@ -74,10 +74,10 @@ class TestInsightRagContextNode(ClickhouseTestMixin, BaseTest):
         response = retriever.run(AssistantState(root_tool_insight_plan="Plan", messages=[]), {})
         assert response is not None
         assert response.rag_context is not None
-        self.assertIn("Action", response.rag_context)
-        self.assertIn("Description", response.rag_context)
-        self.assertIn(str(self.action.id), response.rag_context)
-        self.assertEqual(embed_mock.call_count, 1)
+        assert "Action" in response.rag_context
+        assert "Description" in response.rag_context
+        assert str(self.action.id) in response.rag_context
+        assert embed_mock.call_count == 1
 
     @patch.object(InsightRagContextNode, "context_manager", new_callable=lambda: MagicMock())
     def test_injects_actions_from_context(self, mock_context_manager, cohere_mock, embed_mock):
@@ -103,11 +103,11 @@ class TestInsightRagContextNode(ClickhouseTestMixin, BaseTest):
         assert response is not None
         assert response.rag_context is not None
         # Should include both the vector-searched action and the context action
-        self.assertIn("Action", response.rag_context)  # Original action from vector search
-        self.assertIn("Context Action", response.rag_context)  # Action from UI context
-        self.assertIn("From UI Context", response.rag_context)
-        self.assertIn(str(context_action.id), response.rag_context)
-        self.assertEqual(embed_mock.call_count, 1)
+        assert "Action" in response.rag_context  # Original action from vector search
+        assert "Context Action" in response.rag_context  # Action from UI context
+        assert "From UI Context" in response.rag_context
+        assert str(context_action.id) in response.rag_context
+        assert embed_mock.call_count == 1
 
     @patch.object(InsightRagContextNode, "context_manager", new_callable=lambda: MagicMock())
     def test_handles_actions_context_when_embedding_fails(self, mock_context_manager, cohere_mock, embed_mock):
@@ -133,6 +133,6 @@ class TestInsightRagContextNode(ClickhouseTestMixin, BaseTest):
         assert response is not None
         assert response.rag_context is not None
         # Should still include actions from context even when embedding fails
-        self.assertIn("Context Only Action", response.rag_context)
-        self.assertIn("Only from context", response.rag_context)
-        self.assertIn(str(context_action.id), response.rag_context)
+        assert "Context Only Action" in response.rag_context
+        assert "Only from context" in response.rag_context
+        assert str(context_action.id) in response.rag_context

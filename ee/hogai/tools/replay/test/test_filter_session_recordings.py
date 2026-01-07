@@ -102,8 +102,8 @@ class TestFilterSessionRecordingsTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         result_text, artifact = await tool._arun_impl(recordings_filters=filters)
 
-        self.assertIn("No recordings found", result_text)
-        self.assertIsNone(artifact)
+        assert "No recordings found" in result_text
+        assert artifact is None
 
     async def test_returns_single_recording_with_metadata(self):
         base_time = datetime(2025, 1, 15, 10, 0, 0)
@@ -123,13 +123,13 @@ class TestFilterSessionRecordingsTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         result_text, artifact = await tool._arun_impl(recordings_filters=filters)
 
-        self.assertIn("Found 1 recording", result_text)
-        self.assertIn("User: user_1", result_text)
-        self.assertIn("https://example.com/page1", result_text)
-        self.assertIn("10 clicks", result_text)
-        self.assertIn("5 keypresses", result_text)
-        self.assertIn("Console errors: 2", result_text)
-        self.assertIsNone(artifact)
+        assert "Found 1 recording" in result_text
+        assert "User: user_1" in result_text
+        assert "https://example.com/page1" in result_text
+        assert "10 clicks" in result_text
+        assert "5 keypresses" in result_text
+        assert "Console errors: 2" in result_text
+        assert artifact is None
 
     async def test_returns_multiple_recordings_formatted(self):
         base_time = datetime(2025, 1, 15, 10, 0, 0)
@@ -147,11 +147,11 @@ class TestFilterSessionRecordingsTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         result_text, artifact = await tool._arun_impl(recordings_filters=filters)
 
-        self.assertIn("Found 3 recordings", result_text)
-        self.assertIn("1.", result_text)
-        self.assertIn("2.", result_text)
-        self.assertIn("3.", result_text)
-        self.assertIsNone(artifact)
+        assert "Found 3 recordings" in result_text
+        assert "1." in result_text
+        assert "2." in result_text
+        assert "3." in result_text
+        assert artifact is None
 
     async def test_limits_displayed_recordings_to_5(self):
         base_time = datetime(2025, 1, 15, 5, 0, 0)  # Start at 5am so all 7 are before 12pm
@@ -167,12 +167,12 @@ class TestFilterSessionRecordingsTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         result_text, artifact = await tool._arun_impl(recordings_filters=filters)
 
-        self.assertIn("Found 7 recordings", result_text)
-        self.assertIn("...and 2 more recordings", result_text)
-        self.assertIn("1.", result_text)
-        self.assertIn("5.", result_text)
-        self.assertNotIn("6.", result_text)
-        self.assertIsNone(artifact)
+        assert "Found 7 recordings" in result_text
+        assert "...and 2 more recordings" in result_text
+        assert "1." in result_text
+        assert "5." in result_text
+        assert "6." not in result_text
+        assert artifact is None
 
     async def test_filters_by_duration(self):
         base_time = datetime(2025, 1, 15, 10, 0, 0)
@@ -206,10 +206,10 @@ class TestFilterSessionRecordingsTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         result_text, artifact = await tool._arun_impl(recordings_filters=filters)
 
-        self.assertIn("Found 1 recording", result_text)
-        self.assertIn("user_long", result_text)
-        self.assertNotIn("user_short", result_text)
-        self.assertIsNone(artifact)
+        assert "Found 1 recording" in result_text
+        assert "user_long" in result_text
+        assert "user_short" not in result_text
+        assert artifact is None
 
     async def test_excludes_recordings_from_other_teams(self):
         from asgiref.sync import sync_to_async
@@ -239,10 +239,10 @@ class TestFilterSessionRecordingsTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         result_text, artifact = await tool._arun_impl(recordings_filters=filters)
 
-        self.assertIn("Found 1 recording", result_text)
-        self.assertIn("our_user", result_text)
-        self.assertNotIn("other_user", result_text)
-        self.assertIsNone(artifact)
+        assert "Found 1 recording" in result_text
+        assert "our_user" in result_text
+        assert "other_user" not in result_text
+        assert artifact is None
 
     @parameterized.expand(
         [
@@ -266,11 +266,11 @@ class TestFilterSessionRecordingsTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         result_text, artifact = await tool._arun_impl(recordings_filters=filters)
 
-        self.assertIn("Duration:", result_text)
-        self.assertIn(expected_part_1, result_text)
+        assert "Duration:" in result_text
+        assert expected_part_1 in result_text
         if expected_part_2:
-            self.assertIn(expected_part_2, result_text)
-        self.assertIsNone(artifact)
+            assert expected_part_2 in result_text
+        assert artifact is None
 
 
 class TestFilterSessionRecordingsToolFormatting(NonAtomicBaseTest):
@@ -295,15 +295,15 @@ class TestFilterSessionRecordingsToolFormatting(NonAtomicBaseTest):
 
         result = tool._format_recording_metadata(recording)
 
-        self.assertIn("User: test_user", result)
-        self.assertIn("Started: 2025-01-15 10:30:00 UTC", result)
-        self.assertIn("Duration: 1h 1m 5s", result)
-        self.assertIn("42 clicks", result)
-        self.assertIn("100 keypresses", result)
-        self.assertIn("Console errors: 3", result)
-        self.assertIn("Active: 1800s", result)
-        self.assertIn("Inactive: 1865s", result)
-        self.assertIn("First URL: https://app.posthog.com/dashboard", result)
+        assert "User: test_user" in result
+        assert "Started: 2025-01-15 10:30:00 UTC" in result
+        assert "Duration: 1h 1m 5s" in result
+        assert "42 clicks" in result
+        assert "100 keypresses" in result
+        assert "Console errors: 3" in result
+        assert "Active: 1800s" in result
+        assert "Inactive: 1865s" in result
+        assert "First URL: https://app.posthog.com/dashboard" in result
 
     def test_format_recording_metadata_ongoing_session(self):
         from ee.hogai.tools.replay.filter_session_recordings import FilterSessionRecordingsTool
@@ -316,7 +316,7 @@ class TestFilterSessionRecordingsToolFormatting(NonAtomicBaseTest):
 
         result = tool._format_recording_metadata(recording)
 
-        self.assertIn("Status: Ongoing", result)
+        assert "Status: Ongoing" in result
 
     def test_format_recording_metadata_minimal_fields(self):
         from ee.hogai.tools.replay.filter_session_recordings import FilterSessionRecordingsTool
@@ -328,4 +328,4 @@ class TestFilterSessionRecordingsToolFormatting(NonAtomicBaseTest):
 
         result = tool._format_recording_metadata(recording)
 
-        self.assertEqual(result, "User: minimal_user")
+        assert result == "User: minimal_user"

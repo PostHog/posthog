@@ -44,7 +44,7 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
             """,
             {"team_id": self.team.pk},
         )
-        self.assertEqual(ch_persons, [(person.uuid, self.team.pk, '{"a": 1234}', True, 4, False)])
+        assert ch_persons == [(person.uuid, self.team.pk, '{"a": 1234}', True, 4, False)]
 
     def test_persons_sync_with_null_version(self):
         with mute_selected_signals():  # without creating/updating in clickhouse
@@ -64,7 +64,7 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
             """,
             {"team_id": self.team.pk},
         )
-        self.assertEqual(ch_persons, [(person.uuid, self.team.pk, '{"a": 1234}', True, 0, False)])
+        assert ch_persons == [(person.uuid, self.team.pk, '{"a": 1234}', True, 0, False)]
 
     def test_persons_deleted(self):
         uuid = create_person(
@@ -83,7 +83,7 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
             """,
             {"team_id": self.team.pk},
         )
-        self.assertEqual(ch_persons, [(UUID(uuid), self.team.pk, "{}", False, 105, True)])
+        assert ch_persons == [(UUID(uuid), self.team.pk, "{}", False, 105, True)]
 
     def test_distinct_ids_sync(self):
         with mute_selected_signals():  # without creating/updating in clickhouse
@@ -98,7 +98,7 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
             """,
             {"team_id": self.team.pk},
         )
-        self.assertEqual(ch_person_distinct_ids, [(person.uuid, self.team.pk, "test-id", 4, False)])
+        assert ch_person_distinct_ids == [(person.uuid, self.team.pk, "test-id", 4, False)]
 
     def test_distinct_ids_sync_with_null_version(self):
         with mute_selected_signals():  # without creating/updating in clickhouse
@@ -113,7 +113,7 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
             """,
             {"team_id": self.team.pk},
         )
-        self.assertEqual(ch_person_distinct_ids, [(person.uuid, self.team.pk, "test-id", 0, False)])
+        assert ch_person_distinct_ids == [(person.uuid, self.team.pk, "test-id", 0, False)]
 
     def test_distinct_ids_deleted(self):
         uuid = uuid4()
@@ -133,10 +133,7 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
             """,
             {"team_id": self.team.pk},
         )
-        self.assertEqual(
-            ch_person_distinct_ids,
-            [(UUID(int=0), self.team.pk, "test-id-7", 107, True)],
-        )
+        assert ch_person_distinct_ids == [(UUID(int=0), self.team.pk, "test-id-7", 107, True)]
 
     @mock.patch(
         f"{posthog.management.commands.sync_persons_to_clickhouse.__name__}.raw_create_group_ch",
@@ -162,12 +159,12 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
             """,
             {"team_id": self.team.pk},
         )
-        self.assertEqual(len(ch_groups), 1)
+        assert len(ch_groups) == 1
         ch_group = ch_groups[0]
-        self.assertEqual(ch_group[0], 2)
-        self.assertEqual(ch_group[1], "group-key")
-        self.assertEqual(ch_group[2], '{"a": 1234}')
-        self.assertEqual(ch_group[3].strftime("%Y-%m-%d %H:%M:%S"), ts.strftime("%Y-%m-%d %H:%M:%S"))
+        assert ch_group[0] == 2
+        assert ch_group[1] == "group-key"
+        assert ch_group[2] == '{"a": 1234}'
+        assert ch_group[3].strftime("%Y-%m-%d %H:%M:%S") == ts.strftime("%Y-%m-%d %H:%M:%S")
 
         # second time it's a no-op
         run_group_sync(self.team.pk, live_run=True, sync=True)
@@ -198,23 +195,14 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
             """,
             {"team_id": self.team.pk},
         )
-        self.assertEqual(len(ch_groups), 1)
+        assert len(ch_groups) == 1
         ch_group = ch_groups[0]
-        self.assertEqual(ch_group[0], 2)
-        self.assertEqual(ch_group[1], "group-key")
-        self.assertEqual(ch_group[2], '{"a": 5, "b": 3}')
-        self.assertEqual(
-            ch_group[3].strftime("%Y-%m-%d %H:%M:%S"),
-            group.created_at.strftime("%Y-%m-%d %H:%M:%S"),
-        )
-        self.assertGreaterEqual(
-            ch_group[4].strftime("%Y-%m-%d %H:%M:%S"),
-            ts_before.strftime("%Y-%m-%d %H:%M:%S"),
-        )
-        self.assertLessEqual(
-            ch_group[4].strftime("%Y-%m-%d %H:%M:%S"),
-            datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
-        )
+        assert ch_group[0] == 2
+        assert ch_group[1] == "group-key"
+        assert ch_group[2] == '{"a": 5, "b": 3}'
+        assert ch_group[3].strftime("%Y-%m-%d %H:%M:%S") == group.created_at.strftime("%Y-%m-%d %H:%M:%S")
+        assert ch_group[4].strftime("%Y-%m-%d %H:%M:%S") >= ts_before.strftime("%Y-%m-%d %H:%M:%S")
+        assert ch_group[4].strftime("%Y-%m-%d %H:%M:%S") <= datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
 
         # second time it's a no-op
         run_group_sync(self.team.pk, live_run=True, sync=True)
@@ -252,7 +240,7 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
         )
 
         run_group_sync(self.team.pk, live_run=True, sync=True)
-        self.assertEqual(mocked_ch_call.call_count, 3)
+        assert mocked_ch_call.call_count == 3
 
         ch_groups = sync_execute(
             """
@@ -261,18 +249,15 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
             {"team_id": self.team.pk},
         )
 
-        self.assertEqual(
-            ch_groups,
-            [
-                (1, "group-key", '{"a": 123456}'),
-                (2, "group-key", '{"a": 1234}'),
-                (2, "group-key-2", '{"a": 12345}'),
-            ],
-        )
+        assert ch_groups == [
+            (1, "group-key", '{"a": 123456}'),
+            (2, "group-key", '{"a": 1234}'),
+            (2, "group-key-2", '{"a": 12345}'),
+        ]
 
         # second time it's a no-op
         run_group_sync(self.team.pk, live_run=True, sync=True)
-        self.assertEqual(mocked_ch_call.call_count, 3)
+        assert mocked_ch_call.call_count == 3
 
     def test_live_run_everything(self):
         self.everything_test_run(True)
@@ -466,201 +451,45 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
         )
 
         if not live_run:
-            self.assertEqual(
-                ch_persons,
-                [
-                    (
-                        person_not_changed_1.uuid,
-                        self.team.pk,
-                        '{"abcdef": 1111}',
-                        False,
-                        0,
-                        False,
-                    ),
-                    (
-                        person_not_changed_2.uuid,
-                        self.team.pk,
-                        '{"abcdefg": 11112}',
-                        False,
-                        1,
-                        False,
-                    ),
-                    (
-                        person_should_update_1.uuid,
-                        self.team.pk,
-                        '{"a": 13}',
-                        False,
-                        4,
-                        False,
-                    ),
-                    (
-                        person_should_update_2.uuid,
-                        self.team.pk,
-                        '{"a": 1}',
-                        False,
-                        6,
-                        False,
-                    ),
-                    (
-                        UUID(deleted_person_1_uuid),
-                        self.team.pk,
-                        '{"abcd": 123}',
-                        False,
-                        7,
-                        False,
-                    ),
-                    (
-                        UUID(deleted_person_2_uuid),
-                        self.team.pk,
-                        '{"abcef": 123}',
-                        False,
-                        8,
-                        False,
-                    ),
-                ],
-            )
-            self.assertEqual(
-                ch_person_distinct_ids,
-                [
-                    (person_not_changed_1.uuid, self.team.pk, "distinct_id", 0, False),
-                    (
-                        person_not_changed_1.uuid,
-                        self.team.pk,
-                        "distinct_id-9",
-                        9,
-                        False,
-                    ),
-                    (
-                        person_not_changed_1.uuid,
-                        self.team.pk,
-                        "distinct_id-12",
-                        12,
-                        False,
-                    ),
-                    (
-                        person_not_changed_1.uuid,
-                        self.team.pk,
-                        "distinct_id-14",
-                        14,
-                        False,
-                    ),
-                    (
-                        deleted_distinct_id_1_uuid,
-                        self.team.pk,
-                        "distinct_id-17",
-                        17,
-                        False,
-                    ),
-                    (
-                        deleted_distinct_id_2_uuid,
-                        self.team.pk,
-                        "distinct_id-18",
-                        18,
-                        False,
-                    ),
-                ],
-            )
-            self.assertEqual(len(ch_groups), 0)
+            assert ch_persons == [
+                (person_not_changed_1.uuid, self.team.pk, '{"abcdef": 1111}', False, 0, False),
+                (person_not_changed_2.uuid, self.team.pk, '{"abcdefg": 11112}', False, 1, False),
+                (person_should_update_1.uuid, self.team.pk, '{"a": 13}', False, 4, False),
+                (person_should_update_2.uuid, self.team.pk, '{"a": 1}', False, 6, False),
+                (UUID(deleted_person_1_uuid), self.team.pk, '{"abcd": 123}', False, 7, False),
+                (UUID(deleted_person_2_uuid), self.team.pk, '{"abcef": 123}', False, 8, False),
+            ]
+            assert ch_person_distinct_ids == [
+                (person_not_changed_1.uuid, self.team.pk, "distinct_id", 0, False),
+                (person_not_changed_1.uuid, self.team.pk, "distinct_id-9", 9, False),
+                (person_not_changed_1.uuid, self.team.pk, "distinct_id-12", 12, False),
+                (person_not_changed_1.uuid, self.team.pk, "distinct_id-14", 14, False),
+                (deleted_distinct_id_1_uuid, self.team.pk, "distinct_id-17", 17, False),
+                (deleted_distinct_id_2_uuid, self.team.pk, "distinct_id-18", 18, False),
+            ]
+            assert len(ch_groups) == 0
         else:
-            self.assertEqual(
-                ch_persons,
-                [
-                    (
-                        person_not_changed_1.uuid,
-                        self.team.pk,
-                        '{"abcdef": 1111}',
-                        False,
-                        0,
-                        False,
-                    ),
-                    (
-                        person_not_changed_2.uuid,
-                        self.team.pk,
-                        '{"abcdefg": 11112}',
-                        False,
-                        1,
-                        False,
-                    ),
-                    (
-                        person_should_be_created_1.uuid,
-                        self.team.pk,
-                        '{"abcde": 12553633}',
-                        False,
-                        2,
-                        False,
-                    ),
-                    (
-                        person_should_be_created_2.uuid,
-                        self.team.pk,
-                        '{"abcdeit34": 12553633}',
-                        False,
-                        3,
-                        False,
-                    ),
-                    (
-                        person_should_update_1.uuid,
-                        self.team.pk,
-                        '{"abcde": 12553}',
-                        False,
-                        5,
-                        False,
-                    ),
-                    (
-                        person_should_update_2.uuid,
-                        self.team.pk,
-                        '{"abc": 125}',
-                        False,
-                        7,
-                        False,
-                    ),
-                    (UUID(deleted_person_1_uuid), self.team.pk, "{}", False, 107, True),
-                    (UUID(deleted_person_2_uuid), self.team.pk, "{}", False, 108, True),
-                ],
-            )
-            self.assertEqual(
-                ch_person_distinct_ids,
-                [
-                    (person_not_changed_1.uuid, self.team.pk, "distinct_id", 0, False),
-                    (
-                        person_not_changed_1.uuid,
-                        self.team.pk,
-                        "distinct_id-9",
-                        9,
-                        False,
-                    ),
-                    (
-                        person_not_changed_1.uuid,
-                        self.team.pk,
-                        "distinct_id-10",
-                        10,
-                        False,
-                    ),
-                    (
-                        person_not_changed_1.uuid,
-                        self.team.pk,
-                        "distinct_id-11",
-                        11,
-                        False,
-                    ),
-                    (
-                        person_not_changed_2.uuid,
-                        self.team.pk,
-                        "distinct_id-12",
-                        13,
-                        False,
-                    ),
-                    (
-                        person_not_changed_2.uuid,
-                        self.team.pk,
-                        "distinct_id-14",
-                        15,
-                        False,
-                    ),
-                    (UUID(int=0), self.team.pk, "distinct_id-17", 117, True),
-                    (UUID(int=0), self.team.pk, "distinct_id-18", 118, True),
-                ],
-            )
-            self.assertEqual(ch_groups, [(2, "group-key", '{"a": 1234}')])
+            assert ch_persons == [
+                (person_not_changed_1.uuid, self.team.pk, '{"abcdef": 1111}', False, 0, False),
+                (person_not_changed_2.uuid, self.team.pk, '{"abcdefg": 11112}', False, 1, False),
+                (person_should_be_created_1.uuid, self.team.pk, '{"abcde": 12553633}', False, 2, False),
+                (person_should_be_created_2.uuid, self.team.pk, '{"abcdeit34": 12553633}', False, 3, False),
+                (person_should_update_1.uuid, self.team.pk, '{"abcde": 12553}', False, 5, False),
+                (person_should_update_2.uuid, self.team.pk, '{"abc": 125}', False, 7, False),
+                (UUID(deleted_person_1_uuid), self.team.pk, "{}", False, 107, True),
+                (UUID(deleted_person_2_uuid), self.team.pk, "{}", False, 108, True),
+            ]
+            assert ch_person_distinct_ids == [
+                (person_not_changed_1.uuid, self.team.pk, "distinct_id", 0, False),
+                (person_not_changed_1.uuid, self.team.pk, "distinct_id-9", 9, False),
+                (person_not_changed_1.uuid, self.team.pk, "distinct_id-10", 10, False),
+                (person_not_changed_1.uuid, self.team.pk, "distinct_id-11", 11, False),
+                (person_not_changed_2.uuid, self.team.pk, "distinct_id-12", 13, False),
+                (person_not_changed_2.uuid, self.team.pk, "distinct_id-14", 15, False),
+                (UUID(int=0), self.team.pk, "distinct_id-17", 117, True),
+                (UUID(int=0), self.team.pk, "distinct_id-18", 118, True),
+            ]
+            assert ch_groups == [(2, "group-key", '{"a": 1234}')]
 
 
 @pytest.fixture(autouse=True)

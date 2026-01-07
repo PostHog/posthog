@@ -24,7 +24,7 @@ class TestProductIntent(BaseTest):
         self.product_intent = ProductIntent.objects.create(team=self.team, product_type=ProductKey.DATA_WAREHOUSE)
 
     def test_str_representation(self):
-        self.assertEqual(str(self.product_intent), f"{self.team.name} - data_warehouse")
+        assert str(self.product_intent) == f"{self.team.name} - data_warehouse"
 
     def test_unique_constraint(self):
         # Test that we can't create duplicate product intents for same team/product
@@ -80,7 +80,7 @@ class TestProductIntent(BaseTest):
             team=self.team, query={"kind": "DataVisualizationNode", "source": {"query": "SELECT * FROM custom_table"}}
         )
 
-        self.assertTrue(self.product_intent.has_activated_data_warehouse())
+        assert self.product_intent.has_activated_data_warehouse()
 
     @freeze_time("2024-06-15T12:00:00Z")
     def test_has_activated_data_warehouse_with_excluded_table(self):
@@ -88,7 +88,7 @@ class TestProductIntent(BaseTest):
             team=self.team, query={"kind": "DataVisualizationNode", "source": {"query": "SELECT * FROM events"}}
         )
 
-        self.assertFalse(self.product_intent.has_activated_data_warehouse())
+        assert not self.product_intent.has_activated_data_warehouse()
 
     @freeze_time("2024-06-15T12:00:00Z")
     def test_has_activated_data_warehouse_with_old_insight(self):
@@ -98,7 +98,7 @@ class TestProductIntent(BaseTest):
                 query={"kind": "DataVisualizationNode", "source": {"query": "SELECT * FROM custom_table"}},
             )
 
-        self.assertFalse(self.product_intent.has_activated_data_warehouse())
+        assert not self.product_intent.has_activated_data_warehouse()
 
     @freeze_time("2024-06-15T12:00:00Z")
     def test_check_and_update_activation_sets_activated_at(self):
@@ -106,7 +106,7 @@ class TestProductIntent(BaseTest):
             team=self.team, query={"kind": "DataVisualizationNode", "source": {"query": "SELECT * FROM custom_table"}}
         )
 
-        self.assertIsNone(self.product_intent.activated_at)
+        assert self.product_intent.activated_at is None
         self.product_intent.check_and_update_activation()
         self.product_intent.refresh_from_db()
         assert self.product_intent.activated_at == datetime(2024, 6, 15, 12, 0, 0, tzinfo=UTC)
@@ -131,7 +131,7 @@ class TestProductIntent(BaseTest):
         calculate_product_activation(self.team.id, only_calc_if_days_since_last_checked=1)
 
         self.product_intent.refresh_from_db()
-        self.assertIsNone(self.product_intent.activated_at)
+        assert self.product_intent.activated_at is None
 
     @freeze_time("2024-06-15T12:00:00Z")
     def test_calculate_product_activation_skips_activated_products(self):
@@ -158,7 +158,7 @@ class TestProductIntent(BaseTest):
 
         # Create an experiment without a start date (not launched)
         Experiment.objects.create(team=self.team, name="Not launched", feature_flag=feature_flag)
-        self.assertFalse(self.product_intent.has_activated_experiments())
+        assert not self.product_intent.has_activated_experiments()
 
         # Create another feature flag for the launched experiment
         launched_flag = FeatureFlag.objects.create(
@@ -172,7 +172,7 @@ class TestProductIntent(BaseTest):
         Experiment.objects.create(
             team=self.team, name="Launched", start_date=datetime.now(tz=UTC), feature_flag=launched_flag
         )
-        self.assertTrue(self.product_intent.has_activated_experiments())
+        assert self.product_intent.has_activated_experiments()
 
     def test_has_activated_feature_flags(self):
         self.product_intent.product_type = "feature_flags"
@@ -185,7 +185,7 @@ class TestProductIntent(BaseTest):
             name="Flag 1",
             filters={"groups": [{"properties": [{"key": "email", "value": "test@test.com"}]}]},
         )
-        self.assertFalse(self.product_intent.has_activated_feature_flags())
+        assert not self.product_intent.has_activated_feature_flags()
 
         # Create a feature flag with another filter group
         FeatureFlag.objects.create(
@@ -194,7 +194,7 @@ class TestProductIntent(BaseTest):
             name="Flag 2",
             filters={"groups": [{"properties": [{"key": "country", "value": "US"}]}]},
         )
-        self.assertTrue(self.product_intent.has_activated_feature_flags())
+        assert self.product_intent.has_activated_feature_flags()
 
     def test_has_activated_feature_flags_excludes_experiment_and_survey_flags(self):
         self.product_intent.product_type = "feature_flags"
@@ -216,7 +216,7 @@ class TestProductIntent(BaseTest):
         )
         Survey.objects.create(team=self.team, name="Survey Test", targeting_flag=survey_flag)
 
-        self.assertFalse(self.product_intent.has_activated_feature_flags())
+        assert not self.product_intent.has_activated_feature_flags()
 
     @freeze_time("2024-06-15T12:00:00Z")
     def test_has_activated_session_replay_with_five_recordings_viewed_and_filters_set(self):
@@ -236,7 +236,7 @@ class TestProductIntent(BaseTest):
             contexts={ProductIntentContext.SESSION_REPLAY_SET_FILTERS: 1},
         )
 
-        self.assertTrue(self.product_intent.has_activated_session_replay())
+        assert self.product_intent.has_activated_session_replay()
 
     @freeze_time("2024-06-15T12:00:00Z")
     def test_has_not_activated_session_replay_with_less_than_five_recordings(self):

@@ -73,7 +73,7 @@ class TestFeatureFlagDependencyTransformation(APIBaseTest):
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/local_evaluation")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
         flags = data["flags"]
 
@@ -83,16 +83,16 @@ class TestFeatureFlagDependencyTransformation(APIBaseTest):
         flag_property = next(prop for prop in properties if prop["type"] == "flag")
 
         # ID should be converted to key
-        self.assertEqual(flag_property["key"], "flag-b")
+        assert flag_property["key"] == "flag-b"
 
         # Full dependency chain should be included (topologically sorted)
-        self.assertIn("dependency_chain", flag_property)
-        self.assertEqual(flag_property["dependency_chain"], ["flag-a", "flag-b"])
+        assert "dependency_chain" in flag_property
+        assert flag_property["dependency_chain"] == ["flag-a", "flag-b"]
 
         flag_b_data = self._find_flag(flags, "flag-b")
         properties_b = flag_b_data["filters"]["groups"][0]["properties"]
         flag_property_b = next(prop for prop in properties_b if prop["type"] == "flag")
-        self.assertEqual(flag_property_b["dependency_chain"], ["flag-a"])
+        assert flag_property_b["dependency_chain"] == ["flag-a"]
 
     def test_flag_dependency_transformation_circular_dependency(self):
         """Test handling of circular dependencies."""
@@ -144,11 +144,11 @@ class TestFeatureFlagDependencyTransformation(APIBaseTest):
         flag_a.save()
 
         response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/local_evaluation")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
 
-        self.assertIn("flags", data)
-        self.assertEqual(len(data["flags"]), 2)
+        assert "flags" in data
+        assert len(data["flags"]) == 2
 
         flag_a_data = self._find_flag(data["flags"], "flag-a")
         flag_b_data = self._find_flag(data["flags"], "flag-b")
@@ -156,14 +156,14 @@ class TestFeatureFlagDependencyTransformation(APIBaseTest):
         # Check flag A's dependency chain is empty
         properties_a = flag_a_data["filters"]["groups"][0]["properties"]
         flag_properties_a = [prop for prop in properties_a if prop["type"] == "flag"]
-        self.assertEqual(len(flag_properties_a), 1)
-        self.assertEqual(flag_properties_a[0]["dependency_chain"], [])
+        assert len(flag_properties_a) == 1
+        assert flag_properties_a[0]["dependency_chain"] == []
 
         # Check flag B's dependency chain is empty
         properties_b = flag_b_data["filters"]["groups"][0]["properties"]
         flag_properties_b = [prop for prop in properties_b if prop["type"] == "flag"]
-        self.assertEqual(len(flag_properties_b), 1)
-        self.assertEqual(flag_properties_b[0]["dependency_chain"], [])
+        assert len(flag_properties_b) == 1
+        assert flag_properties_b[0]["dependency_chain"] == []
 
     def test_flag_dependency_transformation_multiple_dependencies(self):
         """Test transformation with multiple flag dependencies and transitive dependencies."""
@@ -220,7 +220,7 @@ class TestFeatureFlagDependencyTransformation(APIBaseTest):
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/local_evaluation")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
         flags = data["flags"]
 
@@ -228,26 +228,26 @@ class TestFeatureFlagDependencyTransformation(APIBaseTest):
 
         properties = flag_c_data["filters"]["groups"][0]["properties"]
         flag_properties = [prop for prop in properties if prop["type"] == "flag"]
-        self.assertEqual(len(flag_properties), 2)
+        assert len(flag_properties) == 2
 
         flag_keys = {prop["key"] for prop in flag_properties}
-        self.assertEqual(flag_keys, {"flag-a", "flag-b"})
+        assert flag_keys == {"flag-a", "flag-b"}
 
         for prop in flag_properties:
-            self.assertIn("dependency_chain", prop)
+            assert "dependency_chain" in prop
             if prop["key"] == "flag-a":
-                self.assertEqual(prop["dependency_chain"], ["flag-a"])
+                assert prop["dependency_chain"] == ["flag-a"]
             elif prop["key"] == "flag-b":
-                self.assertEqual(prop["dependency_chain"], ["flag-b"])
+                assert prop["dependency_chain"] == ["flag-b"]
 
         flag_d_data = self._find_flag(flags, "flag-d")
 
         properties_d = flag_d_data["filters"]["groups"][0]["properties"]
         flag_properties_d = [prop for prop in properties_d if prop["type"] == "flag"]
-        self.assertEqual(len(flag_properties_d), 1)
-        self.assertEqual(flag_properties_d[0]["key"], "flag-c")
+        assert len(flag_properties_d) == 1
+        assert flag_properties_d[0]["key"] == "flag-c"
 
-        self.assertEqual(flag_properties_d[0]["dependency_chain"], ["flag-a", "flag-b", "flag-c"])
+        assert flag_properties_d[0]["dependency_chain"] == ["flag-a", "flag-b", "flag-c"]
 
     def test_flag_dependency_transformation_self_dependency(self):
         """Test transformation handles self-dependency gracefully."""
@@ -271,7 +271,7 @@ class TestFeatureFlagDependencyTransformation(APIBaseTest):
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/local_evaluation")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
         flags = data["flags"]
 
@@ -279,10 +279,10 @@ class TestFeatureFlagDependencyTransformation(APIBaseTest):
 
         properties = self_flag_data["filters"]["groups"][0]["properties"]
         flag_properties = [prop for prop in properties if prop["type"] == "flag"]
-        self.assertEqual(len(flag_properties), 1)
-        self.assertEqual(flag_properties[0]["key"], "self-flag")
+        assert len(flag_properties) == 1
+        assert flag_properties[0]["key"] == "self-flag"
 
-        self.assertEqual(flag_properties[0]["dependency_chain"], [])
+        assert flag_properties[0]["dependency_chain"] == []
 
     def test_flag_dependency_transformation_self_referencing_circular_dependency(self):
         """Test flagA -> flagB -> flagB scenario where flagB references itself."""
@@ -321,7 +321,7 @@ class TestFeatureFlagDependencyTransformation(APIBaseTest):
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/local_evaluation")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
         flags = data["flags"]
 
@@ -331,16 +331,16 @@ class TestFeatureFlagDependencyTransformation(APIBaseTest):
         # Flag B should have empty dependency chain due to self-reference
         properties_b = flag_b_data["filters"]["groups"][0]["properties"]
         flag_properties_b = [prop for prop in properties_b if prop["type"] == "flag"]
-        self.assertEqual(len(flag_properties_b), 1)
-        self.assertEqual(flag_properties_b[0]["key"], "flag-b")
-        self.assertEqual(flag_properties_b[0]["dependency_chain"], [])
+        assert len(flag_properties_b) == 1
+        assert flag_properties_b[0]["key"] == "flag-b"
+        assert flag_properties_b[0]["dependency_chain"] == []
 
         # Flag A should have empty dependency chain because it depends on flag B which can't be evaluated
         properties_a = flag_a_data["filters"]["groups"][0]["properties"]
         flag_properties_a = [prop for prop in properties_a if prop["type"] == "flag"]
-        self.assertEqual(len(flag_properties_a), 1)
-        self.assertEqual(flag_properties_a[0]["key"], "flag-b")
-        self.assertEqual(flag_properties_a[0]["dependency_chain"], [])
+        assert len(flag_properties_a) == 1
+        assert flag_properties_a[0]["key"] == "flag-b"
+        assert flag_properties_a[0]["dependency_chain"] == []
 
     def test_flag_dependency_transformation_missing_dependency(self):
         """Test that missing flag dependencies result in empty dependency chain."""
@@ -370,7 +370,7 @@ class TestFeatureFlagDependencyTransformation(APIBaseTest):
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/local_evaluation")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
         flags = data["flags"]
 
@@ -378,13 +378,13 @@ class TestFeatureFlagDependencyTransformation(APIBaseTest):
 
         properties = flag_a_data["filters"]["groups"][0]["properties"]
         flag_properties = [prop for prop in properties if prop["type"] == "flag"]
-        self.assertEqual(len(flag_properties), 1)
+        assert len(flag_properties) == 1
 
         # The key should remain as the original ID since it can't be resolved
-        self.assertEqual(flag_properties[0]["key"], non_existent_flag_id)
+        assert flag_properties[0]["key"] == non_existent_flag_id
 
         # Dependency chain should be empty because the referenced flag doesn't exist
-        self.assertEqual(flag_properties[0]["dependency_chain"], [])
+        assert flag_properties[0]["dependency_chain"] == []
 
     def test_flag_dependency_transformation_shared_dependencies(self):
         """Test that shared dependencies are handled correctly and efficiently."""
@@ -422,7 +422,7 @@ class TestFeatureFlagDependencyTransformation(APIBaseTest):
             dependent_flags.append(flag)
 
         response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/local_evaluation")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
         flags = data["flags"]
 
@@ -432,9 +432,9 @@ class TestFeatureFlagDependencyTransformation(APIBaseTest):
             properties = flag_data["filters"]["groups"][0]["properties"]
             flag_properties = [prop for prop in properties if prop["type"] == "flag"]
 
-            self.assertEqual(len(flag_properties), 1)
-            self.assertEqual(flag_properties[0]["key"], "shared-dependency")
-            self.assertEqual(flag_properties[0]["dependency_chain"], ["shared-dependency"])
+            assert len(flag_properties) == 1
+            assert flag_properties[0]["key"] == "shared-dependency"
+            assert flag_properties[0]["dependency_chain"] == ["shared-dependency"]
 
         # This test demonstrates that:
         # 1. The shared dependency chain is built once and reused
@@ -483,15 +483,15 @@ class TestSurveyFlagExclusionAPI(APIBaseTest):
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/local_evaluation")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         data = response.json()
         flag_keys = [f["key"] for f in data["flags"]]
 
-        self.assertIn(regular_flag.key, flag_keys)
-        self.assertNotIn(targeting_flag.key, flag_keys)
-        self.assertNotIn(internal_targeting_flag.key, flag_keys)
-        self.assertNotIn(response_sampling_flag.key, flag_keys)
+        assert regular_flag.key in flag_keys
+        assert targeting_flag.key not in flag_keys
+        assert internal_targeting_flag.key not in flag_keys
+        assert response_sampling_flag.key not in flag_keys
 
     def test_linked_flag_included_in_local_evaluation_endpoint(self):
         """User-created linked_flag should NOT be excluded from the local_evaluation API response."""
@@ -509,9 +509,9 @@ class TestSurveyFlagExclusionAPI(APIBaseTest):
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/local_evaluation")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         data = response.json()
         flag_keys = [f["key"] for f in data["flags"]]
 
-        self.assertIn(user_linked_flag.key, flag_keys)
+        assert user_linked_flag.key in flag_keys

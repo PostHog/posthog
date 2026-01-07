@@ -344,7 +344,7 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
 
         assets = list(ExportedAsset.objects.filter(id=self.asset.id).select_related("insight")[:1])
 
-        with self.assertRaises(TimeoutError):
+        with pytest.raises(TimeoutError):
             asyncio.run(
                 send_slack_message_with_integration_async(
                     self.integration, self.subscription, assets, self.TOTAL_ASSET_COUNT

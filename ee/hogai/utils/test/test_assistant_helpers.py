@@ -37,23 +37,23 @@ class TestAssistantHelpers(BaseTest):
         """
         # Should return True: AssistantMessage with content
         message_with_content = AssistantMessage(content="This message has content", type="ai")
-        self.assertTrue(should_output_assistant_message(message_with_content))
+        assert should_output_assistant_message(message_with_content)
 
         # Should return False: Empty AssistantMessage
         empty_message = AssistantMessage(content="", type="ai")
-        self.assertFalse(should_output_assistant_message(empty_message))
+        assert not should_output_assistant_message(empty_message)
 
         # Should return True: AssistantToolCallMessage with UI payload
         tool_message_with_payload = AssistantToolCallMessage(
             content="Tool result", tool_call_id="123", type="tool", ui_payload={"some": "data"}
         )
-        self.assertTrue(should_output_assistant_message(tool_message_with_payload))
+        assert should_output_assistant_message(tool_message_with_payload)
 
         # Should return True: AssistantToolCallMessage without UI payload (not filtered by this function)
         tool_message_without_payload = AssistantToolCallMessage(
             content="Tool result", tool_call_id="456", type="tool", ui_payload=None
         )
-        self.assertTrue(should_output_assistant_message(tool_message_without_payload))
+        assert should_output_assistant_message(tool_message_without_payload)
 
     @parameterized.expand(
         [
@@ -127,7 +127,7 @@ class TestAssistantHelpers(BaseTest):
     )
     def test_find_start_message_idx(self, _name, messages, start_id, expected_idx):
         result = find_start_message_idx(messages, start_id)
-        self.assertEqual(result, expected_idx)
+        assert result == expected_idx
 
     @parameterized.expand(
         [
@@ -164,7 +164,7 @@ class TestAssistantHelpers(BaseTest):
     )
     def test_find_start_message(self, _name, messages, start_id, expected_message):
         result = find_start_message(messages, start_id)
-        self.assertEqual(result, expected_message)
+        assert result == expected_message
 
 
 class TestNormalizeAIMessage(BaseTest):
@@ -180,21 +180,21 @@ class TestNormalizeAIMessage(BaseTest):
 
         [result] = normalize_ai_message(message)
 
-        self.assertIsInstance(result, AssistantMessage)
-        self.assertEqual(result.content, "Hello world")
-        self.assertEqual(result.type, "ai")
-        self.assertIsNotNone(result.id)
+        assert isinstance(result, AssistantMessage)
+        assert result.content == "Hello world"
+        assert result.type == "ai"
+        assert result.id is not None
 
         assert isinstance(result.tool_calls, list)
-        self.assertEqual(len(result.tool_calls), 2)
-        self.assertEqual(result.tool_calls[0].id, "call_1")
-        self.assertEqual(result.tool_calls[0].name, "test_tool")
-        self.assertEqual(result.tool_calls[0].args, {"param": "value"})
-        self.assertEqual(result.tool_calls[1].id, "call_2")
-        self.assertEqual(result.tool_calls[1].name, "another_tool")
-        self.assertEqual(result.tool_calls[1].args, {"x": 1, "y": 2})
+        assert len(result.tool_calls) == 2
+        assert result.tool_calls[0].id == "call_1"
+        assert result.tool_calls[0].name == "test_tool"
+        assert result.tool_calls[0].args == {"param": "value"}
+        assert result.tool_calls[1].id == "call_2"
+        assert result.tool_calls[1].name == "another_tool"
+        assert result.tool_calls[1].args == {"x": 1, "y": 2}
 
-        self.assertIsNone(result.meta)
+        assert result.meta is None
 
     def test_normalize_ai_message_with_no_tool_calls(self):
         """Test normalizing AIMessage without tool calls"""
@@ -202,10 +202,10 @@ class TestNormalizeAIMessage(BaseTest):
 
         [result] = normalize_ai_message(message)
 
-        self.assertEqual(result.content, "Simple message")
+        assert result.content == "Simple message"
         assert isinstance(result.tool_calls, list)
-        self.assertEqual(len(result.tool_calls), 0)
-        self.assertIsNone(result.meta)
+        assert len(result.tool_calls) == 0
+        assert result.meta is None
 
     def test_normalize_ai_message_with_complex_content_text_only(self):
         """Test normalizing AIMessage with complex content containing only text blocks"""
@@ -221,8 +221,8 @@ class TestNormalizeAIMessage(BaseTest):
         [result] = normalize_ai_message(message)
 
         expected_content = "First text blockSecond text blockThird text block"
-        self.assertEqual(result.content, expected_content)
-        self.assertIsNone(result.meta)
+        assert result.content == expected_content
+        assert result.meta is None
 
     def test_normalize_ai_message_with_thinking_content(self):
         """Test normalizing AIMessage with thinking blocks"""
@@ -241,12 +241,12 @@ class TestNormalizeAIMessage(BaseTest):
 
         [result] = normalize_ai_message(message)
 
-        self.assertEqual(result.content, "Regular textMore text")
+        assert result.content == "Regular textMore text"
         assert result.meta is not None
         assert result.meta.thinking is not None
-        self.assertEqual(len(result.meta.thinking), 2)
-        self.assertEqual(result.meta.thinking[0], thinking_block)
-        self.assertEqual(result.meta.thinking[1], redacted_thinking_block)
+        assert len(result.meta.thinking) == 2
+        assert result.meta.thinking[0] == thinking_block
+        assert result.meta.thinking[1] == redacted_thinking_block
 
     def test_normalize_ai_message_with_mixed_content(self):
         """Test normalizing AIMessage with mixed content types including thinking"""
@@ -264,16 +264,16 @@ class TestNormalizeAIMessage(BaseTest):
 
         [result] = normalize_ai_message(message)
 
-        self.assertEqual(result.content, "Start textMiddle textEnd text")
+        assert result.content == "Start textMiddle textEnd text"
         assert isinstance(result.tool_calls, list)
-        self.assertEqual(len(result.tool_calls), 1)
-        self.assertEqual(result.tool_calls[0].name, "search")
+        assert len(result.tool_calls) == 1
+        assert result.tool_calls[0].name == "search"
 
         assert result.meta is not None
         assert result.meta.thinking is not None
-        self.assertEqual(len(result.meta.thinking), 2)
-        self.assertEqual(result.meta.thinking[0]["type"], "thinking")
-        self.assertEqual(result.meta.thinking[1]["type"], "redacted_thinking")
+        assert len(result.meta.thinking) == 2
+        assert result.meta.thinking[0]["type"] == "thinking"
+        assert result.meta.thinking[1]["type"] == "redacted_thinking"
 
     def test_normalize_ai_message_empty_content_list(self):
         """Test normalizing AIMessage with empty content list"""
@@ -281,8 +281,8 @@ class TestNormalizeAIMessage(BaseTest):
 
         [result] = normalize_ai_message(message)
 
-        self.assertEqual(result.content, "")
-        self.assertIsNone(result.meta)
+        assert result.content == ""
+        assert result.meta is None
 
     def test_normalize_ai_message_only_thinking(self):
         """Test normalizing AIMessage with only thinking blocks"""
@@ -296,11 +296,11 @@ class TestNormalizeAIMessage(BaseTest):
 
         [result] = normalize_ai_message(message)
 
-        self.assertEqual(result.content, "")
-        self.assertIsNotNone(result.meta)
+        assert result.content == ""
+        assert result.meta is not None
         assert result.meta is not None
         assert result.meta.thinking is not None
-        self.assertEqual(len(result.meta.thinking), 2)
+        assert len(result.meta.thinking) == 2
 
         # OpenAI format - when content is a string (not list), extract_thinking_from_ai_message is used
         message = AIMessage(
@@ -311,12 +311,12 @@ class TestNormalizeAIMessage(BaseTest):
 
         [result] = normalize_ai_message(message)
 
-        self.assertEqual(result.content, "Some response")
-        self.assertIsNotNone(result.meta)
+        assert result.content == "Some response"
+        assert result.meta is not None
         assert result.meta is not None
         assert result.meta.thinking is not None
-        self.assertEqual(len(result.meta.thinking), 1)
-        self.assertEqual(result.meta.thinking[0]["type"], "thinking")
+        assert len(result.meta.thinking) == 1
+        assert result.meta.thinking[0]["type"] == "thinking"
 
 
 class TestExtractThinkingFromAIMessage(BaseTest):
@@ -335,9 +335,9 @@ class TestExtractThinkingFromAIMessage(BaseTest):
 
         thinking = extract_thinking_from_ai_message(message)
 
-        self.assertIsNotNone(thinking)
-        self.assertEqual(len(thinking), 1)
-        self.assertEqual(thinking[0]["thinking"], "Anthropic style reasoning")
+        assert thinking is not None
+        assert len(thinking) == 1
+        assert thinking[0]["thinking"] == "Anthropic style reasoning"
 
     def test_extract_thinking_from_openai_format(self):
         """Test extracting thinking from OpenAI o3/o4 format."""
@@ -347,8 +347,8 @@ class TestExtractThinkingFromAIMessage(BaseTest):
 
         thinking = extract_thinking_from_ai_message(message)
 
-        self.assertIsNotNone(thinking)
-        self.assertEqual(len(thinking), 1)
+        assert thinking is not None
+        assert len(thinking) == 1
 
     def test_extract_thinking_returns_none_when_no_thinking(self):
         """Test that None is returned when message has no thinking."""
@@ -358,7 +358,7 @@ class TestExtractThinkingFromAIMessage(BaseTest):
 
         thinking = extract_thinking_from_ai_message(message)
 
-        self.assertEqual(thinking, [])
+        assert thinking == []
 
     def test_extract_thinking_with_redacted_thinking(self):
         """Test extracting both thinking and redacted_thinking."""
@@ -374,8 +374,8 @@ class TestExtractThinkingFromAIMessage(BaseTest):
 
         thinking = extract_thinking_from_ai_message(message)
 
-        self.assertIsNotNone(thinking)
-        self.assertEqual(len(thinking), 2)
+        assert thinking is not None
+        assert len(thinking) == 2
 
     def test_extract_thinking_preserves_block_structure(self):
         """Test that thinking blocks preserve their full structure."""
@@ -387,8 +387,8 @@ class TestExtractThinkingFromAIMessage(BaseTest):
 
         thinking = extract_thinking_from_ai_message(message)
 
-        self.assertIsNotNone(thinking)
-        self.assertEqual(thinking[0], thinking_block)
+        assert thinking is not None
+        assert thinking[0] == thinking_block
 
     def test_extract_thinking_from_mixed_content(self):
         """Test extracting thinking from content with various block types."""
@@ -406,10 +406,10 @@ class TestExtractThinkingFromAIMessage(BaseTest):
 
         thinking = extract_thinking_from_ai_message(message)
 
-        self.assertIsNotNone(thinking)
-        self.assertEqual(len(thinking), 2)
-        self.assertEqual(thinking[0]["content"], "Thought 1")
-        self.assertEqual(thinking[1]["content"], "Thought 2")
+        assert thinking is not None
+        assert len(thinking) == 2
+        assert thinking[0]["content"] == "Thought 1"
+        assert thinking[1]["content"] == "Thought 2"
 
 
 class TestConvertToolMessagesToDict(BaseTest):
@@ -423,9 +423,9 @@ class TestConvertToolMessagesToDict(BaseTest):
 
         result = convert_tool_messages_to_dict(messages)
 
-        self.assertEqual(len(result), 1)
-        self.assertIn("tc1", result)
-        self.assertEqual(result["tc1"].content, "Result 1")
+        assert len(result) == 1
+        assert "tc1" in result
+        assert result["tc1"].content == "Result 1"
 
     def test_convert_multiple_tool_messages(self):
         """Test converting multiple tool messages"""
@@ -437,10 +437,10 @@ class TestConvertToolMessagesToDict(BaseTest):
 
         result = convert_tool_messages_to_dict(messages)
 
-        self.assertEqual(len(result), 3)
-        self.assertEqual(result["tc1"].content, "Result 1")
-        self.assertEqual(result["tc2"].content, "Result 2")
-        self.assertEqual(result["tc3"].content, "Result 3")
+        assert len(result) == 3
+        assert result["tc1"].content == "Result 1"
+        assert result["tc2"].content == "Result 2"
+        assert result["tc3"].content == "Result 3"
 
     def test_convert_ignores_non_tool_messages(self):
         """Test that non-tool messages are ignored"""
@@ -453,13 +453,13 @@ class TestConvertToolMessagesToDict(BaseTest):
 
         result = convert_tool_messages_to_dict(messages)
 
-        self.assertEqual(len(result), 1)
-        self.assertIn("tc1", result)
+        assert len(result) == 1
+        assert "tc1" in result
 
     def test_convert_empty_messages(self):
         """Test converting empty message list"""
         result = convert_tool_messages_to_dict([])
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
     def test_convert_preserves_tool_call_metadata(self):
         """Test that tool message metadata is preserved"""
@@ -471,7 +471,7 @@ class TestConvertToolMessagesToDict(BaseTest):
 
         result = convert_tool_messages_to_dict(messages)
 
-        self.assertEqual(result["tc1"].ui_payload, {"data": "value"})
+        assert result["tc1"].ui_payload == {"data": "value"}
 
 
 class TestNormalizeAIMessageWebSearch(BaseTest):
@@ -495,19 +495,19 @@ class TestNormalizeAIMessageWebSearch(BaseTest):
         result = normalize_ai_message(message)
 
         # Server tool use should create two messages
-        self.assertEqual(len(result), 2)
-        self.assertEqual(result[0].content, "Let me search for that.")
+        assert len(result) == 2
+        assert result[0].content == "Let me search for that."
         # First message has meta with empty thinking
-        self.assertIsNone(result[0].meta)
+        assert result[0].meta is None
 
         # Second message starts with server_tool_use
-        self.assertEqual(result[1].content, "")
-        self.assertIsNotNone(result[1].meta)
+        assert result[1].content == ""
+        assert result[1].meta is not None
         assert result[1].meta is not None
         assert result[1].meta.thinking is not None
-        self.assertEqual(len(result[1].meta.thinking), 1)
-        self.assertEqual(result[1].meta.thinking[0]["type"], "server_tool_use")
-        self.assertEqual(result[1].meta.thinking[0]["input"], {"query": "test query"})
+        assert len(result[1].meta.thinking) == 1
+        assert result[1].meta.thinking[0]["type"] == "server_tool_use"
+        assert result[1].meta.thinking[0]["input"] == {"query": "test query"}
 
     def test_normalize_with_web_search_result(self):
         """Test normalizing message with web_search_tool_result block"""
@@ -532,15 +532,15 @@ class TestNormalizeAIMessageWebSearch(BaseTest):
         result = normalize_ai_message(message)
 
         # Server tool use creates a new message
-        self.assertEqual(len(result), 2)
+        assert len(result) == 2
 
         # Second message has both server_tool_use and web_search_tool_result in thinking
         assert result[1].meta is not None
         assert result[1].meta.thinking is not None
-        self.assertEqual(len(result[1].meta.thinking), 2)
-        self.assertEqual(result[1].meta.thinking[0]["type"], "server_tool_use")
-        self.assertEqual(result[1].meta.thinking[1]["type"], "web_search_tool_result")
-        self.assertEqual(result[1].content, "Based on the search results...")
+        assert len(result[1].meta.thinking) == 2
+        assert result[1].meta.thinking[0]["type"] == "server_tool_use"
+        assert result[1].meta.thinking[1]["type"] == "web_search_tool_result"
+        assert result[1].content == "Based on the search results..."
 
     def test_normalize_with_citations(self):
         """Test normalizing message with citations in text blocks"""
@@ -561,11 +561,11 @@ class TestNormalizeAIMessageWebSearch(BaseTest):
         [result] = normalize_ai_message(message)
 
         # Citations should be appended as markdown links
-        self.assertIn("According to sources", result.content)
-        self.assertIn("(example.com)", result.content)
-        self.assertIn("https://example.com/article1", result.content)
-        self.assertIn("(docs.posthog.com)", result.content)
-        self.assertIn("https://docs.posthog.com/guide", result.content)
+        assert "According to sources" in result.content
+        assert "(example.com)" in result.content
+        assert "https://example.com/article1" in result.content
+        assert "(docs.posthog.com)" in result.content
+        assert "https://docs.posthog.com/guide" in result.content
 
     def test_normalize_with_thinking_and_server_tool_use(self):
         """Test normalizing message with both thinking and server_tool_use blocks"""
@@ -587,21 +587,21 @@ class TestNormalizeAIMessageWebSearch(BaseTest):
         result = normalize_ai_message(message)
 
         # Should create two messages due to server_tool_use
-        self.assertEqual(len(result), 2)
+        assert len(result) == 2
 
         # First message has thinking and text
         assert result[0].meta is not None
         assert result[0].meta.thinking is not None
-        self.assertEqual(len(result[0].meta.thinking), 1)
-        self.assertEqual(result[0].meta.thinking[0]["type"], "thinking")
-        self.assertEqual(result[0].content, "Let me look that up.")
+        assert len(result[0].meta.thinking) == 1
+        assert result[0].meta.thinking[0]["type"] == "thinking"
+        assert result[0].content == "Let me look that up."
 
         # Second message has server_tool_use and subsequent text
         assert result[1].meta is not None
         assert result[1].meta.thinking is not None
-        self.assertEqual(len(result[1].meta.thinking), 1)
-        self.assertEqual(result[1].meta.thinking[0]["type"], "server_tool_use")
-        self.assertEqual(result[1].content, "Here's what I found.")
+        assert len(result[1].meta.thinking) == 1
+        assert result[1].meta.thinking[0]["type"] == "server_tool_use"
+        assert result[1].content == "Here's what I found."
 
     def test_normalize_with_invalid_partial_json(self):
         """Test normalizing message with invalid partial_json in server_tool_use"""
@@ -620,12 +620,12 @@ class TestNormalizeAIMessageWebSearch(BaseTest):
         result = normalize_ai_message(message)
 
         # Should handle gracefully without crashing
-        self.assertEqual(len(result), 2)
+        assert len(result) == 2
         assert result[1].meta is not None
         assert result[1].meta.thinking is not None
-        self.assertEqual(len(result[1].meta.thinking), 1)
+        assert len(result[1].meta.thinking) == 1
         # The input field should not be set due to JSON parse error
-        self.assertNotIn("input", result[1].meta.thinking[0])
+        assert "input" not in result[1].meta.thinking[0]
 
     def test_normalize_complex_web_search_flow(self):
         """Test normalizing a complete web search flow with multiple blocks"""
@@ -657,21 +657,21 @@ class TestNormalizeAIMessageWebSearch(BaseTest):
         result = normalize_ai_message(message)
 
         # Server tool use creates a split
-        self.assertEqual(len(result), 2)
+        assert len(result) == 2
 
         # First message: thinking + text before server_tool_use
         assert result[0].meta is not None
         assert result[0].meta.thinking is not None
-        self.assertEqual(len(result[0].meta.thinking), 1)
-        self.assertEqual(result[0].meta.thinking[0]["type"], "thinking")
-        self.assertEqual(result[0].content, "Let me search for information about X.")
+        assert len(result[0].meta.thinking) == 1
+        assert result[0].meta.thinking[0]["type"] == "thinking"
+        assert result[0].content == "Let me search for information about X."
 
         # Second message: server_tool_use + result + thinking + text with citations
         assert result[1].meta is not None
         assert result[1].meta.thinking is not None
-        self.assertEqual(len(result[1].meta.thinking), 3)
-        self.assertEqual(result[1].meta.thinking[0]["type"], "server_tool_use")
-        self.assertEqual(result[1].meta.thinking[1]["type"], "web_search_tool_result")
-        self.assertEqual(result[1].meta.thinking[2]["type"], "thinking")
-        self.assertIn("Based on my search", result[1].content)
-        self.assertIn("(source.com)", result[1].content)
+        assert len(result[1].meta.thinking) == 3
+        assert result[1].meta.thinking[0]["type"] == "server_tool_use"
+        assert result[1].meta.thinking[1]["type"] == "web_search_tool_result"
+        assert result[1].meta.thinking[2]["type"] == "thinking"
+        assert "Based on my search" in result[1].content
+        assert "(source.com)" in result[1].content

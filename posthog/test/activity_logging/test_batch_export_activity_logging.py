@@ -14,7 +14,7 @@ class TestBatchExportActivityLogging(ActivityLogTestHelper):
         # Verify that BatchExport inherits from ModelActivityMixin
         from posthog.models.activity_logging.model_activity import ModelActivityMixin
 
-        self.assertTrue(issubclass(BatchExport, ModelActivityMixin))
+        assert issubclass(BatchExport, ModelActivityMixin)
 
         # Test that the model can be created
         destination = self.create_test_destination()
@@ -22,9 +22,9 @@ class TestBatchExportActivityLogging(ActivityLogTestHelper):
             team=self.team, name="Test Export", destination=destination, interval="hour"
         )
 
-        self.assertIsNotNone(batch_export)
-        self.assertEqual(batch_export.team, self.team)
-        self.assertEqual(batch_export.name, "Test Export")
+        assert batch_export is not None
+        assert batch_export.team == self.team
+        assert batch_export.name == "Test Export"
 
     def test_batch_export_field_exclusions_configured(self):
         """Test that field exclusions are properly configured"""
@@ -32,11 +32,11 @@ class TestBatchExportActivityLogging(ActivityLogTestHelper):
 
         batch_export_exclusions = field_exclusions.get("BatchExport", [])
 
-        self.assertIn("latest_runs", batch_export_exclusions)
-        self.assertIn("last_updated_at", batch_export_exclusions)
-        self.assertIn("last_paused_at", batch_export_exclusions)
-        self.assertIn("batchexportrun_set", batch_export_exclusions)
-        self.assertIn("batchexportbackfill_set", batch_export_exclusions)
+        assert "latest_runs" in batch_export_exclusions
+        assert "last_updated_at" in batch_export_exclusions
+        assert "last_paused_at" in batch_export_exclusions
+        assert "batchexportrun_set" in batch_export_exclusions
+        assert "batchexportbackfill_set" in batch_export_exclusions
 
     def test_batch_export_scope_in_activity_log_types(self):
         """Test that BatchExport scope is defined in ActivityScope"""
@@ -46,7 +46,7 @@ class TestBatchExportActivityLogging(ActivityLogTestHelper):
 
         # Check that BatchExport is in the literal type
         # We can't directly test literal types, but we can test that the string value works
-        self.assertIn("BatchExport", get_args(ActivityScope))
+        assert "BatchExport" in get_args(ActivityScope)
 
     def test_batch_export_integration_test(self):
         """Integration test to verify the basic setup works"""
@@ -55,7 +55,7 @@ class TestBatchExportActivityLogging(ActivityLogTestHelper):
         activity_storage.set_user(self.user)
         try:
             batch_export = self.create_batch_export(name="Integration Test Export")
-            self.assertIsNotNone(batch_export["id"])
+            assert batch_export["id"] is not None
 
             self.update_batch_export(batch_export["id"], {"paused": True, "name": "Updated Export"})
             self.update_batch_export(batch_export["id"], {"interval": "day"})
@@ -90,24 +90,24 @@ class TestBatchExportActivityLogging(ActivityLogTestHelper):
 
             batch_export = self.create_batch_export(name="Signal Test Export")
 
-            self.assertEqual(ActivityLog.objects.count(), initial_count + 1)
+            assert ActivityLog.objects.count() == initial_count + 1
 
             activity_log = ActivityLog.objects.filter(
                 scope="BatchExport", activity="created", item_id=batch_export["id"]
             ).first()
 
-            self.assertIsNotNone(activity_log)
             assert activity_log is not None
-            self.assertEqual(activity_log.user, self.user)
-            self.assertEqual(activity_log.team_id, self.team.id)
-            self.assertEqual(activity_log.organization_id, self.team.organization_id)
+            assert activity_log is not None
+            assert activity_log.user == self.user
+            assert activity_log.team_id == self.team.id
+            assert activity_log.organization_id == self.team.organization_id
 
             assert activity_log.detail is not None
             context = activity_log.detail.get("context")
-            self.assertIsNotNone(context)
-            self.assertEqual(context["name"], "Signal Test Export")
-            self.assertEqual(context["destination_type"], "HTTP")
-            self.assertEqual(context["interval"], "hour")
+            assert context is not None
+            assert context["name"] == "Signal Test Export"
+            assert context["destination_type"] == "HTTP"
+            assert context["interval"] == "hour"
         finally:
             activity_storage.clear_user()
 
@@ -122,19 +122,19 @@ class TestBatchExportActivityLogging(ActivityLogTestHelper):
 
             self.update_batch_export(batch_export["id"], {"name": "Updated Test Export", "interval": "day"})
 
-            self.assertEqual(ActivityLog.objects.count(), initial_count + 1)
+            assert ActivityLog.objects.count() == initial_count + 1
 
             activity_log = ActivityLog.objects.filter(
                 scope="BatchExport", activity="updated", item_id=batch_export["id"]
             ).first()
 
-            self.assertIsNotNone(activity_log)
             assert activity_log is not None
-            self.assertEqual(activity_log.user, self.user)
+            assert activity_log is not None
+            assert activity_log.user == self.user
 
             assert activity_log.detail is not None
             changes = activity_log.detail.get("changes", [])
-            self.assertTrue(len(changes) > 0)
+            assert len(changes) > 0
         finally:
             activity_storage.clear_user()
 
@@ -150,20 +150,20 @@ class TestBatchExportActivityLogging(ActivityLogTestHelper):
 
             self.delete_batch_export(batch_export_id)
 
-            self.assertEqual(ActivityLog.objects.count(), initial_count + 1)
+            assert ActivityLog.objects.count() == initial_count + 1
 
             activity_log = ActivityLog.objects.filter(
                 scope="BatchExport", activity="updated", item_id=batch_export_id
             ).first()
 
-            self.assertIsNotNone(activity_log)
             assert activity_log is not None
-            self.assertEqual(activity_log.user, self.user)
+            assert activity_log is not None
+            assert activity_log.user == self.user
 
             assert activity_log.detail is not None
             changes = activity_log.detail.get("changes", [])
             deleted_change = next((change for change in changes if change["field"] == "deleted"), None)
-            self.assertIsNotNone(deleted_change)
+            assert deleted_change is not None
 
         finally:
             activity_storage.clear_user()

@@ -21,9 +21,9 @@ class CodecServerTestCase(TestCase):
 
     def test_decode_endpoint_handles_options(self):
         response = self.client.options("/decode", headers={"origin": "https://temporal-ui.posthog.orb.local"})
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response["Access-Control-Allow-Origin"], "https://temporal-ui.posthog.orb.local")
-        self.assertEqual(response["Access-Control-Allow-Methods"], "POST, OPTIONS")
+        assert response.status_code == 200
+        assert response["Access-Control-Allow-Origin"] == "https://temporal-ui.posthog.orb.local"
+        assert response["Access-Control-Allow-Methods"] == "POST, OPTIONS"
 
     @patch.dict(os.environ, {"TEMPORAL_CODEC_AUTH_TOKEN": "test-codec-auth-token"})
     def test_decode_empty_payloads(self):
@@ -37,10 +37,10 @@ class CodecServerTestCase(TestCase):
             **self.auth_headers,
             HTTP_ORIGIN="https://temporal-ui.posthog.orb.local",
         )
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
         response_payloads = json_format.Parse(response.content, Payloads())
-        self.assertEqual(len(response_payloads.payloads), 0)
+        assert len(response_payloads.payloads) == 0
 
     @patch.dict(os.environ, {"TEMPORAL_CODEC_AUTH_TOKEN": "test-codec-auth-token"})
     def test_decode_encrypted_payload(self):
@@ -60,14 +60,14 @@ class CodecServerTestCase(TestCase):
             HTTP_ORIGIN="https://temporal-ui.posthog.orb.local",
         )
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
         response_payloads = json_format.Parse(response.content, Payloads())
-        self.assertEqual(len(response_payloads.payloads), 1)
+        assert len(response_payloads.payloads) == 1
 
         decoded_payload = response_payloads.payloads[0]
-        self.assertEqual(decoded_payload.metadata["encoding"], b"json/plain")
-        self.assertEqual(decoded_payload.data, b'{"test": "data"}')
+        assert decoded_payload.metadata["encoding"] == b"json/plain"
+        assert decoded_payload.data == b'{"test": "data"}'
 
     @patch.dict(os.environ, {"TEMPORAL_CODEC_AUTH_TOKEN": "test-codec-auth-token"})
     def test_decode_unauthorized_without_token(self):
@@ -83,7 +83,7 @@ class CodecServerTestCase(TestCase):
             headers={"origin": "https://temporal-ui.posthog.orb.local"},
         )
         # Should be rejected when token is configured but not provided
-        self.assertEqual(response.status_code, 401)
+        assert response.status_code == 401
 
     @patch.dict(os.environ, {"TEMPORAL_CODEC_AUTH_TOKEN": "test-codec-auth-token"})
     def test_decode_unauthorized_with_wrong_token(self):
@@ -98,5 +98,5 @@ class CodecServerTestCase(TestCase):
             content_type="application/json",
             headers={"origin": "https://temporal-ui.posthog.orb.local", "authorization": "Bearer wrong-token"},
         )
-        self.assertEqual(response.status_code, 401)
-        self.assertIn("Unauthorized", response.content.decode())
+        assert response.status_code == 401
+        assert "Unauthorized" in response.content.decode()

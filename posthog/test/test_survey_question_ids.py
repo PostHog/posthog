@@ -28,9 +28,9 @@ class TestSurveyQuestionIds(BaseTest):
 
         # Check that all questions have IDs
         for question in survey.questions:
-            self.assertIn("id", question)
-            self.assertIsNotNone(question["id"])
-            self.assertTrue(len(question["id"]) > 0)
+            assert "id" in question
+            assert question["id"] is not None
+            assert len(question["id"]) > 0
 
     def test_existing_question_ids_are_preserved(self):
         """Test that existing question IDs are preserved when a survey is updated."""
@@ -82,18 +82,18 @@ class TestSurveyQuestionIds(BaseTest):
         survey.refresh_from_db()
 
         # Check that all questions have IDs
-        self.assertEqual(len(survey.questions), 3)
+        assert len(survey.questions) == 3
 
         # First question should keep its existing ID
-        self.assertEqual(survey.questions[0]["id"], existing_id_1)
+        assert survey.questions[0]["id"] == existing_id_1
 
         # Second and third questions should have new IDs
-        self.assertIn("id", survey.questions[1])
-        self.assertIsNotNone(survey.questions[1]["id"])
-        self.assertNotEqual(survey.questions[1]["id"], existing_id_2)  # Should not reuse the old ID
+        assert "id" in survey.questions[1]
+        assert survey.questions[1]["id"] is not None
+        assert survey.questions[1]["id"] != existing_id_2  # Should not reuse the old ID
 
-        self.assertIn("id", survey.questions[2])
-        self.assertIsNotNone(survey.questions[2]["id"])
+        assert "id" in survey.questions[2]
+        assert survey.questions[2]["id"] is not None
 
     def test_empty_questions_handled_gracefully(self):
         """Test that empty questions list is handled gracefully."""

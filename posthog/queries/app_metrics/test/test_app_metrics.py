@@ -1,6 +1,5 @@
 import json
 from datetime import datetime
-from typing import Optional
 
 from freezegun.api import freeze_time
 from posthog.test.base import BaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
@@ -25,13 +24,13 @@ def create_app_metric(
     timestamp: str,
     plugin_config_id: int,
     category: str,
-    job_id: Optional[str] = None,
+    job_id: str | None = None,
     successes=0,
     successes_on_retry=0,
     failures=0,
-    error_uuid: Optional[str] = None,
-    error_type: Optional[str] = None,
-    error_details: Optional[dict] = None,
+    error_uuid: str | None = None,
+    error_type: str | None = None,
+    error_details: dict | None = None,
 ):
     timestamp = cast_timestamp_or_now(timestamp)
     data = {
@@ -95,7 +94,7 @@ class TestTeamPluginsDeliveryRateQuery(ClickhouseTestMixin, BaseTest):
         )
 
         results = TeamPluginsDeliveryRateQuery(self.team).run()
-        self.assertEqual(results, {1: 0, 2: 0.5, 3: 1, 4: 1})
+        assert results == {1: 0, 2: 0.5, 3: 1, 4: 1}
 
     @freeze_time("2021-12-05T13:23:00Z")
     def test_ignores_out_of_bound_metrics(self):
@@ -114,7 +113,7 @@ class TestTeamPluginsDeliveryRateQuery(ClickhouseTestMixin, BaseTest):
             failures=1,
         )
         results = TeamPluginsDeliveryRateQuery(self.team).run()
-        self.assertEqual(results, {})
+        assert results == {}
 
 
 class TestAppMetricsQuery(ClickhouseTestMixin, BaseTest):
@@ -154,23 +153,20 @@ class TestAppMetricsQuery(ClickhouseTestMixin, BaseTest):
 
         results = AppMetricsQuery(self.team, 3, filter).run()
 
-        self.assertEqual(
-            results["dates"],
-            [
-                "2021-11-28",
-                "2021-11-29",
-                "2021-11-30",
-                "2021-12-01",
-                "2021-12-02",
-                "2021-12-03",
-                "2021-12-04",
-                "2021-12-05",
-            ],
-        )
-        self.assertEqual(results["successes"], [0, 0, 0, 0, 0, 3, 0, 10])
-        self.assertEqual(results["successes_on_retry"], [0, 0, 0, 0, 0, 0, 0, 5])
-        self.assertEqual(results["failures"], [1, 0, 0, 0, 0, 2, 0, 0])
-        self.assertEqual(results["totals"], {"successes": 13, "successes_on_retry": 5, "failures": 3})
+        assert results["dates"] == [
+            "2021-11-28",
+            "2021-11-29",
+            "2021-11-30",
+            "2021-12-01",
+            "2021-12-02",
+            "2021-12-03",
+            "2021-12-04",
+            "2021-12-05",
+        ]
+        assert results["successes"] == [0, 0, 0, 0, 0, 3, 0, 10]
+        assert results["successes_on_retry"] == [0, 0, 0, 0, 0, 0, 0, 5]
+        assert results["failures"] == [1, 0, 0, 0, 0, 2, 0, 0]
+        assert results["totals"] == {"successes": 13, "successes_on_retry": 5, "failures": 3}
 
     @freeze_time("2021-12-05T13:23:00Z")
     @snapshot_clickhouse_queries
@@ -202,8 +198,8 @@ class TestAppMetricsQuery(ClickhouseTestMixin, BaseTest):
 
         results = AppMetricsQuery(self.team, 3, filter).run()
 
-        self.assertEqual(results["successes_on_retry"], [0, 0, 0, 0, 0, 0, 0, 2])
-        self.assertEqual(results["totals"], {"successes": 0, "successes_on_retry": 2, "failures": 0})
+        assert results["successes_on_retry"] == [0, 0, 0, 0, 0, 0, 0, 2]
+        assert results["totals"] == {"successes": 0, "successes_on_retry": 2, "failures": 0}
 
     @freeze_time("2021-12-05T13:23:00Z")
     @snapshot_clickhouse_queries
@@ -234,22 +230,19 @@ class TestAppMetricsQuery(ClickhouseTestMixin, BaseTest):
 
         results = AppMetricsQuery(self.team, 3, filter).run()
 
-        self.assertEqual(
-            results["dates"],
-            [
-                "2021-12-05 00:00:00",
-                "2021-12-05 01:00:00",
-                "2021-12-05 02:00:00",
-                "2021-12-05 03:00:00",
-                "2021-12-05 04:00:00",
-                "2021-12-05 05:00:00",
-                "2021-12-05 06:00:00",
-                "2021-12-05 07:00:00",
-                "2021-12-05 08:00:00",
-            ],
-        )
-        self.assertEqual(results["successes"], [2, 1, 3, 0, 0, 0, 0, 0, 0])
-        self.assertEqual(results["totals"], {"successes": 6, "successes_on_retry": 0, "failures": 0})
+        assert results["dates"] == [
+            "2021-12-05 00:00:00",
+            "2021-12-05 01:00:00",
+            "2021-12-05 02:00:00",
+            "2021-12-05 03:00:00",
+            "2021-12-05 04:00:00",
+            "2021-12-05 05:00:00",
+            "2021-12-05 06:00:00",
+            "2021-12-05 07:00:00",
+            "2021-12-05 08:00:00",
+        ]
+        assert results["successes"] == [2, 1, 3, 0, 0, 0, 0, 0, 0]
+        assert results["totals"] == {"successes": 6, "successes_on_retry": 0, "failures": 0}
 
     @freeze_time("2021-12-05T13:23:00Z")
     @snapshot_clickhouse_queries
@@ -315,7 +308,7 @@ class TestAppMetricsQuery(ClickhouseTestMixin, BaseTest):
 
         results = AppMetricsQuery(self.team, 3, filter).run()
 
-        self.assertEqual(results["totals"], {"successes": 3, "successes_on_retry": 0, "failures": 0})
+        assert results["totals"] == {"successes": 3, "successes_on_retry": 0, "failures": 0}
 
     @freeze_time("2021-12-05T13:23:00Z")
     @snapshot_clickhouse_queries
@@ -383,7 +376,7 @@ class TestAppMetricsQuery(ClickhouseTestMixin, BaseTest):
 
         results = AppMetricsQuery(self.team, 3, filter).run()
 
-        self.assertEqual(results["totals"], {"successes": 30, "successes_on_retry": 0, "failures": 3300})
+        assert results["totals"] == {"successes": 30, "successes_on_retry": 0, "failures": 3300}
 
 
 class TestAppMetricsErrorsQuery(ClickhouseTestMixin, BaseTest):
@@ -430,21 +423,14 @@ class TestAppMetricsErrorsQuery(ClickhouseTestMixin, BaseTest):
         filter = make_filter(category="processEvent", date_from="-7d")
         results = AppMetricsErrorsQuery(self.team, 3, filter).run()
 
-        self.assertEqual(
-            results,
-            [
-                {
-                    "error_type": "AnotherError",
-                    "count": 3,
-                    "last_seen": datetime.fromisoformat("2021-12-05T00:20:00+00:00"),
-                },
-                {
-                    "error_type": "SomeError",
-                    "count": 1,
-                    "last_seen": datetime.fromisoformat("2021-11-28T00:10:00+00:00"),
-                },
-            ],
-        )
+        assert results == [
+            {
+                "error_type": "AnotherError",
+                "count": 3,
+                "last_seen": datetime.fromisoformat("2021-12-05T00:20:00+00:00"),
+            },
+            {"error_type": "SomeError", "count": 1, "last_seen": datetime.fromisoformat("2021-11-28T00:10:00+00:00")},
+        ]
 
     @freeze_time("2021-12-05T13:23:00Z")
     @snapshot_clickhouse_queries
@@ -492,16 +478,9 @@ class TestAppMetricsErrorsQuery(ClickhouseTestMixin, BaseTest):
         filter = make_filter(category="processEvent", date_from="-7d", job_id="1234")
         results = AppMetricsErrorsQuery(self.team, 3, filter).run()
 
-        self.assertEqual(
-            results,
-            [
-                {
-                    "error_type": "AnotherError",
-                    "count": 2,
-                    "last_seen": datetime.fromisoformat("2021-12-03T00:00:00+00:00"),
-                },
-            ],
-        )
+        assert results == [
+            {"error_type": "AnotherError", "count": 2, "last_seen": datetime.fromisoformat("2021-12-03T00:00:00+00:00")}
+        ]
 
     @freeze_time("2021-12-05T13:23:00Z")
     @snapshot_clickhouse_queries
@@ -580,16 +559,13 @@ class TestAppMetricsErrorsQuery(ClickhouseTestMixin, BaseTest):
         filter = make_filter(category="processEvent", date_from="-7d")
         results = AppMetricsErrorsQuery(self.team, 3, filter).run()
 
-        self.assertEqual(
-            results,
-            [
-                {
-                    "error_type": "RelevantError",
-                    "count": 2,
-                    "last_seen": datetime.fromisoformat("2021-12-05T13:10:00+00:00"),
-                },
-            ],
-        )
+        assert results == [
+            {
+                "error_type": "RelevantError",
+                "count": 2,
+                "last_seen": datetime.fromisoformat("2021-12-05T13:10:00+00:00"),
+            }
+        ]
 
 
 class TestAppMetricsErrorDetailsQuery(ClickhouseTestMixin, BaseTest):
@@ -626,23 +602,20 @@ class TestAppMetricsErrorDetailsQuery(ClickhouseTestMixin, BaseTest):
         )
         results = AppMetricsErrorDetailsQuery(self.team, 3, filter).run()
 
-        self.assertEqual(
-            results,
-            [
-                {
-                    "timestamp": datetime.fromisoformat("2021-12-05T00:10:00+00:00"),
-                    "error_uuid": self.UUIDS[1],
-                    "error_type": "SomeError",
-                    "error_details": {"event": {}},
-                },
-                {
-                    "timestamp": datetime.fromisoformat("2021-11-28T00:10:00+00:00"),
-                    "error_uuid": self.UUIDS[0],
-                    "error_type": "SomeError",
-                    "error_details": {"event": {}},
-                },
-            ],
-        )
+        assert results == [
+            {
+                "timestamp": datetime.fromisoformat("2021-12-05T00:10:00+00:00"),
+                "error_uuid": self.UUIDS[1],
+                "error_type": "SomeError",
+                "error_details": {"event": {}},
+            },
+            {
+                "timestamp": datetime.fromisoformat("2021-11-28T00:10:00+00:00"),
+                "error_uuid": self.UUIDS[0],
+                "error_type": "SomeError",
+                "error_details": {"event": {}},
+            },
+        ]
 
     @freeze_time("2021-12-05T13:23:00Z")
     @snapshot_clickhouse_queries
@@ -688,17 +661,14 @@ class TestAppMetricsErrorDetailsQuery(ClickhouseTestMixin, BaseTest):
         )
         results = AppMetricsErrorDetailsQuery(self.team, 3, filter).run()
 
-        self.assertEqual(
-            results,
-            [
-                {
-                    "timestamp": datetime.fromisoformat("2021-11-28T00:10:00+00:00"),
-                    "error_uuid": self.UUIDS[0],
-                    "error_type": "SomeError",
-                    "error_details": {"event": {}},
-                }
-            ],
-        )
+        assert results == [
+            {
+                "timestamp": datetime.fromisoformat("2021-11-28T00:10:00+00:00"),
+                "error_uuid": self.UUIDS[0],
+                "error_type": "SomeError",
+                "error_details": {"event": {}},
+            }
+        ]
 
     @freeze_time("2021-12-05T13:23:00Z")
     @snapshot_clickhouse_queries
@@ -763,14 +733,11 @@ class TestAppMetricsErrorDetailsQuery(ClickhouseTestMixin, BaseTest):
         )
         results = AppMetricsErrorDetailsQuery(self.team, 3, filter).run()
 
-        self.assertEqual(
-            results,
-            [
-                {
-                    "timestamp": datetime.fromisoformat("2021-11-28T00:10:00+00:00"),
-                    "error_uuid": self.UUIDS[0],
-                    "error_type": "SomeError",
-                    "error_details": {"event": {}},
-                }
-            ],
-        )
+        assert results == [
+            {
+                "timestamp": datetime.fromisoformat("2021-11-28T00:10:00+00:00"),
+                "error_uuid": self.UUIDS[0],
+                "error_type": "SomeError",
+                "error_details": {"event": {}},
+            }
+        ]

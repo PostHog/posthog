@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import Any, Optional
+from typing import Any
 
 from freezegun import freeze_time
 from freezegun.api import FrozenDateTimeFactory, StepTickTimeFactory
@@ -56,7 +56,7 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
     def _create_insight(
         self,
         data: dict[str, Any],
-        team_id: Optional[int] = None,
+        team_id: int | None = None,
         expected_status: int = status.HTTP_201_CREATED,
     ) -> tuple[int, dict[str, Any]]:
         if team_id is None:
@@ -66,7 +66,7 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
             data["filters"] = {"events": [{"id": "$pageview"}]}
 
         response = self.client.post(f"/api/projects/{team_id}/insights", data=data)
-        self.assertEqual(response.status_code, expected_status)
+        assert response.status_code == expected_status
 
         response_json = response.json()
         return response_json.get("id", None), response_json
@@ -137,7 +137,7 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
                 f"/api/projects/{self.team.id}/insights/{created_insight_id}",
                 {"name": f"{created_insight_id}-insight-changed-by-{the_user.id}"},
             )
-            self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+            assert update_response.status_code == status.HTTP_200_OK
 
             frozen_time.tick(delta=timedelta(minutes=6))
         assert (

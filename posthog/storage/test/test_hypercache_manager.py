@@ -7,6 +7,7 @@ Covers:
 - Cache invalidation and stats operations
 """
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -542,7 +543,7 @@ class TestConfigValidation(BaseTest):
         def get_team_ids():
             return {1, 2, 3}
 
-        with self.assertRaises(ValueError) as context:
+        with pytest.raises(ValueError) as context:
             HyperCacheManagementConfig(
                 hypercache=hypercache,
                 update_fn=update_fn,
@@ -551,7 +552,7 @@ class TestConfigValidation(BaseTest):
                 empty_cache_value=None,  # Missing!
             )
 
-        assert "both get_team_ids_needing_full_verification_fn and empty_cache_value" in str(context.exception)
+        assert "both get_team_ids_needing_full_verification_fn and empty_cache_value" in str(context.value)
 
     def test_only_empty_cache_value_set_raises_error(self):
         """Config with only empty_cache_value raises ValueError."""
@@ -560,7 +561,7 @@ class TestConfigValidation(BaseTest):
         def update_fn(team, ttl=None):
             return True
 
-        with self.assertRaises(ValueError) as context:
+        with pytest.raises(ValueError) as context:
             HyperCacheManagementConfig(
                 hypercache=hypercache,
                 update_fn=update_fn,
@@ -569,4 +570,4 @@ class TestConfigValidation(BaseTest):
                 empty_cache_value={"flags": []},
             )
 
-        assert "both get_team_ids_needing_full_verification_fn and empty_cache_value" in str(context.exception)
+        assert "both get_team_ids_needing_full_verification_fn and empty_cache_value" in str(context.value)

@@ -58,16 +58,16 @@ class TestOAuthTokenCleanup(TestCase):
         )
 
         initial_count = OAuthAccessToken.objects.count()
-        self.assertEqual(initial_count, 2)
+        assert initial_count == 2
 
         result = oauth_clear_expired_oauth_tokens_job.execute_in_process()
 
-        self.assertTrue(result.success)
+        assert result.success
 
         final_count = OAuthAccessToken.objects.count()
-        self.assertLess(final_count, initial_count)
+        assert final_count < initial_count
 
-        self.assertTrue(OAuthAccessToken.objects.filter(id=valid_token.id).exists())
+        assert OAuthAccessToken.objects.filter(id=valid_token.id).exists()
 
 
 @pytest.mark.requires_secrets
@@ -113,8 +113,8 @@ class TestBatchDeleteFunctionality(TestCase):
         deleted_count = batch_delete_model(queryset, query, context, "test_tokens")
 
         # Verify all tokens were deleted
-        self.assertEqual(deleted_count, 5)
-        self.assertEqual(OAuthAccessToken.objects.count(), 0)
+        assert deleted_count == 5
+        assert OAuthAccessToken.objects.count() == 0
 
     def test_batch_delete_model_with_no_tokens(self):
         """Test batch deletion when no tokens match the query."""
@@ -124,7 +124,7 @@ class TestBatchDeleteFunctionality(TestCase):
 
         deleted_count = batch_delete_model(queryset, query, context, "test_tokens")
 
-        self.assertEqual(deleted_count, 0)
+        assert deleted_count == 0
 
     def test_clear_expired_tokens_by_type_multiple_queries(self):
         """Test clearing tokens by type with multiple query types."""
@@ -165,13 +165,13 @@ class TestBatchDeleteFunctionality(TestCase):
         refresh_results = clear_expired_tokens_by_type(OAuthRefreshToken, refresh_token_queries, context)
 
         # Verify results
-        self.assertEqual(access_results["expired_standalone"], 1)
-        self.assertEqual(refresh_results["revoked"], 1)
+        assert access_results["expired_standalone"] == 1
+        assert refresh_results["revoked"] == 1
 
         # Verify expired tokens are gone but valid ones remain
-        self.assertFalse(OAuthAccessToken.objects.filter(id=expired_access_token.id).exists())
-        self.assertFalse(OAuthRefreshToken.objects.filter(id=expired_refresh_token.id).exists())
-        self.assertTrue(OAuthAccessToken.objects.filter(id=valid_access_token.id).exists())
+        assert not OAuthAccessToken.objects.filter(id=expired_access_token.id).exists()
+        assert not OAuthRefreshToken.objects.filter(id=expired_refresh_token.id).exists()
+        assert OAuthAccessToken.objects.filter(id=valid_access_token.id).exists()
 
     @override_settings(OAUTH_EXPIRED_TOKEN_RETENTION_PERIOD=3600)  # 1 hour
     def test_clear_expired_oauth_tokens_with_custom_retention(self):
@@ -207,9 +207,9 @@ class TestBatchDeleteFunctionality(TestCase):
 
         clear_expired_oauth_tokens(context)
 
-        self.assertFalse(OAuthAccessToken.objects.filter(id=old_access_token.id).exists())
-        self.assertTrue(OAuthAccessToken.objects.filter(id=recent_expired_token.id).exists())
-        self.assertFalse(OAuthGrant.objects.filter(id=old_grant.id).exists())
+        assert not OAuthAccessToken.objects.filter(id=old_access_token.id).exists()
+        assert OAuthAccessToken.objects.filter(id=recent_expired_token.id).exists()
+        assert not OAuthGrant.objects.filter(id=old_grant.id).exists()
 
     @unittest.mock.patch("products.growth.dags.oauth.batch_delete_model")
     def test_clear_expired_oauth_tokens_metadata_output(self, mock_batch_delete):
@@ -218,7 +218,7 @@ class TestBatchDeleteFunctionality(TestCase):
         context = dagster.build_op_context()
         clear_expired_oauth_tokens(context)
 
-        self.assertTrue(mock_batch_delete.called)
+        assert mock_batch_delete.called
 
     def test_token_cleanup_comprehensive_scenario(self):
         now = timezone.now()
@@ -298,17 +298,17 @@ class TestBatchDeleteFunctionality(TestCase):
         # Verify tokens to delete are gone
         for model_name, token_id in tokens_to_delete:
             if model_name == "OAuthAccessToken":
-                self.assertFalse(OAuthAccessToken.objects.filter(id=token_id).exists())
+                assert not OAuthAccessToken.objects.filter(id=token_id).exists()
             elif model_name == "OAuthGrant":
-                self.assertFalse(OAuthGrant.objects.filter(id=token_id).exists())
+                assert not OAuthGrant.objects.filter(id=token_id).exists()
             elif model_name == "OAuthRefreshToken":
-                self.assertFalse(OAuthRefreshToken.objects.filter(id=token_id).exists())
+                assert not OAuthRefreshToken.objects.filter(id=token_id).exists()
 
         # Verify tokens to keep are still there
         for model_name, token_id in tokens_to_keep:
             if model_name == "OAuthAccessToken":
-                self.assertTrue(OAuthAccessToken.objects.filter(id=token_id).exists())
+                assert OAuthAccessToken.objects.filter(id=token_id).exists()
             elif model_name == "OAuthGrant":
-                self.assertTrue(OAuthGrant.objects.filter(id=token_id).exists())
+                assert OAuthGrant.objects.filter(id=token_id).exists()
             elif model_name == "OAuthRefreshToken":
-                self.assertTrue(OAuthRefreshToken.objects.filter(id=token_id).exists())
+                assert OAuthRefreshToken.objects.filter(id=token_id).exists()

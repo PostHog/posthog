@@ -1,3 +1,4 @@
+import re
 import datetime
 from zoneinfo import ZoneInfo
 
@@ -52,33 +53,33 @@ class TestOrganizationDomainsAPI(APIBaseTest):
 
     def test_can_list_and_retrieve_domains(self):
         response = self.client.get("/api/organizations/@current/domains")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
-        self.assertEqual(response_data["count"], 1)
+        assert response_data["count"] == 1
         item = response_data["results"][0]
 
-        self.assertEqual(item["domain"], "myposthog.com")
-        self.assertEqual(item["verified_at"], None)
-        self.assertEqual(item["is_verified"], False)
-        self.assertEqual(item["jit_provisioning_enabled"], False)
-        self.assertEqual(item["sso_enforcement"], "")
-        self.assertRegex(item["verification_challenge"], r"[0-9A-Za-z_-]{32}")
+        assert item["domain"] == "myposthog.com"
+        assert item["verified_at"] is None
+        assert not item["is_verified"]
+        assert not item["jit_provisioning_enabled"]
+        assert item["sso_enforcement"] == ""
+        assert re.search(r"[0-9A-Za-z_-]{32}", item["verification_challenge"])
 
         retrieve_response = self.client.get(f"/api/organizations/{self.organization.id}/domains/{self.domain.id}")
-        self.assertEqual(retrieve_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(retrieve_response.json(), response_data["results"][0])
+        assert retrieve_response.status_code == status.HTTP_200_OK
+        assert retrieve_response.json() == response_data["results"][0]
 
     def test_cannot_list_or_retrieve_domains_for_other_org(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
         response = self.client.get(f"/api/organizations/@current/domains/{self.another_domain.id}")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-        self.assertEqual(response.json(), self.not_found_response())
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.json() == self.not_found_response()
 
         response = self.client.get(f"/api/organizations/{self.another_org.id}/domains/{self.another_domain.id}")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json(), self.permission_denied_response())
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json() == self.permission_denied_response()
 
     # Create domains
 
@@ -103,20 +104,20 @@ class TestOrganizationDomainsAPI(APIBaseTest):
                     "scim_enabled": True,  # ignore me
                 },
             )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         response_data = response.json()
-        self.assertEqual(response_data["domain"], "the.posthog.com")
-        self.assertEqual(response_data["verified_at"], None)
-        self.assertEqual(response_data["jit_provisioning_enabled"], False)
-        self.assertEqual(response_data["scim_enabled"], False)
-        self.assertRegex(response_data["verification_challenge"], r"[0-9A-Za-z_-]{32}")
+        assert response_data["domain"] == "the.posthog.com"
+        assert response_data["verified_at"] is None
+        assert not response_data["jit_provisioning_enabled"]
+        assert not response_data["scim_enabled"]
+        assert re.search(r"[0-9A-Za-z_-]{32}", response_data["verification_challenge"])
 
         instance = OrganizationDomain.objects.get(id=response_data["id"])
-        self.assertEqual(instance.domain, "the.posthog.com")
-        self.assertEqual(instance.verified_at, None)
-        self.assertEqual(instance.last_verification_retry, None)
-        self.assertEqual(instance.sso_enforcement, "")
-        self.assertEqual(instance.scim_enabled, False)
+        assert instance.domain == "the.posthog.com"
+        assert instance.verified_at is None
+        assert instance.last_verification_retry is None
+        assert instance.sso_enforcement == ""
+        assert not instance.scim_enabled
 
         # Verify the domain creation capture event was called
         mock_capture.assert_any_call(
@@ -145,7 +146,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
                     "sso_enforcement": "saml",  # ignore me
                 },
             )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_cannot_create_duplicate_domain(self):
         OrganizationDomain.objects.create(domain="i-registered-first.com", organization=self.another_org)
@@ -154,18 +155,15 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.organization_membership.save()
 
         response = self.client.post("/api/organizations/@current/domains/", {"domain": "i-registered-first.com"})
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "unique",
-                "detail": "domain with this domain already exists.",
-                "attr": "domain",
-            },
-        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "unique",
+            "detail": "domain with this domain already exists.",
+            "attr": "domain",
+        }
 
-        self.assertEqual(OrganizationDomain.objects.count(), count)
+        assert OrganizationDomain.objects.count() == count
 
     def test_cannot_create_invalid_domain(self):
         count = OrganizationDomain.objects.count()
@@ -181,18 +179,15 @@ class TestOrganizationDomainsAPI(APIBaseTest):
 
         for _domain in invalid_domains:
             response = self.client.post("/api/organizations/@current/domains/", {"domain": _domain})
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-            self.assertEqual(
-                response.json(),
-                {
-                    "type": "validation_error",
-                    "code": "invalid_input",
-                    "detail": "Please enter a valid domain or subdomain name.",
-                    "attr": "domain",
-                },
-            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert response.json() == {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Please enter a valid domain or subdomain name.",
+                "attr": "domain",
+            }
 
-        self.assertEqual(OrganizationDomain.objects.count(), count)
+        assert OrganizationDomain.objects.count() == count
 
     @patch("posthog.models.organization_domain.dns.resolver.resolve")
     def test_can_request_verification_for_unverified_domains(self, mock_dns_query):
@@ -213,21 +208,15 @@ class TestOrganizationDomainsAPI(APIBaseTest):
 
         with freeze_time("2021-08-08T20:20:08Z"):
             response = self.client.post(f"/api/organizations/@current/domains/{self.domain.id}/verify")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
         self.domain.refresh_from_db()
-        self.assertEqual(response_data["domain"], "myposthog.com")
-        self.assertEqual(
-            response_data["verified_at"],
-            self.domain.verified_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        )
-        self.assertEqual(response_data["is_verified"], True)
+        assert response_data["domain"] == "myposthog.com"
+        assert response_data["verified_at"] == self.domain.verified_at.strftime("%Y-%m-%dT%H:%M:%SZ")
+        assert response_data["is_verified"]
 
-        self.assertEqual(
-            self.domain.verified_at,
-            datetime.datetime(2021, 8, 8, 20, 20, 8, tzinfo=ZoneInfo("UTC")),
-        )
-        self.assertEqual(self.domain.is_verified, True)
+        assert self.domain.verified_at == datetime.datetime(2021, 8, 8, 20, 20, 8, tzinfo=ZoneInfo("UTC"))
+        assert self.domain.is_verified
 
     @patch("posthog.models.organization_domain.dns.resolver.resolve")
     def test_domain_is_not_verified_with_missing_challenge(self, mock_dns_query):
@@ -239,15 +228,14 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         with freeze_time("2021-10-10T10:10:10Z"):
             with self.is_cloud(True):
                 response = self.client.post(f"/api/organizations/@current/domains/{self.domain.id}/verify")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
         self.domain.refresh_from_db()
-        self.assertEqual(response_data["domain"], "myposthog.com")
-        self.assertEqual(response_data["verified_at"], None)
-        self.assertEqual(self.domain.verified_at, None)
-        self.assertEqual(
-            self.domain.last_verification_retry,
-            datetime.datetime(2021, 10, 10, 10, 10, 10, tzinfo=ZoneInfo("UTC")),
+        assert response_data["domain"] == "myposthog.com"
+        assert response_data["verified_at"] is None
+        assert self.domain.verified_at is None
+        assert self.domain.last_verification_retry == datetime.datetime(
+            2021, 10, 10, 10, 10, 10, tzinfo=ZoneInfo("UTC")
         )
 
     @patch("posthog.models.organization_domain.dns.resolver.resolve")
@@ -260,15 +248,14 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         with freeze_time("2021-10-10T10:10:10Z"):
             with self.is_cloud(True):
                 response = self.client.post(f"/api/organizations/@current/domains/{self.domain.id}/verify")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
         self.domain.refresh_from_db()
-        self.assertEqual(response_data["domain"], "myposthog.com")
-        self.assertEqual(response_data["verified_at"], None)
-        self.assertEqual(self.domain.verified_at, None)
-        self.assertEqual(
-            self.domain.last_verification_retry,
-            datetime.datetime(2021, 10, 10, 10, 10, 10, tzinfo=ZoneInfo("UTC")),
+        assert response_data["domain"] == "myposthog.com"
+        assert response_data["verified_at"] is None
+        assert self.domain.verified_at is None
+        assert self.domain.last_verification_retry == datetime.datetime(
+            2021, 10, 10, 10, 10, 10, tzinfo=ZoneInfo("UTC")
         )
 
     @patch("posthog.models.organization_domain.dns.resolver.resolve")
@@ -291,15 +278,14 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         with freeze_time("2021-10-10T10:10:10Z"):
             with self.is_cloud(True):
                 response = self.client.post(f"/api/organizations/@current/domains/{self.domain.id}/verify")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
         self.domain.refresh_from_db()
-        self.assertEqual(response_data["domain"], "myposthog.com")
-        self.assertEqual(response_data["verified_at"], None)
-        self.assertEqual(self.domain.verified_at, None)
-        self.assertEqual(
-            self.domain.last_verification_retry,
-            datetime.datetime(2021, 10, 10, 10, 10, 10, tzinfo=ZoneInfo("UTC")),
+        assert response_data["domain"] == "myposthog.com"
+        assert response_data["verified_at"] is None
+        assert self.domain.verified_at is None
+        assert self.domain.last_verification_retry == datetime.datetime(
+            2021, 10, 10, 10, 10, 10, tzinfo=ZoneInfo("UTC")
         )
 
     def test_cannot_request_verification_for_verified_domains(self):
@@ -309,38 +295,29 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.domain.save()
 
         response = self.client.post(f"/api/organizations/@current/domains/{self.domain.id}/verify")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "already_verified",
-                "detail": "This domain has already been verified.",
-                "attr": None,
-            },
-        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "already_verified",
+            "detail": "This domain has already been verified.",
+            "attr": None,
+        }
 
     def test_only_admin_can_create_verified_domains(self):
         count = OrganizationDomain.objects.count()
         response = self.client.post("/api/organizations/@current/domains/", {"domain": "evil.posthog.com"})
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(
-            response.json(),
-            self.permission_denied_response("Your organization access level is insufficient."),
-        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json() == self.permission_denied_response("Your organization access level is insufficient.")
 
-        self.assertEqual(OrganizationDomain.objects.count(), count)
+        assert OrganizationDomain.objects.count() == count
 
     def test_only_admin_can_request_verification(self):
         response = self.client.post(f"/api/organizations/@current/domains/{self.domain.id}/verify")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(
-            response.json(),
-            self.permission_denied_response("Your organization access level is insufficient."),
-        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json() == self.permission_denied_response("Your organization access level is insufficient.")
 
         self.domain.refresh_from_db()
-        self.assertEqual(self.domain.verified_at, None)
+        assert self.domain.verified_at is None
 
     # Update domains
 
@@ -358,13 +335,13 @@ class TestOrganizationDomainsAPI(APIBaseTest):
             f"/api/organizations/@current/domains/{self.domain.id}/",
             {"sso_enforcement": "google-oauth2", "jit_provisioning_enabled": True},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["sso_enforcement"], "google-oauth2")
-        self.assertEqual(response.json()["jit_provisioning_enabled"], True)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["sso_enforcement"] == "google-oauth2"
+        assert response.json()["jit_provisioning_enabled"]
 
         self.domain.refresh_from_db()
-        self.assertEqual(self.domain.sso_enforcement, "google-oauth2")
-        self.assertEqual(self.domain.jit_provisioning_enabled, True)
+        assert self.domain.sso_enforcement == "google-oauth2"
+        assert self.domain.jit_provisioning_enabled
 
     def test_cannot_enforce_sso_or_enable_jit_provisioning_on_unverified_domain(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -375,36 +352,30 @@ class TestOrganizationDomainsAPI(APIBaseTest):
             f"/api/organizations/@current/domains/{self.domain.id}/",
             {"sso_enforcement": "google-oauth2"},
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "verification_required",
-                "detail": "This attribute cannot be updated until the domain is verified.",
-                "attr": "sso_enforcement",
-            },
-        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "verification_required",
+            "detail": "This attribute cannot be updated until the domain is verified.",
+            "attr": "sso_enforcement",
+        }
         self.domain.refresh_from_db()
-        self.assertEqual(self.domain.sso_enforcement, "")
+        assert self.domain.sso_enforcement == ""
 
         # JIT Provisioning
         response = self.client.patch(
             f"/api/organizations/@current/domains/{self.domain.id}/",
             {"jit_provisioning_enabled": True},
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "verification_required",
-                "detail": "This attribute cannot be updated until the domain is verified.",
-                "attr": "jit_provisioning_enabled",
-            },
-        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "verification_required",
+            "detail": "This attribute cannot be updated until the domain is verified.",
+            "attr": "jit_provisioning_enabled",
+        }
         self.domain.refresh_from_db()
-        self.assertEqual(self.domain.jit_provisioning_enabled, False)
+        assert not self.domain.jit_provisioning_enabled
 
     def test_only_allowed_parameters_can_be_updated(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -414,9 +385,9 @@ class TestOrganizationDomainsAPI(APIBaseTest):
             f"/api/organizations/@current/domains/{self.domain.id}/",
             {"verified_at": "2020-01-01T12:12:12Z", "verification_challenge": "123"},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["verified_at"], None)
-        self.assertRegex(response.json()["verification_challenge"], r"[0-9A-Za-z_-]{32}")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["verified_at"] is None
+        assert re.search(r"[0-9A-Za-z_-]{32}", response.json()["verification_challenge"])
 
     def test_only_admin_can_update_domain(self):
         self.domain.verified_at = timezone.now()
@@ -426,14 +397,11 @@ class TestOrganizationDomainsAPI(APIBaseTest):
             f"/api/organizations/{self.organization.id}/domains/{self.domain.id}/",
             {"sso_enforcement": "google-oauth2", "jit_provisioning_enabled": True},
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(
-            response.json(),
-            self.permission_denied_response("Your organization access level is insufficient."),
-        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json() == self.permission_denied_response("Your organization access level is insufficient.")
         self.domain.refresh_from_db()
-        self.assertEqual(self.domain.jit_provisioning_enabled, False)
-        self.assertEqual(self.domain.sso_enforcement, "")
+        assert not self.domain.jit_provisioning_enabled
+        assert self.domain.sso_enforcement == ""
 
     def test_cannot_update_domain_for_another_org(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -445,11 +413,11 @@ class TestOrganizationDomainsAPI(APIBaseTest):
             f"/api/organizations/{self.another_org.id}/domains/{self.another_domain.id}/",
             {"sso_enforcement": "google-oauth2", "jit_provisioning_enabled": True},
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json(), self.permission_denied_response())
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json() == self.permission_denied_response()
         self.another_domain.refresh_from_db()
-        self.assertEqual(self.another_domain.jit_provisioning_enabled, False)
-        self.assertEqual(self.another_domain.sso_enforcement, "")
+        assert not self.another_domain.jit_provisioning_enabled
+        assert self.another_domain.sso_enforcement == ""
 
     # Delete domains
 
@@ -459,10 +427,10 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.organization_membership.save()
 
         response = self.client.delete(f"/api/organizations/@current/domains/{self.domain.id}")
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertEqual(response.content, b"")
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert response.content == b""
 
-        self.assertFalse(OrganizationDomain.objects.filter(id=self.domain.id).exists())
+        assert not OrganizationDomain.objects.filter(id=self.domain.id).exists()
 
         # Verify the domain deletion capture event was called
         mock_capture.assert_any_call(
@@ -481,11 +449,8 @@ class TestOrganizationDomainsAPI(APIBaseTest):
 
     def test_only_admin_can_delete_domain(self):
         response = self.client.delete(f"/api/organizations/@current/domains/{self.domain.id}")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(
-            response.json(),
-            self.permission_denied_response("Your organization access level is insufficient."),
-        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json() == self.permission_denied_response("Your organization access level is insufficient.")
         self.domain.refresh_from_db()
 
     def test_cannot_delete_domain_for_another_org(self):
@@ -493,8 +458,8 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.organization_membership.save()
 
         response = self.client.delete(f"/api/organizations/{self.another_org.id}/domains/{self.another_domain.id}")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json(), self.permission_denied_response())
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json() == self.permission_denied_response()
         self.another_domain.refresh_from_db()
 
     # SCIM configuration
@@ -511,14 +476,14 @@ class TestOrganizationDomainsAPI(APIBaseTest):
             f"/api/organizations/@current/domains/{self.domain.id}/",
             {"scim_enabled": True},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["scim_enabled"], True)
-        self.assertIsNotNone(response.json()["scim_bearer_token"])
-        self.assertIn("scim_base_url", response.json())
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["scim_enabled"]
+        assert response.json()["scim_bearer_token"] is not None
+        assert "scim_base_url" in response.json()
 
         self.domain.refresh_from_db()
-        self.assertEqual(self.domain.scim_enabled, True)
-        self.assertIsNotNone(self.domain.scim_bearer_token)
+        assert self.domain.scim_enabled
+        assert self.domain.scim_bearer_token is not None
 
     def test_cannot_enable_scim_without_available_feature(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -530,8 +495,8 @@ class TestOrganizationDomainsAPI(APIBaseTest):
             f"/api/organizations/@current/domains/{self.domain.id}/",
             {"scim_enabled": True},
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("not available", response.json()["detail"].lower())
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "not available" in response.json()["detail"].lower()
 
     def test_cannot_enable_scim_on_unverified_domain(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -543,16 +508,13 @@ class TestOrganizationDomainsAPI(APIBaseTest):
             f"/api/organizations/@current/domains/{self.domain.id}/",
             {"scim_enabled": True},
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "verification_required",
-                "detail": "This attribute cannot be updated until the domain is verified.",
-                "attr": "scim_enabled",
-            },
-        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "verification_required",
+            "detail": "This attribute cannot be updated until the domain is verified.",
+            "attr": "scim_enabled",
+        }
 
     def test_can_disable_scim(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -567,20 +529,20 @@ class TestOrganizationDomainsAPI(APIBaseTest):
             f"/api/organizations/@current/domains/{self.domain.id}/",
             {"scim_enabled": True},
         )
-        self.assertEqual(enable_response.status_code, status.HTTP_200_OK)
+        assert enable_response.status_code == status.HTTP_200_OK
 
         # Then disable it
         response = self.client.patch(
             f"/api/organizations/@current/domains/{self.domain.id}/",
             {"scim_enabled": False},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["scim_enabled"], False)
-        self.assertIsNone(response.json()["scim_bearer_token"])
+        assert response.status_code == status.HTTP_200_OK
+        assert not response.json()["scim_enabled"]
+        assert response.json()["scim_bearer_token"] is None
 
         self.domain.refresh_from_db()
-        self.assertEqual(self.domain.scim_enabled, False)
-        self.assertIsNone(self.domain.scim_bearer_token)
+        assert not self.domain.scim_enabled
+        assert self.domain.scim_bearer_token is None
 
     def test_can_regenerate_scim_token(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -595,16 +557,16 @@ class TestOrganizationDomainsAPI(APIBaseTest):
             f"/api/organizations/@current/domains/{self.domain.id}/",
             {"scim_enabled": True},
         )
-        self.assertEqual(enable_response.status_code, status.HTTP_200_OK)
+        assert enable_response.status_code == status.HTTP_200_OK
         original_token = enable_response.json()["scim_bearer_token"]
 
         # Regenerate token
         response = self.client.post(f"/api/organizations/@current/domains/{self.domain.id}/scim/token")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["scim_enabled"], True)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["scim_enabled"]
         new_token = response.json()["scim_bearer_token"]
-        self.assertIsNotNone(new_token)
-        self.assertNotEqual(original_token, new_token)
+        assert new_token is not None
+        assert original_token != new_token
 
     def test_cannot_regenerate_scim_token_without_available_feature(self):
         from ee.api.scim.auth import generate_scim_token
@@ -625,4 +587,4 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.organization.save()
 
         response = self.client.post(f"/api/organizations/@current/domains/{self.domain.id}/scim/token")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN

@@ -22,11 +22,11 @@ class TestUserProductListAPI(APIBaseTest):
             {"product_path": "Product analytics", "enabled": True},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         product_list.refresh_from_db()
-        self.assertEqual(product_list.enabled, True)
-        self.assertEqual(product_list.reason, UserProductList.Reason.PRODUCT_INTENT)
-        self.assertEqual(product_list.reason_text, "")
+        assert product_list.enabled
+        assert product_list.reason == UserProductList.Reason.PRODUCT_INTENT
+        assert product_list.reason_text == ""
 
     def test_update_by_path_clears_reason_and_reason_text_when_already_enabled(self):
         product_list = UserProductList.objects.create(
@@ -43,11 +43,11 @@ class TestUserProductListAPI(APIBaseTest):
             {"product_path": "Product analytics", "enabled": True},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         product_list.refresh_from_db()
-        self.assertEqual(product_list.enabled, True)
-        self.assertEqual(product_list.reason, UserProductList.Reason.PRODUCT_INTENT)
-        self.assertEqual(product_list.reason_text, "")
+        assert product_list.enabled
+        assert product_list.reason == UserProductList.Reason.PRODUCT_INTENT
+        assert product_list.reason_text == ""
 
     def test_update_by_path_does_not_clear_reason_when_disabling(self):
         product_list = UserProductList.objects.create(
@@ -64,11 +64,11 @@ class TestUserProductListAPI(APIBaseTest):
             {"product_path": "Product analytics", "enabled": False},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         product_list.refresh_from_db()
-        self.assertEqual(product_list.enabled, False)
-        self.assertEqual(product_list.reason, UserProductList.Reason.USED_BY_COLLEAGUES)
-        self.assertEqual(product_list.reason_text, "Some reason text")
+        assert not product_list.enabled
+        assert product_list.reason == UserProductList.Reason.USED_BY_COLLEAGUES
+        assert product_list.reason_text == "Some reason text"
 
     def test_seed_creates_products_from_colleagues_and_other_teams(self):
         UserProductList.objects.create(
@@ -92,24 +92,24 @@ class TestUserProductListAPI(APIBaseTest):
 
         response = self.client.post(f"/api/environments/{self.team.id}/user_product_list/seed/")
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         data = response.json()
-        self.assertIsInstance(data, list)
+        assert isinstance(data, list)
 
         product_paths = {item["product_path"] for item in data}
-        self.assertIn("Product analytics", product_paths)
-        self.assertIn("Session replay", product_paths)
-        self.assertIn("Feature flags", product_paths)
-        self.assertIn("Surveys", product_paths)
+        assert "Product analytics" in product_paths
+        assert "Session replay" in product_paths
+        assert "Feature flags" in product_paths
+        assert "Surveys" in product_paths
 
         data_by_path = {item["product_path"]: item for item in data}
-        self.assertEqual(data_by_path["Product analytics"]["reason"], UserProductList.Reason.PRODUCT_INTENT)
-        self.assertEqual(data_by_path["Session replay"]["reason"], UserProductList.Reason.USED_BY_COLLEAGUES)
-        self.assertEqual(data_by_path["Feature flags"]["reason"], UserProductList.Reason.USED_BY_COLLEAGUES)
-        self.assertEqual(data_by_path["Surveys"]["reason"], UserProductList.Reason.USED_ON_SEPARATE_TEAM)
+        assert data_by_path["Product analytics"]["reason"] == UserProductList.Reason.PRODUCT_INTENT
+        assert data_by_path["Session replay"]["reason"] == UserProductList.Reason.USED_BY_COLLEAGUES
+        assert data_by_path["Feature flags"]["reason"] == UserProductList.Reason.USED_BY_COLLEAGUES
+        assert data_by_path["Surveys"]["reason"] == UserProductList.Reason.USED_ON_SEPARATE_TEAM
 
         for item in data:
-            self.assertTrue(item["enabled"])
+            assert item["enabled"]
 
     def test_seed_only_returns_enabled_products(self):
         UserProductList.objects.create(
@@ -129,12 +129,12 @@ class TestUserProductListAPI(APIBaseTest):
 
         response = self.client.post(f"/api/environments/{self.team.id}/user_product_list/seed/")
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         data = response.json()
         product_paths = {item["product_path"] for item in data}
 
-        self.assertIn("Product analytics", product_paths)
-        self.assertNotIn("Feature flags", product_paths)
+        assert "Product analytics" in product_paths
+        assert "Feature flags" not in product_paths
 
         data_by_path = {item["product_path"]: item for item in data}
-        self.assertEqual(data_by_path["Product analytics"]["reason"], UserProductList.Reason.PRODUCT_INTENT)
+        assert data_by_path["Product analytics"]["reason"] == UserProductList.Reason.PRODUCT_INTENT

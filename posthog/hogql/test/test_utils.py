@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import BaseTest
 
 from posthog.hogql import ast
@@ -80,7 +81,7 @@ class TestUtils(BaseTest):
         )
 
     def test_deserialize_hx_ast_error(self):
-        with self.assertRaises(ValueError) as e:
+        with pytest.raises(ValueError) as e:
             deserialize_hx_ast(
                 {
                     "__hx_ast": "Constant",
@@ -88,13 +89,13 @@ class TestUtils(BaseTest):
                     "unexpected": 2,
                 }
             )
-        self.assertEqual(str(e.exception), "Unexpected field 'unexpected' for AST node 'Constant'")
+        assert str(e.value) == "Unexpected field 'unexpected' for AST node 'Constant'"
 
-        with self.assertRaises(ValueError) as e:
+        with pytest.raises(ValueError) as e:
             deserialize_hx_ast(
                 {
                     "__hx_ast": "Invalid",
                     "value": 1,
                 }
             )
-        self.assertEqual(str(e.exception), "Invalid or missing '__hx_ast' kind: Invalid")
+        assert str(e.value) == "Invalid or missing '__hx_ast' kind: Invalid"

@@ -58,13 +58,10 @@ class TestBackfillPersonsAndGroupsOnEvents(BaseTest, ClickhouseTestMixin):
         )
 
         events_before = sync_execute("select event, person_id, person_properties from events")
-        self.assertEqual(
-            events_before,
-            [
-                ("event1", UUID("00000000-0000-0000-0000-000000000000"), ""),
-                ("event2", UUID("00000000-0000-0000-0000-000000000000"), ""),
-            ],
-        )
+        assert events_before == [
+            ("event1", UUID("00000000-0000-0000-0000-000000000000"), ""),
+            ("event2", UUID("00000000-0000-0000-0000-000000000000"), ""),
+        ]
 
         run_backfill({"team_id": 1, "live_run": True})
 
@@ -72,13 +69,7 @@ class TestBackfillPersonsAndGroupsOnEvents(BaseTest, ClickhouseTestMixin):
         sleep(10)
 
         events_after = sync_execute("select event, person_id, person_properties from events")
-        self.assertEqual(
-            events_after,
-            [
-                ("event1", person_id, '{ "foo": "bar" }'),
-                ("event2", person_id, '{ "foo": "bar" }'),
-            ],
-        )
+        assert events_after == [("event1", person_id, '{ "foo": "bar" }'), ("event2", person_id, '{ "foo": "bar" }')]
 
     def test_groups_backfill(self):
         self.recreate_database()
@@ -95,7 +86,7 @@ class TestBackfillPersonsAndGroupsOnEvents(BaseTest, ClickhouseTestMixin):
         )
 
         events_before = sync_execute("select event, $group_0, group0_properties from events")
-        self.assertEqual(events_before, [("event1", "my_group", ""), ("event2", "my_group", "")])
+        assert events_before == [("event1", "my_group", ""), ("event2", "my_group", "")]
 
         run_backfill({"team_id": 1, "live_run": True})
 
@@ -103,7 +94,4 @@ class TestBackfillPersonsAndGroupsOnEvents(BaseTest, ClickhouseTestMixin):
         sleep(10)
 
         events_after = sync_execute("select event, $group_0, group0_properties from events")
-        self.assertEqual(
-            events_after,
-            [("event1", "my_group", group_props), ("event2", "my_group", group_props)],
-        )
+        assert events_after == [("event1", "my_group", group_props), ("event2", "my_group", group_props)]

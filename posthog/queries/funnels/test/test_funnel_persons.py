@@ -153,7 +153,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         }
         filter = Filter(data=data)
         _, results, _ = ClickhouseFunnelActors(filter, self.team).get_actors()
-        self.assertEqual(35, len(results))
+        assert 35 == len(results)
 
     def test_last_step(self):
         self._create_sample_data_multiple_dropoffs()
@@ -172,7 +172,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         }
         filter = Filter(data=data)
         _, results, _ = ClickhouseFunnelActors(filter, self.team).get_actors()
-        self.assertEqual(5, len(results))
+        assert 5 == len(results)
 
     def test_second_step_dropoff(self):
         self._create_sample_data_multiple_dropoffs()
@@ -191,7 +191,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         }
         filter = Filter(data=data)
         _, results, _ = ClickhouseFunnelActors(filter, self.team).get_actors()
-        self.assertEqual(20, len(results))
+        assert 20 == len(results)
 
     def test_last_step_dropoff(self):
         self._create_sample_data_multiple_dropoffs()
@@ -210,7 +210,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         }
         filter = Filter(data=data)
         _, results, _ = ClickhouseFunnelActors(filter, self.team).get_actors()
-        self.assertEqual(10, len(results))
+        assert 10 == len(results)
 
     def _create_sample_data(self):
         for i in range(110):
@@ -252,11 +252,11 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
 
         filter = Filter(data=data)
         _, results, _ = ClickhouseFunnelActors(filter, self.team).get_actors()
-        self.assertEqual(100, len(results))
+        assert 100 == len(results)
 
         filter_offset = Filter(data={**data, "offset": 100})
         _, results, _ = ClickhouseFunnelActors(filter_offset, self.team).get_actors()
-        self.assertEqual(10, len(results))
+        assert 10 == len(results)
 
     def test_steps_with_custom_steps_parameter_are_equivalent_to_funnel_step(self):
         self._create_sample_data_multiple_dropoffs()
@@ -290,8 +290,8 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             new_filter = base_filter.shallow_clone({"funnel_custom_steps": custom_steps})
             _, new_results, _ = ClickhouseFunnelActors(new_filter, self.team).get_actors()
 
-            self.assertEqual(new_results, results)
-            self.assertEqual(len(results), expected_count)
+            assert new_results == results
+            assert len(results) == expected_count
 
     def test_steps_with_custom_steps_parameter_where_funnel_step_equivalence_isnt_possible(self):
         self._create_sample_data_multiple_dropoffs()
@@ -321,7 +321,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             new_filter = base_filter.shallow_clone({"funnel_custom_steps": custom_steps})
             _, new_results, _ = ClickhouseFunnelActors(new_filter, self.team).get_actors()
 
-            self.assertEqual(len(new_results), expected_count)
+            assert len(new_results) == expected_count
 
     def test_steps_with_custom_steps_parameter_overrides_funnel_step(self):
         self._create_sample_data_multiple_dropoffs()
@@ -342,7 +342,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
 
         _, results, _ = ClickhouseFunnelActors(Filter(data=data), self.team).get_actors()
 
-        self.assertEqual(len(results), 5)
+        assert len(results) == 5
 
     @also_test_with_materialized_columns(["$browser"])
     def test_first_step_breakdowns(self):
@@ -366,19 +366,19 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         )
         _, results, _ = ClickhouseFunnelActors(filter, self.team).get_actors()
 
-        self.assertCountEqual([val["id"] for val in results], [person1.uuid, person2.uuid])
+        assert sorted([val["id"] for val in results]) == sorted([person1.uuid, person2.uuid])
 
         _, results, _ = ClickhouseFunnelActors(
             filter.shallow_clone({"funnel_step_breakdown": "Chrome"}), self.team
         ).get_actors()
 
-        self.assertCountEqual([val["id"] for val in results], [person1.uuid])
+        assert sorted([val["id"] for val in results]) == sorted([person1.uuid])
 
         _, results, _ = ClickhouseFunnelActors(
             filter.shallow_clone({"funnel_step_breakdown": "Safari"}), self.team
         ).get_actors()
 
-        self.assertCountEqual([val["id"] for val in results], [person2.uuid])
+        assert sorted([val["id"] for val in results]) == sorted([person2.uuid])
 
     def test_first_step_breakdowns_with_multi_property_breakdown(self):
         person1, person2 = self._create_browser_breakdown_events()
@@ -401,18 +401,18 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         )
         _, results, _ = ClickhouseFunnelActors(filter, self.team).get_actors()
 
-        self.assertCountEqual([val["id"] for val in results], [person1.uuid, person2.uuid])
+        assert sorted([val["id"] for val in results]) == sorted([person1.uuid, person2.uuid])
 
         _, results, _ = ClickhouseFunnelActors(
             filter.shallow_clone({"funnel_step_breakdown": ["Chrome", "95"]}), self.team
         ).get_actors()
 
-        self.assertCountEqual([val["id"] for val in results], [person1.uuid])
+        assert sorted([val["id"] for val in results]) == sorted([person1.uuid])
 
         _, results, _ = ClickhouseFunnelActors(
             filter.shallow_clone({"funnel_step_breakdown": ["Safari", "14"]}), self.team
         ).get_actors()
-        self.assertCountEqual([val["id"] for val in results], [person2.uuid])
+        assert sorted([val["id"] for val in results]) == sorted([person2.uuid])
 
     @also_test_with_materialized_columns(person_properties=["$country"])
     def test_first_step_breakdown_person(self):
@@ -436,31 +436,31 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         _, results, _ = ClickhouseFunnelActors(filter, self.team).get_actors()
-        self.assertCountEqual([val["id"] for val in results], [person1.uuid, person2.uuid])
+        assert sorted([val["id"] for val in results]) == sorted([person1.uuid, person2.uuid])
 
         _, results, _ = ClickhouseFunnelActors(
             filter.shallow_clone({"funnel_step_breakdown": "EE"}), self.team
         ).get_actors()
-        self.assertCountEqual([val["id"] for val in results], [person2.uuid])
+        assert sorted([val["id"] for val in results]) == sorted([person2.uuid])
 
         # Check custom_steps give same answers for breakdowns
         _, custom_step_results, _ = ClickhouseFunnelActors(
             filter.shallow_clone({"funnel_step_breakdown": "EE", "funnel_custom_steps": [1, 2, 3]}),
             self.team,
         ).get_actors()
-        self.assertEqual(results, custom_step_results)
+        assert results == custom_step_results
 
         _, results, _ = ClickhouseFunnelActors(
             filter.shallow_clone({"funnel_step_breakdown": "PL"}), self.team
         ).get_actors()
-        self.assertCountEqual([val["id"] for val in results], [person1.uuid])
+        assert sorted([val["id"] for val in results]) == sorted([person1.uuid])
 
         # Check custom_steps give same answers for breakdowns
         _, custom_step_results, _ = ClickhouseFunnelActors(
             filter.shallow_clone({"funnel_step_breakdown": "PL", "funnel_custom_steps": [1, 2, 3]}),
             self.team,
         ).get_actors()
-        self.assertEqual(results, custom_step_results)
+        assert results == custom_step_results
 
     @also_test_with_materialized_columns(["$browser"], verify_no_jsonextract=False)
     def test_funnel_cohort_breakdown_persons(self):
@@ -493,7 +493,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         }
         filter = Filter(data=filters)
         _, results, _ = ClickhouseFunnelActors(filter, self.team).get_actors()
-        self.assertEqual(results[0]["id"], person.uuid)
+        assert results[0]["id"] == person.uuid
 
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-02 00:00:00.000Z")
@@ -542,8 +542,8 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             }
         )
         _, results, _ = ClickhouseFunnelActors(filter, self.team).get_actors()
-        self.assertEqual(results[0]["id"], p1.uuid)
-        self.assertEqual(results[0]["matched_recordings"], [])
+        assert results[0]["id"] == p1.uuid
+        assert results[0]["matched_recordings"] == []
 
         # Second event, with recording
         filter = Filter(
@@ -563,22 +563,19 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             }
         )
         _, results, _ = ClickhouseFunnelActors(filter, self.team).get_actors()
-        self.assertEqual(results[0]["id"], p1.uuid)
-        self.assertEqual(
-            results[0]["matched_recordings"],
-            [
-                {
-                    "session_id": "s2",
-                    "events": [
-                        {
-                            "uuid": UUID("21111111-1111-1111-1111-111111111111"),
-                            "timestamp": timezone.now() + timedelta(days=1),
-                            "window_id": "w2",
-                        }
-                    ],
-                }
-            ],
-        )
+        assert results[0]["id"] == p1.uuid
+        assert results[0]["matched_recordings"] == [
+            {
+                "session_id": "s2",
+                "events": [
+                    {
+                        "uuid": UUID("21111111-1111-1111-1111-111111111111"),
+                        "timestamp": timezone.now() + timedelta(days=1),
+                        "window_id": "w2",
+                    }
+                ],
+            }
+        ]
 
         # Third event dropoff, with recording
         filter = Filter(
@@ -598,19 +595,16 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             }
         )
         _, results, _ = ClickhouseFunnelActors(filter, self.team).get_actors()
-        self.assertEqual(results[0]["id"], p1.uuid)
-        self.assertEqual(
-            results[0]["matched_recordings"],
-            [
-                {
-                    "session_id": "s2",
-                    "events": [
-                        {
-                            "uuid": UUID("21111111-1111-1111-1111-111111111111"),
-                            "timestamp": timezone.now() + timedelta(days=1),
-                            "window_id": "w2",
-                        }
-                    ],
-                }
-            ],
-        )
+        assert results[0]["id"] == p1.uuid
+        assert results[0]["matched_recordings"] == [
+            {
+                "session_id": "s2",
+                "events": [
+                    {
+                        "uuid": UUID("21111111-1111-1111-1111-111111111111"),
+                        "timestamp": timezone.now() + timedelta(days=1),
+                        "window_id": "w2",
+                    }
+                ],
+            }
+        ]

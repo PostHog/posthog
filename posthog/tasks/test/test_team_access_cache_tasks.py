@@ -2,6 +2,7 @@
 Tests for team access cache Celery tasks.
 """
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
@@ -370,13 +371,13 @@ class TestWarmAllTeamsCachesTask(TestCase):
 
         # Execute task - should raise some exception that triggers retry
         # The retry mechanism may raise the original exception or a Retry exception
-        with self.assertRaises(Exception) as cm:
+        with pytest.raises(Exception) as cm:
             warm_all_team_access_caches_task()
 
         mock_get_teams_paginated.assert_called_once()
 
         # Verify the exception is related to our test failure
-        self.assertIn("Database connection failed", str(cm.exception))
+        assert "Database connection failed" in str(cm.value)
 
 
 class TestTaskIntegration(TestCase):

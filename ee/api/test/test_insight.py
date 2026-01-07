@@ -1,6 +1,6 @@
 import datetime
 from datetime import timedelta
-from typing import Optional, cast
+from typing import cast
 
 from freezegun import freeze_time
 from posthog.test.base import FuzzyInt, snapshot_postgres_queries
@@ -36,7 +36,7 @@ class TestInsightEnterpriseAPI(APILicensedTest):
                 }
             )
         insight_short_id = response_data["short_id"]
-        self.assertEqual(response_data["tags"], [])
+        assert response_data["tags"] == []
 
         with freeze_time("2012-01-14T03:21:35.000Z"):
             add_tags_response = self.client.patch(
@@ -45,14 +45,14 @@ class TestInsightEnterpriseAPI(APILicensedTest):
                 {"tags": ["2", "1", "3"]},
             )
 
-        self.assertEqual(sorted(add_tags_response.json()["tags"]), ["1", "2", "3"])
+        assert sorted(add_tags_response.json()["tags"]) == ["1", "2", "3"]
 
         with freeze_time("2012-01-14T03:21:36.000Z"):
             remove_tags_response = self.client.patch(
                 f"/api/projects/{self.team.id}/insights/{insight_id}", {"tags": ["3"]}
             )
 
-        self.assertEqual(remove_tags_response.json()["tags"], ["3"])
+        assert remove_tags_response.json()["tags"] == ["3"]
 
         self.assert_insight_activity(
             insight_id=insight_id,
@@ -129,24 +129,20 @@ class TestInsightEnterpriseAPI(APILicensedTest):
                 f"/api/projects/{self.team.id}/insights/{insight_id}",
                 {"name": "insight new name", "tags": ["add", "these", "tags"]},
             )
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
 
             response_data = response.json()
-            self.assertEqual(response_data["name"], "insight new name")
-            self.assertEqual(sorted(response_data["tags"]), sorted(["add", "these", "tags"]))
-            self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
-            self.assertEqual(
-                response_data["effective_restriction_level"],
-                Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
+            assert response_data["name"] == "insight new name"
+            assert sorted(response_data["tags"]) == sorted(["add", "these", "tags"])
+            assert response_data["created_by"]["distinct_id"] == self.user.distinct_id
+            assert (
+                response_data["effective_restriction_level"] == Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
             )
-            self.assertEqual(
-                response_data["effective_privilege_level"],
-                Dashboard.PrivilegeLevel.CAN_EDIT,
-            )
+            assert response_data["effective_privilege_level"] == Dashboard.PrivilegeLevel.CAN_EDIT
 
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}")
 
-            self.assertEqual(response.json()["name"], "insight new name")
+            assert response.json()["name"] == "insight new name"
 
             self.assert_insight_activity(
                 insight_id,
@@ -248,14 +244,8 @@ class TestInsightEnterpriseAPI(APILicensedTest):
                 "dashboards": [dashboard_restricted.pk],
             }
         )
-        self.assertEqual(
-            response_data["effective_restriction_level"],
-            Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-        self.assertEqual(
-            response_data["effective_privilege_level"],
-            Dashboard.PrivilegeLevel.CAN_EDIT,
-        )
+        assert response_data["effective_restriction_level"] == Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        assert response_data["effective_privilege_level"] == Dashboard.PrivilegeLevel.CAN_EDIT
 
     def test_cannot_update_restricted_insight_as_other_user_who_is_project_member(self):
         creator = User.objects.create_and_join(self.organization, "y@x.com", None)
@@ -275,14 +265,11 @@ class TestInsightEnterpriseAPI(APILicensedTest):
         response_data = response.json()
         dashboard.refresh_from_db()
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(
-            response_data,
-            self.permission_denied_response(
-                "This insight is on a dashboard that can only be edited by its owner, team members invited to editing the dashboard, and project admins."
-            ),
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response_data == self.permission_denied_response(
+            "This insight is on a dashboard that can only be edited by its owner, team members invited to editing the dashboard, and project admins."
         )
-        self.assertEqual(dashboard.name, original_name)
+        assert dashboard.name == original_name
 
     def test_event_definition_no_duplicate_tags(self):
         from ee.models.license import License, LicenseManager
@@ -301,7 +288,7 @@ class TestInsightEnterpriseAPI(APILicensedTest):
             {"tags": ["a", "b", "a"]},
         )
 
-        self.assertListEqual(sorted(response.json()["tags"]), ["a", "b"])
+        assert sorted(response.json()["tags"]) == ["a", "b"]
 
     def test_searching_insights_includes_tags_and_description(self) -> None:
         insight_one_id, _ = self.dashboard_api.create_insight(
@@ -332,7 +319,7 @@ class TestInsightEnterpriseAPI(APILicensedTest):
         )
 
         matching = self.client.get(f"/api/projects/{self.team.id}/insights/?search=needle")
-        self.assertEqual(matching.status_code, status.HTTP_200_OK)
+        assert matching.status_code == status.HTTP_200_OK
         matched_insights = [insight["id"] for insight in matching.json()["results"]]
         assert sorted(matched_insights) == [
             insight_one_id,
@@ -358,7 +345,7 @@ class TestInsightEnterpriseAPI(APILicensedTest):
             f"/api/projects/{self.team.id}/insights/{insight_id}",
             {"name": "changing when restricted"},
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_non_admin_user_cannot_add_an_insight_to_a_restricted_dashboard(
         self,
@@ -418,28 +405,16 @@ class TestInsightEnterpriseAPI(APILicensedTest):
 
     def test_an_insight_on_no_dashboard_has_no_restrictions(self) -> None:
         _, response_data = self.dashboard_api.create_insight(data={"name": "not on a dashboard"})
-        self.assertEqual(
-            response_data["effective_restriction_level"],
-            Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
-        )
-        self.assertEqual(
-            response_data["effective_privilege_level"],
-            Dashboard.PrivilegeLevel.CAN_EDIT,
-        )
+        assert response_data["effective_restriction_level"] == Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+        assert response_data["effective_privilege_level"] == Dashboard.PrivilegeLevel.CAN_EDIT
 
     def test_an_insight_on_unrestricted_dashboard_has_no_restrictions(self) -> None:
         dashboard: Dashboard = Dashboard.objects.create(team=self.team)
         _, response_data = self.dashboard_api.create_insight(
             data={"name": "on an unrestricted dashboard", "dashboards": [dashboard.pk]}
         )
-        self.assertEqual(
-            response_data["effective_restriction_level"],
-            Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
-        )
-        self.assertEqual(
-            response_data["effective_privilege_level"],
-            Dashboard.PrivilegeLevel.CAN_EDIT,
-        )
+        assert response_data["effective_restriction_level"] == Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+        assert response_data["effective_privilege_level"] == Dashboard.PrivilegeLevel.CAN_EDIT
 
     def test_an_insight_on_restricted_dashboard_has_restrictions_cannot_edit_without_explicit_privilege(
         self,
@@ -451,14 +426,8 @@ class TestInsightEnterpriseAPI(APILicensedTest):
         _, response_data = self.dashboard_api.create_insight(
             data={"name": "on a restricted dashboard", "dashboards": [dashboard.pk]}
         )
-        self.assertEqual(
-            response_data["effective_restriction_level"],
-            Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-        self.assertEqual(
-            response_data["effective_privilege_level"],
-            Dashboard.PrivilegeLevel.CAN_VIEW,
-        )
+        assert response_data["effective_restriction_level"] == Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        assert response_data["effective_privilege_level"] == Dashboard.PrivilegeLevel.CAN_VIEW
 
     def test_an_insight_on_both_restricted_and_unrestricted_dashboard_has_no_restrictions(
         self,
@@ -477,14 +446,8 @@ class TestInsightEnterpriseAPI(APILicensedTest):
                 "dashboards": [dashboard_restricted.pk, dashboard_unrestricted.pk],
             }
         )
-        self.assertEqual(
-            response_data["effective_restriction_level"],
-            Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-        self.assertEqual(
-            response_data["effective_privilege_level"],
-            Dashboard.PrivilegeLevel.CAN_EDIT,
-        )
+        assert response_data["effective_restriction_level"] == Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        assert response_data["effective_privilege_level"] == Dashboard.PrivilegeLevel.CAN_EDIT
 
     def test_an_insight_on_restricted_dashboard_does_not_restrict_admin(self) -> None:
         dashboard_restricted: Dashboard = Dashboard.objects.create(
@@ -505,14 +468,8 @@ class TestInsightEnterpriseAPI(APILicensedTest):
                 "dashboards": [dashboard_restricted.pk],
             }
         )
-        self.assertEqual(
-            response_data["effective_restriction_level"],
-            Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-        self.assertEqual(
-            response_data["effective_privilege_level"],
-            Dashboard.PrivilegeLevel.CAN_EDIT,
-        )
+        assert response_data["effective_restriction_level"] == Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        assert response_data["effective_privilege_level"] == Dashboard.PrivilegeLevel.CAN_EDIT
 
         # :KLUDGE: avoid making extra queries that are explicitly not cached in tests. Avoids false N+1-s.
         @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
@@ -534,31 +491,27 @@ class TestInsightEnterpriseAPI(APILicensedTest):
                     }
                 )
 
-                self.assertEqual(Insight.objects.count(), i + 1)
+                assert Insight.objects.count() == i + 1
 
                 with capture_db_queries() as capture_query_context:
                     response = self.client.get(f"/api/projects/{self.team.id}/insights?basic=true")
-                    self.assertEqual(response.status_code, status.HTTP_200_OK)
-                    self.assertEqual(len(response.json()["results"]), i + 1)
+                    assert response.status_code == status.HTTP_200_OK
+                    assert len(response.json()["results"]) == i + 1
 
                 query_count_for_create_and_read = len(capture_query_context.captured_queries)
                 queries.append(capture_query_context.captured_queries)
                 query_counts.append(query_count_for_create_and_read)
 
             # adding more insights doesn't change the query count
-            self.assertEqual(
-                [
-                    FuzzyInt(11, 12),
-                    FuzzyInt(11, 12),
-                    FuzzyInt(11, 12),
-                    FuzzyInt(11, 12),
-                    FuzzyInt(11, 12),
-                ],
-                query_counts,
-                f"received query counts\n\n{query_counts}",
-            )
+            assert [
+                FuzzyInt(11, 12),
+                FuzzyInt(11, 12),
+                FuzzyInt(11, 12),
+                FuzzyInt(11, 12),
+                FuzzyInt(11, 12),
+            ] == query_counts, f"received query counts\n\n{query_counts}"
 
-    def assert_insight_activity(self, insight_id: Optional[int], expected: list[dict]):
+    def assert_insight_activity(self, insight_id: int | None, expected: list[dict]):
         activity_response = self.dashboard_api.get_insight_activity(insight_id)
 
         activity: list[dict] = activity_response["results"]

@@ -2,6 +2,7 @@ import uuid
 import asyncio
 from typing import Any, cast
 
+import pytest
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
@@ -94,8 +95,8 @@ class TestTaskExecution(TestBaseTaskExecutorNode):
 
         await self.node.arun(state, config)
 
-        self.assertTrue(self.node.input_tuples_called)
-        self.assertTrue(self.node.final_state_called)
+        assert self.node.input_tuples_called
+        assert self.node.final_state_called
 
     @patch("ee.hogai.chat_agent.parallel_task_execution.nodes.BaseTaskExecutorNode._write_message")
     async def test_multiple_tasks_parallel_execution(self, mock_write_message):
@@ -131,7 +132,7 @@ class TestTaskExecution(TestBaseTaskExecutorNode):
         await self.node.arun(state, config)
 
         # Tasks should complete in order of their execution time, not submission
-        self.assertEqual(execution_order, ["task3", "task2", "task1"])
+        assert execution_order == ["task3", "task2", "task1"]
 
 
 class TestReasoningCallback(TestBaseTaskExecutorNode):
@@ -198,7 +199,7 @@ class TestErrorHandling(TestBaseTaskExecutorNode):
 
         # Task 2 should still complete even if task 1 fails
         await self.node.arun(state, config)
-        self.assertTrue(self.node.final_state_called)
+        assert self.node.final_state_called
 
     @patch("ee.hogai.chat_agent.parallel_task_execution.nodes.capture_exception")
     async def test_handles_general_exception(self, mock_capture):
@@ -210,7 +211,7 @@ class TestErrorHandling(TestBaseTaskExecutorNode):
             state = MockTestState()
             config = RunnableConfig()
 
-            with self.assertRaises(RuntimeError):
+            with pytest.raises(RuntimeError):
                 await self.node.arun(state, config)
 
             mock_capture.assert_called_once()
@@ -249,7 +250,7 @@ class TestErrorHandling(TestBaseTaskExecutorNode):
             ]
             config = RunnableConfig()
 
-            with self.assertRaises(RuntimeError):
+            with pytest.raises(RuntimeError):
                 await self.node.arun(state, config)
 
 
@@ -273,7 +274,7 @@ class TestArtifactHandling(TestBaseTaskExecutorNode):
 
         await self.node.arun(state, config)
 
-        self.assertEqual(received_artifacts, [input_artifact])
+        assert received_artifacts == [input_artifact]
 
 
 class TestMessageFlow(TestBaseTaskExecutorNode):
@@ -319,12 +320,12 @@ class TestEdgeCases(TestBaseTaskExecutorNode):
         state.test_input_tuples = []
         config = RunnableConfig()
 
-        with self.assertRaises(ValueError) as cm:
+        with pytest.raises(ValueError) as cm:
             await self.node.arun(state, config)
 
-        self.assertEqual(str(cm.exception), "No input tuples provided")
-        self.assertTrue(self.node.input_tuples_called)
-        self.assertFalse(self.node.final_state_called)  # Should not reach final state
+        assert str(cm.value) == "No input tuples provided"
+        assert self.node.input_tuples_called
+        assert not self.node.final_state_called  # Should not reach final state
 
     @patch("ee.hogai.chat_agent.parallel_task_execution.nodes.BaseTaskExecutorNode._write_message")
     async def test_none_task_result(self, mock_write_message):
@@ -341,7 +342,7 @@ class TestEdgeCases(TestBaseTaskExecutorNode):
         await self.node.arun(state, config)
 
         # Should handle None gracefully
-        self.assertTrue(self.node.final_state_called)
+        assert self.node.final_state_called
 
 
 class TestDispatcherIntegration(TestBaseTaskExecutorNode):
@@ -369,7 +370,7 @@ class TestDispatcherIntegration(TestBaseTaskExecutorNode):
             await self.node.arun(state, config)
 
             # Verify dispatcher.message was called for each task result
-            self.assertGreaterEqual(mock_dispatcher.message.call_count, 2)
+            assert mock_dispatcher.message.call_count >= 2
 
     async def test_dispatcher_called_with_correct_tool_call_id(self):
         """Test that dispatcher messages include correct tool_call_id."""
@@ -392,8 +393,8 @@ class TestDispatcherIntegration(TestBaseTaskExecutorNode):
             messages_sent = [call[0][0] for call in mock_dispatcher.message.call_args_list]
             tool_messages = [m for m in messages_sent if isinstance(m, AssistantToolCallMessage)]
 
-            self.assertGreater(len(tool_messages), 0)
-            self.assertEqual(tool_messages[0].tool_call_id, tool_call_id)
+            assert len(tool_messages) > 0
+            assert tool_messages[0].tool_call_id == tool_call_id
 
 
 class TestPartialFailureScenarios(TestBaseTaskExecutorNode):
@@ -426,10 +427,10 @@ class TestPartialFailureScenarios(TestBaseTaskExecutorNode):
         result = await self.node.arun(state, config)
 
         # Final state should be called even with partial failures
-        self.assertTrue(self.node.final_state_called)
+        assert self.node.final_state_called
         # Only task2 should have succeeded
-        self.assertEqual(len(result.task_results), 1)
-        self.assertEqual(result.task_results[0].id, "task2")
+        assert len(result.task_results) == 1
+        assert result.task_results[0].id == "task2"
 
     async def test_all_tasks_fail(self):
         """Test behavior when all tasks fail."""
@@ -449,8 +450,8 @@ class TestPartialFailureScenarios(TestBaseTaskExecutorNode):
         result = await self.node.arun(state, config)
 
         # Should complete with empty results
-        self.assertTrue(self.node.final_state_called)
-        self.assertEqual(len(result.task_results), 0)
+        assert self.node.final_state_called
+        assert len(result.task_results) == 0
 
 
 class TestConcurrentExecution(TestBaseTaskExecutorNode):
@@ -487,13 +488,13 @@ class TestConcurrentExecution(TestBaseTaskExecutorNode):
         total_duration = time.time() - start
 
         # If sequential, would take ~0.3s. If parallel, should take ~0.1s
-        self.assertLess(total_duration, 0.2, "Tasks should run in parallel, not sequentially")
+        assert total_duration < 0.2, "Tasks should run in parallel, not sequentially"
 
         # All tasks should have overlapping execution times
         max_start = max(start_times.values())
         min_end = min(end_times.values())
         # Some overlap should exist
-        self.assertLess(max_start, min_end, "Tasks should have overlapping execution")
+        assert max_start < min_end, "Tasks should have overlapping execution"
 
     async def test_results_yielded_in_completion_order(self):
         """Test that results are yielded as they complete, not in submission order."""
@@ -530,7 +531,7 @@ class TestConcurrentExecution(TestBaseTaskExecutorNode):
             await self.node.arun(state, config)
 
             # Verify completion order matches fastest-first
-            self.assertEqual(completion_order, ["task2", "task3", "task1"])
+            assert completion_order == ["task2", "task3", "task1"]
 
 
 class TestTaskDependencies(TestBaseTaskExecutorNode):
@@ -566,9 +567,9 @@ class TestTaskDependencies(TestBaseTaskExecutorNode):
         await self.node.arun(state, config)
 
         # Verify task2 received the artifact
-        self.assertIsNotNone(received_artifacts)
-        self.assertEqual(len(cast(list, received_artifacts)), 1)
-        self.assertEqual(cast(list, received_artifacts)[0].task_id, "artifact1")
+        assert received_artifacts is not None
+        assert len(cast(list, received_artifacts)) == 1
+        assert cast(list, received_artifacts)[0].task_id == "artifact1"
 
     async def test_multiple_artifacts_accumulated(self):
         """Test that multiple artifacts can be passed to a task."""
@@ -593,5 +594,5 @@ class TestTaskDependencies(TestBaseTaskExecutorNode):
 
         await self.node.arun(state, config)
 
-        self.assertEqual(len(cast(list, received_artifacts)), 3)
-        self.assertEqual([a.task_id for a in cast(list, received_artifacts)], ["art1", "art2", "art3"])
+        assert len(cast(list, received_artifacts)) == 3
+        assert [a.task_id for a in cast(list, received_artifacts)] == ["art1", "art2", "art3"]

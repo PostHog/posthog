@@ -47,10 +47,10 @@ class TestAssistantDispatcher(BaseTest):
             node_run_id="test_run_123",
         )
 
-        self.assertEqual(dispatcher._node_name, AssistantNodeName.ROOT)
-        self.assertEqual(dispatcher._node_run_id, "test_run_123")
-        self.assertEqual(dispatcher._node_path, self.node_path)
-        self.assertEqual(dispatcher._writer, self.writer)
+        assert dispatcher._node_name == AssistantNodeName.ROOT
+        assert dispatcher._node_run_id == "test_run_123"
+        assert dispatcher._node_path == self.node_path
+        assert dispatcher._writer == self.writer
 
     def test_dispatch_message_action(self):
         """Test dispatching a message via the message() method."""
@@ -64,16 +64,16 @@ class TestAssistantDispatcher(BaseTest):
         message = AssistantMessage(content="Test message")
         dispatcher.message(message)
 
-        self.assertEqual(len(self.dispatched_events), 1)
+        assert len(self.dispatched_events) == 1
         event = self.dispatched_events[0]
 
-        self.assertIsInstance(event, AssistantDispatcherEvent)
-        self.assertIsInstance(event.action, MessageAction)
+        assert isinstance(event, AssistantDispatcherEvent)
         assert isinstance(event.action, MessageAction)
-        self.assertEqual(event.action.message, message)
-        self.assertEqual(event.node_name, AssistantNodeName.ROOT)
-        self.assertEqual(event.node_run_id, "test_run_456")
-        self.assertEqual(event.node_path, self.node_path)
+        assert isinstance(event.action, MessageAction)
+        assert event.action.message == message
+        assert event.node_name == AssistantNodeName.ROOT
+        assert event.node_run_id == "test_run_456"
+        assert event.node_path == self.node_path
 
     def test_dispatch_update_action(self):
         """Test dispatching an update via the update() method."""
@@ -86,15 +86,15 @@ class TestAssistantDispatcher(BaseTest):
 
         dispatcher.update("Processing query...")
 
-        self.assertEqual(len(self.dispatched_events), 1)
+        assert len(self.dispatched_events) == 1
         event = self.dispatched_events[0]
 
-        self.assertIsInstance(event, AssistantDispatcherEvent)
-        self.assertIsInstance(event.action, UpdateAction)
+        assert isinstance(event, AssistantDispatcherEvent)
         assert isinstance(event.action, UpdateAction)
-        self.assertEqual(event.action.content, "Processing query...")
-        self.assertEqual(event.node_name, AssistantNodeName.TRENDS_GENERATOR)
-        self.assertEqual(event.node_run_id, "test_run_789")
+        assert isinstance(event.action, UpdateAction)
+        assert event.action.content == "Processing query..."
+        assert event.node_name == AssistantNodeName.TRENDS_GENERATOR
+        assert event.node_run_id == "test_run_789"
 
     def test_dispatch_update_action_with_tool_call(self):
         """Test dispatching an update with an AssistantToolCall content."""
@@ -108,15 +108,15 @@ class TestAssistantDispatcher(BaseTest):
         tool_call = AssistantToolCall(id="tc_1", name="some_tool", args={"key": "value"})
         dispatcher.update(content=tool_call)
 
-        self.assertEqual(len(self.dispatched_events), 1)
+        assert len(self.dispatched_events) == 1
         event = self.dispatched_events[0]
 
-        self.assertIsInstance(event, AssistantDispatcherEvent)
-        self.assertIsInstance(event.action, UpdateAction)
+        assert isinstance(event, AssistantDispatcherEvent)
         assert isinstance(event.action, UpdateAction)
-        self.assertEqual(event.action.content, tool_call)
-        self.assertEqual(event.node_name, AssistantNodeName.TRENDS_GENERATOR)
-        self.assertEqual(event.node_run_id, "test_run_tool_call")
+        assert isinstance(event.action, UpdateAction)
+        assert event.action.content == tool_call
+        assert event.node_name == AssistantNodeName.TRENDS_GENERATOR
+        assert event.node_run_id == "test_run_tool_call"
 
     def test_dispatch_multiple_messages(self):
         """Test dispatching multiple messages in sequence."""
@@ -135,7 +135,7 @@ class TestAssistantDispatcher(BaseTest):
         dispatcher.message(message2)
         dispatcher.message(message3)
 
-        self.assertEqual(len(self.dispatched_events), 3)
+        assert len(self.dispatched_events) == 3
 
         contents = []
         for event in self.dispatched_events:
@@ -143,7 +143,7 @@ class TestAssistantDispatcher(BaseTest):
                 msg = event.action.message
                 if isinstance(msg, AssistantMessage):
                     contents.append(msg.content)
-        self.assertEqual(contents, ["First message", "Second message", "Third message"])
+        assert contents == ["First message", "Second message", "Third message"]
 
     def test_dispatch_message_with_tool_calls(self):
         """Test dispatching a message with tool calls preserves all data."""
@@ -159,20 +159,20 @@ class TestAssistantDispatcher(BaseTest):
 
         dispatcher.message(message)
 
-        self.assertEqual(len(self.dispatched_events), 1)
+        assert len(self.dispatched_events) == 1
         event = self.dispatched_events[0]
 
-        self.assertIsInstance(event.action, MessageAction)
+        assert isinstance(event.action, MessageAction)
         assert isinstance(event.action, MessageAction)
         dispatched_message = event.action.message
         assert isinstance(dispatched_message, AssistantMessage)
-        self.assertEqual(dispatched_message.content, "Running search...")
-        self.assertIsNotNone(dispatched_message.tool_calls)
+        assert dispatched_message.content == "Running search..."
         assert dispatched_message.tool_calls is not None
-        self.assertEqual(len(dispatched_message.tool_calls), 1)
-        self.assertEqual(dispatched_message.tool_calls[0].id, "tool_123")
-        self.assertEqual(dispatched_message.tool_calls[0].name, "search")
-        self.assertEqual(dispatched_message.tool_calls[0].args, {"query": "test query"})
+        assert dispatched_message.tool_calls is not None
+        assert len(dispatched_message.tool_calls) == 1
+        assert dispatched_message.tool_calls[0].id == "tool_123"
+        assert dispatched_message.tool_calls[0].name == "search"
+        assert dispatched_message.tool_calls[0].args == {"query": "test query"}
 
     def test_dispatch_with_nested_node_path(self):
         """Test that nested node paths are preserved in dispatched events."""
@@ -190,14 +190,14 @@ class TestAssistantDispatcher(BaseTest):
         message = AssistantMessage(content="Nested message")
         dispatcher.message(message)
 
-        self.assertEqual(len(self.dispatched_events), 1)
+        assert len(self.dispatched_events) == 1
         event = self.dispatched_events[0]
 
-        self.assertEqual(event.node_path, nested_path)
+        assert event.node_path == nested_path
         assert event.node_path is not None
-        self.assertEqual(len(event.node_path), 4)
-        self.assertEqual(event.node_path[1].message_id, "msg_123")
-        self.assertEqual(event.node_path[1].tool_call_id, "tc_123")
+        assert len(event.node_path) == 4
+        assert event.node_path[1].message_id == "msg_123"
+        assert event.node_path[1].tool_call_id == "tc_123"
 
     def test_dispatch_error_handling_continues_execution(self):
         """Test that dispatch errors are caught and logged but don't crash."""
@@ -224,7 +224,7 @@ class TestAssistantDispatcher(BaseTest):
             # Verify error was logged
             mock_logger.error.assert_called_once()
             args, kwargs = mock_logger.error.call_args
-            self.assertIn("Failed to dispatch action", args[0])
+            assert "Failed to dispatch action" in args[0]
 
     def test_dispatch_mixed_actions(self):
         """Test dispatching both messages and updates in sequence."""
@@ -239,20 +239,20 @@ class TestAssistantDispatcher(BaseTest):
         dispatcher.message(AssistantMessage(content="Found 3 insights"))
         dispatcher.update("Finalizing results...")
 
-        self.assertEqual(len(self.dispatched_events), 3)
+        assert len(self.dispatched_events) == 3
 
-        self.assertIsInstance(self.dispatched_events[0].action, UpdateAction)
         assert isinstance(self.dispatched_events[0].action, UpdateAction)
-        self.assertEqual(self.dispatched_events[0].action.content, "Starting analysis...")
+        assert isinstance(self.dispatched_events[0].action, UpdateAction)
+        assert self.dispatched_events[0].action.content == "Starting analysis..."
 
-        self.assertIsInstance(self.dispatched_events[1].action, MessageAction)
+        assert isinstance(self.dispatched_events[1].action, MessageAction)
         assert isinstance(self.dispatched_events[1].action, MessageAction)
         assert isinstance(self.dispatched_events[1].action.message, AssistantMessage)
-        self.assertEqual(self.dispatched_events[1].action.message.content, "Found 3 insights")
+        assert self.dispatched_events[1].action.message.content == "Found 3 insights"
 
-        self.assertIsInstance(self.dispatched_events[2].action, UpdateAction)
         assert isinstance(self.dispatched_events[2].action, UpdateAction)
-        self.assertEqual(self.dispatched_events[2].action.content, "Finalizing results...")
+        assert isinstance(self.dispatched_events[2].action, UpdateAction)
+        assert self.dispatched_events[2].action.content == "Finalizing results..."
 
     def test_dispatch_preserves_message_id(self):
         """Test that message IDs are preserved through dispatch."""
@@ -268,7 +268,7 @@ class TestAssistantDispatcher(BaseTest):
 
         event = self.dispatched_events[0]
         assert isinstance(event.action, MessageAction)
-        self.assertEqual(event.action.message.id, "msg_xyz_789")
+        assert event.action.message.id == "msg_xyz_789"
 
     def test_dispatch_with_empty_node_path(self):
         """Test dispatcher with an empty node path."""
@@ -279,9 +279,9 @@ class TestAssistantDispatcher(BaseTest):
         message = AssistantMessage(content="Root level message")
         dispatcher.message(message)
 
-        self.assertEqual(len(self.dispatched_events), 1)
+        assert len(self.dispatched_events) == 1
         event = self.dispatched_events[0]
-        self.assertEqual(event.node_path, ())
+        assert event.node_path == ()
 
 
 class TestCreateDispatcherFromConfig(BaseTest):
@@ -300,10 +300,10 @@ class TestCreateDispatcherFromConfig(BaseTest):
         with patch("ee.hogai.utils.dispatcher.get_stream_writer", return_value=mock_writer):
             dispatcher = create_dispatcher_from_config(config, node_path)
 
-            self.assertEqual(dispatcher._node_name, AssistantNodeName.TRENDS_GENERATOR)
-            self.assertEqual(dispatcher._node_run_id, "checkpoint_abc")
-            self.assertEqual(dispatcher._node_path, node_path)
-            self.assertEqual(dispatcher._writer, mock_writer)
+            assert dispatcher._node_name == AssistantNodeName.TRENDS_GENERATOR
+            assert dispatcher._node_run_id == "checkpoint_abc"
+            assert dispatcher._node_path == node_path
+            assert dispatcher._writer == mock_writer
 
     def test_create_dispatcher_from_config_without_stream_writer(self):
         """Test creating dispatcher when not in streaming context (e.g., testing)."""
@@ -318,9 +318,9 @@ class TestCreateDispatcherFromConfig(BaseTest):
             dispatcher = create_dispatcher_from_config(config, node_path)
 
             # Should create a noop writer
-            self.assertEqual(dispatcher._node_name, AssistantNodeName.ROOT)
-            self.assertEqual(dispatcher._node_run_id, "checkpoint_xyz")
-            self.assertEqual(dispatcher._node_path, node_path)
+            assert dispatcher._node_name == AssistantNodeName.ROOT
+            assert dispatcher._node_run_id == "checkpoint_xyz"
+            assert dispatcher._node_path == node_path
 
             # Verify the noop writer doesn't raise exceptions
             message = AssistantMessage(content="Test")
@@ -336,9 +336,9 @@ class TestCreateDispatcherFromConfig(BaseTest):
             dispatcher = create_dispatcher_from_config(config, node_path)
 
             # Should use empty strings as defaults
-            self.assertEqual(dispatcher._node_name, "")
-            self.assertEqual(dispatcher._node_run_id, "")
-            self.assertEqual(dispatcher._node_path, node_path)
+            assert dispatcher._node_name == ""
+            assert dispatcher._node_run_id == ""
+            assert dispatcher._node_path == node_path
 
     def test_create_dispatcher_preserves_node_path(self):
         """Test that node path is correctly passed through to the dispatcher."""
@@ -355,8 +355,8 @@ class TestCreateDispatcherFromConfig(BaseTest):
         with patch("ee.hogai.utils.dispatcher.get_stream_writer", side_effect=RuntimeError("Not in streaming context")):
             dispatcher = create_dispatcher_from_config(config, nested_path)
 
-            self.assertEqual(dispatcher._node_path, nested_path)
-            self.assertEqual(len(dispatcher._node_path), 3)
+            assert dispatcher._node_path == nested_path
+            assert len(dispatcher._node_path) == 3
 
 
 class TestDispatcherIntegration(BaseTest):
@@ -389,19 +389,19 @@ class TestDispatcherIntegration(BaseTest):
         dispatcher.message(AssistantMessage(content="Insight generated successfully"))
 
         # Verify all events were dispatched
-        self.assertEqual(len(dispatched_events), 4)
+        assert len(dispatched_events) == 4
 
         # Verify event types and order
-        self.assertIsInstance(dispatched_events[0].action, UpdateAction)
-        self.assertIsInstance(dispatched_events[1].action, MessageAction)
-        self.assertIsInstance(dispatched_events[2].action, UpdateAction)
-        self.assertIsInstance(dispatched_events[3].action, MessageAction)
+        assert isinstance(dispatched_events[0].action, UpdateAction)
+        assert isinstance(dispatched_events[1].action, MessageAction)
+        assert isinstance(dispatched_events[2].action, UpdateAction)
+        assert isinstance(dispatched_events[3].action, MessageAction)
 
         # Verify all events have consistent metadata
         for event in dispatched_events:
-            self.assertEqual(event.node_name, AssistantNodeName.ROOT)
-            self.assertEqual(event.node_run_id, "integration_run_1")
-            self.assertEqual(event.node_path, node_path)
+            assert event.node_name == AssistantNodeName.ROOT
+            assert event.node_run_id == "integration_run_1"
+            assert event.node_path == node_path
 
     def test_concurrent_dispatchers(self):
         """Test multiple dispatchers can coexist without interference."""
@@ -432,17 +432,17 @@ class TestDispatcherIntegration(BaseTest):
         dispatcher_2.update("Update from dispatcher 2")
 
         # Verify each dispatcher wrote to its own writer
-        self.assertEqual(len(dispatched_events_1), 2)
-        self.assertEqual(len(dispatched_events_2), 2)
+        assert len(dispatched_events_1) == 2
+        assert len(dispatched_events_2) == 2
 
         # Verify events went to correct writers
         assert isinstance(dispatched_events_1[0].action, MessageAction)
         assert isinstance(dispatched_events_1[0].action.message, AssistantMessage)
-        self.assertEqual(dispatched_events_1[0].action.message.content, "From dispatcher 1")
+        assert dispatched_events_1[0].action.message.content == "From dispatcher 1"
         assert isinstance(dispatched_events_2[0].action, MessageAction)
         assert isinstance(dispatched_events_2[0].action.message, AssistantMessage)
-        self.assertEqual(dispatched_events_2[0].action.message.content, "From dispatcher 2")
+        assert dispatched_events_2[0].action.message.content == "From dispatcher 2"
 
         # Verify node names are correct
-        self.assertEqual(dispatched_events_1[0].node_name, AssistantNodeName.ROOT)
-        self.assertEqual(dispatched_events_2[0].node_name, AssistantNodeName.TRENDS_GENERATOR)
+        assert dispatched_events_1[0].node_name == AssistantNodeName.ROOT
+        assert dispatched_events_2[0].node_name == AssistantNodeName.TRENDS_GENERATOR

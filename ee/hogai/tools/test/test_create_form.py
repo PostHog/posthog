@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import BaseTest
 
 from langgraph.errors import NodeInterrupt
@@ -37,31 +38,31 @@ class TestCreateFormTool(BaseTest):
         tool = self._create_tool()
         questions = self._create_questions(2)
 
-        with self.assertRaises(NodeInterrupt) as context:
+        with pytest.raises(NodeInterrupt) as context:
             await tool._arun_impl(questions=questions)
 
         # NodeInterrupt wraps the value in an Interrupt object inside a list
-        interrupt_list = context.exception.args[0]
-        self.assertEqual(len(interrupt_list), 1)
+        interrupt_list = context.value.args[0]
+        assert len(interrupt_list) == 1
         interrupt_value = interrupt_list[0].value
-        self.assertIsNone(interrupt_value)
+        assert interrupt_value is None
 
     async def test_raises_retryable_error_when_more_than_4_questions(self):
         tool = self._create_tool()
         questions = self._create_questions(5)
 
-        with self.assertRaises(MaxToolRetryableError) as context:
+        with pytest.raises(MaxToolRetryableError) as context:
             await tool._arun_impl(questions=questions)
 
-        self.assertIn("Do not ask more than 4 questions", str(context.exception))
+        assert "Do not ask more than 4 questions" in str(context.value)
 
     async def test_raises_retryable_error_when_empty_questions(self):
         tool = self._create_tool()
 
-        with self.assertRaises(MaxToolRetryableError) as context:
+        with pytest.raises(MaxToolRetryableError) as context:
             await tool._arun_impl(questions=[])
 
-        self.assertIn("At least one question is required", str(context.exception))
+        assert "At least one question is required" in str(context.value)
 
     @parameterized.expand(
         [
@@ -75,5 +76,5 @@ class TestCreateFormTool(BaseTest):
         tool = self._create_tool()
         questions = self._create_questions(question_count)
 
-        with self.assertRaises(NodeInterrupt):
+        with pytest.raises(NodeInterrupt):
             await tool._arun_impl(questions=questions)

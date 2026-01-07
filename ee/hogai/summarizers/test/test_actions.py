@@ -31,7 +31,7 @@ class TestActionSummarizer(BaseTest):
 
             Match group 3: event is `chat with ai`
         """
-        self.assertEqual(summarizer.summary, dedent(expected_summary).strip())
+        assert summarizer.summary == dedent(expected_summary).strip()
 
     def test_optional_matching_parameters(self):
         steps = [
@@ -52,4 +52,4 @@ class TestActionSummarizer(BaseTest):
 
             Match group 2: event is `$autocapture` AND element matches HTML selector `button` AND element text matches exactly `Send` AND element `href` attribute matches exactly `/max` AND the URL of event contains `\/max`
         """
-        self.assertEqual(summarizer.summary, dedent(expected_summary).strip())
+        assert summarizer.summary == dedent(expected_summary).strip()

@@ -1,6 +1,7 @@
 import asyncio
 from datetime import timedelta
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -124,17 +125,17 @@ class TestInsightSearchNode(BaseTest):
         # Load first page
         first_page = await self.node._load_insights_page(0)
 
-        self.assertEqual(len(first_page), 2)
+        assert len(first_page) == 2
 
         # Check that insights are loaded with correct data
         insight_ids = [insight["id"] for insight in first_page]
-        self.assertIn(self.insight1.id, insight_ids)
-        self.assertIn(self.insight2.id, insight_ids)
+        assert self.insight1.id in insight_ids
+        assert self.insight2.id in insight_ids
 
         # Check insight data structure
         insight1_data = next(i for i in first_page if i["id"] == self.insight1.id)
-        self.assertEqual(insight1_data["name"], "Daily Pageviews")
-        self.assertEqual(insight1_data["description"], "Track daily website traffic")
+        assert insight1_data["name"] == "Daily Pageviews"
+        assert insight1_data["description"] == "Track daily website traffic"
 
     async def test_load_insights_page_unique_only(self):
         """Test that load_insights_page returns unique insights only."""
@@ -149,26 +150,26 @@ class TestInsightSearchNode(BaseTest):
 
         # Should still only have 2 unique insights
         insight_ids = [insight["id"] for insight in first_page]
-        self.assertEqual(len(insight_ids), len(set(insight_ids)), "Should return unique insights only")
+        assert len(insight_ids) == len(set(insight_ids)), "Should return unique insights only"
 
     async def test_format_insights_page(self):
         """Test formatting a page of insights."""
         # Test first page (automatically loads page 0)
         result = await self.node._format_insights_page(0)
 
-        self.assertIn(f"ID: {self.insight1.id}", result)
-        self.assertIn(f"ID: {self.insight2.id}", result)
-        self.assertIn("Daily Pageviews", result)
-        self.assertIn("User Signup Funnel", result)
-        self.assertIn("Track daily website traffic", result)
-        self.assertIn("Track user conversion through signup", result)
+        assert f"ID: {self.insight1.id}" in result
+        assert f"ID: {self.insight2.id}" in result
+        assert "Daily Pageviews" in result
+        assert "User Signup Funnel" in result
+        assert "Track daily website traffic" in result
+        assert "Track user conversion through signup" in result
 
     async def test_format_insights_page_empty(self):
         """Test formatting an empty page."""
         # Test page beyond available insights
         result = await self.node._format_insights_page(10)
 
-        self.assertEqual(result, "No insights available on this page.")
+        assert result == "No insights available on this page."
 
     async def test_parse_insight_ids(self):
         """Test parsing insight IDs from LLM response."""
@@ -181,10 +182,10 @@ class TestInsightSearchNode(BaseTest):
         result = self.node._parse_insight_ids(response)
 
         # Should return only valid IDs
-        self.assertEqual(len(result), 2)
-        self.assertIn(self.insight1.id, result)
-        self.assertIn(self.insight2.id, result)
-        self.assertNotIn(99999, result)  # Invalid ID should be filtered out
+        assert len(result) == 2
+        assert self.insight1.id in result
+        assert self.insight2.id in result
+        assert 99999 not in result  # Invalid ID should be filtered out
 
     async def test_parse_insight_ids_no_valid_ids(self):
         """Test parsing when no valid IDs are found."""
@@ -195,20 +196,20 @@ class TestInsightSearchNode(BaseTest):
 
         result = self.node._parse_insight_ids(response)
 
-        self.assertEqual(result, [])
+        assert result == []
 
     def test_create_error_response(self):
         """Test creating error response."""
         result = self.node._create_error_response("Test error", "test_tool_call_id")
 
-        self.assertIsInstance(result, PartialAssistantState)
-        self.assertEqual(len(result.messages), 1)
+        assert isinstance(result, PartialAssistantState)
+        assert len(result.messages) == 1
         message = result.messages[0]
         assert isinstance(message, AssistantToolCallMessage)
-        self.assertEqual(message.content, "Test error")
-        self.assertEqual(message.tool_call_id, "test_tool_call_id")
-        self.assertIsNone(result.search_insights_query)
-        self.assertIsNone(result.root_tool_call_id)
+        assert message.content == "Test error"
+        assert message.tool_call_id == "test_tool_call_id"
+        assert result.search_insights_query is None
+        assert result.root_tool_call_id is None
 
     async def test_evaluation_flow_creates_visualization_messages(self):
         """Test that evaluation flow creates visualization messages for existing insights."""
@@ -259,14 +260,14 @@ class TestInsightSearchNode(BaseTest):
                             self.fail("arun() returned None")
 
                         # Verify that we get at least one message with the evaluation explanation
-                        self.assertGreaterEqual(len(result.messages), 1, "Expected at least one message")
+                        assert len(result.messages) >= 1, "Expected at least one message"
 
                         # First message should be the evaluation explanation
                         first_message = result.messages[0]
                         assert isinstance(first_message, AssistantToolCallMessage)
-                        self.assertIn("Evaluation Result", first_message.content)
-                        self.assertIn("Found 1 relevant insight", first_message.content)
-                        self.assertIn("Daily Pageviews: This insight is perfect for your needs.", first_message.content)
+                        assert "Evaluation Result" in first_message.content
+                        assert "Found 1 relevant insight" in first_message.content
+                        assert "Daily Pageviews: This insight is perfect for your needs." in first_message.content
 
                 # Note: Additional visualization messages depend on query type support in test data
 
@@ -296,9 +297,9 @@ class TestInsightSearchNode(BaseTest):
             return result
 
         result = asyncio.run(async_test())
-        self.assertEqual(len(result), 2)
-        self.assertIn(self.insight1.id, result)
-        self.assertIn(self.insight2.id, result)
+        assert len(result) == 2
+        assert self.insight1.id in result
+        assert self.insight2.id in result
 
     @patch("ee.hogai.chat_agent.insights.nodes.MaxChatOpenAI")
     def test_search_insights_iteratively_with_pagination(self, mock_openai):
@@ -326,9 +327,9 @@ class TestInsightSearchNode(BaseTest):
         result = asyncio.run(async_test())
         # Use existing insights from setUp
         existing_insight_ids = [self.insight1.id, self.insight2.id]
-        self.assertEqual(len(result), 2)
-        self.assertIn(existing_insight_ids[0], result)
-        self.assertIn(existing_insight_ids[1], result)
+        assert len(result) == 2
+        assert existing_insight_ids[0] in result
+        assert existing_insight_ids[1] in result
 
     @patch("ee.hogai.chat_agent.insights.nodes.MaxChatOpenAI")
     def test_search_insights_iteratively_fallback(self, mock_openai):
@@ -347,7 +348,7 @@ class TestInsightSearchNode(BaseTest):
 
         result = asyncio.run(async_test())
         # Should return empty list when LLM fails to select anything
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
     async def test_evaluation_flow_returns_creation_when_no_suitable_insights(self):
         """Test that when evaluation returns NO, the system transitions to creation flow."""
@@ -396,12 +397,10 @@ class TestInsightSearchNode(BaseTest):
                         # Verify that search_insights_query is cleared and root_tool_insight_plan is set to search_query
                         assert result is not None
                         assert isinstance(result, PartialAssistantState)
-                        self.assertIsNone(result.search_insights_query, "search_insights_query should be cleared")
+                        assert result.search_insights_query is None, "search_insights_query should be cleared"
                         # root_tool_insight_plan should be set to search_query to trigger creation
-                        self.assertEqual(
-                            result.root_tool_insight_plan,
-                            search_query,
-                            "root_tool_insight_plan should be set to search_query",
+                        assert result.root_tool_insight_plan == search_query, (
+                            "root_tool_insight_plan should be set to search_query"
                         )
 
                         # Verify that _evaluate_insights_with_tools was called with the search_query
@@ -452,11 +451,11 @@ class TestInsightSearchNode(BaseTest):
                         # Verify that we get the evaluation response
                         assert result is not None
                         assert isinstance(result, PartialAssistantState)
-                        self.assertGreaterEqual(len(result.messages), 1)
+                        assert len(result.messages) >= 1
 
                         # Verify state cleanup
-                        self.assertIsNone(result.search_insights_query)
-                        self.assertIsNone(result.root_tool_call_id)
+                        assert result.search_insights_query is None
+                        assert result.root_tool_call_id is None
 
     def test_run_with_no_insights(self):
         """Test arun method when no insights exist - should raise NoInsightsException."""
@@ -477,7 +476,7 @@ class TestInsightSearchNode(BaseTest):
             with patch.object(self.node, "_get_total_insights_count", return_value=0):
                 await self.node.arun(state, {"configurable": {"thread_id": str(conversation.id)}})
 
-        with self.assertRaises(NoInsightsException):
+        with pytest.raises(NoInsightsException):
             asyncio.run(async_test())
 
     async def test_team_filtering(self):
@@ -508,9 +507,9 @@ class TestInsightSearchNode(BaseTest):
 
         # Should only load insights from self.team
         insight_ids = [insight["id"] for insight in first_page]
-        self.assertIn(self.insight1.id, insight_ids)
-        self.assertIn(self.insight2.id, insight_ids)
-        self.assertNotIn(other_insight.id, insight_ids)
+        assert self.insight1.id in insight_ids
+        assert self.insight2.id in insight_ids
+        assert other_insight.id not in insight_ids
 
     async def test_create_read_insights_tool(self):
         """Test creating the read insights tool."""
@@ -520,9 +519,9 @@ class TestInsightSearchNode(BaseTest):
         # Test the tool function
         result = await tool.ainvoke({"page_number": 0})
 
-        self.assertIn("Page 1 insights:", result)
-        self.assertIn(f"ID: {self.insight1.id}", result)
-        self.assertIn("Daily Pageviews", result)
+        assert "Page 1 insights:" in result
+        assert f"ID: {self.insight1.id}" in result
+        assert "Daily Pageviews" in result
 
     async def test_read_insights_tool_empty_page(self):
         """Test read insights tool with empty page."""
@@ -532,7 +531,7 @@ class TestInsightSearchNode(BaseTest):
         # Test beyond available pages
         result = await tool.ainvoke({"page_number": 10})
 
-        self.assertEqual(result, "No more insights available.")
+        assert result == "No more insights available."
 
     async def test_evaluation_tools_select_insight(self):
         """Test the select_insight tool function."""
@@ -548,13 +547,11 @@ class TestInsightSearchNode(BaseTest):
             {"insight_id": self.insight1.id, "explanation": "Perfect match for pageviews"}
         )
 
-        self.assertIn(f"Selected insight {self.insight1.id}", result)
-        self.assertIn("Daily Pageviews", result)
-        self.assertEqual(len(self.node._evaluation_selections), 1)
-        self.assertIn(self.insight1.id, self.node._evaluation_selections)
-        self.assertEqual(
-            self.node._evaluation_selections[self.insight1.id]["explanation"], "Perfect match for pageviews"
-        )
+        assert f"Selected insight {self.insight1.id}" in result
+        assert "Daily Pageviews" in result
+        assert len(self.node._evaluation_selections) == 1
+        assert self.insight1.id in self.node._evaluation_selections
+        assert self.node._evaluation_selections[self.insight1.id]["explanation"] == "Perfect match for pageviews"
 
     def test_evaluation_tools_select_invalid_insight(self):
         """Test the select_insight tool with invalid insight ID."""
@@ -563,8 +560,8 @@ class TestInsightSearchNode(BaseTest):
 
         result = select_insight_tool.invoke({"insight_id": 99999, "explanation": "Test"})
 
-        self.assertEqual(result, "Insight 99999 not found")
-        self.assertEqual(len(self.node._evaluation_selections), 0)
+        assert result == "Insight 99999 not found"
+        assert len(self.node._evaluation_selections) == 0
 
     def test_evaluation_tools_only_has_select_and_reject(self):
         """Test that evaluation tools only include select_insight and reject_all_insights."""
@@ -572,9 +569,9 @@ class TestInsightSearchNode(BaseTest):
         tools = self.node._create_insight_evaluation_tools()
 
         tool_names = [tool.name for tool in tools]
-        self.assertIn("select_insight", tool_names)
-        self.assertIn("reject_all_insights", tool_names)
-        self.assertEqual(len(tools), 2)  # Only these two tools should exist
+        assert "select_insight" in tool_names
+        assert "reject_all_insights" in tool_names
+        assert len(tools) == 2  # Only these two tools should exist
 
     def test_evaluation_tools_reject_all_insights(self):
         """Test the reject_all_insights tool function."""
@@ -586,9 +583,9 @@ class TestInsightSearchNode(BaseTest):
 
         result = reject_tool.invoke({"reason": "None of these match the user's needs"})
 
-        self.assertEqual(result, "All insights rejected. Will create new insight.")
-        self.assertEqual(len(self.node._evaluation_selections), 0)
-        self.assertEqual(self.node._rejection_reason, "None of these match the user's needs")
+        assert result == "All insights rejected. Will create new insight."
+        assert len(self.node._evaluation_selections) == 0
+        assert self.node._rejection_reason == "None of these match the user's needs"
 
     @patch("ee.hogai.chat_agent.insights.nodes.MaxChatOpenAI")
     async def test_evaluate_insights_with_tools_selection(self, mock_openai):
@@ -622,11 +619,11 @@ class TestInsightSearchNode(BaseTest):
             [self.insight1.id, self.insight2.id], "track pageviews and conversions"
         )
 
-        self.assertTrue(result["should_use_existing"])
-        self.assertEqual(len(result["selected_insights"]), 2)
-        self.assertIn(self.insight1.id, result["selected_insights"])
-        self.assertIn(self.insight2.id, result["selected_insights"])
-        self.assertIn("Found 2 relevant insights", result["explanation"])
+        assert result["should_use_existing"]
+        assert len(result["selected_insights"]) == 2
+        assert self.insight1.id in result["selected_insights"]
+        assert self.insight2.id in result["selected_insights"]
+        assert "Found 2 relevant insights" in result["explanation"]
 
     async def test_create_enhanced_insight_summary(self):
         """Test the enhanced insight summary with metadata."""
@@ -640,11 +637,11 @@ class TestInsightSearchNode(BaseTest):
         assert insight_dict is not None
         summary = await self.node._create_enhanced_insight_summary(insight_dict)
 
-        self.assertIn(f"ID: {self.insight1.id}", summary)
-        self.assertIn("Daily Pageviews", summary)
-        self.assertIn("Type: TrendsQuery", summary)  # Should detect TrendsQuery type from query
+        assert f"ID: {self.insight1.id}" in summary
+        assert "Daily Pageviews" in summary
+        assert "Type: TrendsQuery" in summary  # Should detect TrendsQuery type from query
         # Check that query result is not an error (would contain "Query type not supported")
-        self.assertIn("Description: Track daily website traffic", summary)
+        assert "Description: Track daily website traffic" in summary
 
     def test_get_basic_query_info(self):
         """Test extracting basic query information."""
@@ -658,13 +655,13 @@ class TestInsightSearchNode(BaseTest):
         query_info = self.node._extract_query_metadata(query_source)
 
         assert query_info is not None
-        self.assertIn("Events:", query_info)
-        self.assertIn("$pageview", query_info)
-        self.assertIn("Period:", query_info)
+        assert "Events:" in query_info
+        assert "$pageview" in query_info
+        assert "Period:" in query_info
 
         # Test with empty query source
         query_info_empty = self.node._extract_query_metadata({})
-        self.assertIsNone(query_info_empty)
+        assert query_info_empty is None
 
     @patch("ee.hogai.chat_agent.insights.nodes.MaxChatOpenAI")
     async def test_non_executable_insights_handling(self, mock_openai):
@@ -706,10 +703,10 @@ class TestInsightSearchNode(BaseTest):
             result = await self.node._evaluate_insights_with_tools([99999], "test query", max_selections=1)
 
             # Should return no insights found (LLM should reject non-executable insights)
-            self.assertFalse(result["should_use_existing"])
-            self.assertEqual(len(result["selected_insights"]), 0)
+            assert not result["should_use_existing"]
+            assert len(result["selected_insights"]) == 0
             # The explanation should indicate why the insight was rejected
-            self.assertTrue(len(result["explanation"]) > 0)
+            assert len(result["explanation"]) > 0
 
     @patch("ee.hogai.chat_agent.insights.nodes.MaxChatOpenAI")
     async def test_evaluate_insights_with_tools_rejection(self, mock_openai):
@@ -735,11 +732,9 @@ class TestInsightSearchNode(BaseTest):
             [self.insight1.id, self.insight2.id], "retention analysis"
         )
 
-        self.assertFalse(result["should_use_existing"])
-        self.assertEqual(len(result["selected_insights"]), 0)
-        self.assertEqual(
-            result["explanation"], "User is looking for retention analysis, but these are trends and funnels"
-        )
+        assert not result["should_use_existing"]
+        assert len(result["selected_insights"]) == 0
+        assert result["explanation"] == "User is looking for retention analysis, but these are trends and funnels"
 
     @patch("ee.hogai.chat_agent.insights.nodes.MaxChatOpenAI")
     async def test_evaluate_insights_with_tools_multiple_selection(self, mock_openai):
@@ -774,11 +769,11 @@ class TestInsightSearchNode(BaseTest):
             [self.insight1.id, self.insight2.id], "track pageviews and conversions", max_selections=2
         )
 
-        self.assertTrue(result["should_use_existing"])
-        self.assertEqual(len(result["selected_insights"]), 2)
-        self.assertIn(self.insight1.id, result["selected_insights"])
-        self.assertIn(self.insight2.id, result["selected_insights"])
-        self.assertIn("Found 2 relevant insights", result["explanation"])
+        assert result["should_use_existing"]
+        assert len(result["selected_insights"]) == 2
+        assert self.insight1.id in result["selected_insights"]
+        assert self.insight2.id in result["selected_insights"]
+        assert "Found 2 relevant insights" in result["explanation"]
 
     async def test_returns_artifact_with_trends_query(self):
         """Test that ArtifactMessage content contains AssistantTrendsQuery."""
@@ -788,8 +783,8 @@ class TestInsightSearchNode(BaseTest):
 
         # Test the full query processing
         query_obj1, _ = await self.node._process_insight_query(self._insight_to_dict(self.insight1))
-        self.assertIsNotNone(query_obj1, f"Query object should not be None for insight1. Query: {self.insight1.query}")
-        self.assertIsInstance(query_obj1, AssistantTrendsQuery)
+        assert query_obj1 is not None, f"Query object should not be None for insight1. Query: {self.insight1.query}"
+        assert isinstance(query_obj1, AssistantTrendsQuery)
 
         # Test insight1 visualization message creation
         viz_message = await self.node._create_artifact_ref_message_for_insight(self._insight_to_dict(self.insight1))
@@ -798,11 +793,11 @@ class TestInsightSearchNode(BaseTest):
         assert viz_message is not None
 
         # Verify the answer contains the correct query type
-        assert isinstance(
-            viz_message.content, VisualizationArtifactContent
-        ), "Should create visualization artifact content"
+        assert isinstance(viz_message.content, VisualizationArtifactContent), (
+            "Should create visualization artifact content"
+        )
         query = viz_message.content.query
-        self.assertIsInstance(query, AssistantTrendsQuery)
+        assert isinstance(query, AssistantTrendsQuery)
 
     async def test_returns_artifact_with_funnels_query(self):
         """Test that ArtifactMessage content contains AssistantFunnelsQuery."""
@@ -811,8 +806,8 @@ class TestInsightSearchNode(BaseTest):
         await self.node._load_insights_page(0)
 
         query_obj2, _ = await self.node._process_insight_query(self._insight_to_dict(self.insight2))
-        self.assertIsNotNone(query_obj2, f"Query object should not be None for insight2. Query: {self.insight2.query}")
-        self.assertIsInstance(query_obj2, AssistantFunnelsQuery)
+        assert query_obj2 is not None, f"Query object should not be None for insight2. Query: {self.insight2.query}"
+        assert isinstance(query_obj2, AssistantFunnelsQuery)
 
         # Test insight2 visualization message creation
         viz_message2 = await self.node._create_artifact_ref_message_for_insight(self._insight_to_dict(self.insight2))
@@ -821,11 +816,11 @@ class TestInsightSearchNode(BaseTest):
         assert viz_message2 is not None
 
         # Verify the answer contains the correct query type
-        assert isinstance(
-            viz_message2.content, VisualizationArtifactContent
-        ), "Should create visualization artifact content"
+        assert isinstance(viz_message2.content, VisualizationArtifactContent), (
+            "Should create visualization artifact content"
+        )
         query2 = viz_message2.content.query
-        self.assertIsInstance(query2, AssistantFunnelsQuery)
+        assert isinstance(query2, AssistantFunnelsQuery)
 
     async def test_returns_artifact_with_retention_query(self):
         """Test that ArtifactMessage content contains AssistantRetentionQuery."""
@@ -861,8 +856,8 @@ class TestInsightSearchNode(BaseTest):
 
         insight_dict = self._insight_to_dict(insight)
         query_obj, _ = await self.node._process_insight_query(insight_dict)
-        self.assertIsNotNone(query_obj, f"Query object should not be None for insight. Query: {insight_dict['query']}")
-        self.assertIsInstance(query_obj, AssistantRetentionQuery)
+        assert query_obj is not None, f"Query object should not be None for insight. Query: {insight_dict['query']}"
+        assert isinstance(query_obj, AssistantRetentionQuery)
 
         # Test insight visualization message creation
         viz_message = await self.node._create_artifact_ref_message_for_insight(insight_dict)
@@ -871,10 +866,10 @@ class TestInsightSearchNode(BaseTest):
         assert viz_message is not None
 
         # Verify the answer contains the correct query type
-        assert isinstance(
-            viz_message.content, VisualizationArtifactContent
-        ), "Should create visualization artifact content"
-        self.assertIsInstance(viz_message.content.query, AssistantRetentionQuery)
+        assert isinstance(viz_message.content, VisualizationArtifactContent), (
+            "Should create visualization artifact content"
+        )
+        assert isinstance(viz_message.content.query, AssistantRetentionQuery)
 
     async def test_returns_artifact_with_hogql_query(self):
         """Test that ArtifactMessage content contains AssistantHogQLQuery."""
@@ -899,8 +894,8 @@ class TestInsightSearchNode(BaseTest):
 
         insight_dict = self._insight_to_dict(insight)
         query_obj, _ = await self.node._process_insight_query(insight_dict)
-        self.assertIsNotNone(query_obj, f"Query object should not be None for insight. Query: {insight_dict['query']}")
-        self.assertIsInstance(query_obj, AssistantHogQLQuery)
+        assert query_obj is not None, f"Query object should not be None for insight. Query: {insight_dict['query']}"
+        assert isinstance(query_obj, AssistantHogQLQuery)
 
         # Test insight visualization message creation
         viz_message = await self.node._create_artifact_ref_message_for_insight(insight_dict)
@@ -909,7 +904,7 @@ class TestInsightSearchNode(BaseTest):
         assert viz_message is not None
 
         # Verify the answer contains the correct query type
-        assert isinstance(
-            viz_message.content, VisualizationArtifactContent
-        ), "Should create visualization artifact content"
-        self.assertIsInstance(viz_message.content.query, AssistantHogQLQuery)
+        assert isinstance(viz_message.content, VisualizationArtifactContent), (
+            "Should create visualization artifact content"
+        )
+        assert isinstance(viz_message.content.query, AssistantHogQLQuery)

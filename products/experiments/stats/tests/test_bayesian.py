@@ -312,10 +312,10 @@ class TestBayesianMethod(TestCase):
         }
 
         # Compare the key values
-        self.assertAlmostEqual(result_dict["effect_size"], expected_dict["effect_size"], places=4)
-        self.assertAlmostEqual(result_dict["credible_interval"][0], expected_dict["credible_interval"][0], places=4)
-        self.assertAlmostEqual(result_dict["credible_interval"][1], expected_dict["credible_interval"][1], places=4)
-        self.assertAlmostEqual(result_dict["chance_to_win"], expected_dict["chance_to_win"], places=4)
+        assert result_dict["effect_size"] == pytest.approx(expected_dict["effect_size"], abs=1e-4)
+        assert result_dict["credible_interval"][0] == pytest.approx(expected_dict["credible_interval"][0], abs=1e-4)
+        assert result_dict["credible_interval"][1] == pytest.approx(expected_dict["credible_interval"][1], abs=1e-4)
+        assert result_dict["chance_to_win"] == pytest.approx(expected_dict["chance_to_win"], abs=1e-4)
 
     def test_two_sided_ttest_with_ratio_statistic(self):
         """Test basic two-sided t-test with ratio statistics."""
@@ -348,10 +348,10 @@ class TestBayesianMethod(TestCase):
         }
 
         # Compare the key values
-        self.assertAlmostEqual(result_dict["effect_size"], expected_dict["effect_size"], places=4)
-        self.assertAlmostEqual(result_dict["chance_to_win"], expected_dict["chance_to_win"], places=4)
-        self.assertAlmostEqual(result_dict["credible_interval"][0], expected_dict["credible_interval"][0], places=4)
-        self.assertAlmostEqual(result_dict["credible_interval"][1], expected_dict["credible_interval"][1], places=4)
+        assert result_dict["effect_size"] == pytest.approx(expected_dict["effect_size"], abs=1e-4)
+        assert result_dict["chance_to_win"] == pytest.approx(expected_dict["chance_to_win"], abs=1e-4)
+        assert result_dict["credible_interval"][0] == pytest.approx(expected_dict["credible_interval"][0], abs=1e-4)
+        assert result_dict["credible_interval"][1] == pytest.approx(expected_dict["credible_interval"][1], abs=1e-4)
 
 
 class TestConvenienceFunctions:

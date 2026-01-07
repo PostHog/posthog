@@ -49,10 +49,10 @@ class TestQueryPlannerNode(ClickhouseTestMixin, APIBaseTest):
         history = node._construct_messages(
             AssistantState(messages=[HumanMessage(content="Message")], root_tool_insight_plan="Text")
         )
-        self.assertEqual(len(history), 2)
-        self.assertIsInstance(history[1], HumanMessagePromptTemplate)
-        self.assertIn("Text", history[1].prompt.template)
-        self.assertNotIn(f"{{question}}", history[1].prompt.template)
+        assert len(history) == 2
+        assert isinstance(history[1], HumanMessagePromptTemplate)
+        assert "Text" in history[1].prompt.template
+        assert f"{{question}}" not in history[1].prompt.template
 
     def test_agent_reconstructs_conversation_and_omits_unknown_messages(self):
         node = self._get_node()
@@ -66,10 +66,10 @@ class TestQueryPlannerNode(ClickhouseTestMixin, APIBaseTest):
                 root_tool_insight_plan="Question",
             )
         )
-        self.assertEqual(len(history), 2)
-        self.assertIsInstance(history[1], HumanMessagePromptTemplate)
-        self.assertIn("Question", history[1].prompt.template)
-        self.assertNotIn("{{question}}", history[1].prompt.template)
+        assert len(history) == 2
+        assert isinstance(history[1], HumanMessagePromptTemplate)
+        assert "Question" in history[1].prompt.template
+        assert "{{question}}" not in history[1].prompt.template
 
     def test_agent_reconstructs_conversation_with_failures(self):
         node = self._get_node()
@@ -83,10 +83,10 @@ class TestQueryPlannerNode(ClickhouseTestMixin, APIBaseTest):
                 root_tool_insight_plan="Question",
             )
         )
-        self.assertEqual(len(history), 2)
-        self.assertIsInstance(history[1], HumanMessagePromptTemplate)
-        self.assertIn("Question", history[1].prompt.template)
-        self.assertNotIn("{{question}}", history[1].prompt.template)
+        assert len(history) == 2
+        assert isinstance(history[1], HumanMessagePromptTemplate)
+        assert "Question" in history[1].prompt.template
+        assert "{{question}}" not in history[1].prompt.template
 
     def test_agent_reconstructs_typical_conversation(self):
         node = self._get_node()
@@ -137,17 +137,17 @@ class TestQueryPlannerNode(ClickhouseTestMixin, APIBaseTest):
                 root_tool_insight_plan="Question 3",
             )
         )
-        self.assertEqual(len(history), 6, history)
-        self.assertIsInstance(history[1], HumanMessagePromptTemplate)
-        self.assertIn("Question 1", history[1].prompt.template)
-        self.assertIsInstance(history[2], AIMessagePromptTemplate)
-        self.assertEqual(history[2].prompt.template, "Plan 1")
-        self.assertIsInstance(history[3], HumanMessagePromptTemplate)
-        self.assertIn("Question 2", history[3].prompt.template)
-        self.assertIsInstance(history[4], AIMessagePromptTemplate)
-        self.assertEqual(history[4].prompt.template, "Plan 2")
-        self.assertIsInstance(history[5], HumanMessagePromptTemplate)
-        self.assertIn("Question 3", history[5].prompt.template)
+        assert len(history) == 6, history
+        assert isinstance(history[1], HumanMessagePromptTemplate)
+        assert "Question 1" in history[1].prompt.template
+        assert isinstance(history[2], AIMessagePromptTemplate)
+        assert history[2].prompt.template == "Plan 1"
+        assert isinstance(history[3], HumanMessagePromptTemplate)
+        assert "Question 2" in history[3].prompt.template
+        assert isinstance(history[4], AIMessagePromptTemplate)
+        assert history[4].prompt.template == "Plan 2"
+        assert isinstance(history[5], HumanMessagePromptTemplate)
+        assert "Question 3" in history[5].prompt.template
 
     # Removed test_agent_handles_output_without_tool_call as this functionality
     # is now handled differently and the test was testing legacy behavior
@@ -164,7 +164,7 @@ class TestQueryPlannerNode(ClickhouseTestMixin, APIBaseTest):
         )
         node = self._get_node()
         prompt = node._get_react_property_filters_prompt()
-        self.assertIn("org, account.", prompt)
+        assert "org, account." in prompt
 
     def test_injects_insight_description(self):
         node = self._get_node()
@@ -179,10 +179,10 @@ class TestQueryPlannerNode(ClickhouseTestMixin, APIBaseTest):
                 root_tool_insight_type="trends",
             )
         )
-        self.assertEqual(len(history), 2)  # system prompts + human message
-        self.assertIsInstance(history[1], HumanMessagePromptTemplate)
-        self.assertIn("Foobar", history[1].prompt.template)
-        self.assertNotIn("{{question}}", history[1].prompt.template)
+        assert len(history) == 2  # system prompts + human message
+        assert isinstance(history[1], HumanMessagePromptTemplate)
+        assert "Foobar" in history[1].prompt.template
+        assert "{{question}}" not in history[1].prompt.template
 
     def test_visualization_message_limit(self):
         # Create 15 visualization messages
@@ -213,24 +213,24 @@ class TestQueryPlannerNode(ClickhouseTestMixin, APIBaseTest):
         # - system prompt
         # - 10 pairs of human/ai messages from the last 10 visualization messages (20 total)
         # - 1 final human message with root_tool_insight_plan
-        self.assertEqual(len(history), 22, history)
+        assert len(history) == 22, history
 
         # Check that we only got the last 10 visualization messages
         for i in range(1, 11):
             # The human messages should contain the questions from the last 10 visualization messages
             human_msg = history[i * 2 - 1]
-            self.assertIsInstance(human_msg, HumanMessagePromptTemplate)
-            self.assertIn(f"Question {i + 4}", human_msg.prompt.template)
+            assert isinstance(human_msg, HumanMessagePromptTemplate)
+            assert f"Question {i + 4}" in human_msg.prompt.template
 
             # The AI messages should contain the plans from the last 10 visualization messages
             ai_msg = history[i * 2]
-            self.assertIsInstance(ai_msg, AIMessagePromptTemplate)
-            self.assertEqual(ai_msg.prompt.template, f"Plan {i + 4}")
+            assert isinstance(ai_msg, AIMessagePromptTemplate)
+            assert ai_msg.prompt.template == f"Plan {i + 4}"
 
         # Check the final message contains the root_tool_insight_plan
         final_msg = history[-1]
-        self.assertIsInstance(final_msg, HumanMessagePromptTemplate)
-        self.assertIn("Final Question", final_msg.prompt.template)
+        assert isinstance(final_msg, HumanMessagePromptTemplate)
+        assert "Final Question" in final_msg.prompt.template
 
     def test_construct_messages_appends_query_planner_intermediate_messages(self):
         node = self._get_node()
@@ -247,12 +247,12 @@ class TestQueryPlannerNode(ClickhouseTestMixin, APIBaseTest):
         )
 
         # System prompt + human message + 3 intermediate messages = 5 total
-        self.assertEqual(len(history), 5)
+        assert len(history) == 5
 
         # Check that intermediate messages are appended at the end
-        self.assertEqual(history[2], intermediate_messages[0])
-        self.assertEqual(history[3], intermediate_messages[1])
-        self.assertEqual(history[4], intermediate_messages[2])
+        assert history[2] == intermediate_messages[0]
+        assert history[3] == intermediate_messages[1]
+        assert history[4] == intermediate_messages[2]
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -267,10 +267,10 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
         )
         node = self._get_node()
         state_update = node.run(state, {})
-        self.assertEqual(len(state_update.intermediate_steps or []), 1)
+        assert len(state_update.intermediate_steps or []) == 1
         action, observation = (state_update.intermediate_steps or [])[0]
-        self.assertIsNotNone(observation)
-        self.assertIn("<pydantic_exception>", observation)
+        assert observation is not None
+        assert "<pydantic_exception>" in observation
 
     def test_node_handles_action_input_validation_error_string(self):
         state = AssistantState(
@@ -281,10 +281,10 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
         )
         node = self._get_node()
         state_update = node.run(state, {})
-        self.assertEqual(len(state_update.intermediate_steps or []), 1)
+        assert len(state_update.intermediate_steps or []) == 1
         action, observation = (state_update.intermediate_steps or [])[0]
-        self.assertIsNotNone(observation)
-        self.assertIn("<pydantic_exception>", observation)
+        assert observation is not None
+        assert "<pydantic_exception>" in observation
 
     def test_node_handles_action_input_validation_error_dict(self):
         state = AssistantState(
@@ -304,45 +304,41 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
         )
         node = self._get_node()
         state_update = node.run(state, {})
-        self.assertEqual(len(state_update.intermediate_steps), 1)
+        assert len(state_update.intermediate_steps) == 1
         action, observation = state_update.intermediate_steps[0]
-        self.assertIsNotNone(observation)
-        self.assertIn("<pydantic_exception>", observation)
+        assert observation is not None
+        assert "<pydantic_exception>" in observation
 
     def test_router(self):
         node = self._get_node()
-        self.assertEqual(
-            node.router(
-                AssistantState(messages=[HumanMessage(content="Question")], root_tool_call_id="1"),
-            ),
-            "continue",
+        assert (
+            node.router(AssistantState(messages=[HumanMessage(content="Question")], root_tool_call_id="1"))
+            == "continue"
         )
-        self.assertEqual(
-            node.router(
-                AssistantState(messages=[HumanMessage(content="Question")], root_tool_call_id="1", plan=""),
-            ),
-            "continue",
+        assert (
+            node.router(AssistantState(messages=[HumanMessage(content="Question")], root_tool_call_id="1", plan=""))
+            == "continue"
         )
-        self.assertEqual(
+        assert (
             node.router(
                 AssistantState(
                     messages=[HumanMessage(content="Question")],
                     root_tool_call_id="1",
                     root_tool_insight_type="sql",
                     plan="plan",
-                ),
-            ),
-            "sql",
+                )
+            )
+            == "sql"
         )
-        self.assertEqual(
+        assert (
             node.router(
                 AssistantState(
                     messages=[AssistantToolCallMessage(content="help", tool_call_id="1")],
                     root_tool_call_id=None,
                     plan=None,
-                ),
-            ),
-            "end",
+                )
+            )
+            == "end"
         )
 
     def test_node_terminates_after_max_iterations(self):
@@ -370,11 +366,11 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
         state_update = node.run(state, {})
 
         # Should reset state and return message about reaching limit
-        self.assertIsNone(state_update.intermediate_steps)
-        self.assertEqual(len(state_update.messages or []), 1)
+        assert state_update.intermediate_steps is None
+        assert len(state_update.messages or []) == 1
         messages = state_update.messages or []
         if messages and hasattr(messages[0], "content") and messages[0].content:
-            self.assertIn("maximum number of iterations", str(messages[0].content).lower())
+            assert "maximum number of iterations" in str(messages[0].content).lower()
 
     def test_node_allows_final_answer_at_max_iterations(self):
         # Create state with 16 intermediate steps, last one being final_answer
@@ -412,8 +408,8 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
         state_update = node.run(state, {})
 
         # Should accept the final answer even at max iterations
-        self.assertIsNone(state_update.intermediate_steps)
-        self.assertEqual(state_update.plan, "This is the final plan")
+        assert state_update.intermediate_steps is None
+        assert state_update.plan == "This is the final plan"
 
     def test_node_resets_query_planner_intermediate_messages_after_final_answer(self):
         intermediate_messages = [
@@ -440,8 +436,8 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
         state_update = node.run(state, {})
 
         # Should reset query_planner_intermediate_messages to None after final answer
-        self.assertIsNone(state_update.query_planner_intermediate_messages)
-        self.assertEqual(state_update.plan, "Final plan")
+        assert state_update.query_planner_intermediate_messages is None
+        assert state_update.plan == "Final plan"
 
     def test_node_allows_help_request_at_max_iterations(self):
         # Create state with 16 intermediate steps, last one being ask_user_for_help
@@ -481,11 +477,11 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
         state_update = node.run(state, {})
 
         # Should accept the help request even at max iterations
-        self.assertIsNone(state_update.intermediate_steps)
-        self.assertEqual(len(state_update.messages or []), 1)
+        assert state_update.intermediate_steps is None
+        assert len(state_update.messages or []) == 1
         messages = state_update.messages or []
         if messages and hasattr(messages[0], "content") and messages[0].content:
-            self.assertIn("need help with this", str(messages[0].content).lower())
+            assert "need help with this" in str(messages[0].content).lower()
 
     def test_node_prioritizes_max_iterations_over_validation_error(self):
         # Create state with 16 intermediate steps, last one causing validation error
@@ -505,13 +501,13 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
         state_update = node.run(state, {})
 
         # Should return max iterations message instead of validation error
-        self.assertIsNone(state_update.intermediate_steps)
-        self.assertEqual(len(state_update.messages or []), 1)
+        assert state_update.intermediate_steps is None
+        assert len(state_update.messages or []) == 1
         messages = state_update.messages or []
         if messages and hasattr(messages[0], "content") and messages[0].content:
             content_str = str(messages[0].content).lower()
-            self.assertIn("maximum number of iterations", content_str)
-            self.assertNotIn("pydantic", content_str)
+            assert "maximum number of iterations" in content_str
+            assert "pydantic" not in content_str
 
     def test_node_appends_new_tool_result(self):
         initial_steps = [
@@ -535,10 +531,10 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
         state_update = node.run(state, {})
 
         # Should have 2 steps: initial + updated with tool result
-        self.assertEqual(len(state_update.intermediate_steps or []), 1)
+        assert len(state_update.intermediate_steps or []) == 1
         action, observation = (state_update.intermediate_steps or [])[0]
-        self.assertEqual(action.log, "initial_log")
-        self.assertIsNotNone(observation)
+        assert action.log == "initial_log"
+        assert observation is not None
         # The observation should contain the actual tool result, not the initial "test" value
 
     def test_node_appends_new_assistant_message(self):
@@ -566,12 +562,12 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
         state_update = node.run(state, {})
 
         # Should have 2 messages: initial + new tool message
-        self.assertEqual(len(state_update.query_planner_intermediate_messages or []), 2)
+        assert len(state_update.query_planner_intermediate_messages or []) == 2
         messages = state_update.query_planner_intermediate_messages or []
 
         # First message should be the initial one
-        self.assertEqual(messages[0], initial_messages[0])
+        assert messages[0] == initial_messages[0]
 
         # Second message should be the new tool message
-        self.assertIsInstance(messages[1], LangchainToolMessage)
-        self.assertEqual(messages[1].tool_call_id, "test_log_id")
+        assert isinstance(messages[1], LangchainToolMessage)
+        assert messages[1].tool_call_id == "test_log_id"

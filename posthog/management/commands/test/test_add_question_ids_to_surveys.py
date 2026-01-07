@@ -64,29 +64,29 @@ class TestAddQuestionIdsToSurveys(BaseTest):
 
         # Check that all questions have IDs
         for question in self.survey1.questions:
-            self.assertIn("id", question)
+            assert "id" in question
             # Original IDs should be preserved
             if question["question"] == "What do you think?":
-                self.assertEqual(question["id"], "existing-id-1")
+                assert question["id"] == "existing-id-1"
             elif question["question"] == "How would you rate us?":
-                self.assertEqual(question["id"], "existing-id-2")
+                assert question["id"] == "existing-id-2"
 
         for question in self.survey2.questions:
-            self.assertIn("id", question)
+            assert "id" in question
             # These should have new UUIDs
-            self.assertTrue(len(question["id"]) > 0)
+            assert len(question["id"]) > 0
 
         for question in self.survey3.questions:
-            self.assertIn("id", question)
+            assert "id" in question
             # First question should keep its ID
             if question["question"] == "What do you think?":
-                self.assertEqual(question["id"], "existing-id-3")
+                assert question["id"] == "existing-id-3"
             # Second question should have a new UUID
             elif question["question"] == "How would you rate us?":
-                self.assertTrue(len(question["id"]) > 0)
+                assert len(question["id"]) > 0
 
         # Survey with no questions should remain unchanged
-        self.assertEqual(self.survey4.questions, [])
+        assert self.survey4.questions == []
 
     def test_default_dry_run_mode(self):
         # Run the command without really-run flag (default dry-run mode)
@@ -97,7 +97,7 @@ class TestAddQuestionIdsToSurveys(BaseTest):
 
         # Check that no changes were made in dry-run mode
         for question in self.survey2.questions:
-            self.assertNotIn("id", question)
+            assert "id" not in question
 
     def test_batch_processing(self):
         """
@@ -132,8 +132,8 @@ class TestAddQuestionIdsToSurveys(BaseTest):
         for survey in Survey.objects.filter(name__startswith="Batch Test Survey"):
             survey.refresh_from_db()
             for question in survey.questions:
-                self.assertIn("id", question)
-                self.assertTrue(len(question["id"]) > 0)
+                assert "id" in question
+                assert len(question["id"]) > 0
 
         # The fact that all surveys were processed with a batch size of 1
         # indirectly confirms that the batch processing logic works correctly

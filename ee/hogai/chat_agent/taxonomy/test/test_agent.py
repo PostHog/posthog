@@ -1,5 +1,6 @@
 from typing import cast
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
@@ -53,24 +54,24 @@ class TestTaxonomyAgent(BaseTest):
         self.patcher.stop()
 
     def test_agent_initialization(self):
-        self.assertEqual(self.agent._team, self.team)
-        self.assertEqual(self.agent._user, self.user)
-        self.assertEqual(self.agent._loop_node_class, MockTaxonomyAgentNode)
-        self.assertEqual(self.agent._tools_node_class, MockTaxonomyAgentToolsNode)
-        self.assertEqual(self.agent._toolkit_class, MockTaxonomyAgentToolkit)
-        self.assertFalse(self.agent._has_start_node)
+        assert self.agent._team == self.team
+        assert self.agent._user == self.user
+        assert self.agent._loop_node_class == MockTaxonomyAgentNode
+        assert self.agent._tools_node_class == MockTaxonomyAgentToolsNode
+        assert self.agent._toolkit_class == MockTaxonomyAgentToolkit
+        assert not self.agent._has_start_node
 
     def test_get_state_class(self):
         state_class, partial_state_class = self.agent._get_state_class(TaxonomyAgent)
-        self.assertEqual(state_class, TaxonomyAgentState)
-        self.assertEqual(partial_state_class, TaxonomyAgentState)
+        assert state_class == TaxonomyAgentState
+        assert partial_state_class == TaxonomyAgentState
 
     def test_get_state_class_no_generic(self):
         # Create an agent without proper generic typing to test error case
         class NonGenericAgent(TaxonomyAgent):
             pass
 
-        with self.assertRaises(ValueError) as context:
+        with pytest.raises(ValueError) as context:
             NonGenericAgent(
                 team=self.team,
                 user=self.user,
@@ -79,28 +80,28 @@ class TestTaxonomyAgent(BaseTest):
                 toolkit_class=MockTaxonomyAgentToolkit,
             )
 
-        self.assertIn("Could not determine state type", str(context.exception))
+        assert "Could not determine state type" in str(context.value)
 
     def test_add_edge(self):
         result = self.agent.add_edge(TaxonomyNodeName.START, cast(MaxNodeName, "test_node"))
-        self.assertEqual(result, self.agent)
-        self.assertTrue(self.agent._has_start_node)
+        assert result == self.agent
+        assert self.agent._has_start_node
 
     def test_add_edge_non_start(self):
         result = self.agent.add_edge(cast(MaxNodeName, "node1"), cast(MaxNodeName, "node2"))
-        self.assertEqual(result, self.agent)
-        self.assertFalse(self.agent._has_start_node)
+        assert result == self.agent
+        assert not self.agent._has_start_node
 
     def test_add_node(self):
         mock_action = Mock()
         result = self.agent.add_node(cast(MaxNodeName, "test_node"), mock_action)
-        self.assertEqual(result, self.agent)
+        assert result == self.agent
 
     def test_compile_without_start_node(self):
-        with self.assertRaises(ValueError) as context:
+        with pytest.raises(ValueError) as context:
             self.agent.compile()
 
-        self.assertIn("Start node not added", str(context.exception))
+        assert "Start node not added" in str(context.value)
 
     def test_compile_with_start_node(self):
         self.agent._has_start_node = True
@@ -109,7 +110,7 @@ class TestTaxonomyAgent(BaseTest):
         # When no checkpointer is passed, it should use the global checkpointer
         self.agent._graph.compile.assert_called_once()  # type: ignore
         call_args = self.agent._graph.compile.call_args  # type: ignore
-        self.assertIsNotNone(call_args[1]["checkpointer"])
+        assert call_args[1]["checkpointer"] is not None
 
     def test_compile_full_graph(self):
         _ = self.agent.compile_full_graph()
@@ -117,7 +118,7 @@ class TestTaxonomyAgent(BaseTest):
         # When no checkpointer is passed, it should use the global checkpointer
         self.agent._graph.compile.assert_called_once()  # type: ignore
         call_args = self.agent._graph.compile.call_args  # type: ignore
-        self.assertIsNotNone(call_args[1]["checkpointer"])
+        assert call_args[1]["checkpointer"] is not None
 
     def test_compile_full_graph_with_checkpointer(self):
         mock_checkpointer = Mock()
@@ -128,9 +129,9 @@ class TestTaxonomyAgent(BaseTest):
     def test_add_taxonomy_generator(self):
         _ = self.agent.add_taxonomy_generator()
 
-        self.assertEqual(len(self.agent._graph.add_node.call_args_list), 2)  # type: ignore
+        assert len(self.agent._graph.add_node.call_args_list) == 2  # type: ignore
 
-        self.assertEqual(len(self.agent._graph.add_edge.call_args_list), 2)  # type: ignore
+        assert len(self.agent._graph.add_edge.call_args_list) == 2  # type: ignore
 
         self.agent._graph.add_conditional_edges.assert_called_once()  # type: ignore
 
@@ -139,8 +140,8 @@ class TestTaxonomyAgent(BaseTest):
         _ = self.agent.add_taxonomy_generator(next_node=cast(TaxonomyNodeName, custom_next))
 
         conditional_call = self.agent._graph.add_conditional_edges.call_args  # type: ignore
-        self.assertEqual(conditional_call[0][0], TaxonomyNodeName.TOOLS_NODE)
-        self.assertEqual(conditional_call[0][2]["end"], custom_next)
+        assert conditional_call[0][0] == TaxonomyNodeName.TOOLS_NODE
+        assert conditional_call[0][2]["end"] == custom_next
 
     def test_node_instantiation_in_add_taxonomy_generator(self):
         with (

@@ -8,6 +8,7 @@ Tests cover:
 - Error handling and edge cases
 """
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -852,7 +853,7 @@ class TestVerifyEmptyCacheTeam(BaseTest):
         result = VerificationResult()
         cache_batch_data: dict = {}
 
-        with self.assertRaises(ValueError) as context:
+        with pytest.raises(ValueError) as context:
             _verify_empty_cache_team(
                 team=self.team,
                 config=mock_config,
@@ -863,8 +864,8 @@ class TestVerifyEmptyCacheTeam(BaseTest):
                 team_ids_to_skip_fix=set(),
             )
 
-        assert "empty_cache_value must be configured" in str(context.exception)
-        assert str(self.team.id) in str(context.exception)
+        assert "empty_cache_value must be configured" in str(context.value)
+        assert str(self.team.id) in str(context.value)
 
     def test_team_ids_to_skip_fix_skips_fix_for_empty_cache_team(self):
         """Test that team_ids_to_skip_fix can skip fixes in empty cache path."""

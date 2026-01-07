@@ -53,12 +53,12 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         flag = FeatureFlag.objects.get(key="test-flag", team=self.team)
 
         # Verify no tags were applied
-        self.assertEqual(flag.tagged_items.count(), 0)
-        self.assertEqual(flag.evaluation_tags.count(), 0)
+        assert flag.tagged_items.count() == 0
+        assert flag.evaluation_tags.count() == 0
 
     def test_create_flag_with_default_environments_enabled(self):
         """Test creating a flag when default environments are enabled but not explicitly requested"""
@@ -80,12 +80,12 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         flag = FeatureFlag.objects.get(key="test-flag-with-defaults", team=self.team)
 
         # Verify no tags were applied (defaults not applied automatically)
-        self.assertEqual(flag.tagged_items.count(), 0)
-        self.assertEqual(flag.evaluation_tags.count(), 0)
+        assert flag.tagged_items.count() == 0
+        assert flag.evaluation_tags.count() == 0
 
     def test_create_flag_with_explicit_tags_overrides(self):
         """Test that explicitly provided tags are not overridden"""
@@ -107,12 +107,12 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         flag = FeatureFlag.objects.get(key="test-flag-explicit", team=self.team)
 
         # Verify only explicit tags were applied (defaults not added to evaluation tags)
         eval_tag_names = set(flag.evaluation_tags.values_list("tag__name", flat=True))
-        self.assertEqual(eval_tag_names, {"custom-tag"})
+        assert eval_tag_names == {"custom-tag"}
 
     def test_create_flag_with_explicit_tags_only(self):
         """Test that only explicitly provided tags are applied"""
@@ -135,15 +135,15 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         flag = FeatureFlag.objects.get(key="test-flag-explicit-only", team=self.team)
 
         # Verify only explicit tags were applied
         tag_names = set(flag.tagged_items.values_list("tag__name", flat=True))
-        self.assertEqual(tag_names, {"custom-tag"})
+        assert tag_names == {"custom-tag"}
 
         # Verify no evaluation tags (not explicitly provided)
-        self.assertEqual(flag.evaluation_tags.count(), 0)
+        assert flag.evaluation_tags.count() == 0
 
     def test_create_flag_with_empty_evaluation_tags(self):
         """Test that empty evaluation_tags array is respected"""
@@ -164,11 +164,11 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         flag = FeatureFlag.objects.get(key="test-flag-empty", team=self.team)
 
         # Verify no evaluation tags (empty array means "clear all")
-        self.assertEqual(flag.evaluation_tags.count(), 0)
+        assert flag.evaluation_tags.count() == 0
 
     def test_update_flag_doesnt_apply_defaults(self):
         """Test that updating an existing flag doesn't apply defaults"""
@@ -193,12 +193,12 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         flag.refresh_from_db()
 
         # Verify no tags were added during update
-        self.assertEqual(flag.tagged_items.count(), 0)
-        self.assertEqual(flag.evaluation_tags.count(), 0)
+        assert flag.tagged_items.count() == 0
+        assert flag.evaluation_tags.count() == 0
 
     def test_create_flag_with_none_evaluation_tags_applies_defaults(self):
         """Test that explicitly setting evaluation_tags to None applies defaults"""
@@ -221,7 +221,7 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_create_flag_with_explicit_evaluation_tags(self):
         """Test that explicitly provided evaluation tags are used"""
@@ -245,12 +245,12 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         flag = FeatureFlag.objects.get(key="test-flag-explicit-eval", team=self.team)
 
         # Verify only explicit evaluation tags were applied
         eval_tag_names = set(flag.evaluation_tags.values_list("tag__name", flat=True))
-        self.assertEqual(eval_tag_names, {"custom-tag"})
+        assert eval_tag_names == {"custom-tag"}
 
     def test_no_default_tags_configured(self):
         """Test creating a flag when feature is enabled but no default tags exist"""
@@ -268,9 +268,9 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         flag = FeatureFlag.objects.get(key="test-flag-no-defaults", team=self.team)
 
         # Verify no tags were applied
-        self.assertEqual(flag.tagged_items.count(), 0)
-        self.assertEqual(flag.evaluation_tags.count(), 0)
+        assert flag.tagged_items.count() == 0
+        assert flag.evaluation_tags.count() == 0

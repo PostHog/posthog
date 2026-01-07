@@ -33,12 +33,12 @@ class TestVercelErrorMixinBug(VercelTestBase):
         exc = ValueError("Non-DRF exception")
         response = viewset.handle_exception(exc)
 
-        self.assertIsNotNone(response)
-        self.assertIsInstance(response, Response)
-        self.assertEqual(response.status_code, 500)
-        self.assertEqual(response.data["error"]["code"], "internal_error")
-        self.assertEqual(response.data["error"]["message"], "An internal error occurred. Please try again.")
-        self.assertNotIn("Non-DRF exception", response.data["error"]["message"])
+        assert response is not None
+        assert isinstance(response, Response)
+        assert response.status_code == 500
+        assert response.data["error"]["code"] == "internal_error"
+        assert response.data["error"]["message"] == "An internal error occurred. Please try again."
+        assert "Non-DRF exception" not in response.data["error"]["message"]
 
     def test_handle_exception_with_drf_exception_returns_response(self):
         factory = RequestFactory()
@@ -52,9 +52,9 @@ class TestVercelErrorMixinBug(VercelTestBase):
         exc = exceptions.ValidationError("DRF exception")
         response = viewset.handle_exception(exc)
 
-        self.assertIsNotNone(response)
-        self.assertIsInstance(response, Response)
-        self.assertEqual(response.status_code, 400)
+        assert response is not None
+        assert isinstance(response, Response)
+        assert response.status_code == 400
 
     def test_viewset_dispatch_with_non_drf_exception(self):
         factory = RequestFactory()
@@ -65,8 +65,8 @@ class TestVercelErrorMixinBug(VercelTestBase):
         with patch.object(_TestViewSet, "test_action", side_effect=ValueError("Test error")):
             response = viewset(django_request)
 
-            self.assertIsNotNone(response)
-            self.assertEqual(response.status_code, 500)
-            self.assertEqual(response.data["error"]["code"], "internal_error")
-            self.assertEqual(response.data["error"]["message"], "An internal error occurred. Please try again.")
-            self.assertNotIn("Test error", response.data["error"]["message"])
+            assert response is not None
+            assert response.status_code == 500
+            assert response.data["error"]["code"] == "internal_error"
+            assert response.data["error"]["message"] == "An internal error occurred. Please try again."
+            assert "Test error" not in response.data["error"]["message"]

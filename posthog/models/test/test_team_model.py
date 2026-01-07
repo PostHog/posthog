@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import BaseTest
 
 from django.core.exceptions import ValidationError
@@ -71,7 +72,7 @@ class TestCoreEvent(BaseTest):
         assert self.team.core_events.count() == 0
 
     def test_core_events_missing_filter_raises(self):
-        with self.assertRaises(ValidationError):
+        with pytest.raises(ValidationError):
             CoreEvent.objects.create(
                 team=self.team,
                 name="Bad Goal",
@@ -80,7 +81,7 @@ class TestCoreEvent(BaseTest):
             )
 
     def test_core_events_invalid_filter_kind_raises(self):
-        with self.assertRaises(ValidationError):
+        with pytest.raises(ValidationError):
             CoreEvent.objects.create(
                 team=self.team,
                 name="Bad Goal",
@@ -90,25 +91,25 @@ class TestCoreEvent(BaseTest):
 
     def test_core_events_all_events_not_allowed(self):
         """All events (empty event name) should not be allowed as a core event."""
-        with self.assertRaises(ValidationError) as context:
+        with pytest.raises(ValidationError) as context:
             CoreEvent.objects.create(
                 team=self.team,
                 name="All Events Goal",
                 category="monetization",
                 filter={"kind": "EventsNode", "event": None},
             )
-        assert "All events" in str(context.exception)
+        assert "All events" in str(context.value)
 
     def test_core_events_empty_event_name_not_allowed(self):
         """Empty event name should not be allowed as a core event."""
-        with self.assertRaises(ValidationError) as context:
+        with pytest.raises(ValidationError) as context:
             CoreEvent.objects.create(
                 team=self.team,
                 name="Empty Event Goal",
                 category="monetization",
                 filter={"kind": "EventsNode", "event": ""},
             )
-        assert "All events" in str(context.exception)
+        assert "All events" in str(context.value)
 
 
 class TestTeam(BaseTest):

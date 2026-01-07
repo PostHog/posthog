@@ -1,6 +1,7 @@
 import json
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 
@@ -31,7 +32,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         process_scheduled_changes()
 
         updated_flag = FeatureFlag.objects.get(key="flag-1")
-        self.assertEqual(updated_flag.active, True)
+        assert updated_flag.active
 
     def test_schedule_feature_flag_add_release_condition(self) -> None:
         feature_flag = FeatureFlag.objects.create(
@@ -65,7 +66,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         process_scheduled_changes()
 
         updated_flag = FeatureFlag.objects.get(key="flag-1")
-        self.assertEqual(updated_flag.filters["groups"][0], new_release_condition)
+        assert updated_flag.filters["groups"][0] == new_release_condition
 
     def test_schedule_feature_flag_add_release_condition_preserve_variants(self) -> None:
         variants = [
@@ -115,8 +116,8 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         process_scheduled_changes()
 
         updated_flag = FeatureFlag.objects.get(key="flag-1")
-        self.assertEqual(updated_flag.filters["groups"][0], new_release_condition)
-        self.assertEqual(updated_flag.filters["multivariate"]["variants"], variants)
+        assert updated_flag.filters["groups"][0] == new_release_condition
+        assert updated_flag.filters["multivariate"]["variants"] == variants
 
     def test_schedule_feature_flag_invalid_payload(self) -> None:
         feature_flag = FeatureFlag.objects.create(
@@ -141,22 +142,22 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         process_scheduled_changes()
 
         updated_flag = FeatureFlag.objects.get(key="flag-1")
-        self.assertEqual(updated_flag.filters["groups"], [])
+        assert updated_flag.filters["groups"] == []
 
         updated_scheduled_change = ScheduledChange.objects.get(id=scheduled_change.id)
 
         # Parse the JSON failure_reason to check the error message
-        self.assertIsNotNone(updated_scheduled_change.failure_reason)
+        assert updated_scheduled_change.failure_reason is not None
         failure_reason = updated_scheduled_change.failure_reason
         assert failure_reason is not None  # For mypy type narrowing
         failure_data = json.loads(failure_reason)
-        self.assertEqual(failure_data["error"], "Invalid payload")
-        self.assertEqual(failure_data["error_type"], "Exception")
-        self.assertIn("hostname", failure_data)
+        assert failure_data["error"] == "Invalid payload"
+        assert failure_data["error_type"] == "Exception"
+        assert "hostname" in failure_data
         # Note: scheduled_change_id, model, team_id, etc. are already in the ScheduledChange table columns
 
         # Verify failure_count was incremented
-        self.assertEqual(updated_scheduled_change.failure_count, 1)
+        assert updated_scheduled_change.failure_count == 1
 
     @snapshot_postgres_queries
     @freeze_time("2023-12-21T09:00:00Z")
@@ -234,16 +235,16 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         change_due_future = ScheduledChange.objects.get(id=change_due_future.id)
 
         # Changes due have been marked executed
-        self.assertIsNotNone(change_past.executed_at)
-        self.assertIsNotNone(change_due_now.executed_at)
+        assert change_past.executed_at is not None
+        assert change_due_now.executed_at is not None
 
         # Other changes have not been executed
-        self.assertEqual(change_past_executed.executed_at, change_past_executed_at)
-        self.assertIsNone(change_due_future.executed_at)
+        assert change_past_executed.executed_at == change_past_executed_at
+        assert change_due_future.executed_at is None
 
         # The changes due have been propagated in the correct order (oldest scheduled_at first)
         updated_flag = FeatureFlag.objects.get(key="flag-1")
-        self.assertEqual(updated_flag.filters["groups"], [change_past_condition, change_due_now_condition])
+        assert updated_flag.filters["groups"] == [change_past_condition, change_due_now_condition]
 
     def test_scheduled_changes_create_activity_log_with_trigger(self) -> None:
         """Test that scheduled changes create activity logs with trigger information while preserving user attribution"""
@@ -276,40 +277,40 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
 
         # Verify the flag was updated
         updated_flag = FeatureFlag.objects.get(key="test-flag")
-        self.assertEqual(updated_flag.active, True)
+        assert updated_flag.active
 
         # Verify scheduled change was marked as executed
         updated_scheduled_change = ScheduledChange.objects.get(id=scheduled_change.id)
-        self.assertIsNotNone(updated_scheduled_change.executed_at)
-        self.assertIsNone(updated_scheduled_change.failure_reason)
+        assert updated_scheduled_change.executed_at is not None
+        assert updated_scheduled_change.failure_reason is None
 
         # Verify activity log entry was created with trigger information
         activity_logs = ActivityLog.objects.filter(
             scope="FeatureFlag", item_id=str(feature_flag.id), activity="updated"
         )
 
-        self.assertEqual(activity_logs.count(), 1)
+        assert activity_logs.count() == 1
         activity_log = activity_logs.first()
-        self.assertIsNotNone(activity_log)
+        assert activity_log is not None
         assert activity_log is not None  # for mypy
 
         # Check that it's NOT marked as a system activity (scheduled changes preserve user attribution)
-        self.assertFalse(activity_log.is_system)
+        assert not activity_log.is_system
 
         # Check that user attribution is preserved
-        self.assertEqual(activity_log.user, self.user)
+        assert activity_log.user == self.user
 
         # Check that trigger information identifies this as a scheduled change
-        self.assertIsNotNone(activity_log.detail)
+        assert activity_log.detail is not None
         trigger = activity_log.detail.get("trigger")
-        self.assertIsNotNone(trigger)
-        self.assertEqual(trigger["job_type"], "scheduled_change")
-        self.assertEqual(trigger["job_id"], str(scheduled_change.id))
+        assert trigger is not None
+        assert trigger["job_type"] == "scheduled_change"
+        assert trigger["job_id"] == str(scheduled_change.id)
 
         # Verify the change details are correct
-        self.assertIsNotNone(activity_log.detail)
+        assert activity_log.detail is not None
         changes = activity_log.detail.get("changes", [])
-        self.assertTrue(len(changes) > 0)
+        assert len(changes) > 0
 
         # Find the change for the 'active' field
         active_change = None
@@ -318,9 +319,9 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
                 active_change = change
                 break
 
-        self.assertIsNotNone(active_change)
-        self.assertEqual(active_change["before"], False)  # type: ignore
-        self.assertEqual(active_change["after"], True)  # type: ignore
+        assert active_change is not None
+        assert not active_change["before"]  # type: ignore
+        assert active_change["after"]  # type: ignore
 
     @freeze_time("2023-12-21T09:00:00Z")
     def test_updated_at_field_tracks_processing_time(self) -> None:
@@ -348,7 +349,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         original_updated_at = scheduled_change.updated_at
 
         # Initially, created_at and updated_at should be the same due to creation time
-        self.assertEqual(original_created_at, original_updated_at)
+        assert original_created_at == original_updated_at
 
         # Advance time to simulate processing delay
         with freeze_time("2023-12-21T09:00:10Z"):
@@ -359,13 +360,13 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
             updated_scheduled_change = ScheduledChange.objects.get(id=scheduled_change.id)
 
             # Verify that updated_at was modified when the change was processed
-            self.assertEqual(updated_scheduled_change.created_at, original_created_at)
-            self.assertGreater(updated_scheduled_change.updated_at, original_updated_at)
+            assert updated_scheduled_change.created_at == original_created_at
+            assert updated_scheduled_change.updated_at > original_updated_at
 
             # Verify the change was processed successfully
-            self.assertIsNotNone(updated_scheduled_change.executed_at)
-            self.assertIsNone(updated_scheduled_change.failure_reason)
-            self.assertEqual(updated_scheduled_change.failure_count, 0)  # No failures for successful processing
+            assert updated_scheduled_change.executed_at is not None
+            assert updated_scheduled_change.failure_reason is None
+            assert updated_scheduled_change.failure_count == 0  # No failures for successful processing
 
     def test_recoverable_error_allows_retry(self) -> None:
         """Test that recoverable errors don't set executed_at, allowing retries"""
@@ -402,20 +403,20 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         updated_scheduled_change = ScheduledChange.objects.get(id=scheduled_change.id)
 
         # Verify that executed_at is NOT set (allowing retries)
-        self.assertIsNone(updated_scheduled_change.executed_at)
-        self.assertIsNotNone(updated_scheduled_change.failure_reason)
-        self.assertEqual(updated_scheduled_change.failure_count, 1)
+        assert updated_scheduled_change.executed_at is None
+        assert updated_scheduled_change.failure_reason is not None
+        assert updated_scheduled_change.failure_count == 1
 
         # Parse failure reason to verify it contains error details and retry info
-        self.assertIsNotNone(updated_scheduled_change.failure_reason)
+        assert updated_scheduled_change.failure_reason is not None
         failure_reason = updated_scheduled_change.failure_reason
         assert failure_reason is not None  # For mypy type narrowing
         failure_data = json.loads(failure_reason)
-        self.assertEqual(failure_data["error_type"], "OperationalError")
-        self.assertEqual(failure_data["error"], "Connection timeout")
-        self.assertTrue(failure_data["will_retry"])  # Should indicate will retry
-        self.assertEqual(failure_data["retry_count"], 1)
-        self.assertEqual(failure_data["error_classification"], "recoverable")
+        assert failure_data["error_type"] == "OperationalError"
+        assert failure_data["error"] == "Connection timeout"
+        assert failure_data["will_retry"]  # Should indicate will retry
+        assert failure_data["retry_count"] == 1
+        assert failure_data["error_classification"] == "recoverable"
 
     def test_unrecoverable_error_prevents_retry(self) -> None:
         """Test that unrecoverable errors set executed_at, preventing retries"""
@@ -445,19 +446,19 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         updated_scheduled_change = ScheduledChange.objects.get(id=scheduled_change.id)
 
         # Verify that executed_at IS set (preventing retries)
-        self.assertIsNotNone(updated_scheduled_change.executed_at)
-        self.assertIsNotNone(updated_scheduled_change.failure_reason)
-        self.assertEqual(updated_scheduled_change.failure_count, 1)
+        assert updated_scheduled_change.executed_at is not None
+        assert updated_scheduled_change.failure_reason is not None
+        assert updated_scheduled_change.failure_count == 1
 
         # Parse failure reason to verify it contains error details and retry info
-        self.assertIsNotNone(updated_scheduled_change.failure_reason)
+        assert updated_scheduled_change.failure_reason is not None
         failure_reason = updated_scheduled_change.failure_reason
         assert failure_reason is not None  # For mypy type narrowing
         failure_data = json.loads(failure_reason)
-        self.assertEqual(failure_data["error"], "Invalid payload")
-        self.assertFalse(failure_data["will_retry"])  # Should indicate won't retry
-        self.assertEqual(failure_data["retry_count"], 1)
-        self.assertEqual(failure_data["error_classification"], "unrecoverable")
+        assert failure_data["error"] == "Invalid payload"
+        assert not failure_data["will_retry"]  # Should indicate won't retry
+        assert failure_data["retry_count"] == 1
+        assert failure_data["error_classification"] == "unrecoverable"
 
     def test_max_retries_exceeded(self) -> None:
         """Test that changes exceeding max retries preserve actual error info"""
@@ -498,9 +499,9 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         updated_scheduled_change = ScheduledChange.objects.get(id=scheduled_change.id)
 
         # Verify that it's marked as permanently failed due to retry limit
-        self.assertIsNotNone(updated_scheduled_change.executed_at)
-        self.assertIsNotNone(updated_scheduled_change.failure_reason)
-        self.assertEqual(updated_scheduled_change.failure_count, MAX_RETRY_ATTEMPTS)
+        assert updated_scheduled_change.executed_at is not None
+        assert updated_scheduled_change.failure_reason is not None
+        assert updated_scheduled_change.failure_count == MAX_RETRY_ATTEMPTS
 
         # Parse failure reason to verify actual error info is preserved
         failure_reason = updated_scheduled_change.failure_reason
@@ -508,13 +509,13 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         failure_data = json.loads(failure_reason)
 
         # Should contain the actual error details, not just "max retries exceeded"
-        self.assertEqual(failure_data["error"], "Database connection lost")
-        self.assertEqual(failure_data["error_type"], "OperationalError")
-        self.assertEqual(failure_data["error_classification"], "recoverable")
-        self.assertFalse(failure_data["will_retry"])  # Won't retry due to limit
-        self.assertTrue(failure_data["retry_exhausted"])  # Indicates limit reached
-        self.assertEqual(failure_data["retry_count"], MAX_RETRY_ATTEMPTS)
-        self.assertEqual(failure_data["max_retries"], MAX_RETRY_ATTEMPTS)
+        assert failure_data["error"] == "Database connection lost"
+        assert failure_data["error_type"] == "OperationalError"
+        assert failure_data["error_classification"] == "recoverable"
+        assert not failure_data["will_retry"]  # Won't retry due to limit
+        assert failure_data["retry_exhausted"]  # Indicates limit reached
+        assert failure_data["retry_count"] == MAX_RETRY_ATTEMPTS
+        assert failure_data["max_retries"] == MAX_RETRY_ATTEMPTS
 
     def test_schedule_feature_flag_update_variants(self) -> None:
         """Test that scheduled update_variants operation correctly updates variants and payloads"""
@@ -600,15 +601,15 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         updated_flag = FeatureFlag.objects.get(key="variant-flag")
 
         # Check that variants were updated
-        self.assertEqual(len(updated_flag.filters["multivariate"]["variants"]), 3)
-        self.assertEqual(updated_flag.filters["multivariate"]["variants"], new_variants)
+        assert len(updated_flag.filters["multivariate"]["variants"]) == 3
+        assert updated_flag.filters["multivariate"]["variants"] == new_variants
 
         # Check that payloads were updated
-        self.assertEqual(updated_flag.filters["payloads"], new_payloads)
+        assert updated_flag.filters["payloads"] == new_payloads
 
         # Verify other filter properties were preserved
-        self.assertEqual(updated_flag.filters["groups"], [])
-        self.assertTrue(updated_flag.active)
+        assert updated_flag.filters["groups"] == []
+        assert updated_flag.active
 
     def test_schedule_feature_flag_update_variants_preserve_other_filters(self) -> None:
         """Test that update_variants preserves existing release conditions and other filter properties"""
@@ -671,12 +672,12 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         updated_flag = FeatureFlag.objects.get(key="complex-variant-flag")
 
         # Check that variants were updated
-        self.assertEqual(updated_flag.filters["multivariate"]["variants"], new_variants)
-        self.assertEqual(updated_flag.filters["payloads"], new_payloads)
+        assert updated_flag.filters["multivariate"]["variants"] == new_variants
+        assert updated_flag.filters["payloads"] == new_payloads
 
         # Check that existing release conditions were preserved
-        self.assertEqual(len(updated_flag.filters["groups"]), 1)
-        self.assertEqual(updated_flag.filters["groups"][0], existing_release_condition)
+        assert len(updated_flag.filters["groups"]) == 1
+        assert updated_flag.filters["groups"][0] == existing_release_condition
 
     def test_schedule_feature_flag_update_variants_empty_variants_with_payloads(self) -> None:
         """Test that update_variants works correctly when clearing variants but having old payloads"""
@@ -723,8 +724,8 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         updated_flag = FeatureFlag.objects.get(key="test-variant-flag")
 
         # Check that variants were cleared
-        self.assertEqual(updated_flag.filters["multivariate"]["variants"], [])
-        self.assertEqual(updated_flag.filters["payloads"], {})
+        assert updated_flag.filters["multivariate"]["variants"] == []
+        assert updated_flag.filters["payloads"] == {}
 
     def test_schedule_feature_flag_update_variants_with_mismatched_payload_keys_fails(self) -> None:
         """Test that update_variants fails validation when payload keys don't match variant keys"""
@@ -781,12 +782,12 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
 
         updated_flag = FeatureFlag.objects.get(key="mismatched-payload-flag")
 
-        self.assertEqual(len(updated_flag.filters["multivariate"]["variants"]), 2)
-        self.assertEqual(updated_flag.filters["multivariate"]["variants"], initial_variants)
+        assert len(updated_flag.filters["multivariate"]["variants"]) == 2
+        assert updated_flag.filters["multivariate"]["variants"] == initial_variants
 
         updated_scheduled_change = ScheduledChange.objects.get(id=scheduled_change.id)
-        self.assertIsNotNone(updated_scheduled_change.failure_reason)
-        self.assertEqual(updated_scheduled_change.failure_count, 1)
+        assert updated_scheduled_change.failure_reason is not None
+        assert updated_scheduled_change.failure_count == 1
 
     def test_scheduled_changes_dispatcher_validates_variant_rollout_percentages(self) -> None:
         """Test that scheduled_changes_dispatcher validates variants before attempting update"""
@@ -822,15 +823,15 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         }
 
         # This should raise a validation exception from scheduled_changes_dispatcher method
-        with self.assertRaises(ValueError) as context:
+        with pytest.raises(ValueError) as context:
             feature_flag.scheduled_changes_dispatcher(invalid_payload, self.user)
 
         # Verify it's our specific validation error message
-        self.assertIn("Invalid variant rollout percentages", str(context.exception))
+        assert "Invalid variant rollout percentages" in str(context.value)
 
         # Verify the flag was not modified
         feature_flag.refresh_from_db()
-        self.assertEqual(feature_flag.filters["multivariate"]["variants"], initial_variants)
+        assert feature_flag.filters["multivariate"]["variants"] == initial_variants
 
     def test_scheduled_changes_dispatcher_allows_valid_variant_rollout_percentages(self) -> None:
         """Test that scheduled_changes_dispatcher allows valid variants that sum to 100"""
@@ -873,7 +874,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
 
         # Verify the flag was updated correctly
         feature_flag.refresh_from_db()
-        self.assertEqual(feature_flag.filters["multivariate"]["variants"], valid_variants)
+        assert feature_flag.filters["multivariate"]["variants"] == valid_variants
 
     def test_scheduled_changes_dispatcher_allows_empty_variants(self) -> None:
         """Test that scheduled_changes_dispatcher allows empty variants (converting multivariate to boolean flag)"""
@@ -910,7 +911,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
 
         # Verify the flag was updated correctly with empty variants
         feature_flag.refresh_from_db()
-        self.assertEqual(feature_flag.filters["multivariate"]["variants"], [])
+        assert feature_flag.filters["multivariate"]["variants"] == []
 
     def test_scheduled_changes_dispatcher_validates_payload_keys_match_variants(self) -> None:
         """Test that scheduled_changes_dispatcher validates that payload keys match variant keys"""
@@ -953,15 +954,15 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         }
 
         # This should raise a validation exception from scheduled_changes_dispatcher method
-        with self.assertRaises(ValueError) as context:
+        with pytest.raises(ValueError) as context:
             feature_flag.scheduled_changes_dispatcher(invalid_payload, self.user)
 
         # Verify it's our specific validation error message
-        self.assertIn("don't match variant keys", str(context.exception))
+        assert "don't match variant keys" in str(context.value)
 
         # Verify the flag was not modified
         feature_flag.refresh_from_db()
-        self.assertEqual(feature_flag.filters["multivariate"]["variants"], initial_variants)
+        assert feature_flag.filters["multivariate"]["variants"] == initial_variants
 
     def test_scheduled_changes_dispatcher_allows_variants_with_empty_payloads(self) -> None:
         """Test that scheduled_changes_dispatcher allows variants with empty payloads (multivariate flag without payloads)"""
@@ -1003,8 +1004,8 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
 
         # Verify the flag was updated correctly
         feature_flag.refresh_from_db()
-        self.assertEqual(feature_flag.filters["multivariate"]["variants"], new_variants)
-        self.assertEqual(feature_flag.filters["payloads"], {})
+        assert feature_flag.filters["multivariate"]["variants"] == new_variants
+        assert feature_flag.filters["payloads"] == {}
 
     def test_scheduled_changes_dispatcher_validates_variant_keys_exist(self) -> None:
         """Test that scheduled_changes_dispatcher validates that variants have keys"""
@@ -1032,12 +1033,12 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         }
 
         # This should raise a validation exception
-        with self.assertRaises(ValueError) as context:
+        with pytest.raises(ValueError) as context:
             feature_flag.scheduled_changes_dispatcher(invalid_payload, self.user)
 
         # Verify it mentions the issue with variant keys
-        error_message = str(context.exception)
-        self.assertIn("don't match variant keys", error_message)
+        error_message = str(context.value)
+        assert "don't match variant keys" in error_message
 
     def test_failure_reason_truncation_preserves_json(self) -> None:
         """Test that failure reason truncation preserves valid JSON structure"""
@@ -1058,14 +1059,14 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
 
         # Verify it's valid JSON
         parsed = json.loads(final_result)
-        self.assertIsInstance(parsed, dict)
+        assert isinstance(parsed, dict)
 
         # Verify important fields are preserved
-        self.assertEqual(parsed["error_type"], "ValidationError")
-        self.assertEqual(parsed["error_classification"], "unrecoverable")
+        assert parsed["error_type"] == "ValidationError"
+        assert parsed["error_classification"] == "unrecoverable"
 
         # Verify error message is truncated with ellipsis
-        self.assertTrue(parsed["error"].endswith("..."))
+        assert parsed["error"].endswith("...")
 
     def test_cannot_schedule_change_in_past(self) -> None:
         """Test that scheduled changes set in the past are executed immediately when processed"""
@@ -1091,22 +1092,22 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         )
 
         # Verify the change hasn't been executed yet
-        self.assertIsNone(scheduled_change.executed_at)
+        assert scheduled_change.executed_at is None
         updated_flag = FeatureFlag.objects.get(key="past-test-flag")
-        self.assertEqual(updated_flag.active, False)
+        assert not updated_flag.active
 
         # Process scheduled changes
         process_scheduled_changes()
 
         # Verify the change was executed immediately
         updated_scheduled_change = ScheduledChange.objects.get(id=scheduled_change.id)
-        self.assertIsNotNone(updated_scheduled_change.executed_at)
-        self.assertIsNone(updated_scheduled_change.failure_reason)
-        self.assertEqual(updated_scheduled_change.failure_count, 0)
+        assert updated_scheduled_change.executed_at is not None
+        assert updated_scheduled_change.failure_reason is None
+        assert updated_scheduled_change.failure_count == 0
 
         # Verify the flag was updated
         updated_flag = FeatureFlag.objects.get(key="past-test-flag")
-        self.assertEqual(updated_flag.active, True)
+        assert updated_flag.active
 
     @freeze_time("2024-01-15T09:00:00Z")
     def test_recurring_schedule_computes_next_weekly_run(self) -> None:
@@ -1134,12 +1135,12 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
 
         scheduled_change.refresh_from_db()
         # Should NOT be marked as executed
-        self.assertIsNone(scheduled_change.executed_at)
+        assert scheduled_change.executed_at is None
         # Should be scheduled for next week
-        self.assertEqual(scheduled_change.scheduled_at, datetime(2024, 1, 22, 9, 0, tzinfo=UTC))
+        assert scheduled_change.scheduled_at == datetime(2024, 1, 22, 9, 0, tzinfo=UTC)
         # Flag should be disabled
         feature_flag.refresh_from_db()
-        self.assertEqual(feature_flag.active, False)
+        assert not feature_flag.active
 
     @freeze_time("2024-01-15T09:00:00Z")
     def test_recurring_schedule_computes_next_daily_run(self) -> None:
@@ -1166,8 +1167,8 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         process_scheduled_changes()
 
         scheduled_change.refresh_from_db()
-        self.assertIsNone(scheduled_change.executed_at)
-        self.assertEqual(scheduled_change.scheduled_at, datetime(2024, 1, 16, 9, 0, tzinfo=UTC))
+        assert scheduled_change.executed_at is None
+        assert scheduled_change.scheduled_at == datetime(2024, 1, 16, 9, 0, tzinfo=UTC)
 
     @freeze_time("2024-01-15T09:00:00Z")
     def test_recurring_schedule_computes_next_monthly_run(self) -> None:
@@ -1194,8 +1195,8 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         process_scheduled_changes()
 
         scheduled_change.refresh_from_db()
-        self.assertIsNone(scheduled_change.executed_at)
-        self.assertEqual(scheduled_change.scheduled_at, datetime(2024, 2, 15, 9, 0, tzinfo=UTC))
+        assert scheduled_change.executed_at is None
+        assert scheduled_change.scheduled_at == datetime(2024, 2, 15, 9, 0, tzinfo=UTC)
 
     @freeze_time("2024-01-15T09:00:00Z")
     def test_non_recurring_schedule_still_marks_executed(self) -> None:
@@ -1222,7 +1223,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
 
         scheduled_change.refresh_from_db()
         # Should be marked as executed
-        self.assertIsNotNone(scheduled_change.executed_at)
+        assert scheduled_change.executed_at is not None
 
     @freeze_time("2024-01-15T09:00:00Z")
     def test_paused_recurring_schedule_does_not_execute(self) -> None:
@@ -1252,9 +1253,9 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         feature_flag.refresh_from_db()
 
         # Should NOT have executed
-        self.assertIsNone(scheduled_change.executed_at)
-        self.assertIsNone(scheduled_change.last_executed_at)
-        self.assertEqual(feature_flag.active, True)  # Unchanged
+        assert scheduled_change.executed_at is None
+        assert scheduled_change.last_executed_at is None
+        assert feature_flag.active  # Unchanged
 
     @freeze_time("2024-01-15T09:00:00Z")
     def test_recurring_schedule_executes_multiple_times(self) -> None:
@@ -1282,8 +1283,8 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         process_scheduled_changes()
         scheduled_change.refresh_from_db()
         feature_flag.refresh_from_db()
-        self.assertEqual(feature_flag.active, False)
-        self.assertEqual(scheduled_change.scheduled_at, datetime(2024, 1, 16, 9, 0, tzinfo=UTC))
+        assert not feature_flag.active
+        assert scheduled_change.scheduled_at == datetime(2024, 1, 16, 9, 0, tzinfo=UTC)
 
         # Manually enable the flag (simulating manual override)
         feature_flag.active = True
@@ -1295,5 +1296,5 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
             scheduled_change.refresh_from_db()
             feature_flag.refresh_from_db()
             # Schedule corrects the manual override
-            self.assertEqual(feature_flag.active, False)
-            self.assertEqual(scheduled_change.scheduled_at, datetime(2024, 1, 17, 9, 0, tzinfo=UTC))
+            assert not feature_flag.active
+            assert scheduled_change.scheduled_at == datetime(2024, 1, 17, 9, 0, tzinfo=UTC)

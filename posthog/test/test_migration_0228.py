@@ -61,15 +61,13 @@ class FixingDashboardTilesTestCase(TestMigrations):
         DashboardTile = self.apps.get_model("posthog", "DashboardTile")  # type: ignore
 
         # CASE 1:
-        self.assertIsInstance(
-            DashboardTile.objects.get(dashboard__name="d1", insight__name="has valid layouts on tile").layouts,
-            dict,
+        assert isinstance(
+            DashboardTile.objects.get(dashboard__name="d1", insight__name="has valid layouts on tile").layouts, dict
         )
 
         # CASE 2:
-        self.assertIsInstance(
-            DashboardTile.objects.get(dashboard__name="d1", insight__name="has invalid layouts on tile").layouts,
-            dict,
+        assert isinstance(
+            DashboardTile.objects.get(dashboard__name="d1", insight__name="has invalid layouts on tile").layouts, dict
         )
 
     def tearDown(self):

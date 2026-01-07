@@ -1,5 +1,5 @@
 from itertools import cycle
-from typing import Any, Optional
+from typing import Any
 from uuid import uuid4
 
 from unittest.mock import AsyncMock, patch
@@ -44,12 +44,12 @@ query_executor_mock = patch(
 class TestChatAgent(BaseAssistantTest):
     async def _run_assistant_graph(
         self,
-        message: Optional[str] = "Hello",
-        conversation: Optional[Conversation] = None,
-        tool_call_partial_state: Optional[AssistantState] = None,
+        message: str | None = "Hello",
+        conversation: Conversation | None = None,
+        tool_call_partial_state: AssistantState | None = None,
         is_new_conversation: bool = False,
-        contextual_tools: Optional[dict[str, Any]] = None,
-        ui_context: Optional[MaxUIContext] = None,
+        contextual_tools: dict[str, Any] | None = None,
+        ui_context: MaxUIContext | None = None,
         filter_ack_messages: bool = True,
     ) -> tuple[list[AssistantOutput], ChatAgentRunner | InsightsAssistant]:
         assistant = InsightsAssistant(
@@ -125,14 +125,14 @@ class TestChatAgent(BaseAssistantTest):
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=True)
 
         # Verify output length (conversation + VisualizationMessage + ArtifactMessage)
-        self.assertEqual(len(actual_output), 3)
+        assert len(actual_output) == 3
 
         # Check conversation output
-        self.assertEqual(actual_output[0], ("conversation", self.conversation))
-        self.assertEqual(actual_output[1][0], "message")
-        self.assertIsInstance(actual_output[1][1], VisualizationMessage)
-        self.assertEqual(actual_output[2][0], "message")
-        self.assertIsInstance(actual_output[2][1], ArtifactMessage)
+        assert actual_output[0] == ("conversation", self.conversation)
+        assert actual_output[1][0] == "message"
+        assert isinstance(actual_output[1][1], VisualizationMessage)
+        assert actual_output[2][0] == "message"
+        assert isinstance(actual_output[2][1], ArtifactMessage)
 
     @query_executor_mock
     @patch("ee.hogai.chat_agent.schema_generator.nodes.SchemaGeneratorNode._model")
@@ -187,14 +187,14 @@ class TestChatAgent(BaseAssistantTest):
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=True)
 
         # Verify output length (conversation + VisualizationMessage + ArtifactMessage)
-        self.assertEqual(len(actual_output), 3)
+        assert len(actual_output) == 3
 
         # Check conversation output
-        self.assertEqual(actual_output[0], ("conversation", self.conversation))
-        self.assertEqual(actual_output[1][0], "message")
-        self.assertIsInstance(actual_output[1][1], VisualizationMessage)
-        self.assertEqual(actual_output[2][0], "message")
-        self.assertIsInstance(actual_output[2][1], ArtifactMessage)
+        assert actual_output[0] == ("conversation", self.conversation)
+        assert actual_output[1][0] == "message"
+        assert isinstance(actual_output[1][1], VisualizationMessage)
+        assert actual_output[2][0] == "message"
+        assert isinstance(actual_output[2][1], ArtifactMessage)
 
     @query_executor_mock
     @patch("ee.hogai.chat_agent.schema_generator.nodes.SchemaGeneratorNode._model")
@@ -251,14 +251,14 @@ class TestChatAgent(BaseAssistantTest):
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=True)
 
         # Verify output length (conversation + VisualizationMessage + ArtifactMessage)
-        self.assertEqual(len(actual_output), 3)
+        assert len(actual_output) == 3
 
         # Check conversation output
-        self.assertEqual(actual_output[0], ("conversation", self.conversation))
-        self.assertEqual(actual_output[1][0], "message")
-        self.assertIsInstance(actual_output[1][1], VisualizationMessage)
-        self.assertEqual(actual_output[2][0], "message")
-        self.assertIsInstance(actual_output[2][1], ArtifactMessage)
+        assert actual_output[0] == ("conversation", self.conversation)
+        assert actual_output[1][0] == "message"
+        assert isinstance(actual_output[1][1], VisualizationMessage)
+        assert actual_output[2][0] == "message"
+        assert isinstance(actual_output[2][1], ArtifactMessage)
 
     @query_executor_mock
     @patch("ee.hogai.chat_agent.schema_generator.nodes.SchemaGeneratorNode._model")
@@ -306,14 +306,14 @@ class TestChatAgent(BaseAssistantTest):
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=True)
 
         # Verify output length (conversation + VisualizationMessage + ArtifactMessage)
-        self.assertEqual(len(actual_output), 3)
+        assert len(actual_output) == 3
 
         # Check conversation output
-        self.assertEqual(actual_output[0], ("conversation", self.conversation))
-        self.assertEqual(actual_output[1][0], "message")
-        self.assertIsInstance(actual_output[1][1], VisualizationMessage)
-        self.assertEqual(actual_output[2][0], "message")
-        self.assertIsInstance(actual_output[2][1], ArtifactMessage)
+        assert actual_output[0] == ("conversation", self.conversation)
+        assert actual_output[1][0] == "message"
+        assert isinstance(actual_output[1][1], VisualizationMessage)
+        assert actual_output[2][0] == "message"
+        assert isinstance(actual_output[2][1], ArtifactMessage)
 
     @query_executor_mock
     @patch("ee.hogai.chat_agent.schema_generator.nodes.SchemaGeneratorNode._model")
@@ -355,11 +355,11 @@ class TestChatAgent(BaseAssistantTest):
             tool_call_partial_state=tool_call_state,
         )
         # Check artifact message (VisualizationMessage + ArtifactMessage + AssistantToolCallMessage)
-        self.assertEqual(len(output), 3)
-        self.assertEqual(output[0][0], "message")
+        assert len(output) == 3
+        assert output[0][0] == "message"
         viz_msg = output[0][1]
         assert isinstance(viz_msg, VisualizationMessage)
-        self.assertEqual(viz_msg.answer, query)
+        assert viz_msg.answer == query
         assert isinstance(output[1][1], ArtifactMessage)
-        self.assertEqual(output[2][0], "message")
-        self.assertIsInstance(output[2][1], AssistantToolCallMessage)
+        assert output[2][0] == "message"
+        assert isinstance(output[2][1], AssistantToolCallMessage)

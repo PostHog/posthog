@@ -79,8 +79,8 @@ class TestCircularDependencyDetection(APIBaseTest):
         flag = self.create_flag("self_ref_flag")
         response = self.update_flag_dependencies(flag.id, [flag.id])
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("cannot depend on itself", response.json()["detail"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "cannot depend on itself" in response.json()["detail"]
 
     @parameterized.expand(
         [
@@ -101,10 +101,10 @@ class TestCircularDependencyDetection(APIBaseTest):
         # Try to create cycle by making first flag depend on last
         response = self.update_flag_dependencies(flags[0].id, [flags[-1].id])
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         detail = response.json()["detail"]
-        self.assertIn("Circular dependency detected", detail)
-        self.assertIn(expected_cycle, detail)
+        assert "Circular dependency detected" in detail
+        assert expected_cycle in detail
 
     def test_valid_dependency_chain(self):
         """Test that valid dependency chains are allowed."""
@@ -113,7 +113,7 @@ class TestCircularDependencyDetection(APIBaseTest):
         flag_c = self.create_flag("flag_c", dependencies=[flag_b.id])
 
         # All flags should be created successfully
-        self.assertIsNotNone(flag_c)
+        assert flag_c is not None
 
     def test_non_existent_flag_dependency(self):
         """Test that dependencies on non-existent flags are rejected."""
@@ -141,8 +141,8 @@ class TestCircularDependencyDetection(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Flag dependency references non-existent flag", response.json()["detail"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Flag dependency references non-existent flag" in response.json()["detail"]
 
     def test_invalid_flag_reference_string(self):
         """Test that string flag references are rejected."""
@@ -170,8 +170,8 @@ class TestCircularDependencyDetection(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Flag dependencies must reference flag IDs", response.json()["detail"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Flag dependencies must reference flag IDs" in response.json()["detail"]
 
     def test_multiple_flag_dependencies_no_cycle(self):
         """Test that multiple flag dependencies without cycles are allowed."""
@@ -180,7 +180,7 @@ class TestCircularDependencyDetection(APIBaseTest):
         flag_c = self.create_flag("flag_c", dependencies=[flag_a.id, flag_b.id])
 
         # Flag with multiple dependencies should be created successfully
-        self.assertIsNotNone(flag_c)
+        assert flag_c is not None
 
     def test_complex_dependency_graph_with_cycle(self):
         """Test detection in complex dependency graph with multiple paths."""
@@ -193,8 +193,8 @@ class TestCircularDependencyDetection(APIBaseTest):
         # Try to create cycle: D -> A
         response = self.update_flag_dependencies(flag_a.id, [flag_d.id])
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Circular dependency detected", response.json()["detail"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Circular dependency detected" in response.json()["detail"]
 
     def test_deleted_flag_dependencies(self):
         """Test that deleted flags are ignored in dependency resolution."""
@@ -209,7 +209,7 @@ class TestCircularDependencyDetection(APIBaseTest):
 
         # Create new flag that depends on B - should work since old dependency is gone
         new_flag = self.create_flag("new_flag_a", dependencies=[flag_b.id])
-        self.assertIsNotNone(new_flag)
+        assert new_flag is not None
 
     def test_flag_dependency_with_mixed_properties(self):
         """Test that flag dependencies work correctly with other property types."""
@@ -241,4 +241,4 @@ class TestCircularDependencyDetection(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED

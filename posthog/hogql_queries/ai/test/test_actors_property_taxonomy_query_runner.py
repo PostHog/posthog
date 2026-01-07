@@ -40,23 +40,21 @@ class TestActorsPropertyTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # regular person property
         results = self._run(ActorsPropertyTaxonomyQuery(properties=["email"]))
 
-        self.assertEqual(len(results[0].sample_values), 3)
-        self.assertEqual(
-            set(results[0].sample_values), {"person1@example.com", "person2@example.com", "person3@example.com"}
-        )
-        self.assertEqual(results[0].sample_count, 3)
+        assert len(results[0].sample_values) == 3
+        assert set(results[0].sample_values) == {"person1@example.com", "person2@example.com", "person3@example.com"}
+        assert results[0].sample_count == 3
 
         # does not exist
         results = self._run(ActorsPropertyTaxonomyQuery(properties=["does not exist"]))
-        self.assertEqual(len(results[0].sample_values), 0)
-        self.assertEqual(results[0].sample_count, 0)
+        assert len(results[0].sample_values) == 0
+        assert results[0].sample_count == 0
 
         # Ensure only distinct values are returned
         results = self._run(ActorsPropertyTaxonomyQuery(properties=["age"]))
-        self.assertEqual(len(results[0].sample_values), 1)
-        self.assertEqual(results[0].sample_count, 1)
+        assert len(results[0].sample_values) == 1
+        assert results[0].sample_count == 1
         # Ensure the value is a string
-        self.assertEqual(results[0].sample_values[0], "30")
+        assert results[0].sample_values[0] == "30"
 
     @snapshot_clickhouse_queries
     def test_group_property_taxonomy_query_runner(self):
@@ -84,21 +82,21 @@ class TestActorsPropertyTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # regular group property
         results = self._run(ActorsPropertyTaxonomyQuery(properties=["industry"], groupTypeIndex=0))
-        self.assertEqual(len(results[0].sample_values), 3)
-        self.assertEqual(set(results[0].sample_values), {"tech", "energy", "ecommerce"})
-        self.assertEqual(results[0].sample_count, 3)
+        assert len(results[0].sample_values) == 3
+        assert set(results[0].sample_values) == {"tech", "energy", "ecommerce"}
+        assert results[0].sample_count == 3
 
         # does not exist
         results = self._run(ActorsPropertyTaxonomyQuery(properties=["does not exist"], groupTypeIndex=0))
-        self.assertEqual(len(results[0].sample_values), 0)
-        self.assertEqual(results[0].sample_count, 0)
+        assert len(results[0].sample_values) == 0
+        assert results[0].sample_count == 0
 
         # Ensure only distinct values are returned
         results = self._run(ActorsPropertyTaxonomyQuery(properties=["employee_count"], groupTypeIndex=0))
-        self.assertEqual(len(results[0].sample_values), 1)
-        self.assertEqual(results[0].sample_count, 1)
+        assert len(results[0].sample_values) == 1
+        assert results[0].sample_count == 1
         # Ensure the value is a string
-        self.assertEqual(results[0].sample_values[0], "30")
+        assert results[0].sample_values[0] == "30"
 
     @snapshot_clickhouse_queries
     def test_max_value_count(self):
@@ -120,8 +118,8 @@ class TestActorsPropertyTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # regular person property
         results = self._run(ActorsPropertyTaxonomyQuery(properties=["age"], maxPropertyValues=1))
-        self.assertEqual(len(results[0].sample_values), 1)
-        self.assertEqual(results[0].sample_count, 3)
+        assert len(results[0].sample_values) == 1
+        assert results[0].sample_count == 3
 
     def test_multiple_properties(self):
         PropertyDefinition.objects.create(team=self.team, name="age", property_type=PropertyType.Numeric)
@@ -144,17 +142,17 @@ class TestActorsPropertyTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # regular person property
         results = self._run(ActorsPropertyTaxonomyQuery(properties=["age", "name"], maxPropertyValues=10))
-        self.assertIsInstance(results, list)
-        self.assertEqual(len(results), 2)
-        self.assertEqual(len(results[0].sample_values), 3)
-        self.assertEqual(results[0].sample_count, 3)
-        self.assertEqual(len(results[1].sample_values), 1)
-        self.assertEqual(results[1].sample_count, 1)
-        self.assertEqual(set(results[1].sample_values), {"Person Two"})
+        assert isinstance(results, list)
+        assert len(results) == 2
+        assert len(results[0].sample_values) == 3
+        assert results[0].sample_count == 3
+        assert len(results[1].sample_values) == 1
+        assert results[1].sample_count == 1
+        assert set(results[1].sample_values) == {"Person Two"}
 
         results = self._run(ActorsPropertyTaxonomyQuery(properties=["name"], maxPropertyValues=10))
-        self.assertIsInstance(results, list)
-        self.assertEqual(len(results), 1)
-        self.assertEqual(len(results[0].sample_values), 1)
-        self.assertEqual(results[0].sample_count, 1)
-        self.assertEqual(set(results[0].sample_values), {"Person Two"})
+        assert isinstance(results, list)
+        assert len(results) == 1
+        assert len(results[0].sample_values) == 1
+        assert results[0].sample_count == 1
+        assert set(results[0].sample_values) == {"Person Two"}

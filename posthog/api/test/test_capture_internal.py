@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -334,7 +335,7 @@ class TestCaptureInternal(BaseTest):
             "some_custom_property": True,
         }
 
-        with self.assertRaises(CaptureInternalError) as e:
+        with pytest.raises(CaptureInternalError) as e:
             capture_internal(
                 token=token,
                 event_name=event_name,
@@ -344,8 +345,7 @@ class TestCaptureInternal(BaseTest):
                 properties=test_props,
             )
         assert (
-            str(e.exception)
-            == "capture_internal (test_capture_internal_invalid_token, test_event): API token is required"
+            str(e.value) == "capture_internal (test_capture_internal_invalid_token, test_event): API token is required"
         )
 
     def test_capture_internal_invalid_distinct_id(self):
@@ -365,7 +365,7 @@ class TestCaptureInternal(BaseTest):
             "some_custom_property": True,
         }
 
-        with self.assertRaises(CaptureInternalError) as e:
+        with pytest.raises(CaptureInternalError) as e:
             capture_internal(
                 token=token,
                 event_name=event_name,
@@ -375,7 +375,7 @@ class TestCaptureInternal(BaseTest):
                 properties=test_props,
             )
         assert (
-            str(e.exception)
+            str(e.value)
             == "capture_internal (test_capture_internal_invalid_distinct_id, test_event): distinct ID is required"
         )
 
@@ -396,7 +396,7 @@ class TestCaptureInternal(BaseTest):
             "some_custom_property": True,
         }
 
-        with self.assertRaises(CaptureInternalError) as e:
+        with pytest.raises(CaptureInternalError) as e:
             capture_internal(
                 token=token,
                 event_name=event_name,
@@ -405,7 +405,7 @@ class TestCaptureInternal(BaseTest):
                 timestamp=timestamp,
                 properties=test_props,
             )
-        assert str(e.exception) == "capture_internal (test_capture_internal_invalid_event_name): event name is required"
+        assert str(e.value) == "capture_internal (test_capture_internal_invalid_event_name): event name is required"
 
     @patch("posthog.api.capture.Session")
     def test_capture_batch_internal(self, mock_session_class):
@@ -496,9 +496,9 @@ class TestCaptureInternal(BaseTest):
         assert len(resp_futures) == 3
 
         for future in resp_futures:
-            with self.assertRaises(CaptureInternalError) as e:
+            with pytest.raises(CaptureInternalError) as e:
                 future.result()
-                err_msg = str(e.exception)
+                err_msg = str(e.value)
                 assert "capture_internal" in err_msg
                 assert "test_capture_batch_internal_invalid_payload" in err_msg
                 assert "distinct ID is required" in err_msg

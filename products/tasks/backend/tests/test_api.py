@@ -70,13 +70,13 @@ class TestTaskAPI(BaseTaskAPITest):
         self.create_task("Task 2")
 
         response = self.client.get("/api/projects/@current/tasks/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         data = response.json()
-        self.assertEqual(len(data["results"]), 2)
+        assert len(data["results"]) == 2
         task_titles = [t["title"] for t in data["results"]]
-        self.assertIn("Task 1", task_titles)
-        self.assertIn("Task 2", task_titles)
+        assert "Task 1" in task_titles
+        assert "Task 2" in task_titles
 
     def test_list_tasks_includes_latest_run(self):
         task1 = self.create_task("Task 1")
@@ -89,39 +89,39 @@ class TestTaskAPI(BaseTaskAPITest):
         # Task2 has no runs
 
         response = self.client.get("/api/projects/@current/tasks/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         data = response.json()
-        self.assertEqual(len(data["results"]), 2)
+        assert len(data["results"]) == 2
 
         # Find task1 and task2 in results
         task1_data = next((t for t in data["results"] if t["id"] == str(task1.id)), None)
         task2_data = next((t for t in data["results"] if t["id"] == str(task2.id)), None)
 
-        self.assertIsNotNone(task1_data)
-        self.assertIsNotNone(task2_data)
+        assert task1_data is not None
+        assert task2_data is not None
         assert task1_data is not None  # Type narrowing
         assert task2_data is not None  # Type narrowing
 
         # task1 should have latest_run populated
-        self.assertIn("latest_run", task1_data)
-        self.assertIsNotNone(task1_data["latest_run"])
-        self.assertEqual(task1_data["latest_run"]["id"], str(run1_latest.id))
-        self.assertEqual(task1_data["latest_run"]["status"], "in_progress")
+        assert "latest_run" in task1_data
+        assert task1_data["latest_run"] is not None
+        assert task1_data["latest_run"]["id"] == str(run1_latest.id)
+        assert task1_data["latest_run"]["status"] == "in_progress"
 
         # task2 should have latest_run as None
-        self.assertIn("latest_run", task2_data)
-        self.assertIsNone(task2_data["latest_run"])
+        assert "latest_run" in task2_data
+        assert task2_data["latest_run"] is None
 
     def test_retrieve_task(self):
         task = self.create_task("Test Task")
 
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         data = response.json()
-        self.assertEqual(data["title"], "Test Task")
-        self.assertEqual(data["description"], "Test Description")
+        assert data["title"] == "Test Task"
+        assert data["description"] == "Test Description"
 
     def test_retrieve_task_with_latest_run(self):
         task = self.create_task("Test Task")
@@ -139,23 +139,23 @@ class TestTaskAPI(BaseTaskAPITest):
         )
 
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         data = response.json()
-        self.assertIn("latest_run", data)
-        self.assertIsNotNone(data["latest_run"])
-        self.assertEqual(data["latest_run"]["id"], str(run2.id))
-        self.assertEqual(data["latest_run"]["status"], "in_progress")
+        assert "latest_run" in data
+        assert data["latest_run"] is not None
+        assert data["latest_run"]["id"] == str(run2.id)
+        assert data["latest_run"]["status"] == "in_progress"
 
     def test_retrieve_task_without_runs(self):
         task = self.create_task("Test Task")
 
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         data = response.json()
-        self.assertIn("latest_run", data)
-        self.assertIsNone(data["latest_run"])
+        assert "latest_run" in data
+        assert data["latest_run"] is None
 
     def test_create_task(self):
         response = self.client.post(
@@ -168,12 +168,12 @@ class TestTaskAPI(BaseTaskAPITest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
         data = response.json()
-        self.assertEqual(data["title"], "New Task")
-        self.assertEqual(data["description"], "New Description")
-        self.assertEqual(data["repository"], "posthog/posthog")
+        assert data["title"] == "New Task"
+        assert data["description"] == "New Description"
+        assert data["repository"] == "posthog/posthog"
 
     def test_update_task(self):
         task = self.create_task("Original Task")
@@ -183,31 +183,31 @@ class TestTaskAPI(BaseTaskAPITest):
             {"title": "Updated Task"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["title"], "Updated Task")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["title"] == "Updated Task"
 
     def test_delete_task(self):
         task = self.create_task("Task to Delete")
 
         response = self.client.delete(f"/api/projects/@current/tasks/{task.id}/")
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
         task.refresh_from_db()
-        self.assertTrue(task.deleted)
-        self.assertIsNotNone(task.deleted_at)
+        assert task.deleted
+        assert task.deleted_at is not None
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
     def test_run_endpoint_triggers_workflow(self, mock_workflow):
         task = self.create_task()
 
         response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         data = response.json()
 
-        self.assertEqual(data["id"], str(task.id))
-        self.assertIn("latest_run", data)
-        self.assertIsNotNone(data["latest_run"])
+        assert data["id"] == str(task.id)
+        assert "latest_run" in data
+        assert data["latest_run"] is not None
 
         latest_run = data["latest_run"]
         run_id = latest_run["id"]
@@ -219,9 +219,9 @@ class TestTaskAPI(BaseTaskAPITest):
             user_id=self.user.id,
         )
 
-        self.assertEqual(latest_run["task"], str(task.id))
-        self.assertEqual(latest_run["status"], "queued")
-        self.assertEqual(latest_run["environment"], "cloud")
+        assert latest_run["task"] == str(task.id)
+        assert latest_run["status"] == "queued"
+        assert latest_run["environment"] == "cloud"
 
     @parameterized.expand(
         [
@@ -250,25 +250,25 @@ class TestTaskAPI(BaseTaskAPITest):
             tasks.append(task)
 
         response = self.client.get(f"/api/projects/@current/tasks/?{filter_param}={filter_value}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         data = response.json()
         task_ids = [t["id"] for t in data["results"]]
         expected_task_ids = [str(tasks[i].id) for i in expected_indices]
 
-        self.assertEqual(len(task_ids), len(expected_task_ids))
+        assert len(task_ids) == len(expected_task_ids)
         for expected_id in expected_task_ids:
-            self.assertIn(expected_id, task_ids)
+            assert expected_id in task_ids
 
     def test_delete_task_soft_deletes(self):
         task = self.create_task("Task to delete")
 
         response = self.client.delete(f"/api/projects/@current/tasks/{task.id}/")
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
         task.refresh_from_db()
-        self.assertTrue(task.deleted)
-        self.assertIsNotNone(task.deleted_at)
+        assert task.deleted
+        assert task.deleted_at is not None
 
     def test_deleted_tasks_not_in_list(self):
         task1 = self.create_task("Active Task")
@@ -276,18 +276,18 @@ class TestTaskAPI(BaseTaskAPITest):
         task2.soft_delete()
 
         response = self.client.get("/api/projects/@current/tasks/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         data = response.json()
-        self.assertEqual(len(data["results"]), 1)
-        self.assertEqual(data["results"][0]["id"], str(task1.id))
+        assert len(data["results"]) == 1
+        assert data["results"][0]["id"] == str(task1.id)
 
     def test_deleted_task_not_retrievable(self):
         task = self.create_task("Deleted Task")
         task.soft_delete()
 
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     @parameterized.expand(
         [
@@ -333,15 +333,15 @@ class TestTaskAPI(BaseTaskAPITest):
             url += f"?created_by={user.id}"
 
         response = self.client.get(url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         data = response.json()
         task_ids = [t["id"] for t in data["results"]]
         expected_task_ids = [str(tasks[i].id) for i in expected_indices]
 
-        self.assertEqual(len(task_ids), len(expected_task_ids))
+        assert len(task_ids) == len(expected_task_ids)
         for expected_id in expected_task_ids:
-            self.assertIn(expected_id, task_ids)
+            assert expected_id in task_ids
 
 
 class TestTaskRunAPI(BaseTaskAPITest):
@@ -361,13 +361,13 @@ class TestTaskRunAPI(BaseTaskAPITest):
         )
 
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         data = response.json()
-        self.assertEqual(len(data["results"]), 2)
+        assert len(data["results"]) == 2
         run_ids = [r["id"] for r in data["results"]]
-        self.assertIn(str(run1.id), run_ids)
-        self.assertIn(str(run2.id), run_ids)
+        assert str(run1.id) in run_ids
+        assert str(run2.id) in run_ids
 
     def test_retrieve_specific_run(self):
         task = self.create_task()
@@ -382,15 +382,15 @@ class TestTaskRunAPI(BaseTaskAPITest):
         run.append_log([{"type": "info", "message": "Test log output"}])
 
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         data = response.json()
-        self.assertEqual(data["id"], str(run.id))
-        self.assertEqual(data["status"], "in_progress")
+        assert data["id"] == str(run.id)
+        assert data["status"] == "in_progress"
         # Verify log_url is returned (S3 presigned URL)
-        self.assertIn("log_url", data)
-        self.assertIsNotNone(data["log_url"])
-        self.assertTrue(data["log_url"].startswith("http"))
+        assert "log_url" in data
+        assert data["log_url"] is not None
+        assert data["log_url"].startswith("http")
 
     def test_list_runs_only_returns_task_runs(self):
         task1 = self.create_task("Task 1")
@@ -400,11 +400,11 @@ class TestTaskRunAPI(BaseTaskAPITest):
         _run2 = TaskRun.objects.create(task=task2, team=self.team, status=TaskRun.Status.QUEUED)
 
         response = self.client.get(f"/api/projects/@current/tasks/{task1.id}/runs/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         data = response.json()
-        self.assertEqual(len(data["results"]), 1)
-        self.assertEqual(data["results"][0]["id"], str(run1.id))
+        assert len(data["results"]) == 1
+        assert data["results"][0]["id"] == str(run1.id)
 
     def test_retrieve_run_from_different_task_fails(self):
         task1 = self.create_task("Task 1")
@@ -413,7 +413,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         run2 = TaskRun.objects.create(task=task2, team=self.team, status=TaskRun.Status.QUEUED)
 
         response = self.client.get(f"/api/projects/@current/tasks/{task1.id}/runs/{run2.id}/")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_append_log_entries(self):
         task = self.create_task()
@@ -429,7 +429,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         run.refresh_from_db()
 
@@ -440,11 +440,11 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         # Parse newline-delimited JSON
         log_entries = [json.loads(line) for line in log_content.strip().split("\n")]
-        self.assertEqual(len(log_entries), 2)
-        self.assertEqual(log_entries[0]["type"], "info")
-        self.assertEqual(log_entries[0]["message"], "Starting task")
-        self.assertEqual(log_entries[1]["type"], "progress")
-        self.assertEqual(log_entries[1]["message"], "Step 1 complete")
+        assert len(log_entries) == 2
+        assert log_entries[0]["type"] == "info"
+        assert log_entries[0]["message"] == "Starting task"
+        assert log_entries[1]["type"] == "progress"
+        assert log_entries[1]["message"] == "Step 1 complete"
 
     def test_append_log_to_existing_entries(self):
         task = self.create_task()
@@ -460,7 +460,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             {"entries": [{"type": "info", "message": "Initial entry"}]},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         # Add second batch
         response = self.client.post(
@@ -468,7 +468,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             {"entries": [{"type": "success", "message": "Task completed"}]},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         run.refresh_from_db()
 
@@ -479,9 +479,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         # Parse newline-delimited JSON
         log_entries = [json.loads(line) for line in log_content.strip().split("\n")]
-        self.assertEqual(len(log_entries), 2)
-        self.assertEqual(log_entries[0]["message"], "Initial entry")
-        self.assertEqual(log_entries[1]["message"], "Task completed")
+        assert len(log_entries) == 2
+        assert log_entries[0]["message"] == "Initial entry"
+        assert log_entries[1]["message"] == "Task completed"
 
     def test_append_log_empty_entries_fails(self):
         task = self.create_task()
@@ -492,7 +492,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             {"entries": []},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     @patch("posthog.storage.object_storage.write")
     @patch("posthog.storage.object_storage.tag")
@@ -517,16 +517,16 @@ class TestTaskRunAPI(BaseTaskAPITest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         mock_write.assert_called_once()
         mock_tag.assert_called_once()
 
         run.refresh_from_db()
-        self.assertEqual(len(run.artifacts), 1)
+        assert len(run.artifacts) == 1
         artifact = run.artifacts[0]
-        self.assertEqual(artifact["name"], "plan.md")
-        self.assertEqual(artifact["type"], "plan")
-        self.assertIn("storage_path", artifact)
+        assert artifact["name"] == "plan.md"
+        assert artifact["type"] == "plan"
+        assert "storage_path" in artifact
 
     def test_upload_artifacts_requires_items(self):
         task = self.create_task()
@@ -538,7 +538,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     @patch("posthog.storage.object_storage.get_presigned_url")
     def test_presign_artifact_url(self, mock_presign):
@@ -563,9 +563,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["url"], "https://example.com/artifact?sig=123")
-        self.assertIn("expires_in", response.json())
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["url"] == "https://example.com/artifact?sig=123"
+        assert "expires_in" in response.json()
 
     def test_presign_artifact_not_found(self):
         task = self.create_task()
@@ -577,7 +577,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
 class TestTasksAPIPermissions(BaseTaskAPITest):
@@ -616,7 +616,7 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
 
         for url, method in endpoints:
             response = getattr(self.client, method.lower())(url, format="json")
-            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, f"Failed for {method} {url}")
+            assert response.status_code == status.HTTP_403_FORBIDDEN, f"Failed for {method} {url}"
 
     def test_authentication_required(self):
         task = self.create_task()
@@ -630,7 +630,7 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
 
         for url, method in endpoints:
             response = getattr(self.client, method.lower())(url)
-            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, f"Failed for {method} {url}")
+            assert response.status_code == status.HTTP_403_FORBIDDEN, f"Failed for {method} {url}"
 
     def test_cross_team_task_access_forbidden(self):
         # Create task in other team
@@ -643,17 +643,17 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
 
         # Try to access other team's task
         response = self.client.get(f"/api/projects/@current/tasks/{other_task.id}/")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
         # Try to update other team's task
         response = self.client.patch(
             f"/api/projects/@current/tasks/{other_task.id}/", {"title": "Hacked Title"}, format="json"
         )
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
         # Try to delete other team's task
         response = self.client.delete(f"/api/projects/@current/tasks/{other_task.id}/")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_list_endpoints_only_return_team_resources(self):
         # Create resources in both teams
@@ -669,10 +669,10 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
 
         # List tasks should only return my team's tasks
         response = self.client.get("/api/projects/@current/tasks/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         task_ids = [t["id"] for t in response.json()["results"]]
-        self.assertIn(str(my_task.id), task_ids)
-        self.assertNotIn(str(other_task.id), task_ids)
+        assert str(my_task.id) in task_ids
+        assert str(other_task.id) not in task_ids
 
     @parameterized.expand(
         [
@@ -739,14 +739,10 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             self.fail(f"Unsupported method: {method}")
 
         if should_have_access:
-            self.assertNotEqual(
-                response.status_code,
-                status.HTTP_403_FORBIDDEN,
-                f"Expected access but got 403 for {scope} on {method} {url}",
+            assert response.status_code != status.HTTP_403_FORBIDDEN, (
+                f"Expected access but got 403 for {scope} on {method} {url}"
             )
         else:
-            self.assertEqual(
-                response.status_code,
-                status.HTTP_403_FORBIDDEN,
-                f"Expected 403 but got {response.status_code} for {scope} on {method} {url}",
+            assert response.status_code == status.HTTP_403_FORBIDDEN, (
+                f"Expected 403 but got {response.status_code} for {scope} on {method} {url}"
             )

@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
@@ -20,9 +21,9 @@ class TestWebTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             modifiers=HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True, convertToProjectTimezone=False),
         )
 
-        self.assertIsNotNone(runner)
-        self.assertEqual(runner.query.interval, IntervalType.DAY)
-        self.assertEqual(runner.query.metrics, [WebTrendsMetric.UNIQUE_USERS])
+        assert runner is not None
+        assert runner.query.interval == IntervalType.DAY
+        assert runner.query.metrics == [WebTrendsMetric.UNIQUE_USERS]
 
     def test_to_query_returns_select_query(self):
         query = WebTrendsQuery(
@@ -38,13 +39,13 @@ class TestWebTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         select_query = runner.to_query()
-        self.assertIsNotNone(select_query)
+        assert select_query is not None
         # Verify it's a SelectQuery with expected structure
-        self.assertIsNotNone(select_query.select)
-        self.assertIsNotNone(select_query.select_from)
-        self.assertIsNotNone(select_query.where)
-        self.assertIsNotNone(select_query.group_by)
-        self.assertIsNotNone(select_query.order_by)
+        assert select_query.select is not None
+        assert select_query.select_from is not None
+        assert select_query.where is not None
+        assert select_query.group_by is not None
+        assert select_query.order_by is not None
 
     @patch("posthog.hogql_queries.hogql_query_runner.HogQLQueryRunner")
     def test_calculate_calls_hogql_runner(self, mock_hogql_runner_class):
@@ -73,12 +74,12 @@ class TestWebTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = runner._calculate()
 
         # Verify the response structure
-        self.assertIsNotNone(response)
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].bucket, "2025-01-01")
-        self.assertEqual(response.results[0].metrics.UniqueUsers, 100)
-        self.assertEqual(response.results[0].metrics.PageViews, 500)
-        self.assertTrue(response.usedPreAggregatedTables)
+        assert response is not None
+        assert len(response.results) == 1
+        assert response.results[0].bucket == "2025-01-01"
+        assert response.results[0].metrics.UniqueUsers == 100
+        assert response.results[0].metrics.PageViews == 500
+        assert response.usedPreAggregatedTables
 
     def test_cannot_use_preaggregated_with_hour_interval(self):
         query = WebTrendsQuery(
@@ -94,5 +95,5 @@ class TestWebTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         # Should raise NotImplementedError for non-pre-aggregated fallback
-        with self.assertRaises(NotImplementedError):
+        with pytest.raises(NotImplementedError):
             runner._calculate()

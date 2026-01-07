@@ -62,11 +62,11 @@ class TestAssistantContextManager(BaseTest):
         result = await self.context_manager._execute_and_format_insight(insight_ctx)
         assert result is not None
         # Check the key parts of the result
-        self.assertIn("## Name: User Trends", result)
-        self.assertIn("Insight ID: 123", result)
-        self.assertIn("Description: Daily active users", result)
-        self.assertIn("TrendsQuery", result)
-        self.assertIn("Trend results: 100 users", result)
+        assert "## Name: User Trends" in result
+        assert "Insight ID: 123" in result
+        assert "Description: Daily active users" in result
+        assert "TrendsQuery" in result
+        assert "Trend results: 100 users" in result
         mock_execute.assert_called_once()
 
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
@@ -84,10 +84,10 @@ class TestAssistantContextManager(BaseTest):
         result = await self.context_manager._execute_and_format_insight(insight_ctx)
         assert result is not None
         # Check the key parts of the result
-        self.assertIn("## Name: Conversion Funnel", result)
-        self.assertIn("Insight ID: 456", result)
-        self.assertIn("FunnelsQuery", result)
-        self.assertIn("Funnel results: 50% conversion", result)
+        assert "## Name: Conversion Funnel" in result
+        assert "Insight ID: 456" in result
+        assert "FunnelsQuery" in result
+        assert "Funnel results: 50% conversion" in result
 
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
     async def test_build_and_execute_insight_retention_query(self, mock_execute):
@@ -109,10 +109,10 @@ class TestAssistantContextManager(BaseTest):
         result = await self.context_manager._execute_and_format_insight(insight_ctx)
         assert result is not None
         # Check the key parts of the result
-        self.assertIn("## Name: Insight", result)  # Falls back to "Insight" when no name
-        self.assertIn("Insight ID: 789", result)
-        self.assertIn("RetentionQuery", result)
-        self.assertIn("Retention: 30% Day 7", result)
+        assert "## Name: Insight" in result  # Falls back to "Insight" when no name
+        assert "Insight ID: 789" in result
+        assert "RetentionQuery" in result
+        assert "Retention: 30% Day 7" in result
 
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
     async def test_build_and_execute_insight_hogql_query(self, mock_execute):
@@ -129,11 +129,11 @@ class TestAssistantContextManager(BaseTest):
         result = await self.context_manager._execute_and_format_insight(insight_ctx)
         assert result is not None
         # Check the key parts of the result
-        self.assertIn("## Name: Custom Query", result)
-        self.assertIn("Insight ID: 101", result)
-        self.assertIn("Description: HogQL analysis", result)
-        self.assertIn("HogQLQuery", result)
-        self.assertIn("Query results: 42 events", result)
+        assert "## Name: Custom Query" in result
+        assert "Insight ID: 101" in result
+        assert "Description: HogQL analysis" in result
+        assert "HogQLQuery" in result
+        assert "Query results: 42 events" in result
 
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
     @patch("ee.hogai.context.context.capture_exception")
@@ -150,7 +150,7 @@ class TestAssistantContextManager(BaseTest):
         insight_ctx = self.context_manager._build_insight_context(insight, dashboard_filters=None)
         result = await self.context_manager._execute_and_format_insight(insight_ctx)
 
-        self.assertEqual(result, None)
+        assert result is None
         mock_capture_exception.assert_called_once()
 
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
@@ -179,13 +179,13 @@ class TestAssistantContextManager(BaseTest):
 
         result = await self.context_manager._format_ui_context(ui_context)
 
-        self.assertIsNotNone(result)
+        assert result is not None
         assert result is not None  # Type guard for mypy
-        self.assertIn("## Dashboard name: Test Dashboard", result)
-        self.assertIn("Description: Test dashboard description", result)
-        self.assertIn("Dashboard insights:", result)
+        assert "## Dashboard name: Test Dashboard" in result
+        assert "Description: Test dashboard description" in result
+        assert "Dashboard insights:" in result
         # The insight execution is tested separately - just verify structure here
-        self.assertNotIn("# Insights", result)
+        assert "# Insights" not in result
 
     async def test_format_ui_context_with_events(self):
         # Create mock events
@@ -197,10 +197,10 @@ class TestAssistantContextManager(BaseTest):
 
         result = await self.context_manager._format_ui_context(ui_context)
 
-        self.assertIsNotNone(result)
+        assert result is not None
         assert result is not None  # Type guard for mypy
-        self.assertIn('"page_view", "button_click"', result)
-        self.assertIn("<events_context>", result)
+        assert '"page_view", "button_click"' in result
+        assert "<events_context>" in result
 
     async def test_format_ui_context_with_events_with_descriptions(self):
         # Create mock events with descriptions
@@ -212,10 +212,10 @@ class TestAssistantContextManager(BaseTest):
 
         result = await self.context_manager._format_ui_context(ui_context)
 
-        self.assertIsNotNone(result)
+        assert result is not None
         assert result is not None  # Type guard for mypy
-        self.assertIn('"page_view: User viewed a page", "button_click: User clicked a button"', result)
-        self.assertIn("<events_context>", result)
+        assert '"page_view: User viewed a page", "button_click: User clicked a button"' in result
+        assert "<events_context>" in result
 
     async def test_format_ui_context_with_actions(self):
         # Create mock actions
@@ -227,10 +227,10 @@ class TestAssistantContextManager(BaseTest):
 
         result = await self.context_manager._format_ui_context(ui_context)
 
-        self.assertIsNotNone(result)
+        assert result is not None
         assert result is not None  # Type guard for mypy
-        self.assertIn('"Sign Up", "Purchase"', result)
-        self.assertIn("<actions_context>", result)
+        assert '"Sign Up", "Purchase"' in result
+        assert "<actions_context>" in result
 
     async def test_format_ui_context_with_actions_with_descriptions(self):
         # Create mock actions with descriptions
@@ -242,10 +242,10 @@ class TestAssistantContextManager(BaseTest):
 
         result = await self.context_manager._format_ui_context(ui_context)
 
-        self.assertIsNotNone(result)
+        assert result is not None
         assert result is not None  # Type guard for mypy
-        self.assertIn('"Sign Up: User creates account", "Purchase: User makes a purchase"', result)
-        self.assertIn("<actions_context>", result)
+        assert '"Sign Up: User creates account", "Purchase: User makes a purchase"' in result
+        assert "<actions_context>" in result
 
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
     async def test_format_ui_context_with_standalone_insights(self, mock_execute):
@@ -264,21 +264,21 @@ class TestAssistantContextManager(BaseTest):
 
         result = await self.context_manager._format_ui_context(ui_context)
 
-        self.assertIsNotNone(result)
+        assert result is not None
         assert result is not None  # Type guard for mypy
-        self.assertIn("Insights", result)
-        self.assertIn("Name: Standalone Insight", result)  # Uses "Name:" not "Insight:"
-        self.assertIn("Standalone insight results", result)
-        self.assertNotIn("# Dashboards", result)
+        assert "Insights" in result
+        assert "Name: Standalone Insight" in result  # Uses "Name:" not "Insight:"
+        assert "Standalone insight results" in result
+        assert "# Dashboards" not in result
 
     async def test_format_ui_context_empty(self):
         result = await self.context_manager._format_ui_context(None)
-        self.assertIsNone(result)
+        assert result is None
 
         # Test with ui_context but no insights
         ui_context = MaxUIContext(insights=None)
         result = await self.context_manager._format_ui_context(ui_context)
-        self.assertIsNone(result)
+        assert result is None
 
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
     async def test_format_ui_context_with_insights(self, mock_execute):
@@ -297,12 +297,12 @@ class TestAssistantContextManager(BaseTest):
 
         result = await self.context_manager._format_ui_context(ui_context)
 
-        self.assertIsNotNone(result)
+        assert result is not None
         result = cast(str, result)  # Type cast for mypy
-        self.assertIn("# Insights", result)
-        self.assertIn("Test Insight", result)
-        self.assertIn("Test description", result)
-        self.assertIn("Insight execution results", result)
+        assert "# Insights" in result
+        assert "Test Insight" in result
+        assert "Test description" in result
+        assert "Insight execution results" in result
 
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
     @patch("ee.hogai.context.context.capture_exception")
@@ -323,7 +323,7 @@ class TestAssistantContextManager(BaseTest):
         result = await self.context_manager._format_ui_context(ui_context)
 
         # Should return None since the insight failed to run
-        self.assertIsNone(result)
+        assert result is None
         mock_capture_exception.assert_called()
 
     def test_deduplicate_context_messages(self):
@@ -349,9 +349,9 @@ class TestAssistantContextManager(BaseTest):
 
         result = self.context_manager._deduplicate_context_messages(state, context_messages)
 
-        self.assertEqual(len(result), 2)
-        self.assertEqual(result[0].content, "New context message")
-        self.assertEqual(result[1].content, "Another new message")
+        assert len(result) == 2
+        assert result[0].content == "New context message"
+        assert result[1].content == "Another new message"
 
     async def test_get_context_messages_with_ui_and_contextual_tools(self):
         """Test that context prompts are returned for both UI context and contextual tools"""
@@ -374,9 +374,9 @@ class TestAssistantContextManager(BaseTest):
             result = await self.context_manager._get_context_messages(state)
 
             # Verify both prompts are included
-            self.assertEqual(len(result), 2)
-            self.assertEqual(result[0].content, "Contextual tools prompt")
-            self.assertEqual(result[1].content, "UI context prompt")
+            assert len(result) == 2
+            assert result[0].content == "Contextual tools prompt"
+            assert result[1].content == "UI context prompt"
 
             # Verify methods were called
             mock_contextual_tools.assert_called_once_with()
@@ -403,8 +403,8 @@ class TestAssistantContextManager(BaseTest):
             result = await self.context_manager._get_context_messages(state)
 
             # Should only include contextual tools prompt
-            self.assertEqual(len(result), 1)
-            self.assertEqual(result[0].content, "Contextual tools prompt")
+            assert len(result) == 1
+            assert result[0].content == "Contextual tools prompt"
 
     def test_get_contextual_tools(self):
         """Test extraction of contextual tools from config"""
@@ -419,9 +419,9 @@ class TestAssistantContextManager(BaseTest):
         context_manager = AssistantContextManager(self.team, self.user, config)
         tools = context_manager.get_contextual_tools()
 
-        self.assertEqual(len(tools), 1)
-        self.assertIn("search_session_recordings", tools)
-        self.assertEqual(tools["search_session_recordings"], {"current_filters": {}})
+        assert len(tools) == 1
+        assert "search_session_recordings" in tools
+        assert tools["search_session_recordings"] == {"current_filters": {}}
 
     def test_get_contextual_tools_empty(self):
         """Test extraction of contextual tools returns empty dict when no tools"""
@@ -429,13 +429,13 @@ class TestAssistantContextManager(BaseTest):
         context_manager = AssistantContextManager(self.team, self.user, config)
         tools = context_manager.get_contextual_tools()
 
-        self.assertEqual(tools, {})
+        assert tools == {}
 
     def test_get_contextual_tools_invalid_type(self):
         """Test extraction of contextual tools raises error for invalid type"""
         config = RunnableConfig(configurable={"contextual_tools": "invalid"})
         context_manager = AssistantContextManager(self.team, self.user, config)
-        self.assertEqual(context_manager.get_contextual_tools(), {})
+        assert context_manager.get_contextual_tools() == {}
 
     def test_format_entity_context(self):
         """Test formatting of entity context (events/actions)"""
@@ -448,15 +448,15 @@ class TestAssistantContextManager(BaseTest):
         result = self.context_manager._format_entity_context(events, "events", "Event")
 
         expected = '<events_context>Event names the user is referring to:\n"page_view", "button_click: Click tracking"\n</events_context>'
-        self.assertEqual(result, expected)
+        assert result == expected
 
     def test_format_entity_context_empty(self):
         """Test formatting of entity context returns empty string for no entities"""
         result = self.context_manager._format_entity_context(None, "events", "Event")
-        self.assertEqual(result, "")
+        assert result == ""
 
         result = self.context_manager._format_entity_context([], "events", "Event")
-        self.assertEqual(result, "")
+        assert result == ""
 
     async def test_get_contextual_tools_prompt(self):
         """Test generation of contextual tools prompt"""
@@ -469,10 +469,10 @@ class TestAssistantContextManager(BaseTest):
 
         result = await context_manager._get_contextual_tools_prompt()
         assert result is not None
-        self.assertIn("<search_session_recordings>", result)
-        self.assertIn("Current recordings filters are", result)
-        self.assertIn("Current session ID being viewed", result)
-        self.assertIn("</search_session_recordings>", result)
+        assert "<search_session_recordings>" in result
+        assert "Current recordings filters are" in result
+        assert "Current session ID being viewed" in result
+        assert "</search_session_recordings>" in result
 
     async def test_get_contextual_tools_prompt_no_tools(self):
         """Test generation of contextual tools prompt returns None when no tools"""
@@ -481,7 +481,7 @@ class TestAssistantContextManager(BaseTest):
 
         result = await context_manager._get_contextual_tools_prompt()
 
-        self.assertIsNone(result)
+        assert result is None
 
     def test_inject_context_messages(self):
         """Test injection of context messages into state"""
@@ -506,18 +506,18 @@ class TestAssistantContextManager(BaseTest):
         # start_idx = 2 (index of message with id=3)
         # Context messages inserted at start_idx
         # New order: [HumanMessage(id=1), AssistantMessage(id=2), Context1, Context2, HumanMessage(id=3)]
-        self.assertEqual(len(result), 5)  # 3 original + 2 context
-        self.assertIsInstance(result[0], HumanMessage)  # First message (id=1)
-        self.assertIsInstance(result[1], AssistantMessage)  # Response (id=2)
-        self.assertIsInstance(result[2], ContextMessage)  # Context 1
-        self.assertIsInstance(result[3], ContextMessage)  # Context 2
-        self.assertIsInstance(result[4], HumanMessage)  # Start message (id=3)
+        assert len(result) == 5  # 3 original + 2 context
+        assert isinstance(result[0], HumanMessage)  # First message (id=1)
+        assert isinstance(result[1], AssistantMessage)  # Response (id=2)
+        assert isinstance(result[2], ContextMessage)  # Context 1
+        assert isinstance(result[3], ContextMessage)  # Context 2
+        assert isinstance(result[4], HumanMessage)  # Start message (id=3)
 
         # Verify context message content
         assert isinstance(result[2], ContextMessage)
         assert isinstance(result[3], ContextMessage)
-        self.assertEqual(result[2].content, "Context 1")
-        self.assertEqual(result[3].content, "Context 2")
+        assert result[2].content == "Context 1"
+        assert result[3].content == "Context 2"
 
     async def test_get_state_messages_with_context(self):
         """Test that context messages are properly added to state"""
@@ -539,7 +539,7 @@ class TestAssistantContextManager(BaseTest):
             mock_get_prompts.assert_called_once_with(state)
             mock_inject.assert_called_once_with(state, [ctx_msg])
             assert result is not None
-            self.assertEqual(len(result), 2)
+            assert len(result) == 2
 
     async def test_get_state_messages_with_context_no_prompts(self):
         """Test that original messages are returned when no context prompts"""
@@ -551,7 +551,7 @@ class TestAssistantContextManager(BaseTest):
 
             result = await self.context_manager.get_state_messages_with_context(state)
 
-            self.assertIsNone(result)
+            assert result is None
 
     def test_has_awaitable_context(self):
         """Test detection of awaitable context in state"""
@@ -563,19 +563,19 @@ class TestAssistantContextManager(BaseTest):
 
         with patch.object(self.context_manager, "get_ui_context", return_value=ui_context):
             result = self.context_manager.has_awaitable_context(state)
-            self.assertTrue(result)
+            assert result
 
         # Test with insights
         ui_context = MaxUIContext(insights=[MaxInsightContext(id="1", name="Test", query=TrendsQuery(series=[]))])
         with patch.object(self.context_manager, "get_ui_context", return_value=ui_context):
             result = self.context_manager.has_awaitable_context(state)
-            self.assertTrue(result)
+            assert result
 
         # Test without awaitable context
         ui_context = MaxUIContext(events=[MaxEventContext(id="1", name="Test")])
         with patch.object(self.context_manager, "get_ui_context", return_value=ui_context):
             result = self.context_manager.has_awaitable_context(state)
-            self.assertFalse(result)
+            assert not result
 
     @parameterized.expand(
         [
@@ -589,7 +589,7 @@ class TestAssistantContextManager(BaseTest):
         membership = await self.user.organization_memberships.aget(organization=self.team.organization)
         membership.level = membership_level
         await membership.asave()
-        self.assertEqual(await self.context_manager.check_user_has_billing_access(), has_access)
+        assert await self.context_manager.check_user_has_billing_access() == has_access
 
     async def test_get_billing_context(self):
         billing_context = MaxBillingContext(
@@ -601,10 +601,10 @@ class TestAssistantContextManager(BaseTest):
         )
         config = RunnableConfig(configurable={"billing_context": billing_context.model_dump()})
         context_manager = AssistantContextManager(self.team, self.user, config)
-        self.assertEqual(context_manager.get_billing_context(), billing_context)
+        assert context_manager.get_billing_context() == billing_context
 
         context_manager = AssistantContextManager(self.team, self.user, RunnableConfig(configurable={}))
-        self.assertIsNone(context_manager.get_billing_context())
+        assert context_manager.get_billing_context() is None
 
     async def test_get_context_messages_with_agent_mode_at_start(self):
         """Test that mode prompt is added when feature flag is enabled and message is at start"""
@@ -617,14 +617,14 @@ class TestAssistantContextManager(BaseTest):
         result = await self.context_manager.get_state_messages_with_context(state)
 
         assert result is not None
-        self.assertEqual(len(result), 2)
+        assert len(result) == 2
         assert isinstance(result[0], ContextMessage)
-        self.assertIn("Your initial mode is", result[0].content)
-        self.assertIn("product_analytics", result[0].content)
+        assert "Your initial mode is" in result[0].content
+        assert "product_analytics" in result[0].content
         # Verify metadata is set correctly
         assert isinstance(result[0].meta, ModeContext)
-        self.assertEqual(result[0].meta.mode, AgentMode.PRODUCT_ANALYTICS)
-        self.assertIsInstance(result[1], HumanMessage)
+        assert result[0].meta.mode == AgentMode.PRODUCT_ANALYTICS
+        assert isinstance(result[1], HumanMessage)
 
     async def test_get_context_messages_with_agent_mode_switch(self):
         """Test that mode switch prompt is added when mode changes mid-conversation"""
@@ -647,13 +647,13 @@ class TestAssistantContextManager(BaseTest):
 
         assert result is not None
         # Should have added a mode switch context message before the start message
-        self.assertEqual(len(result), 5)
+        assert len(result) == 5
         assert isinstance(result[3], ContextMessage)
-        self.assertIn("Your mode has been switched to", result[3].content)
-        self.assertIn("sql", result[3].content)
+        assert "Your mode has been switched to" in result[3].content
+        assert "sql" in result[3].content
         # Verify metadata is set correctly
         assert isinstance(result[3].meta, ModeContext)
-        self.assertEqual(result[3].meta.mode, AgentMode.SQL)
+        assert result[3].meta.mode == AgentMode.SQL
 
     async def test_get_context_messages_no_mode_switch_when_same_mode(self):
         """Test that no mode prompt is added when mode hasn't changed"""
@@ -675,7 +675,7 @@ class TestAssistantContextManager(BaseTest):
         result = await self.context_manager.get_state_messages_with_context(state)
 
         # Should return None since no context needs to be added
-        self.assertIsNone(result)
+        assert result is None
 
     def test_get_previous_mode_from_messages_initial(self):
         """Test extraction of initial mode from context messages via metadata"""
@@ -690,7 +690,7 @@ class TestAssistantContextManager(BaseTest):
 
         result = self.context_manager._get_previous_mode_from_messages(messages)
 
-        self.assertEqual(result, AgentMode.SQL)
+        assert result == AgentMode.SQL
 
     def test_get_previous_mode_from_messages_switched(self):
         """Test extraction of switched mode from context messages via metadata"""
@@ -712,7 +712,7 @@ class TestAssistantContextManager(BaseTest):
         # Should return the most recent mode (sql, from the switch)
         result = self.context_manager._get_previous_mode_from_messages(messages)
 
-        self.assertEqual(result, AgentMode.SQL)
+        assert result == AgentMode.SQL
 
     def test_get_previous_mode_from_messages_switch_mode_tool_call(self):
         """Test extraction of mode from switch_mode tool call"""
@@ -732,7 +732,7 @@ class TestAssistantContextManager(BaseTest):
         # Should return sql from the switch_mode tool call
         result = self.context_manager._get_previous_mode_from_messages(messages)
 
-        self.assertEqual(result, AgentMode.SQL)
+        assert result == AgentMode.SQL
 
     def test_get_previous_mode_from_messages_no_mode(self):
         """Test extraction returns None when no mode context exists"""
@@ -743,24 +743,24 @@ class TestAssistantContextManager(BaseTest):
 
         result = self.context_manager._get_previous_mode_from_messages(messages)
 
-        self.assertIsNone(result)
+        assert result is None
 
     def test_create_mode_context_message_initial(self):
         """Test creation of initial mode context message"""
         result = self.context_manager._create_mode_context_message(AgentMode.PRODUCT_ANALYTICS, is_initial=True)
 
-        self.assertIsInstance(result, ContextMessage)
-        self.assertIn("Your initial mode is", result.content)
-        self.assertIn("product_analytics", result.content)
+        assert isinstance(result, ContextMessage)
+        assert "Your initial mode is" in result.content
+        assert "product_analytics" in result.content
         assert isinstance(result.meta, ModeContext)
-        self.assertEqual(result.meta.mode, AgentMode.PRODUCT_ANALYTICS)
+        assert result.meta.mode == AgentMode.PRODUCT_ANALYTICS
 
     def test_create_mode_context_message_switch(self):
         """Test creation of mode switch context message"""
         result = self.context_manager._create_mode_context_message(AgentMode.SQL, is_initial=False)
 
-        self.assertIsInstance(result, ContextMessage)
-        self.assertIn("Your mode has been switched to", result.content)
-        self.assertIn("sql", result.content)
+        assert isinstance(result, ContextMessage)
+        assert "Your mode has been switched to" in result.content
+        assert "sql" in result.content
         assert isinstance(result.meta, ModeContext)
-        self.assertEqual(result.meta.mode, AgentMode.SQL)
+        assert result.meta.mode == AgentMode.SQL

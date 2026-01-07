@@ -93,10 +93,8 @@ class TestAbsoluteUrls(TestCase):
         for url, site_url, expected in absolute_urls_test_cases:
             with self.subTest():
                 with self.settings(SITE_URL=site_url):
-                    self.assertEqual(
-                        expected,
-                        absolute_uri(url),
-                        msg=f"with URL='{url}' & site_url setting='{site_url}' actual did not equal {expected}",
+                    assert expected == absolute_uri(url), (
+                        f"with URL='{url}' & site_url setting='{site_url}' actual did not equal {expected}"
                     )
 
     def test_absolute_uri_can_not_escape_out_host(self) -> None:
@@ -143,10 +141,7 @@ class TestFormatUrls(TestCase):
         ]
 
         for params, expected in test_to_expected:
-            self.assertEqual(
-                expected,
-                format_query_params_absolute_url(Request(request=build_req), *params),
-            )
+            assert expected == format_query_params_absolute_url(Request(request=build_req), *params)
 
     def test_format_query_params_absolute_url_with_https(self) -> None:
         with self.settings(SECURE_PROXY_SSL_HEADER=("HTTP_X_FORWARDED_PROTO", "https")):
@@ -156,32 +151,32 @@ class TestFormatUrls(TestCase):
                 "HTTP_X_FORWARDED_PROTO": "https",
             }
             request: Request = Request(build_req)
-            self.assertEqual("https://www.testserver", format_query_params_absolute_url(request))
+            assert "https://www.testserver" == format_query_params_absolute_url(request)
 
 
 class TestGeneralUtils(TestCase):
     def test_available_timezones(self):
         timezones = get_available_timezones_with_offsets()
-        self.assertEqual(timezones.get("Europe/Moscow"), 3)
+        assert timezones.get("Europe/Moscow") == 3
 
     @patch("os.getenv")
     def test_fetching_env_var_parsed_as_int(self, mock_env):
         mock_env.return_value = ""
-        self.assertEqual(get_from_env("test_key", optional=True, type_cast=int), None)
+        assert get_from_env("test_key", optional=True, type_cast=int) is None
 
         mock_env.return_value = "4"
-        self.assertEqual(get_from_env("test_key", type_cast=int), 4)
+        assert get_from_env("test_key", type_cast=int) == 4
 
     @patch("os.getenv")
     def test_fetching_env_var_parsed_as_float(self, mock_env):
         mock_env.return_value = ""
-        self.assertEqual(get_from_env("test_key", optional=True, type_cast=float, default=0.0), None)
+        assert get_from_env("test_key", optional=True, type_cast=float, default=0.0) is None
 
         mock_env.return_value = ""
-        self.assertEqual(get_from_env("test_key", type_cast=float, default=0.0), 0.0)
+        assert get_from_env("test_key", type_cast=float, default=0.0) == 0.0
 
         mock_env.return_value = "4"
-        self.assertEqual(get_from_env("test_key", type_cast=float), 4.0)
+        assert get_from_env("test_key", type_cast=float) == 4.0
 
     @patch("os.getenv")
     def test_fetching_env_var_parsed_as_float_from_nonsense_input(self, mock_env):
@@ -193,112 +188,55 @@ class TestGeneralUtils(TestCase):
 class TestRelativeDateParse(TestCase):
     @freeze_time("2020-01-31T12:22:23")
     def test_hour(self):
-        self.assertEqual(
-            relative_date_parse("-24h", ZoneInfo("UTC")).isoformat(),
-            "2020-01-30T12:22:23+00:00",
-        )
-        self.assertEqual(
-            relative_date_parse("-48h", ZoneInfo("UTC")).isoformat(),
-            "2020-01-29T12:22:23+00:00",
-        )
+        assert relative_date_parse("-24h", ZoneInfo("UTC")).isoformat() == "2020-01-30T12:22:23+00:00"
+        assert relative_date_parse("-48h", ZoneInfo("UTC")).isoformat() == "2020-01-29T12:22:23+00:00"
 
     @freeze_time("2020-01-31")
     def test_day(self):
-        self.assertEqual(
-            relative_date_parse("dStart", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
-            "2020-01-31",
-        )
-        self.assertEqual(
-            relative_date_parse("-1d", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
-            "2020-01-30",
-        )
-        self.assertEqual(
-            relative_date_parse("-2d", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
-            "2020-01-29",
-        )
+        assert relative_date_parse("dStart", ZoneInfo("UTC")).strftime("%Y-%m-%d") == "2020-01-31"
+        assert relative_date_parse("-1d", ZoneInfo("UTC")).strftime("%Y-%m-%d") == "2020-01-30"
+        assert relative_date_parse("-2d", ZoneInfo("UTC")).strftime("%Y-%m-%d") == "2020-01-29"
 
-        self.assertEqual(
-            relative_date_parse("-1dStart", ZoneInfo("UTC")).isoformat(),
-            "2020-01-30T00:00:00+00:00",
-        )
-        self.assertEqual(
-            relative_date_parse("-1dEnd", ZoneInfo("UTC")).isoformat(),
-            "2020-01-30T23:59:59.999999+00:00",
-        )
+        assert relative_date_parse("-1dStart", ZoneInfo("UTC")).isoformat() == "2020-01-30T00:00:00+00:00"
+        assert relative_date_parse("-1dEnd", ZoneInfo("UTC")).isoformat() == "2020-01-30T23:59:59.999999+00:00"
 
     @freeze_time("2020-01-31")
     def test_month(self):
-        self.assertEqual(
-            relative_date_parse("-1m", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
-            "2019-12-31",
-        )
-        self.assertEqual(
-            relative_date_parse("-2m", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
-            "2019-11-30",
-        )
+        assert relative_date_parse("-1m", ZoneInfo("UTC")).strftime("%Y-%m-%d") == "2019-12-31"
+        assert relative_date_parse("-2m", ZoneInfo("UTC")).strftime("%Y-%m-%d") == "2019-11-30"
 
-        self.assertEqual(
-            relative_date_parse("mStart", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
-            "2020-01-01",
-        )
-        self.assertEqual(
-            relative_date_parse("-1mStart", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
-            "2019-12-01",
-        )
-        self.assertEqual(
-            relative_date_parse("-2mStart", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
-            "2019-11-01",
-        )
+        assert relative_date_parse("mStart", ZoneInfo("UTC")).strftime("%Y-%m-%d") == "2020-01-01"
+        assert relative_date_parse("-1mStart", ZoneInfo("UTC")).strftime("%Y-%m-%d") == "2019-12-01"
+        assert relative_date_parse("-2mStart", ZoneInfo("UTC")).strftime("%Y-%m-%d") == "2019-11-01"
 
-        self.assertEqual(
-            relative_date_parse("-1mEnd", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
-            "2019-12-31",
-        )
-        self.assertEqual(
-            relative_date_parse("-2mEnd", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
-            "2019-11-30",
-        )
+        assert relative_date_parse("-1mEnd", ZoneInfo("UTC")).strftime("%Y-%m-%d") == "2019-12-31"
+        assert relative_date_parse("-2mEnd", ZoneInfo("UTC")).strftime("%Y-%m-%d") == "2019-11-30"
 
     @freeze_time("2020-01-31")
     def test_year(self):
-        self.assertEqual(
-            relative_date_parse("-1y", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
-            "2019-01-31",
-        )
-        self.assertEqual(
-            relative_date_parse("-2y", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
-            "2018-01-31",
-        )
+        assert relative_date_parse("-1y", ZoneInfo("UTC")).strftime("%Y-%m-%d") == "2019-01-31"
+        assert relative_date_parse("-2y", ZoneInfo("UTC")).strftime("%Y-%m-%d") == "2018-01-31"
 
-        self.assertEqual(
-            relative_date_parse("yStart", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
-            "2020-01-01",
-        )
-        self.assertEqual(
-            relative_date_parse("-1yStart", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
-            "2019-01-01",
-        )
+        assert relative_date_parse("yStart", ZoneInfo("UTC")).strftime("%Y-%m-%d") == "2020-01-01"
+        assert relative_date_parse("-1yStart", ZoneInfo("UTC")).strftime("%Y-%m-%d") == "2019-01-01"
 
     @freeze_time("2020-01-31")
     def test_normal_date(self):
-        self.assertEqual(
-            relative_date_parse("2019-12-31", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
-            "2019-12-31",
-        )
+        assert relative_date_parse("2019-12-31", ZoneInfo("UTC")).strftime("%Y-%m-%d") == "2019-12-31"
 
 
 class TestDefaultEventName(BaseTest):
     def test_no_events(self):
-        self.assertEqual(get_default_event_name(self.team), "$pageview")
+        assert get_default_event_name(self.team) == "$pageview"
 
     def test_take_screen(self):
         EventDefinition.objects.create(name="$screen", team=self.team)
-        self.assertEqual(get_default_event_name(self.team), "$screen")
+        assert get_default_event_name(self.team) == "$screen"
 
     def test_prefer_pageview(self):
         EventDefinition.objects.create(name="$pageview", team=self.team)
         EventDefinition.objects.create(name="$screen", team=self.team)
-        self.assertEqual(get_default_event_name(self.team), "$pageview")
+        assert get_default_event_name(self.team) == "$pageview"
 
 
 class TestLoadDataFromRequest(TestCase):
@@ -318,7 +256,7 @@ class TestLoadDataFromRequest(TestCase):
 
         post_request = self._create_request_with_headers(origin, referer)
 
-        with self.assertRaises(UnspecifiedCompressionFallbackParsingError):
+        with pytest.raises(UnspecifiedCompressionFallbackParsingError):
             load_data_from_request(post_request)
 
         patched_context.assert_called_once()
@@ -338,7 +276,7 @@ class TestLoadDataFromRequest(TestCase):
 
         post_request = self._create_request_with_headers(origin, referer)
 
-        with self.assertRaises(UnspecifiedCompressionFallbackParsingError):
+        with pytest.raises(UnspecifiedCompressionFallbackParsingError):
             load_data_from_request(post_request)
 
         patched_context.assert_called_once()
@@ -356,7 +294,7 @@ class TestLoadDataFromRequest(TestCase):
         rf = RequestFactory()
         post_request = rf.post("/s/", "content", "text/plain")
 
-        with self.assertRaises(UnspecifiedCompressionFallbackParsingError):
+        with pytest.raises(UnspecifiedCompressionFallbackParsingError):
             load_data_from_request(post_request)
 
         patched_context.assert_called_once()
@@ -378,24 +316,20 @@ class TestLoadDataFromRequest(TestCase):
         rf = RequestFactory()
         post_request = rf.post("/s/", "undefined", "text/plain")
 
-        with self.assertRaises(UnspecifiedCompressionFallbackParsingError) as ctx:
+        with pytest.raises(UnspecifiedCompressionFallbackParsingError) as ctx:
             load_data_from_request(post_request)
 
-        self.assertEqual(
-            "Invalid JSON: Expecting value: line 1 column 1 (char 0)",
-            str(ctx.exception),
-        )
+        assert "Invalid JSON: Expecting value: line 1 column 1 (char 0)" == str(ctx.value)
 
     def test_raises_specific_error_for_the_literal_string_undefined_when_compressed(self):
         rf = RequestFactory()
         post_request = rf.post("/s/?compression=gzip-js", "undefined", "text/plain")
 
-        with self.assertRaises(RequestParsingError) as ctx:
+        with pytest.raises(RequestParsingError) as ctx:
             load_data_from_request(post_request)
 
-        self.assertEqual(
-            "data being loaded from the request body for decompression is the literal string 'undefined'",
-            str(ctx.exception),
+        assert "data being loaded from the request body for decompression is the literal string 'undefined'" == str(
+            ctx.value
         )
 
     @patch("posthog.utils.gzip")
@@ -411,39 +345,39 @@ class TestLoadDataFromRequest(TestCase):
         post_request = rf.post("/s/", "the gzip compressed string", "text/plain")
 
         data = load_data_from_request(post_request)
-        self.assertEqual({"what is it": "the decompressed value"}, data)
+        assert {"what is it": "the decompressed value"} == data
 
 
 class TestShouldRefresh(TestCase):
     def test_refresh_requested_by_client_with_refresh_true(self):
         request = HttpRequest()
         request.GET["refresh"] = "true"
-        self.assertTrue(refresh_requested_by_client(Request(request)))
+        assert refresh_requested_by_client(Request(request))
 
     def test_refresh_requested_by_client_with_refresh_empty(self):
         request = HttpRequest()
         request.GET["refresh"] = ""
-        self.assertTrue(refresh_requested_by_client(Request(request)))
+        assert refresh_requested_by_client(Request(request))
 
     def test_should_not_refresh_with_refresh_false(self):
         request = HttpRequest()
         request.GET["refresh"] = "false"
-        self.assertFalse(refresh_requested_by_client(Request(request)))
+        assert not refresh_requested_by_client(Request(request))
 
     def test_should_not_refresh_with_refresh_gibberish(self):
         request = HttpRequest()
         request.GET["refresh"] = "2132klkl"
-        self.assertFalse(refresh_requested_by_client(Request(request)))
+        assert not refresh_requested_by_client(Request(request))
 
     def test_refresh_requested_by_client_with_data_true(self):
         drf_request = Request(HttpRequest())
         drf_request._full_data = {"refresh": True}  # type: ignore
-        self.assertTrue(refresh_requested_by_client(drf_request))
+        assert refresh_requested_by_client(drf_request)
 
     def test_should_not_refresh_with_data_false(self):
         drf_request = Request(HttpRequest())
         drf_request._full_data = {"refresh": False}  # type: ignore
-        self.assertFalse(refresh_requested_by_client(drf_request))
+        assert not refresh_requested_by_client(drf_request)
 
     def test_should_refresh_with_data_async(self):
         drf_request = Request(HttpRequest())
@@ -465,42 +399,42 @@ class TestUtilities(TestCase):
         # Test with a simple string
         simple_string = "Hello, World!"
         encoded = base64.b64encode(simple_string.encode("utf-8")).decode("ascii")
-        self.assertEqual(base64_decode(encoded), simple_string)
+        assert base64_decode(encoded) == simple_string
 
         # Test with bytes input
         bytes_input = b"SGVsbG8sIFdvcmxkIQ=="
-        self.assertEqual(base64_decode(bytes_input), simple_string)
+        assert base64_decode(bytes_input) == simple_string
 
         # Test with Unicode characters
         unicode_string = "こんにちは、世界！"
         unicode_encoded = base64.b64encode(unicode_string.encode("utf-8")).decode("ascii")
-        self.assertEqual(base64_decode(unicode_encoded), unicode_string)
+        assert base64_decode(unicode_encoded) == unicode_string
 
         # Test with emojis
         emoji_string = "Hello 👋 World 🌍!"
         emoji_encoded = base64.b64encode(emoji_string.encode("utf-8")).decode("ascii")
-        self.assertEqual(base64_decode(emoji_encoded), emoji_string)
+        assert base64_decode(emoji_encoded) == emoji_string
 
         # Test with padding characters removed
         no_padding = "SGVsbG8sIFdvcmxkIQ"
-        self.assertEqual(base64_decode(no_padding), simple_string)
+        assert base64_decode(no_padding) == simple_string
 
         # Tests with real URL encoded data
         encoded_data = b"data=eyJ0b2tlbiI6InBoY19HNEFGZkNtRWJXSXZXS05GWlVLaWhpNXRIaGNJU1FYd2xVYXpLMm5MdkE0IiwiZGlzdGluY3RfaWQiOiIwMTkxMmJjMS1iY2ZkLTcwNDYtOTQ0My0wNjVjZjhjYzUyYzUiLCJncm91cHMiOnt9fQ%3D%3D"
         decoded = base64_decode(encoded_data)
         decoded_json = json.loads(decoded)
 
-        self.assertEqual(decoded_json["token"], "phc_G4AFfCmEbWIvWKNFZUKihi5tHhcISQXwlUazK2nLvA4")
-        self.assertEqual(decoded_json["distinct_id"], "01912bc1-bcfd-7046-9443-065cf8cc52c5")
-        self.assertEqual(decoded_json["groups"], {})
+        assert decoded_json["token"] == "phc_G4AFfCmEbWIvWKNFZUKihi5tHhcISQXwlUazK2nLvA4"
+        assert decoded_json["distinct_id"] == "01912bc1-bcfd-7046-9443-065cf8cc52c5"
+        assert decoded_json["groups"] == {}
 
         encoded_data = b"eyJ0b2tlbiI6InBoY19JN3hJY09idHNrcDFWc2FFY0pPdEhycThrWGxrdVg3bGpwdnFWaDNJQ0Z6IiwiZGlzdGluY3RfaWQiOiIwMTkxMmU3Ny1hMjYwLTc5NWMtYjBmYy1lOWE4NzI5MWViNzAiLCJncm91cHMiOnt9fQ%3D%3D"
         decoded = base64_decode(encoded_data)
         decoded_json = json.loads(decoded)
 
-        self.assertEqual(decoded_json["token"], "phc_I7xIcObtskp1VsaEcJOtHrq8kXlkuX7ljpvqVh3ICFz")
-        self.assertEqual(decoded_json["distinct_id"], "01912e77-a260-795c-b0fc-e9a87291eb70")
-        self.assertEqual(decoded_json["groups"], {})
+        assert decoded_json["token"] == "phc_I7xIcObtskp1VsaEcJOtHrq8kXlkuX7ljpvqVh3ICFz"
+        assert decoded_json["distinct_id"] == "01912e77-a260-795c-b0fc-e9a87291eb70"
+        assert decoded_json["groups"] == {}
 
 
 class TestGetShortUserAgent(TestCase):
@@ -511,14 +445,14 @@ class TestGetShortUserAgent(TestCase):
         }
 
         result = get_short_user_agent(request)
-        self.assertEqual(result, "Chrome 135.0.0 on Windows 10")
+        assert result == "Chrome 135.0.0 on Windows 10"
 
     def test_firefox_macos(self):
         request = HttpRequest()
         request.META = {"HTTP_USER_AGENT": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15) Gecko/20100101 Firefox/131.0"}
 
         result = get_short_user_agent(request)
-        self.assertEqual(result, "Firefox 131.0 on Mac OS X 10.15")
+        assert result == "Firefox 131.0 on Mac OS X 10.15"
 
     def test_safari_macos(self):
         request = HttpRequest()
@@ -527,7 +461,7 @@ class TestGetShortUserAgent(TestCase):
         }
 
         result = get_short_user_agent(request)
-        self.assertEqual(result, "Safari 17.2 on Mac OS X 10.15")
+        assert result == "Safari 17.2 on Mac OS X 10.15"
 
     def test_mobile_chrome_android(self):
         request = HttpRequest()
@@ -536,7 +470,7 @@ class TestGetShortUserAgent(TestCase):
         }
 
         result = get_short_user_agent(request)
-        self.assertEqual(result, "Chrome Mobile 134.0.0 on Android 14")
+        assert result == "Chrome Mobile 134.0.0 on Android 14"
 
     def test_edge_windows(self):
         request = HttpRequest()
@@ -545,21 +479,21 @@ class TestGetShortUserAgent(TestCase):
         }
 
         result = get_short_user_agent(request)
-        self.assertEqual(result, "Edge 134.0.1847 on Windows 10")
+        assert result == "Edge 134.0.1847 on Windows 10"
 
     def test_missing_user_agent_header(self):
         request = HttpRequest()
         request.META = {}
 
         result = get_short_user_agent(request)
-        self.assertEqual(result, "")
+        assert result == ""
 
     def test_empty_user_agent_header(self):
         request = HttpRequest()
         request.META = {"HTTP_USER_AGENT": ""}
 
         result = get_short_user_agent(request)
-        self.assertEqual(result, "")
+        assert result == ""
 
     def test_version_truncation(self):
         request = HttpRequest()
@@ -568,8 +502,8 @@ class TestGetShortUserAgent(TestCase):
         }
 
         result = get_short_user_agent(request)
-        self.assertIn("Chrome 135.0.6789", result)
-        self.assertNotIn("1234", result)
+        assert "Chrome 135.0.6789" in result
+        assert "1234" not in result
 
 
 class TestFlatten(TestCase):

@@ -35,8 +35,8 @@ class TestValidatePendingChangeRequests(BaseTest):
 
         result = validate_pending_change_requests()
 
-        self.assertEqual(result["validated_count"], 0)
-        self.assertEqual(result["invalidated_count"], 0)
+        assert result["validated_count"] == 0
+        assert result["invalidated_count"] == 0
 
 
 class TestExpireOldChangeRequests(BaseTest):
@@ -59,10 +59,10 @@ class TestExpireOldChangeRequests(BaseTest):
     def test_expire_task_expires_old_requests(self):
         result = expire_old_change_requests()
 
-        self.assertEqual(result["expired_count"], 1)
+        assert result["expired_count"] == 1
 
         self.expired_request.refresh_from_db()
-        self.assertEqual(self.expired_request.state, "expired")
+        assert self.expired_request.state == "expired"
 
     def test_expire_task_skips_future_requests(self):
         self.expired_request.expires_at = timezone.now() + timedelta(hours=1)
@@ -70,10 +70,10 @@ class TestExpireOldChangeRequests(BaseTest):
 
         result = expire_old_change_requests()
 
-        self.assertEqual(result["expired_count"], 0)
+        assert result["expired_count"] == 0
 
         self.expired_request.refresh_from_db()
-        self.assertEqual(self.expired_request.state, "pending")
+        assert self.expired_request.state == "pending"
 
     def test_expire_task_skips_non_pending_requests(self):
         self.expired_request.state = "approved"
@@ -81,7 +81,7 @@ class TestExpireOldChangeRequests(BaseTest):
 
         result = expire_old_change_requests()
 
-        self.assertEqual(result["expired_count"], 0)
+        assert result["expired_count"] == 0
 
     @patch("posthog.approvals.tasks.send_approval_expired_notification")
     def test_expire_task_sends_notifications(self, mock_notification):

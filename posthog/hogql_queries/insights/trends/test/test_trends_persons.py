@@ -1,4 +1,4 @@
-from typing import Optional, Union
+from typing import Union
 
 import pytest
 from freezegun import freeze_time
@@ -47,14 +47,14 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 def get_actors(
     trends_query: TrendsQuery,
     team: Team,
-    breakdown: Optional[Union[str, int]] = None,
-    compare: Optional[Compare] = None,
-    day: Optional[Union[str, int]] = None,
-    interval: Optional[int] = None,
-    series: Optional[int] = None,
-    status: Optional[str] = None,
-    offset: Optional[int] = None,
-    includeRecordings: Optional[bool] = None,
+    breakdown: Union[str, int] | None = None,
+    compare: Compare | None = None,
+    day: Union[str, int] | None = None,
+    interval: int | None = None,
+    series: int | None = None,
+    status: str | None = None,
+    offset: int | None = None,
+    includeRecordings: bool | None = None,
 ):
     insight_actors_query = InsightActorsQuery(
         source=trends_query,
@@ -220,14 +220,14 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
             _create_event(
                 event="$pageview",
                 distinct_id="person4",
-                timestamp=f"2023-04-{30-i} 16:00",
+                timestamp=f"2023-04-{30 - i} 16:00",
                 properties={"some_property": 20},
                 team=other_team,
             )
             _create_event(
                 event="$pageview",
                 distinct_id="person4",
-                timestamp=f"2023-05-0{i+1} 16:00",
+                timestamp=f"2023-05-0{i + 1} 16:00",
                 properties={"some_property": 20},
                 team=other_team,
             )
@@ -309,10 +309,10 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
 
         result = self._get_actors(trends_query=source_query, day="2023-04-29")
 
-        self.assertEqual(get_distinct_id(result[0]), "person2")
-        self.assertEqual(get_event_count(result[0]), 2)
-        self.assertEqual(get_distinct_id(result[1]), "person1")
-        self.assertEqual(get_event_count(result[1]), 1)
+        assert get_distinct_id(result[0]) == "person2"
+        assert get_event_count(result[0]) == 2
+        assert get_distinct_id(result[1]) == "person1"
+        assert get_event_count(result[1]) == 1
 
     def test_trends_multiple_series_persons(self):
         self._create_events()
@@ -323,17 +323,17 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
 
         result = self._get_actors(trends_query=source_query, day="2023-04-29")
 
-        self.assertEqual(len(result), 2)
-        self.assertEqual(get_distinct_id(result[0]), "person2")
-        self.assertEqual(get_event_count(result[0]), 2)
-        self.assertEqual(get_distinct_id(result[1]), "person1")
-        self.assertEqual(get_event_count(result[1]), 1)
+        assert len(result) == 2
+        assert get_distinct_id(result[0]) == "person2"
+        assert get_event_count(result[0]) == 2
+        assert get_distinct_id(result[1]) == "person1"
+        assert get_event_count(result[1]) == 1
 
         result = self._get_actors(trends_query=source_query, day="2023-04-29", series=1)
 
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person1")
-        self.assertEqual(get_event_count(result[0]), 1)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person1"
+        assert get_event_count(result[0]) == 1
 
     def test_trends_event_breakdown_persons(self):
         self._create_events()
@@ -345,15 +345,15 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown="Safari")
 
-        self.assertEqual(len(result), 2)
-        self.assertEqual(get_distinct_id(result[0]), "person2")
-        self.assertEqual(get_event_count(result[0]), 2)
-        self.assertEqual(get_distinct_id(result[1]), "person3")
-        self.assertEqual(get_event_count(result[1]), 1)
+        assert len(result) == 2
+        assert get_distinct_id(result[0]) == "person2"
+        assert get_event_count(result[0]) == 2
+        assert get_distinct_id(result[1]) == "person3"
+        assert get_event_count(result[1]) == 1
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown="Firefox")
 
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
     def test_trends_person_breakdown_persons(self):
         self._create_events()
@@ -365,15 +365,15 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown="DE")
 
-        self.assertEqual(len(result), 2)
-        self.assertEqual(get_distinct_id(result[0]), "person2")
-        self.assertEqual(get_event_count(result[0]), 2)
-        self.assertEqual(get_distinct_id(result[1]), "person3")
-        self.assertEqual(get_event_count(result[1]), 1)
+        assert len(result) == 2
+        assert get_distinct_id(result[0]) == "person2"
+        assert get_event_count(result[0]) == 2
+        assert get_distinct_id(result[1]) == "person3"
+        assert get_event_count(result[1]) == 1
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown="UK")
 
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
     @skip("fails, as other returns all breakdowns, even those that should be display with the breakdown_limit")
     def test_trends_breakdown_others_persons(self):
@@ -386,17 +386,17 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
 
         result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown="Chrome")
 
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person1")
-        self.assertEqual(get_event_count(result[0]), 2)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person1"
+        assert get_event_count(result[0]) == 2
 
         result = self._get_actors(
             trends_query=source_query, day="2023-04-29", breakdown="$$_posthog_breakdown_other_$$"
         )
 
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person2")
-        self.assertEqual(get_event_count(result[0]), 2)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person2"
+        assert get_event_count(result[0]) == 2
 
     @skip("fails, as other returns all breakdowns, even those that should be display with the breakdown_limit")
     def test_trends_multiple_breakdowns_others_persons(self):
@@ -412,17 +412,17 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
 
         result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown=["Chrome"])
 
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person1")
-        self.assertEqual(get_event_count(result[0]), 2)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person1"
+        assert get_event_count(result[0]) == 2
 
         result = self._get_actors(
             trends_query=source_query, day="2023-04-29", breakdown=["$$_posthog_breakdown_other_$$"]
         )
 
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person2")
-        self.assertEqual(get_event_count(result[0]), 2)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person2"
+        assert get_event_count(result[0]) == 2
 
     # TODO: remove this test once "Other" actually filters out all other values
     def test_trends_filter_by_other(self):
@@ -437,7 +437,7 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=[BREAKDOWN_OTHER_STRING_LABEL])
-        self.assertEqual(len(result), 3)
+        assert len(result) == 3
 
         source_query = TrendsQuery(
             series=[EventsNode(event="$pageview")],
@@ -456,7 +456,7 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
             day="2023-05-01",
             breakdown=[BREAKDOWN_OTHER_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL],
         )
-        self.assertEqual(len(result), 3)
+        assert len(result) == 3
 
     def test_trends_breakdown_null_persons(self):
         self._create_events()
@@ -468,13 +468,13 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
 
         result = self._get_actors(trends_query=source_query, day="2023-05-06", breakdown="Chrome")
 
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
         result = self._get_actors(trends_query=source_query, day="2023-05-06", breakdown="$$_posthog_breakdown_null_$$")
 
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person1")
-        self.assertEqual(get_event_count(result[0]), 1)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person1"
+        assert get_event_count(result[0]) == 1
 
     def test_trends_breakdown_hogql_persons(self):
         self._create_events()
@@ -485,13 +485,13 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=20)
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person1")
-        self.assertEqual(get_event_count(result[0]), 1)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person1"
+        assert get_event_count(result[0]) == 1
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=10)
 
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
     def test_trends_cohort_breakdown_persons(self):
         self._create_events()
@@ -508,11 +508,11 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=cohort.pk)
 
-        self.assertEqual(len(result), 2)
-        self.assertEqual(get_distinct_id(result[0]), "person2")
-        self.assertEqual(get_event_count(result[0]), 2)
-        self.assertEqual(get_distinct_id(result[1]), "person3")
-        self.assertEqual(get_event_count(result[1]), 1)
+        assert len(result) == 2
+        assert get_distinct_id(result[0]) == "person2"
+        assert get_event_count(result[0]) == 2
+        assert get_distinct_id(result[1]) == "person3"
+        assert get_event_count(result[1]) == 1
 
     def test_trends_multi_cohort_breakdown_persons(self):
         self._create_events()
@@ -534,17 +534,17 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=cohort1.pk)
 
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person1")
-        self.assertEqual(get_event_count(result[0]), 3)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person1"
+        assert get_event_count(result[0]) == 3
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=cohort2.pk)
 
-        self.assertEqual(len(result), 2)
-        self.assertEqual(get_distinct_id(result[0]), "person2")
-        self.assertEqual(get_event_count(result[0]), 2)
-        self.assertEqual(get_distinct_id(result[1]), "person3")
-        self.assertEqual(get_event_count(result[1]), 1)
+        assert len(result) == 2
+        assert get_distinct_id(result[0]) == "person2"
+        assert get_event_count(result[0]) == 2
+        assert get_distinct_id(result[1]) == "person3"
+        assert get_event_count(result[1]) == 1
 
     def trends_all_cohort_breakdown_persons(self, inCohortVia: str):
         self._create_events()
@@ -563,19 +563,19 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=cohort1.pk)
 
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person1")
-        self.assertEqual(get_event_count(result[0]), 3)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person1"
+        assert get_event_count(result[0]) == 3
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown="all")
 
-        self.assertEqual(len(result), 3)
-        self.assertEqual(get_distinct_id(result[0]), "person1")
-        self.assertEqual(get_event_count(result[0]), 3)
-        self.assertEqual(get_distinct_id(result[1]), "person2")
-        self.assertEqual(get_event_count(result[1]), 2)
-        self.assertEqual(get_distinct_id(result[2]), "person3")
-        self.assertEqual(get_event_count(result[2]), 1)
+        assert len(result) == 3
+        assert get_distinct_id(result[0]) == "person1"
+        assert get_event_count(result[0]) == 3
+        assert get_distinct_id(result[1]) == "person2"
+        assert get_event_count(result[1]) == 2
+        assert get_distinct_id(result[2]) == "person3"
+        assert get_event_count(result[2]) == 1
 
     def test_trends_all_cohort_breakdown_persons_subquery(self):
         self.trends_all_cohort_breakdown_persons("subquery")
@@ -606,10 +606,8 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
 
         result = self._get_actors(trends_query=source_query, day="2023-04-28")
 
-        self.assertEqual(len(result), 2)
-        self.assertEqual(
-            {get_distinct_id(result[0]), get_distinct_id(result[1])}, {"person_2023-04-22", "person_2023-04-23"}
-        )
+        assert len(result) == 2
+        assert {get_distinct_id(result[0]), get_distinct_id(result[1])} == {"person_2023-04-22", "person_2023-04-23"}
 
     @skip("fails, as event_count isn't populated properly")
     def test_trends_math_property_sum_persons(self):
@@ -621,13 +619,13 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01")
 
-        self.assertEqual(len(result), 3)
-        self.assertEqual(get_distinct_id(result[0]), "person2")
-        self.assertEqual(get_event_count(result[0]), 22)
-        self.assertEqual(get_distinct_id(result[1]), "person1")
-        self.assertEqual(get_event_count(result[1]), 20)
-        self.assertEqual(get_distinct_id(result[2]), "person3")
-        self.assertEqual(get_event_count(result[2]), 0)
+        assert len(result) == 3
+        assert get_distinct_id(result[0]) == "person2"
+        assert get_event_count(result[0]) == 22
+        assert get_distinct_id(result[1]) == "person1"
+        assert get_event_count(result[1]) == 20
+        assert get_distinct_id(result[2]) == "person3"
+        assert get_event_count(result[2]) == 0
 
     @skip("fails, as event_count isn't populated properly")
     def test_trends_math_count_per_actor_persons(self):
@@ -643,13 +641,13 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01")
 
-        self.assertEqual(len(result), 3)
-        self.assertEqual(get_distinct_id(result[0]), "person2")
-        self.assertEqual(get_event_count(result[0]), 22)
-        self.assertEqual(get_distinct_id(result[1]), "person1")
-        self.assertEqual(get_event_count(result[1]), 20)
-        self.assertEqual(get_distinct_id(result[2]), "person3")
-        self.assertEqual(get_event_count(result[2]), 0)
+        assert len(result) == 3
+        assert get_distinct_id(result[0]) == "person2"
+        assert get_event_count(result[0]) == 22
+        assert get_distinct_id(result[1]) == "person1"
+        assert get_event_count(result[1]) == 20
+        assert get_distinct_id(result[2]) == "person3"
+        assert get_event_count(result[2]) == 0
 
     def test_trends_math_group_persons(self):
         create_group_type_mapping_without_created_at(
@@ -688,11 +686,11 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01")
 
-        self.assertEqual(len(result), 2)
-        self.assertEqual(get_group_name(result[0]), "Hooli")
-        self.assertEqual(get_event_count(result[0]), 2)
-        self.assertEqual(get_group_name(result[1]), "Pied Piper")
-        self.assertEqual(get_event_count(result[1]), 1)
+        assert len(result) == 2
+        assert get_group_name(result[0]) == "Hooli"
+        assert get_event_count(result[0]) == 2
+        assert get_group_name(result[1]) == "Pied Piper"
+        assert get_event_count(result[1]) == 1
 
     def test_trends_math_group_persons_filters_empty(self):
         create_group_type_mapping_without_created_at(
@@ -723,9 +721,9 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01")
 
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_group_name(result[0]), "Hooli")
-        self.assertEqual(get_event_count(result[0]), 1)
+        assert len(result) == 1
+        assert get_group_name(result[0]) == "Hooli"
+        assert get_event_count(result[0]) == 1
 
     def test_trends_total_value_persons(self):
         self._create_events()
@@ -739,11 +737,11 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
             # note: total value actors should be called without day
             result = self._get_actors(trends_query=source_query)
 
-        self.assertEqual(len(result), 3)
-        self.assertEqual(get_event_count(result[0]), 4)
-        self.assertEqual(get_event_count(result[1]), 4)
-        self.assertEqual(get_distinct_id(result[2]), "person3")
-        self.assertEqual(get_event_count(result[2]), 1)
+        assert len(result) == 3
+        assert get_event_count(result[0]) == 4
+        assert get_event_count(result[1]) == 4
+        assert get_distinct_id(result[2]) == "person3"
+        assert get_event_count(result[2]) == 1
 
     def test_trends_compare_persons(self):
         self._create_events()
@@ -756,17 +754,17 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
 
         result = self._get_actors(trends_query=source_query, day="2023-05-06", compare=Compare.CURRENT)
 
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person1")
-        self.assertEqual(get_event_count(result[0]), 1)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person1"
+        assert get_event_count(result[0]) == 1
 
         result = self._get_actors(trends_query=source_query, day="2023-05-06", compare=Compare.PREVIOUS)
 
-        self.assertEqual(len(result), 2)
-        self.assertEqual(get_distinct_id(result[0]), "person2")
-        self.assertEqual(get_event_count(result[0]), 2)
-        self.assertEqual(get_distinct_id(result[1]), "person1")
-        self.assertEqual(get_event_count(result[1]), 1)
+        assert len(result) == 2
+        assert get_distinct_id(result[0]) == "person2"
+        assert get_event_count(result[0]) == 2
+        assert get_distinct_id(result[1]) == "person1"
+        assert get_event_count(result[1]) == 1
 
     def test_trends_event_multiple_breakdowns_persons(self):
         self._create_events()
@@ -778,15 +776,15 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=["Safari"])
 
-        self.assertEqual(len(result), 2)
-        self.assertEqual(get_distinct_id(result[0]), "person2")
-        self.assertEqual(get_event_count(result[0]), 2)
-        self.assertEqual(get_distinct_id(result[1]), "person3")
-        self.assertEqual(get_event_count(result[1]), 1)
+        assert len(result) == 2
+        assert get_distinct_id(result[0]) == "person2"
+        assert get_event_count(result[0]) == 2
+        assert get_distinct_id(result[1]) == "person3"
+        assert get_event_count(result[1]) == 1
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=["Firefox"])
 
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
     def test_trends_person_multiple_breakdown_persons(self):
         self._create_events()
@@ -800,15 +798,15 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=["DE"])
 
-        self.assertEqual(len(result), 2)
-        self.assertEqual(get_distinct_id(result[0]), "person2")
-        self.assertEqual(get_event_count(result[0]), 2)
-        self.assertEqual(get_distinct_id(result[1]), "person3")
-        self.assertEqual(get_event_count(result[1]), 1)
+        assert len(result) == 2
+        assert get_distinct_id(result[0]) == "person2"
+        assert get_event_count(result[0]) == 2
+        assert get_distinct_id(result[1]) == "person3"
+        assert get_event_count(result[1]) == 1
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=["UK"])
 
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
     def test_trends_multiple_breakdown_null_persons(self):
         self._create_events()
@@ -823,15 +821,15 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
 
         result = self._get_actors(trends_query=source_query, day="2023-05-06", breakdown=["Chrome"])
 
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
         result = self._get_actors(
             trends_query=source_query, day="2023-05-06", breakdown=["$$_posthog_breakdown_null_$$"]
         )
 
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person1")
-        self.assertEqual(get_event_count(result[0]), 1)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person1"
+        assert get_event_count(result[0]) == 1
 
     def test_trends_multiple_breakdowns_hogql_persons(self):
         self._create_events()
@@ -845,13 +843,13 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=["20"])
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person1")
-        self.assertEqual(get_event_count(result[0]), 1)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person1"
+        assert get_event_count(result[0]) == 1
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=["10"])
 
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
     def test_trends_breakdown_filter_by_range(self):
         self._create_numeric_events()
@@ -867,19 +865,19 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
 
         # should not include 20
         result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown="[0,20]")
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person1")
-        self.assertEqual(get_event_count(result[0]), 1)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person1"
+        assert get_event_count(result[0]) == 1
 
         # should include all
         result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown='["",""]')
-        self.assertEqual(len(result), 3)
+        assert len(result) == 3
 
         # should include null
         result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=BREAKDOWN_NULL_STRING_LABEL)
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person3")
-        self.assertEqual(get_event_count(result[0]), 1)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person3"
+        assert get_event_count(result[0]) == 1
 
         # handles invalid values
         with pytest.raises(ValueError, match=".*valid float or int values.*"):
@@ -899,19 +897,19 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
 
         # should not include 20
         result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=["[0,20]"])
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person1")
-        self.assertEqual(get_event_count(result[0]), 1)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person1"
+        assert get_event_count(result[0]) == 1
 
         # should include all
         result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=['["",""]'])
-        self.assertEqual(len(result), 3)
+        assert len(result) == 3
 
         # should include null
         result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=[BREAKDOWN_NULL_STRING_LABEL])
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person3")
-        self.assertEqual(get_event_count(result[0]), 1)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person3"
+        assert get_event_count(result[0]) == 1
 
         # handles invalid values
         with pytest.raises(ValueError, match=".*valid float or int values.*"):
@@ -968,13 +966,13 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown=["true"])
-        self.assertEqual(len(result), 1)
+        assert len(result) == 1
 
         result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown=["false"])
-        self.assertEqual(len(result), 1)
+        assert len(result) == 1
 
         result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown=[BREAKDOWN_NULL_STRING_LABEL])
-        self.assertEqual(len(result), 1)
+        assert len(result) == 1
 
         source_query = TrendsQuery(
             series=[EventsNode(event="$pageview")],
@@ -986,13 +984,13 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown="true")
-        self.assertEqual(len(result), 1)
+        assert len(result) == 1
 
         result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown="false")
-        self.assertEqual(len(result), 1)
+        assert len(result) == 1
 
         result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown=BREAKDOWN_NULL_STRING_LABEL)
-        self.assertEqual(len(result), 1)
+        assert len(result) == 1
 
     def test_trends_math_first_time_for_user_basic(self):
         self._create_events()
@@ -1003,28 +1001,25 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         for i in range(4):
-            result = self._get_actors(trends_query=source_query, day=f"2023-04-{i+25}")
-            self.assertEqual(len(result), 0)
+            result = self._get_actors(trends_query=source_query, day=f"2023-04-{i + 25}")
+            assert len(result) == 0
 
         result = self._get_actors(trends_query=source_query, day="2023-04-29")
-        self.assertEqual(len(result), 2)
-        self.assertEqual(
-            {get_distinct_id(result[0]), get_distinct_id(result[1])},
-            {"person1", "person2"},
-        )
-        self.assertEqual({get_event_count(result[0]), get_event_count(result[1])}, {1})
+        assert len(result) == 2
+        assert {get_distinct_id(result[0]), get_distinct_id(result[1])} == {"person1", "person2"}
+        assert {get_event_count(result[0]), get_event_count(result[1])} == {1}
 
         result = self._get_actors(trends_query=source_query, day="2023-04-30")
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01")
-        self.assertEqual(len(result), 1)
-        self.assertEqual({get_distinct_id(result[0])}, {"person3"})
-        self.assertEqual(get_event_count(result[0]), 1)
+        assert len(result) == 1
+        assert {get_distinct_id(result[0])} == {"person3"}
+        assert get_event_count(result[0]) == 1
 
         for i in range(20):
-            result = self._get_actors(trends_query=source_query, day=f"2023-05-{2+i}")
-            self.assertEqual(len(result), 0)
+            result = self._get_actors(trends_query=source_query, day=f"2023-05-{2 + i}")
+            assert len(result) == 0
 
     def test_trends_math_first_time_for_user_breakdowns_basic(self):
         self._create_events()
@@ -1036,22 +1031,22 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown="Chrome")
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person1")
-        self.assertEqual(get_event_count(result[0]), 1)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person1"
+        assert get_event_count(result[0]) == 1
 
         result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown="Safari")
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person2")
-        self.assertEqual(get_event_count(result[0]), 1)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person2"
+        assert get_event_count(result[0]) == 1
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown="Chrome")
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown="Safari")
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person3")
-        self.assertEqual(get_event_count(result[0]), 1)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person3"
+        assert get_event_count(result[0]) == 1
 
         source_query = TrendsQuery(
             series=[EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_FOR_USER)],
@@ -1062,22 +1057,22 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown=["Chrome"])
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person1")
-        self.assertEqual(get_event_count(result[0]), 1)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person1"
+        assert get_event_count(result[0]) == 1
 
         result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown=["Safari"])
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person2")
-        self.assertEqual(get_event_count(result[0]), 1)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person2"
+        assert get_event_count(result[0]) == 1
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=["Chrome"])
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=["Safari"])
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person3")
-        self.assertEqual(get_event_count(result[0]), 1)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person3"
+        assert get_event_count(result[0]) == 1
 
     def test_trends_math_first_time_for_user_numeric_breakdowns(self):
         self._create_numeric_events()
@@ -1090,22 +1085,22 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown="[10,20.01]")
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person1")
-        self.assertEqual(get_event_count(result[0]), 1)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person1"
+        assert get_event_count(result[0]) == 1
 
         result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown="[60,80]")
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person2")
-        self.assertEqual(get_event_count(result[0]), 1)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person2"
+        assert get_event_count(result[0]) == 1
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown="[10,20.01]")
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=BREAKDOWN_NULL_STRING_LABEL)
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person3")
-        self.assertEqual(get_event_count(result[0]), 1)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person3"
+        assert get_event_count(result[0]) == 1
 
         # single breakdown and just numbers
         source_query = TrendsQuery(
@@ -1115,12 +1110,12 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown="20")
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person1")
-        self.assertEqual(get_event_count(result[0]), 1)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person1"
+        assert get_event_count(result[0]) == 1
 
         result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown="40")
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
         # multiple breakdowns and bins
         source_query = TrendsQuery(
@@ -1134,22 +1129,22 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown=["[10,20.01]"])
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person1")
-        self.assertEqual(get_event_count(result[0]), 1)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person1"
+        assert get_event_count(result[0]) == 1
 
         result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown=["[60,80]"])
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person2")
-        self.assertEqual(get_event_count(result[0]), 1)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person2"
+        assert get_event_count(result[0]) == 1
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=["[10,20.01]"])
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=BREAKDOWN_NULL_STRING_LABEL)
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person3")
-        self.assertEqual(get_event_count(result[0]), 1)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person3"
+        assert get_event_count(result[0]) == 1
 
         # multiple breakdowns and just numbers
         source_query = TrendsQuery(
@@ -1161,12 +1156,12 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown=["20"])
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person1")
-        self.assertEqual(get_event_count(result[0]), 1)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person1"
+        assert get_event_count(result[0]) == 1
 
         result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown=["40"])
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
     def test_trends_math_first_time_for_user_with_filters(self):
         self._create_events()
@@ -1183,11 +1178,11 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         result = self._get_actors(trends_query=source_query, day="2023-04-29")
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person1")
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person1"
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01")
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
         source_query = TrendsQuery(
             series=[
@@ -1203,15 +1198,15 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         result = self._get_actors(trends_query=source_query, day="2023-04-29")
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person2")
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person2"
 
         result = self._get_actors(trends_query=source_query, day="2023-04-30")
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01")
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person3")
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person3"
 
     def test_trends_math_first_time_for_user_handles_multiple_ids(self):
         timestamp = "2020-01-11T12:00:00Z"
@@ -1286,18 +1281,18 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         result = self._get_actors(trends_query=source_query, day="2020-01-09")
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
         result = self._get_actors(trends_query=source_query, day="2020-01-10")
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
         result = self._get_actors(trends_query=source_query, day="2020-01-11")
-        self.assertEqual(len(result), 1)
-        self.assertEqual(set(result[0][0]["distinct_ids"]), {"anon1", "p1"})
+        assert len(result) == 1
+        assert set(result[0][0]["distinct_ids"]) == {"anon1", "p1"}
 
         result = self._get_actors(trends_query=source_query, day="2020-01-12")
-        self.assertEqual(len(result), 2)
-        self.assertCountEqual([x[0]["distinct_ids"] for x in result], (["anon3"], ["anon2", "p2"]))
+        assert len(result) == 2
+        assert sorted([x[0]["distinct_ids"] for x in result]) == sorted((["anon3"], ["anon2", "p2"]))
 
     def test_trends_math_first_time_for_user_matches_first_event_only(self):
         timestamp = "2020-01-11T12:00:00Z"
@@ -1337,11 +1332,11 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         result = self._get_actors(trends_query=source_query, day="2020-01-11")
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0][0]["distinct_ids"], ["anon1", "p1"])
+        assert len(result) == 1
+        assert result[0][0]["distinct_ids"] == ["anon1", "p1"]
 
         result = self._get_actors(trends_query=source_query, day="2020-01-12")
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
         source_query = TrendsQuery(
             series=[
@@ -1355,10 +1350,10 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         result = self._get_actors(trends_query=source_query, day="2020-01-11")
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
         result = self._get_actors(trends_query=source_query, day="2020-01-12")
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
     def test_trends_math_first_time_for_user_matches_all_first_events(self):
         timestamp = "2020-01-11T12:00:00Z"
@@ -1398,11 +1393,11 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         result = self._get_actors(trends_query=source_query, day="2020-01-11")
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0][0]["distinct_ids"], ["anon1", "p1"])
+        assert len(result) == 1
+        assert result[0][0]["distinct_ids"] == ["anon1", "p1"]
 
         result = self._get_actors(trends_query=source_query, day="2020-01-12")
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
         source_query = TrendsQuery(
             series=[
@@ -1416,11 +1411,11 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         result = self._get_actors(trends_query=source_query, day="2020-01-11")
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0][0]["distinct_ids"], ["anon1", "p1"])
+        assert len(result) == 1
+        assert result[0][0]["distinct_ids"] == ["anon1", "p1"]
 
         result = self._get_actors(trends_query=source_query, day="2020-01-12")
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
     def test_trends_math_first_time_for_user_month_interval(self):
         self._create_events()
@@ -1437,20 +1432,17 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         result = self._get_actors(trends_query=source_query, day="2023-03-01")
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
         result = self._get_actors(trends_query=source_query, day="2023-04-01")
-        self.assertEqual(len(result), 2)
-        self.assertEqual(
-            {get_distinct_id(result[0]), get_distinct_id(result[1])},
-            {"person1", "person2"},
-        )
-        self.assertEqual((get_event_count(result[0]), get_event_count(result[1])), (1, 1))
+        assert len(result) == 2
+        assert {get_distinct_id(result[0]), get_distinct_id(result[1])} == {"person1", "person2"}
+        assert (get_event_count(result[0]), get_event_count(result[1])) == (1, 1)
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01")
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person3")
-        self.assertEqual(get_event_count(result[0]), 1)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person3"
+        assert get_event_count(result[0]) == 1
 
     def test_trends_math_first_time_for_user_day_interval(self):
         self._create_events()
@@ -1467,20 +1459,17 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         result = self._get_actors(trends_query=source_query, day="2023-04-29")
-        self.assertEqual(len(result), 2)
-        self.assertEqual(
-            {get_distinct_id(result[0]), get_distinct_id(result[1])},
-            {"person1", "person2"},
-        )
-        self.assertEqual((get_event_count(result[0]), get_event_count(result[1])), (1, 1))
+        assert len(result) == 2
+        assert {get_distinct_id(result[0]), get_distinct_id(result[1])} == {"person1", "person2"}
+        assert (get_event_count(result[0]), get_event_count(result[1])) == (1, 1)
 
         result = self._get_actors(trends_query=source_query, day="2023-04-30")
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01")
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person3")
-        self.assertEqual(get_event_count(result[0]), 1)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person3"
+        assert get_event_count(result[0]) == 1
 
     def test_trends_math_first_time_for_user_week_interval(self):
         self._create_events()
@@ -1497,20 +1486,17 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         result = self._get_actors(trends_query=source_query, day="2023-04-24")
-        self.assertEqual(len(result), 2)
-        self.assertEqual(
-            {get_distinct_id(result[0]), get_distinct_id(result[1])},
-            {"person1", "person2"},
-        )
-        self.assertEqual((get_event_count(result[0]), get_event_count(result[1])), (1, 1))
+        assert len(result) == 2
+        assert {get_distinct_id(result[0]), get_distinct_id(result[1])} == {"person1", "person2"}
+        assert (get_event_count(result[0]), get_event_count(result[1])) == (1, 1)
 
         result = self._get_actors(trends_query=source_query, day="2023-04-17")
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01")
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person3")
-        self.assertEqual(get_event_count(result[0]), 1)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person3"
+        assert get_event_count(result[0]) == 1
 
     def test_trends_math_first_time_for_user_hour_interval(self):
         self._create_events()
@@ -1527,28 +1513,28 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         result = self._get_actors(trends_query=source_query, day="2023-04-29T16:00:00Z")
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person1")
-        self.assertEqual(get_event_count(result[0]), 1)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person1"
+        assert get_event_count(result[0]) == 1
 
         result = self._get_actors(trends_query=source_query, day="2023-04-29T17:00:00Z")
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person2")
-        self.assertEqual(get_event_count(result[0]), 1)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person2"
+        assert get_event_count(result[0]) == 1
 
         result = self._get_actors(trends_query=source_query, day="2023-04-29T18:00:00Z")
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01T16:00:00Z")
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person3")
-        self.assertEqual(get_event_count(result[0]), 1)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person3"
+        assert get_event_count(result[0]) == 1
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01T17:00:00Z")
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01T18:00:00Z")
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
     def test_trends_math_first_time_for_user_minute_interval(self):
         self._create_events()
@@ -1565,28 +1551,28 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         result = self._get_actors(trends_query=source_query, day="2023-04-29T16:00:00Z")
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person1")
-        self.assertEqual(get_event_count(result[0]), 1)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person1"
+        assert get_event_count(result[0]) == 1
 
         result = self._get_actors(trends_query=source_query, day="2023-04-29T16:01:00Z")
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
         result = self._get_actors(trends_query=source_query, day="2023-04-29T17:00:00Z")
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person2")
-        self.assertEqual(get_event_count(result[0]), 1)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person2"
+        assert get_event_count(result[0]) == 1
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01T16:00:00Z")
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person3")
-        self.assertEqual(get_event_count(result[0]), 1)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person3"
+        assert get_event_count(result[0]) == 1
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01T17:00:00Z")
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01T18:00:00Z")
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
     def test_trends_math_first_time_for_user_all_events(self):
         self._create_events()
@@ -1598,14 +1584,14 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         result = self._get_actors(trends_query=source_query, day="2023-04-01")
-        self.assertEqual(len(result), 2)
-        self.assertEqual({get_distinct_id(result[0]), get_distinct_id(result[1])}, {"person1", "person2"})
-        self.assertEqual({get_event_count(result[0]), get_event_count(result[1])}, {1})
+        assert len(result) == 2
+        assert {get_distinct_id(result[0]), get_distinct_id(result[1])} == {"person1", "person2"}
+        assert {get_event_count(result[0]), get_event_count(result[1])} == {1}
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01")
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person3")
-        self.assertEqual(get_event_count(result[0]), 1)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person3"
+        assert get_event_count(result[0]) == 1
 
         _create_event(
             event="$random",
@@ -1616,19 +1602,19 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         result = self._get_actors(trends_query=source_query, day="2023-04-01")
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person2")
-        self.assertEqual(get_event_count(result[0]), 1)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person2"
+        assert get_event_count(result[0]) == 1
 
         result = self._get_actors(trends_query=source_query, day="2023-03-01")
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person1")
-        self.assertEqual(get_event_count(result[0]), 1)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person1"
+        assert get_event_count(result[0]) == 1
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01")
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person3")
-        self.assertEqual(get_event_count(result[0]), 1)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person3"
+        assert get_event_count(result[0]) == 1
 
     def test_trends_math_first_time_for_user_actions(self):
         self._create_events()
@@ -1655,14 +1641,14 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         result = self._get_actors(trends_query=source_query, day="2023-04-01")
-        self.assertEqual(len(result), 2)
-        self.assertEqual({get_distinct_id(result[0]), get_distinct_id(result[1])}, {"person1", "person2"})
-        self.assertEqual({get_event_count(result[0]), get_event_count(result[1])}, {1})
+        assert len(result) == 2
+        assert {get_distinct_id(result[0]), get_distinct_id(result[1])} == {"person1", "person2"}
+        assert {get_event_count(result[0]), get_event_count(result[1])} == {1}
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01")
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person3")
-        self.assertEqual(get_event_count(result[0]), 1)
+        assert len(result) == 1
+        assert get_distinct_id(result[0]) == "person3"
+        assert get_event_count(result[0]) == 1
 
         action = Action.objects.create(
             team=self.team,
@@ -1694,9 +1680,9 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         result = self._get_actors(trends_query=source_query, day="2023-04-01")
-        self.assertEqual(len(result), 2)
-        self.assertEqual({get_distinct_id(result[0]), get_distinct_id(result[1])}, {"person1", "person3"})
-        self.assertEqual({get_event_count(result[0]), get_event_count(result[1])}, {1})
+        assert len(result) == 2
+        assert {get_distinct_id(result[0]), get_distinct_id(result[1])} == {"person1", "person3"}
+        assert {get_event_count(result[0]), get_event_count(result[1])} == {1}
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01")
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0

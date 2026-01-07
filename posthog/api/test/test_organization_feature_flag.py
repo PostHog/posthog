@@ -49,7 +49,7 @@ class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
         url = f"/api/organizations/{self.organization.id}/feature_flags/{self.feature_flag_key}"
         response = self.client.get(url)
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         expected_data = [
             {
@@ -62,14 +62,14 @@ class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
             }
             for flag in [self.feature_flag_1, self.feature_flag_2]
         ]
-        self.assertCountEqual(response.json(), expected_data)
+        assert sorted(response.json(), key=lambda x: x["flag_id"]) == sorted(expected_data, key=lambda x: x["flag_id"])
 
     def test_get_feature_flag_not_found(self):
         url = f"/api/organizations/{self.organization.id}/feature_flags/nonexistent-flag"
         response = self.client.get(url)
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), [])
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == []
 
     def test_get_feature_flag_unauthorized(self):
         self.client.logout()
@@ -77,7 +77,7 @@ class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
         url = f"/api/organizations/{self.organization.id}/feature_flags/{self.feature_flag_key}"
         response = self.client.get(url)
 
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
 
 class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
@@ -115,9 +115,9 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         }
         response = self.client.post(url, data)
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("success", response.json())
-        self.assertIn("failed", response.json())
+        assert response.status_code == status.HTTP_200_OK
+        assert "success" in response.json()
+        assert "failed" in response.json()
 
         # Check copied flag in the response
         expected_flag_response = {
@@ -202,9 +202,9 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         }
         response = self.client.post(url, data)
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("success", response.json())
-        self.assertIn("failed", response.json())
+        assert response.status_code == status.HTTP_200_OK
+        assert "success" in response.json()
+        assert "failed" in response.json()
 
         # Check copied flag in the response
         expected_flag_response = {
@@ -273,9 +273,9 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         }
         response = self.client.post(url, data)
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["success"]), 1)
-        self.assertEqual(len(response.json()["failed"]), 0)
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["success"]) == 1
+        assert len(response.json()["failed"]) == 0
 
     def test_copy_feature_flag_update_override_deleted(self):
         target_project = self.team_2
@@ -336,9 +336,9 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         }
         response = self.client.post(url, data)
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("success", response.json())
-        self.assertIn("failed", response.json())
+        assert response.status_code == status.HTTP_200_OK
+        assert "success" in response.json()
+        assert "failed" in response.json()
 
         # Check copied flag in the response
         expected_flag_response = {
@@ -381,17 +381,17 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         assert flag_response["created_by"]["id"] == self.user.id
 
         # Linked instances must be overridden for a soft-deleted flag
-        self.assertEqual(flag_response["experiment_set"], [])
-        self.assertEqual(flag_response["surveys"], [])
-        self.assertNotEqual(flag_response["usage_dashboard"], existing_deleted_flag.usage_dashboard.id)
-        self.assertEqual(flag_response["analytics_dashboards"], [])
+        assert flag_response["experiment_set"] == []
+        assert flag_response["surveys"] == []
+        assert flag_response["usage_dashboard"] != existing_deleted_flag.usage_dashboard.id
+        assert flag_response["analytics_dashboards"] == []
 
         # target_project_2 should have failed
-        self.assertEqual(len(response.json()["failed"]), 1)
-        self.assertEqual(response.json()["failed"][0]["project_id"], target_project_2.id)
-        self.assertEqual(
-            response.json()["failed"][0]["errors"],
-            "[ErrorDetail(string='Feature flag with this key already exists and is used in an experiment. Please delete the experiment before deleting the flag.', code='invalid')]",
+        assert len(response.json()["failed"]) == 1
+        assert response.json()["failed"][0]["project_id"] == target_project_2.id
+        assert (
+            response.json()["failed"][0]["errors"]
+            == "[ErrorDetail(string='Feature flag with this key already exists and is used in an experiment. Please delete the experiment before deleting the flag.', code='invalid')]"
         )
 
     def test_copy_feature_flag_missing_fields(self):
@@ -399,8 +399,8 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         data: dict[str, Any] = {}
         response = self.client.post(url, data)
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("error", response.json())
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "error" in response.json()
 
     def test_copy_feature_flag_nonexistent_key(self):
         url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
@@ -411,8 +411,8 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         }
         response = self.client.post(url, data)
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("error", response.json())
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "error" in response.json()
 
     def test_copy_feature_flag_to_nonexistent_target(self):
         url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
@@ -424,10 +424,10 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         }
 
         response = self.client.post(url, data)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["success"]), 0)
-        self.assertEqual(len(response.json()["failed"]), 1)
-        self.assertEqual(nonexistent_project_id, response.json()["failed"][0]["project_id"])
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["success"]) == 0
+        assert len(response.json()["failed"]) == 1
+        assert nonexistent_project_id == response.json()["failed"][0]["project_id"]
 
     def test_copy_feature_flag_unauthorized(self):
         self.client.logout()
@@ -439,7 +439,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         }
         response = self.client.post(url, data)
 
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_copy_feature_flag_cohort_nonexistent_in_destination(self):
         cohorts = {}
@@ -501,12 +501,12 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         }
         response = self.client.post(url, data)
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         # check all cohorts were created in the destination project
         for name in creation_order:
             found_cohort = Cohort.objects.filter(name=str(name), team_id=target_project.id).exists()
-            self.assertTrue(found_cohort)
+            assert found_cohort
 
     def test_copy_feature_flag_cohort_nonexistent_in_destination_2(self):
         feature_flag_key = "flag-with-cohort"
@@ -574,19 +574,19 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         }
         response = self.client.post(url, data)
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         # check all cohorts were created in the destination project
         for name in cohorts.keys():
             found_cohort = Cohort.objects.filter(name=name, team_id=target_project.id)[0]
-            self.assertTrue(found_cohort)
+            assert found_cohort
 
         # destination flag contains the head cohort
         destination_flag = FeatureFlag.objects.get(key=feature_flag_key, team_id=target_project.id)
         destination_flag_head_cohort_id = destination_flag.filters["groups"][0]["properties"][0]["value"]
         destination_head_cohort = Cohort.objects.get(pk=destination_flag_head_cohort_id, team_id=target_project.id)
-        self.assertEqual(destination_head_cohort.name, head_cohort.name)
-        self.assertNotEqual(destination_head_cohort.id, head_cohort.id)
+        assert destination_head_cohort.name == head_cohort.name
+        assert destination_head_cohort.id != head_cohort.id
 
         # get topological order of the original cohorts
         original_cohorts_cache = {}
@@ -604,7 +604,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         def traverse(cohort, index):
             expected_cohort_id = topologically_sorted_original_cohort_ids_reversed[index]
             expected_name = original_cohorts_cache[expected_cohort_id].name
-            self.assertEqual(expected_name, cohort.name)
+            assert expected_name == cohort.name
 
             prop = cohort.filters["properties"]["values"][0]
             if prop["type"] == "cohort":
@@ -659,14 +659,14 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         }
         response = self.client.post(url, data)
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         destination_cohort = Cohort.objects.filter(name=cohort_name, team=target_project).first()
-        self.assertTrue(destination_cohort is not None)
+        assert destination_cohort is not None
         # check destination value not overwritten
 
         if destination_cohort is not None:
-            self.assertTrue(destination_cohort.groups[0]["properties"][0]["value"] == destination_cohort_prop_value)
+            assert destination_cohort.groups[0]["properties"][0]["value"] == destination_cohort_prop_value
 
     def test_copy_remote_config_flag_preserves_type(self):
         """Test that copying a remote config flag preserves the is_remote_configuration field."""
@@ -690,19 +690,19 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         }
         response = self.client.post(url, data)
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("success", response.json())
-        self.assertEqual(len(response.json()["success"]), 1)
+        assert response.status_code == status.HTTP_200_OK
+        assert "success" in response.json()
+        assert len(response.json()["success"]) == 1
 
         flag_response = response.json()["success"][0]
-        self.assertEqual(flag_response["is_remote_configuration"], True)
-        self.assertEqual(flag_response["has_encrypted_payloads"], False)
-        self.assertEqual(flag_response["key"], remote_config_flag.key)
+        assert flag_response["is_remote_configuration"]
+        assert not flag_response["has_encrypted_payloads"]
+        assert flag_response["key"] == remote_config_flag.key
 
         # Verify the flag in the database
         copied_flag = FeatureFlag.objects.get(key=remote_config_flag.key, team=target_project)
-        self.assertTrue(copied_flag.is_remote_configuration)
-        self.assertFalse(copied_flag.has_encrypted_payloads)
+        assert copied_flag.is_remote_configuration
+        assert not copied_flag.has_encrypted_payloads
 
     def test_copy_encrypted_payloads_flag(self):
         """Test that copying a flag with encrypted payloads decrypts them before copying."""
@@ -735,25 +735,25 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         }
         response = self.client.post(url, data)
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("success", response.json())
-        self.assertEqual(len(response.json()["success"]), 1)
+        assert response.status_code == status.HTTP_200_OK
+        assert "success" in response.json()
+        assert len(response.json()["success"]) == 1
 
         flag_response = response.json()["success"][0]
-        self.assertEqual(flag_response["is_remote_configuration"], True)
-        self.assertEqual(flag_response["has_encrypted_payloads"], True)
-        self.assertEqual(flag_response["key"], encrypted_flag.key)
+        assert flag_response["is_remote_configuration"]
+        assert flag_response["has_encrypted_payloads"]
+        assert flag_response["key"] == encrypted_flag.key
 
         # Verify the flag in the database has encrypted payloads
         copied_flag = FeatureFlag.objects.get(key=encrypted_flag.key, team=target_project)
-        self.assertTrue(copied_flag.is_remote_configuration)
-        self.assertTrue(copied_flag.has_encrypted_payloads)
+        assert copied_flag.is_remote_configuration
+        assert copied_flag.has_encrypted_payloads
 
         # Verify the encrypted payload can be decrypted back to the original value
         from posthog.helpers.encrypted_flag_payloads import get_decrypted_flag_payload
 
         decrypted_payload = get_decrypted_flag_payload(copied_flag.filters["payloads"]["true"], should_decrypt=True)
-        self.assertEqual(decrypted_payload, '{"key": "secret_value"}')
+        assert decrypted_payload == '{"key": "secret_value"}'
 
     def test_copy_encrypted_payloads_flag_to_multiple_projects(self):
         """Test that copying a flag with encrypted payloads to multiple projects works correctly."""
@@ -790,16 +790,16 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         }
         response = self.client.post(url, data)
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("success", response.json())
-        self.assertEqual(len(response.json()["success"]), 2)
+        assert response.status_code == status.HTTP_200_OK
+        assert "success" in response.json()
+        assert len(response.json()["success"]) == 2
 
         # Verify both copied flags have correctly encrypted payloads
         for target_team in [self.team_2, team_3]:
             copied_flag = FeatureFlag.objects.get(key=encrypted_flag.key, team=target_team)
-            self.assertTrue(copied_flag.is_remote_configuration)
-            self.assertTrue(copied_flag.has_encrypted_payloads)
+            assert copied_flag.is_remote_configuration
+            assert copied_flag.has_encrypted_payloads
 
             # Verify the encrypted payload can be decrypted back to the original value
             decrypted_payload = get_decrypted_flag_payload(copied_flag.filters["payloads"]["true"], should_decrypt=True)
-            self.assertEqual(decrypted_payload, '{"key": "secret_value"}')
+            assert decrypted_payload == '{"key": "secret_value"}'

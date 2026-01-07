@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import APIBaseTest
 
 from posthog.schema import DateRange, WebOverviewQuery
@@ -47,7 +48,7 @@ class TestWebAnalyticsRBAC(APIBaseTest):
         )
         runner = WebOverviewQueryRunner(team=self.team, query=query)
 
-        with self.assertRaises(UserAccessControlError):
+        with pytest.raises(UserAccessControlError):
             runner.validate_query_runner_access(self.user)
 
     def test_validate_query_runner_access_with_manager(self):

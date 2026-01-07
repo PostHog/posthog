@@ -75,10 +75,10 @@ class TestRefreshHogFunctions(BaseTest):
         assert mock_reload.call_count == 3
 
         output = out.getvalue()
-        self.assertIn("Found 3 HogFunctions to process", output)
-        self.assertIn("Processed: 3", output)
-        self.assertIn("Updated: 3", output)
-        self.assertIn("Errors: 0", output)
+        assert "Found 3 HogFunctions to process" in output
+        assert "Processed: 3" in output
+        assert "Updated: 3" in output
+        assert "Errors: 0" in output
 
     @patch("posthog.models.hog_functions.hog_function.reload_hog_functions_on_workers")
     def test_refresh_by_team_id(self, mock_reload):
@@ -92,9 +92,9 @@ class TestRefreshHogFunctions(BaseTest):
         assert mock_reload.call_count == 2
 
         output = out.getvalue()
-        self.assertIn(f"Processing HogFunctions for team: {self.team.id}", output)
-        self.assertIn("Found 2 HogFunctions to process", output)
-        self.assertIn("Updated: 2", output)
+        assert f"Processing HogFunctions for team: {self.team.id}" in output
+        assert "Found 2 HogFunctions to process" in output
+        assert "Updated: 2" in output
 
     @patch("posthog.models.hog_functions.hog_function.reload_hog_functions_on_workers")
     def test_refresh_by_hog_function_id(self, mock_reload):
@@ -107,9 +107,9 @@ class TestRefreshHogFunctions(BaseTest):
         assert mock_reload.call_count == 1
 
         output = out.getvalue()
-        self.assertIn(f"Processing single HogFunction: {self.hog_function1.id}", output)
-        self.assertIn("Found 1 HogFunctions to process", output)
-        self.assertIn("Updated: 1", output)
+        assert f"Processing single HogFunction: {self.hog_function1.id}" in output
+        assert "Found 1 HogFunctions to process" in output
+        assert "Updated: 1" in output
 
     @patch("posthog.models.hog_functions.hog_function.reload_hog_functions_on_workers")
     def test_nonexistent_team_id(self, mock_reload):
@@ -121,8 +121,8 @@ class TestRefreshHogFunctions(BaseTest):
         assert mock_reload.call_count == 0
 
         output = out.getvalue()
-        self.assertIn("Found 0 HogFunctions to process", output)
-        self.assertIn("No HogFunctions found matching criteria", output)
+        assert "Found 0 HogFunctions to process" in output
+        assert "No HogFunctions found matching criteria" in output
 
     @patch("posthog.models.hog_functions.hog_function.reload_hog_functions_on_workers")
     def test_nonexistent_hog_function_id(self, mock_reload):
@@ -136,5 +136,5 @@ class TestRefreshHogFunctions(BaseTest):
         assert mock_reload.call_count == 0
 
         output = out.getvalue()
-        self.assertIn("Found 0 HogFunctions to process", output)
-        self.assertIn("No HogFunctions found matching criteria", output)
+        assert "Found 0 HogFunctions to process" in output
+        assert "No HogFunctions found matching criteria" in output

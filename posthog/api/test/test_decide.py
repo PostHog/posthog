@@ -2,7 +2,7 @@ import json
 import time
 import base64
 import random
-from typing import Any, Optional
+from typing import Any
 
 import pytest
 from freezegun import freeze_time
@@ -48,7 +48,7 @@ from posthog.models.utils import generate_random_token_personal
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
-def make_session_recording_decide_response(overrides: Optional[dict] = None) -> dict:
+def make_session_recording_decide_response(overrides: dict | None = None) -> dict:
     if overrides is None:
         overrides = {}
 
@@ -109,8 +109,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
         geoip_disable=False,
         ip="127.0.0.1",
         disable_flags=False,
-        user_agent: Optional[str] = None,
-        assert_num_queries: Optional[int] = None,
+        user_agent: str | None = None,
+        assert_num_queries: int | None = None,
         simulate_database_timeout: bool = False,
         only_evaluate_survey_feature_flags: bool = False,
     ):
@@ -179,10 +179,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
             total_queries = sum(len(ctx) for ctx in query_contexts.values())
             queries_by_db = ", ".join(f"{len(ctx)} to {db}" for db, ctx in query_contexts.items() if len(ctx) > 0)
-            self.assertEqual(
-                total_queries,
-                assert_num_queries,
-                f"{total_queries} queries executed ({queries_by_db}), {assert_num_queries} expected",
+            assert total_queries == assert_num_queries, (
+                f"{total_queries} queries executed ({queries_by_db}), {assert_num_queries} expected"
             )
             return result
         else:
@@ -194,7 +192,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         client.force_login(self.user)
 
         response = client.patch("/api/environments/@current/", data, content_type="application/json")
-        self.assertEqual(response.status_code, expected_status_code)
+        assert response.status_code == expected_status_code
 
         client.logout()
 
@@ -221,7 +219,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             },
             headers={"origin": "http://127.0.0.1:8000"},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_user_on_evil_site(self, *args):
         user = self.organization.members.first()
@@ -232,24 +230,24 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.team.app_urls = ["https://example.com"]
         self.team.save()
         response = self.client.get("/decide/", headers={"origin": "https://evilsite.com"}).json()
-        self.assertEqual(response["isAuthenticated"], False)
-        self.assertIsNone(response["toolbarParams"].get("toolbarVersion", None))
+        assert not response["isAuthenticated"]
+        assert response["toolbarParams"].get("toolbarVersion", None) is None
 
     def test_user_session_recording_opt_in(self, *args):
         # :TRICKY: Test for regression around caching
         response = self._post_decide().json()
-        self.assertEqual(response["sessionRecording"], False)
+        assert not response["sessionRecording"]
 
         self._update_team({"session_recording_opt_in": True})
 
         response = self._post_decide().json()
         assert response["sessionRecording"] == make_session_recording_decide_response()
-        self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
+        assert response["supportedCompression"] == ["gzip", "gzip-js"]
 
     def test_user_console_log_opt_in(self, *args):
         # :TRICKY: Test for regression around caching
         response = self._post_decide().json()
-        self.assertEqual(response["sessionRecording"], False)
+        assert not response["sessionRecording"]
 
         self._update_team({"session_recording_opt_in": True, "capture_console_log_opt_in": True})
 
@@ -259,15 +257,16 @@ class TestDecide(BaseTest, QueryMatchingTest):
     def test_user_performance_opt_in(self, *args):
         # :TRICKY: Test for regression around caching
         response = self._post_decide().json()
-        self.assertEqual(
-            response["capturePerformance"],
-            {"network_timing": True, "web_vitals": False, "web_vitals_allowed_metrics": None},
-        )
+        assert response["capturePerformance"] == {
+            "network_timing": True,
+            "web_vitals": False,
+            "web_vitals_allowed_metrics": None,
+        }
 
         self._update_team({"capture_performance_opt_in": False})
 
         response = self._post_decide().json()
-        self.assertEqual(response["capturePerformance"], False)
+        assert not response["capturePerformance"]
 
     def test_session_recording_sample_rate(self, *args):
         # :TRICKY: Test for regression around caching
@@ -284,7 +283,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self._update_team({"session_recording_sample_rate": 0.8})
 
         response = self._post_decide().json()
-        self.assertEqual(response["sessionRecording"]["sampleRate"], "0.80")
+        assert response["sessionRecording"]["sampleRate"] == "0.80"
 
     def test_session_recording_sample_rate_of_0_is_not_treated_as_no_sampling(self, *args):
         # :TRICKY: Test for regression around caching
@@ -301,7 +300,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self._update_team({"session_recording_sample_rate": 0.0})
 
         response = self._post_decide().json()
-        self.assertEqual(response["sessionRecording"]["sampleRate"], "0.00")
+        assert response["sessionRecording"]["sampleRate"] == "0.00"
 
     def test_session_recording_sample_rate_of_1_is_treated_as_no_sampling(self, *args):
         # :TRICKY: Test for regression around caching
@@ -318,7 +317,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self._update_team({"session_recording_sample_rate": 1.0})
 
         response = self._post_decide().json()
-        self.assertEqual(response["sessionRecording"]["sampleRate"], None)
+        assert response["sessionRecording"]["sampleRate"] is None
 
     def test_session_recording_minimum_duration(self, *args):
         # :TRICKY: Test for regression around caching
@@ -335,7 +334,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self._update_team({"session_recording_minimum_duration_milliseconds": 800})
 
         response = self._post_decide().json()
-        self.assertEqual(response["sessionRecording"]["minimumDurationMilliseconds"], 800)
+        assert response["sessionRecording"]["minimumDurationMilliseconds"] == 800
 
     def test_session_recording_sample_rate_of_0_is_treated_as_no_sampling(self, *args):
         # :TRICKY: Test for regression around caching
@@ -352,7 +351,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self._update_team({"session_recording_minimum_duration_milliseconds": 0})
 
         response = self._post_decide().json()
-        self.assertEqual(response["sessionRecording"]["minimumDurationMilliseconds"], None)
+        assert response["sessionRecording"]["minimumDurationMilliseconds"] is None
 
     def test_session_recording_linked_flag(self, *args):
         # :TRICKY: Test for regression around caching
@@ -369,7 +368,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self._update_team({"session_recording_linked_flag": {"id": 12, "key": "my-flag"}})
 
         response = self._post_decide().json()
-        self.assertEqual(response["sessionRecording"]["linkedFlag"], "my-flag")
+        assert response["sessionRecording"]["linkedFlag"] == "my-flag"
 
     def test_session_recording_linked_flag_variant(self, *args):
         # :TRICKY: Test for regression around caching
@@ -386,7 +385,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self._update_team({"session_recording_linked_flag": {"id": 12, "key": "my-flag", "variant": "test"}})
 
         response = self._post_decide().json()
-        self.assertEqual(response["sessionRecording"]["linkedFlag"], {"flag": "my-flag", "variant": "test"})
+        assert response["sessionRecording"]["linkedFlag"] == {"flag": "my-flag", "variant": "test"}
 
     def test_session_recording_url_trigger_patterns(self, *args):
         self._update_team(
@@ -500,7 +499,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         response = self._post_decide().json()
-        self.assertEqual(response["sessionRecording"]["networkPayloadCapture"], {"recordHeaders": True})
+        assert response["sessionRecording"]["networkPayloadCapture"] == {"recordHeaders": True}
 
     @parameterized.expand(
         [
@@ -519,7 +518,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         ]
     )
     def test_session_recording_masking_config(
-        self, _name: str, config: Optional[dict], expected: Optional[dict], *args
+        self, _name: str, config: dict | None, expected: dict | None, *args
     ):
         self._update_team(
             {
@@ -570,9 +569,9 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         response = self._post_decide().json()
-        self.assertEqual(response["sessionRecording"]["recordCanvas"], True)
-        self.assertEqual(response["sessionRecording"]["canvasFps"], 3)
-        self.assertEqual(response["sessionRecording"]["canvasQuality"], "0.4")
+        assert response["sessionRecording"]["recordCanvas"]
+        assert response["sessionRecording"]["canvasFps"] == 3
+        assert response["sessionRecording"]["canvasQuality"] == "0.4"
 
     @parameterized.expand(
         [
@@ -651,48 +650,52 @@ class TestDecide(BaseTest, QueryMatchingTest):
     def test_exception_autocapture_opt_in(self, *args):
         # :TRICKY: Test for regression around caching
         response = self._post_decide().json()
-        self.assertEqual(response["autocaptureExceptions"], False)
+        assert not response["autocaptureExceptions"]
 
         self._update_team({"autocapture_exceptions_opt_in": True})
 
         response = self._post_decide().json()
-        self.assertEqual(response["autocaptureExceptions"], True)
+        assert response["autocaptureExceptions"]
 
     def test_web_vitals_autocapture_opt_in(self, *args):
         response = self._post_decide().json()
-        self.assertEqual(
-            response["capturePerformance"],
-            {"web_vitals": False, "network_timing": True, "web_vitals_allowed_metrics": None},
-        )
+        assert response["capturePerformance"] == {
+            "web_vitals": False,
+            "network_timing": True,
+            "web_vitals_allowed_metrics": None,
+        }
 
         self._update_team({"autocapture_web_vitals_opt_in": True})
 
         response = self._post_decide().json()
-        self.assertEqual(
-            response["capturePerformance"],
-            {"web_vitals": True, "network_timing": True, "web_vitals_allowed_metrics": None},
-        )
+        assert response["capturePerformance"] == {
+            "web_vitals": True,
+            "network_timing": True,
+            "web_vitals_allowed_metrics": None,
+        }
 
     def test_web_vitals_autocapture_allowed_metrics(self, *args):
         response = self._post_decide().json()
-        self.assertEqual(
-            response["capturePerformance"],
-            {"web_vitals": False, "network_timing": True, "web_vitals_allowed_metrics": None},
-        )
+        assert response["capturePerformance"] == {
+            "web_vitals": False,
+            "network_timing": True,
+            "web_vitals_allowed_metrics": None,
+        }
 
         self._update_team({"autocapture_web_vitals_opt_in": True})
         self._update_team({"autocapture_web_vitals_allowed_metrics": ["CLS", "FCP"]})
 
         response = self._post_decide().json()
-        self.assertEqual(
-            response["capturePerformance"],
-            {"web_vitals": True, "network_timing": True, "web_vitals_allowed_metrics": ["CLS", "FCP"]},
-        )
+        assert response["capturePerformance"] == {
+            "web_vitals": True,
+            "network_timing": True,
+            "web_vitals_allowed_metrics": ["CLS", "FCP"],
+        }
 
     def test_user_session_recording_domain_opt_in_wildcard(self, *args):
         # :TRICKY: Test for regression around caching
         response = self._post_decide().json()
-        self.assertEqual(response["sessionRecording"], False)
+        assert not response["sessionRecording"]
 
         self._update_team(
             {
@@ -703,11 +706,11 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         response = self._post_decide(origin="https://random.example.com").json()
         assert response["sessionRecording"] == make_session_recording_decide_response()
-        self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
+        assert response["supportedCompression"] == ["gzip", "gzip-js"]
 
         # Make sure the domain matches exactly
         response = self._post_decide(origin="https://random.example.com.evilsite.com").json()
-        self.assertEqual(response["sessionRecording"], False)
+        assert not response["sessionRecording"]
 
     def test_user_session_recording_domain_not_allowed(self, *args):
         self._update_team(
@@ -726,36 +729,36 @@ class TestDecide(BaseTest, QueryMatchingTest):
     def test_user_autocapture_opt_out(self, *args):
         # :TRICKY: Test for regression around caching
         response = self._post_decide().json()
-        self.assertEqual(response["autocapture_opt_out"], False)
+        assert not response["autocapture_opt_out"]
 
         self._update_team({"autocapture_opt_out": True})
 
         response = self._post_decide().json()
-        self.assertEqual(response["autocapture_opt_out"], True)
+        assert response["autocapture_opt_out"]
 
     def test_user_heatmaps_opt_in(self, *args):
         # :TRICKY: Test for regression around caching
         response = self._post_decide().json()
-        self.assertEqual(response["heatmaps"], False)
+        assert not response["heatmaps"]
 
         self._update_team({"heatmaps_opt_in": True})
 
         response = self._post_decide().json()
-        self.assertEqual(response["heatmaps"], True)
+        assert response["heatmaps"]
 
     def test_user_capture_dead_clicks_opt_in(self, *args):
         # :TRICKY: Test for regression around caching
         response = self._post_decide().json()
-        self.assertEqual(response["captureDeadClicks"], False)
+        assert not response["captureDeadClicks"]
 
         self._update_team({"capture_dead_clicks": True})
 
         response = self._post_decide().json()
-        self.assertEqual(response["captureDeadClicks"], True)
+        assert response["captureDeadClicks"]
 
     def test_conversations_disabled_by_default(self, *args):
         response = self._post_decide().json()
-        self.assertEqual(response.get("conversations"), False)
+        assert not response.get("conversations")
 
     def test_conversations_enabled_with_defaults(self, *args):
         self.team.conversations_enabled = True
@@ -766,12 +769,12 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.team.save()
 
         response = self._post_decide().json()
-        self.assertEqual(response["conversations"]["enabled"], True)
-        self.assertEqual(response["conversations"]["widgetEnabled"], True)
-        self.assertEqual(response["conversations"]["greetingText"], "Hey, how can I help you today?")
-        self.assertEqual(response["conversations"]["color"], "#1d4aff")
-        self.assertEqual(response["conversations"]["token"], "test_public_token_123")
-        self.assertEqual(response["conversations"]["domains"], [])
+        assert response["conversations"]["enabled"]
+        assert response["conversations"]["widgetEnabled"]
+        assert response["conversations"]["greetingText"] == "Hey, how can I help you today?"
+        assert response["conversations"]["color"] == "#1d4aff"
+        assert response["conversations"]["token"] == "test_public_token_123"
+        assert response["conversations"]["domains"] == []
 
     def test_conversations_enabled_with_custom_config(self, *args):
         self.team.conversations_enabled = True
@@ -785,12 +788,12 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.team.save()
 
         response = self._post_decide().json()
-        self.assertEqual(response["conversations"]["enabled"], True)
-        self.assertEqual(response["conversations"]["widgetEnabled"], True)
-        self.assertEqual(response["conversations"]["greetingText"], "Welcome! Need assistance?")
-        self.assertEqual(response["conversations"]["color"], "#ff5733")
-        self.assertEqual(response["conversations"]["token"], "custom_token")
-        self.assertEqual(response["conversations"]["domains"], ["example.com", "test.com"])
+        assert response["conversations"]["enabled"]
+        assert response["conversations"]["widgetEnabled"]
+        assert response["conversations"]["greetingText"] == "Welcome! Need assistance?"
+        assert response["conversations"]["color"] == "#ff5733"
+        assert response["conversations"]["token"] == "custom_token"
+        assert response["conversations"]["domains"] == ["example.com", "test.com"]
 
     def test_conversations_disabled_returns_false(self, *args):
         self.team.conversations_enabled = False
@@ -801,7 +804,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.team.save()
 
         response = self._post_decide().json()
-        self.assertEqual(response["conversations"], False)
+        assert not response["conversations"]
 
     def test_conversations_with_empty_greeting_uses_default(self, *args):
         self.team.conversations_enabled = True
@@ -813,7 +816,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.team.save()
 
         response = self._post_decide().json()
-        self.assertEqual(response["conversations"]["greetingText"], "Hey, how can I help you today?")
+        assert response["conversations"]["greetingText"] == "Hey, how can I help you today?"
 
     def test_user_session_recording_allowed_when_no_permitted_domains_are_set(self, *args):
         self._update_team({"session_recording_opt_in": True, "recording_domains": []})
@@ -847,7 +850,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
     @snapshot_postgres_queries
     def test_web_app_queries(self, *args):
         response = self._post_decide(assert_num_queries=2)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         plugin = Plugin.objects.create(organization=self.team.organization, name="My Plugin", plugin_type="source")
         PluginSourceFile.objects.create(
@@ -870,9 +873,9 @@ class TestDecide(BaseTest, QueryMatchingTest):
         # caching flag definitions in the above mean fewer queries
         # 3 of these queries are just for setting transaction scope
         response = self._post_decide(assert_num_queries=0 if self.use_remote_config else 4)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         injected = response.json()["siteApps"]
-        self.assertEqual(len(injected), 1)
+        assert len(injected) == 1
 
     def test_site_app_injection(self, *args):
         plugin = Plugin.objects.create(organization=self.team.organization, name="My Plugin", plugin_type="source")
@@ -892,12 +895,12 @@ class TestDecide(BaseTest, QueryMatchingTest):
             web_token="tokentoken",
         )
         self.team.refresh_from_db()
-        self.assertTrue(self.team.inject_web_apps)
+        assert self.team.inject_web_apps
         response = self._post_decide(assert_num_queries=1 if self.use_remote_config else 5)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         injected = response.json()["siteApps"]
-        self.assertEqual(len(injected), 1)
-        self.assertTrue(injected[0]["url"].startswith(f"/site_app/{plugin_config.id}/{plugin_config.web_token}/"))
+        assert len(injected) == 1
+        assert injected[0]["url"].startswith(f"/site_app/{plugin_config.id}/{plugin_config.web_token}/")
 
     def test_feature_flags(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -953,15 +956,15 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         response = self._post_decide(assert_num_queries=5)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("default-flag", response.json()["featureFlags"])
-        self.assertIn("beta-feature", response.json()["featureFlags"])
-        self.assertIn("filer-by-property-2", response.json()["featureFlags"])
+        assert response.status_code == status.HTTP_200_OK
+        assert "default-flag" in response.json()["featureFlags"]
+        assert "beta-feature" in response.json()["featureFlags"]
+        assert "filer-by-property-2" in response.json()["featureFlags"]
 
         # caching flag definitions in the above query mean fewer queries
         response = self._post_decide({"token": self.team.api_token, "distinct_id": "another_id"}, assert_num_queries=4)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["featureFlags"], ["default-flag"])
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["featureFlags"] == ["default-flag"]
 
     def test_feature_flags_v3_json(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -996,12 +999,9 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         response = self._post_decide(api_version=3, assert_num_queries=5)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
-        self.assertEqual(
-            {"color": "blue"},
-            response.json()["featureFlagPayloads"]["filter-by-property"],
-        )
+        assert {"color": "blue"} == response.json()["featureFlagPayloads"]["filter-by-property"]
 
     def test_feature_flags_v3_json_multivariate(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -1058,17 +1058,14 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         # caching flag definitions mean fewer queries
         response = self._post_decide(api_version=2, assert_num_queries=0)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("beta-feature", response.json()["featureFlags"])
-        self.assertEqual("first-variant", response.json()["featureFlags"]["multivariate-flag"])
+        assert response.status_code == status.HTTP_200_OK
+        assert "beta-feature" in response.json()["featureFlags"]
+        assert "first-variant" == response.json()["featureFlags"]["multivariate-flag"]
 
         response = self._post_decide(api_version=3, assert_num_queries=0)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual("first-variant", response.json()["featureFlags"]["multivariate-flag"])
-        self.assertEqual(
-            {"color": "blue"},
-            response.json()["featureFlagPayloads"]["multivariate-flag"],
-        )
+        assert response.status_code == status.HTTP_200_OK
+        assert "first-variant" == response.json()["featureFlags"]["multivariate-flag"]
+        assert {"color": "blue"} == response.json()["featureFlagPayloads"]["multivariate-flag"]
 
     def test_feature_flags_v4_json(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -1116,50 +1113,26 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
             version=42,
         )
-        self.assertEqual(mvFlag.version, 42)
+        assert mvFlag.version == 42
 
         response = self._post_decide(api_version=4, assert_num_queries=0)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         flags = response.json()["flags"]
-        self.assertEqual(
-            flags["beta-feature"],
-            {
-                "key": "beta-feature",
-                "enabled": False,
-                "variant": None,
-                "reason": {
-                    "code": "out_of_rollout_bound",
-                    "condition_index": 0,
-                    "description": "Out of rollout bound",
-                },
-                "metadata": {
-                    "id": bf.id,
-                    "version": 1,
-                    "description": None,
-                    "payload": None,
-                },
-            },
-        )
-        self.assertEqual(
-            flags["multivariate-flag"],
-            {
-                "key": "multivariate-flag",
-                "enabled": True,
-                "variant": "first-variant",
-                "reason": {
-                    "code": "condition_match",
-                    "condition_index": 0,
-                    "description": "Matched condition set 1",
-                },
-                "metadata": {
-                    "id": mvFlag.id,
-                    "version": 42,
-                    "description": None,
-                    "payload": {"color": "blue"},
-                },
-            },
-        )
+        assert flags["beta-feature"] == {
+            "key": "beta-feature",
+            "enabled": False,
+            "variant": None,
+            "reason": {"code": "out_of_rollout_bound", "condition_index": 0, "description": "Out of rollout bound"},
+            "metadata": {"id": bf.id, "version": 1, "description": None, "payload": None},
+        }
+        assert flags["multivariate-flag"] == {
+            "key": "multivariate-flag",
+            "enabled": True,
+            "variant": "first-variant",
+            "reason": {"code": "condition_match", "condition_index": 0, "description": "Matched condition set 1"},
+            "metadata": {"id": mvFlag.id, "version": 42, "description": None, "payload": {"color": "blue"}},
+        }
 
     def test_feature_flags_v2(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -1214,23 +1187,21 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         response = self._post_decide(api_version=1, assert_num_queries=0)  # v1 functionality should not break
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("beta-feature", response.json()["featureFlags"])
-        self.assertIn("default-flag", response.json()["featureFlags"])
+        assert response.status_code == status.HTTP_200_OK
+        assert "beta-feature" in response.json()["featureFlags"]
+        assert "default-flag" in response.json()["featureFlags"]
 
         # caching flag definitions in the above query mean fewer queries
         response = self._post_decide(api_version=2, assert_num_queries=0)
-        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-        self.assertTrue(response.json()["featureFlags"]["default-flag"])
-        self.assertEqual(
-            "first-variant", response.json()["featureFlags"]["multivariate-flag"]
-        )  # assigned by distinct_id hash
+        assert response.json()["featureFlags"]["beta-feature"]
+        assert response.json()["featureFlags"]["default-flag"]
+        assert "first-variant" == response.json()["featureFlags"]["multivariate-flag"]  # assigned by distinct_id hash
 
         response = self._post_decide(api_version=2, distinct_id="other_id", assert_num_queries=0)
-        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-        self.assertTrue(response.json()["featureFlags"]["default-flag"])
-        self.assertEqual(
-            "third-variant", response.json()["featureFlags"]["multivariate-flag"]
+        assert response.json()["featureFlags"]["beta-feature"]
+        assert response.json()["featureFlags"]["default-flag"]
+        assert (
+            "third-variant" == response.json()["featureFlags"]["multivariate-flag"]
         )  # different hash, different variant assigned
 
     def test_feature_flags_v2_with_property_overrides(self, *args):
@@ -1308,13 +1279,13 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         response = self._post_decide(api_version=2, ip=australia_ip, assert_num_queries=0)
-        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-        self.assertTrue("multivariate-flag" not in response.json()["featureFlags"])
+        assert response.json()["featureFlags"]["beta-feature"]
+        assert "multivariate-flag" not in response.json()["featureFlags"]
 
         # caching flag definitions in the above mean fewer queries
         response = self._post_decide(api_version=2, distinct_id="other_id", ip=australia_ip, assert_num_queries=0)
-        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-        self.assertTrue("multivariate-flag" not in response.json()["featureFlags"])
+        assert response.json()["featureFlags"]["beta-feature"]
+        assert "multivariate-flag" not in response.json()["featureFlags"]
 
     def test_feature_flags_v2_with_geoip_error(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -1390,12 +1361,12 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         # caching flag definitions mean fewer queries
         response = self._post_decide(api_version=2, distinct_id="example_id", assert_num_queries=5)
-        self.assertTrue("beta-feature" not in response.json()["featureFlags"])
-        self.assertEqual("first-variant", response.json()["featureFlags"]["multivariate-flag"])
+        assert "beta-feature" not in response.json()["featureFlags"]
+        assert "first-variant" == response.json()["featureFlags"]["multivariate-flag"]
 
         response = self._post_decide(api_version=2, distinct_id="other_id", assert_num_queries=4)
-        self.assertTrue("beta-feature" not in response.json()["featureFlags"])
-        self.assertTrue("multivariate-flag" not in response.json()["featureFlags"])
+        assert "beta-feature" not in response.json()["featureFlags"]
+        assert "multivariate-flag" not in response.json()["featureFlags"]
 
     def test_feature_flags_v2_consistent_flags(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -1453,11 +1424,9 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         # caching flag definitions mean fewer queries
         response = self._post_decide(api_version=2, assert_num_queries=6)
-        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-        self.assertTrue(response.json()["featureFlags"]["default-flag"])
-        self.assertEqual(
-            "first-variant", response.json()["featureFlags"]["multivariate-flag"]
-        )  # assigned by distinct_id hash
+        assert response.json()["featureFlags"]["beta-feature"]
+        assert response.json()["featureFlags"]["default-flag"]
+        assert "first-variant" == response.json()["featureFlags"]["multivariate-flag"]  # assigned by distinct_id hash
 
         # new person, merged from old distinct ID
         # person.delete()
@@ -1473,10 +1442,10 @@ class TestDecide(BaseTest, QueryMatchingTest):
             },
             assert_num_queries=33,
         )
-        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-        self.assertTrue(response.json()["featureFlags"]["default-flag"])
-        self.assertEqual(
-            "first-variant", response.json()["featureFlags"]["multivariate-flag"]
+        assert response.json()["featureFlags"]["beta-feature"]
+        assert response.json()["featureFlags"]["default-flag"]
+        assert (
+            "first-variant" == response.json()["featureFlags"]["multivariate-flag"]
         )  # different hash, overridden by distinct_id, same variant assigned
 
     def test_feature_flags_v3_consistent_flags_with_numeric_distinct_ids(self, *args):
@@ -1512,8 +1481,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         # caching flag definitions mean fewer queries
         response = self._post_decide(api_version=2, assert_num_queries=6)
-        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-        self.assertTrue(response.json()["featureFlags"]["default-flag"])
+        assert response.json()["featureFlags"]["beta-feature"]
+        assert response.json()["featureFlags"]["default-flag"]
 
         response = self._post_decide(
             api_version=2,
@@ -1524,8 +1493,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
             },
             assert_num_queries=33,
         )
-        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-        self.assertTrue(response.json()["featureFlags"]["default-flag"])
+        assert response.json()["featureFlags"]["beta-feature"]
+        assert response.json()["featureFlags"]["default-flag"]
 
         response = self._post_decide(
             api_version=2,
@@ -1536,8 +1505,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
             },
             assert_num_queries=17,
         )
-        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-        self.assertTrue(response.json()["featureFlags"]["default-flag"])
+        assert response.json()["featureFlags"]["beta-feature"]
+        assert response.json()["featureFlags"]["default-flag"]
 
         response = self._post_decide(
             api_version=2,
@@ -1548,8 +1517,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
             },
             assert_num_queries=17,
         )
-        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-        self.assertTrue(response.json()["featureFlags"]["default-flag"])
+        assert response.json()["featureFlags"]["beta-feature"]
+        assert response.json()["featureFlags"]["default-flag"]
 
     def test_feature_flags_v2_consistent_flags_with_ingestion_delays(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -1605,11 +1574,9 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         # caching flag definitions mean fewer queries
         response = self._post_decide(api_version=2, assert_num_queries=5)
-        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-        self.assertTrue(response.json()["featureFlags"]["default-flag"])
-        self.assertEqual(
-            "first-variant", response.json()["featureFlags"]["multivariate-flag"]
-        )  # assigned by distinct_id hash
+        assert response.json()["featureFlags"]["beta-feature"]
+        assert response.json()["featureFlags"]["default-flag"]
+        assert "first-variant" == response.json()["featureFlags"]["multivariate-flag"]  # assigned by distinct_id hash
 
         # identify event is sent, but again, ingestion delays, so no entry in personDistinctID table
         # person.add_distinct_id("other_id")
@@ -1624,9 +1591,9 @@ class TestDecide(BaseTest, QueryMatchingTest):
             assert_num_queries=8,
         )
         # self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-        self.assertTrue(response.json()["featureFlags"]["default-flag"])
-        self.assertEqual(
-            "third-variant", response.json()["featureFlags"]["multivariate-flag"]
+        assert response.json()["featureFlags"]["default-flag"]
+        assert (
+            "third-variant" == response.json()["featureFlags"]["multivariate-flag"]
         )  # different hash, should've been overridden by distinct_id, but ingestion delays mean different variant assigned
 
     def test_feature_flags_v2_consistent_flags_with_merged_persons(self, *args):
@@ -1685,11 +1652,9 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         # caching flag definitions mean fewer queries
         response = self._post_decide(api_version=2, assert_num_queries=6)
-        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-        self.assertTrue(response.json()["featureFlags"]["default-flag"])
-        self.assertEqual(
-            "first-variant", response.json()["featureFlags"]["multivariate-flag"]
-        )  # assigned by distinct_id hash
+        assert response.json()["featureFlags"]["beta-feature"]
+        assert response.json()["featureFlags"]["default-flag"]
+        assert "first-variant" == response.json()["featureFlags"]["multivariate-flag"]  # assigned by distinct_id hash
 
         # new person, created separately before "example_id" came into the picture.
         # on identify, this will trigger a merge with person.id being deleted, and
@@ -1710,10 +1675,10 @@ class TestDecide(BaseTest, QueryMatchingTest):
             },
             assert_num_queries=33,
         )
-        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-        self.assertTrue(response.json()["featureFlags"]["default-flag"])
-        self.assertEqual(
-            "first-variant", response.json()["featureFlags"]["multivariate-flag"]
+        assert response.json()["featureFlags"]["beta-feature"]
+        assert response.json()["featureFlags"]["default-flag"]
+        assert (
+            "first-variant" == response.json()["featureFlags"]["multivariate-flag"]
         )  # different hash, overridden by distinct_id, same variant assigned
 
         # now let's say a merge happens with a call like: identify(distinct_id='example_id', anon_distinct_id='other_id')
@@ -1746,10 +1711,10 @@ class TestDecide(BaseTest, QueryMatchingTest):
             data={"token": self.team.api_token, "distinct_id": "other_id"},
             assert_num_queries=5,
         )
-        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-        self.assertTrue(response.json()["featureFlags"]["default-flag"])
-        self.assertEqual(
-            "first-variant", response.json()["featureFlags"]["multivariate-flag"]
+        assert response.json()["featureFlags"]["beta-feature"]
+        assert response.json()["featureFlags"]["default-flag"]
+        assert (
+            "first-variant" == response.json()["featureFlags"]["multivariate-flag"]
         )  # different hash, overridden by distinct_id, same variant assigned
 
     def test_feature_flags_v2_consistent_flags_with_delayed_new_identified_person(self, *args):
@@ -1808,11 +1773,9 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         # caching flag definitions mean fewer queries
         response = self._post_decide(api_version=2, assert_num_queries=6)
-        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-        self.assertTrue(response.json()["featureFlags"]["default-flag"])
-        self.assertEqual(
-            "first-variant", response.json()["featureFlags"]["multivariate-flag"]
-        )  # assigned by distinct_id hash
+        assert response.json()["featureFlags"]["beta-feature"]
+        assert response.json()["featureFlags"]["default-flag"]
+        assert "first-variant" == response.json()["featureFlags"]["multivariate-flag"]  # assigned by distinct_id hash
 
         # new person with "other_id" is yet to be created
 
@@ -1826,10 +1789,10 @@ class TestDecide(BaseTest, QueryMatchingTest):
             },
             assert_num_queries=33,
         )
-        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-        self.assertTrue(response.json()["featureFlags"]["default-flag"])
-        self.assertEqual(
-            "first-variant", response.json()["featureFlags"]["multivariate-flag"]
+        assert response.json()["featureFlags"]["beta-feature"]
+        assert response.json()["featureFlags"]["default-flag"]
+        assert (
+            "first-variant" == response.json()["featureFlags"]["multivariate-flag"]
         )  # different hash, overridden by distinct_id, same variant assigned
 
         # calling a simple decide call, while 'other_id' is still missing a person creation.
@@ -1844,8 +1807,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
             assert_num_queries=4,
         )
         # self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-        self.assertTrue(response.json()["featureFlags"]["default-flag"])
-        self.assertEqual("third-variant", response.json()["featureFlags"]["multivariate-flag"])  # variant changed
+        assert response.json()["featureFlags"]["default-flag"]
+        assert "third-variant" == response.json()["featureFlags"]["multivariate-flag"]  # variant changed
 
         person.add_distinct_id("other_id")
         # Finally, 'other_id' is merged. The result goes back to its overridden values
@@ -1856,10 +1819,10 @@ class TestDecide(BaseTest, QueryMatchingTest):
             data={"token": self.team.api_token, "distinct_id": "other_id"},
             assert_num_queries=5,
         )
-        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-        self.assertTrue(response.json()["featureFlags"]["default-flag"])
-        self.assertEqual(
-            "first-variant", response.json()["featureFlags"]["multivariate-flag"]
+        assert response.json()["featureFlags"]["beta-feature"]
+        assert response.json()["featureFlags"]["default-flag"]
+        assert (
+            "first-variant" == response.json()["featureFlags"]["multivariate-flag"]
         )  # different hash, overridden by distinct_id, same variant assigned
 
     def test_feature_flags_v2_complex(self, *args):
@@ -1924,17 +1887,17 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         # caching flag definitions mean fewer queries
         response = self._post_decide(api_version=2, distinct_id="hosted_id", assert_num_queries=5)
-        self.assertIsNone(
-            (response.json()["featureFlags"]).get("multivariate-flag", None)
+        assert (
+            response.json()["featureFlags"].get("multivariate-flag", None) is None
         )  # User is does not have realm == "cloud". Value is None.
-        self.assertTrue((response.json()["featureFlags"]).get("default-flag"))  # User still receives the default flag
+        assert response.json()["featureFlags"].get("default-flag")  # User still receives the default flag
 
         response = self._post_decide(api_version=2, distinct_id="example_id", assert_num_queries=4)
-        self.assertIsNotNone(
-            response.json()["featureFlags"]["multivariate-flag"]
+        assert (
+            response.json()["featureFlags"]["multivariate-flag"] is not None
         )  # User has an 80% chance of being assigned any non-empty value.
-        self.assertEqual(
-            "second-variant", response.json()["featureFlags"]["multivariate-flag"]
+        assert (
+            "second-variant" == response.json()["featureFlags"]["multivariate-flag"]
         )  # If the user falls in the rollout group, they have a 25% chance of being assigned any particular variant.
         # Their overall probability is therefore 80% * 25% = 20%.
         # To give another example, if n = 100 Cloud users and rollout_percentage = 80:
@@ -1969,7 +1932,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             content_type="application/json",
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
         response = client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
@@ -1981,7 +1944,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             format="json",
             content_type="application/json",
         )  # Should be enabled for everyone
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
         response = client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
@@ -2014,7 +1977,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             format="json",
             content_type="application/json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         # At this stage, our cache should have all 3 flags
 
         # also adding team to cache
@@ -2022,20 +1985,18 @@ class TestDecide(BaseTest, QueryMatchingTest):
         client.logout()
 
         response = self._post_decide(api_version=3, assert_num_queries=0)
-        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-        self.assertTrue(response.json()["featureFlags"]["default-flag"])
-        self.assertEqual(
-            "first-variant", response.json()["featureFlags"]["multivariate-flag"]
-        )  # assigned by distinct_id hash
-        self.assertFalse(response.json()["errorsWhileComputingFlags"])
+        assert response.json()["featureFlags"]["beta-feature"]
+        assert response.json()["featureFlags"]["default-flag"]
+        assert "first-variant" == response.json()["featureFlags"]["multivariate-flag"]  # assigned by distinct_id hash
+        assert not response.json()["errorsWhileComputingFlags"]
 
         response = self._post_decide(api_version=3, distinct_id="other_id", assert_num_queries=0)
-        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-        self.assertTrue(response.json()["featureFlags"]["default-flag"])
-        self.assertEqual(
-            "third-variant", response.json()["featureFlags"]["multivariate-flag"]
+        assert response.json()["featureFlags"]["beta-feature"]
+        assert response.json()["featureFlags"]["default-flag"]
+        assert (
+            "third-variant" == response.json()["featureFlags"]["multivariate-flag"]
         )  # different hash, different variant assigned
-        self.assertFalse(response.json()["errorsWhileComputingFlags"])
+        assert not response.json()["errorsWhileComputingFlags"]
 
     @patch("posthog.models.feature_flag.flag_matching.FLAG_EVALUATION_ERROR_COUNTER")
     def test_feature_flags_v3_with_database_errors(self, mock_counter, *args):
@@ -2077,7 +2038,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             content_type="application/json",
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
         response = client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
@@ -2089,7 +2050,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             format="json",
             content_type="application/json",
         )  # Should be enabled for everyone
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
         response = client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
@@ -2122,7 +2083,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             format="json",
             content_type="application/json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         # At this stage, our cache should have all 3 flags
 
         # also adding team to cache
@@ -2131,19 +2092,17 @@ class TestDecide(BaseTest, QueryMatchingTest):
         client.logout()
 
         response = self._post_decide(api_version=3, assert_num_queries=4)
-        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-        self.assertTrue(response.json()["featureFlags"]["default-flag"])
-        self.assertEqual(
-            "first-variant", response.json()["featureFlags"]["multivariate-flag"]
-        )  # assigned by distinct_id hash
-        self.assertFalse(response.json()["errorsWhileComputingFlags"])
+        assert response.json()["featureFlags"]["beta-feature"]
+        assert response.json()["featureFlags"]["default-flag"]
+        assert "first-variant" == response.json()["featureFlags"]["multivariate-flag"]  # assigned by distinct_id hash
+        assert not response.json()["errorsWhileComputingFlags"]
 
         # now database is down
         response = self._post_decide(api_version=3, distinct_id="example_id", simulate_database_timeout=True)
-        self.assertTrue("beta-feature" not in response.json()["featureFlags"])
-        self.assertTrue(response.json()["featureFlags"]["default-flag"])
-        self.assertEqual("first-variant", response.json()["featureFlags"]["multivariate-flag"])
-        self.assertTrue(response.json()["errorsWhileComputingFlags"])
+        assert "beta-feature" not in response.json()["featureFlags"]
+        assert response.json()["featureFlags"]["default-flag"]
+        assert "first-variant" == response.json()["featureFlags"]["multivariate-flag"]
+        assert response.json()["errorsWhileComputingFlags"]
 
         mock_counter.labels.assert_called_once_with(reason="timeout")
 
@@ -2189,7 +2148,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             content_type="application/json",
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
         response = client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
@@ -2201,7 +2160,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             format="json",
             content_type="application/json",
         )  # Should be enabled for everyone
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
         response = client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
@@ -2235,7 +2194,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             format="json",
             content_type="application/json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         # At this stage, our cache should have all 3 flags
 
         with self.settings(DECIDE_TRACK_TEAM_IDS=["all"]):
@@ -2263,13 +2222,12 @@ class TestDecide(BaseTest, QueryMatchingTest):
             mock_hash_key_counter.reset_mock()
 
             response = self._post_decide(api_version=3, assert_num_queries=9)
-            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-            self.assertTrue(response.json()["featureFlags"]["default-flag"])
-            self.assertEqual(
-                "first-variant",
-                response.json()["featureFlags"]["multivariate-flag"],
+            assert response.json()["featureFlags"]["beta-feature"]
+            assert response.json()["featureFlags"]["default-flag"]
+            assert (
+                "first-variant" == response.json()["featureFlags"]["multivariate-flag"]
             )  # assigned by distinct_id hash
-            self.assertFalse(response.json()["errorsWhileComputingFlags"])
+            assert not response.json()["errorsWhileComputingFlags"]
 
             mock_counter.labels.assert_called_once_with(
                 team_id=str(self.team.pk),
@@ -2284,10 +2242,10 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
             # now database is down
             response = self._post_decide(api_version=3, distinct_id="example_id", simulate_database_timeout=True)
-            self.assertTrue("beta-feature" not in response.json()["featureFlags"])
-            self.assertTrue(response.json()["featureFlags"]["default-flag"])
-            self.assertTrue("multivariate-flag" not in response.json()["featureFlags"])
-            self.assertTrue(response.json()["errorsWhileComputingFlags"])
+            assert "beta-feature" not in response.json()["featureFlags"]
+            assert response.json()["featureFlags"]["default-flag"]
+            assert "multivariate-flag" not in response.json()["featureFlags"]
+            assert response.json()["errorsWhileComputingFlags"]
 
             mock_counter.labels.assert_called_once_with(
                 team_id=str(self.team.pk),
@@ -2297,7 +2255,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             mock_counter.labels.return_value.inc.assert_called_once()
             mock_error_counter.labels.assert_any_call(reason="healthcheck_failed")
             mock_error_counter.labels.assert_any_call(reason="timeout")
-            self.assertEqual(mock_error_counter.labels.call_count, 2)
+            assert mock_error_counter.labels.call_count == 2
 
             mock_hash_key_counter.labels.assert_not_called()
 
@@ -2316,12 +2274,12 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self._post_decide(api_version=3)
 
         response = self._post_decide(api_version=3, assert_num_queries=0)
-        self.assertEqual(response.json()["featureFlags"], {})
-        self.assertFalse(response.json()["errorsWhileComputingFlags"])
+        assert response.json()["featureFlags"] == {}
+        assert not response.json()["errorsWhileComputingFlags"]
 
         response = self._post_decide(api_version=3, distinct_id="example_id", simulate_database_timeout=True)
-        self.assertEqual(response.json()["featureFlags"], {})
-        self.assertFalse(response.json()["errorsWhileComputingFlags"])
+        assert response.json()["featureFlags"] == {}
+        assert not response.json()["errorsWhileComputingFlags"]
 
     def test_feature_flags_v3_with_database_errors_and_geoip_properties(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -2360,7 +2318,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             content_type="application/json",
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
         response = client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
@@ -2372,7 +2330,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             format="json",
             content_type="application/json",
         )  # Should be enabled for everyone
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
         # At this stage, our cache should have both flags
 
@@ -2382,16 +2340,16 @@ class TestDecide(BaseTest, QueryMatchingTest):
         client.logout()
 
         response = self._post_decide(api_version=3, ip=australia_ip, assert_num_queries=0)
-        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-        self.assertTrue(response.json()["featureFlags"]["default-flag"])
-        self.assertFalse(response.json()["errorsWhileComputingFlags"])
+        assert response.json()["featureFlags"]["beta-feature"]
+        assert response.json()["featureFlags"]["default-flag"]
+        assert not response.json()["errorsWhileComputingFlags"]
 
         response = self._post_decide(
             api_version=3, distinct_id="example_id", ip=australia_ip, simulate_database_timeout=True
         )
-        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-        self.assertTrue(response.json()["featureFlags"]["default-flag"])
-        self.assertFalse(response.json()["errorsWhileComputingFlags"])
+        assert response.json()["featureFlags"]["beta-feature"]
+        assert response.json()["featureFlags"]["default-flag"]
+        assert not response.json()["errorsWhileComputingFlags"]
 
     def test_feature_flags_v3_consistent_flags_with_database_errors(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -2458,11 +2416,9 @@ class TestDecide(BaseTest, QueryMatchingTest):
         #            WHERE ("posthog_featureflaghashkeyoverride"."person_id" IN (7) AND "posthog_featureflaghashkeyoverride"."team_id" = 1)
         # E   5. RELEASE SAVEPOINT "s4379526528_x103"
         response = self._post_decide(api_version=3, assert_num_queries=5)
-        self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-        self.assertTrue(response.json()["featureFlags"]["default-flag"])
-        self.assertEqual(
-            "first-variant", response.json()["featureFlags"]["multivariate-flag"]
-        )  # assigned by distinct_id hash
+        assert response.json()["featureFlags"]["beta-feature"]
+        assert response.json()["featureFlags"]["default-flag"]
+        assert "first-variant" == response.json()["featureFlags"]["multivariate-flag"]  # assigned by distinct_id hash
 
         # new person, merged from old distinct ID
         person.add_distinct_id("other_id")
@@ -2477,9 +2433,9 @@ class TestDecide(BaseTest, QueryMatchingTest):
             },
             simulate_database_timeout=True,
         )
-        self.assertTrue("beta-feature" not in response.json()["featureFlags"])
-        self.assertTrue(response.json()["featureFlags"]["default-flag"])
-        self.assertTrue(response.json()["errorsWhileComputingFlags"])
+        assert "beta-feature" not in response.json()["featureFlags"]
+        assert response.json()["featureFlags"]["default-flag"]
+        assert response.json()["errorsWhileComputingFlags"]
 
     def test_feature_flags_v2_with_groups(self, *args):
         # More in-depth tests in posthog/api/test/test_feature_flag.py
@@ -2509,12 +2465,12 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         # caching flag definitions mean fewer queries
         response = self._post_decide(api_version=2, distinct_id="example_id", assert_num_queries=5)
-        self.assertEqual(response.json()["featureFlags"], {})
+        assert response.json()["featureFlags"] == {}
 
         response = self._post_decide(
             api_version=2, distinct_id="example_id", groups={"organization": "foo"}, assert_num_queries=4
         )
-        self.assertEqual(response.json()["featureFlags"], {"groups-flag": True})
+        assert response.json()["featureFlags"] == {"groups-flag": True}
 
     def test_feature_flags_with_personal_api_key(self, *args):
         key_value = generate_random_token_personal()
@@ -2548,8 +2504,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "project_id": self.team.id,
             }
         ).json()
-        self.assertIn("default-flag", response["featureFlags"])
-        self.assertIn("test", response["featureFlags"])
+        assert "default-flag" in response["featureFlags"]
+        assert "test" in response["featureFlags"]
 
     @snapshot_postgres_queries
     def test_flag_with_regular_cohorts(self, *args):
@@ -2588,12 +2544,12 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=9)
-        self.assertEqual(response.json()["featureFlags"], {"cohort-flag": True})
-        self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
+        assert response.json()["featureFlags"] == {"cohort-flag": True}
+        assert not response.json()["errorsWhileComputingFlags"]
 
         response = self._post_decide(api_version=3, distinct_id="another_id", assert_num_queries=8)
-        self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False})
-        self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
+        assert response.json()["featureFlags"] == {"cohort-flag": False}
+        assert not response.json()["errorsWhileComputingFlags"]
 
     def test_flag_with_invalid_cohort_filter_condition(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -2664,8 +2620,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         response = self._post_decide(api_version=3, distinct_id=person1_distinct_id, assert_num_queries=9)
-        self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False})
-        self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
+        assert response.json()["featureFlags"] == {"cohort-flag": False}
+        assert not response.json()["errorsWhileComputingFlags"]
 
     def test_flag_with_invalid_but_safe_cohort_filter_condition(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -2734,8 +2690,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         response = self._post_decide(api_version=3, distinct_id=person1_distinct_id, assert_num_queries=9)
-        self.assertEqual(response.json()["featureFlags"], {"cohort-flag": True})
-        self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
+        assert response.json()["featureFlags"] == {"cohort-flag": True}
+        assert not response.json()["errorsWhileComputingFlags"]
 
     def test_flag_with_unknown_cohort(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -2764,8 +2720,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=10)
-        self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False, "simple-flag": True})
-        self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
+        assert response.json()["featureFlags"] == {"cohort-flag": False, "simple-flag": True}
+        assert not response.json()["errorsWhileComputingFlags"]
 
     def test_flag_with_multiple_complex_unknown_cohort(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -2915,17 +2871,14 @@ class TestDecide(BaseTest, QueryMatchingTest):
         # 3. Select deleted cohort
         # 4. Select cohort from other team
         response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=12)
-        self.assertEqual(
-            response.json()["featureFlags"],
-            {
-                "cohort-flag": False,
-                "simple-flag": True,
-                "cohort-flag-2": False,
-                "cohort-flag-3": False,
-                "cohort-flag-4": True,
-            },
-        )
-        self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
+        assert response.json()["featureFlags"] == {
+            "cohort-flag": False,
+            "simple-flag": True,
+            "cohort-flag-2": False,
+            "cohort-flag-3": False,
+            "cohort-flag-4": True,
+        }
+        assert not response.json()["errorsWhileComputingFlags"]
 
     @snapshot_postgres_queries
     def test_flag_with_behavioural_cohorts(self, *args):
@@ -2965,12 +2918,12 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=9)
-        self.assertEqual(response.json()["featureFlags"], {})
-        self.assertEqual(response.json()["errorsWhileComputingFlags"], True)
+        assert response.json()["featureFlags"] == {}
+        assert response.json()["errorsWhileComputingFlags"]
 
         response = self._post_decide(api_version=3, distinct_id="another_id", assert_num_queries=8)
-        self.assertEqual(response.json()["featureFlags"], {})
-        self.assertEqual(response.json()["errorsWhileComputingFlags"], True)
+        assert response.json()["featureFlags"] == {}
+        assert response.json()["errorsWhileComputingFlags"]
 
     def test_personal_api_key_without_project_id(self, *args):
         key_value = generate_random_token_personal()
@@ -2978,16 +2931,13 @@ class TestDecide(BaseTest, QueryMatchingTest):
         Person.objects.create(team=self.team, distinct_ids=["example_id"])
 
         response = self._post_decide({"distinct_id": "example_id", "api_key": key_value})
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "authentication_error",
-                "code": "invalid_api_key",
-                "detail": "Project API key invalid. You can find your project API key in PostHog project settings.",
-                "attr": None,
-            },
-        )
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        assert response.json() == {
+            "type": "authentication_error",
+            "code": "invalid_api_key",
+            "detail": "Project API key invalid. You can find your project API key in PostHog project settings.",
+            "attr": None,
+        }
 
     def test_missing_token(self, *args):
         Person.objects.create(team=self.team, distinct_ids=["example_id"])
@@ -2999,7 +2949,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
         response = self._post_decide({"distinct_id": "example_id", "api_key": None, "project_id": self.team.id})
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_short_circuited_team(self, *args):
         short_circuited_team_token = "short_circuited_team_token"
@@ -3028,11 +2978,11 @@ class TestDecide(BaseTest, QueryMatchingTest):
                     "project_id": short_circuited_team.id,
                 }
             )
-            self.assertEqual(response.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
+            assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
             response_data = response.json()
-            self.assertEqual(
-                response_data["detail"],
-                f"Team with ID {short_circuited_team.id} cannot access the /decide endpoint. Please contact us at hey@posthog.com",
+            assert (
+                response_data["detail"]
+                == f"Team with ID {short_circuited_team.id} cannot access the /decide endpoint. Please contact us at hey@posthog.com"
             )
 
     def test_invalid_payload_on_decide_endpoint(self, *args):
@@ -3044,14 +2994,11 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         for payload in invalid_payloads:
             response = self.client.post("/decide/", {"data": payload}, headers={"origin": "http://127.0.0.1:8000"})
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
             response_data = response.json()
             detail = response_data.pop("detail")
-            self.assertEqual(
-                response.json(),
-                {"type": "validation_error", "code": "malformed_data", "attr": None},
-            )
-            self.assertIn("Malformed request data:", detail)
+            assert response.json() == {"type": "validation_error", "code": "malformed_data", "attr": None}
+            assert "Malformed request data:" in detail
 
     def test_invalid_gzip_payload_on_decide_endpoint(self, *args):
         response = self.client.post(
@@ -3060,14 +3007,11 @@ class TestDecide(BaseTest, QueryMatchingTest):
             headers={"origin": "http://127.0.0.1:8000"},
             content_type="text/plain",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         response_data = response.json()
         detail = response_data.pop("detail")
-        self.assertEqual(
-            response.json(),
-            {"type": "validation_error", "code": "malformed_data", "attr": None},
-        )
-        self.assertIn("Malformed request data:", detail)
+        assert response.json() == {"type": "validation_error", "code": "malformed_data", "attr": None}
+        assert "Malformed request data:" in detail
 
     def test_geoip_disable(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -3132,30 +3076,18 @@ class TestDecide(BaseTest, QueryMatchingTest):
         geoip_disabled_res = self._post_decide(api_version=3, ip=australia_ip, geoip_disable=True, assert_num_queries=4)
 
         # person has geoip_country_name set to India, but australia-feature is true, because geoip resolution of current IP is enabled
-        self.assertEqual(
-            geoip_not_disabled_res.json()["featureFlags"],
-            {"australia-feature": True, "india-feature": False},
-        )
+        assert geoip_not_disabled_res.json()["featureFlags"] == {"australia-feature": True, "india-feature": False}
         # person has geoip_country_name set to India, and australia-feature is false, because geoip resolution of current IP is disabled
-        self.assertEqual(
-            geoip_disabled_res.json()["featureFlags"],
-            {"australia-feature": False, "india-feature": True},
-        )
+        assert geoip_disabled_res.json()["featureFlags"] == {"australia-feature": False, "india-feature": True}
 
         # test for falsy/truthy values
         geoip_not_disabled_res = self._post_decide(api_version=3, ip=australia_ip, geoip_disable="0")
         geoip_disabled_res = self._post_decide(api_version=3, ip=australia_ip, geoip_disable="yes")
 
         # person has geoip_country_name set to India, but australia-feature is true, because geoip resolution of current IP is enabled
-        self.assertEqual(
-            geoip_not_disabled_res.json()["featureFlags"],
-            {"australia-feature": True, "india-feature": False},
-        )
+        assert geoip_not_disabled_res.json()["featureFlags"] == {"australia-feature": True, "india-feature": False}
         # person has geoip_country_name set to India, and australia-feature is false, because geoip resolution of current IP is disabled
-        self.assertEqual(
-            geoip_disabled_res.json()["featureFlags"],
-            {"australia-feature": False, "india-feature": True},
-        )
+        assert geoip_disabled_res.json()["featureFlags"] == {"australia-feature": False, "india-feature": True}
 
     def test_disable_flags(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -3215,19 +3147,16 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         flag_disabled_res = self._post_decide(api_version=3, ip=australia_ip, disable_flags=True, assert_num_queries=0)
-        self.assertEqual(flag_disabled_res.json()["featureFlags"], {})
+        assert flag_disabled_res.json()["featureFlags"] == {}
 
         # test for falsy/truthy values
         flags_not_disabled_res = self._post_decide(api_version=3, ip=australia_ip, disable_flags="0")
         flags_disabled_res = self._post_decide(api_version=3, ip=australia_ip, disable_flags="yes")
 
         # person has geoip_country_name set to India, but australia-feature is true, because geoip resolution of current IP is enabled
-        self.assertEqual(
-            flags_not_disabled_res.json()["featureFlags"],
-            {"australia-feature": True, "india-feature": False},
-        )
+        assert flags_not_disabled_res.json()["featureFlags"] == {"australia-feature": True, "india-feature": False}
         # person has geoip_country_name set to India, and australia-feature is false, because geoip resolution of current IP is disabled
-        self.assertEqual(flags_disabled_res.json()["featureFlags"], {})
+        assert flags_disabled_res.json()["featureFlags"] == {}
 
     @snapshot_postgres_queries
     def test_decide_doesnt_error_out_when_database_is_down(self, *args):
@@ -3245,45 +3174,33 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         response = self._post_decide(api_version=2, origin="https://random.example.com").json()
 
-        self.assertEqual(
-            response["sessionRecording"],
-            make_session_recording_decide_response(
-                {
-                    "sampleRate": "0.20",
-                }
-            ),
-        )
+        assert response["sessionRecording"] == make_session_recording_decide_response({"sampleRate": "0.20"})
 
-        self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
-        self.assertEqual(response["siteApps"], [])
-        self.assertEqual(
-            response["capturePerformance"],
-            {"network_timing": True, "web_vitals": False, "web_vitals_allowed_metrics": None},
-        )
-        self.assertEqual(response["featureFlags"], {})
-        self.assertEqual(response["autocaptureExceptions"], True)
+        assert response["supportedCompression"] == ["gzip", "gzip-js"]
+        assert response["siteApps"] == []
+        assert response["capturePerformance"] == {
+            "network_timing": True,
+            "web_vitals": False,
+            "web_vitals_allowed_metrics": None,
+        }
+        assert response["featureFlags"] == {}
+        assert response["autocaptureExceptions"]
 
         response = self._post_decide(
             api_version=2, origin="https://random.example.com", simulate_database_timeout=True
         ).json()
 
-        self.assertEqual(
-            response["sessionRecording"],
-            make_session_recording_decide_response(
-                {
-                    "sampleRate": "0.20",
-                }
-            ),
-        )
+        assert response["sessionRecording"] == make_session_recording_decide_response({"sampleRate": "0.20"})
 
-        self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
-        self.assertEqual(response["siteApps"], [])
-        self.assertEqual(
-            response["capturePerformance"],
-            {"network_timing": True, "web_vitals": False, "web_vitals_allowed_metrics": None},
-        )
-        self.assertEqual(response["autocaptureExceptions"], True)
-        self.assertEqual(response["featureFlags"], {})
+        assert response["supportedCompression"] == ["gzip", "gzip-js"]
+        assert response["siteApps"] == []
+        assert response["capturePerformance"] == {
+            "network_timing": True,
+            "web_vitals": False,
+            "web_vitals_allowed_metrics": None,
+        }
+        assert response["autocaptureExceptions"]
+        assert response["featureFlags"] == {}
 
     def test_decide_with_json_and_numeric_distinct_ids(self, *args):
         self.client.logout()
@@ -3301,8 +3218,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
         # Verify Person was created in persons database
         from posthog.models import PersonDistinctId
 
-        self.assertEqual(Person.objects.using("persons_db_writer").filter(team=self.team).count(), 1)
-        self.assertEqual(PersonDistinctId.objects.using("persons_db_writer").filter(team=self.team).count(), 4)
+        assert Person.objects.using("persons_db_writer").filter(team=self.team).count() == 1
+        assert PersonDistinctId.objects.using("persons_db_writer").filter(team=self.team).count() == 4
 
         # Verify all distinct_ids were created correctly
         distinct_ids = list(
@@ -3310,18 +3227,15 @@ class TestDecide(BaseTest, QueryMatchingTest):
             .filter(team=self.team, person=person)
             .values_list("distinct_id", flat=True)
         )
-        self.assertEqual(
-            set(distinct_ids),
-            {
-                "a",
-                "{'id': 33040, 'shopify_domain': 'xxx.myshopify.com', 'shopify_token': 'shpat_xxxx', 'created_at': '2023-04-17T08:55:34.624Z', 'updated_at': '2023-04-21T08:43:34.479'}",
-                "{'x': 'y'}",
-                '{"x": "z"}',
-            },
-        )
+        assert set(distinct_ids) == {
+            "a",
+            "{'id': 33040, 'shopify_domain': 'xxx.myshopify.com', 'shopify_token': 'shpat_xxxx', 'created_at': '2023-04-17T08:55:34.624Z', 'updated_at': '2023-04-21T08:43:34.479'}",
+            "{'x': 'y'}",
+            '{"x": "z"}',
+        }
 
         # Verify person properties
-        self.assertEqual(person.properties, {"email": "tim@posthog.com", "realm": "cloud"})
+        assert person.properties == {"email": "tim@posthog.com", "realm": "cloud"}
 
         FeatureFlag.objects.create(
             team=self.team,
@@ -3343,7 +3257,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         # caching flag definitions mean fewer queries
         response = self._post_decide(api_version=2, distinct_id=12345, assert_num_queries=4)
-        self.assertEqual(response.json()["featureFlags"], {"random-flag": True})
+        assert response.json()["featureFlags"] == {"random-flag": True}
 
         # Debug: Check what distinct_id string will be generated
         test_distinct_id = {
@@ -3359,26 +3273,20 @@ class TestDecide(BaseTest, QueryMatchingTest):
             distinct_id=test_distinct_id,
             assert_num_queries=4,
         )
-        self.assertEqual(
-            response.json()["featureFlags"],
-            {"random-flag": True, "filer-by-property": True},
-        )
+        assert response.json()["featureFlags"] == {"random-flag": True, "filer-by-property": True}
 
         response = self._post_decide(
             api_version=2,
             distinct_id="{'id': 33040, 'shopify_domain': 'xxx.myshopify.com', 'shopify_token': 'shpat_xxxx', 'created_at': '2023-04-17T08:55:34.624Z', 'updated_at': '2023-04-21T08:43:34.479'",
             assert_num_queries=4,
         )
-        self.assertEqual(response.json()["featureFlags"], {"random-flag": True})
+        assert response.json()["featureFlags"] == {"random-flag": True}
 
         response = self._post_decide(api_version=2, distinct_id={"x": "y"}, assert_num_queries=4)
-        self.assertEqual(
-            response.json()["featureFlags"],
-            {"random-flag": True, "filer-by-property": True},
-        )
+        assert response.json()["featureFlags"] == {"random-flag": True, "filer-by-property": True}
 
         response = self._post_decide(api_version=2, distinct_id={"x": "z"}, assert_num_queries=4)
-        self.assertEqual(response.json()["featureFlags"], {"random-flag": True})
+        assert response.json()["featureFlags"] == {"random-flag": True}
         # need to pass in exact string to get the property flag
 
     def test_rate_limits(self, *args):
@@ -3410,19 +3318,16 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
             for i in range(3):
                 response = self._post_decide(api_version=i + 1)
-                self.assertEqual(response.status_code, 200)
+                assert response.status_code == 200
 
             response = self._post_decide(api_version=2)
-            self.assertEqual(response.status_code, 429)
-            self.assertEqual(
-                response.json(),
-                {
-                    "type": "validation_error",
-                    "code": "rate_limit_exceeded",
-                    "detail": "Rate limit exceeded ",
-                    "attr": None,
-                },
-            )
+            assert response.status_code == 429
+            assert response.json() == {
+                "type": "validation_error",
+                "code": "rate_limit_exceeded",
+                "detail": "Rate limit exceeded ",
+                "attr": None,
+            }
 
     def test_rate_limits_replenish_over_time(self, *args):
         with self.settings(
@@ -3452,19 +3357,19 @@ class TestDecide(BaseTest, QueryMatchingTest):
             )  # Should be enabled for everyone
 
             response = self._post_decide(api_version=3)
-            self.assertEqual(response.status_code, 200)
+            assert response.status_code == 200
 
             response = self._post_decide(api_version=3)
-            self.assertEqual(response.status_code, 429)
+            assert response.status_code == 429
 
             # wait for bucket to replenish
             time.sleep(1)
 
             response = self._post_decide(api_version=2)
-            self.assertEqual(response.status_code, 200)
+            assert response.status_code == 200
 
             response = self._post_decide(api_version=3)
-            self.assertEqual(response.status_code, 429)
+            assert response.status_code == 429
 
     def test_rate_limits_work_with_invalid_tokens(self, *args):
         self.client.logout()
@@ -3475,19 +3380,16 @@ class TestDecide(BaseTest, QueryMatchingTest):
         ):
             for _ in range(3):
                 response = self._post_decide(api_version=3, data={"token": "aloha?", "distinct_id": "123"})
-                self.assertEqual(response.status_code, 401)
+                assert response.status_code == 401
 
             response = self._post_decide(api_version=3, data={"token": "aloha?", "distinct_id": "123"})
-            self.assertEqual(response.status_code, 429)
-            self.assertEqual(
-                response.json(),
-                {
-                    "type": "validation_error",
-                    "code": "rate_limit_exceeded",
-                    "detail": "Rate limit exceeded ",
-                    "attr": None,
-                },
-            )
+            assert response.status_code == 429
+            assert response.json() == {
+                "type": "validation_error",
+                "code": "rate_limit_exceeded",
+                "detail": "Rate limit exceeded ",
+                "attr": None,
+            }
 
     def test_rate_limits_work_with_missing_tokens(self, *args):
         self.client.logout()
@@ -3498,19 +3400,16 @@ class TestDecide(BaseTest, QueryMatchingTest):
         ):
             for _ in range(3):
                 response = self._post_decide(api_version=3, data={"distinct_id": "123"})
-                self.assertEqual(response.status_code, 401)
+                assert response.status_code == 401
 
             response = self._post_decide(api_version=3, data={"distinct_id": "123"})
-            self.assertEqual(response.status_code, 429)
-            self.assertEqual(
-                response.json(),
-                {
-                    "type": "validation_error",
-                    "code": "rate_limit_exceeded",
-                    "detail": "Rate limit exceeded ",
-                    "attr": None,
-                },
-            )
+            assert response.status_code == 429
+            assert response.json() == {
+                "type": "validation_error",
+                "code": "rate_limit_exceeded",
+                "detail": "Rate limit exceeded ",
+                "attr": None,
+            }
 
     def test_rate_limits_work_with_malformed_request(self, *args):
         self.client.logout()
@@ -3525,19 +3424,16 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
             for _ in range(4):
                 response = invalid_request()
-                self.assertEqual(response.status_code, 400)
+                assert response.status_code == 400
 
             response = invalid_request()
-            self.assertEqual(response.status_code, 429)
-            self.assertEqual(
-                response.json(),
-                {
-                    "type": "validation_error",
-                    "code": "rate_limit_exceeded",
-                    "detail": "Rate limit exceeded ",
-                    "attr": None,
-                },
-            )
+            assert response.status_code == 429
+            assert response.json() == {
+                "type": "validation_error",
+                "code": "rate_limit_exceeded",
+                "detail": "Rate limit exceeded ",
+                "attr": None,
+            }
 
     def test_rate_limits_dont_apply_when_disabled(self, *args):
         with self.settings(DECIDE_RATE_LIMIT_ENABLED="n"):
@@ -3545,10 +3441,10 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
             for _ in range(3):
                 response = self._post_decide(api_version=3)
-                self.assertEqual(response.status_code, 200)
+                assert response.status_code == 200
 
             response = self._post_decide(api_version=2)
-            self.assertEqual(response.status_code, 200)
+            assert response.status_code == 200
 
     def test_rate_limits_dont_mix_teams(self, *args):
         new_token = "bazinga"
@@ -3572,18 +3468,18 @@ class TestDecide(BaseTest, QueryMatchingTest):
         ):
             for _ in range(3):
                 response = self._post_decide(api_version=3)
-                self.assertEqual(response.status_code, 200)
+                assert response.status_code == 200
 
             response = self._post_decide(api_version=2)
-            self.assertEqual(response.status_code, 429)
+            assert response.status_code == 429
 
             # other team is fine
             for _ in range(3):
                 response = self._post_decide(api_version=3, data={"token": new_token, "distinct_id": "123"})
-                self.assertEqual(response.status_code, 200)
+                assert response.status_code == 200
 
             response = self._post_decide(api_version=3, data={"token": new_token, "distinct_id": "other id"})
-            self.assertEqual(response.status_code, 429)
+            assert response.status_code == 429
 
     @patch("ee.billing.quota_limiting.list_limited_team_attributes")
     def test_quota_limited_recordings_disabled(self, _fake_token_limiting, *args):
@@ -3639,22 +3535,19 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.client.logout()
         with self.settings(DECIDE_BILLING_SAMPLING_RATE=0):
             response = self._post_decide(api_version=3)
-            self.assertEqual(response.status_code, 200)
+            assert response.status_code == 200
 
             client = redis.get_client()
             # check that no increments made it to redis
-            self.assertEqual(client.hgetall(f"posthog:decide_requests:{self.team.pk}"), {})
+            assert client.hgetall(f"posthog:decide_requests:{self.team.pk}") == {}
 
         with self.settings(DECIDE_BILLING_SAMPLING_RATE=1), freeze_time("2022-05-07 12:23:07"):
             response = self._post_decide(api_version=3)
-            self.assertEqual(response.status_code, 200)
+            assert response.status_code == 200
 
             client = redis.get_client()
             # check that single increment made it to redis
-            self.assertEqual(
-                client.hgetall(f"posthog:decide_requests:{self.team.pk}"),
-                {b"165192618": b"1"},
-            )
+            assert client.hgetall(f"posthog:decide_requests:{self.team.pk}") == {b"165192618": b"1"}
 
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_decide_analytics_samples_appropriately(self, *args):
@@ -3671,14 +3564,11 @@ class TestDecide(BaseTest, QueryMatchingTest):
             for _ in range(5):
                 # given the seed, 2 out of 5 are sampled
                 response = self._post_decide(api_version=3)
-                self.assertEqual(response.status_code, 200)
+                assert response.status_code == 200
 
             client = redis.get_client()
             # check that no increments made it to redis
-            self.assertEqual(
-                client.hgetall(f"posthog:decide_requests:{self.team.pk}"),
-                {b"165192618": b"4"},
-            )
+            assert client.hgetall(f"posthog:decide_requests:{self.team.pk}") == {b"165192618": b"4"}
 
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_decide_analytics_samples_appropriately_with_small_sample_rate(self, *args):
@@ -3695,14 +3585,11 @@ class TestDecide(BaseTest, QueryMatchingTest):
             for _ in range(5):
                 # given the seed, 1 out of 5 are sampled
                 response = self._post_decide(api_version=3)
-                self.assertEqual(response.status_code, 200)
+                assert response.status_code == 200
 
             client = redis.get_client()
             # check that no increments made it to redis
-            self.assertEqual(
-                client.hgetall(f"posthog:decide_requests:{self.team.pk}"),
-                {b"165192618": b"50"},
-            )
+            assert client.hgetall(f"posthog:decide_requests:{self.team.pk}") == {b"165192618": b"50"}
 
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_decide_analytics_samples_dont_break_with_zero_sampling(self, *args):
@@ -3719,11 +3606,11 @@ class TestDecide(BaseTest, QueryMatchingTest):
             for _ in range(5):
                 # 0 out of 5 are sampled
                 response = self._post_decide(api_version=3)
-                self.assertEqual(response.status_code, 200)
+                assert response.status_code == 200
 
             client = redis.get_client()
             # check that no increments made it to redis
-            self.assertEqual(client.hgetall(f"posthog:decide_requests:{self.team.pk}"), {})
+            assert client.hgetall(f"posthog:decide_requests:{self.team.pk}") == {}
 
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_decide_analytics_only_fires_with_non_survey_targeting_flags(self, *args):
@@ -3778,14 +3665,11 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         with self.settings(DECIDE_BILLING_SAMPLING_RATE=1), freeze_time("2022-05-07 12:23:07"):
             response = self._post_decide(api_version=3)
-            self.assertEqual(response.status_code, 200)
+            assert response.status_code == 200
 
             client = redis.get_client()
             # check that single increment made it to redis
-            self.assertEqual(
-                client.hgetall(f"posthog:decide_requests:{self.team.pk}"),
-                {b"165192618": b"1"},
-            )
+            assert client.hgetall(f"posthog:decide_requests:{self.team.pk}") == {b"165192618": b"1"}
 
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_decide_analytics_does_not_fire_for_survey_targeting_flags(self, *args):
@@ -3839,24 +3723,24 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         with self.settings(DECIDE_BILLING_SAMPLING_RATE=1), freeze_time("2022-05-07 12:23:07"):
             response = self._post_decide(api_version=3)
-            self.assertEqual(response.status_code, 200)
+            assert response.status_code == 200
 
             client = redis.get_client()
             # check that single increment made it to redis
-            self.assertEqual(client.hgetall(f"posthog:decide_requests:{self.team.pk}"), {})
+            assert client.hgetall(f"posthog:decide_requests:{self.team.pk}") == {}
 
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_decide_new_capture_activation(self, *args):
         self.client.logout()
         response = self._post_decide(api_version=3)
-        self.assertEqual(response.status_code, 200)
-        self.assertTrue("analytics" in response.json())
-        self.assertEqual(response.json()["analytics"]["endpoint"], "/i/v0/e/")
+        assert response.status_code == 200
+        assert "analytics" in response.json()
+        assert response.json()["analytics"]["endpoint"] == "/i/v0/e/"
 
         with self.settings(NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS={str(self.team.id)}):
             response = self._post_decide(api_version=3)
-            self.assertEqual(response.status_code, 200)
-            self.assertFalse("analytics" in response.json())
+            assert response.status_code == 200
+            assert "analytics" not in response.json()
 
     def test_decide_element_chain_as_string(self, *args):
         self.client.logout()
@@ -3864,24 +3748,24 @@ class TestDecide(BaseTest, QueryMatchingTest):
             ELEMENT_CHAIN_AS_STRING_TEAMS={str(self.team.id)}, ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS={"0"}
         ):
             response = self._post_decide(api_version=3)
-            self.assertEqual(response.status_code, 200)
-            self.assertTrue("elementsChainAsString" in response.json())
-            self.assertTrue(response.json()["elementsChainAsString"])
+            assert response.status_code == 200
+            assert "elementsChainAsString" in response.json()
+            assert response.json()["elementsChainAsString"]
 
         with self.settings(
             ELEMENT_CHAIN_AS_STRING_TEAMS={str(self.team.id)},
             ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS={str(self.team.id)},
         ):
             response = self._post_decide(api_version=3)
-            self.assertEqual(response.status_code, 200)
-            self.assertFalse("elementsChainAsString" in response.json())
+            assert response.status_code == 200
+            assert "elementsChainAsString" not in response.json()
 
     def test_decide_default_identified_only(self, *args):
         self.client.logout()
         response = self._post_decide(api_version=3)
-        self.assertEqual(response.status_code, 200)
-        self.assertTrue("defaultIdentifiedOnly" in response.json())
-        self.assertTrue(response.json()["defaultIdentifiedOnly"])
+        assert response.status_code == 200
+        assert "defaultIdentifiedOnly" in response.json()
+        assert response.json()["defaultIdentifiedOnly"]
 
     @patch("ee.billing.quota_limiting.list_limited_team_attributes")
     def test_decide_v1_return_empty_objects_for_all_feature_flag_related_fields_when_quota_limited(
@@ -4017,14 +3901,14 @@ class TestDecide(BaseTest, QueryMatchingTest):
             },
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         # Verify only the requested flags are returned
         response_data = response.json()
-        self.assertEqual(response_data["featureFlags"], {"flag-1": True, "flag-3": True})
+        assert response_data["featureFlags"] == {"flag-1": True, "flag-3": True}
 
         # Verify flag-2 is not in the response
-        self.assertNotIn("flag-2", response_data["featureFlags"])
+        assert "flag-2" not in response_data["featureFlags"]
 
     def test_missing_distinct_id(self, *args):
         response = self._post_decide(
@@ -4033,16 +3917,13 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "groups": {},
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "missing_distinct_id",
-                "detail": "Decide requires a distinct_id.",
-                "attr": None,
-            },
-        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "missing_distinct_id",
+            "detail": "Decide requires a distinct_id.",
+            "attr": None,
+        }
 
     def test_only_evaluate_survey_feature_flags_query_param(self, *args):
         # Create a survey flag and a regular flag
@@ -4066,11 +3947,11 @@ class TestDecide(BaseTest, QueryMatchingTest):
             api_version=3,
             only_evaluate_survey_feature_flags=True,
         )
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         response_data = response.json()
-        self.assertIn("featureFlags", response_data)
-        self.assertIn("survey-targeting-test-survey", response_data["featureFlags"])
-        self.assertNotIn("regular-flag", response_data["featureFlags"])
+        assert "featureFlags" in response_data
+        assert "survey-targeting-test-survey" in response_data["featureFlags"]
+        assert "regular-flag" not in response_data["featureFlags"]
 
         # # Test with only_evaluate_survey_feature_flags=false
         # self.only_evaluate_survey_feature_flags = False
@@ -4163,7 +4044,7 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
         client.force_login(self.user)
 
         response = client.patch("/api/environments/@current/", data, content_type="application/json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         client.logout()
 
@@ -4301,8 +4182,8 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             # Main DB queries:
             # E   1. SELECT "posthog_featureflag"."id", -- fill up feature flags cache
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual({}, response.json()["featureFlags"])
+            assert response.status_code == status.HTTP_200_OK
+            assert {} == response.json()["featureFlags"]
 
     def test_decide_uses_read_replica(self):
         org, team, user = self.setup_user_and_team_in_db("default")
@@ -4351,28 +4232,22 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             # E   1. SET LOCAL statement_timeout = 600
             # E   2. SELECT (true) AS "flag_41_condition_0", (true) AS "flag_42_condition_0" -- i.e. flag selection
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(
-                response.json()["featureFlags"],
-                {
-                    "default-flag": True,
-                    "default-no-prop-flag": True,
-                    "beta-feature": True,
-                },
-            )
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["featureFlags"] == {
+                "default-flag": True,
+                "default-no-prop-flag": True,
+                "beta-feature": True,
+            }
 
         # same query with property overrides, shouldn't go to db
         with self.assertNumQueries(0, using="replica"), self.assertNumQueries(0, using="default"):
             response = self._post_decide(person_props={"email": "tom@hi.com"})
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(
-                response.json()["featureFlags"],
-                {
-                    "default-flag": False,
-                    "default-no-prop-flag": True,
-                    "beta-feature": True,
-                },
-            )
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["featureFlags"] == {
+                "default-flag": False,
+                "default-no-prop-flag": True,
+                "beta-feature": True,
+            }
 
     def test_decide_uses_read_replica_for_cohorts_based_flags(self):
         org, team, user = self.setup_user_and_team_in_db("default")
@@ -4525,16 +4400,13 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             # E   2. SELECT "posthog_cohort"."id", "posthog_cohort"."name", -- i.e. select all cohorts
             # E   3. SELECT EXISTS(SELECT (1) AS "a" FROM "posthog_cohortpeople" U0 WHERE (U0."cohort_id" = 28 AND U0."cohort_id" = 28 AND U0."person_id" = "posthog_person"."id") LIMIT 1) AS "flag_47_condition_0",  -- a.k.a flag selection query
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(
-                response.json()["featureFlags"],
-                {
-                    "static-flag": True,
-                    "dynamic-flag": False,
-                    "both-flag": False,
-                    "either-flag": True,
-                },
-            )
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["featureFlags"] == {
+                "static-flag": True,
+                "dynamic-flag": False,
+                "both-flag": False,
+                "either-flag": True,
+            }
 
         with self.assertNumQueries(8, using="replica"), self.assertNumQueries(0, using="default"):
             response = self._post_decide(api_version=3, distinct_id="example_id")
@@ -4543,16 +4415,13 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             # E   2. SELECT "posthog_cohort"."id", "posthog_cohort"."name", -- i.e. select all cohorts
             # E   3. SELECT EXISTS(SELECT (1) AS "a" FROM "posthog_cohortpeople" U0 WHERE (U0."cohort_id" = 28 AND U0."cohort_id" = 28 AND U0."person_id" = "posthog_person"."id") LIMIT 1) AS "flag_47_condition_0",  -- a.k.a flag selection query
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(
-                response.json()["featureFlags"],
-                {
-                    "static-flag": False,
-                    "dynamic-flag": True,
-                    "both-flag": False,
-                    "either-flag": True,
-                },
-            )
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["featureFlags"] == {
+                "static-flag": False,
+                "dynamic-flag": True,
+                "both-flag": False,
+                "either-flag": True,
+            }
 
         with self.assertNumQueries(8, using="replica"), self.assertNumQueries(0, using="default"):
             response = self._post_decide(api_version=3, distinct_id="cohort_secondary")
@@ -4561,16 +4430,13 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             # E   2. SELECT "posthog_cohort"."id", "posthog_cohort"."name", -- i.e. select all cohorts
             # E   3. SELECT EXISTS(SELECT (1) AS "a" FROM "posthog_cohortpeople" U0 WHERE (U0."cohort_id" = 28 AND U0."cohort_id" = 28 AND U0."person_id" = "posthog_person"."id") LIMIT 1) AS "flag_47_condition_0",  -- a.k.a flag selection query
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(
-                response.json()["featureFlags"],
-                {
-                    "static-flag": True,
-                    "dynamic-flag": True,
-                    "both-flag": True,
-                    "either-flag": True,
-                },
-            )
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["featureFlags"] == {
+                "static-flag": True,
+                "dynamic-flag": True,
+                "both-flag": True,
+                "either-flag": True,
+            }
 
     def test_feature_flags_v3_consistent_flags(self):
         org, team, user = self.setup_user_and_team_in_db("default")
@@ -4653,10 +4519,10 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             # E   4. SET LOCAL statement_timeout = 600
             # E   5. SELECT (true) AS "flag_28_condition_0",  -- flag matching query because one flag requires properties
             response = self._post_decide(api_version=3)
-            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-            self.assertTrue(response.json()["featureFlags"]["default-flag"])
-            self.assertEqual(
-                "first-variant", response.json()["featureFlags"]["multivariate-flag"]
+            assert response.json()["featureFlags"]["beta-feature"]
+            assert response.json()["featureFlags"]["default-flag"]
+            assert (
+                "first-variant" == response.json()["featureFlags"]["multivariate-flag"]
             )  # assigned by distinct_id hash
 
         # new person, merged from old distinct ID
@@ -4698,9 +4564,9 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                     "$anon_distinct_id": "example22_id",
                 },
             )
-            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-            self.assertTrue(response.json()["featureFlags"]["default-flag"])
-            self.assertFalse(response.json()["errorsWhileComputingFlags"])
+            assert response.json()["featureFlags"]["beta-feature"]
+            assert response.json()["featureFlags"]["default-flag"]
+            assert not response.json()["errorsWhileComputingFlags"]
 
         # now main database is down, but does not affect replica
 
@@ -4728,9 +4594,9 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                     "$anon_distinct_id": "example22_id",
                 },
             )
-            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-            self.assertTrue(response.json()["featureFlags"]["default-flag"])
-            self.assertFalse(response.json()["errorsWhileComputingFlags"])
+            assert response.json()["featureFlags"]["beta-feature"]
+            assert response.json()["featureFlags"]["default-flag"]
+            assert not response.json()["errorsWhileComputingFlags"]
 
         # now replica is down, so errors computing flags should be true
         with connections["replica"].execute_wrapper(QueryTimeoutWrapper()):
@@ -4742,10 +4608,10 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                     "$anon_distinct_id": "example22_id",
                 },
             )
-            self.assertTrue("beta-feature" not in response.json()["featureFlags"])
-            self.assertTrue("default-flag" not in response.json()["featureFlags"])
-            self.assertTrue(response.json()["featureFlags"]["default-no-prop-flag"])
-            self.assertTrue(response.json()["errorsWhileComputingFlags"])
+            assert "beta-feature" not in response.json()["featureFlags"]
+            assert "default-flag" not in response.json()["featureFlags"]
+            assert response.json()["featureFlags"]["default-no-prop-flag"]
+            assert response.json()["errorsWhileComputingFlags"]
 
     def test_feature_flags_v3_consistent_flags_with_write_on_hash_key_overrides(self):
         org, team, user = self.setup_user_and_team_in_db("default")
@@ -4822,10 +4688,10 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             # E   4. SET LOCAL statement_timeout = 600
             # E   5. SELECT (true) AS "flag_28_condition_0",  -- flag matching query because one flag requires properties
             response = self._post_decide(api_version=3)
-            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-            self.assertTrue(response.json()["featureFlags"]["default-flag"])
-            self.assertEqual(
-                "first-variant", response.json()["featureFlags"]["multivariate-flag"]
+            assert response.json()["featureFlags"]["beta-feature"]
+            assert response.json()["featureFlags"]["default-flag"]
+            assert (
+                "first-variant" == response.json()["featureFlags"]["multivariate-flag"]
             )  # assigned by distinct_id hash
 
         # new person, merged from old distinct ID
@@ -4863,11 +4729,11 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                     "$anon_distinct_id": "example_id",
                 },
             )
-            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-            self.assertTrue(response.json()["featureFlags"]["default-flag"])
-            self.assertFalse(response.json()["errorsWhileComputingFlags"])
-            self.assertEqual(
-                "first-variant", response.json()["featureFlags"]["multivariate-flag"]
+            assert response.json()["featureFlags"]["beta-feature"]
+            assert response.json()["featureFlags"]["default-flag"]
+            assert not response.json()["errorsWhileComputingFlags"]
+            assert (
+                "first-variant" == response.json()["featureFlags"]["multivariate-flag"]
             )  # assigned by distinct_id hash
 
     def test_feature_flags_v2_with_groups(
@@ -4929,11 +4795,8 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             # E   1. SET LOCAL statement_timeout = 300
             # E   2. SELECT "posthog_grouptypemapping"."id", -- a.k.a. get group type mappings
             response = self._post_decide(distinct_id="example_id")
-            self.assertEqual(
-                response.json()["featureFlags"],
-                {"default-no-prop-group-flag": False, "groups-flag": False},
-            )
-            self.assertFalse(response.json()["errorsWhileComputingFlags"])
+            assert response.json()["featureFlags"] == {"default-no-prop-group-flag": False, "groups-flag": False}
+            assert not response.json()["errorsWhileComputingFlags"]
 
         with self.assertNumQueries(9, using="replica"), self.assertNumQueries(0, using="default"):
             # E   1. SET LOCAL statement_timeout = 300
@@ -4946,11 +4809,8 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 distinct_id="example_id",
                 groups={"organization": "foo2", "project": "bar"},
             )
-            self.assertEqual(
-                response.json()["featureFlags"],
-                {"groups-flag": False, "default-no-prop-group-flag": True},
-            )
-            self.assertFalse(response.json()["errorsWhileComputingFlags"])
+            assert response.json()["featureFlags"] == {"groups-flag": False, "default-no-prop-group-flag": True}
+            assert not response.json()["errorsWhileComputingFlags"]
 
         with self.assertNumQueries(9, using="replica"), self.assertNumQueries(0, using="default"):
             # E   2. SET LOCAL statement_timeout = 300
@@ -4963,11 +4823,8 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 distinct_id="example_id",
                 groups={"organization": "foo", "project": "bar"},
             )
-            self.assertEqual(
-                response.json()["featureFlags"],
-                {"groups-flag": True, "default-no-prop-group-flag": True},
-            )
-            self.assertFalse(response.json()["errorsWhileComputingFlags"])
+            assert response.json()["featureFlags"] == {"groups-flag": True, "default-no-prop-group-flag": True}
+            assert not response.json()["errorsWhileComputingFlags"]
 
     def test_site_apps_in_decide_use_replica(
         self,
@@ -4998,9 +4855,9 @@ class TestDecideUsesReadReplica(TransactionTestCase):
 
         with self.assertNumQueries(4, using="replica"), self.assertNumQueries(0, using="default"):
             response = self._post_decide(api_version=3)
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
             injected = response.json()["siteApps"]
-            self.assertEqual(len(injected), 1)
+            assert len(injected) == 1
 
     # Adding local evaluation tests for read replica in one place for now, until we move to a separate CI flow for all read replica tests
     # since code-level overrides don't work for theses tests, as they affect the DATABASES setting
@@ -5097,11 +4954,11 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         # missing API key
         with self.assertNumQueries(0, using="replica"), self.assertNumQueries(0, using="default"):
             response = self.client.get(f"/api/feature_flag/local_evaluation?token={self.team.api_token}")
-            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+            assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
         with self.assertNumQueries(0, using="replica"), self.assertNumQueries(0, using="default"):
             response = self.client.get(f"/api/feature_flag/local_evaluation")
-            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+            assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
         with self.assertNumQueries(1, using="replica"), self.assertNumQueries(9, using="default"):
             # Captured queries for write DB:
@@ -5117,91 +4974,59 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
                 headers={"authorization": f"Bearer {personal_api_key}"},
             )
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
-        self.assertTrue("flags" in response_data and "group_type_mapping" in response_data)
-        self.assertEqual(len(response_data["flags"]), 4)
+        assert "flags" in response_data and "group_type_mapping" in response_data
+        assert len(response_data["flags"]) == 4
 
         sorted_flags = sorted(response_data["flags"], key=lambda x: x["key"])
 
-        self.assertLessEqual(
-            {
-                "name": "Alpha feature",
-                "key": "alpha-feature",
-                "filters": {
-                    "groups": [{"rollout_percentage": 20}],
-                    "multivariate": {
-                        "variants": [
-                            {
-                                "key": "first-variant",
-                                "name": "First Variant",
-                                "rollout_percentage": 50,
-                            },
-                            {
-                                "key": "second-variant",
-                                "name": "Second Variant",
-                                "rollout_percentage": 25,
-                            },
-                            {
-                                "key": "third-variant",
-                                "name": "Third Variant",
-                                "rollout_percentage": 25,
-                            },
-                        ]
-                    },
-                },
-                "deleted": False,
-                "active": True,
-                "ensure_experience_continuity": False,
-            }.items(),
-            sorted_flags[0].items(),
-        )
-        self.assertLessEqual(
-            {
-                "name": "Beta feature",
-                "key": "beta-feature",
-                "filters": {
-                    "groups": [
-                        {
-                            "properties": [{"key": "beta-property", "value": "beta-value"}],
-                            "rollout_percentage": 51,
-                        }
+        assert {
+            "name": "Alpha feature",
+            "key": "alpha-feature",
+            "filters": {
+                "groups": [{"rollout_percentage": 20}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
                     ]
                 },
-                "deleted": False,
-                "active": True,
-                "ensure_experience_continuity": False,
-            }.items(),
-            sorted_flags[1].items(),
-        )
-        self.assertLessEqual(
-            {
-                "name": "Group feature",
-                "key": "group-feature",
-                "filters": {
-                    "groups": [{"rollout_percentage": 21}],
-                    "aggregation_group_type_index": 0,
-                },
-                "deleted": False,
-                "active": True,
-                "ensure_experience_continuity": False,
-            }.items(),
-            sorted_flags[2].items(),
-        )
+            },
+            "deleted": False,
+            "active": True,
+            "ensure_experience_continuity": False,
+        }.items() <= sorted_flags[0].items()
+        assert {
+            "name": "Beta feature",
+            "key": "beta-feature",
+            "filters": {
+                "groups": [{"properties": [{"key": "beta-property", "value": "beta-value"}], "rollout_percentage": 51}]
+            },
+            "deleted": False,
+            "active": True,
+            "ensure_experience_continuity": False,
+        }.items() <= sorted_flags[1].items()
+        assert {
+            "name": "Group feature",
+            "key": "group-feature",
+            "filters": {"groups": [{"rollout_percentage": 21}], "aggregation_group_type_index": 0},
+            "deleted": False,
+            "active": True,
+            "ensure_experience_continuity": False,
+        }.items() <= sorted_flags[2].items()
 
-        self.assertLessEqual(
-            {
-                "name": "Inactive feature",
-                "key": "inactive-flag",
-                "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
-                "deleted": False,
-                "active": False,
-                "ensure_experience_continuity": False,
-            }.items(),
-            sorted_flags[3].items(),
-        )
+        assert {
+            "name": "Inactive feature",
+            "key": "inactive-flag",
+            "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
+            "deleted": False,
+            "active": False,
+            "ensure_experience_continuity": False,
+        }.items() <= sorted_flags[3].items()
 
-        self.assertEqual(response_data["group_type_mapping"], {"0": "organization", "1": "company"})
+        assert response_data["group_type_mapping"] == {"0": "organization", "1": "company"}
 
     @patch("posthog.api.feature_flag.report_user_action")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
@@ -5371,104 +5196,64 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts",
                 headers={"authorization": f"Bearer {personal_api_key}"},
             )
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
             response_data = response.json()
-            self.assertTrue(
-                "flags" in response_data and "group_type_mapping" in response_data and "cohorts" in response_data
-            )
-            self.assertEqual(len(response_data["flags"]), 2)
+            assert "flags" in response_data and "group_type_mapping" in response_data and "cohorts" in response_data
+            assert len(response_data["flags"]) == 2
 
         sorted_flags = sorted(response_data["flags"], key=lambda x: x["key"])
 
-        self.assertLessEqual(
-            {
-                "name": "Alpha feature",
-                "key": "alpha-feature",
-                "filters": {
-                    "groups": [
-                        {
-                            "properties": [
-                                {
-                                    "key": "id",
-                                    "type": "cohort",
-                                    "value": cohort_valid_for_ff.pk,
-                                }
-                            ],
-                            "rollout_percentage": 20,
-                        },
-                    ],
-                    "multivariate": {
-                        "variants": [
-                            {
-                                "key": "first-variant",
-                                "name": "First Variant",
-                                "rollout_percentage": 50,
-                            },
-                            {
-                                "key": "second-variant",
-                                "name": "Second Variant",
-                                "rollout_percentage": 25,
-                            },
-                            {
-                                "key": "third-variant",
-                                "name": "Third Variant",
-                                "rollout_percentage": 25,
-                            },
-                        ]
-                    },
+        assert {
+            "name": "Alpha feature",
+            "key": "alpha-feature",
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [{"key": "id", "type": "cohort", "value": cohort_valid_for_ff.pk}],
+                        "rollout_percentage": 20,
+                    }
+                ],
+                "multivariate": {
+                    "variants": [
+                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                    ]
                 },
-                "deleted": False,
-                "active": True,
-                "ensure_experience_continuity": False,
-            }.items(),
-            sorted_flags[0].items(),
-        )
+            },
+            "deleted": False,
+            "active": True,
+            "ensure_experience_continuity": False,
+        }.items() <= sorted_flags[0].items()
 
-        self.assertLessEqual(
-            {
-                "name": "Beta feature",
-                "key": "beta-feature",
-                "filters": {
-                    "groups": [
-                        {
-                            "properties": [
-                                {
-                                    "key": "id",
-                                    "type": "cohort",
-                                    "value": other_cohort1.pk,
-                                }
-                            ],
-                            "rollout_percentage": 20,
-                        },
-                    ],
-                },
-                "deleted": False,
-                "active": True,
-                "ensure_experience_continuity": False,
-            }.items(),
-            sorted_flags[1].items(),
-        )
+        assert {
+            "name": "Beta feature",
+            "key": "beta-feature",
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [{"key": "id", "type": "cohort", "value": other_cohort1.pk}],
+                        "rollout_percentage": 20,
+                    }
+                ]
+            },
+            "deleted": False,
+            "active": True,
+            "ensure_experience_continuity": False,
+        }.items() <= sorted_flags[1].items()
 
         # When send_cohorts is true, no transformations happen, so all relevant cohorts are returned
-        self.assertEqual(
-            response_data["cohorts"].items(),
-            {
+        assert (
+            response_data["cohorts"].items()
+            == {
                 str(cohort_valid_for_ff.pk): {
                     "type": "OR",
                     "values": [
                         {
                             "type": "OR",
                             "values": [
-                                {
-                                    "key": "$some_prop",
-                                    "type": "person",
-                                    "value": "nomatchihope",
-                                },
-                                {
-                                    "key": "$some_prop2",
-                                    "type": "person",
-                                    "value": "nomatchihope2",
-                                },
+                                {"key": "$some_prop", "type": "person", "value": "nomatchihope"},
+                                {"key": "$some_prop2", "type": "person", "value": "nomatchihope2"},
                             ],
                         }
                     ],
@@ -5476,19 +5261,10 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 str(other_cohort1.pk): {
                     "type": "OR",
                     "values": [
-                        {
-                            "type": "OR",
-                            "values": [
-                                {
-                                    "key": "$some_prop",
-                                    "type": "person",
-                                    "value": "nomatchihope",
-                                },
-                            ],
-                        }
+                        {"type": "OR", "values": [{"key": "$some_prop", "type": "person", "value": "nomatchihope"}]}
                     ],
                 },
-            }.items(),
+            }.items()
         )
 
     @patch("posthog.api.feature_flag.report_user_action")
@@ -5641,34 +5417,24 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts",
                 headers={"authorization": f"Bearer {personal_api_key}"},
             )
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
             response_data = response.json()
-            self.assertTrue(
-                "flags" in response_data and "group_type_mapping" in response_data and "cohorts" in response_data
-            )
-            self.assertEqual(len(response_data["flags"]), 2)
+            assert "flags" in response_data and "group_type_mapping" in response_data and "cohorts" in response_data
+            assert len(response_data["flags"]) == 2
 
         sorted_flags = sorted(response_data["flags"], key=lambda x: x["key"])
 
-        self.assertEqual(
-            response_data["cohorts"].items(),
-            {
+        assert (
+            response_data["cohorts"].items()
+            == {
                 str(cohort_valid_for_ff.pk): {
                     "type": "OR",
                     "values": [
                         {
                             "type": "OR",
                             "values": [
-                                {
-                                    "key": "$some_prop",
-                                    "type": "person",
-                                    "value": "nomatchihope",
-                                },
-                                {
-                                    "key": "$some_prop2",
-                                    "type": "person",
-                                    "value": "nomatchihope2",
-                                },
+                                {"key": "$some_prop", "type": "person", "value": "nomatchihope"},
+                                {"key": "$some_prop2", "type": "person", "value": "nomatchihope2"},
                             ],
                         }
                     ],
@@ -5679,132 +5445,92 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                         {
                             "type": "OR",
                             "values": [
-                                {
-                                    "key": "$some_prop",
-                                    "type": "person",
-                                    "value": "nomatchihope",
-                                },
-                                {
-                                    "key": "$some_prop2",
-                                    "type": "person",
-                                    "value": "nomatchihope2",
-                                },
-                                {
-                                    "key": "id",
-                                    "type": "cohort",
-                                    "value": cohort_valid_for_ff.pk,
-                                    "negation": True,
-                                },
+                                {"key": "$some_prop", "type": "person", "value": "nomatchihope"},
+                                {"key": "$some_prop2", "type": "person", "value": "nomatchihope2"},
+                                {"key": "id", "type": "cohort", "value": cohort_valid_for_ff.pk, "negation": True},
                             ],
                         }
                     ],
                 },
-            }.items(),
+            }.items()
         )
 
-        self.assertLessEqual(
-            {
-                "name": "Alpha feature",
-                "key": "alpha-feature",
-                "filters": {
-                    "groups": [
-                        {
-                            "rollout_percentage": 20,
-                            "properties": [{"key": "id", "type": "cohort", "value": cohort2.pk}],
-                        }
-                    ],
-                    "multivariate": {
-                        "variants": [
-                            {
-                                "key": "first-variant",
-                                "name": "First Variant",
-                                "rollout_percentage": 50,
-                            },
-                            {
-                                "key": "second-variant",
-                                "name": "Second Variant",
-                                "rollout_percentage": 25,
-                            },
-                            {
-                                "key": "third-variant",
-                                "name": "Third Variant",
-                                "rollout_percentage": 25,
-                            },
-                        ]
-                    },
+        assert {
+            "name": "Alpha feature",
+            "key": "alpha-feature",
+            "filters": {
+                "groups": [
+                    {"rollout_percentage": 20, "properties": [{"key": "id", "type": "cohort", "value": cohort2.pk}]}
+                ],
+                "multivariate": {
+                    "variants": [
+                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                    ]
                 },
-                "deleted": False,
-                "active": True,
-                "ensure_experience_continuity": False,
-            }.items(),
-            sorted_flags[0].items(),
-        )
+            },
+            "deleted": False,
+            "active": True,
+            "ensure_experience_continuity": False,
+        }.items() <= sorted_flags[0].items()
 
-        self.assertLessEqual(
-            {
-                "name": "Alpha feature",
-                "key": "alpha-feature-2",
-                "filters": {
-                    "groups": [
-                        {
-                            "properties": [
-                                {
-                                    "key": "id",
-                                    "type": "cohort",
-                                    "value": cohort_valid_for_ff.pk,
-                                }
-                            ],
-                            "rollout_percentage": 20,
-                        },
-                    ],
-                },
-                "deleted": False,
-                "active": True,
-                "ensure_experience_continuity": False,
-            }.items(),
-            sorted_flags[1].items(),
-        )
+        assert {
+            "name": "Alpha feature",
+            "key": "alpha-feature-2",
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [{"key": "id", "type": "cohort", "value": cohort_valid_for_ff.pk}],
+                        "rollout_percentage": 20,
+                    }
+                ]
+            },
+            "deleted": False,
+            "active": True,
+            "ensure_experience_continuity": False,
+        }.items() <= sorted_flags[1].items()
 
 
 class TestDecideMetricLabel(TestCase):
     def test_simple_team_ids(self):
         with self.settings(DECIDE_TRACK_TEAM_IDS=["1", "2", "3"]):
-            self.assertEqual(label_for_team_id_to_track(3), "3")
-            self.assertEqual(label_for_team_id_to_track(2), "2")
-            self.assertEqual(label_for_team_id_to_track(1), "1")
-            self.assertEqual(label_for_team_id_to_track(0), "unknown")
-            self.assertEqual(label_for_team_id_to_track(4), "unknown")
-            self.assertEqual(label_for_team_id_to_track(40), "unknown")
-            self.assertEqual(label_for_team_id_to_track(10), "unknown")
-            self.assertEqual(label_for_team_id_to_track(20), "unknown")
-            self.assertEqual(label_for_team_id_to_track(31), "unknown")
+            assert label_for_team_id_to_track(3) == "3"
+            assert label_for_team_id_to_track(2) == "2"
+            assert label_for_team_id_to_track(1) == "1"
+            assert label_for_team_id_to_track(0) == "unknown"
+            assert label_for_team_id_to_track(4) == "unknown"
+            assert label_for_team_id_to_track(40) == "unknown"
+            assert label_for_team_id_to_track(10) == "unknown"
+            assert label_for_team_id_to_track(20) == "unknown"
+            assert label_for_team_id_to_track(31) == "unknown"
 
     def test_all_team_ids(self):
         with self.settings(DECIDE_TRACK_TEAM_IDS=["1", "2", "3", "all"]):
-            self.assertEqual(label_for_team_id_to_track(3), "3")
-            self.assertEqual(label_for_team_id_to_track(2), "2")
-            self.assertEqual(label_for_team_id_to_track(1), "1")
-            self.assertEqual(label_for_team_id_to_track(0), "0")
-            self.assertEqual(label_for_team_id_to_track(4), "4")
-            self.assertEqual(label_for_team_id_to_track(40), "40")
-            self.assertEqual(label_for_team_id_to_track(10), "10")
-            self.assertEqual(label_for_team_id_to_track(20), "20")
-            self.assertEqual(label_for_team_id_to_track(31), "31")
+            assert label_for_team_id_to_track(3) == "3"
+            assert label_for_team_id_to_track(2) == "2"
+            assert label_for_team_id_to_track(1) == "1"
+            assert label_for_team_id_to_track(0) == "0"
+            assert label_for_team_id_to_track(4) == "4"
+            assert label_for_team_id_to_track(40) == "40"
+            assert label_for_team_id_to_track(10) == "10"
+            assert label_for_team_id_to_track(20) == "20"
+            assert label_for_team_id_to_track(31) == "31"
 
     def test_range_team_ids(self):
         with self.settings(DECIDE_TRACK_TEAM_IDS=["1", "2", "1:3", "10:20", "30:40"]):
-            self.assertEqual(label_for_team_id_to_track(3), "3")
-            self.assertEqual(label_for_team_id_to_track(2), "2")
-            self.assertEqual(label_for_team_id_to_track(1), "1")
-            self.assertEqual(label_for_team_id_to_track(0), "unknown")
-            self.assertEqual(label_for_team_id_to_track(4), "unknown")
-            self.assertEqual(label_for_team_id_to_track(40), "40")
-            self.assertEqual(label_for_team_id_to_track(41), "unknown")
-            self.assertEqual(label_for_team_id_to_track(10), "10")
-            self.assertEqual(label_for_team_id_to_track(9), "unknown")
-            self.assertEqual(label_for_team_id_to_track(20), "20")
-            self.assertEqual(label_for_team_id_to_track(25), "unknown")
-            self.assertEqual(label_for_team_id_to_track(31), "31")
+            assert label_for_team_id_to_track(3) == "3"
+            assert label_for_team_id_to_track(2) == "2"
+            assert label_for_team_id_to_track(1) == "1"
+            assert label_for_team_id_to_track(0) == "unknown"
+            assert label_for_team_id_to_track(4) == "unknown"
+            assert label_for_team_id_to_track(40) == "40"
+            assert label_for_team_id_to_track(41) == "unknown"
+            assert label_for_team_id_to_track(10) == "10"
+            assert label_for_team_id_to_track(9) == "unknown"
+            assert label_for_team_id_to_track(20) == "20"
+            assert label_for_team_id_to_track(25) == "unknown"
+            assert label_for_team_id_to_track(31) == "31"
 
 
 class TestDecideExceptions(TestCase):
@@ -5818,7 +5544,7 @@ class TestDecideExceptions(TestCase):
 
         response = get_decide(request)
 
-        self.assertEqual(response.status_code, 400)
+        assert response.status_code == 400
         mock_capture_exception.assert_not_called()
 
     @patch("posthog.api.decide.capture_exception")
@@ -5831,5 +5557,5 @@ class TestDecideExceptions(TestCase):
 
         response = get_decide(request)
 
-        self.assertEqual(response.status_code, 400)
+        assert response.status_code == 400
         mock_capture_exception.assert_called_once()

@@ -4367,9 +4367,9 @@ class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseT
         query = RecordingsQuery.model_validate({"limit": 10})
         result = SessionRecordingListFromQuery(query=query, team=self.team, hogql_query_modifiers=None).run()
 
-        self.assertEqual(len(result.results), 2)
-        self.assertFalse(result.has_more_recording)
-        self.assertIsNone(result.next_cursor)
+        assert len(result.results) == 2
+        assert not result.has_more_recording
+        assert result.next_cursor is None
 
     def test_cursor_based_pagination_multiple_pages(self):
         base_session_id = f"test_cursor_pagination_multi_page-{uuid4()}"
@@ -4384,9 +4384,9 @@ class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseT
         query = RecordingsQuery.model_validate({"limit": 2, "order": "start_time", "order_direction": "DESC"})
         result = SessionRecordingListFromQuery(query=query, team=self.team, hogql_query_modifiers=None).run()
 
-        self.assertEqual(len(result.results), 2)
-        self.assertTrue(result.has_more_recording)
-        self.assertIsNotNone(result.next_cursor)
+        assert len(result.results) == 2
+        assert result.has_more_recording
+        assert result.next_cursor is not None
         page1_ids = [r["session_id"] for r in result.results]
 
         query2 = RecordingsQuery.model_validate(
@@ -4394,9 +4394,9 @@ class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseT
         )
         result2 = SessionRecordingListFromQuery(query=query2, team=self.team, hogql_query_modifiers=None).run()
 
-        self.assertEqual(len(result2.results), 2)
-        self.assertTrue(result2.has_more_recording)
-        self.assertIsNotNone(result2.next_cursor)
+        assert len(result2.results) == 2
+        assert result2.has_more_recording
+        assert result2.next_cursor is not None
         page2_ids = [r["session_id"] for r in result2.results]
 
         query3 = RecordingsQuery.model_validate(
@@ -4404,14 +4404,14 @@ class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseT
         )
         result3 = SessionRecordingListFromQuery(query=query3, team=self.team, hogql_query_modifiers=None).run()
 
-        self.assertEqual(len(result3.results), 1)
-        self.assertFalse(result3.has_more_recording)
-        self.assertIsNone(result3.next_cursor)
+        assert len(result3.results) == 1
+        assert not result3.has_more_recording
+        assert result3.next_cursor is None
         page3_ids = [r["session_id"] for r in result3.results]
 
         all_ids = page1_ids + page2_ids + page3_ids
-        self.assertEqual(len(all_ids), 5)
-        self.assertEqual(len(set(all_ids)), 5)
+        assert len(all_ids) == 5
+        assert len(set(all_ids)) == 5
 
     def test_cursor_pagination_with_different_ordering_fields(self):
         base_session_id = f"test_cursor_diff_order-{uuid4()}"
@@ -4441,19 +4441,19 @@ class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseT
         query = RecordingsQuery.model_validate({"limit": 2, "order": "console_error_count", "order_direction": "DESC"})
         result = SessionRecordingListFromQuery(query=query, team=self.team, hogql_query_modifiers=None).run()
 
-        self.assertEqual(len(result.results), 2)
-        self.assertTrue(result.has_more_recording)
-        self.assertEqual(result.results[0]["console_error_count"], 7)
-        self.assertEqual(result.results[1]["console_error_count"], 5)
+        assert len(result.results) == 2
+        assert result.has_more_recording
+        assert result.results[0]["console_error_count"] == 7
+        assert result.results[1]["console_error_count"] == 5
 
         query2 = RecordingsQuery.model_validate(
             {"limit": 2, "order": "console_error_count", "order_direction": "DESC", "after": result.next_cursor}
         )
         result2 = SessionRecordingListFromQuery(query=query2, team=self.team, hogql_query_modifiers=None).run()
 
-        self.assertEqual(len(result2.results), 1)
-        self.assertFalse(result2.has_more_recording)
-        self.assertEqual(result2.results[0]["console_error_count"], 3)
+        assert len(result2.results) == 1
+        assert not result2.has_more_recording
+        assert result2.results[0]["console_error_count"] == 3
 
     def test_backward_compatibility_offset_still_works(self):
         base_session_id = f"test_offset_compat-{uuid4()}"
@@ -4469,12 +4469,12 @@ class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseT
         query = RecordingsQuery.model_validate({"limit": 2, "offset": 0})
         result = SessionRecordingListFromQuery(query=query, team=self.team, hogql_query_modifiers=None).run()
 
-        self.assertEqual(len(result.results), 2)
-        self.assertTrue(result.has_more_recording)
-        self.assertIsNone(result.next_cursor)
+        assert len(result.results) == 2
+        assert result.has_more_recording
+        assert result.next_cursor is None
 
         query2 = RecordingsQuery.model_validate({"limit": 2, "offset": 2})
         result2 = SessionRecordingListFromQuery(query=query2, team=self.team, hogql_query_modifiers=None).run()
 
-        self.assertEqual(len(result2.results), 2)
-        self.assertTrue(result2.has_more_recording)
+        assert len(result2.results) == 2
+        assert result2.has_more_recording

@@ -72,7 +72,7 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
 
         results = get_actors_legacy_filters(filters, self.team, funnel_step=1)
 
-        self.assertEqual(35, len(results))
+        assert 35 == len(results)
 
     def test_last_step(self):
         self._create_sample_data_multiple_dropoffs()
@@ -92,7 +92,7 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
 
         results = get_actors_legacy_filters(filters, self.team, funnel_step=3)
 
-        self.assertEqual(5, len(results))
+        assert 5 == len(results)
 
     def test_second_step_dropoff(self):
         self._create_sample_data_multiple_dropoffs()
@@ -112,7 +112,7 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
 
         results = get_actors_legacy_filters(filters, self.team, funnel_step=-2)
 
-        self.assertEqual(20, len(results))
+        assert 20 == len(results)
 
     def test_last_step_dropoff(self):
         self._create_sample_data_multiple_dropoffs()
@@ -132,4 +132,4 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
 
         results = get_actors_legacy_filters(filters, self.team, funnel_step=-3)
 
-        self.assertEqual(10, len(results))
+        assert 10 == len(results)

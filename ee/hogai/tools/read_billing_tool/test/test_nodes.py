@@ -43,7 +43,7 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
     async def test_run_with_no_billing_context(self):
         with patch.object(self.tool._context_manager, "get_billing_context", return_value=None):
             result = await self.tool.execute()
-            self.assertEqual(result, "No billing information available")
+            assert result == "No billing information available"
 
     async def test_run_with_billing_context(self):
         billing_context = MaxBillingContext(
@@ -59,7 +59,7 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
             patch.object(self.tool, "_format_billing_context", return_value="Formatted Context"),
         ):
             result = await self.tool.execute()
-            self.assertEqual(result, "Formatted Context")
+            assert result == "Formatted Context"
 
     async def test_format_billing_context(self):
         billing_context = MaxBillingContext(
@@ -92,8 +92,8 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
 
         with patch.object(self.tool, "_get_top_events_by_usage", return_value=[]):
             formatted_string = await self.tool._format_billing_context(billing_context)
-            self.assertIn("(paid)", formatted_string)
-            self.assertIn("Period: 2023-01-01 to 2023-01-31", formatted_string)
+            assert "(paid)" in formatted_string
+            assert "Period: 2023-01-01 to 2023-01-31" in formatted_string
 
     def test_format_history_table(self):
         usage_history = [
@@ -125,13 +125,13 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
         ]
 
         usage_table = self.tool._format_history_table(usage_history)
-        self.assertIn("### Overall (all projects)", usage_table)
-        self.assertIn("| Data Type | 2023-01-01 | 2023-01-02 |", usage_table)
-        self.assertIn("| Recordings | 100.00 | 200.00 |", usage_table)
-        self.assertIn("| Events | 1.50 | 2.50 |", usage_table)
+        assert "### Overall (all projects)" in usage_table
+        assert "| Data Type | 2023-01-01 | 2023-01-02 |" in usage_table
+        assert "| Recordings | 100.00 | 200.00 |" in usage_table
+        assert "| Events | 1.50 | 2.50 |" in usage_table
 
         spend_table = self.tool._format_history_table(spend_history)
-        self.assertIn("| Mobile Recordings | 10.50 | 20.00 |", spend_table)
+        assert "| Mobile Recordings | 10.50 | 20.00 |" in spend_table
 
     def test_get_top_events_by_usage(self):
         mock_results = [("pageview", 1000), ("$autocapture", 500)]
@@ -139,17 +139,17 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
             "ee.hogai.tools.read_billing_tool.tool.sync_execute", return_value=mock_results
         ) as mock_sync_execute:
             top_events = self.tool._get_top_events_by_usage()
-            self.assertEqual(len(top_events), 2)
-            self.assertEqual(top_events[0]["event"], "pageview")
-            self.assertEqual(top_events[0]["count"], 1000)
-            self.assertEqual(top_events[0]["formatted_count"], "1,000")
-            self.assertEqual(top_events[1]["event"], "$autocapture")
-            self.assertEqual(top_events[1]["count"], 500)
-            self.assertEqual(top_events[1]["formatted_count"], "500")
+            assert len(top_events) == 2
+            assert top_events[0]["event"] == "pageview"
+            assert top_events[0]["count"] == 1000
+            assert top_events[0]["formatted_count"] == "1,000"
+            assert top_events[1]["event"] == "$autocapture"
+            assert top_events[1]["count"] == 500
+            assert top_events[1]["formatted_count"] == "500"
 
             mock_sync_execute.assert_called_once()
             # Check team_id is passed correctly
-            self.assertIn(str(self.team.pk), str(mock_sync_execute.call_args))
+            assert str(self.team.pk) in str(mock_sync_execute.call_args)
 
     def test_get_top_events_by_usage_query_fails(self):
         with patch(
@@ -157,7 +157,7 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
             side_effect=Exception("DB connection failed"),
         ) as mock_sync_execute:
             top_events = self.tool._get_top_events_by_usage()
-            self.assertEqual(top_events, [])
+            assert top_events == []
             mock_sync_execute.assert_called_once()
 
     async def test_format_billing_context_with_addons(self):
@@ -244,39 +244,39 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
             formatted_string = await self.tool._format_billing_context(billing_context)
 
             # Check basic info
-            self.assertIn("paid subscription (startup)", formatted_string)
-            self.assertIn("Startup program: YC W21", formatted_string)
+            assert "paid subscription (startup)" in formatted_string
+            assert "Startup program: YC W21" in formatted_string
 
             # Check billing period
-            self.assertIn("Period: 2023-01-01 to 2023-01-31", formatted_string)
+            assert "Period: 2023-01-01 to 2023-01-31" in formatted_string
 
             # Check cost projections with corrected field names
-            self.assertIn("Current period cost: $500.00", formatted_string)
-            self.assertIn("Projected period cost: $1000.00", formatted_string)
-            self.assertIn("Projected period cost after discount: $900.00", formatted_string)
-            self.assertIn("Projected period cost with spending limit: $800.00", formatted_string)
-            self.assertIn("Projected period cost with spending limit after discount: $700.00", formatted_string)
+            assert "Current period cost: $500.00" in formatted_string
+            assert "Projected period cost: $1000.00" in formatted_string
+            assert "Projected period cost after discount: $900.00" in formatted_string
+            assert "Projected period cost with spending limit: $800.00" in formatted_string
+            assert "Projected period cost with spending limit after discount: $700.00" in formatted_string
 
             # Check products
-            self.assertIn("### Product Analytics", formatted_string)
-            self.assertIn("Current usage: 50000 of 100000 limit", formatted_string)
-            self.assertIn("Custom spending limit: $500.0", formatted_string)
-            self.assertIn("Next period custom spending limit: $600.0", formatted_string)
+            assert "### Product Analytics" in formatted_string
+            assert "Current usage: 50000 of 100000 limit" in formatted_string
+            assert "Custom spending limit: $500.0" in formatted_string
+            assert "Next period custom spending limit: $600.0" in formatted_string
 
             # Check addons are nested within products
-            self.assertIn("#### Add-ons for Product Analytics", formatted_string)
-            self.assertIn("##### Group Analytics", formatted_string)
-            self.assertIn("Current usage: 1000 of 5000 limit", formatted_string)
-            self.assertIn("##### Data Pipelines", formatted_string)
+            assert "#### Add-ons for Product Analytics" in formatted_string
+            assert "##### Group Analytics" in formatted_string
+            assert "Current usage: 1000 of 5000 limit" in formatted_string
+            assert "##### Data Pipelines" in formatted_string
 
             # Check Session Replay exists but has no addons section
-            self.assertIn("### Session Replay", formatted_string)
+            assert "### Session Replay" in formatted_string
             # Since Session Replay has empty addons array, no add-ons section should appear
-            self.assertNotIn("#### Add-ons for Session Replay", formatted_string)
+            assert "#### Add-ons for Session Replay" not in formatted_string
 
             # Check top events
-            self.assertIn("$pageview", formatted_string)
-            self.assertIn("50,000 events", formatted_string)
+            assert "$pageview" in formatted_string
+            assert "50,000 events" in formatted_string
 
     async def test_format_billing_context_no_subscription(self):
         """Test formatting when user has no active subscription (free plan)"""
@@ -293,10 +293,10 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
         with patch.object(self.tool, "_get_top_events_by_usage", return_value=[]):
             formatted_string = await self.tool._format_billing_context(billing_context)
 
-            self.assertIn("free subscription", formatted_string)
-            self.assertIn("Active subscription: No (Free plan)", formatted_string)
-            self.assertIn("Active trial", formatted_string)
-            self.assertIn("expires: 2023-02-01", formatted_string)
+            assert "free subscription" in formatted_string
+            assert "Active subscription: No (Free plan)" in formatted_string
+            assert "Active trial" in formatted_string
+            assert "expires: 2023-02-01" in formatted_string
 
     def test_format_history_table_with_team_breakdown(self):
         """Test that history tables properly group by team when breakdown includes team IDs"""
@@ -344,14 +344,14 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
         table = self.tool._format_history_table(usage_history)
 
         # Check team-specific tables
-        self.assertIn("### Team Alpha (ID: 1)", table)
-        self.assertIn("### Team Beta (ID: 2)", table)
-        self.assertIn("### Overall (all projects)", table)
+        assert "### Team Alpha (ID: 1)" in table
+        assert "### Team Beta (ID: 2)" in table
+        assert "### Overall (all projects)" in table
 
         # Check data is properly grouped
-        self.assertIn("| Events | 1,000.00 | 2,000.00 |", table)
-        self.assertIn("| Recordings | 100.00 | 200.00 |", table)
-        self.assertIn("| Feature Flag Requests | 50.00 | 100.00 |", table)
+        assert "| Events | 1,000.00 | 2,000.00 |" in table
+        assert "| Recordings | 100.00 | 200.00 |" in table
+        assert "| Feature Flag Requests | 50.00 | 100.00 |" in table
 
     async def test_format_billing_context_edge_cases(self):
         """Test edge cases and potential security issues"""
@@ -382,20 +382,20 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
             formatted_string = await self.tool._format_billing_context(billing_context)
 
             # Check deactivated status
-            self.assertIn("Status: Account is deactivated", formatted_string)
+            assert "Status: Account is deactivated" in formatted_string
 
             # Check previous startup program
-            self.assertIn("Previous startup program: YC W20", formatted_string)
+            assert "Previous startup program: YC W20" in formatted_string
 
             # Check XSS attempts are properly escaped
-            self.assertIn("Product &lt;script&gt;alert('xss')&lt;/script&gt;", formatted_string)
-            self.assertIn("Desc with }} mustache {{injection", formatted_string)
+            assert "Product &lt;script&gt;alert('xss')&lt;/script&gt;" in formatted_string
+            assert "Desc with }} mustache {{injection" in formatted_string
 
             # Check None values are handled - when current_usage is None, it shows empty
-            self.assertIn("Current usage:  (1.5% of limit)", formatted_string)
+            assert "Current usage:  (1.5% of limit)" in formatted_string
 
             # Check exceeded limit warning
-            self.assertIn("⚠️ Usage limit exceeded", formatted_string)
+            assert "⚠️ Usage limit exceeded" in formatted_string
 
     async def test_format_billing_context_complete_template_coverage(self):
         """Test all possible template variables are covered"""
@@ -486,31 +486,31 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
             formatted_string = await self.tool._format_billing_context(billing_context)
 
             # Verify all template sections are present
-            self.assertIn("<billing_context>", formatted_string)
-            self.assertIn("</billing_context>", formatted_string)
-            self.assertIn("<organization_billing_info>", formatted_string)
-            self.assertIn("</organization_billing_info>", formatted_string)
-            self.assertIn("<products_info>", formatted_string)
-            self.assertIn("</products_info>", formatted_string)
-            self.assertIn("<usage_history_table>", formatted_string)
-            self.assertIn("</usage_history_table>", formatted_string)
-            self.assertIn("<spend_history_table>", formatted_string)
-            self.assertIn("</spend_history_table>", formatted_string)
-            self.assertIn("<settings>", formatted_string)
-            self.assertIn("</settings>", formatted_string)
-            self.assertIn("<top_events_for_current_project>", formatted_string)
-            self.assertIn("</top_events_for_current_project>", formatted_string)
-            self.assertIn("<cost_reduction_strategies>", formatted_string)
-            self.assertIn("</cost_reduction_strategies>", formatted_string)
-            self.assertIn("<upselling>", formatted_string)
-            self.assertIn("</upselling>", formatted_string)
+            assert "<billing_context>" in formatted_string
+            assert "</billing_context>" in formatted_string
+            assert "<organization_billing_info>" in formatted_string
+            assert "</organization_billing_info>" in formatted_string
+            assert "<products_info>" in formatted_string
+            assert "</products_info>" in formatted_string
+            assert "<usage_history_table>" in formatted_string
+            assert "</usage_history_table>" in formatted_string
+            assert "<spend_history_table>" in formatted_string
+            assert "</spend_history_table>" in formatted_string
+            assert "<settings>" in formatted_string
+            assert "</settings>" in formatted_string
+            assert "<top_events_for_current_project>" in formatted_string
+            assert "</top_events_for_current_project>" in formatted_string
+            assert "<cost_reduction_strategies>" in formatted_string
+            assert "</cost_reduction_strategies>" in formatted_string
+            assert "<upselling>" in formatted_string
+            assert "</upselling>" in formatted_string
 
             # Check yearly interval
-            self.assertIn("(yearly billing)", formatted_string)
+            assert "(yearly billing)" in formatted_string
 
             # Check settings values
-            self.assertIn("Autocapture: True", formatted_string)
-            self.assertIn("Active destinations: 5", formatted_string)
+            assert "Autocapture: True" in formatted_string
+            assert "Active destinations: 5" in formatted_string
 
     def test_format_history_table_real_data_structure(self):
         """Test with realistic data structure matching production format"""
@@ -557,28 +557,28 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
         table = self.tool._format_history_table(usage_history)
 
         # Should always include aggregated table first
-        self.assertIn("### Overall (all projects)", table)
+        assert "### Overall (all projects)" in table
 
         # Should include team-specific tables
-        self.assertIn("### Project 84444", table)
-        self.assertIn("### Project 12345", table)
+        assert "### Project 84444" in table
+        assert "### Project 12345" in table
 
         # Check aggregated data sums correctly
         # Events: 50000+25000=75000, 75000+30000=105000, 60000+28000=88000
-        self.assertIn("| Events | 75,000.00 | 105,000.00 | 88,000.00 |", table)
+        assert "| Events | 75,000.00 | 105,000.00 | 88,000.00 |" in table
 
         # Feature Flag Requests should appear in aggregated (only non-team data)
-        self.assertIn("| Feature Flag Requests | 1,000.00 | 1,500.00 | 1,200.00 |", table)
+        assert "| Feature Flag Requests | 1,000.00 | 1,500.00 | 1,200.00 |" in table
 
         # Data Pipelines should show aggregated total (only from team 84444)
-        self.assertIn("| Data Pipelines (deprecated) | 8,036.00 | 10,286.00 | 8,174.00 |", table)
+        assert "| Data Pipelines (deprecated) | 8,036.00 | 10,286.00 | 8,174.00 |" in table
 
         # Check that team-specific tables show clean labels
         # Team 84444 should show "Data Pipelines (deprecated)" and "Events", not raw labels
         team_84444_section = table.split("### Project 84444")[1].split("### Project 12345")[0]
-        self.assertIn("| Data Pipelines (deprecated) |", team_84444_section)
-        self.assertIn("| Events |", team_84444_section)
-        self.assertNotIn("| 84444::", team_84444_section)  # Should not show raw labels
+        assert "| Data Pipelines (deprecated) |" in team_84444_section
+        assert "| Events |" in team_84444_section
+        assert "| 84444::" not in team_84444_section  # Should not show raw labels
 
     def test_format_history_table_mixed_known_unknown_types(self):
         """Test with mix of known usage types and unknown custom types"""
@@ -604,13 +604,13 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
         table = self.tool._format_history_table(usage_history)
 
         # Should include aggregated table
-        self.assertIn("### Overall (all projects)", table)
+        assert "### Overall (all projects)" in table
 
         # Should handle known types correctly
-        self.assertIn("| Recordings | 50.00 | 75.00 |", table)
+        assert "| Recordings | 50.00 | 75.00 |" in table
 
         # Should handle unknown types gracefully (formatted from label)
-        self.assertIn("| Custom Product 12345 | 100.00 | 200.00 |", table)
+        assert "| Custom Product 12345 | 100.00 | 200.00 |" in table
 
     def test_create_aggregated_items_functionality(self):
         """Test the aggregation logic specifically"""
@@ -652,23 +652,23 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
         aggregated = self.tool._create_aggregated_items(team_items, other_items)
 
         # Should have 2 aggregated items: events and feature flags
-        self.assertEqual(len(aggregated), 2)
+        assert len(aggregated) == 2
 
         # Find the events aggregated item
         events_item = next((item for item in aggregated if "Events" in item.label), None)
-        self.assertIsNotNone(events_item)
+        assert events_item is not None
 
         events_item = cast(UsageHistoryItem, events_item)
         # Should have all 3 unique dates
-        self.assertEqual(len(events_item.dates), 3)
-        self.assertEqual(events_item.dates, ["2025-02-01", "2025-02-02", "2025-02-03"])
+        assert len(events_item.dates) == 3
+        assert events_item.dates == ["2025-02-01", "2025-02-02", "2025-02-03"]
 
         # Check aggregated values:
         # 2025-02-01: 1000 (team 12345 only)
         # 2025-02-02: 2000 + 1500 = 3500 (both teams)
         # 2025-02-03: 2500 (team 67890 only)
         expected_data = [1000.0, 3500.0, 2500.0]
-        self.assertEqual(events_item.data, expected_data)
+        assert events_item.data == expected_data
 
     def test_format_history_table_no_team_breakdowns(self):
         """Test when no items have team breakdowns (all global/other items)"""
@@ -694,12 +694,12 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
         table = self.tool._format_history_table(usage_history)
 
         # Should only have aggregated table, no team-specific tables
-        self.assertIn("### Overall (all projects)", table)
-        self.assertNotIn("### Project", table)  # No project-specific sections
+        assert "### Overall (all projects)" in table
+        assert "### Project" not in table  # No project-specific sections
 
         # Should show aggregated data correctly
-        self.assertIn("| Events | 10,000.00 | 15,000.00 |", table)
-        self.assertIn("| Recordings | 500.00 | 750.00 |", table)
+        assert "| Events | 10,000.00 | 15,000.00 |" in table
+        assert "| Recordings | 500.00 | 750.00 |" in table
 
     def test_format_history_table_spend_vs_usage_items(self):
         """Test that SpendHistoryItem and UsageHistoryItem are handled correctly"""
@@ -731,15 +731,15 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
 
         # Test usage history formatting
         usage_table = self.tool._format_history_table(usage_history)
-        self.assertIn("### Overall (all projects)", usage_table)
-        self.assertIn("### Project 123", usage_table)
-        self.assertIn("| Events | 1,000.00 |", usage_table)
+        assert "### Overall (all projects)" in usage_table
+        assert "### Project 123" in usage_table
+        assert "| Events | 1,000.00 |" in usage_table
 
         # Test spend history formatting
         spend_table = self.tool._format_history_table(spend_history)
-        self.assertIn("### Overall (all projects)", spend_table)
-        self.assertIn("### Project 123", spend_table)
-        self.assertIn("| Events | 50.00 |", spend_table)
+        assert "### Overall (all projects)" in spend_table
+        assert "### Project 123" in spend_table
+        assert "| Events | 50.00 |" in spend_table
 
     def test_format_history_table_edge_case_empty_dates(self):
         """Test handling of items with empty dates or data arrays"""
@@ -765,6 +765,6 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
         table = self.tool._format_history_table(usage_history)
 
         # Should handle empty dates gracefully and still show valid data
-        self.assertIn("### Overall (all projects)", table)
-        self.assertIn("| Recordings | 100.00 |", table)
+        assert "### Overall (all projects)" in table
+        assert "| Recordings | 100.00 |" in table
         # The empty item should be handled without causing errors

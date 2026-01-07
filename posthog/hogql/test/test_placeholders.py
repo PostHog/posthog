@@ -1,5 +1,6 @@
 from typing import cast
 
+import pytest
 from posthog.test.base import BaseTest
 
 from posthog.hogql import ast
@@ -14,63 +15,40 @@ from common.hogvm.python.utils import HogVMException
 class TestParser(BaseTest):
     def test_find_placeholders(self):
         expr = parse_expr("{foo} and {bar.bah}")
-        self.assertEqual(sorted(find_placeholders(expr).placeholder_fields), sorted([["foo"], ["bar", "bah"]]))
+        assert sorted(find_placeholders(expr).placeholder_fields) == sorted([["foo"], ["bar", "bah"]])
 
     def test_replace_placeholders_simple(self):
         expr = clear_locations(parse_expr("{foo}"))
-        self.assertEqual(
-            expr,
-            ast.Placeholder(expr=ast.Field(chain=["foo"])),
-        )
+        assert expr == ast.Placeholder(expr=ast.Field(chain=["foo"]))
         expr2 = replace_placeholders(expr, {"foo": ast.Constant(value="bar")})
-        self.assertEqual(
-            expr2,
-            ast.Constant(value="bar"),
-        )
+        assert expr2 == ast.Constant(value="bar")
 
     def test_replace_placeholders_error(self):
         expr = ast.Placeholder(expr=ast.Field(chain=["foo"]))
-        with self.assertRaises(HogVMException) as context:
+        with pytest.raises(HogVMException) as context:
             replace_placeholders(expr, {})
-        self.assertEqual(
-            "Global variable not found: foo",
-            str(context.exception),
-        )
-        with self.assertRaises(HogVMException) as context:
+        assert "Global variable not found: foo" == str(context.value)
+        with pytest.raises(HogVMException) as context:
             replace_placeholders(expr, {"bar": ast.Constant(value=123)})
-        self.assertEqual(
-            "Global variable not found: foo",
-            str(context.exception),
-        )
+        assert "Global variable not found: foo" == str(context.value)
 
     def test_replace_placeholders_comparison(self):
         expr = clear_locations(parse_expr("timestamp < {timestamp}"))
-        self.assertEqual(
-            expr,
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.Lt,
-                left=ast.Field(chain=["timestamp"]),
-                right=ast.Placeholder(expr=ast.Field(chain=["timestamp"])),
-            ),
+        assert expr == ast.CompareOperation(
+            op=ast.CompareOperationOp.Lt,
+            left=ast.Field(chain=["timestamp"]),
+            right=ast.Placeholder(expr=ast.Field(chain=["timestamp"])),
         )
         expr2 = replace_placeholders(expr, {"timestamp": ast.Constant(value=123)})
-        self.assertEqual(
-            expr2,
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.Lt,
-                left=ast.Field(chain=["timestamp"]),
-                right=ast.Constant(value=123),
-            ),
+        assert expr2 == ast.CompareOperation(
+            op=ast.CompareOperationOp.Lt, left=ast.Field(chain=["timestamp"]), right=ast.Constant(value=123)
         )
 
     def test_assert_no_placeholders(self):
         expr = ast.Placeholder(expr=ast.Field(chain=["foo"]))
-        with self.assertRaises(HogVMException) as context:
+        with pytest.raises(HogVMException) as context:
             replace_placeholders(expr, None)
-        self.assertEqual(
-            "Global variable not found: foo",
-            str(context.exception),
-        )
+        assert "Global variable not found: foo" == str(context.value)
 
     def test_replace_placeholders_with_cte(self):
         expr = cast(ast.SelectQuery, parse_select("with test as (select {foo}) select * from test"))
@@ -89,7 +67,7 @@ class TestParser(BaseTest):
 class TestBytecodePlaceholders(BaseTest):
     def _first_select_expr(self, select_query: ast.SelectQuery):
         """Small helper to grab the first expression in the SELECT list."""
-        self.assertGreater(len(select_query.select), 0)
+        assert len(select_query.select) > 0
         return select_query.select[0]
 
     def test_numeric_arithmetic_placeholder(self):
@@ -100,14 +78,14 @@ class TestBytecodePlaceholders(BaseTest):
         replaced = cast(ast.SelectQuery, replace_placeholders(query, {}))
 
         first_expr = self._first_select_expr(replaced)
-        self.assertIsInstance(first_expr, ast.Alias)
-        self.assertIsInstance(first_expr.expr, ast.Constant)
-        self.assertEqual(first_expr.expr.value, 3)
+        assert isinstance(first_expr, ast.Alias)
+        assert isinstance(first_expr.expr, ast.Constant)
+        assert first_expr.expr.value == 3
 
         # Finder should report an *expression* placeholder, not a field string.
         finder = find_placeholders(query)
-        self.assertTrue(len(finder.placeholder_expressions) > 0)
-        self.assertEqual(len(finder.placeholder_fields), 0)
+        assert len(finder.placeholder_expressions) > 0
+        assert len(finder.placeholder_fields) == 0
 
     def test_string_literal_placeholder(self):
         """
@@ -117,8 +95,8 @@ class TestBytecodePlaceholders(BaseTest):
         replaced = cast(ast.SelectQuery, replace_placeholders(query, {}))
 
         first_expr = self._first_select_expr(replaced)
-        self.assertIsInstance(first_expr, ast.Constant)
-        self.assertEqual(first_expr.value, "hello")
+        assert isinstance(first_expr, ast.Constant)
+        assert first_expr.value == "hello"
 
     def test_sql_field_placeholder(self):
         """
@@ -131,8 +109,8 @@ class TestBytecodePlaceholders(BaseTest):
         replaced = cast(ast.SelectQuery, replace_placeholders(query, {}))
 
         field_expr = self._first_select_expr(replaced)
-        self.assertIsInstance(field_expr, ast.Field)
-        self.assertEqual(field_expr.chain, ["event"])
+        assert isinstance(field_expr, ast.Field)
+        assert field_expr.chain == ["event"]
 
     def test_sql_expression_placeholder(self):
         """
@@ -143,8 +121,8 @@ class TestBytecodePlaceholders(BaseTest):
         replaced = cast(ast.SelectQuery, replace_placeholders(query, {}))
 
         expr = self._first_select_expr(replaced)
-        self.assertNotIsInstance(expr, ast.Constant)
-        self.assertEqual(to_printed_hogql(expr, team=self.team), "plus(1, 2)")
+        assert not isinstance(expr, ast.Constant)
+        assert to_printed_hogql(expr, team=self.team) == "plus(1, 2)"
 
     def test_immediate_function_placeholder_with_hogqlx(self):
         """
@@ -172,18 +150,18 @@ class TestBytecodePlaceholders(BaseTest):
 
         # First SELECT expression: <strong>...</strong>
         first = self._first_select_expr(replaced)
-        self.assertIsInstance(first, ast.HogQLXTag)
-        self.assertEqual(first.kind, "strong")
-        self.assertIsInstance(first.attributes, list)
-        self.assertEqual(len(first.attributes), 1)
+        assert isinstance(first, ast.HogQLXTag)
+        assert first.kind == "strong"
+        assert isinstance(first.attributes, list)
+        assert len(first.attributes) == 1
         elements = first.attributes[0].value
-        self.assertEqual(len(elements), 3)
-        self.assertIsInstance(elements[0], ast.Field)
-        self.assertEqual(elements[0].chain, ["event"])
-        self.assertEqual(elements[1], " ... ")
-        self.assertIsInstance(elements[2], ast.HogQLXTag)
-        self.assertEqual(elements[2].kind, "blink")
-        self.assertEqual(elements[2].attributes, [ast.HogQLXAttribute(name="children", value=["fun"])])
+        assert len(elements) == 3
+        assert isinstance(elements[0], ast.Field)
+        assert elements[0].chain == ["event"]
+        assert elements[1] == " ... "
+        assert isinstance(elements[2], ast.HogQLXTag)
+        assert elements[2].kind == "blink"
+        assert elements[2].attributes == [ast.HogQLXAttribute(name="children", value=["fun"])]
 
         # Second SELECT expression: constant 2
         second = replaced.select[1]
@@ -200,5 +178,5 @@ class TestBytecodePlaceholders(BaseTest):
         """
         expr = parse_expr("{1+2}")
         finder = find_placeholders(expr)
-        self.assertTrue(len(finder.placeholder_expressions) > 0)
-        self.assertEqual(finder.placeholder_fields, [])
+        assert len(finder.placeholder_expressions) > 0
+        assert finder.placeholder_fields == []

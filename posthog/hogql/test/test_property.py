@@ -1,5 +1,6 @@
-from typing import Any, Literal, Optional, Union, cast
+from typing import Any, Literal, Union, cast
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -36,10 +37,8 @@ class TestProperty(BaseTest):
     def _property_to_expr(
         self,
         property: Union[PropertyGroup, Property, HogQLPropertyFilter, dict, list],
-        team: Optional[Team] = None,
-        scope: Optional[
-            Literal["event", "person", "group", "session", "replay", "replay_entity", "revenue_analytics"]
-        ] = None,
+        team: Team | None = None,
+        scope: Literal["event", "person", "group", "session", "replay", "replay_entity", "revenue_analytics"] | None = None,
         strict: bool = True,
     ):
         return clear_locations(
@@ -49,73 +48,54 @@ class TestProperty(BaseTest):
     def _selector_to_expr(self, selector: str):
         return clear_locations(selector_to_expr(selector))
 
-    def _parse_expr(self, expr: str, placeholders: Optional[dict[str, Any]] = None):
+    def _parse_expr(self, expr: str, placeholders: dict[str, Any] | None = None):
         return clear_locations(parse_expr(expr, placeholders=placeholders))
 
     def test_has_aggregation(self):
-        self.assertEqual(has_aggregation(self._parse_expr("properties.a = 'b'")), False)
-        self.assertEqual(has_aggregation(self._parse_expr("if(1,2,3)")), False)
-        self.assertEqual(has_aggregation(self._parse_expr("if(1,2,avg(3))")), True)
-        self.assertEqual(has_aggregation(self._parse_expr("count()")), True)
-        self.assertEqual(has_aggregation(self._parse_expr("sum(properties.bla)")), True)
+        assert not has_aggregation(self._parse_expr("properties.a = 'b'"))
+        assert not has_aggregation(self._parse_expr("if(1,2,3)"))
+        assert has_aggregation(self._parse_expr("if(1,2,avg(3))"))
+        assert has_aggregation(self._parse_expr("count()"))
+        assert has_aggregation(self._parse_expr("sum(properties.bla)"))
 
     def test_property_to_expr_hogql(self):
-        self.assertEqual(self._property_to_expr({"type": "hogql", "key": "1"}), ast.Constant(value=1))
-        self.assertEqual(
-            self._property_to_expr(Property(type="hogql", key="1")),
-            ast.Constant(value=1),
-        )
-        self.assertEqual(
-            self._property_to_expr(HogQLPropertyFilter(type="hogql", key="1")),
-            ast.Constant(value=1),
-        )
+        assert self._property_to_expr({"type": "hogql", "key": "1"}) == ast.Constant(value=1)
+        assert self._property_to_expr(Property(type="hogql", key="1")) == ast.Constant(value=1)
+        assert self._property_to_expr(HogQLPropertyFilter(type="hogql", key="1")) == ast.Constant(value=1)
 
     def test_property_to_expr_group(self):
-        self.assertEqual(
-            self._property_to_expr({"type": "group", "group_type_index": 0, "key": "a", "value": "b"}),
-            self._parse_expr("group_0.properties.a = 'b'"),
+        assert self._property_to_expr(
+            {"type": "group", "group_type_index": 0, "key": "a", "value": "b"}
+        ) == self._parse_expr("group_0.properties.a = 'b'")
+        assert self._property_to_expr(
+            {"type": "group", "group_type_index": 3, "key": "a", "value": "b"}
+        ) == self._parse_expr("group_3.properties.a = 'b'")
+        assert self._parse_expr(
+            "group_0.properties.a = NULL OR (NOT JSONHas(group_0.properties, 'a'))"
+        ) == self._property_to_expr(
+            {"type": "group", "group_type_index": 0, "key": "a", "value": "b", "operator": "is_not_set"}
         )
-        self.assertEqual(
-            self._property_to_expr({"type": "group", "group_type_index": 3, "key": "a", "value": "b"}),
-            self._parse_expr("group_3.properties.a = 'b'"),
-        )
-        self.assertEqual(
-            self._parse_expr("group_0.properties.a = NULL OR (NOT JSONHas(group_0.properties, 'a'))"),
-            self._property_to_expr(
-                {"type": "group", "group_type_index": 0, "key": "a", "value": "b", "operator": "is_not_set"}
-            ),
-        )
-        self.assertEqual(
-            self._property_to_expr(Property(type="group", group_type_index=0, key="a", value=["b", "c"])),
-            self._parse_expr("group_0.properties.a in ('b', 'c')"),
-        )
+        assert self._property_to_expr(
+            Property(type="group", group_type_index=0, key="a", value=["b", "c"])
+        ) == self._parse_expr("group_0.properties.a in ('b', 'c')")
 
         # Missing group_type_index
-        self.assertEqual(
-            self._property_to_expr({"type": "group", "key": "a", "value": "b"}, strict=False), self._parse_expr("1")
+        assert self._property_to_expr({"type": "group", "key": "a", "value": "b"}, strict=False) == self._parse_expr(
+            "1"
         )
 
     def test_property_to_expr_group_scope(self):
-        self.assertEqual(
-            self._property_to_expr(
-                {"type": "group", "group_type_index": 0, "key": "name", "value": "Hedgebox Inc."}, scope="group"
-            ),
-            self._parse_expr("properties.name = 'Hedgebox Inc.'"),
-        )
+        assert self._property_to_expr(
+            {"type": "group", "group_type_index": 0, "key": "name", "value": "Hedgebox Inc."}, scope="group"
+        ) == self._parse_expr("properties.name = 'Hedgebox Inc.'")
 
-        self.assertEqual(
-            self._property_to_expr(
-                Property(type="group", group_type_index=0, key="a", value=["b", "c"]), scope="group"
-            ),
-            self._parse_expr("properties.a in ('b', 'c')"),
-        )
+        assert self._property_to_expr(
+            Property(type="group", group_type_index=0, key="a", value=["b", "c"]), scope="group"
+        ) == self._parse_expr("properties.a in ('b', 'c')")
 
-        self.assertEqual(
-            self._property_to_expr(
-                Property(type="group", group_type_index=0, key="arr", operator="gt", value=100), scope="group"
-            ),
-            self._parse_expr("properties.arr > 100"),
-        )
+        assert self._property_to_expr(
+            Property(type="group", group_type_index=0, key="arr", operator="gt", value=100), scope="group"
+        ) == self._parse_expr("properties.arr > 100")
 
     def test_property_to_expr_group_booleans(self):
         PropertyDefinition.objects.create(
@@ -125,86 +105,59 @@ class TestProperty(BaseTest):
             group_type_index=0,
             property_type=PropertyType.Boolean,
         )
-        self.assertEqual(
-            self._property_to_expr({"type": "group", "group_type_index": 0, "key": "boolean_prop", "value": ["true"]}),
-            self._parse_expr("group_0.properties.boolean_prop = true"),
-        )
+        assert self._property_to_expr(
+            {"type": "group", "group_type_index": 0, "key": "boolean_prop", "value": ["true"]}
+        ) == self._parse_expr("group_0.properties.boolean_prop = true")
 
     def test_property_to_expr_event(self):
-        self.assertEqual(
-            self._property_to_expr({"key": "a", "value": "b"}),
-            self._parse_expr("properties.a = 'b'"),
+        assert self._property_to_expr({"key": "a", "value": "b"}) == self._parse_expr("properties.a = 'b'")
+        assert self._property_to_expr({"type": "event", "key": "a", "value": "b"}) == self._parse_expr(
+            "properties.a = 'b'"
         )
-        self.assertEqual(
-            self._property_to_expr({"type": "event", "key": "a", "value": "b"}),
-            self._parse_expr("properties.a = 'b'"),
+        assert self._property_to_expr(
+            {"type": "event", "key": "a", "value": "b", "operator": "is_set"}
+        ) == self._parse_expr("properties.a != NULL")
+        assert self._parse_expr("properties.a = NULL OR (NOT JSONHas(properties, 'a'))") == self._property_to_expr(
+            {"type": "event", "key": "a", "value": "b", "operator": "is_not_set"}
         )
-        self.assertEqual(
-            self._property_to_expr({"type": "event", "key": "a", "value": "b", "operator": "is_set"}),
-            self._parse_expr("properties.a != NULL"),
+        assert self._property_to_expr(
+            {"type": "event", "key": "a", "value": "b", "operator": "exact"}
+        ) == self._parse_expr("properties.a = 'b'")
+        assert self._property_to_expr(
+            {"type": "event", "key": "a", "value": "b", "operator": "is_not"}
+        ) == self._parse_expr("properties.a != 'b'")
+        assert self._property_to_expr(
+            {"type": "event", "key": "a", "value": "3", "operator": "gt"}
+        ) == self._parse_expr("properties.a > '3'")
+        assert self._property_to_expr(
+            {"type": "event", "key": "a", "value": "3", "operator": "lt"}
+        ) == self._parse_expr("properties.a < '3'")
+        assert self._property_to_expr(
+            {"type": "event", "key": "a", "value": "3", "operator": "gte"}
+        ) == self._parse_expr("properties.a >= '3'")
+        assert self._property_to_expr(
+            {"type": "event", "key": "a", "value": "3", "operator": "lte"}
+        ) == self._parse_expr("properties.a <= '3'")
+        assert self._property_to_expr(
+            {"type": "event", "key": "a", "value": "3", "operator": "icontains"}
+        ) == self._parse_expr("toString(properties.a) ilike '%3%'")
+        assert self._property_to_expr(
+            {"type": "event", "key": "a", "value": "3", "operator": "not_icontains"}
+        ) == self._parse_expr("toString(properties.a) not ilike '%3%'")
+        assert self._property_to_expr(
+            {"type": "event", "key": "a", "value": ".*", "operator": "regex"}
+        ) == self._parse_expr("ifNull(match(toString(properties.a), '.*'), 0)")
+        assert self._property_to_expr(
+            {"type": "event", "key": "a", "value": ".*", "operator": "not_regex"}
+        ) == self._parse_expr("ifNull(not(match(toString(properties.a), '.*')), true)")
+        assert self._property_to_expr(
+            {"type": "event", "key": "a", "value": [], "operator": "exact"}
+        ) == self._parse_expr("true")
+        assert self._parse_expr("1") == self._property_to_expr(
+            {"type": "event", "key": "a", "operator": "icontains"}, strict=False
         )
-        self.assertEqual(
-            self._parse_expr("properties.a = NULL OR (NOT JSONHas(properties, 'a'))"),
-            self._property_to_expr({"type": "event", "key": "a", "value": "b", "operator": "is_not_set"}),
-        )
-        self.assertEqual(
-            self._property_to_expr({"type": "event", "key": "a", "value": "b", "operator": "exact"}),
-            self._parse_expr("properties.a = 'b'"),
-        )
-        self.assertEqual(
-            self._property_to_expr({"type": "event", "key": "a", "value": "b", "operator": "is_not"}),
-            self._parse_expr("properties.a != 'b'"),
-        )
-        self.assertEqual(
-            self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "gt"}),
-            self._parse_expr("properties.a > '3'"),
-        )
-        self.assertEqual(
-            self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "lt"}),
-            self._parse_expr("properties.a < '3'"),
-        )
-        self.assertEqual(
-            self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "gte"}),
-            self._parse_expr("properties.a >= '3'"),
-        )
-        self.assertEqual(
-            self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "lte"}),
-            self._parse_expr("properties.a <= '3'"),
-        )
-        self.assertEqual(
-            self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "icontains"}),
-            self._parse_expr("toString(properties.a) ilike '%3%'"),
-        )
-        self.assertEqual(
-            self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "not_icontains"}),
-            self._parse_expr("toString(properties.a) not ilike '%3%'"),
-        )
-        self.assertEqual(
-            self._property_to_expr({"type": "event", "key": "a", "value": ".*", "operator": "regex"}),
-            self._parse_expr("ifNull(match(toString(properties.a), '.*'), 0)"),
-        )
-        self.assertEqual(
-            self._property_to_expr({"type": "event", "key": "a", "value": ".*", "operator": "not_regex"}),
-            self._parse_expr("ifNull(not(match(toString(properties.a), '.*')), true)"),
-        )
-        self.assertEqual(
-            self._property_to_expr({"type": "event", "key": "a", "value": [], "operator": "exact"}),
-            self._parse_expr("true"),
-        )
-        self.assertEqual(
-            self._parse_expr("1"),
-            self._property_to_expr(
-                {"type": "event", "key": "a", "operator": "icontains"}, strict=False
-            ),  # value missing
-        )
-        self.assertEqual(
-            self._parse_expr("1"),
-            self._property_to_expr({}, strict=False),  # incomplete event
-        )
-        self.assertEqual(
-            self._parse_expr("1"),
-            self._property_to_expr(EmptyPropertyFilter()),  # type: ignore
-        )
+        assert self._parse_expr("1") == self._property_to_expr({}, strict=False)
+        assert self._parse_expr("1") == self._property_to_expr(EmptyPropertyFilter())
 
     def test_property_to_expr_boolean(self):
         PropertyDefinition.objects.create(
@@ -219,105 +172,56 @@ class TestProperty(BaseTest):
             type=PropertyDefinition.Type.EVENT,
             property_type=PropertyType.String,
         )
-        self.assertEqual(
-            self._property_to_expr(
-                {"type": "event", "key": "boolean_prop", "value": "true"},
-                team=self.team,
-            ),
-            self._parse_expr("properties.boolean_prop = true"),
-        )
-        self.assertEqual(
-            self._property_to_expr({"type": "event", "key": "string_prop", "value": "true"}, team=self.team),
-            self._parse_expr("properties.string_prop = 'true'"),
-        )
-        self.assertEqual(
-            self._property_to_expr(
-                {"type": "event", "key": "boolean_prop", "value": "false"},
-                team=self.team,
-            ),
-            self._parse_expr("properties.boolean_prop = false"),
-        )
-        self.assertEqual(
-            self._property_to_expr(
-                {"type": "event", "key": "unknown_prop", "value": "true"},
-                team=self.team,
-            ),
-            self._parse_expr(
-                "properties.unknown_prop = 'true'"  # We don't have a type for unknown_prop, so string comparison it is
-            ),
+        assert self._property_to_expr(
+            {"type": "event", "key": "boolean_prop", "value": "true"}, team=self.team
+        ) == self._parse_expr("properties.boolean_prop = true")
+        assert self._property_to_expr(
+            {"type": "event", "key": "string_prop", "value": "true"}, team=self.team
+        ) == self._parse_expr("properties.string_prop = 'true'")
+        assert self._property_to_expr(
+            {"type": "event", "key": "boolean_prop", "value": "false"}, team=self.team
+        ) == self._parse_expr("properties.boolean_prop = false")
+        assert self._property_to_expr(
+            {"type": "event", "key": "unknown_prop", "value": "true"},
+            team=self.team,
+        ) == self._parse_expr(
+            "properties.unknown_prop = 'true'"  # We don't have a type for unknown_prop, so string comparison it is
         )
         # Python boolean True (not string "true") should also work
-        self.assertEqual(
-            self._property_to_expr(
-                {"type": "event", "key": "boolean_prop", "value": True},
-                team=self.team,
-            ),
-            self._parse_expr("properties.boolean_prop = true"),
-        )
-        self.assertEqual(
-            self._property_to_expr(
-                {"type": "event", "key": "string_prop", "value": True},
-                team=self.team,
-            ),
-            self._parse_expr("properties.string_prop = 'true'"),
-        )
-        self.assertEqual(
-            self._property_to_expr(
-                {"type": "event", "key": "boolean_prop", "value": False},
-                team=self.team,
-            ),
-            self._parse_expr("properties.boolean_prop = false"),
-        )
-        self.assertEqual(
-            self._property_to_expr(
-                {"type": "event", "key": "unknown_prop", "value": True},
-                team=self.team,
-            ),
-            self._parse_expr("properties.unknown_prop = 'true'"),
-        )
+        assert self._property_to_expr(
+            {"type": "event", "key": "boolean_prop", "value": True}, team=self.team
+        ) == self._parse_expr("properties.boolean_prop = true")
+        assert self._property_to_expr(
+            {"type": "event", "key": "string_prop", "value": True}, team=self.team
+        ) == self._parse_expr("properties.string_prop = 'true'")
+        assert self._property_to_expr(
+            {"type": "event", "key": "boolean_prop", "value": False}, team=self.team
+        ) == self._parse_expr("properties.boolean_prop = false")
+        assert self._property_to_expr(
+            {"type": "event", "key": "unknown_prop", "value": True}, team=self.team
+        ) == self._parse_expr("properties.unknown_prop = 'true'")
 
     def test_property_to_expr_event_list(self):
         # positive
-        self.assertEqual(
-            self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "exact"}),
-            self._parse_expr("properties.a in ('b', 'c')"),
-        )
-        self.assertEqual(
-            self._property_to_expr(
-                {
-                    "type": "event",
-                    "key": "a",
-                    "value": ["b", "c"],
-                    "operator": "icontains",
-                }
-            ),
-            self._parse_expr("toString(properties.a) ilike '%b%' or toString(properties.a) ilike '%c%'"),
-        )
+        assert self._property_to_expr(
+            {"type": "event", "key": "a", "value": ["b", "c"], "operator": "exact"}
+        ) == self._parse_expr("properties.a in ('b', 'c')")
+        assert self._property_to_expr(
+            {"type": "event", "key": "a", "value": ["b", "c"], "operator": "icontains"}
+        ) == self._parse_expr("toString(properties.a) ilike '%b%' or toString(properties.a) ilike '%c%'")
         a = self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "regex"})
-        self.assertEqual(
-            a,
-            self._parse_expr(
-                "ifNull(match(toString(properties.a), 'b'), 0) or ifNull(match(toString(properties.a), 'c'), 0)"
-            ),
+        assert a == self._parse_expr(
+            "ifNull(match(toString(properties.a), 'b'), 0) or ifNull(match(toString(properties.a), 'c'), 0)"
         )
         # Want to make sure this returns 0, not false. Clickhouse uses UInt8s primarily for booleans.
-        self.assertIs(0, a.exprs[1].args[1].value)
+        assert 0 == a.exprs[1].args[1].value
         # negative
-        self.assertEqual(
-            self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "is_not"}),
-            self._parse_expr("properties.a not in ('b', 'c')"),
-        )
-        self.assertEqual(
-            self._property_to_expr(
-                {
-                    "type": "event",
-                    "key": "a",
-                    "value": ["b", "c"],
-                    "operator": "not_icontains",
-                }
-            ),
-            self._parse_expr("toString(properties.a) not ilike '%b%' and toString(properties.a) not ilike '%c%'"),
-        )
+        assert self._property_to_expr(
+            {"type": "event", "key": "a", "value": ["b", "c"], "operator": "is_not"}
+        ) == self._parse_expr("properties.a not in ('b', 'c')")
+        assert self._property_to_expr(
+            {"type": "event", "key": "a", "value": ["b", "c"], "operator": "not_icontains"}
+        ) == self._parse_expr("toString(properties.a) not ilike '%b%' and toString(properties.a) not ilike '%c%'")
         a = self._property_to_expr(
             {
                 "type": "event",
@@ -326,371 +230,202 @@ class TestProperty(BaseTest):
                 "operator": "not_regex",
             }
         )
-        self.assertEqual(
-            a,
-            self._parse_expr(
-                "ifNull(not(match(toString(properties.a), 'b')), 1) and ifNull(not(match(toString(properties.a), 'c')), 1)"
-            ),
+        assert a == self._parse_expr(
+            "ifNull(not(match(toString(properties.a), 'b')), 1) and ifNull(not(match(toString(properties.a), 'c')), 1)"
         )
-        self.assertIs(1, a.exprs[1].args[1].value)
+        assert 1 == a.exprs[1].args[1].value
 
     def test_property_to_expr_feature(self):
-        self.assertEqual(
-            self._property_to_expr({"type": "event", "key": "a", "value": "b", "operator": "exact"}),
-            self._parse_expr("properties.a = 'b'"),
-        )
+        assert self._property_to_expr(
+            {"type": "event", "key": "a", "value": "b", "operator": "exact"}
+        ) == self._parse_expr("properties.a = 'b'")
 
     def test_property_to_expr_person(self):
-        self.assertEqual(
-            self._property_to_expr({"type": "person", "key": "a", "value": "b", "operator": "exact"}),
-            self._parse_expr("person.properties.a = 'b'"),
-        )
+        assert self._property_to_expr(
+            {"type": "person", "key": "a", "value": "b", "operator": "exact"}
+        ) == self._parse_expr("person.properties.a = 'b'")
 
     def test_property_to_expr_error_tracking_issue_properties(self):
-        self.assertEqual(
-            self._property_to_expr(
-                {
-                    "type": "event",
-                    "key": "$exception_types",
-                    "value": "ReferenceError",
-                    "operator": "icontains",
-                }
-            ),
-            self._parse_expr(
-                "arrayExists(v -> toString(v) ilike '%ReferenceError%', JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
-            ),
+        assert self._property_to_expr(
+            {"type": "event", "key": "$exception_types", "value": "ReferenceError", "operator": "icontains"}
+        ) == self._parse_expr(
+            "arrayExists(v -> toString(v) ilike '%ReferenceError%', JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
         )
-        self.assertEqual(
-            self._property_to_expr(
-                {
-                    "type": "event",
-                    "key": "$exception_types",
-                    "value": ["ReferenceError", "TypeError"],
-                    "operator": "exact",
-                }
-            ),
-            self._parse_expr(
-                "arrayExists(v -> v in ('ReferenceError', 'TypeError'), JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
-            ),
+        assert self._property_to_expr(
+            {"type": "event", "key": "$exception_types", "value": ["ReferenceError", "TypeError"], "operator": "exact"}
+        ) == self._parse_expr(
+            "arrayExists(v -> v in ('ReferenceError', 'TypeError'), JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
         )
-        self.assertEqual(
-            self._property_to_expr(
-                {
-                    "type": "event",
-                    "key": "$exception_types",
-                    "value": ["ReferenceError", "TypeError"],
-                    "operator": "is_not",
-                }
-            ),
-            self._parse_expr(
-                "arrayExists(v -> v not in ('ReferenceError', 'TypeError'), JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
-            ),
+        assert self._property_to_expr(
+            {"type": "event", "key": "$exception_types", "value": ["ReferenceError", "TypeError"], "operator": "is_not"}
+        ) == self._parse_expr(
+            "arrayExists(v -> v not in ('ReferenceError', 'TypeError'), JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
         )
-        self.assertEqual(
-            self._property_to_expr(
-                {
-                    "key": "$exception_types",
-                    "value": "ValidationError",
-                    "operator": "not_regex",
-                    "type": "event",
-                }
-            ),
-            self._parse_expr(
-                "arrayExists(v -> ifNull(not(match(toString(v), 'ValidationError')), 1), JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
-            ),
+        assert self._property_to_expr(
+            {"key": "$exception_types", "value": "ValidationError", "operator": "not_regex", "type": "event"}
+        ) == self._parse_expr(
+            "arrayExists(v -> ifNull(not(match(toString(v), 'ValidationError')), 1), JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
         )
 
     def test_property_to_expr_element(self):
-        self.assertEqual(
-            self._property_to_expr(
-                {
-                    "type": "element",
-                    "key": "selector",
-                    "value": "div",
-                    "operator": "exact",
-                }
-            ),
-            self._selector_to_expr("div"),
-        )
-        self.assertEqual(
-            self._property_to_expr(
-                {
-                    "type": "element",
-                    "key": "selector",
-                    "value": "div",
-                    "operator": "is_not",
-                }
-            ),
-            clear_locations(not_call(self._selector_to_expr("div"))),
-        )
-        self.assertEqual(
-            self._property_to_expr(
-                {
-                    "type": "element",
-                    "key": "tag_name",
-                    "value": "div",
-                    "operator": "exact",
-                }
-            ),
-            clear_locations(tag_name_to_expr("div")),
-        )
-        self.assertEqual(
-            self._property_to_expr(
-                {
-                    "type": "element",
-                    "key": "tag_name",
-                    "value": "div",
-                    "operator": "is_not",
-                }
-            ),
-            clear_locations(not_call(tag_name_to_expr("div"))),
-        )
-        self.assertEqual(
-            self._property_to_expr(
-                {
-                    "type": "element",
-                    "key": "href",
-                    "value": "href-text.",
-                    "operator": "exact",
-                }
-            ),
-            self._parse_expr("elements_chain_href = 'href-text.'"),
-        )
-        self.assertEqual(
-            self._property_to_expr(
-                {
-                    "type": "element",
-                    "key": "href",
-                    "value": "href-text.",
-                    "operator": "icontains",
-                }
-            ),
-            self._parse_expr("toString(elements_chain_href) ilike '%href-text.%'"),
-        )
-        self.assertEqual(
-            self._property_to_expr(
-                {
-                    "type": "element",
-                    "key": "text",
-                    "value": "text-text.",
-                    "operator": "regex",
-                }
-            ),
-            self._parse_expr(
-                "arrayExists(text -> ifNull(match(toString(text), 'text-text.'), 0), elements_chain_texts)"
-            ),
+        assert self._property_to_expr(
+            {"type": "element", "key": "selector", "value": "div", "operator": "exact"}
+        ) == self._selector_to_expr("div")
+        assert self._property_to_expr(
+            {"type": "element", "key": "selector", "value": "div", "operator": "is_not"}
+        ) == clear_locations(not_call(self._selector_to_expr("div")))
+        assert self._property_to_expr(
+            {"type": "element", "key": "tag_name", "value": "div", "operator": "exact"}
+        ) == clear_locations(tag_name_to_expr("div"))
+        assert self._property_to_expr(
+            {"type": "element", "key": "tag_name", "value": "div", "operator": "is_not"}
+        ) == clear_locations(not_call(tag_name_to_expr("div")))
+        assert self._property_to_expr(
+            {"type": "element", "key": "href", "value": "href-text.", "operator": "exact"}
+        ) == self._parse_expr("elements_chain_href = 'href-text.'")
+        assert self._property_to_expr(
+            {"type": "element", "key": "href", "value": "href-text.", "operator": "icontains"}
+        ) == self._parse_expr("toString(elements_chain_href) ilike '%href-text.%'")
+        assert self._property_to_expr(
+            {"type": "element", "key": "text", "value": "text-text.", "operator": "regex"}
+        ) == self._parse_expr(
+            "arrayExists(text -> ifNull(match(toString(text), 'text-text.'), 0), elements_chain_texts)"
         )
 
     def test_property_groups(self):
-        self.assertEqual(
-            self._property_to_expr(
-                PropertyGroup(
-                    type=PropertyOperatorType.AND,
-                    values=[],
-                )
-            ),
-            self._parse_expr("true"),
+        assert self._property_to_expr(PropertyGroup(type=PropertyOperatorType.AND, values=[])) == self._parse_expr(
+            "true"
         )
 
-        self.assertEqual(
-            self._property_to_expr(
-                PropertyGroup(
-                    type=PropertyOperatorType.AND,
-                    values=[
-                        Property(type="person", key="a", value="b", operator="exact"),
-                        Property(type="event", key="e", value="b", operator="exact"),
-                    ],
-                )
-            ),
-            self._parse_expr("person.properties.a = 'b' and properties.e = 'b'"),
-        )
+        assert self._property_to_expr(
+            PropertyGroup(
+                type=PropertyOperatorType.AND,
+                values=[
+                    Property(type="person", key="a", value="b", operator="exact"),
+                    Property(type="event", key="e", value="b", operator="exact"),
+                ],
+            )
+        ) == self._parse_expr("person.properties.a = 'b' and properties.e = 'b'")
 
-        self.assertEqual(
-            self._property_to_expr(
-                PropertyGroup(
-                    type=PropertyOperatorType.OR,
-                    values=[
-                        Property(type="person", key="a", value="b", operator="exact"),
-                        Property(type="event", key="e", value="b", operator="exact"),
-                    ],
-                )
-            ),
-            self._parse_expr("person.properties.a = 'b' or properties.e = 'b'"),
-        )
+        assert self._property_to_expr(
+            PropertyGroup(
+                type=PropertyOperatorType.OR,
+                values=[
+                    Property(type="person", key="a", value="b", operator="exact"),
+                    Property(type="event", key="e", value="b", operator="exact"),
+                ],
+            )
+        ) == self._parse_expr("person.properties.a = 'b' or properties.e = 'b'")
 
     def test_property_groups_single(self):
-        self.assertEqual(
-            self._property_to_expr(
-                PropertyGroup(
-                    type=PropertyOperatorType.AND,
-                    values=[
-                        Property(type="person", key="a", value="b", operator="exact"),
-                    ],
-                )
-            ),
-            self._parse_expr("person.properties.a = 'b'"),
-        )
+        assert self._property_to_expr(
+            PropertyGroup(
+                type=PropertyOperatorType.AND, values=[Property(type="person", key="a", value="b", operator="exact")]
+            )
+        ) == self._parse_expr("person.properties.a = 'b'")
 
-        self.assertEqual(
-            self._property_to_expr(
-                PropertyGroup(
-                    type=PropertyOperatorType.OR,
-                    values=[Property(type="event", key="e", value="b", operator="exact")],
-                )
-            ),
-            self._parse_expr("properties.e = 'b'"),
-        )
+        assert self._property_to_expr(
+            PropertyGroup(
+                type=PropertyOperatorType.OR, values=[Property(type="event", key="e", value="b", operator="exact")]
+            )
+        ) == self._parse_expr("properties.e = 'b'")
 
     def test_property_groups_combined(self):
-        self.assertEqual(
-            self._property_to_expr(
-                PropertyGroup(
-                    type=PropertyOperatorType.AND,
-                    values=cast(
-                        Union[list[Property], list[PropertyGroup]],
-                        [
-                            Property(type="person", key="a", value="b", operator="exact"),
-                            PropertyGroup(
-                                type=PropertyOperatorType.OR,
-                                values=[
-                                    Property(
-                                        type="person",
-                                        key="a",
-                                        value="b",
-                                        operator="exact",
-                                    ),
-                                    Property(
-                                        type="event",
-                                        key="e",
-                                        value="b",
-                                        operator="exact",
-                                    ),
-                                ],
-                            ),
-                        ],
-                    ),
-                )
-            ),
-            self._parse_expr("person.properties.a = 'b' and (person.properties.a = 'b' or properties.e = 'b')"),
-        )
+        assert self._property_to_expr(
+            PropertyGroup(
+                type=PropertyOperatorType.AND,
+                values=cast(
+                    Union[list[Property], list[PropertyGroup]],
+                    [
+                        Property(type="person", key="a", value="b", operator="exact"),
+                        PropertyGroup(
+                            type=PropertyOperatorType.OR,
+                            values=[
+                                Property(type="person", key="a", value="b", operator="exact"),
+                                Property(type="event", key="e", value="b", operator="exact"),
+                            ],
+                        ),
+                    ],
+                ),
+            )
+        ) == self._parse_expr("person.properties.a = 'b' and (person.properties.a = 'b' or properties.e = 'b')")
 
     def test_tag_name_to_expr(self):
-        self.assertEqual(
-            clear_locations(tag_name_to_expr("a")),
-            clear_locations(elements_chain_match("(^|;)a(\\.|$|;|:)")),
-        )
+        assert clear_locations(tag_name_to_expr("a")) == clear_locations(elements_chain_match("(^|;)a(\\.|$|;|:)"))
 
     def test_selector_to_expr(self):
-        self.assertEqual(
-            self._selector_to_expr("div"),
-            clear_locations(
-                elements_chain_match('(^|;)div([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))')
-            ),
+        assert self._selector_to_expr("div") == clear_locations(
+            elements_chain_match('(^|;)div([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))')
         )
-        self.assertEqual(
-            self._selector_to_expr("div > div"),
-            clear_locations(
-                elements_chain_match(
-                    '(^|;)div([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))div([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s))).*'
-                )
-            ),
+        assert self._selector_to_expr("div > div") == clear_locations(
+            elements_chain_match(
+                '(^|;)div([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))div([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s))).*'
+            )
         )
-        self.assertEqual(
-            self._selector_to_expr("a[href='boo']"),
-            clear_locations(
-                parse_expr(
-                    "{regex} and arrayCount(x -> x IN ['a'], elements_chain_elements) > 0",
-                    {
-                        "regex": elements_chain_match(
-                            '(^|;)a.*?href="boo".*?([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
-                        )
-                    },
-                )
-            ),
+        assert self._selector_to_expr("a[href='boo']") == clear_locations(
+            parse_expr(
+                "{regex} and arrayCount(x -> x IN ['a'], elements_chain_elements) > 0",
+                {
+                    "regex": elements_chain_match(
+                        '(^|;)a.*?href="boo".*?([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
+                    )
+                },
+            )
         )
-        self.assertEqual(
-            self._selector_to_expr(".class"),
-            clear_locations(
-                elements_chain_match(
-                    '(^|;).*?\\.class([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
-                )
-            ),
+        assert self._selector_to_expr(".class") == clear_locations(
+            elements_chain_match('(^|;).*?\\.class([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))')
         )
-        self.assertEqual(
-            self._selector_to_expr("a#withid"),
-            clear_locations(
-                parse_expr(
-                    """{regex} and indexOf(elements_chain_ids, 'withid') > 0 and arrayCount(x -> x IN ['a'], elements_chain_elements) > 0""",
-                    {
-                        "regex": elements_chain_match(
-                            '(^|;)a.*?attr_id="withid".*?([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
-                        )
-                    },
-                )
-            ),
+        assert self._selector_to_expr("a#withid") == clear_locations(
+            parse_expr(
+                """{regex} and indexOf(elements_chain_ids, 'withid') > 0 and arrayCount(x -> x IN ['a'], elements_chain_elements) > 0""",
+                {
+                    "regex": elements_chain_match(
+                        '(^|;)a.*?attr_id="withid".*?([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
+                    )
+                },
+            )
         )
 
-        self.assertEqual(
-            self._selector_to_expr("a#with-dashed-id"),
-            clear_locations(
-                parse_expr(
-                    """{regex} and indexOf(elements_chain_ids, 'with-dashed-id') > 0 and arrayCount(x -> x IN ['a'], elements_chain_elements) > 0""",
-                    {
-                        "regex": elements_chain_match(
-                            '(^|;)a.*?attr_id="with\\-dashed\\-id".*?([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
-                        )
-                    },
-                )
-            ),
+        assert self._selector_to_expr("a#with-dashed-id") == clear_locations(
+            parse_expr(
+                """{regex} and indexOf(elements_chain_ids, 'with-dashed-id') > 0 and arrayCount(x -> x IN ['a'], elements_chain_elements) > 0""",
+                {
+                    "regex": elements_chain_match(
+                        '(^|;)a.*?attr_id="with\\-dashed\\-id".*?([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
+                    )
+                },
+            )
         )
         # test optimization
-        self.assertEqual(
-            self._selector_to_expr("#with-dashed-id"),
-            clear_locations(parse_expr("""indexOf(elements_chain_ids, 'with-dashed-id') > 0""")),
+        assert self._selector_to_expr("#with-dashed-id") == clear_locations(
+            parse_expr("""indexOf(elements_chain_ids, 'with-dashed-id') > 0""")
         )
-        self.assertEqual(
-            self._selector_to_expr("#with-dashed-id"),
-            self._selector_to_expr("[id='with-dashed-id']"),
-        )
-        self.assertEqual(
-            self._selector_to_expr("#with\\slashed\\id"),
-            clear_locations(
-                parse_expr(
-                    "indexOf(elements_chain_ids, 'with\\\\slashed\\\\id') > 0",
-                )
-            ),
+        assert self._selector_to_expr("#with-dashed-id") == self._selector_to_expr("[id='with-dashed-id']")
+        assert self._selector_to_expr("#with\\slashed\\id") == clear_locations(
+            parse_expr("indexOf(elements_chain_ids, 'with\\\\slashed\\\\id') > 0")
         )
 
     def test_selector_to_expr_tailwind_classes(self):
         """Test that selectors work with Tailwind classes that include brackets, parentheses, and commas"""
         # Test Tailwind class with brackets (responsive design)
-        self.assertEqual(
-            self._selector_to_expr(".sm:[max-width:640px]"),
-            clear_locations(
-                elements_chain_match(
-                    '(^|;).*?\\.sm:\\[max\\-width:640px\\]([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
-                )
-            ),
+        assert self._selector_to_expr(".sm:[max-width:640px]") == clear_locations(
+            elements_chain_match(
+                '(^|;).*?\\.sm:\\[max\\-width:640px\\]([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
+            )
         )
 
         # Test Tailwind class with parentheses and commas (calc functions)
-        self.assertEqual(
-            self._selector_to_expr(".w-[calc(100%-2rem)]"),
-            clear_locations(
-                elements_chain_match(
-                    '(^|;).*?\\.w\\-\\[calc\\(100%\\-2rem\\)\\]([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
-                )
-            ),
+        assert self._selector_to_expr(".w-[calc(100%-2rem)]") == clear_locations(
+            elements_chain_match(
+                '(^|;).*?\\.w\\-\\[calc\\(100%\\-2rem\\)\\]([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
+            )
         )
 
         # Test Tailwind class with complex values including commas
-        self.assertEqual(
-            self._selector_to_expr(".shadow-[0_4px_6px_rgba(0,0,0,0.1)]"),
-            clear_locations(
-                elements_chain_match(
-                    '(^|;).*?\\.shadow\\-\\[0_4px_6px_rgba\\(0,0,0,0\\.1\\)\\]([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
-                )
-            ),
+        assert self._selector_to_expr(".shadow-[0_4px_6px_rgba(0,0,0,0.1)]") == clear_locations(
+            elements_chain_match(
+                '(^|;).*?\\.shadow\\-\\[0_4px_6px_rgba\\(0,0,0,0\\.1\\)\\]([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
+            )
         )
 
     def test_cohort_filter_static(self):
@@ -699,52 +434,39 @@ class TestProperty(BaseTest):
             is_static=True,
             groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}],
         )
-        self.assertEqual(
-            self._property_to_expr({"type": "cohort", "key": "id", "value": cohort.pk}, self.team),
-            self._parse_expr(f"person_id IN COHORT {cohort.pk}"),
-        )
+        assert self._property_to_expr(
+            {"type": "cohort", "key": "id", "value": cohort.pk}, self.team
+        ) == self._parse_expr(f"person_id IN COHORT {cohort.pk}")
 
     def test_cohort_filter_dynamic(self):
         cohort = Cohort.objects.create(
             team=self.team,
             groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}],
         )
-        self.assertEqual(
-            self._property_to_expr({"type": "cohort", "key": "id", "value": cohort.pk}, self.team),
-            self._parse_expr(f"person_id IN COHORT {cohort.pk}"),
-        )
+        assert self._property_to_expr(
+            {"type": "cohort", "key": "id", "value": cohort.pk}, self.team
+        ) == self._parse_expr(f"person_id IN COHORT {cohort.pk}")
 
     def test_person_scope(self):
-        self.assertEqual(
-            self._property_to_expr(
-                {"type": "person", "key": "a", "value": "b", "operator": "exact"},
-                scope="event",
-            ),
-            self._parse_expr("person.properties.a = 'b'"),
-        )
-        self.assertEqual(
-            self._property_to_expr(
-                {"type": "person", "key": "a", "value": "b", "operator": "exact"},
-                scope="person",
-            ),
-            self._parse_expr("properties.a = 'b'"),
-        )
-        with self.assertRaises(Exception) as e:
+        assert self._property_to_expr(
+            {"type": "person", "key": "a", "value": "b", "operator": "exact"}, scope="event"
+        ) == self._parse_expr("person.properties.a = 'b'")
+        assert self._property_to_expr(
+            {"type": "person", "key": "a", "value": "b", "operator": "exact"}, scope="person"
+        ) == self._parse_expr("properties.a = 'b'")
+        with pytest.raises(Exception) as e:
             self._property_to_expr(
                 {"type": "event", "key": "a", "value": "b", "operator": "exact"},
                 scope="person",
             )
-        self.assertEqual(
-            str(e.exception),
-            "The 'event' property filter does not work in 'person' scope",
-        )
+        assert str(e.value) == "The 'event' property filter does not work in 'person' scope"
 
     def test_entity_to_expr_actions_type_with_id(self):
         action_mock = MagicMock()
         with patch("posthog.models.Action.objects.get", return_value=action_mock):
             entity = RetentionEntity(**{"type": TREND_FILTER_TYPE_ACTIONS, "id": 123})
             result = entity_to_expr(entity, self.team)
-            self.assertIsInstance(result, ast.Expr)
+            assert isinstance(result, ast.Expr)
 
     def test_entity_to_expr_events_type_with_id(self):
         entity = RetentionEntity(**{"type": TREND_FILTER_TYPE_EVENTS, "id": "event_id"})
@@ -758,26 +480,22 @@ class TestProperty(BaseTest):
                 )
             ]
         )
-        self.assertEqual(result, expected)
+        assert result == expected
 
     def test_entity_to_expr_events_type_without_id(self):
         entity = RetentionEntity(**{"type": TREND_FILTER_TYPE_EVENTS, "id": None})
         result = entity_to_expr(entity, self.team)
-        self.assertEqual(result, ast.Constant(value=True))
+        assert result == ast.Constant(value=True)
 
     def test_entity_to_expr_default_case(self):
         entity = RetentionEntity()
         result = entity_to_expr(entity, self.team)
-        self.assertEqual(result, ast.Constant(value=True))
+        assert result == ast.Constant(value=True)
 
     def test_session_duration(self):
-        self.assertEqual(
-            self._property_to_expr(
-                {"type": "session", "key": "$session_duration", "value": 10, "operator": "exact"},
-                scope="event",
-            ),
-            self._parse_expr("session.$session_duration = 10"),
-        )
+        assert self._property_to_expr(
+            {"type": "session", "key": "$session_duration", "value": 10, "operator": "exact"}, scope="event"
+        ) == self._parse_expr("session.$session_duration = 10")
 
     def test_data_warehouse_person_property(self):
         credential = DataWarehouseCredential.objects.create(
@@ -804,17 +522,14 @@ class TestProperty(BaseTest):
             field_name="extended_properties",
         )
 
-        self.assertEqual(
-            self._property_to_expr(
-                {
-                    "type": "data_warehouse_person_property",
-                    "key": "extended_properties.bool_prop",
-                    "value": "true",
-                    "operator": "exact",
-                }
-            ),
-            self._parse_expr("person.extended_properties.bool_prop = true"),
-        )
+        assert self._property_to_expr(
+            {
+                "type": "data_warehouse_person_property",
+                "key": "extended_properties.bool_prop",
+                "value": "true",
+                "operator": "exact",
+            }
+        ) == self._parse_expr("person.extended_properties.bool_prop = true")
 
     def test_data_warehouse_property_with_list_values(self):
         credential = DataWarehouseCredential.objects.create(
@@ -841,77 +556,60 @@ class TestProperty(BaseTest):
             self.team,
         )
 
-        self.assertIsInstance(expr, ast.Or)
-        self.assertEqual(len(expr.exprs), 2)
+        assert isinstance(expr, ast.Or)
+        assert len(expr.exprs) == 2
 
         # First expression
         compare_op_1 = expr.exprs[0]
-        self.assertIsInstance(compare_op_1, ast.CompareOperation)
-        self.assertIsInstance(compare_op_1.left, ast.Field)
-        self.assertEqual(compare_op_1.left.chain, ["foobars", "properties", "$feature/test"])
-        self.assertEqual(compare_op_1.right.value, "control")
+        assert isinstance(compare_op_1, ast.CompareOperation)
+        assert isinstance(compare_op_1.left, ast.Field)
+        assert compare_op_1.left.chain == ["foobars", "properties", "$feature/test"]
+        assert compare_op_1.right.value == "control"
 
         # Second expression
         compare_op_2 = expr.exprs[1]
-        self.assertIsInstance(compare_op_2, ast.CompareOperation)
-        self.assertIsInstance(compare_op_2.left, ast.Field)
-        self.assertEqual(compare_op_2.left.chain, ["foobars", "properties", "$feature/test"])
-        self.assertEqual(compare_op_2.right.value, "test")
+        assert isinstance(compare_op_2, ast.CompareOperation)
+        assert isinstance(compare_op_2.left, ast.Field)
+        assert compare_op_2.left.chain == ["foobars", "properties", "$feature/test"]
+        assert compare_op_2.right.value == "test"
 
     def test_revenue_analytics_property(self):
-        self.assertEqual(
-            self._property_to_expr(
-                {
-                    "type": "revenue_analytics",
-                    "key": "revenue_analytics_product.name",
-                    "value": ["Product A"],
-                    "operator": "exact",
-                },
-                scope="revenue_analytics",
-            ),
-            self._parse_expr("revenue_analytics_product.name = 'Product A'"),
-        )
+        assert self._property_to_expr(
+            {
+                "type": "revenue_analytics",
+                "key": "revenue_analytics_product.name",
+                "value": ["Product A"],
+                "operator": "exact",
+            },
+            scope="revenue_analytics",
+        ) == self._parse_expr("revenue_analytics_product.name = 'Product A'")
 
     def test_revenue_analytics_property_multiple_values(self):
-        self.assertEqual(
-            self._property_to_expr(
-                {
-                    "type": "revenue_analytics",
-                    "key": "revenue_analytics_product.name",
-                    "value": ["Product A", "Product C"],
-                    "operator": "exact",
-                },
-                scope="revenue_analytics",
-            ),
-            self._parse_expr("revenue_analytics_product.name IN ('Product A', 'Product C')"),
-        )
+        assert self._property_to_expr(
+            {
+                "type": "revenue_analytics",
+                "key": "revenue_analytics_product.name",
+                "value": ["Product A", "Product C"],
+                "operator": "exact",
+            },
+            scope="revenue_analytics",
+        ) == self._parse_expr("revenue_analytics_product.name IN ('Product A', 'Product C')")
 
     def test_property_to_expr_event_metadata(self):
-        self.assertEqual(
-            self._property_to_expr(
-                {"type": "event_metadata", "key": "distinct_id", "value": "p3", "operator": "exact"},
-                scope="event",
-            ),
-            self._parse_expr("distinct_id = 'p3'"),
-        )
-        self.assertEqual(
-            self._property_to_expr(
-                {"type": "event_metadata", "key": "distinct_id", "value": ["p3", "p4"], "operator": "exact"},
-                scope="event",
-            ),
-            self._parse_expr("distinct_id in ('p3', 'p4')"),
-        )
+        assert self._property_to_expr(
+            {"type": "event_metadata", "key": "distinct_id", "value": "p3", "operator": "exact"}, scope="event"
+        ) == self._parse_expr("distinct_id = 'p3'")
+        assert self._property_to_expr(
+            {"type": "event_metadata", "key": "distinct_id", "value": ["p3", "p4"], "operator": "exact"}, scope="event"
+        ) == self._parse_expr("distinct_id in ('p3', 'p4')")
 
     def test_property_to_expr_event_metadata_invalid_scope(self):
-        with self.assertRaises(Exception) as e:
+        with pytest.raises(Exception) as e:
             self._property_to_expr(
                 {"type": "event_metadata", "key": "distinct_id", "value": "p3", "operator": "exact"},
                 scope="person",
             )
-        self.assertEqual(
-            str(e.exception),
-            "The 'event_metadata' property filter does not work in 'person' scope",
-        )
+        assert str(e.value) == "The 'event_metadata' property filter does not work in 'person' scope"
 
     def test_virtual_person_properties_on_person_scope(self):
         assert self._property_to_expr(
@@ -1003,20 +701,17 @@ class TestProperty(BaseTest):
             )
 
     def test_property_to_expr_between_operator(self):
-        self.assertEqual(
-            self._property_to_expr({"type": "event", "key": "age", "operator": "between", "value": [18, 65]}),
-            self._parse_expr("(properties.age >= 18 AND properties.age <= 65)"),
-        )
+        assert self._property_to_expr(
+            {"type": "event", "key": "age", "operator": "between", "value": [18, 65]}
+        ) == self._parse_expr("(properties.age >= 18 AND properties.age <= 65)")
 
-        self.assertEqual(
-            self._property_to_expr({"type": "person", "key": "age", "operator": "between", "value": [25, 50]}),
-            self._parse_expr("(person.properties.age >= 25 AND person.properties.age <= 50)"),
-        )
+        assert self._property_to_expr(
+            {"type": "person", "key": "age", "operator": "between", "value": [25, 50]}
+        ) == self._parse_expr("(person.properties.age >= 25 AND person.properties.age <= 50)")
 
-        self.assertEqual(
-            self._property_to_expr({"type": "event", "key": "score", "operator": "not_between", "value": [0, 100]}),
-            self._parse_expr("(properties.score < 0 OR properties.score > 100)"),
-        )
+        assert self._property_to_expr(
+            {"type": "event", "key": "score", "operator": "not_between", "value": [0, 100]}
+        ) == self._parse_expr("(properties.score < 0 OR properties.score > 100)")
 
     def test_property_to_expr_between_operator_validation(self):
         with self.assertRaisesMessage(QueryError, "between operator requires a two-element array [min, max]"):
@@ -1052,25 +747,21 @@ class TestProperty(BaseTest):
 
     def test_property_to_expr_min_max_operators(self):
         # Test MIN operator (alias for GTE)
-        self.assertEqual(
-            self._property_to_expr({"type": "event", "key": "age", "operator": "min", "value": 18}),
-            self._parse_expr("properties.age >= 18"),
-        )
+        assert self._property_to_expr(
+            {"type": "event", "key": "age", "operator": "min", "value": 18}
+        ) == self._parse_expr("properties.age >= 18")
 
         # Test MAX operator (alias for LTE)
-        self.assertEqual(
-            self._property_to_expr({"type": "event", "key": "age", "operator": "max", "value": 65}),
-            self._parse_expr("properties.age <= 65"),
-        )
+        assert self._property_to_expr(
+            {"type": "event", "key": "age", "operator": "max", "value": 65}
+        ) == self._parse_expr("properties.age <= 65")
 
         # Test MIN with person properties
-        self.assertEqual(
-            self._property_to_expr({"type": "person", "key": "age", "operator": "min", "value": 25}),
-            self._parse_expr("person.properties.age >= 25"),
-        )
+        assert self._property_to_expr(
+            {"type": "person", "key": "age", "operator": "min", "value": 25}
+        ) == self._parse_expr("person.properties.age >= 25")
 
         # Test MAX with person properties
-        self.assertEqual(
-            self._property_to_expr({"type": "person", "key": "score", "operator": "max", "value": 100}),
-            self._parse_expr("person.properties.score <= 100"),
-        )
+        assert self._property_to_expr(
+            {"type": "person", "key": "score", "operator": "max", "value": 100}
+        ) == self._parse_expr("person.properties.score <= 100")

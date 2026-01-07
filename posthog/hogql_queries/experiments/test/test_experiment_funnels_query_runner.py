@@ -137,27 +137,27 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         result = query_runner.calculate()
 
-        self.assertEqual(len(result.variants), 2)
+        assert len(result.variants) == 2
 
         control_variant = next(variant for variant in result.variants if variant.key == "control")
         test_variant = next(variant for variant in result.variants if variant.key == "test")
 
-        self.assertEqual(control_variant.success_count, 6)
-        self.assertEqual(control_variant.failure_count, 4)
-        self.assertEqual(test_variant.success_count, 8)
-        self.assertEqual(test_variant.failure_count, 2)
+        assert control_variant.success_count == 6
+        assert control_variant.failure_count == 4
+        assert test_variant.success_count == 8
+        assert test_variant.failure_count == 2
 
-        self.assertAlmostEqual(result.probability["control"], 0.2, delta=0.1)
-        self.assertAlmostEqual(result.probability["test"], 0.8, delta=0.1)
+        assert result.probability["control"] == pytest.approx(0.2, abs=0.1)
+        assert result.probability["test"] == pytest.approx(0.8, abs=0.1)
 
-        self.assertEqual(result.significant, False)
-        self.assertEqual(result.significance_code, ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE)
-        self.assertEqual(result.expected_loss, 1.0)
+        assert not result.significant
+        assert result.significance_code == ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE
+        assert result.expected_loss == 1.0
 
-        self.assertAlmostEqual(result.credible_intervals["control"][0], 0.3, delta=0.1)
-        self.assertAlmostEqual(result.credible_intervals["control"][1], 0.8, delta=0.1)
-        self.assertAlmostEqual(result.credible_intervals["test"][0], 0.5, delta=0.1)
-        self.assertAlmostEqual(result.credible_intervals["test"][1], 0.9, delta=0.1)
+        assert result.credible_intervals["control"][0] == pytest.approx(0.3, abs=0.1)
+        assert result.credible_intervals["control"][1] == pytest.approx(0.8, abs=0.1)
+        assert result.credible_intervals["test"][0] == pytest.approx(0.5, abs=0.1)
+        assert result.credible_intervals["test"][1] == pytest.approx(0.9, abs=0.1)
 
     @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner_v2(self):
@@ -206,27 +206,27 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         result = query_runner.calculate()
 
-        self.assertEqual(len(result.variants), 2)
+        assert len(result.variants) == 2
 
         control_variant = next(variant for variant in result.variants if variant.key == "control")
         test_variant = next(variant for variant in result.variants if variant.key == "test")
 
-        self.assertEqual(control_variant.success_count, 6)
-        self.assertEqual(control_variant.failure_count, 4)
-        self.assertEqual(test_variant.success_count, 8)
-        self.assertEqual(test_variant.failure_count, 2)
+        assert control_variant.success_count == 6
+        assert control_variant.failure_count == 4
+        assert test_variant.success_count == 8
+        assert test_variant.failure_count == 2
 
-        self.assertAlmostEqual(result.probability["control"], 0.2, delta=0.1)
-        self.assertAlmostEqual(result.probability["test"], 0.8, delta=0.1)
+        assert result.probability["control"] == pytest.approx(0.2, abs=0.1)
+        assert result.probability["test"] == pytest.approx(0.8, abs=0.1)
 
-        self.assertEqual(result.significant, False)
-        self.assertEqual(result.significance_code, ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE)
-        self.assertEqual(result.expected_loss, 1.0)
+        assert not result.significant
+        assert result.significance_code == ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE
+        assert result.expected_loss == 1.0
 
-        self.assertAlmostEqual(result.credible_intervals["control"][0], 0.3, delta=0.1)
-        self.assertAlmostEqual(result.credible_intervals["control"][1], 0.8, delta=0.1)
-        self.assertAlmostEqual(result.credible_intervals["test"][0], 0.5, delta=0.1)
-        self.assertAlmostEqual(result.credible_intervals["test"][1], 0.9, delta=0.1)
+        assert result.credible_intervals["control"][0] == pytest.approx(0.3, abs=0.1)
+        assert result.credible_intervals["control"][1] == pytest.approx(0.8, abs=0.1)
+        assert result.credible_intervals["test"][0] == pytest.approx(0.5, abs=0.1)
+        assert result.credible_intervals["test"][1] == pytest.approx(0.9, abs=0.1)
 
     @pytest.mark.flaky(reruns=9)
     @freeze_time("2020-01-01T12:00:00Z")
@@ -287,31 +287,31 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         result = query_runner.calculate()
 
-        self.assertEqual(len(result.variants), 2)
+        assert len(result.variants) == 2
         for variant in result.variants:
-            self.assertIn(variant.key, ["control", "test"])
+            assert variant.key in ["control", "test"]
 
         control_variant = next(v for v in result.variants if v.key == "control")
         test_variant = next(v for v in result.variants if v.key == "test")
 
-        self.assertEqual(control_variant.success_count, 2)
-        self.assertEqual(control_variant.failure_count, 1)
-        self.assertEqual(test_variant.success_count, 3)
-        self.assertEqual(test_variant.failure_count, 1)
+        assert control_variant.success_count == 2
+        assert control_variant.failure_count == 1
+        assert test_variant.success_count == 3
+        assert test_variant.failure_count == 1
 
-        self.assertAlmostEqual(result.probability["control"], 0.407, places=2)
-        self.assertAlmostEqual(result.probability["test"], 0.593, places=2)
+        assert result.probability["control"] == pytest.approx(0.407, abs=1e-2)
+        assert result.probability["test"] == pytest.approx(0.593, abs=1e-2)
 
-        self.assertAlmostEqual(result.credible_intervals["control"][0], 0.1941, places=3)
-        self.assertAlmostEqual(result.credible_intervals["control"][1], 0.9324, places=3)
-        self.assertAlmostEqual(result.credible_intervals["test"][0], 0.2836, places=3)
-        self.assertAlmostEqual(result.credible_intervals["test"][1], 0.9473, places=3)
+        assert result.credible_intervals["control"][0] == pytest.approx(0.1941, abs=1e-3)
+        assert result.credible_intervals["control"][1] == pytest.approx(0.9324, abs=1e-3)
+        assert result.credible_intervals["test"][0] == pytest.approx(0.2836, abs=1e-3)
+        assert result.credible_intervals["test"][1] == pytest.approx(0.9473, abs=1e-3)
 
-        self.assertEqual(result.significance_code, ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE)
+        assert result.significance_code == ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE
 
-        self.assertFalse(result.significant)
-        self.assertEqual(len(result.variants), 2)
-        self.assertAlmostEqual(result.expected_loss, 1.0, places=1)
+        assert not result.significant
+        assert len(result.variants) == 2
+        assert result.expected_loss == pytest.approx(1.0, abs=1e-1)
 
     @parameterized.expand(
         [
@@ -452,14 +452,14 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         result = query_runner.calculate()
 
-        self.assertEqual(len(result.variants), 2)
+        assert len(result.variants) == 2
         control_variant = next(v for v in result.variants if v.key == "control")
         test_variant = next(v for v in result.variants if v.key == "test")
 
-        self.assertEqual(control_variant.success_count, expected_counts["control_success"])
-        self.assertEqual(control_variant.failure_count, expected_counts["control_failure"])
-        self.assertEqual(test_variant.success_count, expected_counts["test_success"])
-        self.assertEqual(test_variant.failure_count, expected_counts["test_failure"])
+        assert control_variant.success_count == expected_counts["control_success"]
+        assert control_variant.failure_count == expected_counts["control_failure"]
+        assert test_variant.success_count == expected_counts["test_success"]
+        assert test_variant.failure_count == expected_counts["test_failure"]
 
     @parameterized.expand(
         [
@@ -685,24 +685,21 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             query=ExperimentFunnelsQuery(**experiment.metrics[0]["query"]), team=self.team
         )
         if expected_results is None:
-            with self.assertRaises(ValidationError):
+            with pytest.raises(ValidationError):
                 query_runner.calculate()
         else:
             result = query_runner.calculate()
 
-            self.assertEqual(len(result.variants), 2)
+            assert len(result.variants) == 2
             control_variant = next(v for v in result.variants if v.key == "control")
             test_variant = next(v for v in result.variants if v.key == "test")
 
-            self.assertEqual(
-                {
-                    "control_success": int(control_variant.success_count),
-                    "control_failure": int(control_variant.failure_count),
-                    "test_success": int(test_variant.success_count),
-                    "test_failure": int(test_variant.failure_count),
-                },
-                expected_results,
-            )
+            assert {
+                "control_success": int(control_variant.success_count),
+                "control_failure": int(control_variant.failure_count),
+                "test_success": int(test_variant.success_count),
+                "test_failure": int(test_variant.failure_count),
+            } == expected_results
 
     @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner_with_holdout(self):
@@ -751,26 +748,26 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         result = query_runner.calculate()
 
-        self.assertEqual(len(result.variants), 3)
+        assert len(result.variants) == 3
 
         control_variant = next(variant for variant in result.variants if variant.key == "control")
         test_variant = next(variant for variant in result.variants if variant.key == "test")
         holdout_variant = next(variant for variant in result.variants if variant.key == f"holdout-{holdout.id}")
 
-        self.assertEqual(control_variant.success_count, 6)
-        self.assertEqual(control_variant.failure_count, 4)
-        self.assertEqual(test_variant.success_count, 8)
-        self.assertEqual(test_variant.failure_count, 2)
-        self.assertEqual(holdout_variant.success_count, 3)
-        self.assertEqual(holdout_variant.failure_count, 7)
+        assert control_variant.success_count == 6
+        assert control_variant.failure_count == 4
+        assert test_variant.success_count == 8
+        assert test_variant.failure_count == 2
+        assert holdout_variant.success_count == 3
+        assert holdout_variant.failure_count == 7
 
-        self.assertIn("control", result.probability)
-        self.assertIn("test", result.probability)
-        self.assertIn(f"holdout-{holdout.id}", result.probability)
+        assert "control" in result.probability
+        assert "test" in result.probability
+        assert f"holdout-{holdout.id}" in result.probability
 
-        self.assertIn("control", result.credible_intervals)
-        self.assertIn("test", result.credible_intervals)
-        self.assertIn(f"holdout-{holdout.id}", result.credible_intervals)
+        assert "control" in result.credible_intervals
+        assert "test" in result.credible_intervals
+        assert f"holdout-{holdout.id}" in result.credible_intervals
 
     @freeze_time("2020-01-01T12:00:00Z")
     def test_validate_event_variants_no_control(self):
@@ -801,7 +798,7 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         query_runner = ExperimentFunnelsQueryRunner(query=experiment_query, team=self.team)
-        with self.assertRaises(ValidationError) as context:
+        with pytest.raises(ValidationError) as context:
             query_runner.calculate()
 
         expected_errors = json.dumps(
@@ -810,7 +807,7 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: False,
             }
         )
-        self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
+        assert cast(list, context.value.detail)[0] == expected_errors
 
     @freeze_time("2020-01-01T12:00:00Z")
     def test_validate_event_variants_no_test(self):
@@ -841,7 +838,7 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         query_runner = ExperimentFunnelsQueryRunner(query=experiment_query, team=self.team)
-        with self.assertRaises(ValidationError) as context:
+        with pytest.raises(ValidationError) as context:
             query_runner.calculate()
 
         expected_errors = json.dumps(
@@ -850,4 +847,4 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
             }
         )
-        self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
+        assert cast(list, context.value.detail)[0] == expected_errors

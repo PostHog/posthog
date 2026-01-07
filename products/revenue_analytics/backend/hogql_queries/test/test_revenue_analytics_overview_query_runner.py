@@ -228,30 +228,22 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.customers_table.delete()
         results = self._run_revenue_analytics_overview_query().results
 
-        self.assertEqual(
-            results,
-            [
-                RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.REVENUE, value=0.0),
-                RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=0.0),
-                RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=0.0),
-            ],
-        )
+        assert results == [
+            RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.REVENUE, value=0.0),
+            RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=0.0),
+            RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=0.0),
+        ]
 
     def test_with_data(self):
         results = self._run_revenue_analytics_overview_query().results
 
-        self.assertEqual(
-            results,
-            [
-                RevenueAnalyticsOverviewItem(
-                    key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("1621.0866070701")
-                ),
-                RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=3),
-                RevenueAnalyticsOverviewItem(
-                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("540.3622023567")
-                ),
-            ],
-        )
+        assert results == [
+            RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("1621.0866070701")),
+            RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=3),
+            RevenueAnalyticsOverviewItem(
+                key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("540.3622023567")
+            ),
+        ]
 
     def test_with_data_with_managed_viewsets_ff(self):
         with patch("posthoganalytics.feature_enabled", return_value=True):
@@ -259,32 +251,26 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
             results = self._run_revenue_analytics_overview_query().results
 
-            self.assertEqual(
-                results,
-                [
-                    RevenueAnalyticsOverviewItem(
-                        key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("1621.0866070701")
-                    ),
-                    RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=3),
-                    RevenueAnalyticsOverviewItem(
-                        key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("540.3622023567")
-                    ),
-                ],
-            )
+            assert results == [
+                RevenueAnalyticsOverviewItem(
+                    key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("1621.0866070701")
+                ),
+                RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=3),
+                RevenueAnalyticsOverviewItem(
+                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("540.3622023567")
+                ),
+            ]
 
     def test_with_data_and_empty_interval(self):
         results = self._run_revenue_analytics_overview_query(
             date_range=DateRange(date_from="2025-01-01", date_to="2025-01-02")
         ).results
 
-        self.assertEqual(
-            results,
-            [
-                RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.REVENUE, value=0),
-                RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=0),
-                RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=0),
-            ],
-        )
+        assert results == [
+            RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.REVENUE, value=0),
+            RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=0),
+            RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=0),
+        ]
 
     def test_with_full_discount(self):
         # Filtering by that product only because it includes the 0-charge in stripe_invoices.csv
@@ -298,17 +284,14 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         ).results
 
-        self.assertEqual(
-            results,
-            [
-                RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("0")),
-                # There's a user for this one, but it's not paying anything, so consider it as non-paying
-                RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=0),
-                RevenueAnalyticsOverviewItem(
-                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("0")
-                ),
-            ],
-        )
+        assert results == [
+            RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("0")),
+            # There's a user for this one, but it's not paying anything, so consider it as non-paying
+            RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=0),
+            RevenueAnalyticsOverviewItem(
+                key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("0")
+            ),
+        ]
 
     def test_with_property_filter(self):
         # Product join, usually simple
@@ -322,16 +305,13 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         ).results
 
-        self.assertEqual(
-            results,
-            [
-                RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("386.90365")),
-                RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=1),
-                RevenueAnalyticsOverviewItem(
-                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("386.90365")
-                ),
-            ],
-        )
+        assert results == [
+            RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("386.90365")),
+            RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=1),
+            RevenueAnalyticsOverviewItem(
+                key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("386.90365")
+            ),
+        ]
 
         # Customer join, more complicated because it shares fields such as `timestamp`
         results = self._run_revenue_analytics_overview_query(
@@ -344,18 +324,13 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         ).results
 
-        self.assertEqual(
-            results,
-            [
-                RevenueAnalyticsOverviewItem(
-                    key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("74.4921670701")
-                ),
-                RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=2),
-                RevenueAnalyticsOverviewItem(
-                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("37.246083535")
-                ),
-            ],
-        )
+        assert results == [
+            RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("74.4921670701")),
+            RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=2),
+            RevenueAnalyticsOverviewItem(
+                key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("37.246083535")
+            ),
+        ]
 
     def test_with_property_filter_multiple_values(self):
         results = self._run_revenue_analytics_overview_query(
@@ -368,18 +343,13 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         ).results
 
-        self.assertEqual(
-            results,
-            [
-                RevenueAnalyticsOverviewItem(
-                    key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("409.8667947238")
-                ),
-                RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=2),
-                RevenueAnalyticsOverviewItem(
-                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("204.9333973619")
-                ),
-            ],
-        )
+        assert results == [
+            RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("409.8667947238")),
+            RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=2),
+            RevenueAnalyticsOverviewItem(
+                key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("204.9333973619")
+            ),
+        ]
 
     def test_with_events_data(self):
         s1 = str(uuid7("2023-12-02"))
@@ -418,18 +388,13 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
         ).results
 
-        self.assertEqual(
-            results,
-            [
-                RevenueAnalyticsOverviewItem(
-                    key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("54.2331251204")
-                ),
-                RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=2),
-                RevenueAnalyticsOverviewItem(
-                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("27.1165625602")
-                ),
-            ],
-        )
+        assert results == [
+            RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("54.2331251204")),
+            RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=2),
+            RevenueAnalyticsOverviewItem(
+                key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("27.1165625602")
+            ),
+        ]
 
     def test_with_events_data_with_managed_viewsets_ff(self):
         with patch("posthoganalytics.feature_enabled", return_value=True):
@@ -470,18 +435,15 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ],
             ).results
 
-            self.assertEqual(
-                results,
-                [
-                    RevenueAnalyticsOverviewItem(
-                        key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("54.2331251204")
-                    ),
-                    RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=2),
-                    RevenueAnalyticsOverviewItem(
-                        key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("27.1165625602")
-                    ),
-                ],
-            )
+            assert results == [
+                RevenueAnalyticsOverviewItem(
+                    key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("54.2331251204")
+                ),
+                RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=2),
+                RevenueAnalyticsOverviewItem(
+                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("27.1165625602")
+                ),
+            ]
 
         def test_with_events_data_and_currency_aware_divider(self):
             self.team.revenue_analytics_config.events = [
@@ -509,18 +471,15 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ],
             ).results
 
-            self.assertEqual(
-                results,
-                [
-                    RevenueAnalyticsOverviewItem(
-                        key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("54.2331251204")
-                    ),
-                    RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=2),
-                    RevenueAnalyticsOverviewItem(
-                        key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("27.1165625602")
-                    ),
-                ],
-            )
+            assert results == [
+                RevenueAnalyticsOverviewItem(
+                    key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("54.2331251204")
+                ),
+                RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=2),
+                RevenueAnalyticsOverviewItem(
+                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("27.1165625602")
+                ),
+            ]
 
     def test_convertToProjectTimezone_date_range_sql_snapshot(self):
         self.team.timezone = "America/Los_Angeles"

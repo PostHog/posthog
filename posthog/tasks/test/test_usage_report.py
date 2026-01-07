@@ -2716,9 +2716,9 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
 
         # Expected: 1.0 USD * 100 * 1.2 = 120 credits
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0][0], self.org_1_team_1.id)
-        self.assertEqual(result[0][1], 120)
+        assert len(result) == 1
+        assert result[0][0] == self.org_1_team_1.id
+        assert result[0][1] == 120
 
     @patch("posthog.tasks.usage_report.get_instance_region")
     def test_ai_credits_with_only_search_tools(self, mock_region: MagicMock) -> None:
@@ -2776,7 +2776,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
 
         # Expected: No charges for search-only traces with kind='docs'
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
     @patch("posthog.tasks.usage_report.get_instance_region")
     def test_ai_credits_with_only_summarize_sessions_tools(self, mock_region: MagicMock) -> None:
@@ -2832,7 +2832,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
 
         # Expected: No charges for summarize_sessions-only traces
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
     @patch("posthog.tasks.usage_report.get_instance_region")
     def test_ai_credits_with_mixed_excluded_tools(self, mock_region: MagicMock) -> None:
@@ -2888,7 +2888,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
 
         # Expected: No charges when all tools are in the excluded list
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
     @patch("posthog.tasks.usage_report.get_instance_region")
     def test_ai_credits_with_summarize_sessions_and_billable_tool(self, mock_region: MagicMock) -> None:
@@ -2945,9 +2945,9 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         # Expected: 1.0 USD * 100 * 1.2 = 120 credits
         # Trace with any non-excluded tool should be billable
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0][0], self.org_1_team_1.id)
-        self.assertEqual(result[0][1], 120)
+        assert len(result) == 1
+        assert result[0][0] == self.org_1_team_1.id
+        assert result[0][1] == 120
 
     @patch("posthog.tasks.usage_report.get_instance_region")
     def test_ai_credits_with_search_non_docs_kind(self, mock_region: MagicMock) -> None:
@@ -3006,9 +3006,9 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         # Expected: 0.5 USD * 100 * 1.2 = 60 credits
         # Search with kind='web' should be billable
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0][0], self.org_1_team_1.id)
-        self.assertEqual(result[0][1], 60)
+        assert len(result) == 1
+        assert result[0][0] == self.org_1_team_1.id
+        assert result[0][1] == 60
 
     @patch("posthog.tasks.usage_report.get_instance_region")
     def test_ai_credits_multi_turn_only_current_turn_matters(self, mock_region: MagicMock) -> None:
@@ -3085,7 +3085,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         # Expected: No charges because current turn only has docs-search
         # Previous turn's billable tools should be ignored
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
     @patch("posthog.tasks.usage_report.get_instance_region")
     def test_ai_credits_filters_non_billable(self, mock_region: MagicMock) -> None:
@@ -3179,9 +3179,9 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
 
         # Expected: Only the first generation: 0.5 USD * 100 * 1.2 = 60 credits
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0][0], self.org_1_team_1.id)
-        self.assertEqual(result[0][1], 60)
+        assert len(result) == 1
+        assert result[0][0] == self.org_1_team_1.id
+        assert result[0][1] == 60
 
     @patch("posthog.tasks.usage_report.get_instance_region")
     def test_ai_credits_with_no_tool_calls(self, mock_region: MagicMock) -> None:
@@ -3237,9 +3237,9 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         # Expected: 0.5 USD * 100 * 1.2 = 60 credits
         # Traces with no tool calls should now be billed
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0][0], self.org_1_team_1.id)
-        self.assertEqual(result[0][1], 60)
+        assert len(result) == 1
+        assert result[0][0] == self.org_1_team_1.id
+        assert result[0][1] == 60
 
     @patch("posthog.tasks.usage_report.get_instance_region")
     def test_ai_credits_uses_correct_team_for_us_region(self, mock_region: MagicMock) -> None:
@@ -3322,9 +3322,9 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         # Expected: Only US trace should count: 1.0 USD * 100 * 1.2 = 120 credits
         # EU trace should be filtered out despite being in team_id=2
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0][0], self.org_1_team_1.id)
-        self.assertEqual(result[0][1], 120)
+        assert len(result) == 1
+        assert result[0][0] == self.org_1_team_1.id
+        assert result[0][1] == 120
 
     @patch("posthog.tasks.usage_report.get_instance_region")
     def test_ai_credits_uses_correct_team_for_eu_region(self, mock_region: MagicMock) -> None:
@@ -3406,9 +3406,9 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
 
         # Expected: Only EU trace should count: 2.0 USD * 100 * 1.2 = 240 credits
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0][0], self.org_1_team_1.id)
-        self.assertEqual(result[0][1], 240)
+        assert len(result) == 1
+        assert result[0][0] == self.org_1_team_1.id
+        assert result[0][1] == 240
 
 
 class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
@@ -4073,21 +4073,21 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         )
 
         # Verify sync_execute was called twice with different time ranges
-        self.assertEqual(mock_sync_execute.call_count, 2)
+        assert mock_sync_execute.call_count == 2
 
         # First call should use the first half of the time range
         first_call_args = mock_sync_execute.call_args_list[0][0]
-        self.assertEqual(first_call_args[1]["begin"], self.begin)
+        assert first_call_args[1]["begin"] == self.begin
         mid_point = self.begin + (self.end - self.begin) / 2
-        self.assertEqual(first_call_args[1]["end"], mid_point)
+        assert first_call_args[1]["end"] == mid_point
 
         # Second call should use the second half of the time range
         second_call_args = mock_sync_execute.call_args_list[1][0]
-        self.assertEqual(second_call_args[1]["begin"], mid_point)
-        self.assertEqual(second_call_args[1]["end"], self.end)
+        assert second_call_args[1]["begin"] == mid_point
+        assert second_call_args[1]["end"] == self.end
 
         # Result should combine both splits (5 + 5 = 10)
-        self.assertEqual(result, [(self.team.id, 10)])
+        assert result == [(self.team.id, 10)]
 
     @patch("posthog.tasks.usage_report.sync_execute")
     def test_execute_split_query_with_custom_combiner(self, mock_sync_execute: MagicMock) -> None:
@@ -4133,8 +4133,8 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         )
 
         # Verify the custom combiner worked correctly
-        self.assertEqual(result["web_events"], [(self.team.id, 5)])
-        self.assertEqual(result["mobile_events"], [(self.team.id, 1)])
+        assert result["web_events"] == [(self.team.id, 5)]
+        assert result["mobile_events"] == [(self.team.id, 1)]
 
     def test_get_teams_with_billable_event_count_in_period(self) -> None:
         """Test that get_teams_with_billable_event_count_in_period returns correct results after splitting and excludes AI events."""
@@ -4145,16 +4145,16 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
 
         # We should get 15 events for our team (10 test_event + 5 enhanced_event)
         # NOT counting: 3 survey sent, 3 $feature_flag_called, 10 AI events
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0][0], self.team.id)
-        self.assertEqual(result[0][1], 15)
+        assert len(result) == 1
+        assert result[0][0] == self.team.id
+        assert result[0][1] == 15
 
         # Test with count_distinct=True
         result_distinct = get_teams_with_billable_event_count_in_period(self.begin, self.end, count_distinct=True)
-        self.assertEqual(len(result_distinct), 1)
-        self.assertEqual(result_distinct[0][0], self.team.id)
+        assert len(result_distinct) == 1
+        assert result_distinct[0][0] == self.team.id
         # Should still be 15 since we created 15 distinct billable events (excluding AI events)
-        self.assertEqual(result_distinct[0][1], 15)
+        assert result_distinct[0][1] == 15
 
     def test_get_teams_with_billable_enhanced_persons_event_count_in_period(self) -> None:
         """Test that get_teams_with_billable_enhanced_persons_event_count_in_period returns correct results after splitting."""
@@ -4164,9 +4164,9 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         result = get_teams_with_billable_enhanced_persons_event_count_in_period(self.begin, self.end)
 
         # We should get 5 enhanced events for our team
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0][0], self.team.id)
-        self.assertEqual(result[0][1], 5)
+        assert len(result) == 1
+        assert result[0][0] == self.team.id
+        assert result[0][1] == 5
 
     @patch("posthog.tasks.usage_report._execute_split_query")
     def test_split_query_with_different_num_splits(self, mock_execute_split_query: MagicMock) -> None:
@@ -4183,15 +4183,15 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         get_all_event_metrics_in_period(self.begin, self.end)
 
         # Verify the calls
-        self.assertEqual(mock_execute_split_query.call_count, 2)
+        assert mock_execute_split_query.call_count == 2
 
         # First call (get_teams_with_billable_event_count_in_period) should use 12 splits
         first_call_kwargs = mock_execute_split_query.call_args_list[0][1]
-        self.assertEqual(first_call_kwargs["num_splits"], 12)
+        assert first_call_kwargs["num_splits"] == 12
 
         # Second call (get_all_event_metrics_in_period) should use 12 splits
         second_call_kwargs = mock_execute_split_query.call_args_list[1][1]
-        self.assertEqual(second_call_kwargs["num_splits"], 12)
+        assert second_call_kwargs["num_splits"] == 12
 
     def test_ai_events_not_double_counted(self) -> None:
         """Test that AI events are excluded from billable event counts and counted separately."""
@@ -4221,10 +4221,10 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         ai_result = get_teams_with_ai_event_count_in_period(self.begin, self.end)
 
         # Billable count should NOT have increased
-        self.assertEqual(billable_result_after[0][1], baseline_count)
+        assert billable_result_after[0][1] == baseline_count
 
         # AI count should include original 10 + 5 new = 15
-        self.assertEqual(ai_result[0][1], 15)
+        assert ai_result[0][1] == 15
 
         # Now add a regular event and verify it DOES increase billable count
         _create_event(
@@ -4236,7 +4236,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         flush_persons_and_events()
 
         billable_result_final = get_teams_with_billable_event_count_in_period(self.begin, self.end)
-        self.assertEqual(billable_result_final[0][1], baseline_count + 1)
+        assert billable_result_final[0][1] == baseline_count + 1
 
     def test_integration_with_usage_report(self) -> None:
         """Test that the usage report generation still works with the new query splitting."""
@@ -4258,7 +4258,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         all_data = _get_all_usage_data_as_team_rows(period_start, period_end)
 
         # Verify the data
-        self.assertIn("teams_with_event_count_in_period", all_data)
-        self.assertEqual(len(all_data["teams_with_event_count_in_period"]), 1)
-        self.assertEqual(next(iter(all_data["teams_with_event_count_in_period"].keys())), self.team.id)
-        self.assertEqual(all_data["teams_with_event_count_in_period"][self.team.id], 20)
+        assert "teams_with_event_count_in_period" in all_data
+        assert len(all_data["teams_with_event_count_in_period"]) == 1
+        assert next(iter(all_data["teams_with_event_count_in_period"].keys())) == self.team.id
+        assert all_data["teams_with_event_count_in_period"][self.team.id] == 20

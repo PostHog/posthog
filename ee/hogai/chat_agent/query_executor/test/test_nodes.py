@@ -87,13 +87,13 @@ class TestQueryExecutorNode(ClickhouseTestMixin, NonAtomicBaseTest):
         new_state = cast(PartialAssistantState, new_state)
         mock_process_query_dict.assert_called_once()  # Query processing started
         msg = cast(AssistantToolCallMessage, new_state.messages[0])
-        self.assertIn("Here is the results table of the TrendsQuery insight:", msg.content)
-        self.assertEqual(msg.type, "tool")
-        self.assertEqual(msg.tool_call_id, "tool1")
-        self.assertIsNotNone(msg.id)
-        self.assertFalse(new_state.root_tool_call_id)
-        self.assertFalse(new_state.root_tool_insight_plan)
-        self.assertFalse(new_state.root_tool_insight_type)
+        assert "Here is the results table of the TrendsQuery insight:" in msg.content
+        assert msg.type == "tool"
+        assert msg.tool_call_id == "tool1"
+        assert msg.id is not None
+        assert not new_state.root_tool_call_id
+        assert not new_state.root_tool_insight_plan
+        assert not new_state.root_tool_insight_type
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict", side_effect=process_query_dict)
     async def test_node_runs(self, mock_process_query_dict):
@@ -141,16 +141,16 @@ class TestQueryExecutorNode(ClickhouseTestMixin, NonAtomicBaseTest):
         new_state = cast(PartialAssistantState, new_state)
         mock_process_query_dict.assert_called_once()  # Query processing started
         msg = cast(AssistantToolCallMessage, new_state.messages[0])
-        self.assertIn("Here is the results table of the TrendsQuery insight:", msg.content)
-        self.assertIn(f"Insight ID: {insight.short_id}", msg.content)
-        self.assertIn("Name: test insight", msg.content)
-        self.assertIn("Description: test description", msg.content)
-        self.assertEqual(msg.type, "tool")
-        self.assertEqual(msg.tool_call_id, "tool1")
-        self.assertIsNotNone(msg.id)
-        self.assertFalse(new_state.root_tool_call_id)
-        self.assertFalse(new_state.root_tool_insight_plan)
-        self.assertFalse(new_state.root_tool_insight_type)
+        assert "Here is the results table of the TrendsQuery insight:" in msg.content
+        assert f"Insight ID: {insight.short_id}" in msg.content
+        assert "Name: test insight" in msg.content
+        assert "Description: test description" in msg.content
+        assert msg.type == "tool"
+        assert msg.tool_call_id == "tool1"
+        assert msg.id is not None
+        assert not new_state.root_tool_call_id
+        assert not new_state.root_tool_insight_plan
+        assert not new_state.root_tool_insight_type
 
     @patch(
         "ee.hogai.context.insight.query_executor.process_query_dict",
@@ -190,12 +190,12 @@ class TestQueryExecutorNode(ClickhouseTestMixin, NonAtomicBaseTest):
         new_state = cast(PartialAssistantState, new_state)
         mock_process_query_dict.assert_called_once()  # Query processing started
         msg = cast(AssistantMessage, new_state.messages[0])
-        self.assertEqual(
-            msg.content,
-            "There was an error running this query: Error executing query: There was an unknown error running this query.",
+        assert (
+            msg.content
+            == "There was an error running this query: Error executing query: There was an unknown error running this query."
         )
-        self.assertEqual(msg.type, "ai")
-        self.assertIsNotNone(msg.id)
+        assert msg.type == "ai"
+        assert msg.id is not None
 
     @patch(
         "ee.hogai.context.insight.query_executor.process_query_dict",
@@ -237,12 +237,12 @@ class TestQueryExecutorNode(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_process_query_dict.assert_called_once()  # Query processing started
         msg = new_state.messages[0]
         assert isinstance(msg, AssistantMessage)
-        self.assertEqual(
-            msg.content,
-            "There was an error running this query: Error executing query: This query exceeds the capabilities of our picolator. Try de-brolling its flim-flam.",
+        assert (
+            msg.content
+            == "There was an error running this query: Error executing query: This query exceeds the capabilities of our picolator. Try de-brolling its flim-flam."
         )
-        self.assertEqual(msg.type, "ai")
-        self.assertIsNotNone(msg.id)
+        assert msg.type == "ai"
+        assert msg.id is not None
 
     async def test_node_requires_a_viz_message_in_state(self):
         node = QueryExecutorNode(self.team, self.user)
@@ -303,34 +303,34 @@ class TestQueryExecutorNode(ClickhouseTestMixin, NonAtomicBaseTest):
             new_state = cast(PartialAssistantState, new_state)
             mock_process_query_dict.assert_called_once()  # Query processing started
             msg = cast(AssistantMessage, new_state.messages[0])
-            self.assertIn("Here is the results table of the TrendsQuery insight:", msg.content)
-            self.assertEqual(msg.type, "tool")
-            self.assertIsNotNone(msg.id)
+            assert "Here is the results table of the TrendsQuery insight:" in msg.content
+            assert msg.type == "tool"
+            assert msg.id is not None
 
     def test_get_example_prompt(self):
         from ee.hogai.context.insight.query_executor import get_example_prompt
 
         # Test Trends Query
         trends_query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode()])
-        self.assertEqual(get_example_prompt(trends_query), TRENDS_EXAMPLE_PROMPT)
+        assert get_example_prompt(trends_query) == TRENDS_EXAMPLE_PROMPT
 
         # Test Funnel Query - Steps (default)
         funnel_steps_query = AssistantFunnelsQuery(series=[])
-        self.assertEqual(get_example_prompt(funnel_steps_query), FUNNEL_STEPS_EXAMPLE_PROMPT)
+        assert get_example_prompt(funnel_steps_query) == FUNNEL_STEPS_EXAMPLE_PROMPT
 
         # Test Funnel Query - Time to Convert
         funnel_time_query = AssistantFunnelsQuery(
             series=[],
             funnelsFilter=AssistantFunnelsFilter(funnelVizType=FunnelVizType.TIME_TO_CONVERT),
         )
-        self.assertEqual(get_example_prompt(funnel_time_query), FUNNEL_TIME_TO_CONVERT_EXAMPLE_PROMPT)
+        assert get_example_prompt(funnel_time_query) == FUNNEL_TIME_TO_CONVERT_EXAMPLE_PROMPT
 
         # Test Funnel Query - Trends
         funnel_trends_query = AssistantFunnelsQuery(
             series=[],
             funnelsFilter=AssistantFunnelsFilter(funnelVizType=FunnelVizType.TRENDS),
         )
-        self.assertEqual(get_example_prompt(funnel_trends_query), FUNNEL_TRENDS_EXAMPLE_PROMPT)
+        assert get_example_prompt(funnel_trends_query) == FUNNEL_TRENDS_EXAMPLE_PROMPT
 
         # Test Retention Query
         retention_query = AssistantRetentionQuery(
@@ -339,4 +339,4 @@ class TestQueryExecutorNode(ClickhouseTestMixin, NonAtomicBaseTest):
                 returningEntity=AssistantRetentionEventsNode(name="event"),
             )
         )
-        self.assertEqual(get_example_prompt(retention_query), RETENTION_EXAMPLE_PROMPT)
+        assert get_example_prompt(retention_query) == RETENTION_EXAMPLE_PROMPT

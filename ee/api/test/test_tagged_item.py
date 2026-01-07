@@ -30,8 +30,8 @@ class TestEnterpriseTaggedItemSerializerMixin(APIBaseTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["tags"], ["random"])
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["tags"] == ["random"]
 
     @pytest.mark.ee
     def test_resolve_overlapping_tags_on_update(self):
@@ -49,16 +49,16 @@ class TestEnterpriseTaggedItemSerializerMixin(APIBaseTest):
         dashboard.tagged_items.create(tag_id=tag_a.id)
         dashboard.tagged_items.create(tag_id=tag_b.id)
 
-        self.assertEqual(TaggedItem.objects.all().count(), 2)
+        assert TaggedItem.objects.all().count() == 2
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard.id}",
             {"name": "Default", "pinned": "true", "tags": ["b", "c", "d", "e"]},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(sorted(response.json()["tags"]), ["b", "c", "d", "e"])
-        self.assertEqual(TaggedItem.objects.all().count(), 4)
+        assert response.status_code == status.HTTP_200_OK
+        assert sorted(response.json()["tags"]) == ["b", "c", "d", "e"]
+        assert TaggedItem.objects.all().count() == 4
 
     @pytest.mark.ee
     def test_create_and_update_object_with_tags(self):
@@ -75,18 +75,18 @@ class TestEnterpriseTaggedItemSerializerMixin(APIBaseTest):
             {"name": "Default", "pinned": "true"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()["tags"], [])
-        self.assertEqual(TaggedItem.objects.all().count(), 0)
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["tags"] == []
+        assert TaggedItem.objects.all().count() == 0
 
         id = response.json()["id"]
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{id}",
             {"tags": ["b", "c", "d", "e"]},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(sorted(response.json()["tags"]), ["b", "c", "d", "e"])
-        self.assertEqual(TaggedItem.objects.all().count(), 4)
+        assert response.status_code == status.HTTP_200_OK
+        assert sorted(response.json()["tags"]) == ["b", "c", "d", "e"]
+        assert TaggedItem.objects.all().count() == 4
 
     def test_create_with_tags(self):
         from ee.models.license import License, LicenseManager
@@ -102,9 +102,9 @@ class TestEnterpriseTaggedItemSerializerMixin(APIBaseTest):
             {"name": "Default", "pinned": "true", "tags": ["nightly"]},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()["tags"], ["nightly"])
-        self.assertEqual(TaggedItem.objects.all().count(), 1)
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["tags"] == ["nightly"]
+        assert TaggedItem.objects.all().count() == 1
 
     def test_no_duplicate_tags(self):
         from ee.models.license import License, LicenseManager
@@ -121,7 +121,7 @@ class TestEnterpriseTaggedItemSerializerMixin(APIBaseTest):
             {"tags": ["a", "b", "a"]},
         )
 
-        self.assertListEqual(sorted(response.json()["tags"]), ["a", "b"])
+        assert sorted(response.json()["tags"]) == ["a", "b"]
 
     def test_can_list_tags(self) -> None:
         from ee.models.license import License, LicenseManager

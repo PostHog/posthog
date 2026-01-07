@@ -7,6 +7,7 @@ Tests cover:
 - Tasks skip when FLAGS_REDIS_URL not configured
 """
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 from django.test import TestCase, override_settings
@@ -35,11 +36,11 @@ class TestVerifyAndFixFlagsCacheTask(TestCase):
         error = Exception("flags verification failed")
         mock_run_verification.side_effect = error
 
-        with self.assertRaises(Exception) as context:
+        with pytest.raises(Exception) as context:
             verify_and_fix_flags_cache_task()
 
         mock_capture.assert_called_once_with(error)
-        assert context.exception is error
+        assert context.value is error
 
     @patch("posthog.storage.hypercache_verifier._run_verification_for_cache")
     def test_does_not_raise_when_succeeds(self, mock_run_verification: MagicMock) -> None:
@@ -78,11 +79,11 @@ class TestVerifyAndFixTeamMetadataCacheTask(TestCase):
         error = Exception("team_metadata verification failed")
         mock_run_verification.side_effect = error
 
-        with self.assertRaises(Exception) as context:
+        with pytest.raises(Exception) as context:
             verify_and_fix_team_metadata_cache_task()
 
         mock_capture.assert_called_once_with(error)
-        assert context.exception is error
+        assert context.value is error
 
     @patch("posthog.storage.hypercache_verifier._run_verification_for_cache")
     def test_does_not_raise_when_succeeds(self, mock_run_verification: MagicMock) -> None:

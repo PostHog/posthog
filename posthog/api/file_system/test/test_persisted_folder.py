@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from posthog.test.base import APIBaseTest
 
 from django.db import IntegrityError
@@ -20,14 +21,14 @@ class TestPersistedFolderModel(_Base):
     def test_defaults_and_str(self) -> None:
         pf = PersistedFolder.objects.create(team=self.team, user=self.user, type=PersistedFolder.TYPE_HOME)
 
-        self.assertEqual(pf.protocol, "products://")
-        self.assertEqual(pf.path, "")
-        self.assertIn("home", str(pf))
-        self.assertTrue(pf.id)  # UUID auto-assigned
+        assert pf.protocol == "products://"
+        assert pf.path == ""
+        assert "home" in str(pf)
+        assert pf.id  # UUID auto-assigned
 
     def test_unique_constraint(self) -> None:
         PersistedFolder.objects.create(team=self.team, user=self.user, type=PersistedFolder.TYPE_HOME)
-        with self.assertRaises(IntegrityError):
+        with pytest.raises(IntegrityError):
             PersistedFolder.objects.create(team=self.team, user=self.user, type=PersistedFolder.TYPE_HOME)
 
 
@@ -39,8 +40,8 @@ class TestPersistedFolderAPI(_Base):
             {"type": "home", "path": "Root/Home", "protocol": "products://"},
             format="json",
         )
-        self.assertEqual(rsp.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(PersistedFolder.objects.count(), 1)
+        assert rsp.status_code == status.HTTP_201_CREATED
+        assert PersistedFolder.objects.count() == 1
 
         obj_id = rsp.data["id"]
 
@@ -50,10 +51,10 @@ class TestPersistedFolderAPI(_Base):
             {"type": "home", "path": "Root/Home/V2", "protocol": "products://"},
             format="json",
         )
-        self.assertEqual(rsp2.status_code, status.HTTP_201_CREATED)  # ModelViewSet still returns 201
-        self.assertEqual(PersistedFolder.objects.count(), 1)  # still just one row
-        self.assertEqual(rsp2.data["id"], obj_id)  # unchanged PK
-        self.assertEqual(rsp2.data["path"], "Root/Home/V2")  # updated field persisted
+        assert rsp2.status_code == status.HTTP_201_CREATED  # ModelViewSet still returns 201
+        assert PersistedFolder.objects.count() == 1  # still just one row
+        assert rsp2.data["id"] == obj_id  # unchanged PK
+        assert rsp2.data["path"] == "Root/Home/V2"  # updated field persisted
 
     def test_list_returns_only_current_user(self) -> None:
         # Create folders for two different users
@@ -61,6 +62,6 @@ class TestPersistedFolderAPI(_Base):
         PersistedFolder.objects.create(team=self.team, user=self.user_2, type="home", path="B", protocol="products://")
 
         rsp = self.client.get(f"/api/projects/{self.team.id}/persisted_folder/")
-        self.assertEqual(rsp.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(rsp.data["results"]), 1)
-        self.assertEqual(rsp.data["results"][0]["path"], "A")
+        assert rsp.status_code == status.HTTP_200_OK
+        assert len(rsp.data["results"]) == 1
+        assert rsp.data["results"][0]["path"] == "A"

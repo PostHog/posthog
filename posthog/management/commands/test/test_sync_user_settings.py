@@ -1,6 +1,7 @@
 import os
 from urllib.parse import urlparse
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -131,10 +132,10 @@ class TestSyncUserSettingsCommand(BaseTest):
     def test_sync_without_api_key_fails(self):
         """Test that command fails without API key"""
         with patch.dict(os.environ, {}, clear=True):
-            with self.assertRaises(CommandError) as cm:
+            with pytest.raises(CommandError) as cm:
                 call_command("sync_user_settings")
 
-        assert "Personal API key required" in str(cm.exception)
+        assert "Personal API key required" in str(cm.value)
 
     @patch("posthog.management.commands.sync_user_settings.requests.get")
     def test_sync_with_specific_local_email(self, mock_get):
@@ -281,10 +282,10 @@ class TestSyncUserSettingsCommand(BaseTest):
         mock_response.raise_for_status.side_effect = Exception("API Error")
         mock_get.return_value = mock_response
 
-        with self.assertRaises(CommandError) as cm:
+        with pytest.raises(CommandError) as cm:
             call_command("sync_user_settings", api_key="test_key")
 
-        assert "Failed to fetch user settings" in str(cm.exception)
+        assert "Failed to fetch user settings" in str(cm.value)
 
     @patch("posthog.management.commands.sync_user_settings.requests.get")
     def test_sync_only_updates_changed_fields(self, mock_get):

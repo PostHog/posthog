@@ -17,12 +17,12 @@ class TestMaxToolsAPI(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.headers["Content-Type"], "application/json")
+        assert response.status_code == 200
+        assert response.headers["Content-Type"] == "application/json"
 
         data = response.json()
-        self.assertEqual(len(data), 1)
-        self.assertEqual(data[0]["type"], "message")
+        assert len(data) == 1
+        assert data[0]["type"] == "message"
 
         mock_generate.assert_called_once()
 
@@ -33,10 +33,10 @@ class TestMaxToolsAPI(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, 400)
+        assert response.status_code == 400
         error = response.json()
-        self.assertEqual(error["attr"], "insight_type")
-        self.assertEqual(error["code"], "required")
+        assert error["attr"] == "insight_type"
+        assert error["code"] == "required"
 
     def test_create_and_query_insight_invalid_insight_type(self):
         response = self.client.post(
@@ -45,6 +45,6 @@ class TestMaxToolsAPI(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, 400)
+        assert response.status_code == 400
         error = response.json()
-        self.assertEqual(error["attr"], "insight_type")
+        assert error["attr"] == "insight_type"

@@ -92,7 +92,7 @@ class TestDeadLetterQueue(ClickhouseTestMixin, BaseTest):
         events_returned = convert_query_result_to_dlq_event_dicts(query_result)
         # TRICKY: because it's hard to truncate the dlq table, we just check if the event is in the table along with events from other tests
         # Because each generated event is unique, this works
-        self.assertIn(inserted_dlq_event, events_returned)
+        assert inserted_dlq_event in events_returned
 
     def test_kafka_insert(self):
         row_count_before_insert = sync_execute(f"SELECT count(1) FROM {DEAD_LETTER_QUEUE_TABLE}")[0][0]
@@ -114,4 +114,4 @@ class TestDeadLetterQueue(ClickhouseTestMixin, BaseTest):
         events_returned = convert_query_result_to_dlq_event_dicts(query_result)
         # TRICKY: because it's hard to truncate the dlq table, we just check if the event is in the table along with events from other tests
         # Because each generated event is unique, this works
-        self.assertIn(inserted_dlq_event, events_returned)
+        assert inserted_dlq_event in events_returned

@@ -331,7 +331,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
 
         filter = Filter(data=filters)
         _, query = self._run_query(filter)
-        self.assertIn("mat_test_prop", query)
+        assert "mat_test_prop" in query
 
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21")
@@ -506,7 +506,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
         results, _ = self._run_query(filter)
-        self.assertEqual(len(results), 1)
+        assert len(results) == 1
 
     @snapshot_clickhouse_queries
     def test_groups_filters_mixed(self):
@@ -531,7 +531,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
         results, _ = self._run_query(filter)
-        self.assertEqual(len(results), 2)
+        assert len(results) == 2
 
     @snapshot_clickhouse_queries
     def test_entity_filtered_by_session_duration(self):
@@ -600,8 +600,8 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
         results, _ = self._run_query(filter)
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0][0].strftime("%Y-%m-%d %H:%M:%S"), event_timestamp_str)
+        assert len(results) == 1
+        assert results[0][0].strftime("%Y-%m-%d %H:%M:%S") == event_timestamp_str
 
     @snapshot_clickhouse_queries
     def test_entity_filtered_by_multiple_session_duration_filters(self):
@@ -683,8 +683,8 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
         results, _ = self._run_query(filter)
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0][0].strftime("%Y-%m-%d %H:%M:%S"), event_timestamp_str)
+        assert len(results) == 1
+        assert results[0][0].strftime("%Y-%m-%d %H:%M:%S") == event_timestamp_str
 
     @snapshot_clickhouse_queries
     def test_unique_session_math_filtered_by_session_duration(self):
@@ -745,5 +745,5 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
         results, _ = self._run_query(filter)
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0][0].strftime("%Y-%m-%d %H:%M:%S"), event_timestamp_str)
+        assert len(results) == 1
+        assert results[0][0].strftime("%Y-%m-%d %H:%M:%S") == event_timestamp_str

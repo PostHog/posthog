@@ -18,7 +18,7 @@ class TestUrls(APIBaseTest):
 
         # no more token
         self.user.refresh_from_db()
-        self.assertEqual(self.user.temporary_token, None)
+        assert self.user.temporary_token is None
 
     def test_logged_out_user_is_redirected_to_login(self):
         self.client.logout()
@@ -46,16 +46,16 @@ class TestUrls(APIBaseTest):
         self.client.logout()
 
         response = self.client.get("/signup")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)  # no redirect
+        assert response.status_code == status.HTTP_200_OK  # no redirect
 
         response = self.client.get(f"/signup/{uuid.uuid4()}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         response = self.client.get(f"/preflight")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         response = self.client.get(f"/login")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_authorize_and_redirect_domain(self):
         self.team.app_urls = ["https://domain.com", "https://not.com"]
@@ -65,38 +65,38 @@ class TestUrls(APIBaseTest):
             "/authorize_and_redirect/?redirect=https://not-permitted.com",
             headers={"referer": "https://not-permitted.com"},
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertTrue("Can only redirect to a permitted domain." in str(response.content))
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "Can only redirect to a permitted domain." in str(response.content)
 
         response = self.client.get(
             "/authorize_and_redirect/?redirect=https://domain.com", headers={"referer": "https://not.com"}
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertTrue("Can only redirect to the same domain as the referer: not.com" in str(response.content))
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "Can only redirect to the same domain as the referer: not.com" in str(response.content)
 
         response = self.client.get(
             "/authorize_and_redirect/?redirect=http://domain.com", headers={"referer": "https://domain.com"}
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertTrue("Can only redirect to the same scheme as the referer: https" in str(response.content))
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "Can only redirect to the same scheme as the referer: https" in str(response.content)
 
         response = self.client.get(
             "/authorize_and_redirect/?redirect=https://domain.com:555", headers={"referer": "https://domain.com:443"}
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertTrue("Can only redirect to the same port as the referer: 443" in str(response.content))
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "Can only redirect to the same port as the referer: 443" in str(response.content)
 
         response = self.client.get(
             "/authorize_and_redirect/?redirect=https://domain.com:555",
             headers={"referer": "https://domain.com/no-port"},
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertTrue("Can only redirect to the same port as the referer: no port in URL" in str(response.content))
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "Can only redirect to the same port as the referer: no port in URL" in str(response.content)
 
         response = self.client.get(
             "/authorize_and_redirect/?redirect=https://domain.com/sdf", headers={"referer": "https://domain.com/asd"}
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         # TODO: build frontend before backend tests, or find a way to mock the template
         # self.assertContains(
         #     response,

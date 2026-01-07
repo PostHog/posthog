@@ -1,5 +1,5 @@
 from datetime import UTC, date, datetime
-from typing import Any, Optional, cast
+from typing import Any, cast
 from uuid import UUID
 
 import pytest
@@ -34,7 +34,7 @@ class TestResolver(BaseTest):
     maxDiff = None
     snapshot: Any
 
-    def _select(self, query: str, placeholders: Optional[dict[str, ast.Expr]] = None) -> ast.SelectQuery:
+    def _select(self, query: str, placeholders: dict[str, ast.Expr] | None = None) -> ast.SelectQuery:
         return cast(
             ast.SelectQuery,
             clone_expr(parse_select(query, placeholders=placeholders), clear_locations=True),
@@ -61,12 +61,9 @@ class TestResolver(BaseTest):
     def test_will_not_run_twice(self):
         expr = self._select("SELECT event, events.timestamp FROM events WHERE events.event = 'test'")
         expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
-        with self.assertRaises(ResolutionError) as context:
+        with pytest.raises(ResolutionError) as context:
             expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
-        self.assertEqual(
-            str(context.exception),
-            "Type already resolved for SelectQuery (SelectQueryType). Can't run again.",
-        )
+        assert str(context.value) == "Type already resolved for SelectQuery (SelectQueryType). Can't run again."
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_events_table_alias(self):
@@ -91,9 +88,9 @@ class TestResolver(BaseTest):
         expr = self._select(
             "SELECT event, (select count() from events where event = e.event) as c FROM events e where event = '$pageview'"
         )
-        with self.assertRaises(QueryError) as e:
+        with pytest.raises(QueryError) as e:
             expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
-        self.assertEqual(str(e.exception), "Unable to resolve field: e")
+        assert str(e.value) == "Unable to resolve field: e"
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_constant_type(self):
@@ -127,14 +124,14 @@ class TestResolver(BaseTest):
             "SELECT x.y FROM (SELECT event as y FROM events AS x) AS t",
         ]
         for query in queries:
-            with self.assertRaises(QueryError) as e:
+            with pytest.raises(QueryError) as e:
                 resolve_types(self._select(query), self.context, dialect="clickhouse")
-            self.assertIn("Unable to resolve field:", str(e.exception))
+            assert "Unable to resolve field:" in str(e.value)
 
     def test_unresolved_field_type(self):
         query = "SELECT x"
         # raises with ClickHouse
-        with self.assertRaises(QueryError):
+        with pytest.raises(QueryError):
             resolve_types(self._select(query), self.context, dialect="clickhouse")
         # does not raise with HogQL
         select = self._select(query)
@@ -190,94 +187,64 @@ class TestResolver(BaseTest):
         assert pretty_dataclasses(node) == self.snapshot
 
     def test_ctes_loop(self):
-        with self.assertRaises(QueryError) as e:
+        with pytest.raises(QueryError) as e:
             self._print_hogql("with cte as (select * from cte) select * from cte")
-        self.assertIn("Too many CTE expansions (50+). Probably a CTE loop.", str(e.exception))
+        assert "Too many CTE expansions (50+). Probably a CTE loop." in str(e.value)
 
     def test_ctes_basic_column(self):
         expr = self._print_hogql("with 1 as cte select cte from events")
         expected = self._print_hogql("select 1 from events")
-        self.assertEqual(expr, expected)
+        assert expr == expected
 
     def test_ctes_recursive_column(self):
-        self.assertEqual(
-            self._print_hogql("with 1 as cte, cte as soap select soap from events"),
-            self._print_hogql("select 1 from events"),
+        assert self._print_hogql("with 1 as cte, cte as soap select soap from events") == self._print_hogql(
+            "select 1 from events"
         )
 
     def test_ctes_field_access(self):
-        with self.assertRaises(QueryError) as e:
+        with pytest.raises(QueryError) as e:
             self._print_hogql("with properties as cte select cte.$browser from events")
-        self.assertIn("Cannot access fields on CTE cte yet", str(e.exception))
+        assert "Cannot access fields on CTE cte yet" in str(e.value)
 
     def test_ctes_subqueries(self):
-        self.assertEqual(
-            self._print_hogql("with my_table as (select * from events) select * from my_table"),
-            self._print_hogql("select * from (select * from events) my_table"),
+        assert self._print_hogql("with my_table as (select * from events) select * from my_table") == self._print_hogql(
+            "select * from (select * from events) my_table"
         )
 
-        self.assertEqual(
-            self._print_hogql("with my_table as (select * from events) select my_table.timestamp from my_table"),
-            self._print_hogql("select my_table.timestamp from (select * from events) my_table"),
-        )
+        assert self._print_hogql(
+            "with my_table as (select * from events) select my_table.timestamp from my_table"
+        ) == self._print_hogql("select my_table.timestamp from (select * from events) my_table")
 
-        self.assertEqual(
-            self._print_hogql("with my_table as (select * from events) select timestamp from my_table"),
-            self._print_hogql("select timestamp from (select * from events) my_table"),
-        )
+        assert self._print_hogql(
+            "with my_table as (select * from events) select timestamp from my_table"
+        ) == self._print_hogql("select timestamp from (select * from events) my_table")
 
     def test_ctes_subquery_deep(self):
-        self.assertEqual(
-            self._print_hogql(
-                "with my_table as (select * from events), "
-                "other_table as (select * from (select * from (select * from my_table))) "
-                "select * from other_table"
-            ),
-            self._print_hogql(
-                "select * from (select * from (select * from (select * from (select * from events) as my_table))) as other_table"
-            ),
+        assert self._print_hogql(
+            "with my_table as (select * from events), "
+            "other_table as (select * from (select * from (select * from my_table))) "
+            "select * from other_table"
+        ) == self._print_hogql(
+            "select * from (select * from (select * from (select * from (select * from events) as my_table))) as other_table"
         )
 
     def test_ctes_subquery_recursion(self):
-        self.assertEqual(
-            self._print_hogql(
-                "with users as (select event, timestamp as tt from events ), final as ( select tt from users ) select * from final"
-            ),
-            self._print_hogql(
-                "select * from (select tt from (select event, timestamp as tt from events) AS users) AS final"
-            ),
+        assert self._print_hogql(
+            "with users as (select event, timestamp as tt from events ), final as ( select tt from users ) select * from final"
+        ) == self._print_hogql(
+            "select * from (select tt from (select event, timestamp as tt from events) AS users) AS final"
         )
 
     def test_ctes_with_aliases(self):
-        self.assertEqual(
-            self._print_hogql(
-                "WITH initial_alias AS (SELECT 1 AS a) SELECT a FROM initial_alias AS new_alias WHERE new_alias.a=1"
-            ),
-            self._print_hogql("SELECT a FROM (SELECT 1 AS a) AS new_alias WHERE new_alias.a=1"),
-        )
+        assert self._print_hogql(
+            "WITH initial_alias AS (SELECT 1 AS a) SELECT a FROM initial_alias AS new_alias WHERE new_alias.a=1"
+        ) == self._print_hogql("SELECT a FROM (SELECT 1 AS a) AS new_alias WHERE new_alias.a=1")
 
     def test_ctes_with_union_all(self):
-        self.assertEqual(
-            self._print_hogql(
-                """
-                    WITH cte1 AS (SELECT 1 AS a)
-                    SELECT 1 AS a
-                    UNION ALL
-                    WITH cte2 AS (SELECT 2 AS a)
-                    SELECT * FROM cte2
-                    UNION ALL
-                    SELECT * FROM cte1
-                        """
-            ),
-            self._print_hogql(
-                """
-                    SELECT 1 AS a
-                    UNION ALL
-                    SELECT * FROM (SELECT 2 AS a) AS cte2
-                    UNION ALL
-                    SELECT * FROM (SELECT 1 AS a) AS cte1
-                        """
-            ),
+        assert self._print_hogql(
+            """\n                    WITH cte1 AS (SELECT 1 AS a)\n                    SELECT 1 AS a\n                    UNION ALL\n                    WITH cte2 AS (SELECT 2 AS a)\n                    SELECT * FROM cte2\n                    UNION ALL\n                    SELECT * FROM cte1\n                        """
+        ) == self._print_hogql(
+            """\n                    SELECT 1 AS a\n                    UNION ALL\n                    SELECT * FROM (SELECT 2 AS a) AS cte2\n                    UNION ALL\n                    SELECT * FROM (SELECT 1 AS a) AS cte1\n                        """
         )
 
     def test_join_using(self):
@@ -361,12 +328,9 @@ class TestResolver(BaseTest):
 
     def test_asterisk_expander_multiple_table_error(self):
         node = self._select("select * from (select 1 as a, 2 as b) x left join (select 1 as a, 2 as b) y on x.a = y.a")
-        with self.assertRaises(QueryError) as e:
+        with pytest.raises(QueryError) as e:
             resolve_types(node, self.context, dialect="clickhouse")
-        self.assertEqual(
-            str(e.exception),
-            "Cannot use '*' without table name when there are multiple tables in the query",
-        )
+        assert str(e.value) == "Cannot use '*' without table name when there are multiple tables in the query"
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -400,10 +364,10 @@ class TestResolver(BaseTest):
         lambda_type: ast.SelectQueryType = cast(
             ast.SelectQueryType, cast(ast.Call, cast(ast.Alias, node.select[1]).expr).args[0].type
         )
-        self.assertEqual(lambda_type.parent, node.type)
-        self.assertEqual(list(lambda_type.aliases.keys()), ["x"])
+        assert lambda_type.parent == node.type
+        assert list(lambda_type.aliases.keys()) == ["x"]
         assert isinstance(lambda_type.parent, ast.SelectQueryType)
-        self.assertEqual(list(lambda_type.parent.columns.keys()), ["timestamp", "am"])
+        assert list(lambda_type.parent.columns.keys()) == ["timestamp", "am"]
 
     def test_field_traverser_double_dot(self):
         # Create a condition where we want to ".." out of "events.poe." to get to a higher level prop
@@ -733,9 +697,9 @@ class TestResolver(BaseTest):
             team_id=self.team.pk, database=self.database, globals={"globalVar": 1}, enable_select_queries=True
         )
         node: ast.SelectQuery = self._select("select globalVar.nested from events")
-        with self.assertRaises(QueryError) as ctx:
+        with pytest.raises(QueryError) as ctx:
             node = cast(ast.SelectQuery, resolve_types(node, context, dialect="clickhouse"))
-        self.assertEqual(str(ctx.exception), "Cannot resolve field: globalVar.nested")
+        assert str(ctx.value) == "Cannot resolve field: globalVar.nested"
 
     def test_property_access_with_arrays_zero_index_error(self):
         query = f"SELECT properties.something[0] FROM events"

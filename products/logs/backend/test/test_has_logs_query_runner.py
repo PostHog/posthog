@@ -25,7 +25,7 @@ class TestHasLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def test_has_logs_returns_false_when_no_logs(self):
         runner = HasLogsQueryRunner(self.team)
-        self.assertFalse(runner.run())
+        assert not runner.run()
 
     def test_has_logs_returns_true_when_logs_exist(self):
         # Insert a log entry
@@ -40,7 +40,7 @@ class TestHasLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             """)
 
         runner = HasLogsQueryRunner(self.team)
-        self.assertTrue(runner.run())
+        assert runner.run()
 
     def test_has_logs_respects_team_isolation(self):
         # Insert a log entry for a different team
@@ -56,7 +56,7 @@ class TestHasLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # Should return false for our team
         runner = HasLogsQueryRunner(self.team)
-        self.assertFalse(runner.run())
+        assert not runner.run()
 
 
 class TestHasLogsAPI(ClickhouseTestMixin, APIBaseTest):
@@ -74,8 +74,8 @@ class TestHasLogsAPI(ClickhouseTestMixin, APIBaseTest):
 
     def test_has_logs_api_returns_false_when_no_logs(self):
         response = self.client.get(f"/api/projects/{self.team.id}/logs/has_logs")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"hasLogs": False})
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"hasLogs": False}
 
     def test_has_logs_api_returns_true_when_logs_exist(self):
         # Insert a log entry
@@ -90,10 +90,10 @@ class TestHasLogsAPI(ClickhouseTestMixin, APIBaseTest):
             """)
 
         response = self.client.get(f"/api/projects/{self.team.id}/logs/has_logs")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"hasLogs": True})
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"hasLogs": True}
 
     def test_has_logs_api_requires_authentication(self):
         self.client.logout()
         response = self.client.get(f"/api/projects/{self.team.id}/logs/has_logs")
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED

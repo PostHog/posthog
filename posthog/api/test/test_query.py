@@ -88,63 +88,46 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 ]
             )
             response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
-            self.assertEqual(
-                response,
-                response
-                | {
-                    "columns": [
-                        "properties.key",
-                        "event",
-                        "distinct_id",
-                        "concat(event, ' ', properties.key)",
-                    ],
-                    "hasMore": False,
-                    "results": [
-                        ["test_val1", "sign up", "2", "sign up test_val1"],
-                        ["test_val2", "sign out", "2", "sign out test_val2"],
-                        ["test_val2", "sign out", "2", "sign out test_val2"],
-                        ["test_val3", "sign out", "2", "sign out test_val3"],
-                    ],
-                    "types": ["Nullable(String)", "String", "String", "String"],
-                },
-            )
+            assert response == response | {
+                "columns": ["properties.key", "event", "distinct_id", "concat(event, ' ', properties.key)"],
+                "hasMore": False,
+                "results": [
+                    ["test_val1", "sign up", "2", "sign up test_val1"],
+                    ["test_val2", "sign out", "2", "sign out test_val2"],
+                    ["test_val2", "sign out", "2", "sign out test_val2"],
+                    ["test_val3", "sign out", "2", "sign out test_val3"],
+                ],
+                "types": ["Nullable(String)", "String", "String", "String"],
+            }
 
             query.select = ["*", "event"]
             response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
-            self.assertEqual(response["columns"], ["*", "event"])
-            self.assertIn("Tuple(", response["types"][0])
-            self.assertEqual(response["types"][1], "String")
-            self.assertEqual(len(response["results"]), 4)
-            self.assertIsInstance(response["results"][0][0], dict)
-            self.assertIsInstance(response["results"][0][1], str)
+            assert response["columns"] == ["*", "event"]
+            assert "Tuple(" in response["types"][0]
+            assert response["types"][1] == "String"
+            assert len(response["results"]) == 4
+            assert isinstance(response["results"][0][0], dict)
+            assert isinstance(response["results"][0][1], str)
 
             query.select = ["count()", "event"]
             response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
-            self.assertEqual(
-                response,
-                response
-                | {
-                    "columns": ["count()", "event"],
-                    "hasMore": False,
-                    "types": ["UInt64", "String"],
-                    "results": [[3, "sign out"], [1, "sign up"]],
-                },
-            )
+            assert response == response | {
+                "columns": ["count()", "event"],
+                "hasMore": False,
+                "types": ["UInt64", "String"],
+                "results": [[3, "sign out"], [1, "sign up"]],
+            }
 
             query.select = ["count()", "event"]
             query.where = ["event == 'sign up' or like(properties.key, '%val2')"]
             query.orderBy = ["count() DESC", "event"]
             response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
-            self.assertEqual(
-                response,
-                response
-                | {
-                    "columns": ["count()", "event"],
-                    "hasMore": False,
-                    "types": ["UInt64", "String"],
-                    "results": [[2, "sign out"], [1, "sign up"]],
-                },
-            )
+            assert response == response | {
+                "columns": ["count()", "event"],
+                "hasMore": False,
+                "types": ["UInt64", "String"],
+                "results": [[2, "sign out"], [1, "sign up"]],
+            }
 
     @also_test_with_materialized_columns(["key"])
     @snapshot_clickhouse_queries
@@ -197,19 +180,19 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
 
             response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
-            self.assertEqual(len(response["results"]), 4)
+            assert len(response["results"]) == 4
 
             query.properties = [HogQLPropertyFilter(type="hogql", key="'a%sd' == 'foo'")]
             response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
-            self.assertEqual(len(response["results"]), 0)
+            assert len(response["results"]) == 0
 
             query.properties = [HogQLPropertyFilter(type="hogql", key="'a%sd' == 'a%sd'")]
             response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
-            self.assertEqual(len(response["results"]), 4)
+            assert len(response["results"]) == 4
 
             query.properties = [HogQLPropertyFilter(type="hogql", key="properties.key == 'test_val2'")]
             response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
-            self.assertEqual(len(response["results"]), 2)
+            assert len(response["results"]) == 2
 
     @also_test_with_materialized_columns(event_properties=["key", "path"])
     @snapshot_clickhouse_queries
@@ -261,7 +244,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 ]
             )
             response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
-            self.assertEqual(len(response["results"]), 4)
+            assert len(response["results"]) == 4
 
             query.properties = [
                 EventPropertyFilter(
@@ -272,7 +255,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 )
             ]
             response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
-            self.assertEqual(len(response["results"]), 1)
+            assert len(response["results"]) == 1
 
             query.properties = [
                 EventPropertyFilter(
@@ -283,7 +266,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 )
             ]
             response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
-            self.assertEqual(len(response["results"]), 1)
+            assert len(response["results"]) == 1
 
     @also_test_with_materialized_columns(event_properties=["key"], person_properties=["email"])
     @snapshot_clickhouse_queries
@@ -343,24 +326,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 ],
             )
             response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
-            self.assertEqual(len(response["results"]), 2)
+            assert len(response["results"]) == 2
 
     def test_safe_clickhouse_error_passed_through(self):
         query = {"kind": "EventsQuery", "select": ["timestamp + 'string'"]}
 
         with freeze_time("2024-10-16 22:10:29.691212"):
             response_post = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query})
-            self.assertEqual(response_post.status_code, status.HTTP_400_BAD_REQUEST)
+            assert response_post.status_code == status.HTTP_400_BAD_REQUEST
 
-            self.assertEqual(
-                response_post.json(),
-                {
-                    "type": "validation_error",
-                    "code": "illegal_type_of_argument",
-                    "detail": f"Illegal types DateTime64(6, 'UTC') and String of arguments of function plus: In scope SELECT toTimeZone(events.timestamp, 'UTC') + 'string' FROM events WHERE (events.team_id = {self.team.id}) AND (toTimeZone(events.timestamp, 'UTC') < toDateTime64('2024-10-16 22:10:34.691212', 6, 'UTC')) AND (toTimeZone(events.timestamp, 'UTC') > toDateTime64('2024-10-15 22:10:29.691212', 6, 'UTC')) ORDER BY toTimeZone(events.timestamp, 'UTC') + 'string' ASC LIMIT 0, 101 SETTINGS readonly = 2, max_execution_time = 60, allow_experimental_object_type = 1, format_csv_allow_double_quotes = 0, max_ast_elements = 4000000, max_expanded_ast_elements = 4000000, max_bytes_before_external_group_by = 0, transform_null_in = 1, optimize_min_equality_disjunction_chain_length = 4294967295, allow_experimental_join_condition = 1, use_hive_partitioning = 0.",
-                    "attr": None,
-                },
-            )
+            assert response_post.json() == {
+                "type": "validation_error",
+                "code": "illegal_type_of_argument",
+                "detail": f"Illegal types DateTime64(6, 'UTC') and String of arguments of function plus: In scope SELECT toTimeZone(events.timestamp, 'UTC') + 'string' FROM events WHERE (events.team_id = {self.team.id}) AND (toTimeZone(events.timestamp, 'UTC') < toDateTime64('2024-10-16 22:10:34.691212', 6, 'UTC')) AND (toTimeZone(events.timestamp, 'UTC') > toDateTime64('2024-10-15 22:10:29.691212', 6, 'UTC')) ORDER BY toTimeZone(events.timestamp, 'UTC') + 'string' ASC LIMIT 0, 101 SETTINGS readonly = 2, max_execution_time = 60, allow_experimental_object_type = 1, format_csv_allow_double_quotes = 0, max_ast_elements = 4000000, max_expanded_ast_elements = 4000000, max_bytes_before_external_group_by = 0, transform_null_in = 1, optimize_min_equality_disjunction_chain_length = 4294967295, allow_experimental_join_condition = 1, use_hive_partitioning = 0.",
+                "attr": None,
+            }
 
     @patch(
         "posthog.clickhouse.client.execute._annotate_tagged_query", return_value=("SELECT 1&&&", {})
@@ -369,7 +349,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         query = {"kind": "EventsQuery", "select": ["timestamp"]}
 
         response_post = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query})
-        self.assertEqual(response_post.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        assert response_post.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
 
     @also_test_with_materialized_columns(event_properties=["key", "path"])
     @snapshot_clickhouse_queries
@@ -413,11 +393,11 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-10 12:14:00"):
             query = EventsQuery(select=["properties.key", "count()"])
             response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
-            self.assertEqual(len(response["results"]), 3)
+            assert len(response["results"]) == 3
 
             query.where = ["count() > 1"]
             response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
-            self.assertEqual(len(response["results"]), 1)
+            assert len(response["results"]) == 1
 
     @snapshot_clickhouse_queries
     def test_select_event_person(self):
@@ -460,19 +440,19 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-10 12:14:00"):
             query = EventsQuery(select=["event", "person", "person -- P"])
             response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
-            self.assertEqual(len(response["results"]), 4)
-            self.assertEqual(response["results"][0][1], {"distinct_id": "4"})
-            self.assertEqual(response["results"][1][1], {"distinct_id": "3"})
-            self.assertEqual(response["results"][1][2], {"distinct_id": "3"})
+            assert len(response["results"]) == 4
+            assert response["results"][0][1] == {"distinct_id": "4"}
+            assert response["results"][1][1] == {"distinct_id": "3"}
+            assert response["results"][1][2] == {"distinct_id": "3"}
             expected_user = {
                 "uuid": str(person.uuid),
                 "properties": {"name": "Tom", "email": "tom@posthog.com"},
                 "distinct_id": "2",
                 "created_at": "2020-01-10T12:00:00Z",
             }
-            self.assertEqual(response["results"][2][1], expected_user)
-            self.assertEqual(response["results"][3][1], expected_user)
-            self.assertEqual(response["results"][3][2], expected_user)
+            assert response["results"][2][1] == expected_user
+            assert response["results"][3][1] == expected_user
+            assert response["results"][3][2] == expected_user
 
     @snapshot_clickhouse_queries
     def test_events_query_all_time_date(self):
@@ -515,15 +495,15 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2023-01-12 12:14:00"):
             query = EventsQuery(select=["event"], after="all")
             response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
-            self.assertEqual(len(response["results"]), 4)
+            assert len(response["results"]) == 4
 
             query = EventsQuery(select=["event"], before="-1y", after="all")
             response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
-            self.assertEqual(len(response["results"]), 3)
+            assert len(response["results"]) == 3
 
             query = EventsQuery(select=["event"], before="2022-01-01", after="-4y")
             response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
-            self.assertEqual(len(response["results"]), 2)
+            assert len(response["results"]) == 2
 
     @also_test_with_materialized_columns(event_properties=["key"])
     @snapshot_clickhouse_queries
@@ -569,16 +549,13 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             api_response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
             response = CachedHogQLQueryResponse.model_validate(api_response)
 
-            self.assertEqual(response.results and len(response.results), 4)
-            self.assertEqual(
-                response.results,
-                [
-                    ["sign up", "2", "test_val1"],
-                    ["sign out", "2", "test_val2"],
-                    ["sign out", "3", "test_val2"],
-                    ["sign out", "4", "test_val3"],
-                ],
-            )
+            assert (response.results and len(response.results)) == 4
+            assert response.results == [
+                ["sign up", "2", "test_val1"],
+                ["sign out", "2", "test_val2"],
+                ["sign out", "3", "test_val2"],
+                ["sign out", "4", "test_val3"],
+            ]
 
     def test_query_with_source(self):
         query = {
@@ -589,7 +566,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             },
         }
         response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_query_not_supported(self):
         query = {
@@ -597,8 +574,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             "shortId": "123",
         }
         response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query})
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["detail"], "Unsupported query kind: SavedInsightNode", response.content)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Unsupported query kind: SavedInsightNode", response.content
 
     @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 10)
     @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 15)
@@ -623,7 +600,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 },
             )
         assert isinstance(response, CachedHogQLQueryResponse)
-        self.assertEqual(len(response.results), 10)
+        assert len(response.results) == 10
 
     @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 10)
     @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 15)
@@ -649,7 +626,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 limit_context=LimitContext.EXPORT,  # This is the only difference
             )
         assert isinstance(response, CachedHogQLQueryResponse)
-        self.assertEqual(len(response.results), 15)
+        assert len(response.results) == 15
 
     @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 10)
     @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 15)
@@ -676,7 +653,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
 
         assert isinstance(response, CachedEventsQueryResponse)
-        self.assertEqual(len(response.results), 10)
+        assert len(response.results) == 10
 
     @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 10)
     @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 15)
@@ -704,7 +681,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
 
         assert isinstance(response, CachedEventsQueryResponse)
-        self.assertEqual(len(response.results), 15)
+        assert len(response.results) == 15
 
     def test_property_definition_annotation_does_not_break_things(self):
         PropertyDefinition.objects.create(team=self.team, name="$browser", property_type=PropertyType.String)
@@ -728,26 +705,25 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 },
             )
         assert isinstance(response, CachedEventsQueryResponse)
-        self.assertEqual(response.columns, ["event"])
+        assert response.columns == ["event"]
 
     def test_invalid_query_kind(self):
         api_response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": {"kind": "Tomato Soup"}})
-        self.assertEqual(api_response.status_code, 400)
-        self.assertEqual(api_response.json()["code"], "parse_error")
-        self.assertIn("1 validation error for QueryRequest", api_response.json()["detail"], api_response.content)
-        self.assertIn(
-            "Input tag 'Tomato Soup' found using 'kind' does not match any of the expected tags",
-            api_response.json()["detail"],
-            api_response.content,
-        )
+        assert api_response.status_code == 400
+        assert api_response.json()["code"] == "parse_error"
+        assert "1 validation error for QueryRequest" in api_response.json()["detail"], api_response.content
+        assert (
+            "Input tag 'Tomato Soup' found using 'kind' does not match any of the expected tags"
+            in api_response.json()["detail"]
+        ), api_response.content
 
     def test_missing_query(self):
         api_response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": {}})
-        self.assertEqual(api_response.status_code, 400)
+        assert api_response.status_code == 400
 
     def test_missing_body(self):
         api_response = self.client.post(f"/api/environments/{self.team.id}/query/")
-        self.assertEqual(api_response.status_code, 400)
+        assert api_response.status_code == 400
 
     @snapshot_clickhouse_queries
     def test_full_hogql_query_view(self):
@@ -802,17 +778,14 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             api_response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()})
             response = CachedHogQLQueryResponse.model_validate(api_response.json())
 
-            self.assertEqual(api_response.status_code, 200)
-            self.assertEqual(len(response.results), 4)
-            self.assertEqual(
-                response.results,
-                [
-                    ["sign up", "2", "test_val1"],
-                    ["sign out", "2", "test_val2"],
-                    ["sign out", "3", "test_val2"],
-                    ["sign out", "4", "test_val3"],
-                ],
-            )
+            assert api_response.status_code == 200
+            assert len(response.results) == 4
+            assert response.results == [
+                ["sign up", "2", "test_val1"],
+                ["sign out", "2", "test_val2"],
+                ["sign out", "3", "test_val2"],
+                ["sign out", "4", "test_val3"],
+            ]
 
     @snapshot_clickhouse_queries
     def test_full_hogql_query_async(self):
@@ -844,30 +817,27 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 f"/api/environments/{self.team.id}/query/", {"query": query.dict(), "refresh": "force_async"}
             )
 
-            self.assertEqual(api_response.status_code, 202)  # This means "Accepted" (for processing)
-            self.assertEqual(
-                api_response.json(),
-                {
-                    "query_status": {
-                        "complete": False,
-                        "pickup_time": None,
-                        "end_time": None,
-                        "error": False,
-                        "error_message": None,
-                        "expiration_time": mock.ANY,
-                        "id": mock.ANY,
-                        "query_async": True,
-                        "results": None,
-                        "start_time": "2020-01-10T12:14:00Z",
-                        "task_id": mock.ANY,
-                        "team_id": mock.ANY,
-                        "insight_id": mock.ANY,
-                        "dashboard_id": mock.ANY,
-                        "query_progress": None,
-                        "labels": None,
-                    }
-                },
-            )
+            assert api_response.status_code == 202  # This means "Accepted" (for processing)
+            assert api_response.json() == {
+                "query_status": {
+                    "complete": False,
+                    "pickup_time": None,
+                    "end_time": None,
+                    "error": False,
+                    "error_message": None,
+                    "expiration_time": mock.ANY,
+                    "id": mock.ANY,
+                    "query_async": True,
+                    "results": None,
+                    "start_time": "2020-01-10T12:14:00Z",
+                    "task_id": mock.ANY,
+                    "team_id": mock.ANY,
+                    "insight_id": mock.ANY,
+                    "dashboard_id": mock.ANY,
+                    "query_progress": None,
+                    "labels": None,
+                }
+            }
 
     def test_full_hogql_query_values(self):
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
@@ -892,7 +862,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
 
         assert isinstance(response, CachedHogQLQueryResponse)
-        self.assertEqual(response.results[0][0], 20)
+        assert response.results[0][0] == 20
 
     def test_dashboard_filters_applied(self):
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
@@ -930,9 +900,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
 
         assert isinstance(response_without_dashboard_filters, CachedHogQLQueryResponse)
-        self.assertEqual(response_without_dashboard_filters.results, [(2,)])
+        assert response_without_dashboard_filters.results == [(2,)]
         assert isinstance(response_with_dashboard_filters, CachedHogQLQueryResponse)
-        self.assertEqual(response_with_dashboard_filters.results, [(1,)])
+        assert response_with_dashboard_filters.results == [(1,)]
 
     def test_dashboard_filters_applied_with_source(self):
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
@@ -976,9 +946,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
 
         assert isinstance(response_without_dashboard_filters, CachedHogQLQueryResponse)
-        self.assertEqual(response_without_dashboard_filters.results, [(2,)])
+        assert response_without_dashboard_filters.results == [(2,)]
         assert isinstance(response_with_dashboard_filters, CachedHogQLQueryResponse)
-        self.assertEqual(response_with_dashboard_filters.results, [(1,)])
+        assert response_with_dashboard_filters.results == [(1,)]
 
     def test_dashboard_variables_overrides(self):
         variable = InsightVariable.objects.create(
@@ -1078,13 +1048,13 @@ class TestQueryRetrieve(APIBaseTest):
             }
         ).encode()
         response = self.client.get(f"/api/environments/{self.team.id}/query/{self.valid_query_id}/")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["query_status"]["complete"], True, response.content)
+        assert response.status_code == 200
+        assert response.json()["query_status"]["complete"], response.content
 
     def test_with_invalid_query_id(self):
         self.redis_client_mock.get.return_value = None
         response = self.client.get(f"/api/environments/{self.team.id}/query/{self.invalid_query_id}/")
-        self.assertEqual(response.status_code, 404)
+        assert response.status_code == 404
 
     def test_completed_query(self):
         self.redis_client_mock.get.return_value = json.dumps(
@@ -1096,8 +1066,8 @@ class TestQueryRetrieve(APIBaseTest):
             }
         ).encode()
         response = self.client.get(f"/api/environments/{self.team.id}/query/{self.valid_query_id}/")
-        self.assertEqual(response.status_code, 200)
-        self.assertTrue(response.json()["query_status"]["complete"])
+        assert response.status_code == 200
+        assert response.json()["query_status"]["complete"]
 
     def test_running_query(self):
         self.redis_client_mock.get.return_value = json.dumps(
@@ -1108,8 +1078,8 @@ class TestQueryRetrieve(APIBaseTest):
             }
         ).encode()
         response = self.client.get(f"/api/environments/{self.team.id}/query/{self.valid_query_id}/")
-        self.assertEqual(response.status_code, 202)
-        self.assertFalse(response.json()["query_status"]["complete"])
+        assert response.status_code == 202
+        assert not response.json()["query_status"]["complete"]
 
     def test_failed_query_with_internal_error(self):
         self.redis_client_mock.get.return_value = json.dumps(
@@ -1121,8 +1091,8 @@ class TestQueryRetrieve(APIBaseTest):
             }
         ).encode()
         response = self.client.get(f"/api/environments/{self.team.id}/query/{self.valid_query_id}/")
-        self.assertEqual(response.status_code, 500)
-        self.assertTrue(response.json()["query_status"]["error"])
+        assert response.status_code == 500
+        assert response.json()["query_status"]["error"]
 
     def test_failed_query_with_exposed_error(self):
         self.redis_client_mock.get.return_value = json.dumps(
@@ -1134,8 +1104,8 @@ class TestQueryRetrieve(APIBaseTest):
             }
         ).encode()
         response = self.client.get(f"/api/environments/{self.team.id}/query/{self.valid_query_id}/")
-        self.assertEqual(response.status_code, 400)
-        self.assertTrue(response.json()["query_status"]["error"])
+        assert response.status_code == 400
+        assert response.json()["query_status"]["error"]
 
     def test_destroy(self):
         self.redis_client_mock.get.return_value = json.dumps(
@@ -1147,8 +1117,8 @@ class TestQueryRetrieve(APIBaseTest):
             }
         ).encode()
         response = self.client.delete(f"/api/environments/{self.team.id}/query/{self.valid_query_id}/")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(self.redis_client_mock.delete.call_count, 2)
+        assert response.status_code == 200
+        assert self.redis_client_mock.delete.call_count == 2
 
 
 class TestQueryDraftSql(APIBaseTest):
@@ -1157,8 +1127,8 @@ class TestQueryDraftSql(APIBaseTest):
         response = self.client.get(
             f"/api/environments/{self.team.id}/query/draft_sql/", {"prompt": "I need the number 1"}
         )
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"sql": "SELECT 1"})
+        assert response.status_code == 200
+        assert response.json() == {"sql": "SELECT 1"}
         hit_openai_mock.assert_called_once()
 
 
@@ -1168,14 +1138,11 @@ class TestQueryUpgrade(APIBaseTest):
 
         response = self.client.post(f"/api/environments/{self.team.id}/query/upgrade/", {"query": query})
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.json(),
-            {
-                "query": {
-                    "kind": "RetentionQuery",
-                    "retentionFilter": {"meanRetentionCalculation": "simple", "period": "Day", "totalIntervals": 7},
-                    "version": 2,
-                }
-            },
-        )
+        assert response.status_code == 200
+        assert response.json() == {
+            "query": {
+                "kind": "RetentionQuery",
+                "retentionFilter": {"meanRetentionCalculation": "simple", "period": "Day", "totalIntervals": 7},
+                "version": 2,
+            }
+        }

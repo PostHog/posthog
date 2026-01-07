@@ -77,7 +77,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
         )
 
         filter = Filter(data={"properties": [{"key": "email", "value": "test@posthog.com", "type": "person"}]})
-        self.assertEqual(len(self._run_query(filter)), 1)
+        assert len(self._run_query(filter)) == 1
 
     def test_prop_event(self):
         _create_event(
@@ -95,18 +95,18 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
         )
 
         filter_exact = Filter(data={"properties": [{"key": "attr", "value": "some_val"}]})
-        self.assertEqual(len(self._run_query(filter_exact)), 1)
+        assert len(self._run_query(filter_exact)) == 1
 
         filter_regex = Filter(data={"properties": [{"key": "attr", "value": "some_.+_val", "operator": "regex"}]})
-        self.assertEqual(len(self._run_query(filter_regex)), 1)
+        assert len(self._run_query(filter_regex)) == 1
 
         filter_icontains = Filter(data={"properties": [{"key": "attr", "value": "Some_Val", "operator": "icontains"}]})
-        self.assertEqual(len(self._run_query(filter_icontains)), 1)
+        assert len(self._run_query(filter_icontains)) == 1
 
         filter_not_icontains = Filter(
             data={"properties": [{"key": "attr", "value": "other", "operator": "not_icontains"}]}
         )
-        self.assertEqual(len(self._run_query(filter_not_icontains)), 1)
+        assert len(self._run_query(filter_not_icontains)) == 1
 
     def test_prop_element(self):
         _create_event(
@@ -187,7 +187,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
                 ]
             }
         )
-        self.assertEqual(len(self._run_query(filter)), 3)
+        assert len(self._run_query(filter)) == 3
 
         filter = Filter(
             data={
@@ -201,7 +201,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
                 ]
             }
         )
-        self.assertEqual(len(self._run_query(filter)), 3)
+        assert len(self._run_query(filter)) == 3
 
         filter = Filter(
             data={
@@ -215,7 +215,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
                 ]
             }
         )
-        self.assertEqual(len(self._run_query(filter)), 1)
+        assert len(self._run_query(filter)) == 1
 
         filter = Filter(
             data={
@@ -229,7 +229,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
                 ]
             }
         )
-        self.assertEqual(len(self._run_query(filter)), 1)
+        assert len(self._run_query(filter)) == 1
 
         filter = Filter(
             data={
@@ -243,7 +243,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
                 ]
             }
         )
-        self.assertEqual(len(self._run_query(filter)), 2)
+        assert len(self._run_query(filter)) == 2
 
         filter_selector_exact_empty = Filter(
             data={
@@ -257,7 +257,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
                 ]
             }
         )
-        self.assertEqual(len(self._run_query(filter_selector_exact_empty)), 0)
+        assert len(self._run_query(filter_selector_exact_empty)) == 0
 
         filter_selector_is_not_empty = Filter(
             data={
@@ -271,7 +271,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
                 ]
             }
         )
-        self.assertEqual(len(self._run_query(filter_selector_is_not_empty)), 3)
+        assert len(self._run_query(filter_selector_is_not_empty)) == 3
 
         # tag_name
 
@@ -287,7 +287,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
                 ]
             }
         )
-        self.assertEqual(len(self._run_query(filter)), 2)
+        assert len(self._run_query(filter)) == 2
 
         filter = Filter(
             data={
@@ -301,7 +301,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
                 ]
             }
         )
-        self.assertEqual(len(self._run_query(filter)), 2)
+        assert len(self._run_query(filter)) == 2
 
         filter = Filter(
             data={
@@ -315,7 +315,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
                 ]
             }
         )
-        self.assertEqual(len(self._run_query(filter)), 1)
+        assert len(self._run_query(filter)) == 1
 
         filter = Filter(
             data={
@@ -329,7 +329,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
                 ]
             }
         )
-        self.assertEqual(len(self._run_query(filter)), 1)
+        assert len(self._run_query(filter)) == 1
 
         filter = Filter(
             data={
@@ -343,7 +343,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
                 ]
             }
         )
-        self.assertEqual(len(self._run_query(filter)), 2)
+        assert len(self._run_query(filter)) == 2
 
         # href/text
 
@@ -359,7 +359,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
                 ]
             }
         )
-        self.assertEqual(len(self._run_query(filter_href_exact)), 2)
+        assert len(self._run_query(filter_href_exact)) == 2
 
         filter_href_exact_double = Filter(
             data={
@@ -373,12 +373,12 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
                 ]
             }
         )
-        self.assertEqual(len(self._run_query(filter_href_exact_double)), 3)
+        assert len(self._run_query(filter_href_exact_double)) == 3
 
         filter_href_exact_empty = Filter(
             data={"properties": [{"key": "href", "value": [], "operator": "exact", "type": "element"}]}
         )
-        self.assertEqual(len(self._run_query(filter_href_exact_empty)), 0)
+        assert len(self._run_query(filter_href_exact_empty)) == 0
 
         filter_href_is_not = Filter(
             data={
@@ -392,7 +392,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
                 ]
             }
         )
-        self.assertEqual(len(self._run_query(filter_href_is_not)), 1)
+        assert len(self._run_query(filter_href_is_not)) == 1
 
         filter_href_is_not_double = Filter(
             data={
@@ -406,7 +406,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
                 ]
             }
         )
-        self.assertEqual(len(self._run_query(filter_href_is_not_double)), 0)
+        assert len(self._run_query(filter_href_is_not_double)) == 0
 
         filter_href_is_not_empty = Filter(
             data={
@@ -420,7 +420,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
                 ]
             }
         )
-        self.assertEqual(len(self._run_query(filter_href_is_not_empty)), 3)
+        assert len(self._run_query(filter_href_is_not_empty)) == 3
 
         filter_href_exact_with_tag_name_is_not = Filter(
             data={
@@ -435,7 +435,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
                 ]
             }
         )
-        self.assertEqual(len(self._run_query(filter_href_exact_with_tag_name_is_not)), 2)
+        assert len(self._run_query(filter_href_exact_with_tag_name_is_not)) == 2
 
         filter_href_icontains = Filter(
             data={
@@ -449,7 +449,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
                 ]
             }
         )
-        self.assertEqual(len(self._run_query(filter_href_icontains)), 2)
+        assert len(self._run_query(filter_href_icontains)) == 2
 
         filter_href_regex = Filter(
             data={
@@ -463,7 +463,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
                 ]
             }
         )
-        self.assertEqual(len(self._run_query(filter_href_regex)), 2)
+        assert len(self._run_query(filter_href_regex)) == 2
 
         filter_href_not_regex = Filter(
             data={
@@ -477,7 +477,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
                 ]
             }
         )
-        self.assertEqual(len(self._run_query(filter_href_not_regex)), 2)
+        assert len(self._run_query(filter_href_not_regex)) == 2
 
         filter_text_icontains_with_doublequote = Filter(
             data={
@@ -491,7 +491,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
                 ]
             }
         )
-        self.assertEqual(len(self._run_query(filter_text_icontains_with_doublequote)), 1)
+        assert len(self._run_query(filter_text_icontains_with_doublequote)) == 1
 
         filter_text_is_set = Filter(
             data={
@@ -505,7 +505,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
                 ]
             }
         )
-        self.assertEqual(len(self._run_query(filter_text_is_set)), 2)
+        assert len(self._run_query(filter_text_is_set)) == 2
 
         filter_text_is_not_set = Filter(
             data={
@@ -519,7 +519,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
                 ]
             }
         )
-        self.assertEqual(len(self._run_query(filter_text_is_not_set)), 1)
+        assert len(self._run_query(filter_text_is_not_set)) == 1
 
     def test_prop_element_with_space(self):
         _create_event(
@@ -551,7 +551,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
                 ]
             }
         )
-        self.assertEqual(len(self._run_query(filter)), 1)
+        assert len(self._run_query(filter)) == 1
 
     def test_prop_ints_saved_as_strings(self):
         _create_event(
@@ -579,23 +579,23 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
             properties={"test_prop": "string"},
         )
         filter = Filter(data={"properties": [{"key": "test_prop", "value": "2"}]})
-        self.assertEqual(len(self._run_query(filter)), 2)
+        assert len(self._run_query(filter)) == 2
 
         filter = Filter(data={"properties": [{"key": "test_prop", "value": 2}]})
-        self.assertEqual(len(self._run_query(filter)), 2)
+        assert len(self._run_query(filter)) == 2
 
         # value passed as string
         filter = Filter(data={"properties": [{"key": "test_prop", "value": "1", "operator": "gt"}]})
-        self.assertEqual(len(self._run_query(filter)), 2)
+        assert len(self._run_query(filter)) == 2
         filter = Filter(data={"properties": [{"key": "test_prop", "value": "3", "operator": "lt"}]})
-        self.assertEqual(len(self._run_query(filter)), 3)
+        assert len(self._run_query(filter)) == 3
 
         # value passed as int
         filter = Filter(data={"properties": [{"key": "test_prop", "value": 1, "operator": "gt"}]})
-        self.assertEqual(len(self._run_query(filter)), 2)
+        assert len(self._run_query(filter)) == 2
 
         filter = Filter(data={"properties": [{"key": "test_prop", "value": 3, "operator": "lt"}]})
-        self.assertEqual(len(self._run_query(filter)), 3)
+        assert len(self._run_query(filter)) == 3
 
     def test_prop_decimals(self):
         _create_event(
@@ -624,16 +624,16 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
         )
 
         filter = Filter(data={"properties": [{"key": "test_prop", "value": 1.5}]})
-        self.assertEqual(len(self._run_query(filter)), 0)
+        assert len(self._run_query(filter)) == 0
 
         filter = Filter(data={"properties": [{"key": "test_prop", "value": 1.2, "operator": "gt"}]})
-        self.assertEqual(len(self._run_query(filter)), 4)
+        assert len(self._run_query(filter)) == 4
 
         filter = Filter(data={"properties": [{"key": "test_prop", "value": "1.2", "operator": "gt"}]})
-        self.assertEqual(len(self._run_query(filter)), 4)
+        assert len(self._run_query(filter)) == 4
 
         filter = Filter(data={"properties": [{"key": "test_prop", "value": 2.3, "operator": "lt"}]})
-        self.assertEqual(len(self._run_query(filter)), 3)
+        assert len(self._run_query(filter)) == 3
 
     @snapshot_clickhouse_queries
     def test_parse_groups(self):
@@ -676,7 +676,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
             }
         )
 
-        self.assertEqual(len(self._run_query(filter)), 2)
+        assert len(self._run_query(filter)) == 2
 
     def test_parse_groups_invalid_type(self):
         filter = Filter(
@@ -696,7 +696,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
                 }
             }
         )
-        with self.assertRaises(ValidationError):
+        with pytest.raises(ValidationError):
             self._run_query(filter)
 
     @snapshot_clickhouse_queries
@@ -769,7 +769,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
             }
         )
 
-        self.assertEqual(len(self._run_query(filter)), 2)
+        assert len(self._run_query(filter)) == 2
 
 
 class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
@@ -796,7 +796,7 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
 
         final_query = f"SELECT uuid FROM events {joins} WHERE team_id = %(team_id)s {query}"
         # Make sure we don't accidentally use json on the properties field
-        self.assertNotIn("json", final_query.lower())
+        assert "json" not in final_query.lower()
         return sync_execute(
             final_query,
             {**params, **filter.hogql_context.values, "team_id": self.team.pk},
@@ -821,19 +821,19 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
         materialize("events", "something_else")
 
         filter = Filter(data={"properties": [{"key": "test_prop", "value": "some_val"}]})
-        self.assertEqual(len(self._run_query(filter)), 1)
+        assert len(self._run_query(filter)) == 1
 
         filter = Filter(data={"properties": [{"key": "test_prop", "value": "some_val", "operator": "is_not"}]})
-        self.assertEqual(len(self._run_query(filter)), 1)
+        assert len(self._run_query(filter)) == 1
 
         filter = Filter(data={"properties": [{"key": "test_prop", "value": "some_val", "operator": "is_set"}]})
-        self.assertEqual(len(self._run_query(filter)), 2)
+        assert len(self._run_query(filter)) == 2
 
         filter = Filter(data={"properties": [{"key": "test_prop", "value": "some_val", "operator": "is_not_set"}]})
-        self.assertEqual(len(self._run_query(filter)), 0)
+        assert len(self._run_query(filter)) == 0
 
         filter = Filter(data={"properties": [{"key": "test_prop", "value": "_other_", "operator": "icontains"}]})
-        self.assertEqual(len(self._run_query(filter)), 1)
+        assert len(self._run_query(filter)) == 1
 
         filter = Filter(
             data={
@@ -846,7 +846,7 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
                 ]
             }
         )
-        self.assertEqual(len(self._run_query(filter)), 1)
+        assert len(self._run_query(filter)) == 1
 
     def test_prop_person_denormalized(self):
         _create_person(
@@ -870,7 +870,7 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
                 ]
             }
         )
-        self.assertEqual(len(self._run_query(filter, join_person_tables=True)), 1)
+        assert len(self._run_query(filter, join_person_tables=True)) == 1
 
         filter = Filter(
             data={
@@ -884,7 +884,7 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
                 ]
             }
         )
-        self.assertEqual(len(self._run_query(filter, join_person_tables=True)), 0)
+        assert len(self._run_query(filter, join_person_tables=True)) == 0
 
     def test_prop_person_groups_denormalized(self):
         _filter = {
@@ -962,7 +962,7 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
         materialize("events", "event_prop2")
         materialize("person", "person_prop")
         materialize("person", "person_prop2")
-        self.assertEqual(len(self._run_query(filter, join_person_tables=True)), 3)
+        assert len(self._run_query(filter, join_person_tables=True)) == 3
 
     def test_prop_event_denormalized_ints(self):
         _create_event(
@@ -983,22 +983,19 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
         materialize("events", "something_else")
 
         filter = Filter(data={"properties": [{"key": "test_prop", "value": 1, "operator": "gt"}]})
-        self.assertEqual(len(self._run_query(filter)), 1)
+        assert len(self._run_query(filter)) == 1
 
         filter = Filter(data={"properties": [{"key": "test_prop", "value": 1, "operator": "lt"}]})
-        self.assertEqual(len(self._run_query(filter)), 1)
+        assert len(self._run_query(filter)) == 1
 
         filter = Filter(data={"properties": [{"key": "test_prop", "value": 0}]})
-        self.assertEqual(len(self._run_query(filter)), 1)
+        assert len(self._run_query(filter)) == 1
 
     def test_get_property_string_expr(self):
         string_expr = get_property_string_expr("events", "some_non_mat_prop", "'some_non_mat_prop'", "properties")
-        self.assertEqual(
-            string_expr,
-            (
-                "replaceRegexpAll(JSONExtractRaw(properties, 'some_non_mat_prop'), '^\"|\"$', '')",
-                False,
-            ),
+        assert string_expr == (
+            "replaceRegexpAll(JSONExtractRaw(properties, 'some_non_mat_prop'), '^\"|\"$', '')",
+            False,
         )
 
         string_expr = get_property_string_expr(
@@ -1008,22 +1005,19 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
             "properties",
             table_alias="e",
         )
-        self.assertEqual(
-            string_expr,
-            (
-                "replaceRegexpAll(JSONExtractRaw(e.properties, 'some_non_mat_prop'), '^\"|\"$', '')",
-                False,
-            ),
+        assert string_expr == (
+            "replaceRegexpAll(JSONExtractRaw(e.properties, 'some_non_mat_prop'), '^\"|\"$', '')",
+            False,
         )
 
         materialize("events", "some_mat_prop")
         string_expr = get_property_string_expr("events", "some_mat_prop", "'some_mat_prop'", "properties")
-        self.assertEqual(string_expr, ('"mat_some_mat_prop"', True))
+        assert string_expr == ('"mat_some_mat_prop"', True)
 
         string_expr = get_property_string_expr(
             "events", "some_mat_prop", "'some_mat_prop'", "properties", table_alias="e"
         )
-        self.assertEqual(string_expr, ('e."mat_some_mat_prop"', True))
+        assert string_expr == ('e."mat_some_mat_prop"', True)
 
         materialize("events", "some_mat_prop2", table_column="person_properties")
         materialize("events", "some_mat_prop3", table_column="group2_properties")
@@ -1034,7 +1028,7 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
             "properties",
             materialised_table_column="person_properties",
         )
-        self.assertEqual(string_expr, ('"mat_pp_some_mat_prop2"', True))
+        assert string_expr == ('"mat_pp_some_mat_prop2"', True)
 
 
 @pytest.mark.django_db

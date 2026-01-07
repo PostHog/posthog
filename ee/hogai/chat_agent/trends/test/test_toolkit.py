@@ -20,8 +20,4 @@ class TestTrendsToolkit(BaseTest):
         ]
 
         for i, expected_key in enumerate(expected_order):
-            self.assertEqual(
-                property_keys[i],
-                expected_key,
-                f"Expected {expected_key} at position {i}, got {property_keys[i]}",
-            )
+            assert property_keys[i] == expected_key, f"Expected {expected_key} at position {i}, got {property_keys[i]}"

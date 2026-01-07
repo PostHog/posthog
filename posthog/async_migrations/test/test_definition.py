@@ -22,19 +22,14 @@ class TestAsyncMigrationDefinition(BaseTest):
         modules = import_submodules(ASYNC_MIGRATIONS_EXAMPLE_MODULE_PATH)
         example_migration = modules["example"].Migration("example")
 
-        self.assertTrue(isinstance(example_migration, AsyncMigrationDefinition))
-        self.assertTrue(isinstance(example_migration.operations[0], AsyncMigrationOperation))
-        self.assertEqual(example_migration.description, "An example async migration.")
-        self.assertEqual(example_migration.posthog_min_version, "1.29.0")
-        self.assertEqual(example_migration.posthog_max_version, "1.30.0")
-        self.assertEqual(example_migration.operations[-1].fn, example_fn)
-        self.assertEqual(example_migration.operations[-1].rollback_fn, example_rollback_fn)
-        self.assertTrue(
-            isinstance(
-                example_migration.service_version_requirements[0],
-                ServiceVersionRequirement,
-            )
-        )
+        assert isinstance(example_migration, AsyncMigrationDefinition)
+        assert isinstance(example_migration.operations[0], AsyncMigrationOperation)
+        assert example_migration.description == "An example async migration."
+        assert example_migration.posthog_min_version == "1.29.0"
+        assert example_migration.posthog_max_version == "1.30.0"
+        assert example_migration.operations[-1].fn == example_fn
+        assert example_migration.operations[-1].rollback_fn == example_rollback_fn
+        assert isinstance(example_migration.service_version_requirements[0], ServiceVersionRequirement)
 
     def test_get_migration_instance_and_parameters(self):
         setup_async_migrations(ignore_posthog_version=True)
@@ -44,13 +39,10 @@ class TestAsyncMigrationDefinition(BaseTest):
         definition = get_async_migration_definition(MIGRATION_NAME)
         instance = AsyncMigration.objects.get(name=MIGRATION_NAME)
 
-        self.assertEqual(definition.migration_instance(), instance)
+        assert definition.migration_instance() == instance
 
-        self.assertEqual(
-            definition.get_parameter("PERSON_DICT_CACHE_SIZE"),
-            definition.parameters["PERSON_DICT_CACHE_SIZE"][0],
-        )
+        assert definition.get_parameter("PERSON_DICT_CACHE_SIZE") == definition.parameters["PERSON_DICT_CACHE_SIZE"][0]
 
         instance.parameters = {"PERSON_DICT_CACHE_SIZE": 123}
         instance.save()
-        self.assertEqual(definition.get_parameter("PERSON_DICT_CACHE_SIZE"), 123)
+        assert definition.get_parameter("PERSON_DICT_CACHE_SIZE") == 123

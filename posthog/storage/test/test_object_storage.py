@@ -1,6 +1,7 @@
 import re
 import uuid
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -202,7 +203,7 @@ class TestStorage(APIBaseTest):
         mock_client.get_object.side_effect = ClientError(error_response, "GetObject")  # type: ignore[arg-type]
         storage = ObjectStorage(mock_client)
 
-        with self.assertRaises(ObjectStorageError):
+        with pytest.raises(ObjectStorageError):
             storage.read_bytes("test-bucket", "nonexistent-key")
 
     def test_read_bytes_raises_for_other_client_errors(self):
@@ -211,5 +212,5 @@ class TestStorage(APIBaseTest):
         mock_client.get_object.side_effect = ClientError(error_response, "GetObject")  # type: ignore[arg-type]
         storage = ObjectStorage(mock_client)
 
-        with self.assertRaises(ObjectStorageError):
+        with pytest.raises(ObjectStorageError):
             storage.read_bytes("test-bucket", "test-key")

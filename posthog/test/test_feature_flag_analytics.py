@@ -65,15 +65,12 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
             client = redis.get_client()
 
             # redis returns encoded bytes
-            self.assertEqual(
-                client.hgetall(f"posthog:decide_requests:{team_id}"),
-                {b"165192618": b"10", b"165192619": b"5"},
-            )
-            self.assertEqual(
-                client.hgetall(f"posthog:decide_requests:{other_team_id}"),
-                {b"165192618": b"7", b"165192619": b"3"},
-            )
-            self.assertEqual(client.hgetall(f"posthog:decide_requests:other"), {})
+            assert client.hgetall(f"posthog:decide_requests:{team_id}") == {b"165192618": b"10", b"165192619": b"5"}
+            assert client.hgetall(f"posthog:decide_requests:{other_team_id}") == {
+                b"165192618": b"7",
+                b"165192619": b"3",
+            }
+            assert client.hgetall(f"posthog:decide_requests:other") == {}
 
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_capture_team_decide_usage(self):
@@ -196,10 +193,7 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
             mock_capture.capture.assert_not_called()
 
             client = redis.get_client()
-            self.assertEqual(
-                client.hgetall(f"posthog:decide_requests:{team_id}"),
-                {b"165192620": b"5"},
-            )
+            assert client.hgetall(f"posthog:decide_requests:{team_id}") == {b"165192620": b"5"}
 
             with self.settings(DECIDE_BILLING_ANALYTICS_TOKEN="token"):
                 capture_team_decide_usage(mock_capture, team_id, team_uuid)
@@ -382,16 +376,10 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
 
             # check that the increments made it through
             # and no extra requests were counted
-            self.assertEqual(
-                client.hgetall(f"posthog:decide_requests:{team_id}"),
-                {b"165192620": b"8"},
-            )
-            self.assertEqual(
-                client.hgetall(f"posthog:local_evaluation_requests:{team_id}"),
-                {b"165192620": b"8"},
-            )
-            self.assertEqual(client.hgetall(f"posthog:decide_requests:{other_team_id}"), {})
-            self.assertEqual(client.hgetall(f"posthog:local_evaluation_requests:{other_team_id}"), {})
+            assert client.hgetall(f"posthog:decide_requests:{team_id}") == {b"165192620": b"8"}
+            assert client.hgetall(f"posthog:local_evaluation_requests:{team_id}") == {b"165192620": b"8"}
+            assert client.hgetall(f"posthog:decide_requests:{other_team_id}") == {}
+            assert client.hgetall(f"posthog:local_evaluation_requests:{other_team_id}") == {}
 
     @pytest.mark.skip(
         reason="This works locally, but causes issues in CI because the freeze_time applies to threads as well in unrelated tests, causing timeouts."
@@ -550,11 +538,8 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
 
             # check that the increments made it through
             # and no extra requests were counted
-            self.assertEqual(
-                client.hgetall(f"posthog:decide_requests:{team_id}"),
-                {b"165192620": b"8"},
-            )
-            self.assertEqual(client.hgetall(f"posthog:decide_requests:{other_team_id}"), {})
+            assert client.hgetall(f"posthog:decide_requests:{team_id}") == {b"165192620": b"8"}
+            assert client.hgetall(f"posthog:decide_requests:{other_team_id}") == {}
 
 
 class TestEnrichedAnalytics(BaseTest):
@@ -662,31 +647,31 @@ class TestEnrichedAnalytics(BaseTest):
         f3.refresh_from_db()
         f4.refresh_from_db()
 
-        self.assertEqual(f1.has_enriched_analytics, True)
-        self.assertEqual(f2.has_enriched_analytics, True)
-        self.assertEqual(f3.has_enriched_analytics, False)
-        self.assertEqual(f4.has_enriched_analytics, False)
+        assert f1.has_enriched_analytics
+        assert f2.has_enriched_analytics
+        assert not f3.has_enriched_analytics
+        assert not f4.has_enriched_analytics
 
         # now try deleting a usage dashboard. It should not delete the feature flag
         assert f1.usage_dashboard is not None
-        self.assertEqual(f1.usage_dashboard.name, "Generated Dashboard: test_flag Usage")
-        self.assertEqual(f2.usage_dashboard, None)
+        assert f1.usage_dashboard.name == "Generated Dashboard: test_flag Usage"
+        assert f2.usage_dashboard is None
         assert f3.usage_dashboard is not None
-        self.assertEqual(f3.usage_dashboard.name, "Generated Dashboard: beta-feature2 Usage")
-        self.assertEqual(f4.usage_dashboard, None)
+        assert f3.usage_dashboard.name == "Generated Dashboard: beta-feature2 Usage"
+        assert f4.usage_dashboard is None
 
         # 1 should have enriched analytics, but nothing else
-        self.assertEqual(f1.usage_dashboard_has_enriched_insights, True)
-        self.assertEqual(f2.usage_dashboard_has_enriched_insights, False)
-        self.assertEqual(f3.usage_dashboard_has_enriched_insights, False)
-        self.assertEqual(f4.usage_dashboard_has_enriched_insights, False)
+        assert f1.usage_dashboard_has_enriched_insights
+        assert not f2.usage_dashboard_has_enriched_insights
+        assert not f3.usage_dashboard_has_enriched_insights
+        assert not f4.usage_dashboard_has_enriched_insights
 
-        self.assertEqual(f1.usage_dashboard.tiles.count(), 4)
-        self.assertEqual(f3.usage_dashboard.tiles.count(), 2)
+        assert f1.usage_dashboard.tiles.count() == 4
+        assert f3.usage_dashboard.tiles.count() == 2
 
         # now try deleting a usage dashboard. It should not delete the feature flag
         f1.usage_dashboard.delete()
 
         f1.refresh_from_db()
-        self.assertEqual(f1.has_enriched_analytics, True)
-        self.assertEqual(f1.usage_dashboard, None)
+        assert f1.has_enriched_analytics
+        assert f1.usage_dashboard is None

@@ -1,3 +1,4 @@
+import pytest
 from freezegun import freeze_time
 
 from products.revenue_analytics.backend.views.schemas.mrr import SCHEMA as MRR_SCHEMA
@@ -31,44 +32,44 @@ class TestMRRStripeBuilder(StripeSourceBaseTest):
         query = build(self.stripe_handle)
         query_sql = query.query.to_hogql()
 
-        self.assertIn("argMax(amount, timestamp)", query_sql)
+        assert "argMax(amount, timestamp)" in query_sql
 
     def test_mrr_filters_for_recurring_only(self):
         query = build(self.stripe_handle)
         query_sql = query.query.to_hogql()
 
-        self.assertIn("and(is_recurring,", query_sql)
+        assert "and(is_recurring," in query_sql
 
     def test_mrr_groups_by_customer_and_subscription(self):
         query = build(self.stripe_handle)
         query_sql = query.query.to_hogql()
 
-        self.assertIn("GROUP BY source_label, customer_id, subscription_id", query_sql)
+        assert "GROUP BY source_label, customer_id, subscription_id" in query_sql
 
     def test_mrr_unions_revenue_item_and_subscription_queries(self):
         query = build(self.stripe_handle)
         query_sql = query.query.to_hogql()
 
-        self.assertIn("UNION ALL", query_sql)
+        assert "UNION ALL" in query_sql
 
     def test_subscription_end_events_have_zero_amount(self):
         query = build(self.stripe_handle)
         query_sql = query.query.to_hogql()
 
-        self.assertIn("toDecimal(0,", query_sql)
+        assert "toDecimal(0," in query_sql
 
     def test_mrr_references_correct_base_views(self):
         query = build(self.stripe_handle)
         query_sql = query.query.to_hogql()
 
         expected_prefix = f"stripe.{self.external_data_source.prefix}"
-        self.assertIn(f"`{expected_prefix}.revenue_item_revenue_view`", query_sql)
-        self.assertIn(f"`{expected_prefix}.subscription_revenue_view`", query_sql)
+        assert f"`{expected_prefix}.revenue_item_revenue_view`" in query_sql
+        assert f"`{expected_prefix}.subscription_revenue_view`" in query_sql
 
     def test_build_requires_source(self):
         handle = self.create_stripe_handle_without_source()
 
-        with self.assertRaises(ValueError) as context:
+        with pytest.raises(ValueError) as context:
             build(handle)
 
-        self.assertIn("Source is required", str(context.exception))
+        assert "Source is required" in str(context.value)

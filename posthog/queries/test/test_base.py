@@ -31,122 +31,119 @@ class TestBase(APIBaseTest):
         filter = PathFilter(data={"date_from": "2020-05-23", "date_to": "2020-05-29"}, team=self.team)
         compared_filter = determine_compared_filter(filter)
 
-        self.assertIsInstance(compared_filter, PathFilter)
-        self.assertLessEqual(
-            {
-                "date_from": "2020-05-16T00:00:00+00:00",
-                "date_to": "2020-05-22T23:59:59.999999+00:00",
-            }.items(),
-            compared_filter.to_dict().items(),
-        )
+        assert isinstance(compared_filter, PathFilter)
+        assert {
+            "date_from": "2020-05-16T00:00:00+00:00",
+            "date_to": "2020-05-22T23:59:59.999999+00:00",
+        }.items() <= compared_filter.to_dict().items()
 
 
 class TestMatchProperties(TestCase):
     def test_match_properties_exact(self):
         property_a = Property(key="key", value="value")
 
-        self.assertTrue(match_property(property_a, {"key": "value"}))
+        assert match_property(property_a, {"key": "value"})
 
-        self.assertFalse(match_property(property_a, {"key": "value2"}))
-        self.assertFalse(match_property(property_a, {"key": ""}))
-        self.assertFalse(match_property(property_a, {"key": None}))
+        assert not match_property(property_a, {"key": "value2"})
+        assert not match_property(property_a, {"key": ""})
+        assert not match_property(property_a, {"key": None})
 
-        with self.assertRaises(ValidationError):
+        with pytest.raises(ValidationError):
             match_property(property_a, {"key2": "value"})
             match_property(property_a, {})
 
         property_b = Property(key="key", value="value", operator="exact")
-        self.assertTrue(match_property(property_b, {"key": "value"}))
+        assert match_property(property_b, {"key": "value"})
 
-        self.assertFalse(match_property(property_b, {"key": "value2"}))
+        assert not match_property(property_b, {"key": "value2"})
 
         property_c = Property(key="key", value=["value1", "value2", "value3"], operator="exact")
-        self.assertTrue(match_property(property_c, {"key": "value1"}))
-        self.assertTrue(match_property(property_c, {"key": "value2"}))
-        self.assertTrue(match_property(property_c, {"key": "value3"}))
+        assert match_property(property_c, {"key": "value1"})
+        assert match_property(property_c, {"key": "value2"})
+        assert match_property(property_c, {"key": "value3"})
 
-        self.assertFalse(match_property(property_c, {"key": "value4"}))
+        assert not match_property(property_c, {"key": "value4"})
 
-        with self.assertRaises(ValidationError):
+        with pytest.raises(ValidationError):
             match_property(property_c, {"key2": "value"})
 
     def test_match_properties_not_in(self):
         property_a = Property(key="key", value="value", operator="is_not")
-        self.assertTrue(match_property(property_a, {"key": "value2"}))
-        self.assertTrue(match_property(property_a, {"key": ""}))
-        self.assertTrue(match_property(property_a, {"key": None}))
+        assert match_property(property_a, {"key": "value2"})
+        assert match_property(property_a, {"key": ""})
+        assert match_property(property_a, {"key": None})
 
         property_c = Property(key="key", value=["value1", "value2", "value3"], operator="is_not")
-        self.assertTrue(match_property(property_c, {"key": "value4"}))
-        self.assertTrue(match_property(property_c, {"key": "value5"}))
-        self.assertTrue(match_property(property_c, {"key": "value6"}))
-        self.assertTrue(match_property(property_c, {"key": ""}))
-        self.assertTrue(match_property(property_c, {"key": None}))
+        assert match_property(property_c, {"key": "value4"})
+        assert match_property(property_c, {"key": "value5"})
+        assert match_property(property_c, {"key": "value6"})
+        assert match_property(property_c, {"key": ""})
+        assert match_property(property_c, {"key": None})
 
-        self.assertFalse(match_property(property_c, {"key": "value2"}))
-        self.assertFalse(match_property(property_c, {"key": "value3"}))
-        self.assertFalse(match_property(property_c, {"key": "value1"}))
+        assert not match_property(property_c, {"key": "value2"})
+        assert not match_property(property_c, {"key": "value3"})
+        assert not match_property(property_c, {"key": "value1"})
 
-        with self.assertRaises(ValidationError):
+        with pytest.raises(ValidationError):
             match_property(property_a, {"key2": "value"})
             match_property(property_c, {"key2": "value1"})  # overrides don't have 'key'
 
     def test_match_properties_is_set(self):
         property_a = Property(key="key", operator="is_set")
-        self.assertTrue(match_property(property_a, {"key": "value"}))
-        self.assertTrue(match_property(property_a, {"key": "value2"}))
-        self.assertTrue(match_property(property_a, {"key": ""}))
-        self.assertTrue(match_property(property_a, {"key": None}))
+        assert match_property(property_a, {"key": "value"})
+        assert match_property(property_a, {"key": "value2"})
+        assert match_property(property_a, {"key": ""})
+        assert match_property(property_a, {"key": None})
 
-        with self.assertRaises(ValidationError):
+        with pytest.raises(ValidationError):
             match_property(property_a, {"key2": "value"})
             match_property(property_a, {})
 
     def test_match_properties_icontains(self):
         property_a = Property(key="key", value="valUe", operator="icontains")
-        self.assertTrue(match_property(property_a, {"key": "value"}))
-        self.assertTrue(match_property(property_a, {"key": "value2"}))
-        self.assertTrue(match_property(property_a, {"key": "value3"}))
-        self.assertTrue(match_property(property_a, {"key": "vaLue4"}))
-        self.assertTrue(match_property(property_a, {"key": "343tfvalue5"}))
+        assert match_property(property_a, {"key": "value"})
+        assert match_property(property_a, {"key": "value2"})
+        assert match_property(property_a, {"key": "value3"})
+        assert match_property(property_a, {"key": "vaLue4"})
+        assert match_property(property_a, {"key": "343tfvalue5"})
 
-        self.assertFalse(match_property(property_a, {"key": "Alakazam"}))
-        self.assertFalse(match_property(property_a, {"key": 123}))
+        assert not match_property(property_a, {"key": "Alakazam"})
+        assert not match_property(property_a, {"key": 123})
 
         property_b = Property(key="key", value="3", operator="icontains")
-        self.assertTrue(match_property(property_b, {"key": "3"}))
-        self.assertTrue(match_property(property_b, {"key": 323}))
-        self.assertTrue(match_property(property_b, {"key": "val3"}))
+        assert match_property(property_b, {"key": "3"})
+        assert match_property(property_b, {"key": 323})
+        assert match_property(property_b, {"key": "val3"})
 
-        self.assertFalse(match_property(property_b, {"key": "three"}))
+        assert not match_property(property_b, {"key": "three"})
 
     def test_match_properties_regex(self):
         property_a = Property(key="key", value=r"\.com$", operator="regex")
-        self.assertTrue(match_property(property_a, {"key": "value.com"}))
-        self.assertTrue(match_property(property_a, {"key": "value2.com"}))
+        assert match_property(property_a, {"key": "value.com"})
+        assert match_property(property_a, {"key": "value2.com"})
 
-        self.assertFalse(match_property(property_a, {"key": ".com343tfvalue5"}))
-        self.assertFalse(match_property(property_a, {"key": "Alakazam"}))
-        self.assertFalse(match_property(property_a, {"key": 123}))
+        assert not match_property(property_a, {"key": ".com343tfvalue5"})
+        assert not match_property(property_a, {"key": "Alakazam"})
+        assert not match_property(property_a, {"key": 123})
 
         property_b = Property(key="key", value="3", operator="regex")
-        self.assertTrue(match_property(property_b, {"key": "3"}))
-        self.assertTrue(match_property(property_b, {"key": 323}))
-        self.assertTrue(match_property(property_b, {"key": "val3"}))
+        assert match_property(property_b, {"key": "3"})
+        assert match_property(property_b, {"key": 323})
+        assert match_property(property_b, {"key": "val3"})
 
-        self.assertFalse(match_property(property_b, {"key": "three"}))
+        assert not match_property(property_b, {"key": "three"})
 
         # invalid regex
         property_c = Property(key="key", value=r"?*", operator="regex")
-        self.assertFalse(match_property(property_c, {"key": "value"}))
-        self.assertFalse(match_property(property_c, {"key": "value2"}))
+        assert not match_property(property_c, {"key": "value"})
+        assert not match_property(property_c, {"key": "value2"})
 
         # non string value
         property_d = Property(key="key", value=4, operator="regex")
-        self.assertTrue(match_property(property_d, {"key": "4"}))
-        self.assertTrue(match_property(property_d, {"key": 4}))
+        assert match_property(property_d, {"key": "4"})
+        assert match_property(property_d, {"key": 4})
 
-        self.assertFalse(match_property(property_d, {"key": "value"}))
+        assert not match_property(property_d, {"key": "value"})
 
         # ensure regex compilation happens only once. to do this, we mock out re.compile,
         # and make the return value of the mock match what the actual function would return.
@@ -155,291 +152,285 @@ class TestMatchProperties(TestCase):
         pattern = re.compile("5")
         with patch("re.compile") as mock_compile:
             mock_compile.return_value = pattern
-            self.assertTrue(match_property(property_e, {"key": "5"}))
+            assert match_property(property_e, {"key": "5"})
 
         mock_compile.assert_called_once_with("5", re.IGNORECASE | re.DOTALL)
 
     def test_match_properties_math_operators(self):
         property_a = Property(key="key", value=1, operator="gt")
-        self.assertTrue(match_property(property_a, {"key": 2}))
-        self.assertTrue(match_property(property_a, {"key": 3}))
+        assert match_property(property_a, {"key": 2})
+        assert match_property(property_a, {"key": 3})
 
-        self.assertFalse(match_property(property_a, {"key": 0}))
-        self.assertFalse(match_property(property_a, {"key": -1}))
+        assert not match_property(property_a, {"key": 0})
+        assert not match_property(property_a, {"key": -1})
         # now we handle type mismatches so this should be true
-        self.assertTrue(match_property(property_a, {"key": "23"}))
+        assert match_property(property_a, {"key": "23"})
 
         property_b = Property(key="key", value=1, operator="lt")
-        self.assertTrue(match_property(property_b, {"key": 0}))
-        self.assertTrue(match_property(property_b, {"key": -1}))
-        self.assertTrue(match_property(property_b, {"key": -3}))
+        assert match_property(property_b, {"key": 0})
+        assert match_property(property_b, {"key": -1})
+        assert match_property(property_b, {"key": -3})
 
-        self.assertFalse(match_property(property_b, {"key": 1}))
-        self.assertFalse(match_property(property_b, {"key": "1"}))
-        self.assertFalse(match_property(property_b, {"key": "3"}))
+        assert not match_property(property_b, {"key": 1})
+        assert not match_property(property_b, {"key": "1"})
+        assert not match_property(property_b, {"key": "3"})
 
         property_c = Property(key="key", value=1, operator="gte")
-        self.assertTrue(match_property(property_c, {"key": 1}))
-        self.assertTrue(match_property(property_c, {"key": 2}))
+        assert match_property(property_c, {"key": 1})
+        assert match_property(property_c, {"key": 2})
 
-        self.assertFalse(match_property(property_c, {"key": 0}))
-        self.assertFalse(match_property(property_c, {"key": -1}))
+        assert not match_property(property_c, {"key": 0})
+        assert not match_property(property_c, {"key": -1})
         # now we handle type mismatches so this should be true
-        self.assertTrue(match_property(property_c, {"key": "3"}))
+        assert match_property(property_c, {"key": "3"})
 
         property_d = Property(key="key", value="43", operator="lt")
-        self.assertTrue(match_property(property_d, {"key": "41"}))
-        self.assertTrue(match_property(property_d, {"key": "42"}))
-        self.assertTrue(match_property(property_d, {"key": 42}))
+        assert match_property(property_d, {"key": "41"})
+        assert match_property(property_d, {"key": "42"})
+        assert match_property(property_d, {"key": 42})
 
-        self.assertFalse(match_property(property_d, {"key": "43"}))
-        self.assertFalse(match_property(property_d, {"key": "44"}))
-        self.assertFalse(match_property(property_d, {"key": 44}))
+        assert not match_property(property_d, {"key": "43"})
+        assert not match_property(property_d, {"key": "44"})
+        assert not match_property(property_d, {"key": 44})
 
         property_e = Property(key="key", value="30", operator="lt")
-        self.assertTrue(match_property(property_e, {"key": "29"}))
+        assert match_property(property_e, {"key": "29"})
 
         # depending on the type of override, we adjust type comparison
-        self.assertTrue(match_property(property_e, {"key": "100"}))
-        self.assertFalse(match_property(property_e, {"key": 100}))
+        assert match_property(property_e, {"key": "100"})
+        assert not match_property(property_e, {"key": 100})
 
         property_f = Property(key="key", value="123aloha", operator="gt")
-        self.assertFalse(match_property(property_f, {"key": "123"}))
-        self.assertFalse(match_property(property_f, {"key": 122}))
+        assert not match_property(property_f, {"key": "123"})
+        assert not match_property(property_f, {"key": 122})
 
         # this turns into a string comparison
-        self.assertTrue(match_property(property_f, {"key": 129}))
+        assert match_property(property_f, {"key": 129})
 
     def test_match_property_date_operators(self):
         property_a = Property(key="key", value="2022-05-01", operator="is_date_before")
-        self.assertTrue(match_property(property_a, {"key": "2022-03-01"}))
-        self.assertTrue(match_property(property_a, {"key": "2022-04-30"}))
-        self.assertTrue(match_property(property_a, {"key": datetime.date(2022, 4, 30)}))
-        self.assertTrue(match_property(property_a, {"key": datetime.datetime(2022, 4, 30, 1, 2, 3)}))
-        self.assertTrue(
-            match_property(
-                property_a,
-                {"key": datetime.datetime(2022, 4, 30, 1, 2, 3, tzinfo=tz.gettz("Europe/Madrid"))},
-            )
+        assert match_property(property_a, {"key": "2022-03-01"})
+        assert match_property(property_a, {"key": "2022-04-30"})
+        assert match_property(property_a, {"key": datetime.date(2022, 4, 30)})
+        assert match_property(property_a, {"key": datetime.datetime(2022, 4, 30, 1, 2, 3)})
+        assert match_property(
+            property_a, {"key": datetime.datetime(2022, 4, 30, 1, 2, 3, tzinfo=tz.gettz("Europe/Madrid"))}
         )
-        self.assertTrue(match_property(property_a, {"key": parser.parse("2022-04-30")}))
-        self.assertFalse(match_property(property_a, {"key": "2022-05-30"}))
+        assert match_property(property_a, {"key": parser.parse("2022-04-30")})
+        assert not match_property(property_a, {"key": "2022-05-30"})
 
         # can't be invalid string
-        self.assertFalse(match_property(property_a, {"key": "abcdef"}))
+        assert not match_property(property_a, {"key": "abcdef"})
 
         property_b = Property(key="key", value="2022-05-01", operator="is_date_after")
-        self.assertTrue(match_property(property_b, {"key": "2022-05-02"}))
-        self.assertTrue(match_property(property_b, {"key": "2022-05-30"}))
-        self.assertTrue(match_property(property_b, {"key": datetime.datetime(2022, 5, 30)}))
-        self.assertTrue(match_property(property_b, {"key": parser.parse("2022-05-30")}))
-        self.assertFalse(match_property(property_b, {"key": "2022-04-30"}))
+        assert match_property(property_b, {"key": "2022-05-02"})
+        assert match_property(property_b, {"key": "2022-05-30"})
+        assert match_property(property_b, {"key": datetime.datetime(2022, 5, 30)})
+        assert match_property(property_b, {"key": parser.parse("2022-05-30")})
+        assert not match_property(property_b, {"key": "2022-04-30"})
 
         # can't be invalid string
-        self.assertFalse(match_property(property_b, {"key": "abcdef"}))
+        assert not match_property(property_b, {"key": "abcdef"})
 
         # Invalid flag property
         property_c = Property(key="key", value=1234, operator="is_date_before")
 
-        self.assertFalse(match_property(property_c, {"key": 1}))
-        self.assertFalse(match_property(property_c, {"key": "2022-05-30"}))
+        assert not match_property(property_c, {"key": 1})
+        assert not match_property(property_c, {"key": "2022-05-30"})
 
         # Timezone aware property
         property_d = Property(key="key", value="2022-04-05 12:34:12 BST", operator="is_date_before")
-        self.assertFalse(match_property(property_d, {"key": "2022-05-30"}))
+        assert not match_property(property_d, {"key": "2022-05-30"})
 
-        self.assertTrue(match_property(property_d, {"key": "2022-03-30"}))
-        self.assertTrue(match_property(property_d, {"key": "2022-04-05 12:34:11 BST"}))
-        self.assertTrue(match_property(property_d, {"key": "2022-04-05 12:34:11 CET"}))
+        assert match_property(property_d, {"key": "2022-03-30"})
+        assert match_property(property_d, {"key": "2022-04-05 12:34:11 BST"})
+        assert match_property(property_d, {"key": "2022-04-05 12:34:11 CET"})
 
-        self.assertFalse(match_property(property_d, {"key": "2022-04-05 12:34:13 CET"}))
+        assert not match_property(property_d, {"key": "2022-04-05 12:34:13 CET"})
 
     def test_match_property_date_operators_with_numeric_timestamps(self):
         property_a = Property(key="key", value="2027-03-21T00:00:00Z", operator="is_date_after")
-        self.assertTrue(match_property(property_a, {"key": 1836277747}))
-        self.assertTrue(match_property(property_a, {"key": 1836277747.867530}))
-        self.assertFalse(match_property(property_a, {"key": 1747794128}))
+        assert match_property(property_a, {"key": 1836277747})
+        assert match_property(property_a, {"key": 1836277747.86753})
+        assert not match_property(property_a, {"key": 1747794128})
 
         property_b = Property(key="key", value="2027-03-21T00:00:00Z", operator="is_date_before")
-        self.assertFalse(match_property(property_b, {"key": 1836277747}))
-        self.assertFalse(match_property(property_b, {"key": 1836277747.867530}))
-        self.assertTrue(match_property(property_b, {"key": 1747794128}))
+        assert not match_property(property_b, {"key": 1836277747})
+        assert not match_property(property_b, {"key": 1836277747.86753})
+        assert match_property(property_b, {"key": 1747794128})
 
         property_e = Property(key="key", value="2028-03-10T05:09:07Z", operator="is_date_exact")
-        self.assertTrue(match_property(property_e, {"key": 1836277747}))
+        assert match_property(property_e, {"key": 1836277747})
 
     def test_match_property_date_operators_with_string_timestamps(self):
         property_a = Property(key="key", value="2027-03-21T00:00:00Z", operator="is_date_after")
-        self.assertTrue(match_property(property_a, {"key": "1836277747"}))
-        self.assertFalse(match_property(property_a, {"key": "1747794128"}))
+        assert match_property(property_a, {"key": "1836277747"})
+        assert not match_property(property_a, {"key": "1747794128"})
 
         property_e = Property(key="key", value="2028-03-10T05:09:07Z", operator="is_date_exact")
-        self.assertTrue(match_property(property_e, {"key": "1836277747"}))
+        assert match_property(property_e, {"key": "1836277747"})
 
     def test_determine_parsed_incoming_date_with_int_timestamp(self):
-        self.assertEqual(
-            determine_parsed_incoming_date(1836277747), datetime.datetime(2028, 3, 10, 5, 9, 7, tzinfo=ZoneInfo("UTC"))
+        assert determine_parsed_incoming_date(1836277747) == datetime.datetime(
+            2028, 3, 10, 5, 9, 7, tzinfo=ZoneInfo("UTC")
         )
 
     def test_determine_parsed_incoming_date_with_float_timestamp(self):
         timestamp = 1836277747.867530
         expected = datetime.datetime(2028, 3, 10, 5, 9, 7, 867530, tzinfo=ZoneInfo("UTC"))
-        self.assertEqual(determine_parsed_incoming_date(timestamp), expected)
+        assert determine_parsed_incoming_date(timestamp) == expected
 
     def test_determine_parsed_incoming_date_with_string_timestamp(self):
         parsed_date = determine_parsed_incoming_date("1836277747")
         expected = datetime.datetime(2028, 3, 10, 5, 9, 7, tzinfo=ZoneInfo("UTC"))
-        self.assertEqual(parsed_date, expected)
+        assert parsed_date == expected
 
     def test_determine_parsed_incoming_date_with_datetime(self):
         parsed_date = determine_parsed_incoming_date(datetime.datetime(2028, 3, 10, 5, 9, 7, tzinfo=ZoneInfo("UTC")))
         expected = datetime.datetime(2028, 3, 10, 5, 9, 7, tzinfo=ZoneInfo("UTC"))
-        self.assertEqual(parsed_date, expected)
+        assert parsed_date == expected
 
     def test_determine_parsed_incoming_date_with_string_date(self):
         parsed_date = determine_parsed_incoming_date("2028-03-10T05:09:07Z")
         expected = datetime.datetime(2028, 3, 10, 5, 9, 7, tzinfo=ZoneInfo("UTC"))
-        self.assertEqual(parsed_date, expected)
+        assert parsed_date == expected
 
     def test_determine_parsed_date_for_property_matching_with_string_fractional_timestamp(self):
         timestamp = "1836277747.867530"
         expected = datetime.datetime(2028, 3, 10, 5, 9, 7, 867530, tzinfo=ZoneInfo("UTC"))
-        self.assertEqual(determine_parsed_incoming_date(timestamp), expected)
+        assert determine_parsed_incoming_date(timestamp) == expected
 
     @freeze_time("2022-05-01")
     def test_match_property_relative_date_operators(self):
         property_a = Property(key="key", value="6h", operator="is_date_before")
-        self.assertTrue(match_property(property_a, {"key": "2022-03-01"}))
-        self.assertTrue(match_property(property_a, {"key": "2022-04-30"}))
-        self.assertTrue(match_property(property_a, {"key": datetime.datetime(2022, 4, 30, 1, 2, 3)}))
+        assert match_property(property_a, {"key": "2022-03-01"})
+        assert match_property(property_a, {"key": "2022-04-30"})
+        assert match_property(property_a, {"key": datetime.datetime(2022, 4, 30, 1, 2, 3)})
         # The date gets converted to datetime at midnight UTC, which is before 6 hours ago
-        self.assertTrue(match_property(property_a, {"key": datetime.date(2022, 4, 30)}))
+        assert match_property(property_a, {"key": datetime.date(2022, 4, 30)})
 
-        self.assertFalse(match_property(property_a, {"key": datetime.datetime(2022, 4, 30, 19, 2, 3)}))
-        self.assertTrue(
-            match_property(
-                property_a,
-                {"key": datetime.datetime(2022, 4, 30, 1, 2, 3, tzinfo=tz.gettz("Europe/Madrid"))},
-            )
+        assert not match_property(property_a, {"key": datetime.datetime(2022, 4, 30, 19, 2, 3)})
+        assert match_property(
+            property_a, {"key": datetime.datetime(2022, 4, 30, 1, 2, 3, tzinfo=tz.gettz("Europe/Madrid"))}
         )
-        self.assertTrue(match_property(property_a, {"key": parser.parse("2022-04-30")}))
-        self.assertFalse(match_property(property_a, {"key": "2022-05-30"}))
+        assert match_property(property_a, {"key": parser.parse("2022-04-30")})
+        assert not match_property(property_a, {"key": "2022-05-30"})
 
         # can't be invalid string
-        self.assertFalse(match_property(property_a, {"key": "abcdef"}))
+        assert not match_property(property_a, {"key": "abcdef"})
 
         property_b = Property(key="key", value="1h", operator="is_date_after")
-        self.assertTrue(match_property(property_b, {"key": "2022-05-02"}))
-        self.assertTrue(match_property(property_b, {"key": "2022-05-30"}))
-        self.assertTrue(match_property(property_b, {"key": datetime.datetime(2022, 5, 30)}))
-        self.assertTrue(match_property(property_b, {"key": parser.parse("2022-05-30")}))
-        self.assertFalse(match_property(property_b, {"key": "2022-04-30"}))
+        assert match_property(property_b, {"key": "2022-05-02"})
+        assert match_property(property_b, {"key": "2022-05-30"})
+        assert match_property(property_b, {"key": datetime.datetime(2022, 5, 30)})
+        assert match_property(property_b, {"key": parser.parse("2022-05-30")})
+        assert not match_property(property_b, {"key": "2022-04-30"})
 
         # can't be invalid string
-        self.assertFalse(match_property(property_b, {"key": "abcdef"}))
+        assert not match_property(property_b, {"key": "abcdef"})
 
         # Invalid flag property
         property_c = Property(key="key", value=1234, operator="is_date_after")
 
-        self.assertTrue(match_property(property_c, {"key": "2022-05-30"}))
+        assert match_property(property_c, {"key": "2022-05-30"})
 
         # # Timezone aware property
         property_d = Property(key="key", value="12d", operator="is_date_before")
-        self.assertFalse(match_property(property_d, {"key": "2022-05-30"}))
+        assert not match_property(property_d, {"key": "2022-05-30"})
 
-        self.assertTrue(match_property(property_d, {"key": "2022-03-30"}))
-        self.assertTrue(match_property(property_d, {"key": "2022-04-05 12:34:11+01:00"}))
-        self.assertTrue(match_property(property_d, {"key": "2022-04-19 01:34:11+02:00"}))
+        assert match_property(property_d, {"key": "2022-03-30"})
+        assert match_property(property_d, {"key": "2022-04-05 12:34:11+01:00"})
+        assert match_property(property_d, {"key": "2022-04-19 01:34:11+02:00"})
 
-        self.assertFalse(match_property(property_d, {"key": "2022-04-19 02:00:01+02:00"}))
+        assert not match_property(property_d, {"key": "2022-04-19 02:00:01+02:00"})
 
         # Try all possible relative dates
         property_e = Property(key="key", value="1h", operator="is_date_before")
-        self.assertFalse(match_property(property_e, {"key": "2022-05-01 00:00:00"}))
-        self.assertTrue(match_property(property_e, {"key": "2022-04-30 22:00:00"}))
+        assert not match_property(property_e, {"key": "2022-05-01 00:00:00"})
+        assert match_property(property_e, {"key": "2022-04-30 22:00:00"})
 
         property_f = Property(key="key", value="-1d", operator="is_date_before")
-        self.assertTrue(match_property(property_f, {"key": "2022-04-29 23:59:00"}))
-        self.assertFalse(match_property(property_f, {"key": "2022-04-30 00:00:01"}))
+        assert match_property(property_f, {"key": "2022-04-29 23:59:00"})
+        assert not match_property(property_f, {"key": "2022-04-30 00:00:01"})
 
         property_g = Property(key="key", value="1w", operator="is_date_before")
-        self.assertTrue(match_property(property_g, {"key": "2022-04-23 00:00:00"}))
-        self.assertFalse(match_property(property_g, {"key": "2022-04-24 00:00:00"}))
-        self.assertFalse(match_property(property_g, {"key": "2022-04-24 00:00:01"}))
+        assert match_property(property_g, {"key": "2022-04-23 00:00:00"})
+        assert not match_property(property_g, {"key": "2022-04-24 00:00:00"})
+        assert not match_property(property_g, {"key": "2022-04-24 00:00:01"})
 
         property_h = Property(key="key", value="1m", operator="is_date_before")
-        self.assertTrue(match_property(property_h, {"key": "2022-03-01 00:00:00"}))
-        self.assertFalse(match_property(property_h, {"key": "2022-04-05 00:00:00"}))
+        assert match_property(property_h, {"key": "2022-03-01 00:00:00"})
+        assert not match_property(property_h, {"key": "2022-04-05 00:00:00"})
 
         property_i = Property(key="key", value="1y", operator="is_date_before")
-        self.assertTrue(match_property(property_i, {"key": "2021-04-28 00:00:00"}))
-        self.assertFalse(match_property(property_i, {"key": "2021-05-01 00:00:01"}))
+        assert match_property(property_i, {"key": "2021-04-28 00:00:00"})
+        assert not match_property(property_i, {"key": "2021-05-01 00:00:01"})
 
         property_j = Property(key="key", value="-122h", operator="is_date_after")
-        self.assertTrue(match_property(property_j, {"key": "2022-05-01 00:00:00"}))
-        self.assertFalse(match_property(property_j, {"key": "2022-04-23 01:00:00"}))
+        assert match_property(property_j, {"key": "2022-05-01 00:00:00"})
+        assert not match_property(property_j, {"key": "2022-04-23 01:00:00"})
 
         property_k = Property(key="key", value="2d", operator="is_date_after")
-        self.assertTrue(match_property(property_k, {"key": "2022-05-01 00:00:00"}))
-        self.assertTrue(match_property(property_k, {"key": "2022-04-29 00:00:01"}))
-        self.assertFalse(match_property(property_k, {"key": "2022-04-29 00:00:00"}))
+        assert match_property(property_k, {"key": "2022-05-01 00:00:00"})
+        assert match_property(property_k, {"key": "2022-04-29 00:00:01"})
+        assert not match_property(property_k, {"key": "2022-04-29 00:00:00"})
 
         property_l = Property(key="key", value="02w", operator="is_date_after")
-        self.assertTrue(match_property(property_l, {"key": "2022-05-01 00:00:00"}))
-        self.assertFalse(match_property(property_l, {"key": "2022-04-16 00:00:00"}))
+        assert match_property(property_l, {"key": "2022-05-01 00:00:00"})
+        assert not match_property(property_l, {"key": "2022-04-16 00:00:00"})
 
         property_m = Property(key="key", value="-1m", operator="is_date_after")
-        self.assertTrue(match_property(property_m, {"key": "2022-04-01 00:00:01"}))
-        self.assertFalse(match_property(property_m, {"key": "2022-04-01 00:00:00"}))
+        assert match_property(property_m, {"key": "2022-04-01 00:00:01"})
+        assert not match_property(property_m, {"key": "2022-04-01 00:00:00"})
 
         property_n = Property(key="key", value="1y", operator="is_date_after")
-        self.assertTrue(match_property(property_n, {"key": "2022-05-01 00:00:00"}))
-        self.assertTrue(match_property(property_n, {"key": "2021-05-01 00:00:01"}))
-        self.assertFalse(match_property(property_n, {"key": "2021-05-01 00:00:00"}))
-        self.assertFalse(match_property(property_n, {"key": "2021-04-30 00:00:00"}))
-        self.assertFalse(match_property(property_n, {"key": "2021-03-01 12:13:00"}))
+        assert match_property(property_n, {"key": "2022-05-01 00:00:00"})
+        assert match_property(property_n, {"key": "2021-05-01 00:00:01"})
+        assert not match_property(property_n, {"key": "2021-05-01 00:00:00"})
+        assert not match_property(property_n, {"key": "2021-04-30 00:00:00"})
+        assert not match_property(property_n, {"key": "2021-03-01 12:13:00"})
 
     def test_none_property_value_with_all_operators(self):
         property_a = Property(key="key", value="none", operator="is_not")
-        self.assertFalse(match_property(property_a, {"key": None}))
-        self.assertTrue(match_property(property_a, {"key": "non"}))
+        assert not match_property(property_a, {"key": None})
+        assert match_property(property_a, {"key": "non"})
 
         property_b = Property(key="key", value=None, operator="is_set")
-        self.assertTrue(match_property(property_b, {"key": None}))
+        assert match_property(property_b, {"key": None})
 
         property_c = Property(key="key", value="no", operator="icontains")
-        self.assertTrue(match_property(property_c, {"key": None}))
-        self.assertFalse(match_property(property_c, {"key": "smh"}))
+        assert match_property(property_c, {"key": None})
+        assert not match_property(property_c, {"key": "smh"})
 
         property_d = Property(key="key", value="No", operator="regex")
-        self.assertTrue(match_property(property_d, {"key": None}))
+        assert match_property(property_d, {"key": None})
 
         property_d_lower_case = Property(key="key", value="no", operator="regex")
-        self.assertTrue(match_property(property_d_lower_case, {"key": None}))
+        assert match_property(property_d_lower_case, {"key": None})
 
         property_d_non_matching = Property(key="key", value="xyz", operator="regex")
-        self.assertFalse(match_property(property_d_non_matching, {"key": None}))
+        assert not match_property(property_d_non_matching, {"key": None})
 
         property_e = Property(key="key", value=1, operator="gt")
-        self.assertTrue(match_property(property_e, {"key": None}))
+        assert match_property(property_e, {"key": None})
 
         property_f = Property(key="key", value=1, operator="lt")
-        self.assertFalse(match_property(property_f, {"key": None}))
+        assert not match_property(property_f, {"key": None})
 
         property_g = Property(key="key", value="xyz", operator="gte")
-        self.assertFalse(match_property(property_g, {"key": None}))
+        assert not match_property(property_g, {"key": None})
 
         property_h = Property(key="key", value="Oo", operator="lte")
-        self.assertTrue(match_property(property_h, {"key": None}))
+        assert match_property(property_h, {"key": None})
 
         property_i = Property(key="key", value="2022-05-01", operator="is_date_before")
-        self.assertFalse(match_property(property_i, {"key": None}))
+        assert not match_property(property_i, {"key": None})
 
         property_j = Property(key="key", value="2022-05-01", operator="is_date_after")
-        self.assertFalse(match_property(property_j, {"key": None}))
+        assert not match_property(property_j, {"key": None})
 
         property_k = Property(key="key", value="2022-05-01", operator="is_date_before")
-        self.assertFalse(match_property(property_k, {"key": "random"}))
+        assert not match_property(property_k, {"key": "random"})
 
 
 @pytest.mark.parametrize(
@@ -636,10 +627,8 @@ class TestSanitizeRegexPattern(TestCase):
         for pattern, test_string, should_match in test_cases:
             sanitized = sanitize_regex_pattern(pattern)
             match = re.search(sanitized, test_string, re.DOTALL | re.IGNORECASE)
-            self.assertEqual(
-                bool(match),
-                should_match,
-                f"Failed for pattern: {pattern}\nSanitized to: {sanitized}\nTesting against: {test_string}\nExpected match: {should_match}",
+            assert bool(match) == should_match, (
+                f"Failed for pattern: {pattern}\nSanitized to: {sanitized}\nTesting against: {test_string}\nExpected match: {should_match}"
             )
 
     def test_property_name_patterns(self):
@@ -666,10 +655,8 @@ class TestSanitizeRegexPattern(TestCase):
         for pattern, test_string, should_match in test_cases:
             sanitized = sanitize_regex_pattern(pattern)
             match = re.search(sanitized, test_string, re.DOTALL | re.IGNORECASE)
-            self.assertEqual(
-                bool(match),
-                should_match,
-                f"Failed for pattern: {pattern}\nSanitized to: {sanitized}\nTesting against: {test_string}\nExpected match: {should_match}",
+            assert bool(match) == should_match, (
+                f"Failed for pattern: {pattern}\nSanitized to: {sanitized}\nTesting against: {test_string}\nExpected match: {should_match}"
             )
 
     def test_nested_structures(self):
@@ -712,10 +699,8 @@ class TestSanitizeRegexPattern(TestCase):
         for pattern, test_string, should_match in test_cases:
             sanitized = sanitize_regex_pattern(pattern)
             match = re.search(sanitized, test_string, re.DOTALL | re.IGNORECASE)
-            self.assertEqual(
-                bool(match),
-                should_match,
-                f"Failed for pattern: {pattern}\nSanitized to: {sanitized}\nTesting against: {test_string}\nExpected match: {should_match}",
+            assert bool(match) == should_match, (
+                f"Failed for pattern: {pattern}\nSanitized to: {sanitized}\nTesting against: {test_string}\nExpected match: {should_match}"
             )
 
     def test_multiple_properties(self):
@@ -735,10 +720,8 @@ class TestSanitizeRegexPattern(TestCase):
         for pattern, test_string, should_match in test_cases:
             sanitized = sanitize_regex_pattern(pattern)
             match = re.search(sanitized, test_string, re.DOTALL | re.IGNORECASE)
-            self.assertEqual(
-                bool(match),
-                should_match,
-                f"Failed for pattern: {pattern}\nSanitized to: {sanitized}\nTesting against: {test_string}\nExpected match: {should_match}",
+            assert bool(match) == should_match, (
+                f"Failed for pattern: {pattern}\nSanitized to: {sanitized}\nTesting against: {test_string}\nExpected match: {should_match}"
             )
 
     def test_simple_regex_patterns(self):
@@ -767,8 +750,6 @@ class TestSanitizeRegexPattern(TestCase):
         for pattern, test_string, should_match in test_cases:
             sanitized = sanitize_regex_pattern(pattern)
             match = re.search(sanitized, test_string, re.DOTALL | re.IGNORECASE)
-            self.assertEqual(
-                bool(match),
-                should_match,
-                f"Failed for pattern: {pattern}\nSanitized to: {sanitized}\nTesting against: {test_string}\nExpected match: {should_match}",
+            assert bool(match) == should_match, (
+                f"Failed for pattern: {pattern}\nSanitized to: {sanitized}\nTesting against: {test_string}\nExpected match: {should_match}"
             )

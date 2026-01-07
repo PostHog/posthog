@@ -1,10 +1,9 @@
-from typing import Optional
 
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.mailgun.template_mailgun import template_mailgun_send_email
 
 
-def create_inputs(overrides: Optional[dict] = None):
+def create_inputs(overrides: dict | None = None):
     inputs = {
         "domain_name": "DOMAIN_NAME",
         "api_key": "API_KEY",

@@ -61,33 +61,33 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
 
-        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        assert status.HTTP_201_CREATED == response.status_code, response.json()
         response_data = response.json()
 
-        self.assertEqual("test_query", response_data["name"])
-        self.assertEqual(self.sample_hogql_query, response_data["query"])
-        self.assertEqual("Test query description", response_data["description"])
-        self.assertTrue(response_data["is_active"])
-        self.assertIn("id", response_data)
-        self.assertIn("endpoint_path", response_data)
-        self.assertIn("created_at", response_data)
-        self.assertIn("updated_at", response_data)
+        assert "test_query" == response_data["name"]
+        assert self.sample_hogql_query == response_data["query"]
+        assert "Test query description" == response_data["description"]
+        assert response_data["is_active"]
+        assert "id" in response_data
+        assert "endpoint_path" in response_data
+        assert "created_at" in response_data
+        assert "updated_at" in response_data
 
-        self.assertIsNone(response_data["derived_from_insight"])
+        assert response_data["derived_from_insight"] is None
 
         # Verify it was saved to database
         endpoint = Endpoint.objects.get(name="test_query", team=self.team)
-        self.assertEqual(endpoint.query, self.sample_hogql_query)
-        self.assertEqual(endpoint.created_by, self.user)
-        self.assertIsNone(endpoint.derived_from_insight)
+        assert endpoint.query == self.sample_hogql_query
+        assert endpoint.created_by == self.user
+        assert endpoint.derived_from_insight is None
 
         # Activity log created
         logs = ActivityLog.objects.filter(team_id=self.team.id, scope="Endpoint", activity="created")
-        self.assertEqual(logs.count(), 1, list(logs.values("activity", "scope", "item_id")))
+        assert logs.count() == 1, list(logs.values("activity", "scope", "item_id"))
         log = logs.latest("created_at")
-        self.assertEqual(log.item_id, str(endpoint.id))
+        assert log.item_id == str(endpoint.id)
         assert log.detail is not None
-        self.assertEqual(log.detail.get("name"), "test_query")
+        assert log.detail.get("name") == "test_query"
 
     @skip("Validation of HogQL not implemented yet")
     def test_cannot_create_endpoint_with_invalid_sql(self):
@@ -100,9 +100,9 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
 
-        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
+        assert status.HTTP_400_BAD_REQUEST == response.status_code, response.json()
         response_data = response.json()
-        self.assertEqual(response_data["type"], "validation_error")
+        assert response_data["type"] == "validation_error"
 
     def test_create_insight_endpoint(self):
         data = {
@@ -113,7 +113,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
 
-        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        assert status.HTTP_201_CREATED == response.status_code, response.json()
 
     def test_update_endpoint(self):
         """Test updating an existing endpoint."""
@@ -136,11 +136,11 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         )
 
         response_data = response.json()
-        self.assertEqual(status.HTTP_200_OK, response.status_code, response_data)
+        assert status.HTTP_200_OK == response.status_code, response_data
 
-        self.assertEqual("update_test", response_data["name"])
-        self.assertEqual("Updated description", response_data["description"])
-        self.assertFalse(response_data["is_active"])
+        assert "update_test" == response_data["name"]
+        assert "Updated description" == response_data["description"]
+        assert not response_data["is_active"]
         want_query = {
             "explain": None,
             "filters": None,
@@ -154,12 +154,12 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             "variables": None,
             "version": None,
         }
-        self.assertEqual(want_query, response_data["query"])
+        assert want_query == response_data["query"]
 
         # Verify database was updated
         endpoint.refresh_from_db()
-        self.assertEqual(endpoint.description, "Updated description")
-        self.assertFalse(endpoint.is_active)
+        assert endpoint.description == "Updated description"
+        assert not endpoint.is_active
 
         # Activity log updated with changes
         logs = ActivityLog.objects.filter(
@@ -168,15 +168,15 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             activity="updated",
             item_id=str(endpoint.id),
         )
-        self.assertEqual(logs.count(), 1, list(logs.values("activity", "detail")))
+        assert logs.count() == 1, list(logs.values("activity", "detail"))
         log = logs.latest("created_at")
         assert log.detail is not None
 
-        self.assertEqual("updated", log.activity)
+        assert "updated" == log.activity
         changes = log.detail.get("changes", [])
         changed_fields = {c.get("field") for c in changes}
-        self.assertIn("description", changed_fields)
-        self.assertIn("is_active", changed_fields)
+        assert "description" in changed_fields
+        assert "is_active" in changed_fields
 
     def test_delete_endpoint(self):
         """Test deleting a endpoint."""
@@ -189,13 +189,13 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.delete(f"/api/environments/{self.team.id}/endpoints/delete_test/")
 
-        self.assertIn(response.status_code, [status.HTTP_204_NO_CONTENT, status.HTTP_200_OK])
+        assert response.status_code in [status.HTTP_204_NO_CONTENT, status.HTTP_200_OK]
         logs = ActivityLog.objects.filter(team_id=self.team.id, scope="Endpoint", activity="deleted")
-        self.assertEqual(logs.count(), 1, list(logs.values("activity", "scope", "item_id")))
+        assert logs.count() == 1, list(logs.values("activity", "scope", "item_id"))
         log = logs.latest("created_at")
-        self.assertEqual(log.item_id, str(endpoint.id))
+        assert log.item_id == str(endpoint.id)
         assert log.detail is not None
-        self.assertEqual(log.detail.get("name"), "delete_test")
+        assert log.detail.get("name") == "delete_test"
 
     def test_invalid_query_name_validation(self):
         """Test validation of invalid query names."""
@@ -206,7 +206,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
 
-        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+        assert status.HTTP_400_BAD_REQUEST == response.status_code
 
     def test_missing_required_fields(self):
         """Test validation when required fields are missing."""
@@ -214,13 +214,13 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
         data = {"name": "test_query"}
 
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_duplicate_name_in_team(self):
         """Test that duplicate names within the same team are not allowed."""
@@ -238,7 +238,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_team_isolation(self):
         """Test that queries are properly isolated between teams."""
@@ -254,7 +254,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/other_team_query/run/")
 
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_list_filter_by_is_active(self):
         """Test filtering endpoints by is_active status."""
@@ -274,18 +274,18 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         )
 
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/?is_active=true")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
-        self.assertEqual(len(response_data["results"]), 1)
-        self.assertEqual(response_data["results"][0]["name"], "active_query")
-        self.assertTrue(response_data["results"][0]["is_active"])
+        assert len(response_data["results"]) == 1
+        assert response_data["results"][0]["name"] == "active_query"
+        assert response_data["results"][0]["is_active"]
 
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/?is_active=false")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
-        self.assertEqual(len(response_data["results"]), 1)
-        self.assertEqual(response_data["results"][0]["name"], "inactive_query")
-        self.assertFalse(response_data["results"][0]["is_active"])
+        assert len(response_data["results"]) == 1
+        assert response_data["results"][0]["name"] == "inactive_query"
+        assert not response_data["results"][0]["is_active"]
 
     def test_list_filter_by_created_by(self):
         """Test filtering endpoints by created_by user."""
@@ -306,17 +306,17 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         # Test filtering by first user
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/?created_by={self.user.id}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
-        self.assertEqual(len(response_data["results"]), 1)
-        self.assertEqual(response_data["results"][0]["name"], "query_by_user1")
+        assert len(response_data["results"]) == 1
+        assert response_data["results"][0]["name"] == "query_by_user1"
 
         # Test filtering by second user
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/?created_by={other_user.id}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
-        self.assertEqual(len(response_data["results"]), 1)
-        self.assertEqual(response_data["results"][0]["name"], "query_by_user2")
+        assert len(response_data["results"]) == 1
+        assert response_data["results"][0]["name"] == "query_by_user2"
 
     def test_list_filter_combined(self):
         """Test filtering endpoints by both is_active and created_by."""
@@ -347,11 +347,11 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(
             f"/api/environments/{self.team.id}/endpoints/?is_active=true&created_by={self.user.id}"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
-        self.assertEqual(len(response_data["results"]), 1)
-        self.assertEqual(response_data["results"][0]["name"], "active_query_user1")
-        self.assertTrue(response_data["results"][0]["is_active"])
+        assert len(response_data["results"]) == 1
+        assert response_data["results"][0]["name"] == "active_query_user1"
+        assert response_data["results"][0]["is_active"]
 
     def test_list_no_filters(self):
         """Test listing all endpoints without filters."""
@@ -372,11 +372,11 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         # Test without any filters - should return all queries
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
-        self.assertEqual(len(response_data["results"]), 2)
+        assert len(response_data["results"]) == 2
         query_names = {q["name"] for q in response_data["results"]}
-        self.assertEqual(query_names, {"query1", "query2"})
+        assert query_names == {"query1", "query2"}
 
     def test_create_endpoint_with_comprehensive_trends_query(self):
         """Test creating a endpoint with a comprehensive TrendsQuery containing many fields."""
@@ -448,58 +448,58 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
 
-        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        assert status.HTTP_201_CREATED == response.status_code, response.json()
         response_data = response.json()
 
         # Verify all the key fields are preserved
-        self.assertEqual("comprehensive_trends_test", response_data["name"])
-        self.assertEqual("A comprehensive trends query with many fields populated", response_data["description"])
-        self.assertTrue(response_data["is_active"])
+        assert "comprehensive_trends_test" == response_data["name"]
+        assert "A comprehensive trends query with many fields populated" == response_data["description"]
+        assert response_data["is_active"]
 
         saved_query = response_data["query"]
-        self.assertEqual("TrendsQuery", saved_query["kind"])
-        self.assertEqual("week", saved_query["interval"])
-        self.assertEqual(2, len(saved_query["series"]))
-        self.assertEqual("$pageview", saved_query["series"][0]["event"])
-        self.assertEqual("Page Views", saved_query["series"][0]["custom_name"])
+        assert "TrendsQuery" == saved_query["kind"]
+        assert "week" == saved_query["interval"]
+        assert 2 == len(saved_query["series"])
+        assert "$pageview" == saved_query["series"][0]["event"]
+        assert "Page Views" == saved_query["series"][0]["custom_name"]
 
         # Verify date range
-        self.assertEqual("2025-01-01", saved_query["dateRange"]["date_from"])
-        self.assertEqual("2025-01-31", saved_query["dateRange"]["date_to"])
-        self.assertTrue(saved_query["dateRange"]["explicitDate"])
+        assert "2025-01-01" == saved_query["dateRange"]["date_from"]
+        assert "2025-01-31" == saved_query["dateRange"]["date_to"]
+        assert saved_query["dateRange"]["explicitDate"]
 
-        self.assertEqual("$geoip_country_code", saved_query["breakdownFilter"]["breakdown"])
-        self.assertEqual("event", saved_query["breakdownFilter"]["breakdown_type"])
-        self.assertEqual(10, saved_query["breakdownFilter"]["breakdown_limit"])
+        assert "$geoip_country_code" == saved_query["breakdownFilter"]["breakdown"]
+        assert "event" == saved_query["breakdownFilter"]["breakdown_type"]
+        assert 10 == saved_query["breakdownFilter"]["breakdown_limit"]
 
-        self.assertTrue(saved_query["compareFilter"]["compare"])
-        self.assertEqual("-1m", saved_query["compareFilter"]["compare_to"])
+        assert saved_query["compareFilter"]["compare"]
+        assert "-1m" == saved_query["compareFilter"]["compare_to"]
 
         trends_filter = saved_query["trendsFilter"]
-        self.assertEqual("ActionsLineGraph", trends_filter["display"])
-        self.assertTrue(trends_filter["showLegend"])
-        self.assertTrue(trends_filter["showValuesOnSeries"])
-        self.assertEqual("numeric", trends_filter["aggregationAxisFormat"])
-        self.assertEqual("$", trends_filter["aggregationAxisPrefix"])
-        self.assertEqual(" USD", trends_filter["aggregationAxisPostfix"])
-        self.assertEqual(2, trends_filter["decimalPlaces"])
-        self.assertEqual(0.95, trends_filter["confidenceLevel"])
-        self.assertEqual("A + B", trends_filter["formula"])
-        self.assertEqual(1, len(trends_filter["goalLines"]))
-        self.assertEqual(1000, trends_filter["goalLines"][0]["value"])
+        assert "ActionsLineGraph" == trends_filter["display"]
+        assert trends_filter["showLegend"]
+        assert trends_filter["showValuesOnSeries"]
+        assert "numeric" == trends_filter["aggregationAxisFormat"]
+        assert "$" == trends_filter["aggregationAxisPrefix"]
+        assert " USD" == trends_filter["aggregationAxisPostfix"]
+        assert 2 == trends_filter["decimalPlaces"]
+        assert 0.95 == trends_filter["confidenceLevel"]
+        assert "A + B" == trends_filter["formula"]
+        assert 1 == len(trends_filter["goalLines"])
+        assert 1000 == trends_filter["goalLines"][0]["value"]
 
-        self.assertEqual(2, len(saved_query["properties"]))
-        self.assertEqual("$browser", saved_query["properties"][0]["key"])
-        self.assertEqual("in", saved_query["properties"][0]["operator"])
-        self.assertEqual(["Chrome", "Firefox", "Safari"], saved_query["properties"][0]["value"])
+        assert 2 == len(saved_query["properties"])
+        assert "$browser" == saved_query["properties"][0]["key"]
+        assert "in" == saved_query["properties"][0]["operator"]
+        assert ["Chrome", "Firefox", "Safari"] == saved_query["properties"][0]["value"]
 
-        self.assertTrue(saved_query["filterTestAccounts"])
-        self.assertEqual(0.1, saved_query["samplingFactor"])
-        self.assertEqual(1, saved_query["aggregation_group_type_index"])
+        assert saved_query["filterTestAccounts"]
+        assert 0.1 == saved_query["samplingFactor"]
+        assert 1 == saved_query["aggregation_group_type_index"]
 
         endpoint = Endpoint.objects.get(name="comprehensive_trends_test", team=self.team)
-        self.assertEqual(endpoint.created_by, self.user)
-        self.assertEqual("TrendsQuery", endpoint.query["kind"])
+        assert endpoint.created_by == self.user
+        assert "TrendsQuery" == endpoint.query["kind"]
 
     def test_get_last_execution_times_empty_names(self):
         """Test getting last execution times with empty names list."""
@@ -509,15 +509,15 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             f"/api/environments/{self.team.id}/endpoints/last_execution_times/", data, format="json"
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
 
-        self.assertIn("query_status", response_data, response_data)
+        assert "query_status" in response_data, response_data
         query_status = response_data["query_status"]
-        self.assertIn("complete", query_status)
-        self.assertIn("results", query_status)
+        assert "complete" in query_status
+        assert "results" in query_status
 
-        self.assertIsNone(query_status["results"], query_status)
+        assert query_status["results"] is None, query_status
 
     def test_get_last_execution_times_after_endpoint_execution(self):
         """Test getting last execution times with endpoint names after they have been executed."""
@@ -541,13 +541,13 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             f"/api/environments/{self.team.id}/endpoints/test_query_1/run/",
             HTTP_AUTHORIZATION=f"Bearer {self.api_key}",
         )
-        self.assertEqual(response1.status_code, status.HTTP_200_OK)
+        assert response1.status_code == status.HTTP_200_OK
 
         response2 = self.client.get(
             f"/api/environments/{self.team.id}/endpoints/test_query_2/run/",
             HTTP_AUTHORIZATION=f"Bearer {self.api_key}",
         )
-        self.assertEqual(response2.status_code, status.HTTP_200_OK)
+        assert response2.status_code == status.HTTP_200_OK
 
         # wait for the queries to end up in query_log :/
         sleep(3)
@@ -557,29 +557,27 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             f"/api/environments/{self.team.id}/endpoints/last_execution_times/", data, format="json"
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        assert response.status_code == status.HTTP_200_OK, response.json()
         response_data = response.json()
 
-        self.assertIn("query_status", response_data)
+        assert "query_status" in response_data
         query_status = response_data["query_status"]
-        self.assertIn("complete", query_status)
-        self.assertIn("results", query_status)
-        self.assertIsInstance(query_status["results"], list)
+        assert "complete" in query_status
+        assert "results" in query_status
+        assert isinstance(query_status["results"], list)
 
         results = query_status["results"]
-        self.assertEqual(len(results), 2, f"Expected 2 results, got {results}")
+        assert len(results) == 2, f"Expected 2 results, got {results}"
 
         query_timestamps = {row[0]: row[1] for row in results if len(row) >= 2}
 
-        self.assertIn("test_query_1", query_timestamps, f"test_query_1 not found in results: {results}")
-        self.assertIn("test_query_2", query_timestamps, f"test_query_2 not found in results: {results}")
-        self.assertIsNotNone(
-            datetime.fromisoformat(query_timestamps["test_query_1"]),
-            f"Invalid timestamp format for test_query_1: {query_timestamps['test_query_1']}",
+        assert "test_query_1" in query_timestamps, f"test_query_1 not found in results: {results}"
+        assert "test_query_2" in query_timestamps, f"test_query_2 not found in results: {results}"
+        assert datetime.fromisoformat(query_timestamps["test_query_1"]) is not None, (
+            f"Invalid timestamp format for test_query_1: {query_timestamps['test_query_1']}"
         )
-        self.assertIsNotNone(
-            datetime.fromisoformat(query_timestamps["test_query_2"]),
-            f"Invalid timestamp format for test_query_2: {query_timestamps['test_query_2']}",
+        assert datetime.fromisoformat(query_timestamps["test_query_2"]) is not None, (
+            f"Invalid timestamp format for test_query_2: {query_timestamps['test_query_2']}"
         )
 
     def test_get_last_execution_times_with_nonexistent_query(self):
@@ -590,13 +588,13 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             f"/api/environments/{self.team.id}/endpoints/last_execution_times/", data, format="json"
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
 
-        self.assertIn("query_status", response_data)
+        assert "query_status" in response_data
         query_status = response_data["query_status"]
-        self.assertIsInstance(query_status["results"], list)
-        self.assertEqual(len(query_status["results"]), 0)
+        assert isinstance(query_status["results"], list)
+        assert len(query_status["results"]) == 0
 
     def test_get_last_execution_times_of_endpoint_not_executed(self):
         """Test getting last execution times of a endpoint that has not been executed."""
@@ -614,13 +612,13 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             f"/api/environments/{self.team.id}/endpoints/last_execution_times/", data, format="json"
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
 
-        self.assertIn("query_status", response_data)
+        assert "query_status" in response_data
         query_status = response_data["query_status"]
-        self.assertIsInstance(query_status["results"], list)
-        self.assertEqual(len(query_status["results"]), 0, query_status)
+        assert isinstance(query_status["results"], list)
+        assert len(query_status["results"]) == 0, query_status
 
     @parameterized.expand(
         [
@@ -641,12 +639,12 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             "cache_age_seconds": cache_age_seconds,
         }
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
-        self.assertEqual(response.status_code, expected_status)
+        assert response.status_code == expected_status
 
         if expected_status == status.HTTP_201_CREATED:
-            self.assertEqual(response.json()["cache_age_seconds"], cache_age_seconds)
+            assert response.json()["cache_age_seconds"] == cache_age_seconds
         elif expected_error_text:
-            self.assertIn(expected_error_text, str(response.json()))
+            assert expected_error_text in str(response.json())
 
     @parameterized.expand(
         [
@@ -686,41 +684,35 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         # First execution - should calculate fresh
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {"debug": True})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
 
         # Verify it was cached
-        self.assertIn("cache_key", response_data)
-        self.assertIn("last_refresh", response_data)
+        assert "cache_key" in response_data
+        assert "last_refresh" in response_data
         cache_key = response_data["cache_key"]
 
         # Second execution immediately - should use cache
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {"debug": True})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
-        self.assertEqual(response_data["cache_key"], cache_key)
-        self.assertTrue(response_data.get("is_cached", False))
+        assert response_data["cache_key"] == cache_key
+        assert response_data.get("is_cached", False)
 
         # Move time forward (still within cache age)
         with freeze_time(f"2025-01-01 12:{time_within_cache:02d}:00"):
             response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
             response_data = response.json()
-            self.assertTrue(
-                response_data.get("is_cached", False),
-                f"Should still use cache at {time_within_cache} minutes",
-            )
+            assert response_data.get("is_cached", False), f"Should still use cache at {time_within_cache} minutes"
 
         # Move time forward (past cache age) - should recalculate
         with freeze_time(f"2025-01-01 12:{time_past_cache:02d}:00"):
             response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
             response_data = response.json()
             # Should have recalculated with fresh data
-            self.assertFalse(
-                response_data.get("is_cached", True),
-                f"Should recalculate after {time_past_cache} minutes",
-            )
+            assert not response_data.get("is_cached", True), f"Should recalculate after {time_past_cache} minutes"
 
     @freeze_time("2025-01-01 12:00:00")
     def test_default_cache_age_when_not_set(self):
@@ -737,17 +729,17 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         # First execution
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
         cache_key = response_data.get("cache_key")
 
         # Move time forward 5 minutes - should still use cache (default is much longer)
         with freeze_time("2025-01-01 12:05:00"):
             response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
             response_data = response.json()
-            self.assertTrue(response_data.get("is_cached", False), "Should use cache with default timing")
-            self.assertEqual(response_data.get("cache_key"), cache_key)
+            assert response_data.get("is_cached", False), "Should use cache with default timing"
+            assert response_data.get("cache_key") == cache_key
 
     def test_update_cache_age_seconds(self):
         """Test updating cache_age_seconds on an existing endpoint."""
@@ -764,22 +756,22 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         response = self.client.patch(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/", updated_data, format="json"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["cache_age_seconds"], 600)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["cache_age_seconds"] == 600
 
         endpoint.refresh_from_db()
-        self.assertEqual(endpoint.cache_age_seconds, 600)
+        assert endpoint.cache_age_seconds == 600
 
         # Update to None (use defaults)
         updated_data = {"cache_age_seconds": None}
         response = self.client.patch(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/", updated_data, format="json"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIsNone(response.json()["cache_age_seconds"])
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["cache_age_seconds"] is None
 
         endpoint.refresh_from_db()
-        self.assertIsNone(endpoint.cache_age_seconds)
+        assert endpoint.cache_age_seconds is None
 
     def test_create_endpoint_with_insight_reference(self):
         """Test creating an endpoint with a reference to the insight it was created from."""
@@ -792,13 +784,13 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
 
-        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        assert status.HTTP_201_CREATED == response.status_code, response.json()
         response_data = response.json()
 
-        self.assertEqual("test_with_insight", response_data["name"])
-        self.assertEqual("abc123xyz", response_data["derived_from_insight"])
+        assert "test_with_insight" == response_data["name"]
+        assert "abc123xyz" == response_data["derived_from_insight"]
         endpoint = Endpoint.objects.get(name="test_with_insight", team=self.team)
-        self.assertEqual(endpoint.derived_from_insight, "abc123xyz")
+        assert endpoint.derived_from_insight == "abc123xyz"
 
 
 class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
@@ -836,11 +828,11 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/execute_test/run/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
 
-        self.assertIn("results", response_data)
-        self.assertIsInstance(response_data["results"], list)
+        assert "results" in response_data
+        assert isinstance(response_data["results"], list)
 
     def test_execute_inactive_query(self):
         """Test that inactive queries cannot be executed."""
@@ -854,7 +846,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/inactive_test/run/")
 
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     # TODO: can we drop this one? yes after test_cant_create_endpoint_with_invalid_sql is green
     def test_execute_query_with_invalid_sql(self):
@@ -869,8 +861,8 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/invalid_sql_test/run/")
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("detail", response.json())
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "detail" in response.json()
 
     def test_execute_query_with_variables(self):
         """Test executing a endpoint with variables."""
@@ -926,8 +918,8 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         )
 
         response_data = response.json()
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response_data)
-        self.assertEqual(len(response_data["results"]), 3)
+        assert response.status_code == status.HTTP_200_OK, response_data
+        assert len(response_data["results"]) == 3
 
     def test_execute_insight_endpoint_with_filters_override(self):
         Endpoint.objects.create(
@@ -951,10 +943,10 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             f"/api/environments/{self.team.id}/endpoints/trends_query/run/", request_data, format="json"
         )
         response_data = response.json()
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response_data)
-        self.assertEqual(response_data["resolved_date_range"]["date_from"], "2025-09-18T00:00:00Z")
-        self.assertEqual(response_data["resolved_date_range"]["date_to"], "2025-09-21T23:59:59.999999Z")
-        self.assertEqual(response_data["results"][0]["filter"]["properties"], expected_filters)
+        assert response.status_code == status.HTTP_200_OK, response_data
+        assert response_data["resolved_date_range"]["date_from"] == "2025-09-18T00:00:00Z"
+        assert response_data["resolved_date_range"]["date_to"] == "2025-09-21T23:59:59.999999Z"
+        assert response_data["results"][0]["filter"]["properties"] == expected_filters
 
     def test_execute_insight_endpoint_with_query_override(self):
         """Test executing a endpoint with TrendsQuery override containing key fields."""
@@ -994,17 +986,17 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             f"/api/environments/{self.team.id}/endpoints/trends_execution_test/run/", override_payload, format="json"
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        assert response.status_code == status.HTTP_200_OK, response.json()
         response_data = response.json()
 
-        self.assertIn("results", response_data)
-        self.assertIsInstance(response_data["results"], list)
+        assert "results" in response_data
+        assert isinstance(response_data["results"], list)
 
         # TODO: make this more specific
         if response_data["results"]:
             first_series_result = response_data["results"][0]
-            self.assertEqual(first_series_result["interval"], "hour")
-            self.assertEqual(len(first_series_result["data"]), 25)
+            assert first_series_result["interval"] == "hour"
+            assert len(first_series_result["data"]) == 25
 
     def test_execute_hogql_query_with_override_validation_error(self):
         """Test that executing a HogQL query with query_override raises a validation error."""
@@ -1025,9 +1017,9 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             f"/api/environments/{self.team.id}/endpoints/hogql_validation_test/run/", override_payload, format="json"
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         response_data = response.json()
-        self.assertEqual("validation_error", response_data["type"])
+        assert "validation_error" == response_data["type"]
 
     @parameterized.expand(
         [
@@ -1071,8 +1063,8 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         )
 
         response_data = response.json()
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response_data)
-        self.assertEqual(len(response_data["results"]), expected_result_count)
+        assert response.status_code == status.HTTP_200_OK, response_data
+        assert len(response_data["results"]) == expected_result_count
 
 
 class TestEndpointOpenAPISpec(ClickhouseTestMixin, APIBaseTest):
@@ -1098,29 +1090,29 @@ class TestEndpointOpenAPISpec(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/basic-endpoint/openapi.json/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         spec = response.json()
 
-        self.assertEqual(spec["openapi"], "3.0.3")
-        self.assertEqual(spec["info"]["title"], "basic-endpoint")
-        self.assertEqual(spec["info"]["description"], "A basic test endpoint")
-        self.assertEqual(spec["info"]["version"], "1")
+        assert spec["openapi"] == "3.0.3"
+        assert spec["info"]["title"] == "basic-endpoint"
+        assert spec["info"]["description"] == "A basic test endpoint"
+        assert spec["info"]["version"] == "1"
 
-        self.assertIn("servers", spec)
-        self.assertEqual(len(spec["servers"]), 1)
+        assert "servers" in spec
+        assert len(spec["servers"]) == 1
 
         run_path = f"/api/environments/{self.team.id}/endpoints/basic-endpoint/run"
-        self.assertIn(run_path, spec["paths"])
+        assert run_path in spec["paths"]
 
         post_op = spec["paths"][run_path]["post"]
-        self.assertEqual(post_op["operationId"], "run_basic_endpoint")
-        self.assertIn("requestBody", post_op)
-        self.assertIn("responses", post_op)
-        self.assertIn("200", post_op["responses"])
+        assert post_op["operationId"] == "run_basic_endpoint"
+        assert "requestBody" in post_op
+        assert "responses" in post_op
+        assert "200" in post_op["responses"]
 
         response_schema = post_op["responses"]["200"]["content"]["application/json"]["schema"]
-        self.assertIn("results", response_schema["properties"])
-        self.assertEqual(response_schema["properties"]["results"]["type"], "array")
+        assert "results" in response_schema["properties"]
+        assert response_schema["properties"]["results"]["type"] == "array"
 
     def test_openapi_spec_with_variables(self):
         """Test that HogQL endpoints with variables include variables in the schema."""
@@ -1150,18 +1142,18 @@ class TestEndpointOpenAPISpec(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/endpoint-with-vars/openapi.json/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         spec = response.json()
 
         # Check that EndpointRunRequest schema has variables reference
         endpoint_schema = spec["components"]["schemas"]["EndpointRunRequest"]
-        self.assertIn("variables", endpoint_schema["properties"])
+        assert "variables" in endpoint_schema["properties"]
 
         # Check Variables schema is defined with the variable
-        self.assertIn("Variables", spec["components"]["schemas"])
+        assert "Variables" in spec["components"]["schemas"]
         variables_schema = spec["components"]["schemas"]["Variables"]
-        self.assertEqual(variables_schema["type"], "object")
-        self.assertIn("country", variables_schema["properties"])
+        assert variables_schema["type"] == "object"
+        assert "country" in variables_schema["properties"]
 
     def test_openapi_spec_insight_query(self):
         """Test that insight queries include query_override in the schema."""
@@ -1180,13 +1172,13 @@ class TestEndpointOpenAPISpec(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/trends-endpoint/openapi.json/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         spec = response.json()
 
         # Check EndpointRunRequest schema in components
         endpoint_schema = spec["components"]["schemas"]["EndpointRunRequest"]
-        self.assertIn("query_override", endpoint_schema["properties"])
-        self.assertIn("filters_override", endpoint_schema["properties"])
+        assert "query_override" in endpoint_schema["properties"]
+        assert "filters_override" in endpoint_schema["properties"]
 
     def test_openapi_spec_dashboard_filter_schema(self):
         """Test that DashboardFilter schema includes date_from and date_to."""
@@ -1200,20 +1192,20 @@ class TestEndpointOpenAPISpec(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/filter-test-endpoint/openapi.json/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         spec = response.json()
 
         # Check DashboardFilter schema
-        self.assertIn("DashboardFilter", spec["components"]["schemas"])
+        assert "DashboardFilter" in spec["components"]["schemas"]
         filter_schema = spec["components"]["schemas"]["DashboardFilter"]
-        self.assertIn("date_from", filter_schema["properties"])
-        self.assertIn("date_to", filter_schema["properties"])
-        self.assertIn("properties", filter_schema["properties"])
+        assert "date_from" in filter_schema["properties"]
+        assert "date_to" in filter_schema["properties"]
+        assert "properties" in filter_schema["properties"]
 
     def test_openapi_spec_not_found(self):
         """Test that requesting spec for non-existent endpoint returns 404."""
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/nonexistent/openapi.json/")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_openapi_spec_security_scheme(self):
         """Test that the spec includes proper security scheme."""
@@ -1227,14 +1219,14 @@ class TestEndpointOpenAPISpec(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/secure-endpoint/openapi.json/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         spec = response.json()
 
-        self.assertIn("components", spec)
-        self.assertIn("securitySchemes", spec["components"])
-        self.assertIn("PersonalAPIKey", spec["components"]["securitySchemes"])
-        self.assertEqual(spec["components"]["securitySchemes"]["PersonalAPIKey"]["type"], "http")
-        self.assertEqual(spec["components"]["securitySchemes"]["PersonalAPIKey"]["scheme"], "bearer")
+        assert "components" in spec
+        assert "securitySchemes" in spec["components"]
+        assert "PersonalAPIKey" in spec["components"]["securitySchemes"]
+        assert spec["components"]["securitySchemes"]["PersonalAPIKey"]["type"] == "http"
+        assert spec["components"]["securitySchemes"]["PersonalAPIKey"]["scheme"] == "bearer"
 
     def test_openapi_spec_version_reflects_endpoint_version(self):
         """Test that the spec version matches the endpoint's current version."""
@@ -1249,6 +1241,6 @@ class TestEndpointOpenAPISpec(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/versioned-endpoint/openapi.json/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         spec = response.json()
-        self.assertEqual(spec["info"]["version"], "3")
+        assert spec["info"]["version"] == "3"

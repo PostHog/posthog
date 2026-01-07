@@ -1,5 +1,5 @@
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any
 
 import pytest
 from freezegun import freeze_time
@@ -25,7 +25,7 @@ from posthog.hogql.query import execute_hogql_query
 class TestMappings(BaseTest):
     snapshot: Any
 
-    def _return_present_function(self, function: Optional[HogQLFunctionMeta]) -> HogQLFunctionMeta:
+    def _return_present_function(self, function: HogQLFunctionMeta | None) -> HogQLFunctionMeta:
         assert function is not None
         return function
 
@@ -39,25 +39,25 @@ class TestMappings(BaseTest):
         return self._return_present_function(find_hogql_posthog_function(name))
 
     def test_find_case_sensitive_function(self):
-        self.assertEqual(self._get_hogql_function("toString").clickhouse_name, "toString")
-        self.assertEqual(find_hogql_function("TOString"), None)
-        self.assertEqual(find_hogql_function("PlUs"), None)
+        assert self._get_hogql_function("toString").clickhouse_name == "toString"
+        assert find_hogql_function("TOString") is None
+        assert find_hogql_function("PlUs") is None
 
-        self.assertEqual(self._get_hogql_aggregation("countIf").clickhouse_name, "countIf")
-        self.assertEqual(find_hogql_aggregation("COUNTIF"), None)
+        assert self._get_hogql_aggregation("countIf").clickhouse_name == "countIf"
+        assert find_hogql_aggregation("COUNTIF") is None
 
-        self.assertEqual(self._get_hogql_posthog_function("sparkline").clickhouse_name, "sparkline")
-        self.assertEqual(find_hogql_posthog_function("SPARKLINE"), None)
+        assert self._get_hogql_posthog_function("sparkline").clickhouse_name == "sparkline"
+        assert find_hogql_posthog_function("SPARKLINE") is None
 
     def test_find_case_insensitive_function(self):
-        self.assertEqual(self._get_hogql_function("CoAlesce").clickhouse_name, "coalesce")
+        assert self._get_hogql_function("CoAlesce").clickhouse_name == "coalesce"
 
-        self.assertEqual(self._get_hogql_aggregation("SuM").clickhouse_name, "sum")
+        assert self._get_hogql_aggregation("SuM").clickhouse_name == "sum"
 
     def test_find_non_existent_function(self):
-        self.assertEqual(find_hogql_function("functionThatDoesntExist"), None)
-        self.assertEqual(find_hogql_aggregation("functionThatDoesntExist"), None)
-        self.assertEqual(find_hogql_posthog_function("functionThatDoesntExist"), None)
+        assert find_hogql_function("functionThatDoesntExist") is None
+        assert find_hogql_aggregation("functionThatDoesntExist") is None
+        assert find_hogql_posthog_function("functionThatDoesntExist") is None
 
     def test_compare_types(self):
         res = compare_types([IntegerType()], (IntegerType(),))
@@ -198,62 +198,62 @@ class TestMappings(BaseTest):
         result_dict = dict(zip(response.columns, response.results[0]))
 
         # Date function assertions
-        self.assertEqual(result_dict["truncated_hour"], datetime(2023, 1, 1, 13, 0, tzinfo=UTC))
-        self.assertEqual(result_dict["truncated_day"], datetime(2023, 1, 1, 0, 0, tzinfo=UTC))
-        self.assertEqual(result_dict["truncated_month"], date(2023, 1, 1))
-        self.assertEqual(result_dict["truncated_quarter"], date(2023, 1, 1))
-        self.assertEqual(result_dict["truncated_year"], date(2023, 1, 1))
-        self.assertEqual(result_dict["interval_result"], datetime(2024, 3, 4, 4, 5, 6, tzinfo=UTC))
-        self.assertEqual(result_dict["timestamp_result"], datetime(2023, 1, 1, 12, 34, 56, tzinfo=UTC))
-        self.assertEqual(result_dict["timestamptz_result"], datetime(2023, 1, 1, 12, 34, 56, tzinfo=UTC))
-        self.assertEqual(result_dict["timezone_result"], datetime(2023, 1, 1, 13, 45, 32, tzinfo=UTC))
-        self.assertEqual(result_dict["to_start_of_interval_result"], datetime(2023, 1, 1, 13, 0, tzinfo=UTC))
-        self.assertEqual(result_dict["to_start_of_interval_origin_result"], datetime(2023, 1, 1, 13, 15, tzinfo=UTC))
-        self.assertEqual(result_dict["date_bin_result"], datetime(2023, 1, 1, 13, 15, tzinfo=UTC))
-        self.assertEqual(result_dict["date_part_year"], 2023)
-        self.assertEqual(result_dict["date_part_month"], 1)
-        self.assertEqual(result_dict["date_part_day"], 1)
-        self.assertEqual(result_dict["date_part_hour"], 13)
-        self.assertEqual(result_dict["to_timestamp_result"], datetime(2023, 1, 1, 13, 25, 32))
-        self.assertEqual(result_dict["to_char_result"], "2023-01-01")
-        self.assertEqual(result_dict["make_date_result"], date(2023, 1, 1))
-        self.assertEqual(result_dict["date_add_result"], datetime(2023, 1, 1, 14, 45, 32, tzinfo=UTC))
-        self.assertEqual(result_dict["date_sub_result"], datetime(2023, 1, 1, 12, 45, 32, tzinfo=UTC))
-        self.assertEqual(result_dict["date_diff_result"], 1)
-        self.assertEqual(result_dict["to_date_result"], date(2023, 1, 1))
+        assert result_dict["truncated_hour"] == datetime(2023, 1, 1, 13, 0, tzinfo=UTC)
+        assert result_dict["truncated_day"] == datetime(2023, 1, 1, 0, 0, tzinfo=UTC)
+        assert result_dict["truncated_month"] == date(2023, 1, 1)
+        assert result_dict["truncated_quarter"] == date(2023, 1, 1)
+        assert result_dict["truncated_year"] == date(2023, 1, 1)
+        assert result_dict["interval_result"] == datetime(2024, 3, 4, 4, 5, 6, tzinfo=UTC)
+        assert result_dict["timestamp_result"] == datetime(2023, 1, 1, 12, 34, 56, tzinfo=UTC)
+        assert result_dict["timestamptz_result"] == datetime(2023, 1, 1, 12, 34, 56, tzinfo=UTC)
+        assert result_dict["timezone_result"] == datetime(2023, 1, 1, 13, 45, 32, tzinfo=UTC)
+        assert result_dict["to_start_of_interval_result"] == datetime(2023, 1, 1, 13, 0, tzinfo=UTC)
+        assert result_dict["to_start_of_interval_origin_result"] == datetime(2023, 1, 1, 13, 15, tzinfo=UTC)
+        assert result_dict["date_bin_result"] == datetime(2023, 1, 1, 13, 15, tzinfo=UTC)
+        assert result_dict["date_part_year"] == 2023
+        assert result_dict["date_part_month"] == 1
+        assert result_dict["date_part_day"] == 1
+        assert result_dict["date_part_hour"] == 13
+        assert result_dict["to_timestamp_result"] == datetime(2023, 1, 1, 13, 25, 32)
+        assert result_dict["to_char_result"] == "2023-01-01"
+        assert result_dict["make_date_result"] == date(2023, 1, 1)
+        assert result_dict["date_add_result"] == datetime(2023, 1, 1, 14, 45, 32, tzinfo=UTC)
+        assert result_dict["date_sub_result"] == datetime(2023, 1, 1, 12, 45, 32, tzinfo=UTC)
+        assert result_dict["date_diff_result"] == 1
+        assert result_dict["to_date_result"] == date(2023, 1, 1)
 
         # String function assertions
-        self.assertEqual(result_dict["ascii_result"], 65)
-        self.assertEqual(result_dict["repeat_result"], "pgpgpg")
-        self.assertEqual(result_dict["initcap_result"], "Hello World")
-        self.assertEqual(result_dict["left_result"], "he")
-        self.assertEqual(result_dict["right_result"], "lo")
-        self.assertEqual(result_dict["lpad_result"], "xyxhi")
-        self.assertEqual(result_dict["rpad_result"], "hixyx")
-        self.assertEqual(result_dict["ltrim_result"], "hello  ")
-        self.assertEqual(result_dict["rtrim_result"], "  hello")
-        self.assertEqual(result_dict["btrim_result"], "hello")
-        self.assertEqual(result_dict["split_part_result"], "def")
+        assert result_dict["ascii_result"] == 65
+        assert result_dict["repeat_result"] == "pgpgpg"
+        assert result_dict["initcap_result"] == "Hello World"
+        assert result_dict["left_result"] == "he"
+        assert result_dict["right_result"] == "lo"
+        assert result_dict["lpad_result"] == "xyxhi"
+        assert result_dict["rpad_result"] == "hixyx"
+        assert result_dict["ltrim_result"] == "hello  "
+        assert result_dict["rtrim_result"] == "  hello"
+        assert result_dict["btrim_result"] == "hello"
+        assert result_dict["split_part_result"] == "def"
 
         # Window function assertions
-        self.assertIsNone(result_dict["lag_result"])  # First row has no lag
-        self.assertEqual(result_dict["lead_result"], 2)  # First row leads to 2
-        self.assertIsNone(result_dict["lag_2_result"])  # First row has no lag 2
-        self.assertEqual(result_dict["lead_2_result"], 3)  # First row leads 2 to 3
-        self.assertEqual(result_dict["lag_default_result"], 9)  # First row lag with default
-        self.assertEqual(result_dict["lead_default_result"], 2)  # First row lead with default
+        assert result_dict["lag_result"] is None  # First row has no lag
+        assert result_dict["lead_result"] == 2  # First row leads to 2
+        assert result_dict["lag_2_result"] is None  # First row has no lag 2
+        assert result_dict["lead_2_result"] == 3  # First row leads 2 to 3
+        assert result_dict["lag_default_result"] == 9  # First row lag with default
+        assert result_dict["lead_default_result"] == 2  # First row lead with default
 
         # Aggregate function assertions
-        self.assertEqual(result_dict["array_agg_result"], [1, 2, 3, 4, 5])
-        self.assertEqual(result_dict["json_agg_result"], "[1,2,3,4,5]")
-        self.assertEqual(result_dict["string_agg_result"], "1,2,3,4,5")
-        self.assertTrue(result_dict["every_result"])  # All values > 0
+        assert result_dict["array_agg_result"] == [1, 2, 3, 4, 5]
+        assert result_dict["json_agg_result"] == "[1,2,3,4,5]"
+        assert result_dict["string_agg_result"] == "1,2,3,4,5"
+        assert result_dict["every_result"]  # All values > 0
 
         # Aggregate function assertions for NULL values
-        self.assertEqual(result_dict["array_agg_null_result"], None)
-        self.assertEqual(result_dict["json_agg_null_result"], None)
-        self.assertEqual(result_dict["string_agg_null_result"], None)
-        self.assertFalse(result_dict["every_null_result"])  # No values > 0
+        assert result_dict["array_agg_null_result"] is None
+        assert result_dict["json_agg_null_result"] is None
+        assert result_dict["string_agg_null_result"] is None
+        assert not result_dict["every_null_result"]  # No values > 0
 
     def test_function_mapping(self):
         response = execute_hogql_query(
@@ -299,18 +299,10 @@ class TestMappings(BaseTest):
             raise ValueError("Query returned no columns")
         result_dict = dict(zip(response.columns, response.results[0]))
 
-        self.assertEqual(result_dict["empty_map"], {})
-        self.assertEqual(result_dict["single_pair_map"], {"key1": "value1"})
-        self.assertEqual(result_dict["two_pair_map"], {"key1": "value1", "key2": "value2"})
-        self.assertEqual(
-            result_dict["multi_pair_map"],
-            {
-                "a": "2023-01-01",
-                "b": "100",
-                "c": "50",
-                "d": "50",
-            },
-        )
+        assert result_dict["empty_map"] == {}
+        assert result_dict["single_pair_map"] == {"key1": "value1"}
+        assert result_dict["two_pair_map"] == {"key1": "value1", "key2": "value2"}
+        assert result_dict["multi_pair_map"] == {"a": "2023-01-01", "b": "100", "c": "50", "d": "50"}
 
     def test_language_code_to_name_function(self):
         """Test the languageCodeToName function that maps language codes to full language names."""
@@ -329,10 +321,10 @@ class TestMappings(BaseTest):
             raise ValueError("Query returned no columns")
         result_dict = dict(zip(response.columns, response.results[0]))
 
-        self.assertEqual(result_dict["english_name"], "English")
-        self.assertEqual(result_dict["spanish_name"], "Spanish")
-        self.assertEqual(result_dict["invalid_code"], "Unknown")
-        self.assertEqual(result_dict["null_code"], "Unknown")
+        assert result_dict["english_name"] == "English"
+        assert result_dict["spanish_name"] == "Spanish"
+        assert result_dict["invalid_code"] == "Unknown"
+        assert result_dict["null_code"] == "Unknown"
 
     def test_isValidJSON_function(self):
         """Test that isValidJSON translates correctly from HogQL to ClickHouse."""
@@ -350,8 +342,8 @@ class TestMappings(BaseTest):
         result_dict = dict(zip(response.columns, response.results[0]))
 
         # Verify HogQL to ClickHouse translation works correctly
-        self.assertEqual(result_dict["valid_json"], 1)
-        self.assertEqual(result_dict["invalid_json"], 0)
+        assert result_dict["valid_json"] == 1
+        assert result_dict["invalid_json"] == 0
 
     def test_JSONHas_function(self):
         """Test that JSONHas translates correctly from HogQL to ClickHouse."""
@@ -369,8 +361,8 @@ class TestMappings(BaseTest):
         result_dict = dict(zip(response.columns, response.results[0]))
 
         # Verify HogQL to ClickHouse translation works correctly
-        self.assertEqual(result_dict["has_key"], 1)
-        self.assertEqual(result_dict["missing_key"], 0)
+        assert result_dict["has_key"] == 1
+        assert result_dict["missing_key"] == 0
 
     def test_json_functions_basic(self):
         """Test basic JSON functions translate correctly from HogQL to ClickHouse."""
@@ -390,10 +382,10 @@ class TestMappings(BaseTest):
         result_dict = dict(zip(response.columns, response.results[0]))
 
         # Verify basic functionality
-        self.assertEqual(result_dict["obj_length"], 2)  # 2 keys in object
-        self.assertEqual(result_dict["array_length"], 5)  # 5 elements in array
-        self.assertEqual(result_dict["string_type"], "String")  # type of "value"
-        self.assertEqual(result_dict["extracted_int"], 42)  # extracted integer
+        assert result_dict["obj_length"] == 2  # 2 keys in object
+        assert result_dict["array_length"] == 5  # 5 elements in array
+        assert result_dict["string_type"] == "String"  # type of "value"
+        assert result_dict["extracted_int"] == 42  # extracted integer
 
     def test_generated_aggregate_combinator_functions_snapshot(self):
         generated_sigs = [
@@ -401,4 +393,4 @@ class TestMappings(BaseTest):
             for (name, sig) in generate_combinator_suffix_combinations().items()
         ]
 
-        self.assertEqual(generated_sigs, self.snapshot)
+        assert generated_sigs == self.snapshot

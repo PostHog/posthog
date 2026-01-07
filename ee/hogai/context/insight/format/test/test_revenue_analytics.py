@@ -48,15 +48,14 @@ class TestRevenueAnalyticsFormatters(BaseTest):
         ]
 
         formatter = RevenueAnalyticsGrossRevenueResultsFormatter(query, results)
-        self.assertEqual(
-            formatter.format(),
-            "Gross revenue for period: 2024-11-01 to 2025-02-01\n"
+        assert (
+            formatter.format() == "Gross revenue for period: 2024-11-01 to 2025-02-01\n"
             "Breakdown by revenue_analytics_product.name\n"
             "Date|stripe.posthog_test - Product F|stripe.posthog_test - Product E\n"
             "2024-11-01|647.24355|64.24353\n"
             "2024-12-01|2507.21839|207.2432\n"
             "2025-01-01|2110.27254|210.272\n"
-            "2025-02-01|2415.34023|415.3402",
+            "2025-02-01|2415.34023|415.3402"
         )
 
     def test_format_metrics(self):
@@ -182,9 +181,8 @@ class TestRevenueAnalyticsFormatters(BaseTest):
         ]
 
         formatter = RevenueAnalyticsMetricsResultsFormatter(query, results)
-        self.assertEqual(
-            formatter.format(),
-            "Revenue metrics for period: 2024-11-01 to 2025-02-01\n"
+        assert (
+            formatter.format() == "Revenue metrics for period: 2024-11-01 to 2025-02-01\n"
             "Breakdown by revenue_analytics_product.name\n"
             "\nSubscription Count\n"
             "Date|stripe.posthog_test - Product E|stripe.posthog_test - Product F\n"
@@ -233,7 +231,7 @@ class TestRevenueAnalyticsFormatters(BaseTest):
             "2024-11-01|0|0\n"
             "2024-12-01|0|0\n"
             "2025-01-01|N/A|N/A\n"
-            "2025-02-01|N/A|N/A\n",
+            "2025-02-01|N/A|N/A\n"
         )
 
     def test_format_mrr(self):
@@ -321,9 +319,8 @@ class TestRevenueAnalyticsFormatters(BaseTest):
         ]
 
         formatter = RevenueAnalyticsMRRResultsFormatter(query, results)
-        self.assertEqual(
-            formatter.format(),
-            "MRR metrics for period: 2024-11-01 to 2025-02-01\n"
+        assert (
+            formatter.format() == "MRR metrics for period: 2024-11-01 to 2025-02-01\n"
             "Breakdown by revenue_analytics_product.name\n"
             "\nTotal MRR\n"
             "Date|stripe.posthog_test - Product C|stripe.posthog_test - Product D\n"
@@ -354,7 +351,7 @@ class TestRevenueAnalyticsFormatters(BaseTest):
             "2024-11-30|0|0\n"
             "2024-12-31|0|0\n"
             "2025-01-31|0|0\n"
-            "2025-02-28|0|0\n",
+            "2025-02-28|0|0\n"
         )
 
     def test_format_top_customers_group_by_month(self):
@@ -379,9 +376,8 @@ class TestRevenueAnalyticsFormatters(BaseTest):
         ]
 
         formatter = RevenueAnalyticsTopCustomersResultsFormatter(query, results)
-        self.assertEqual(
-            formatter.format(),
-            "Top customers for period: 2024-11-01 to 2025-02-01\n"
+        assert (
+            formatter.format() == "Top customers for period: 2024-11-01 to 2025-02-01\n"
             "Grouped by month\n"
             "Customer Name|2025-02-01|2025-03-01\n"
             "John Doe Jr|1105.82156|8104.56\n"
@@ -389,7 +385,7 @@ class TestRevenueAnalyticsFormatters(BaseTest):
             "John Smith|615.99731|814.915\n"
             "Jane Smith|85.47825|84.25\n"
             "Jane Doe|26.01009|84.0101\n"
-            "John Doe|5.23615|73.23614",
+            "John Doe|5.23615|73.23614"
         )
 
     def test_format_top_customers_group_by_all(self):
@@ -408,14 +404,13 @@ class TestRevenueAnalyticsFormatters(BaseTest):
         ]
 
         formatter = RevenueAnalyticsTopCustomersResultsFormatter(query, results)
-        self.assertEqual(
-            formatter.format(),
-            "Top customers for period: 2024-11-01 to 2025-02-01\n"
+        assert (
+            formatter.format() == "Top customers for period: 2024-11-01 to 2025-02-01\n"
             "Customer Name|Revenue\n"
             "John Doe Jr|1105.82156\n"
             "John Doe Jr Jr|668.67503\n"
             "John Smith|615.99731\n"
             "Jane Smith|85.47825\n"
             "Jane Doe|26.01009\n"
-            "John Doe|5.23615",
+            "John Doe|5.23615"
         )

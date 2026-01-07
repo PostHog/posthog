@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -141,18 +142,18 @@ class TestSessionRecordingV2Storage(APIBaseTest):
     def test_fetch_block_invalid_url(self, invalid_url, expected_error):
         storage = SessionRecordingV2ObjectStorage(MagicMock(), TEST_BUCKET)
 
-        with self.assertRaises(BlockFetchError) as cm:
+        with pytest.raises(BlockFetchError) as cm:
             storage.fetch_block(invalid_url)
-        assert expected_error in str(cm.exception)
+        assert expected_error in str(cm.value)
 
     def test_fetch_block_content_not_found(self):
         mock_client = MagicMock()
         mock_client.get_object.return_value = {"Body": MagicMock(read=MagicMock(return_value=None))}
         storage = SessionRecordingV2ObjectStorage(mock_client, TEST_BUCKET)
 
-        with self.assertRaises(BlockFetchError) as cm:
+        with pytest.raises(BlockFetchError) as cm:
             storage.fetch_block("s3://bucket/key1?range=bytes=0-100")
-        assert "Block content not found" in str(cm.exception)
+        assert "Block content not found" in str(cm.value)
 
     def test_fetch_block_wrong_content_length(self):
         mock_client = MagicMock()
@@ -161,9 +162,9 @@ class TestSessionRecordingV2Storage(APIBaseTest):
         mock_client.get_object.return_value = {"Body": mock_body}
         storage = SessionRecordingV2ObjectStorage(mock_client, TEST_BUCKET)
 
-        with self.assertRaises(BlockFetchError) as cm:
+        with pytest.raises(BlockFetchError) as cm:
             storage.fetch_block("s3://bucket/key1?range=bytes=0-100")
-        assert "Unexpected data length" in str(cm.exception)
+        assert "Unexpected data length" in str(cm.value)
 
     def test_fetch_block_bytes_success(self):
         mock_client = MagicMock()
@@ -293,7 +294,7 @@ class TestAsyncSessionRecordingV2Storage(APIBaseTest):
             client_mock = MagicMock(AsyncContextManager)
             patched_aioboto3.Session.return_value.client = client_mock
 
-            with self.assertRaises(RuntimeError) as _:
+            with pytest.raises(RuntimeError) as _:
                 async with async_client() as _:
                     pass
 
@@ -357,18 +358,18 @@ class TestAsyncSessionRecordingV2Storage(APIBaseTest):
     async def test_fetch_block_invalid_url(self, invalid_url, expected_error):
         storage = AsyncSessionRecordingV2ObjectStorage(AsyncMock(), TEST_BUCKET)
 
-        with self.assertRaises(BlockFetchError) as cm:
+        with pytest.raises(BlockFetchError) as cm:
             await storage.fetch_block(invalid_url)
-        assert expected_error in str(cm.exception)
+        assert expected_error in str(cm.value)
 
     async def test_fetch_block_content_not_found(self):
         mock_client = AsyncMock()
         mock_client.get_object.return_value = {"Body": MagicMock(read=AsyncMock(return_value=None))}
         storage = AsyncSessionRecordingV2ObjectStorage(mock_client, TEST_BUCKET)
 
-        with self.assertRaises(BlockFetchError) as cm:
+        with pytest.raises(BlockFetchError) as cm:
             await storage.fetch_block("s3://bucket/key1?range=bytes=0-100")
-        assert "Block content not found" in str(cm.exception)
+        assert "Block content not found" in str(cm.value)
 
     async def test_fetch_block_wrong_content_length(self):
         mock_client = AsyncMock()
@@ -377,9 +378,9 @@ class TestAsyncSessionRecordingV2Storage(APIBaseTest):
         mock_client.get_object.return_value = {"Body": mock_body}
         storage = AsyncSessionRecordingV2ObjectStorage(mock_client, TEST_BUCKET)
 
-        with self.assertRaises(BlockFetchError) as cm:
+        with pytest.raises(BlockFetchError) as cm:
             await storage.fetch_block("s3://bucket/key1?range=bytes=0-100")
-        assert "Unexpected data length" in str(cm.exception)
+        assert "Unexpected data length" in str(cm.value)
 
     async def test_fetch_block_bytes_success(self):
         mock_client = AsyncMock()

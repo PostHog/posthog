@@ -11,7 +11,7 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
-from pytest import mark
+from pytest import mark, raises
 
 from django.test import override_settings
 
@@ -137,7 +137,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         result = query_runner.calculate()
 
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         assert control_variant is not None
@@ -145,16 +145,16 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         assert test_variant is not None
 
         # Convert to funnel stats for assertion (sum = success_count, number_of_samples - sum = failure_count)
-        self.assertEqual(control_variant.sum, 8)  # success_count
-        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 7)  # failure_count
+        assert control_variant.sum == 8  # success_count
+        assert control_variant.number_of_samples - control_variant.sum == 7  # failure_count
 
-        self.assertEqual(test_variant.sum, 10)  # success_count
-        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 5)  # failure_count
+        assert test_variant.sum == 10  # success_count
+        assert test_variant.number_of_samples - test_variant.sum == 5  # failure_count
 
         # Check that we have the correct data for rendering the funnel chart
-        self.assertEqual(control_variant.step_counts, [8])  # contains data for funnel chart
+        assert control_variant.step_counts == [8]  # contains data for funnel chart
         control_sampled_success_events = [s.event_uuid for s in control_variant.step_sessions[1]]
-        self.assertEqual(sorted(control_success_events), sorted(control_sampled_success_events))
+        assert sorted(control_success_events) == sorted(control_sampled_success_events)
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -273,21 +273,17 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         result = query_runner.calculate()
 
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         assert control_variant is not None
         test_variant = result.variant_results[0]
         assert test_variant is not None
 
-        self.assertEqual(control_variant.sum, 10)  # success_count (10 groups purchase)
-        self.assertEqual(test_variant.sum, 12)  # success_count (12 groups purchase)
-        self.assertEqual(
-            control_variant.number_of_samples - control_variant.sum, 8
-        )  # failure_count (8 groups don't purchase)
-        self.assertEqual(
-            test_variant.number_of_samples - test_variant.sum, 6
-        )  # failure_count (6 groups don't purchase)
+        assert control_variant.sum == 10  # success_count (10 groups purchase)
+        assert test_variant.sum == 12  # success_count (12 groups purchase)
+        assert control_variant.number_of_samples - control_variant.sum == 8  # failure_count (8 groups don't purchase)
+        assert test_variant.number_of_samples - test_variant.sum == 6  # failure_count (6 groups don't purchase)
 
     @parameterized.expand(
         [
@@ -591,7 +587,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         if expected_results is None:
-            with self.assertRaises(ValidationError) as context:
+            with raises(ValidationError) as context:
                 query_runner.calculate()
 
             if "person_id_override_properties_joined_filter_laterevent" in name:
@@ -610,27 +606,24 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
                         ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
                     }
                 )
-            self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
+            assert cast(list, context.value.detail)[0] == expected_errors
         else:
             result = query_runner.calculate()
 
             assert result.variant_results is not None
-            self.assertEqual(len(result.variant_results), 1)
+            assert len(result.variant_results) == 1
 
             control_variant = result.baseline
             assert control_variant is not None
             test_variant = result.variant_results[0]
             assert test_variant is not None
 
-            self.assertEqual(
-                {
-                    "control_success": int(control_variant.sum),
-                    "control_failure": int(control_variant.number_of_samples - control_variant.sum),
-                    "test_success": int(test_variant.sum),
-                    "test_failure": int(test_variant.number_of_samples - test_variant.sum),
-                },
-                expected_results,
-            )
+            assert {
+                "control_success": int(control_variant.sum),
+                "control_failure": int(control_variant.number_of_samples - control_variant.sum),
+                "test_success": int(test_variant.sum),
+                "test_failure": int(test_variant.number_of_samples - test_variant.sum),
+            } == expected_results
 
     @mark.skip("Funnel metrics on data warehouse tables are not supported yet")
     @snapshot_clickhouse_queries
@@ -690,17 +683,17 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
             result = query_runner.calculate()
 
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_result = result.baseline
         assert control_result is not None
         test_result = result.variant_results[0]
         assert test_result is not None
 
-        self.assertEqual(control_result.sum, 1)  # success_count
-        self.assertEqual(test_result.sum, 3)  # success_count
-        self.assertEqual(control_result.number_of_samples - control_result.sum, 6)  # failure_count
-        self.assertEqual(test_result.number_of_samples - test_result.sum, 6)  # failure_count
+        assert control_result.sum == 1  # success_count
+        assert test_result.sum == 3  # success_count
+        assert control_result.number_of_samples - control_result.sum == 6  # failure_count
+        assert test_result.number_of_samples - test_result.sum == 6  # failure_count
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -800,7 +793,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         result = query_runner.calculate()
 
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         assert control_variant is not None
@@ -808,10 +801,10 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         assert test_variant is not None
 
         # Only events within the conversion window should be counted as successes
-        self.assertEqual(control_variant.sum, 8)  # success_count
-        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 5)  # failure_count
-        self.assertEqual(test_variant.sum, 6)  # success_count
-        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)  # failure_count
+        assert control_variant.sum == 8  # success_count
+        assert control_variant.number_of_samples - control_variant.sum == 5  # failure_count
+        assert test_variant.sum == 6  # success_count
+        assert test_variant.number_of_samples - test_variant.sum == 7  # failure_count
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -924,7 +917,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         result = query_runner.calculate()
 
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         assert control_variant is not None
@@ -932,10 +925,10 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         assert test_variant is not None
 
         # Only events within the custom conversion window should be counted as successes
-        self.assertEqual(control_variant.sum, 8)  # 8 successes within 24h window
-        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 5)  # 5 failures outside window
-        self.assertEqual(test_variant.sum, 6)  # 6 successes within 24h window
-        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)  # 7 failures outside window
+        assert control_variant.sum == 8  # 8 successes within 24h window
+        assert control_variant.number_of_samples - control_variant.sum == 5  # 5 failures outside window
+        assert test_variant.sum == 6  # 6 successes within 24h window
+        assert test_variant.number_of_samples - test_variant.sum == 7  # 7 failures outside window
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -1032,17 +1025,17 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         result = query_runner.calculate()
 
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         assert control_variant is not None
         test_variant = result.variant_results[0]
         assert test_variant is not None
 
-        self.assertEqual(control_variant.sum, 8)  # 8 successful funnels
-        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 5)  # 5 failures
-        self.assertEqual(test_variant.sum, 6)  # 6 successful funnels
-        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)  # 7 failures
+        assert control_variant.sum == 8  # 8 successful funnels
+        assert control_variant.number_of_samples - control_variant.sum == 5  # 5 failures
+        assert test_variant.sum == 6  # 6 successful funnels
+        assert test_variant.number_of_samples - test_variant.sum == 7  # 7 failures
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -1143,17 +1136,17 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         result = query_runner.calculate()
 
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         assert control_variant is not None
         test_variant = result.variant_results[0]
         assert test_variant is not None
 
-        self.assertEqual(control_variant.sum, 8)  # 8 successful funnels
-        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 5)  # 5 failures
-        self.assertEqual(test_variant.sum, 6)  # 6 successful funnels
-        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)  # 7 failures
+        assert control_variant.sum == 8  # 8 successful funnels
+        assert control_variant.number_of_samples - control_variant.sum == 5  # 5 failures
+        assert test_variant.sum == 6  # 6 successful funnels
+        assert test_variant.number_of_samples - test_variant.sum == 7  # 7 failures
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -1253,17 +1246,17 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         result = query_runner.calculate()
 
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         assert control_variant is not None
         test_variant = result.variant_results[0]
         assert test_variant is not None
 
-        self.assertEqual(control_variant.sum, 8)  # 8 successful funnels
-        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 5)  # 5 failures
-        self.assertEqual(test_variant.sum, 6)  # 6 successful funnels
-        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)  # 7 failures
+        assert control_variant.sum == 8  # 8 successful funnels
+        assert control_variant.number_of_samples - control_variant.sum == 5  # 5 failures
+        assert test_variant.sum == 6  # 6 successful funnels
+        assert test_variant.number_of_samples - test_variant.sum == 7  # 7 failures
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -1357,17 +1350,17 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         result = query_runner.calculate()
 
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         assert control_variant is not None
         test_variant = result.variant_results[0]
         assert test_variant is not None
 
-        self.assertEqual(control_variant.sum, 8)  # 8 successful funnels
-        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 5)  # 5 failures
-        self.assertEqual(test_variant.sum, 6)  # 6 successful funnels
-        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)  # 7 failures
+        assert control_variant.sum == 8  # 8 successful funnels
+        assert control_variant.number_of_samples - control_variant.sum == 5  # 5 failures
+        assert test_variant.sum == 6  # 6 successful funnels
+        assert test_variant.number_of_samples - test_variant.sum == 7  # 7 failures
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -1482,17 +1475,17 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         result = query_runner.calculate()
 
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         assert control_variant is not None
         test_variant = result.variant_results[0]
         assert test_variant is not None
 
-        self.assertEqual(control_variant.sum, 8)  # 8 successful funnels
-        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 5)  # 5 failures
-        self.assertEqual(test_variant.sum, 6)  # 6 successful funnels
-        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)  # 7 failures
+        assert control_variant.sum == 8  # 8 successful funnels
+        assert control_variant.number_of_samples - control_variant.sum == 5  # 5 failures
+        assert test_variant.sum == 6  # 6 successful funnels
+        assert test_variant.number_of_samples - test_variant.sum == 7  # 7 failures
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -1628,17 +1621,17 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         result = query_runner.calculate()
 
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         assert control_variant is not None
         test_variant = result.variant_results[0]
         assert test_variant is not None
 
-        self.assertEqual(control_variant.sum, 8)  # 8 successful funnels
-        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 5)  # 5 failures
-        self.assertEqual(test_variant.sum, 6)  # 6 successful funnels
-        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)  # 7 failures
+        assert control_variant.sum == 8  # 8 successful funnels
+        assert control_variant.number_of_samples - control_variant.sum == 5  # 5 failures
+        assert test_variant.sum == 6  # 6 successful funnels
+        assert test_variant.number_of_samples - test_variant.sum == 7  # 7 failures
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -1736,17 +1729,17 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         result = query_runner.calculate()
 
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         assert control_variant is not None
         test_variant = result.variant_results[0]
         assert test_variant is not None
 
-        self.assertEqual(control_variant.sum, 8)  # 8 successful funnels
-        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 5)  # 5 failures
-        self.assertEqual(test_variant.sum, 6)  # 6 successful funnels
-        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)  # 7 failures
+        assert control_variant.sum == 8  # 8 successful funnels
+        assert control_variant.number_of_samples - control_variant.sum == 5  # 5 failures
+        assert test_variant.sum == 6  # 6 successful funnels
+        assert test_variant.number_of_samples - test_variant.sum == 7  # 7 failures
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -1911,7 +1904,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
 
         # With ordered funnel, the out-of-order events should not be counted as success
         assert ordered_result.variant_results is not None
-        self.assertEqual(len(ordered_result.variant_results), 1)
+        assert len(ordered_result.variant_results) == 1
         ordered_control = ordered_result.baseline
         assert ordered_control is not None
         ordered_test = ordered_result.variant_results[0]
@@ -1919,25 +1912,23 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
 
         # With unordered funnel, the out-of-order events should be counted as success
         assert unordered_result.variant_results is not None
-        self.assertEqual(len(unordered_result.variant_results), 1)
+        assert len(unordered_result.variant_results) == 1
         unordered_control = unordered_result.baseline
         assert unordered_control is not None
         unordered_test = unordered_result.variant_results[0]
         assert unordered_test is not None
 
         # Ordered funnel: only users with correct order (pageview → purchase) succeed
-        self.assertEqual(ordered_control.sum, 6)  # 6 users with correct order
-        self.assertEqual(
-            ordered_control.number_of_samples - ordered_control.sum, 7
-        )  # 7 users with wrong/incomplete order
-        self.assertEqual(ordered_test.sum, 5)  # 5 users with correct order
-        self.assertEqual(ordered_test.number_of_samples - ordered_test.sum, 8)  # 8 users with wrong/incomplete order
+        assert ordered_control.sum == 6  # 6 users with correct order
+        assert ordered_control.number_of_samples - ordered_control.sum == 7  # 7 users with wrong/incomplete order
+        assert ordered_test.sum == 5  # 5 users with correct order
+        assert ordered_test.number_of_samples - ordered_test.sum == 8  # 8 users with wrong/incomplete order
 
         # Unordered funnel: users with both events succeed regardless of order
-        self.assertEqual(unordered_control.sum, 11)  # 6 correct + 5 reverse order (11 with both events)
-        self.assertEqual(unordered_control.number_of_samples - unordered_control.sum, 2)  # 2 incomplete (only pageview)
-        self.assertEqual(unordered_test.sum, 9)  # 5 correct + 4 reverse order (9 with both events)
-        self.assertEqual(unordered_test.number_of_samples - unordered_test.sum, 4)  # 4 incomplete (only pageview)
+        assert unordered_control.sum == 11  # 6 correct + 5 reverse order (11 with both events)
+        assert unordered_control.number_of_samples - unordered_control.sum == 2  # 2 incomplete (only pageview)
+        assert unordered_test.sum == 9  # 5 correct + 4 reverse order (9 with both events)
+        assert unordered_test.number_of_samples - unordered_test.sum == 4  # 4 incomplete (only pageview)
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -2108,7 +2099,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         result = query_runner.calculate()
 
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         assert control_variant is not None
@@ -2118,12 +2109,12 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         # Control should have: 8 original successes + 3 from both-flags users = 11 successes
         # Control should have: 5 original failures + 2 from both-flags users = 7 failures
         # Total control: 18 exposures (13 + 5 from both-flags users)
-        self.assertEqual(control_variant.sum, 11)
-        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 7)
+        assert control_variant.sum == 11
+        assert control_variant.number_of_samples - control_variant.sum == 7
 
         # Test should have: 6 successes, 7 failures (13 total)
-        self.assertEqual(test_variant.sum, 6)
-        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)
+        assert test_variant.sum == 6
+        assert test_variant.number_of_samples - test_variant.sum == 7
 
         # Verify that the 10 users exposed only to other_flag are NOT included
         # Total exposures should be 31 (13 control + 13 test + 5 both), NOT 41 (if other_flag users were included)
@@ -2228,7 +2219,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         result = query_runner.calculate()
 
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         assert control_variant is not None
@@ -2236,10 +2227,10 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         assert test_variant is not None
 
         # Only events within experiment window should count as successes
-        self.assertEqual(control_variant.sum, 8)
-        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 5)
-        self.assertEqual(test_variant.sum, 6)
-        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)
+        assert control_variant.sum == 8
+        assert control_variant.number_of_samples - control_variant.sum == 5
+        assert test_variant.sum == 6
+        assert test_variant.number_of_samples - test_variant.sum == 7
 
     @parameterized.expand(
         [
@@ -2441,7 +2432,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         result = query_runner.calculate()
 
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         assert control_variant is not None
@@ -2450,9 +2441,9 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
 
         # Only events AFTER exposure should count
         # Control: 8 successes (events after exposure), 5 failures (3 before exposure + 2 incomplete)
-        self.assertEqual(control_variant.sum, 8)
-        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 5)
+        assert control_variant.sum == 8
+        assert control_variant.number_of_samples - control_variant.sum == 5
 
         # Test: 6 successes (events after exposure), 7 failures (4 before exposure + 3 incomplete)
-        self.assertEqual(test_variant.sum, 6)
-        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)
+        assert test_variant.sum == 6
+        assert test_variant.number_of_samples - test_variant.sum == 7

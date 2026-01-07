@@ -1,7 +1,7 @@
 import gzip
 import json
 from io import BytesIO
-from typing import Any, Optional, cast
+from typing import Any, cast
 from urllib.parse import parse_qs
 
 from django.http.multipartparser import MultiPartParser
@@ -12,7 +12,7 @@ import lzstring
 from jsonschema import validate
 
 
-def validate_response(openapi_spec: dict[str, Any], response: Any, path_override: Optional[str] = None):
+def validate_response(openapi_spec: dict[str, Any], response: Any, path_override: str | None = None):
     # Validates are response against the OpenAPI spec. If `path_override` is
     # provided, the path in the response will be overridden with the provided
     # value. This is useful for validating responses from e.g. the /batch
@@ -124,6 +124,6 @@ def validate_response(openapi_spec: dict[str, Any], response: Any, path_override
             # Verify that all required params were sent
             required_parameters = {key for key, spec in query_parameter_specs.items() if spec.get("required")}
             for required_parameter in required_parameters:
-                assert (
-                    required_parameter in sent_query_parameters.keys()
-                ), f"Required parameter {required_parameter} was not sent in query string"
+                assert required_parameter in sent_query_parameters.keys(), (
+                    f"Required parameter {required_parameter} was not sent in query string"
+                )

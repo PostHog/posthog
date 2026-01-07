@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import cast
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
 from unittest import skip
@@ -123,25 +124,25 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
 
         # Verify results are grouped by breakdown
         # We should get results for each variant x breakdown combination
-        self.assertIsNotNone(result.baseline)
-        self.assertIsNotNone(result.variant_results)
+        assert result.baseline is not None
+        assert result.variant_results is not None
 
         # Verify breakdown_results is populated with per-breakdown statistics
-        self.assertIsNotNone(result.breakdown_results)
         assert result.breakdown_results is not None
-        self.assertEqual(len(result.breakdown_results), 2)
+        assert result.breakdown_results is not None
+        assert len(result.breakdown_results) == 2
 
         # Verify each breakdown has correct structure (breakdown_value is now a list)
         for breakdown_result in result.breakdown_results:
-            self.assertIn(breakdown_result.breakdown_value, [["Chrome"], ["Safari"]])
-            self.assertIsNotNone(breakdown_result.baseline)
-            self.assertIsNotNone(breakdown_result.variants)
-            self.assertGreater(len(breakdown_result.variants), 0)
+            assert breakdown_result.breakdown_value in [["Chrome"], ["Safari"]]
+            assert breakdown_result.baseline is not None
+            assert breakdown_result.variants is not None
+            assert len(breakdown_result.variants) > 0
 
             # Verify each variant has statistical comparisons
             for variant in breakdown_result.variants:
-                self.assertIsNotNone(variant.key)
-                self.assertIsNotNone(variant.number_of_samples)
+                assert variant.key is not None
+                assert variant.number_of_samples is not None
 
     @parameterized.expand([("new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
@@ -257,32 +258,32 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         # Verify results
-        self.assertIsNotNone(result.breakdown_results)
+        assert result.breakdown_results is not None
         assert result.breakdown_results is not None
 
         # Should have 2 breakdown categories (Chrome and Firefox)
         # NOT 3 (Chrome, Safari, Firefox) even though changing user had Safari exposure
         # The user should be attributed to Chrome (first exposure)
-        self.assertEqual(len(result.breakdown_results), 2)
+        assert len(result.breakdown_results) == 2
 
         breakdown_values = [br.breakdown_value for br in result.breakdown_results]
-        self.assertIn(["Chrome"], breakdown_values)
-        self.assertIn(["Firefox"], breakdown_values)
+        assert ["Chrome"] in breakdown_values
+        assert ["Firefox"] in breakdown_values
         # Safari should NOT appear as a breakdown
-        self.assertNotIn(["Safari"], breakdown_values)
+        assert ["Safari"] not in breakdown_values
 
         # Find Chrome breakdown (has the changing user)
         chrome_breakdown = next(br for br in result.breakdown_results if br.breakdown_value == ["Chrome"])
-        self.assertIsNotNone(chrome_breakdown.baseline)
+        assert chrome_breakdown.baseline is not None
 
         # Should have exactly 1 user in Chrome (the changing user, attributed to first exposure)
-        self.assertEqual(chrome_breakdown.baseline.number_of_samples, 1)
-        self.assertEqual(chrome_breakdown.baseline.sum, 100)  # Their purchase amount
+        assert chrome_breakdown.baseline.number_of_samples == 1
+        assert chrome_breakdown.baseline.sum == 100  # Their purchase amount
 
         # Find Firefox breakdown (has the consistent user)
         firefox_breakdown = next(br for br in result.breakdown_results if br.breakdown_value == ["Firefox"])
-        self.assertEqual(firefox_breakdown.baseline.number_of_samples, 1)
-        self.assertEqual(firefox_breakdown.baseline.sum, 50)
+        assert firefox_breakdown.baseline.number_of_samples == 1
+        assert firefox_breakdown.baseline.sum == 50
 
     @parameterized.expand([("new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
@@ -374,20 +375,20 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
-        self.assertIsNotNone(result.baseline)
-        self.assertIsNotNone(result.variant_results)
+        assert result.baseline is not None
+        assert result.variant_results is not None
 
         # Verify breakdown_results is populated with per-breakdown statistics
-        self.assertIsNotNone(result.breakdown_results)
         assert result.breakdown_results is not None
-        self.assertEqual(len(result.breakdown_results), 2)
+        assert result.breakdown_results is not None
+        assert len(result.breakdown_results) == 2
 
         # Verify each breakdown has correct structure (breakdown_value is now a list)
         for breakdown_result in result.breakdown_results:
-            self.assertIn(breakdown_result.breakdown_value, [["Chrome"], ["Safari"]])
-            self.assertIsNotNone(breakdown_result.baseline)
-            self.assertIsNotNone(breakdown_result.variants)
-            self.assertGreater(len(breakdown_result.variants), 0)
+            assert breakdown_result.breakdown_value in [["Chrome"], ["Safari"]]
+            assert breakdown_result.baseline is not None
+            assert breakdown_result.variants is not None
+            assert len(breakdown_result.variants) > 0
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -510,20 +511,20 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
-        self.assertIsNotNone(result.baseline)
-        self.assertIsNotNone(result.variant_results)
+        assert result.baseline is not None
+        assert result.variant_results is not None
 
         # Verify breakdown_results is populated with per-breakdown statistics
-        self.assertIsNotNone(result.breakdown_results)
         assert result.breakdown_results is not None
-        self.assertEqual(len(result.breakdown_results), 2)
+        assert result.breakdown_results is not None
+        assert len(result.breakdown_results) == 2
 
         # Verify each breakdown has correct structure (breakdown_value is now a list)
         for breakdown_result in result.breakdown_results:
-            self.assertIn(breakdown_result.breakdown_value, [["Chrome"], ["Safari"]])
-            self.assertIsNotNone(breakdown_result.baseline)
-            self.assertIsNotNone(breakdown_result.variants)
-            self.assertGreater(len(breakdown_result.variants), 0)
+            assert breakdown_result.breakdown_value in [["Chrome"], ["Safari"]]
+            assert breakdown_result.baseline is not None
+            assert breakdown_result.variants is not None
+            assert len(breakdown_result.variants) > 0
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -591,20 +592,20 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         # Should have breakdown values including the NULL label
-        self.assertIsNotNone(result.baseline)
+        assert result.baseline is not None
 
         # Verify breakdown_results is populated with per-breakdown statistics
-        self.assertIsNotNone(result.breakdown_results)
         assert result.breakdown_results is not None
-        self.assertEqual(len(result.breakdown_results), 2)
+        assert result.breakdown_results is not None
+        assert len(result.breakdown_results) == 2
 
         # Verify each breakdown has correct structure (breakdown_value is now a list)
         for breakdown_result in result.breakdown_results:
-            self.assertIn(breakdown_result.breakdown_value, [[BREAKDOWN_NULL_STRING_LABEL], ["Chrome"]])
-            self.assertIsNotNone(breakdown_result.baseline)
-            self.assertIsNotNone(breakdown_result.variants)
+            assert breakdown_result.breakdown_value in [[BREAKDOWN_NULL_STRING_LABEL], ["Chrome"]]
+            assert breakdown_result.baseline is not None
+            assert breakdown_result.variants is not None
             # variants can be empty if no test variants exist for this breakdown
-            self.assertIsInstance(breakdown_result.variants, list)
+            assert isinstance(breakdown_result.variants, list)
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -704,17 +705,17 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
 
         # Verify breakdown structure exists
 
-        self.assertIsNotNone(result.breakdown_results)
         assert result.breakdown_results is not None
-        self.assertEqual(len(result.breakdown_results), 2)
+        assert result.breakdown_results is not None
+        assert len(result.breakdown_results) == 2
 
         # Verify each breakdown has stats
         # The key validation is that Safari's high values aren't capped at Chrome's percentiles
         for breakdown_result in result.breakdown_results:
-            self.assertIn(breakdown_result.breakdown_value, [["Chrome"], ["Safari"]])
-            self.assertIsNotNone(breakdown_result.baseline)
-            self.assertIsNotNone(breakdown_result.variants)
-            self.assertGreater(len(breakdown_result.variants), 0)
+            assert breakdown_result.breakdown_value in [["Chrome"], ["Safari"]]
+            assert breakdown_result.baseline is not None
+            assert breakdown_result.variants is not None
+            assert len(breakdown_result.variants) > 0
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -827,25 +828,25 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         # Basic structure
-        self.assertIsNotNone(result.baseline)
-        self.assertIsNotNone(result.variant_results)
+        assert result.baseline is not None
+        assert result.variant_results is not None
 
         # Verify breakdown_results structure
-        self.assertIsNotNone(result.breakdown_results)
         assert result.breakdown_results is not None
-        self.assertEqual(len(result.breakdown_results), 4)
+        assert result.breakdown_results is not None
+        assert len(result.breakdown_results) == 4
 
         # Verify each breakdown has correct structure
         for breakdown_result in result.breakdown_results:
-            self.assertIsNotNone(breakdown_result.baseline)
-            self.assertIsNotNone(breakdown_result.variants)
-            self.assertGreater(len(breakdown_result.variants), 0)
+            assert breakdown_result.baseline is not None
+            assert breakdown_result.variants is not None
+            assert len(breakdown_result.variants) > 0
 
             # Each variant has statistical data
             for variant in breakdown_result.variants:
-                self.assertIsNotNone(variant.key)
-                self.assertIsNotNone(variant.number_of_samples)
-                self.assertEqual(variant.number_of_samples, 2)  # 2 users per combination
+                assert variant.key is not None
+                assert variant.number_of_samples is not None
+                assert variant.number_of_samples == 2  # 2 users per combination
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -961,7 +962,7 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
 
         # Verify 8 breakdown combinations (2×2×2)
         assert result.breakdown_results is not None
-        self.assertEqual(len(result.breakdown_results), 8)
+        assert len(result.breakdown_results) == 8
 
         # Spot check a specific breakdown
         chrome_windows_desktop = None
@@ -971,9 +972,9 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
                 chrome_windows_desktop = breakdown_result
                 break
 
-        self.assertIsNotNone(chrome_windows_desktop)
         assert chrome_windows_desktop is not None
-        self.assertEqual(chrome_windows_desktop.baseline.number_of_samples, 2)
+        assert chrome_windows_desktop is not None
+        assert chrome_windows_desktop.baseline.number_of_samples == 2
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -1072,9 +1073,9 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
-        self.assertIsNotNone(result.baseline)
+        assert result.baseline is not None
         assert result.breakdown_results is not None
-        self.assertEqual(len(result.breakdown_results), 4)
+        assert len(result.breakdown_results) == 4
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -1185,7 +1186,7 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.breakdown_results is not None
-        self.assertEqual(len(result.breakdown_results), 8)
+        assert len(result.breakdown_results) == 8
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -1301,17 +1302,17 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.breakdown_results is not None
-        self.assertEqual(len(result.breakdown_results), 4)
+        assert len(result.breakdown_results) == 4
 
         # Verify ratio-specific fields exist
         for breakdown_result in result.breakdown_results:
             baseline = breakdown_result.baseline
-            self.assertIsNotNone(baseline.sum)
-            self.assertIsNotNone(baseline.denominator_sum)
+            assert baseline.sum is not None
+            assert baseline.denominator_sum is not None
 
             for variant in breakdown_result.variants:
-                self.assertIsNotNone(variant.sum)
-                self.assertIsNotNone(variant.denominator_sum)
+                assert variant.sum is not None
+                assert variant.denominator_sum is not None
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -1449,20 +1450,20 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.breakdown_results is not None
-        self.assertEqual(len(result.breakdown_results), 8)
+        assert len(result.breakdown_results) == 8
 
         # Verify 3-element breakdown values and ratio fields
         for breakdown_result in result.breakdown_results:
-            self.assertEqual(len(breakdown_result.breakdown_value), 3)
-            self.assertIsNotNone(breakdown_result.baseline.sum)
-            self.assertIsNotNone(breakdown_result.baseline.denominator_sum)
+            assert len(breakdown_result.breakdown_value) == 3
+            assert breakdown_result.baseline.sum is not None
+            assert breakdown_result.baseline.denominator_sum is not None
 
     def test_breakdown_validation_raises_error_for_more_than_three(self):
         """Verify that using more than 3 breakdowns raises a ValidationError"""
         from pydantic import ValidationError as PydanticValidationError
 
         # Pydantic validates at schema level, so creating the BreakdownFilter should fail
-        with self.assertRaises(PydanticValidationError) as context:
+        with pytest.raises(PydanticValidationError) as context:
             BreakdownFilter(
                 breakdowns=[
                     Breakdown(property="$browser"),
@@ -1473,7 +1474,7 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
             )
 
         # Verify error message mentions too many items
-        self.assertIn("at most 3 items", str(context.exception))
+        assert "at most 3 items" in str(context.value)
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -1561,7 +1562,7 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
 
         # All 4 breakdown combinations should still appear
         assert result.breakdown_results is not None
-        self.assertEqual(len(result.breakdown_results), 4)
+        assert len(result.breakdown_results) == 4
 
         # Check that breakdown_results exist for all combinations
         chrome_mac_found = False
@@ -1573,39 +1574,39 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
             if breakdown_result.breakdown_value == ["Chrome", "Mac"]:
                 chrome_mac_found = True
                 # Control should have data
-                self.assertIsNotNone(breakdown_result.baseline)
-                self.assertEqual(breakdown_result.baseline.number_of_samples, 2)
+                assert breakdown_result.baseline is not None
+                assert breakdown_result.baseline.number_of_samples == 2
                 # Test variant may or may not be present for missing combinations
 
             if breakdown_result.breakdown_value == ["Safari", "Windows"]:
                 safari_windows_found = True
-                self.assertIsNotNone(breakdown_result.baseline)
-                self.assertEqual(breakdown_result.baseline.number_of_samples, 2)
+                assert breakdown_result.baseline is not None
+                assert breakdown_result.baseline.number_of_samples == 2
 
             if breakdown_result.breakdown_value == ["Chrome", "Windows"]:
                 chrome_windows_found = True
                 # This combination exists in both variants
-                self.assertIsNotNone(breakdown_result.baseline)
-                self.assertEqual(breakdown_result.baseline.number_of_samples, 2)
-                self.assertGreater(len(breakdown_result.variants), 0)
+                assert breakdown_result.baseline is not None
+                assert breakdown_result.baseline.number_of_samples == 2
+                assert len(breakdown_result.variants) > 0
                 test_variant = breakdown_result.variants[0]
-                self.assertEqual(test_variant.key, "test")
-                self.assertEqual(test_variant.number_of_samples, 2)
+                assert test_variant.key == "test"
+                assert test_variant.number_of_samples == 2
 
             if breakdown_result.breakdown_value == ["Safari", "Mac"]:
                 safari_mac_found = True
                 # This combination exists in both variants
-                self.assertIsNotNone(breakdown_result.baseline)
-                self.assertEqual(breakdown_result.baseline.number_of_samples, 2)
-                self.assertGreater(len(breakdown_result.variants), 0)
+                assert breakdown_result.baseline is not None
+                assert breakdown_result.baseline.number_of_samples == 2
+                assert len(breakdown_result.variants) > 0
                 test_variant = breakdown_result.variants[0]
-                self.assertEqual(test_variant.key, "test")
-                self.assertEqual(test_variant.number_of_samples, 2)
+                assert test_variant.key == "test"
+                assert test_variant.number_of_samples == 2
 
-        self.assertTrue(chrome_mac_found, "Chrome+Mac breakdown should exist")
-        self.assertTrue(safari_windows_found, "Safari+Windows breakdown should exist")
-        self.assertTrue(chrome_windows_found, "Chrome+Windows breakdown should exist")
-        self.assertTrue(safari_mac_found, "Safari+Mac breakdown should exist")
+        assert chrome_mac_found, "Chrome+Mac breakdown should exist"
+        assert safari_windows_found, "Safari+Windows breakdown should exist"
+        assert chrome_windows_found, "Chrome+Windows breakdown should exist"
+        assert safari_mac_found, "Safari+Mac breakdown should exist"
 
     @skip("potential flakiness")
     @freeze_time("2023-01-01T12:00:00Z")
@@ -1682,11 +1683,11 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
 
         # Verify breakdown_results structure
         assert result.breakdown_results is not None
-        self.assertGreater(len(result.breakdown_results), 0)
+        assert len(result.breakdown_results) > 0
 
         for breakdown_result in result.breakdown_results:
-            self.assertIsNotNone(breakdown_result.baseline)
-            self.assertGreater(len(breakdown_result.variants), 0)
+            assert breakdown_result.baseline is not None
+            assert len(breakdown_result.variants) > 0
 
     @skip("potential flakiness")
     @freeze_time("2023-01-01T12:00:00Z")
@@ -1780,12 +1781,12 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
         assert result.breakdown_results is not None
         for breakdown_result in result.breakdown_results:
             baseline = breakdown_result.baseline
-            self.assertIsNotNone(baseline.sum)
-            self.assertIsNotNone(baseline.denominator_sum)
+            assert baseline.sum is not None
+            assert baseline.denominator_sum is not None
 
             for variant in breakdown_result.variants:
-                self.assertIsNotNone(variant.sum)
-                self.assertIsNotNone(variant.denominator_sum)
+                assert variant.sum is not None
+                assert variant.denominator_sum is not None
 
     @parameterized.expand([("new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
@@ -1914,28 +1915,28 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
-        self.assertIsNotNone(result.baseline)
-        self.assertIsNotNone(result.variant_results)
+        assert result.baseline is not None
+        assert result.variant_results is not None
 
         # Verify breakdown_results is populated with per-breakdown statistics
-        self.assertIsNotNone(result.breakdown_results)
         assert result.breakdown_results is not None
-        self.assertEqual(len(result.breakdown_results), 2)
+        assert result.breakdown_results is not None
+        assert len(result.breakdown_results) == 2
 
         # Verify each breakdown has correct structure (breakdown_value is a list)
         for breakdown_result in result.breakdown_results:
-            self.assertIn(breakdown_result.breakdown_value, [["Chrome"], ["Safari"]])
-            self.assertIsNotNone(breakdown_result.baseline)
-            self.assertIsNotNone(breakdown_result.variants)
-            self.assertGreater(len(breakdown_result.variants), 0)
+            assert breakdown_result.breakdown_value in [["Chrome"], ["Safari"]]
+            assert breakdown_result.baseline is not None
+            assert breakdown_result.variants is not None
+            assert len(breakdown_result.variants) > 0
 
             baseline = breakdown_result.baseline
-            self.assertIsNotNone(baseline.number_of_samples)
-            self.assertIsNotNone(baseline.sum)
+            assert baseline.number_of_samples is not None
+            assert baseline.sum is not None
 
             for variant in breakdown_result.variants:
-                self.assertIsNotNone(variant.number_of_samples)
-                self.assertIsNotNone(variant.sum)
+                assert variant.number_of_samples is not None
+                assert variant.sum is not None
 
     @parameterized.expand([("new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
@@ -2062,13 +2063,13 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
-        self.assertIsNotNone(result.baseline)
-        self.assertIsNotNone(result.variant_results)
+        assert result.baseline is not None
+        assert result.variant_results is not None
 
         # Verify breakdown_results has all 4 combinations
-        self.assertIsNotNone(result.breakdown_results)
         assert result.breakdown_results is not None
-        self.assertEqual(len(result.breakdown_results), 4)
+        assert result.breakdown_results is not None
+        assert len(result.breakdown_results) == 4
 
         # Verify each breakdown has correct structure (breakdown_value is a list of 2 elements)
         breakdown_values = [br.breakdown_value for br in result.breakdown_results]
@@ -2079,9 +2080,9 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
             ["Safari", "Windows"],
         ]
         for expected in expected_combinations:
-            self.assertIn(expected, breakdown_values)
+            assert expected in breakdown_values
 
         for breakdown_result in result.breakdown_results:
-            self.assertIsNotNone(breakdown_result.baseline)
-            self.assertIsNotNone(breakdown_result.variants)
-            self.assertGreater(len(breakdown_result.variants), 0)
+            assert breakdown_result.baseline is not None
+            assert breakdown_result.variants is not None
+            assert len(breakdown_result.variants) > 0

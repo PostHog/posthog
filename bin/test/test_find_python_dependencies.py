@@ -34,13 +34,13 @@ class TestFindPythonDependencies(unittest.TestCase):
         ]
     )
     def test_module_to_file(self, _name, module, expected_file):
-        self.assertEqual(module_to_file(module), expected_file)
+        assert module_to_file(module) == expected_file
 
     def test_returns_only_python_file_paths(self):
         files = find_all_dependency_files(self.graph, "posthog.temporal.subscriptions")
-        self.assertIsInstance(files, set)
+        assert isinstance(files, set)
         for f in files:
-            self.assertTrue(f.endswith(".py"), f"Expected .py file, got {f}")
+            assert f.endswith(".py"), f"Expected .py file, got {f}"
 
     @parameterized.expand(
         [
@@ -56,9 +56,9 @@ class TestFindPythonDependencies(unittest.TestCase):
     def test_file_inclusion(self, _name, file_path, should_be_included):
         files = find_all_dependency_files(self.graph, "posthog.temporal.subscriptions")
         if should_be_included:
-            self.assertIn(file_path, files)
+            assert file_path in files
         else:
-            self.assertNotIn(file_path, files)
+            assert file_path not in files
 
     @parameterized.expand(
         [
@@ -86,11 +86,9 @@ class TestFindPythonDependencies(unittest.TestCase):
             "posthog.temporal.subscriptions",
             [changed_file],
         )
-        self.assertEqual(
-            affected,
-            should_be_affected,
+        assert affected == should_be_affected, (
             f"Expected {changed_file} to {'affect' if should_be_affected else 'NOT affect'} "
-            f"the worker, but got affected={affected}",
+            f"the worker, but got affected={affected}"
         )
 
     def test_multiple_changes_one_affects(self):
@@ -99,8 +97,8 @@ class TestFindPythonDependencies(unittest.TestCase):
             "posthog.temporal.subscriptions",
             ["frontend/test.tsx", "posthog/utils.py", "README.md"],
         )
-        self.assertTrue(affected)
-        self.assertEqual(matching, ["posthog/utils.py"])
+        assert affected
+        assert matching == ["posthog/utils.py"]
 
     def test_multiple_changes_none_affect(self):
         affected, matching = check_if_changes_affect_entrypoint(
@@ -108,8 +106,8 @@ class TestFindPythonDependencies(unittest.TestCase):
             "posthog.temporal.subscriptions",
             ["frontend/test.tsx", "README.md", "rust/main.rs"],
         )
-        self.assertFalse(affected)
-        self.assertEqual(matching, [])
+        assert not affected
+        assert matching == []
 
     def test_returns_sorted_matching_files(self):
         _affected, matching = check_if_changes_affect_entrypoint(
@@ -117,8 +115,8 @@ class TestFindPythonDependencies(unittest.TestCase):
             "posthog.temporal.subscriptions",
             ["posthog/utils.py", "posthog/hogql_queries/query_runner.py", "ee/models/license.py"],
         )
-        self.assertGreater(len(matching), 1, "Need multiple matches to verify sorting")
-        self.assertEqual(matching, sorted(matching))
+        assert len(matching) > 1, "Need multiple matches to verify sorting"
+        assert matching == sorted(matching)
 
     @parameterized.expand(
         [
@@ -153,9 +151,9 @@ class TestFindPythonDependencies(unittest.TestCase):
             [changed_file],
         )
         if should_trigger:
-            self.assertTrue(affected, f"{changed_file} should trigger a rebuild but was not detected")
+            assert affected, f"{changed_file} should trigger a rebuild but was not detected"
         else:
-            self.assertFalse(affected, f"{changed_file} should NOT trigger a rebuild but was detected")
+            assert not affected, f"{changed_file} should NOT trigger a rebuild but was detected"
 
     @parameterized.expand(
         [
@@ -165,13 +163,13 @@ class TestFindPythonDependencies(unittest.TestCase):
     )
     def test_graph_contains_package_modules(self, _name, package):
         modules = self.graph.find_children(package)
-        self.assertGreater(len(modules), 0)
+        assert len(modules) > 0
 
     @parameterized.expand([(pkg,) for pkg in LOCAL_PACKAGES])
     def test_package_exists(self, pkg):
         pkg_path = REPO_ROOT / pkg
-        self.assertTrue(pkg_path.exists(), f"Package {pkg} configured but directory doesn't exist")
-        self.assertTrue((pkg_path / "__init__.py").exists(), f"Package {pkg} missing __init__.py")
+        assert pkg_path.exists(), f"Package {pkg} configured but directory doesn't exist"
+        assert (pkg_path / "__init__.py").exists(), f"Package {pkg} missing __init__.py"
 
 
 if __name__ == "__main__":

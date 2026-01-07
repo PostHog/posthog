@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -20,8 +21,8 @@ class TestTaxonomyAgentToolkit(BaseTest):
         self.toolkit = DummyToolkit(self.team, self.user)
 
     async def test_toolkit_initialization(self):
-        self.assertEqual(self.toolkit._team, self.team)
-        self.assertIsInstance(await self.toolkit._get_entity_names(), list)
+        assert self.toolkit._team == self.team
+        assert isinstance(await self.toolkit._get_entity_names(), list)
 
     @parameterized.expand(
         [
@@ -30,19 +31,19 @@ class TestTaxonomyAgentToolkit(BaseTest):
         ]
     )
     async def test_entity_names_basic(self, entity, expected_base):
-        self.assertIn(entity, await self.toolkit._get_entity_names())
+        assert entity in await self.toolkit._get_entity_names()
         for expected in expected_base:
-            self.assertIn(expected, await self.toolkit._get_entity_names())
+            assert expected in await self.toolkit._get_entity_names()
 
     def test_enrich_props_with_descriptions(self):
         props = [("$browser", "String"), ("custom_prop", "Numeric")]
         enriched = self.toolkit._enrich_props_with_descriptions("event", props)
 
         browser_prop = next((p for p in enriched if p[0] == "$browser"), None)
-        self.assertIsNotNone(browser_prop)
         assert browser_prop is not None
-        self.assertEqual(browser_prop[1], "String")
-        self.assertIsNotNone(browser_prop[2])
+        assert browser_prop is not None
+        assert browser_prop[1] == "String"
+        assert browser_prop[2] is not None
 
     @parameterized.expand(
         [
@@ -55,7 +56,7 @@ class TestTaxonomyAgentToolkit(BaseTest):
     )
     def test_format_property_values(self, sample_values, sample_count, format_as_string, expected_substring):
         result = self.toolkit._format_property_values("test_property", sample_values, sample_count, format_as_string)
-        self.assertIn(expected_substring, result)
+        assert expected_substring in result
 
     def test_handle_incorrect_response(self):
         class TestModel(BaseModel):
@@ -63,7 +64,7 @@ class TestTaxonomyAgentToolkit(BaseTest):
 
         response = TestModel()
         result = self.toolkit.handle_incorrect_response(response)
-        self.assertIn("test", result)
+        assert "test" in result
 
     @parameterized.expand(
         [
@@ -91,8 +92,8 @@ class TestTaxonomyAgentToolkit(BaseTest):
         tool_input = ToolInput(name=tool_name, arguments=Arguments(**tool_args))
         result = await self.toolkit.handle_tools({tool_name: [(tool_input, "test_call_id")]})
 
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result["test_call_id"], expected_result)
+        assert len(result) == 1
+        assert result["test_call_id"] == expected_result
 
     async def test_handle_tools_invalid_tool(self):
         class ToolInput(TaxonomyTool):
@@ -101,7 +102,7 @@ class TestTaxonomyAgentToolkit(BaseTest):
 
         tool_input = ToolInput()
 
-        with self.assertRaises(TaxonomyToolNotFoundError):
+        with pytest.raises(TaxonomyToolNotFoundError):
             await self.toolkit.handle_tools({"invalid_tool": [(tool_input, "invalid_tool")]})
 
     def test_format_properties_formats(self):
@@ -112,20 +113,20 @@ class TestTaxonomyAgentToolkit(BaseTest):
 
         # Test XML format
         xml_result = self.toolkit._format_properties_xml(props)
-        self.assertIn("<properties>", xml_result)
-        self.assertIn("<String>", xml_result)
-        self.assertIn("<Numeric>", xml_result)
-        self.assertIn("<name>prop1</name>", xml_result)
-        self.assertIn("<description>Test description</description>", xml_result)
-        self.assertIn("<name>prop2</name>", xml_result)
+        assert "<properties>" in xml_result
+        assert "<String>" in xml_result
+        assert "<Numeric>" in xml_result
+        assert "<name>prop1</name>" in xml_result
+        assert "<description>Test description</description>" in xml_result
+        assert "<name>prop2</name>" in xml_result
 
         # Test YAML format
         yaml_result = self.toolkit._format_properties_yaml(props)
-        self.assertIn("properties:", yaml_result)
-        self.assertIn("String:", yaml_result)
-        self.assertIn("Numeric:", yaml_result)
-        self.assertIn("name: prop1", yaml_result)
-        self.assertIn("description: Test description", yaml_result)
+        assert "properties:" in yaml_result
+        assert "String:" in yaml_result
+        assert "Numeric:" in yaml_result
+        assert "name: prop1" in yaml_result
+        assert "description: Test description" in yaml_result
 
     @parameterized.expand(
         [
@@ -173,12 +174,12 @@ class TestTaxonomyAgentToolkit(BaseTest):
 
         result = self.toolkit.get_tool_input_model(action)
 
-        self.assertEqual(result.name, expected_name)
-        self.assertIsInstance(result.arguments, BaseModel)
+        assert result.name == expected_name
+        assert isinstance(result.arguments, BaseModel)
 
         # Check that all expected arguments are present and correct
         for key, value in expected_args.items():
-            self.assertEqual(getattr(result.arguments, key), value)
+            assert getattr(result.arguments, key) == value
 
     def test_get_tool_input_model_with_custom_tools(self):
         """Test get_tool_input_model when custom tools are available."""
@@ -197,9 +198,9 @@ class TestTaxonomyAgentToolkit(BaseTest):
 
         result = custom_toolkit.get_tool_input_model(action)
 
-        self.assertEqual(result.name, "custom_tool")
-        self.assertEqual(result.arguments.custom_field, "test_value")  # type: ignore[union-attr]
-        self.assertIsInstance(result.arguments, BaseModel)
+        assert result.name == "custom_tool"
+        assert result.arguments.custom_field == "test_value"  # type: ignore[union-attr]
+        assert isinstance(result.arguments, BaseModel)
 
     def test_get_tools_handles_not_implemented_error(self):
         """Test that get_tools properly handles NotImplementedError from _get_custom_tools."""
@@ -215,8 +216,8 @@ class TestTaxonomyAgentToolkit(BaseTest):
         tools = basic_toolkit.get_tools()
 
         # Verify we get the default tools (should contain the standard taxonomy tools)
-        self.assertIsInstance(tools, list)
-        self.assertGreater(len(tools), 0)
+        assert isinstance(tools, list)
+        assert len(tools) > 0
 
         tool_names = [tool.__name__ for tool in tools]
         expected_tools = [
@@ -228,7 +229,7 @@ class TestTaxonomyAgentToolkit(BaseTest):
         ]
 
         for expected_tool in expected_tools:
-            self.assertIn(expected_tool, tool_names)
+            assert expected_tool in tool_names
 
     def test_get_tools_with_custom_tools(self):
         """Test that get_tools properly combines default and custom tools."""
@@ -250,8 +251,8 @@ class TestTaxonomyAgentToolkit(BaseTest):
         tools = custom_toolkit.get_tools()
 
         # Verify we get both default and custom tools
-        self.assertIsInstance(tools, list)
-        self.assertGreater(len(tools), 0)
+        assert isinstance(tools, list)
+        assert len(tools) > 0
 
         # Get tool names
         tool_names = [tool.__name__ for tool in tools]
@@ -265,12 +266,12 @@ class TestTaxonomyAgentToolkit(BaseTest):
         ]
 
         for expected_tool in expected_default_tools:
-            self.assertIn(expected_tool, tool_names)
+            assert expected_tool in tool_names
 
         # Verify custom tools are present
         expected_custom_tools = ["custom_tool_1", "custom_tool_2"]
 
         for expected_tool in expected_custom_tools:
-            self.assertIn(expected_tool, tool_names)
+            assert expected_tool in tool_names
 
-        self.assertEqual(len(tools), len(expected_default_tools) + len(expected_custom_tools))
+        assert len(tools) == len(expected_default_tools) + len(expected_custom_tools)

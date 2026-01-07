@@ -64,8 +64,8 @@ class TestSessionRecordingAccessControl(APIBaseTest):
         self.client.force_login(self.viewer_user)
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{self.recording.session_id}/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["id"], self.recording.session_id)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["id"] == self.recording.session_id
 
     def test_viewer_can_list_recordings(self):
         """Test that a user with viewer access can list recordings"""
@@ -74,7 +74,7 @@ class TestSessionRecordingAccessControl(APIBaseTest):
         self.client.force_login(self.viewer_user)
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     @patch("posthog.session_recordings.models.session_recording.SessionRecording.load_metadata", return_value=True)
     def test_viewer_cannot_delete_recording(self, mock_load_metadata):
@@ -84,8 +84,8 @@ class TestSessionRecordingAccessControl(APIBaseTest):
         self.client.force_login(self.viewer_user)
         response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings/{self.recording.session_id}/")
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertIn("You do not have editor access", response.json()["detail"])
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "You do not have editor access" in response.json()["detail"]
 
     @patch("posthog.session_recordings.models.session_recording.SessionRecording.load_metadata", return_value=True)
     def test_editor_can_delete_recording(self, mock_load_metadata):
@@ -95,11 +95,11 @@ class TestSessionRecordingAccessControl(APIBaseTest):
         self.client.force_login(self.editor_user)
         response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings/{self.recording.session_id}/")
 
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
         # Verify the recording is marked as deleted
         self.recording.refresh_from_db()
-        self.assertTrue(self.recording.deleted)
+        assert self.recording.deleted
 
     @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
     def test_editor_can_bulk_delete_recordings(self, mock_list_recordings):
@@ -121,13 +121,13 @@ class TestSessionRecordingAccessControl(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         # Verify both recordings are marked as deleted
         self.recording.refresh_from_db()
         recording2.refresh_from_db()
-        self.assertTrue(self.recording.deleted)
-        self.assertTrue(recording2.deleted)
+        assert self.recording.deleted
+        assert recording2.deleted
 
     @patch("posthog.session_recordings.models.session_recording.SessionRecording.load_metadata", return_value=True)
     def test_no_access_user_cannot_view_recording(self, mock_load_metadata):
@@ -137,7 +137,7 @@ class TestSessionRecordingAccessControl(APIBaseTest):
         self.client.force_login(self.no_access_user)
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{self.recording.session_id}/")
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     @patch("posthog.session_recordings.models.session_recording.SessionRecording.load_metadata", return_value=True)
     def test_specific_recording_access(self, mock_load_metadata):
@@ -161,11 +161,11 @@ class TestSessionRecordingAccessControl(APIBaseTest):
 
         # Should be able to access the first recording
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{self.recording.session_id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         # Should not be able to access the second recording
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{recording2.session_id}/")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     @patch("posthog.session_recordings.models.session_recording.SessionRecording.load_metadata", return_value=True)
     def test_org_admin_has_full_access(self, mock_load_metadata):
@@ -179,7 +179,7 @@ class TestSessionRecordingAccessControl(APIBaseTest):
 
         # Should be able to delete without explicit permissions
         response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings/{self.recording.session_id}/")
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
     @patch("posthog.session_recordings.models.session_recording.SessionRecording.load_metadata", return_value=True)
     def test_role_based_access(self, mock_load_metadata):
@@ -194,7 +194,7 @@ class TestSessionRecordingAccessControl(APIBaseTest):
         self.client.force_login(self.editor_user)
         response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings/{self.recording.session_id}/")
 
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
     def test_manager_can_modify_access_controls(self):
         """Test that a user with manager access can modify access controls for recordings"""
@@ -205,4 +205,4 @@ class TestSessionRecordingAccessControl(APIBaseTest):
         uac = UserAccessControl(self.editor_user, self.team)
         can_modify = uac.check_can_modify_access_levels_for_object(self.recording)
 
-        self.assertTrue(can_modify)
+        assert can_modify

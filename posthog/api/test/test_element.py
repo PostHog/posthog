@@ -121,9 +121,9 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         ]
         ElementGroup.objects.create(team=self.team, elements=elements)
 
-        self.assertEqual(elements[0].order, 0)
-        self.assertEqual(elements[1].order, 1)
-        self.assertEqual(elements[2].order, 2)
+        assert elements[0].order == 0
+        assert elements[1].order == 1
+        assert elements[2].order == 2
 
     def test_event_property_values(self) -> None:
         _create_event(
@@ -141,12 +141,12 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         response = self.client.get("/api/element/values/?key=tag_name").json()
-        self.assertEqual(response[0]["name"], "a")
-        self.assertEqual(len(response), 1)
+        assert response[0]["name"] == "a"
+        assert len(response) == 1
 
         response = self.client.get("/api/element/values/?key=text&value=click").json()
-        self.assertEqual(response[0]["name"], "click here")
-        self.assertEqual(len(response), 1)
+        assert response[0]["name"] == "click here"
+        assert len(response) == 1
 
     # checking postgres, don't care about person on events
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
@@ -164,7 +164,7 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         properties_filter = json.dumps([{"key": "$current_url", "value": "http://example.com/another_page"}])
         response = self.client.get(f"/api/element/stats/?paginate_response=true&properties={properties_filter}").json()
-        self.assertEqual(len(response["results"]), 1)
+        assert len(response["results"]) == 1
 
     def test_element_stats_can_filter_by_hogql(self) -> None:
         self._setup_events()
@@ -177,7 +177,7 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ]
         )
         response = self.client.get(f"/api/element/stats/?paginate_response=true&properties={properties_filter}").json()
-        self.assertEqual(len(response["results"]), 1)
+        assert len(response["results"]) == 1
 
     def test_element_stats_clamps_date_from_to_start_of_day(self) -> None:
         event_start = "2012-01-14T03:21:34.000Z"
@@ -222,17 +222,17 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         with freeze_time(query_time):
             # the UI doesn't allow you to choose time, so query should always be from start of day
             response = self.client.get(f"/api/element/stats/?paginate_response=true&date_from={query_time}")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
 
             response_json = response.json()
-            self.assertEqual(response_json["results"][0]["count"], 2)
-            self.assertEqual(response_json["results"][0]["elements"][0]["tag_name"], "a")
+            assert response_json["results"][0]["count"] == 2
+            assert response_json["results"][0]["elements"][0]["tag_name"] == "a"
 
     def test_element_stats_can_load_all_the_data(self) -> None:
         self._setup_events()
 
         response = self.client.get(f"/api/element/stats/?paginate_response=true")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         response_json = response.json()
         assert response_json["next"] is None  # loaded all the data, so no next link
@@ -244,7 +244,7 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self._setup_events()
 
         response = self.client.get(f"/api/element/stats/?paginate_response=true&include=$rageclick")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         response_json = response.json()
         assert response_json["next"] is None  # loaded all the data, so no next link
@@ -258,7 +258,7 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self._setup_events()
 
         response = self.client.get(f"/api/element/stats/?paginate_response=true{include_params}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         response_json = response.json()
         assert response_json["next"] is None  # loaded all the data, so no next link
@@ -270,7 +270,7 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self._setup_events()
 
         page_one_response = self.client.get(f"/api/element/stats/?paginate_response=true&limit=1")
-        self.assertEqual(page_one_response.status_code, status.HTTP_200_OK)
+        assert page_one_response.status_code == status.HTTP_200_OK
 
         page_one_response_json = page_one_response.json()
         assert (
@@ -281,7 +281,7 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert limit_to_one_results == [expected_autocapture_data_response_results[0]]
 
         page_two_response = self.client.get(f"/api/element/stats/?paginate_response=true&limit=1&offset=1")
-        self.assertEqual(page_two_response.status_code, status.HTTP_200_OK)
+        assert page_two_response.status_code == status.HTTP_200_OK
 
         page_two_response_json = page_two_response.json()
         assert (
@@ -292,7 +292,7 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert limit_to_one_results_page_two == [expected_autocapture_data_response_results[1]]
 
         page_three_response = self.client.get(f"/api/element/stats/?paginate_response=true&limit=1&offset=2")
-        self.assertEqual(page_three_response.status_code, status.HTTP_200_OK)
+        assert page_three_response.status_code == status.HTTP_200_OK
 
         page_three_response_json = page_three_response.json()
         assert page_three_response_json["next"] is None
@@ -301,15 +301,15 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     def test_element_stats_does_not_allow_non_numeric_limit(self) -> None:
         response = self.client.get(f"/api/element/stats/?limit=not-a-number")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_element_stats_does_not_allow_non_numeric_offset(self) -> None:
         response = self.client.get(f"/api/element/stats/?limit=not-a-number")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_element_stats_does_not_allow_unexepcted_include(self) -> None:
         response = self.client.get(f"/api/element/stats/?include=$autocapture&include=$rageclick&include=$pageview")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def _setup_events(self):
         _create_person(distinct_ids=["one"], team=self.team, properties={"email": "one@mail.com"})

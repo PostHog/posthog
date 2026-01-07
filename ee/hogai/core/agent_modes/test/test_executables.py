@@ -85,13 +85,13 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
             node = _create_agent_node(self.team, self.user)
             state_1 = AssistantState(messages=[HumanMessage(content="Tell me a joke")])
             next_state = await node.arun(state_1, {})
-            self.assertIsInstance(next_state, PartialAssistantState)
+            assert isinstance(next_state, PartialAssistantState)
             # The state includes context messages + original message + generated message
-            self.assertGreaterEqual(len(next_state.messages), 1)
+            assert len(next_state.messages) >= 1
             assistant_message = next_state.messages[-1]
-            self.assertIsInstance(assistant_message, AssistantMessage)
             assert isinstance(assistant_message, AssistantMessage)
-            self.assertEqual(assistant_message.content, "Why did the chicken cross the road? To get to the other side!")
+            assert isinstance(assistant_message, AssistantMessage)
+            assert assistant_message.content == "Why did the chicken cross the road? To get to the other side!"
 
     async def test_node_can_produce_not_existing_tool(self):
         """Test that the node can produce a not existing tool call message. AgentToolsExecutable will handle the hallucination."""
@@ -115,24 +115,19 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
             node = _create_agent_node(self.team, self.user)
             state_1 = AssistantState(messages=[HumanMessage(content="generate")])
             next_state = await node.arun(state_1, {})
-            self.assertIsInstance(next_state, PartialAssistantState)
+            assert isinstance(next_state, PartialAssistantState)
             # The state includes context messages + original message + generated message
-            self.assertGreaterEqual(len(next_state.messages), 1)
+            assert len(next_state.messages) >= 1
             assistant_message = next_state.messages[-1]
-            self.assertIsInstance(assistant_message, AssistantMessage)
             assert isinstance(assistant_message, AssistantMessage)
-            self.assertEqual(assistant_message.content, "Content")
-            self.assertIsNotNone(assistant_message.id)
-            self.assertIsNotNone(assistant_message.tool_calls)
+            assert isinstance(assistant_message, AssistantMessage)
+            assert assistant_message.content == "Content"
+            assert assistant_message.id is not None
             assert assistant_message.tool_calls is not None
-            self.assertEqual(len(assistant_message.tool_calls), 1)
-            self.assertEqual(
-                assistant_message.tool_calls[0],
-                AssistantToolCall(
-                    id="xyz",
-                    name="does_not_exist",
-                    args={"query_description": "Foobar"},
-                ),
+            assert assistant_message.tool_calls is not None
+            assert len(assistant_message.tool_calls) == 1
+            assert assistant_message.tool_calls[0] == AssistantToolCall(
+                id="xyz", name="does_not_exist", args={"query_description": "Foobar"}
             )
 
     @patch(
@@ -144,14 +139,9 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         result = node._construct_messages(
             state_1.messages, state_1.root_conversation_start_id, state_1.root_tool_calls_count
         )
-        self.assertEqual(
-            result,
-            [
-                LangchainHumanMessage(
-                    content=[{"text": "Hello", "type": "text", "cache_control": {"type": "ephemeral"}}]
-                )
-            ],
-        )
+        assert result == [
+            LangchainHumanMessage(content=[{"text": "Hello", "type": "text", "cache_control": {"type": "ephemeral"}}])
+        ]
 
         # We want full access to message history in root
         state_2 = AssistantState(
@@ -164,16 +154,13 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         result2 = node._construct_messages(
             state_2.messages, state_2.root_conversation_start_id, state_2.root_tool_calls_count
         )
-        self.assertEqual(
-            result2,
-            [
-                LangchainHumanMessage(content=[{"text": "Hello", "type": "text"}]),
-                LangchainAIMessage(content=[{"text": "Welcome!", "type": "text"}]),
-                LangchainHumanMessage(
-                    content=[{"text": "Generate trends", "type": "text", "cache_control": {"type": "ephemeral"}}]
-                ),
-            ],
-        )
+        assert result2 == [
+            LangchainHumanMessage(content=[{"text": "Hello", "type": "text"}]),
+            LangchainAIMessage(content=[{"text": "Welcome!", "type": "text"}]),
+            LangchainHumanMessage(
+                content=[{"text": "Generate trends", "type": "text", "cache_control": {"type": "ephemeral"}}]
+            ),
+        ]
 
     @patch(
         "ee.hogai.core.agent_modes.executables.AgentExecutable._get_model",
@@ -200,27 +187,16 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
             ]
         )
         result = node._construct_messages(state.messages, state.root_conversation_start_id, state.root_tool_calls_count)
-        self.assertEqual(
-            result,
-            [
-                LangchainHumanMessage(content=[{"text": "Hello", "type": "text"}]),
-                LangchainAIMessage(
-                    content=[{"text": "Welcome!", "type": "text"}],
-                    tool_calls=[
-                        {
-                            "id": "xyz",
-                            "name": "create_insight",
-                            "args": {},
-                        }
-                    ],
-                ),
-                LangchainHumanMessage(content=[{"type": "tool_result", "tool_use_id": "xyz", "content": "Answer"}]),
-                LangchainAIMessage(content=[{"text": "Follow-up", "type": "text"}]),
-                LangchainHumanMessage(
-                    content=[{"text": "Answer", "type": "text", "cache_control": {"type": "ephemeral"}}]
-                ),
-            ],
-        )
+        assert result == [
+            LangchainHumanMessage(content=[{"text": "Hello", "type": "text"}]),
+            LangchainAIMessage(
+                content=[{"text": "Welcome!", "type": "text"}],
+                tool_calls=[{"id": "xyz", "name": "create_insight", "args": {}}],
+            ),
+            LangchainHumanMessage(content=[{"type": "tool_result", "tool_use_id": "xyz", "content": "Answer"}]),
+            LangchainAIMessage(content=[{"text": "Follow-up", "type": "text"}]),
+            LangchainHumanMessage(content=[{"text": "Answer", "type": "text", "cache_control": {"type": "ephemeral"}}]),
+        ]
 
     @patch(
         "ee.hogai.core.agent_modes.executables.AgentExecutable._get_model", return_value=FakeChatOpenAI(responses=[])
@@ -255,34 +231,31 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         )
 
         # Verify we get exactly 3 messages
-        self.assertEqual(len(messages), 3)
+        assert len(messages) == 3
 
         # Verify the messages are in correct order and format
-        self.assertEqual(messages[0], LangchainHumanMessage(content=[{"text": "Hello", "type": "text"}]))
+        assert messages[0] == LangchainHumanMessage(content=[{"text": "Hello", "type": "text"}])
 
         # Verify the assistant message only includes the tool call that has a response
         assistant_message = messages[1]
-        self.assertIsInstance(assistant_message, LangchainAIMessage)
         assert isinstance(assistant_message, LangchainAIMessage)
-        self.assertEqual(assistant_message.content, [{"text": "Welcome!", "type": "text"}])
-        self.assertEqual(len(assistant_message.tool_calls), 1)
-        self.assertEqual(assistant_message.tool_calls[0]["id"], "xyz1")
+        assert isinstance(assistant_message, LangchainAIMessage)
+        assert assistant_message.content == [{"text": "Welcome!", "type": "text"}]
+        assert len(assistant_message.tool_calls) == 1
+        assert assistant_message.tool_calls[0]["id"] == "xyz1"
 
         # Verify the tool response is included
         tool_message = messages[2]
-        self.assertIsInstance(tool_message, LangchainHumanMessage)
         assert isinstance(tool_message, LangchainHumanMessage)
-        self.assertEqual(
-            tool_message.content,
-            [
-                {
-                    "content": "Answer for xyz1",
-                    "type": "tool_result",
-                    "tool_use_id": "xyz1",
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ],
-        )
+        assert isinstance(tool_message, LangchainHumanMessage)
+        assert tool_message.content == [
+            {
+                "content": "Answer for xyz1",
+                "type": "tool_result",
+                "tool_use_id": "xyz1",
+                "cache_control": {"type": "ephemeral"},
+            }
+        ]
 
     async def test_hard_limit_removes_tools(self):
         mock_with_tokens = MagicMock()
@@ -311,20 +284,20 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
             next_state = await node.arun(state, {})
 
             # Verify the response doesn't contain any tool calls
-            self.assertIsInstance(next_state, PartialAssistantState)
+            assert isinstance(next_state, PartialAssistantState)
             # The state includes context messages + original message + generated message
-            self.assertGreaterEqual(len(next_state.messages), 1)
+            assert len(next_state.messages) >= 1
             message = next_state.messages[-1]
-            self.assertIsInstance(message, AssistantMessage)
             assert isinstance(message, AssistantMessage)
-            self.assertEqual(message.content, "I can't help with that anymore.")
-            self.assertEqual(message.tool_calls, [])
+            assert isinstance(message, AssistantMessage)
+            assert message.content == "I can't help with that anymore."
+            assert message.tool_calls == []
 
             # Verify the hard limit message was added to the conversation
             messages = node._construct_messages(
                 state.messages, state.root_conversation_start_id, state.root_tool_calls_count
             )
-            self.assertIn("iterations", messages[-1].content)
+            assert "iterations" in messages[-1].content
 
     @patch(
         "ee.hogai.core.agent_modes.executables.AgentExecutable._get_model", return_value=FakeChatOpenAI(responses=[])
@@ -353,14 +326,14 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         # Verify summarize was called with all messages
         mock_summarize.assert_called_once()
         summarized_messages = mock_summarize.call_args[0][0]
-        self.assertEqual(len(summarized_messages), 3)
+        assert len(summarized_messages) == 3
 
         # Verify summary message was inserted (along with mode reminder)
-        self.assertIsInstance(result, PartialAssistantState)
+        assert isinstance(result, PartialAssistantState)
         context_messages = [msg for msg in result.messages if isinstance(msg, ContextMessage)]
-        self.assertEqual(len(context_messages), 2)  # summary + mode reminder
+        assert len(context_messages) == 2  # summary + mode reminder
         summary_msg = next(msg for msg in context_messages if "This is a summary" in msg.content)
-        self.assertIn("This is a summary of the conversation so far.", summary_msg.content)
+        assert "This is a summary of the conversation so far." in summary_msg.content
 
     @patch(
         "ee.hogai.core.agent_modes.executables.AgentExecutable._get_model", return_value=FakeChatOpenAI(responses=[])
@@ -390,7 +363,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         # Verify last message was excluded from summarization
         mock_summarize.assert_called_once()
         summarized_messages = mock_summarize.call_args[0][0]
-        self.assertEqual(len(summarized_messages), 2)
+        assert len(summarized_messages) == 2
 
     @patch(
         "ee.hogai.core.agent_modes.executables.AgentExecutable._get_model", return_value=FakeChatOpenAI(responses=[])
@@ -420,16 +393,16 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         result = await node.arun(state, {})
 
         # Verify summary and mode reminder messages were inserted
-        self.assertIsInstance(result, PartialAssistantState)
+        assert isinstance(result, PartialAssistantState)
         context_messages = [msg for msg in result.messages if isinstance(msg, ContextMessage)]
-        self.assertGreaterEqual(len(context_messages), 2, "Should have at least summary and mode reminder")
+        assert len(context_messages) >= 2, "Should have at least summary and mode reminder"
 
         # Find summary message
         summary_msg = next(
             (msg for msg in context_messages if "Summary of conversation" in msg.content),
             None,
         )
-        self.assertIsNotNone(summary_msg, "Summary message should be present")
+        assert summary_msg is not None, "Summary message should be present"
         assert summary_msg is not None  # Type narrowing
 
         # Find mode reminder message
@@ -437,13 +410,13 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
             (msg for msg in context_messages if "product_analytics" in msg.content),
             None,
         )
-        self.assertIsNotNone(mode_reminder, "Mode reminder should be present")
+        assert mode_reminder is not None, "Mode reminder should be present"
         assert mode_reminder is not None  # Type narrowing
 
         # Verify mode reminder comes after summary
         summary_idx = next(i for i, msg in enumerate(result.messages) if msg.id == summary_msg.id)
         mode_idx = next(i for i, msg in enumerate(result.messages) if msg.id == mode_reminder.id)
-        self.assertEqual(mode_idx, summary_idx + 1, "Mode reminder should be right after summary")
+        assert mode_idx == summary_idx + 1, "Mode reminder should be right after summary"
 
     @patch(
         "ee.hogai.core.agent_modes.executables.AgentExecutable._get_model", return_value=FakeChatOpenAI(responses=[])
@@ -452,7 +425,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         """Test _construct_messages with empty message list"""
         node = _create_agent_node(self.team, self.user)
         result = node._construct_messages([], None, None)
-        self.assertEqual(result, [])
+        assert result == []
 
     @patch(
         "ee.hogai.core.agent_modes.executables.AgentExecutable._get_model", return_value=FakeChatOpenAI(responses=[])
@@ -475,7 +448,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
                     if isinstance(content_item, dict) and "cache_control" in content_item:
                         cache_control_count += 1
 
-        self.assertEqual(cache_control_count, 1, "Only one message should have cache_control")
+        assert cache_control_count == 1, "Only one message should have cache_control"
 
     @patch(
         "ee.hogai.core.agent_modes.executables.AgentExecutable._get_model", return_value=FakeChatOpenAI(responses=[])
@@ -488,8 +461,8 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
 
         # Verify hard limit message is added
         human_messages = [msg for msg in result if isinstance(msg, LangchainHumanMessage)]
-        self.assertGreater(len(human_messages), 1)
-        self.assertIn("iterations", human_messages[-1].content)
+        assert len(human_messages) > 1
+        assert "iterations" in human_messages[-1].content
 
     @parameterized.expand(
         [
@@ -503,7 +476,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         """Test _is_hard_limit_reached with boundary values"""
         node = _create_agent_node(self.team, self.user)
         result = node._is_hard_limit_reached(tool_calls_count)
-        self.assertEqual(result, expected)
+        assert result == expected
 
     async def test_node_increments_tool_count_on_tool_call(self):
         """Test that RootNode increments tool count when assistant makes a tool call"""
@@ -529,7 +502,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
             # Test starting from no tool calls
             state_1 = AssistantState(messages=[HumanMessage(content="Hello")])
             result_1 = await node.arun(state_1, {})
-            self.assertEqual(result_1.root_tool_calls_count, 1)
+            assert result_1.root_tool_calls_count == 1
 
             # Test incrementing from existing count
             state_2 = AssistantState(
@@ -537,7 +510,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
                 root_tool_calls_count=5,
             )
             result_2 = await node.arun(state_2, {})
-            self.assertEqual(result_2.root_tool_calls_count, 6)
+            assert result_2.root_tool_calls_count == 6
 
     async def test_node_resets_tool_count_on_plain_response(self):
         """Test that RootNode resets tool count when assistant responds without tool calls"""
@@ -552,7 +525,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
                 root_tool_calls_count=5,
             )
             result = await node.arun(state, {})
-            self.assertIsNone(result.root_tool_calls_count)
+            assert result.root_tool_calls_count is None
 
     def test_router_returns_end_for_plain_response(self):
         """Test that router returns END when message has no tool calls"""
@@ -567,7 +540,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
             ]
         )
         result = node.router(state)
-        self.assertEqual(result, AssistantNodeName.END)
+        assert result == AssistantNodeName.END
 
     def test_router_returns_send_for_single_tool_call(self):
         """Test that router returns Send for single tool call"""
@@ -595,11 +568,11 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         result = node.router(state)
 
         # Verify it's a list of Send objects
-        self.assertIsInstance(result, list)
-        self.assertEqual(len(result), 1)
-        self.assertIsInstance(result[0], Send)
-        self.assertEqual(result[0].node, AssistantNodeName.ROOT_TOOLS)
-        self.assertEqual(result[0].arg.root_tool_call_id, "tool-1")
+        assert isinstance(result, list)
+        assert len(result) == 1
+        assert isinstance(result[0], Send)
+        assert result[0].node == AssistantNodeName.ROOT_TOOLS
+        assert result[0].arg.root_tool_call_id == "tool-1"
 
     def test_router_returns_multiple_sends_for_parallel_tool_calls(self):
         """Test that router returns multiple Send objects for parallel tool calls"""
@@ -637,21 +610,19 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         result = node.router(state)
 
         # Verify it's a list of Send objects
-        self.assertIsInstance(result, list)
-        self.assertEqual(len(result), 3)
+        assert isinstance(result, list)
+        assert len(result) == 3
 
         # Verify all are Send objects to ROOT_TOOLS
         for i, send in enumerate(result):
-            self.assertIsInstance(send, Send)
-            self.assertEqual(send.node, AssistantNodeName.ROOT_TOOLS)
-            self.assertEqual(send.arg.root_tool_call_id, f"tool-{i+1}")
+            assert isinstance(send, Send)
+            assert send.node == AssistantNodeName.ROOT_TOOLS
+            assert send.arg.root_tool_call_id == f"tool-{i + 1}"
 
     def test_get_updated_agent_mode(self):
         node = _create_agent_node(self.team, self.user)
         message = AssistantMessage(content="test")
-        self.assertEqual(
-            node._get_updated_agent_mode(message, AgentMode.PRODUCT_ANALYTICS), AgentMode.PRODUCT_ANALYTICS
-        )
+        assert node._get_updated_agent_mode(message, AgentMode.PRODUCT_ANALYTICS) == AgentMode.PRODUCT_ANALYTICS
 
     @patch("ee.hogai.core.agent_modes.executables.AgentExecutable._get_model")
     @patch("ee.hogai.core.agent_modes.compaction_manager.AnthropicConversationCompactionManager.calculate_token_count")
@@ -681,7 +652,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         result = await node.arun(state, {})
 
         # Verify the node returns ReplaceMessages
-        self.assertIsInstance(result.messages, ReplaceMessages)
+        assert isinstance(result.messages, ReplaceMessages)
 
         # Build a graph to verify the ReplaceMessages behavior
         graph = StateGraph(AssistantState)
@@ -703,13 +674,13 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         # Verify the original messages were replaced entirely (not merged)
         # The result should contain only messages from the node's ReplaceMessages
         message_ids = [msg.id for msg in res["messages"]]
-        self.assertNotIn("A", message_ids)
-        self.assertNotIn("B", message_ids)
+        assert "A" not in message_ids
+        assert "B" not in message_ids
 
         # Verify the new messages are present with the summary context inserted
         context_messages = [msg for msg in res["messages"] if isinstance(msg, ContextMessage)]
-        self.assertGreaterEqual(len(context_messages), 1)
-        self.assertTrue(any("summary" in msg.content.lower() for msg in context_messages))
+        assert len(context_messages) >= 1
+        assert any("summary" in msg.content.lower() for msg in context_messages)
 
 
 class TestRootNodeTools(BaseTest):
@@ -723,11 +694,11 @@ class TestRootNodeTools(BaseTest):
                 AssistantToolCallMessage(content="Tool result", tool_call_id="xyz"),
             ]
         )
-        self.assertEqual(node.router(state_1), "root")
+        assert node.router(state_1) == "root"
 
         # Test case 2: No tool call message or root tool call - should return "end"
         state_3 = AssistantState(messages=[AssistantMessage(content="Hello")])
-        self.assertEqual(node.router(state_3), "end")
+        assert node.router(state_3) == "end"
 
         # Test case 3: Has contextual tool call result - should go back to root
         state_4 = AssistantState(
@@ -736,13 +707,13 @@ class TestRootNodeTools(BaseTest):
                 AssistantToolCallMessage(content="Tool result", tool_call_id="xyz"),
             ]
         )
-        self.assertEqual(node.router(state_4), "root")
+        assert node.router(state_4) == "root"
 
     async def test_run_no_assistant_message(self):
         node = _create_agent_tools_node(self.team, self.user)
         state = AssistantState(messages=[HumanMessage(content="Hello")])
         result = await node.arun(state, {})
-        self.assertEqual(result, PartialAssistantState(root_tool_call_id=None))
+        assert result == PartialAssistantState(root_tool_call_id=None)
 
     @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
     async def test_run_valid_tool_call(self, read_taxonomy_mock):
@@ -767,11 +738,11 @@ class TestRootNodeTools(BaseTest):
             root_tool_call_id="xyz",
         )
         result = await node(state, {})
-        self.assertIsInstance(result, PartialAssistantState)
+        assert isinstance(result, PartialAssistantState)
         assert result is not None
-        self.assertEqual(len(result.messages), 1)
+        assert len(result.messages) == 1
         assert isinstance(result.messages[0], AssistantToolCallMessage)
-        self.assertEqual(result.messages[0].tool_call_id, "xyz")
+        assert result.messages[0].tool_call_id == "xyz"
         read_taxonomy_mock.assert_called_once_with(query=ReadEvents())
 
     async def test_invalid_tool_call_returns_error(self):
@@ -794,12 +765,12 @@ class TestRootNodeTools(BaseTest):
             root_tool_call_id="xyz",
         )
         result = await node(state, {})
-        self.assertIsInstance(result, PartialAssistantState)
+        assert isinstance(result, PartialAssistantState)
         assert result is not None
-        self.assertEqual(len(result.messages), 1)
+        assert len(result.messages) == 1
         assert isinstance(result.messages[0], AssistantToolCallMessage)
-        self.assertEqual(result.messages[0].tool_call_id, "xyz")
-        self.assertIn("This tool does not exist", result.messages[0].content)
+        assert result.messages[0].tool_call_id == "xyz"
+        assert "This tool does not exist" in result.messages[0].content
 
     @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
     async def test_max_tool_fatal_error_returns_error_message(self, read_taxonomy_mock):
@@ -824,14 +795,14 @@ class TestRootNodeTools(BaseTest):
 
         result = await node.arun(state, {})
 
-        self.assertIsInstance(result, PartialAssistantState)
+        assert isinstance(result, PartialAssistantState)
         assert result is not None
-        self.assertEqual(len(result.messages), 1)
+        assert len(result.messages) == 1
         assert isinstance(result.messages[0], AssistantToolCallMessage)
-        self.assertEqual(result.messages[0].tool_call_id, "tool-123")
-        self.assertIn("Configuration error", result.messages[0].content)
-        self.assertIn("INKEEP_API_KEY", result.messages[0].content)
-        self.assertNotIn("retry", result.messages[0].content.lower())
+        assert result.messages[0].tool_call_id == "tool-123"
+        assert "Configuration error" in result.messages[0].content
+        assert "INKEEP_API_KEY" in result.messages[0].content
+        assert "retry" not in result.messages[0].content.lower()
 
     @patch("ee.hogai.core.agent_modes.executables.posthoganalytics.capture")
     @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
@@ -863,22 +834,22 @@ class TestRootNodeTools(BaseTest):
         call_args = capture_mock.call_args
 
         # Verify event name
-        self.assertEqual(call_args.kwargs["event"], "max_tool_error")
+        assert call_args.kwargs["event"] == "max_tool_error"
 
         # Verify distinct_id is set
-        self.assertEqual(call_args.kwargs["distinct_id"], "test-user-123")
+        assert call_args.kwargs["distinct_id"] == "test-user-123"
 
         # Verify properties
         properties = call_args.kwargs["properties"]
-        self.assertEqual(properties["tool_name"], "read_taxonomy")
-        self.assertEqual(properties["error_type"], "MaxToolFatalError")
-        self.assertEqual(properties["retry_strategy"], "never")
-        self.assertEqual(properties["error_message"], error_message)
+        assert properties["tool_name"] == "read_taxonomy"
+        assert properties["error_type"] == "MaxToolFatalError"
+        assert properties["retry_strategy"] == "never"
+        assert properties["error_message"] == error_message
 
         # Verify groups are set
         groups = call_args.kwargs["groups"]
-        self.assertIn("organization", groups)
-        self.assertIn("project", groups)
+        assert "organization" in groups
+        assert "project" in groups
 
     @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
     async def test_max_tool_error_groups_call_works_in_async_context(self, read_taxonomy_mock):
@@ -910,7 +881,7 @@ class TestRootNodeTools(BaseTest):
         result = await node.arun(state, config)
 
         # Should complete without error
-        self.assertIsInstance(result, PartialAssistantState)
+        assert isinstance(result, PartialAssistantState)
 
     @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
     async def test_max_tool_retryable_error_returns_error_with_retry_hint(self, read_taxonomy_mock):
@@ -935,13 +906,13 @@ class TestRootNodeTools(BaseTest):
 
         result = await node.arun(state, {})
 
-        self.assertIsInstance(result, PartialAssistantState)
+        assert isinstance(result, PartialAssistantState)
         assert result is not None
-        self.assertEqual(len(result.messages), 1)
+        assert len(result.messages) == 1
         assert isinstance(result.messages[0], AssistantToolCallMessage)
-        self.assertEqual(result.messages[0].tool_call_id, "tool-123")
-        self.assertIn("Invalid entity kind", result.messages[0].content)
-        self.assertIn("retry with adjusted inputs", result.messages[0].content.lower())
+        assert result.messages[0].tool_call_id == "tool-123"
+        assert "Invalid entity kind" in result.messages[0].content
+        assert "retry with adjusted inputs" in result.messages[0].content.lower()
 
     @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
     async def test_max_tool_transient_error_returns_error_with_once_retry_hint(self, read_taxonomy_mock):
@@ -964,13 +935,13 @@ class TestRootNodeTools(BaseTest):
 
         result = await node.arun(state, {})
 
-        self.assertIsInstance(result, PartialAssistantState)
+        assert isinstance(result, PartialAssistantState)
         assert result is not None
-        self.assertEqual(len(result.messages), 1)
+        assert len(result.messages) == 1
         assert isinstance(result.messages[0], AssistantToolCallMessage)
-        self.assertEqual(result.messages[0].tool_call_id, "tool-123")
-        self.assertIn("Rate limit exceeded", result.messages[0].content)
-        self.assertIn("retry this operation once without changes", result.messages[0].content.lower())
+        assert result.messages[0].tool_call_id == "tool-123"
+        assert "Rate limit exceeded" in result.messages[0].content
+        assert "retry this operation once without changes" in result.messages[0].content.lower()
 
     @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
     async def test_generic_exception_returns_internal_error_message(self, read_taxonomy_mock):
@@ -993,13 +964,13 @@ class TestRootNodeTools(BaseTest):
 
         result = await node.arun(state, {})
 
-        self.assertIsInstance(result, PartialAssistantState)
+        assert isinstance(result, PartialAssistantState)
         assert result is not None
-        self.assertEqual(len(result.messages), 1)
+        assert len(result.messages) == 1
         assert isinstance(result.messages[0], AssistantToolCallMessage)
-        self.assertEqual(result.messages[0].tool_call_id, "tool-123")
-        self.assertIn("internal error", result.messages[0].content.lower())
-        self.assertIn("do not immediately retry", result.messages[0].content.lower())
+        assert result.messages[0].tool_call_id == "tool-123"
+        assert "internal error" in result.messages[0].content.lower()
+        assert "do not immediately retry" in result.messages[0].content.lower()
 
     @parameterized.expand(
         [
@@ -1036,9 +1007,9 @@ class TestRootNodeTools(BaseTest):
             call_kwargs = mock_capture.call_args.kwargs
             captured_error = mock_capture.call_args.args[0]
 
-            self.assertIsInstance(captured_error, MaxToolError)
-            self.assertEqual(call_kwargs["properties"]["retry_strategy"], expected_strategy)
-            self.assertEqual(call_kwargs["properties"]["tool"], "read_taxonomy")
+            assert isinstance(captured_error, MaxToolError)
+            assert call_kwargs["properties"]["retry_strategy"] == expected_strategy
+            assert call_kwargs["properties"]["tool"] == "read_taxonomy"
 
     @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
     async def test_validation_error_returns_error_message(self, read_taxonomy_mock):
@@ -1073,17 +1044,17 @@ class TestRootNodeTools(BaseTest):
         with patch("ee.hogai.core.agent_modes.executables.capture_exception") as mock_capture:
             result = await node.arun(state, {})
 
-            self.assertIsInstance(result, PartialAssistantState)
+            assert isinstance(result, PartialAssistantState)
             assert result is not None
-            self.assertEqual(len(result.messages), 1)
+            assert len(result.messages) == 1
             assert isinstance(result.messages[0], AssistantToolCallMessage)
-            self.assertEqual(result.messages[0].tool_call_id, "tool-123")
-            self.assertIn("validation error", result.messages[0].content.lower())
-            self.assertIn("field required", result.messages[0].content.lower())
+            assert result.messages[0].tool_call_id == "tool-123"
+            assert "validation error" in result.messages[0].content.lower()
+            assert "field required" in result.messages[0].content.lower()
 
             # Verify exception was captured
             mock_capture.assert_called_once()
             captured_error = mock_capture.call_args.args[0]
             from pydantic import ValidationError as PydanticValidationError
 
-            self.assertIsInstance(captured_error, PydanticValidationError)
+            assert isinstance(captured_error, PydanticValidationError)

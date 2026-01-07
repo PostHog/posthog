@@ -82,31 +82,31 @@ class TestGroups(ClickhouseTestMixin, NonAtomicBaseTest):
         # Test that the entity names include the groups we created in setUp
         result = await self.toolkit._get_entity_names()
         expected = ["person", "session", "organization", "project", "no_properties"]
-        self.assertEqual(result, expected)
+        assert result == expected
 
         property_vals = await self.toolkit.retrieve_entity_property_values(
             {"organization": ["name", "industry"], "project": ["size"]}
         )
 
         # Should return the actual values from the groups we created
-        self.assertIn("organization", property_vals)
-        self.assertIn("project", property_vals)
+        assert "organization" in property_vals
+        assert "project" in property_vals
 
-        self.assertTrue(any("Acme Corp" in str(val) for val in property_vals.get("organization", [])))
-        self.assertTrue(any("tech" in str(val) for val in property_vals.get("organization", [])))
-        self.assertTrue(any("100" in str(val) for val in property_vals.get("project", [])))
+        assert any("Acme Corp" in str(val) for val in property_vals.get("organization", []))
+        assert any("tech" in str(val) for val in property_vals.get("organization", []))
+        assert any("100" in str(val) for val in property_vals.get("project", []))
 
     async def test_retrieve_entity_property_values_wrong_group(self):
         property_vals = await self.toolkit.retrieve_entity_property_values(
             {"test": ["name", "industry"], "project": ["size"]}
         )
 
-        self.assertIn("test", property_vals)
-        self.assertIn(
-            "Entity test not found. Available entities: person, session, organization, project, no_properties",
-            property_vals["test"],
+        assert "test" in property_vals
+        assert (
+            "Entity test not found. Available entities: person, session, organization, project, no_properties"
+            in property_vals["test"]
         )
-        self.assertIn("project", property_vals)
+        assert "project" in property_vals
 
     async def test_retrieve_entity_properties_group(self):
         result = await self.toolkit.retrieve_entity_properties_parallel(["organization"])

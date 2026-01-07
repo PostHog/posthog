@@ -99,7 +99,7 @@ class TestEventDefinitionTypeScriptGeneration(APIBaseTest):
     def _generate_typescript(self) -> str:
         """Generate TypeScript definitions by calling the actual API endpoint"""
         response = self.client.get(f"/api/projects/{self.project.id}/event_definitions/typescript/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         return response.json()["content"]
 
     def test_typescript_allows_additional_properties(self):
@@ -131,9 +131,7 @@ class TestEventDefinitionTypeScriptGeneration(APIBaseTest):
 
             if install_result.returncode != 0:
                 self.fail(
-                    f"Failed to install dependencies:\n"
-                    f"STDOUT: {install_result.stdout}\n"
-                    f"STDERR: {install_result.stderr}"
+                    f"Failed to install dependencies:\nSTDOUT: {install_result.stdout}\nSTDERR: {install_result.stderr}"
                 )
 
             # Write generated types (using real posthog-js)
@@ -292,11 +290,9 @@ posthog.capture("a'a\\\\'b\\"c>?>%}}%%>c<[[?${{%}}cake'", {
             )
 
             # Assert compilation succeeded
-            self.assertEqual(
-                result.returncode,
-                0,
+            assert result.returncode == 0, (
                 f"TypeScript compilation failed. This indicates the type system is broken.\n\n"
                 f"STDOUT:\n{result.stdout}\n\n"
                 f"STDERR:\n{result.stderr}\n\n"
-                f"Generated TypeScript file location: {types_file}",
+                f"Generated TypeScript file location: {types_file}"
             )

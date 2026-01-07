@@ -1,4 +1,3 @@
-from typing import Optional
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, _create_event, flush_persons_and_events
@@ -59,7 +58,7 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
             },
         ).json()
 
-    def set_thresholds(self, lower: Optional[int] = None, upper: Optional[int] = None) -> None:
+    def set_thresholds(self, lower: int | None = None, upper: int | None = None) -> None:
         self.client.patch(
             f"/api/projects/{self.team.id}/alerts/{self.alert['id']}",
             data={"threshold": {"configuration": {"type": "absolute", "bounds": {"lower": lower, "upper": upper}}}},

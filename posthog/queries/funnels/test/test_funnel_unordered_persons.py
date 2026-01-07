@@ -57,7 +57,7 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
         filter = Filter(data=data)
-        with self.assertRaises(ValueError):
+        with pytest.raises(ValueError):
             ClickhouseFunnelUnorderedActors(filter, self.team).run()
 
         filter = filter.shallow_clone({"funnel_step": -1})
@@ -81,7 +81,7 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
         }
         filter = Filter(data=data)
         _, serialized_results, _ = ClickhouseFunnelUnorderedActors(filter, self.team).get_actors()
-        self.assertEqual(35, len(serialized_results))
+        assert 35 == len(serialized_results)
 
     def test_last_step(self):
         self._create_sample_data_multiple_dropoffs()
@@ -100,7 +100,7 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
         }
         filter = Filter(data=data)
         _, serialized_results, _ = ClickhouseFunnelUnorderedActors(filter, self.team).get_actors()
-        self.assertEqual(5, len(serialized_results))
+        assert 5 == len(serialized_results)
 
     def test_second_step_dropoff(self):
         self._create_sample_data_multiple_dropoffs()
@@ -119,7 +119,7 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
         }
         filter = Filter(data=data)
         _, serialized_results, _ = ClickhouseFunnelUnorderedActors(filter, self.team).get_actors()
-        self.assertEqual(20, len(serialized_results))
+        assert 20 == len(serialized_results)
 
     def test_last_step_dropoff(self):
         self._create_sample_data_multiple_dropoffs()
@@ -138,7 +138,7 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
         }
         filter = Filter(data=data)
         _, serialized_results, _ = ClickhouseFunnelUnorderedActors(filter, self.team).get_actors()
-        self.assertEqual(10, len(serialized_results))
+        assert 10 == len(serialized_results)
 
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-02 00:00:00.000Z")
@@ -187,5 +187,5 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
             }
         )
         _, results, _ = ClickhouseFunnelUnorderedActors(filter, self.team).get_actors()
-        self.assertEqual(results[0]["id"], p1.uuid)
-        self.assertEqual(results[0]["matched_recordings"], [])
+        assert results[0]["id"] == p1.uuid
+        assert results[0]["matched_recordings"] == []

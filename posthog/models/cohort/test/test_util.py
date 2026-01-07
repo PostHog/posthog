@@ -55,20 +55,10 @@ class TestCohortUtils(BaseTest):
 
         result = simplified_cohort_filter_properties(cohort, self.team, is_negated=False)
 
-        self.assertEqual(
-            result.to_dict(),
-            {
-                "type": "AND",
-                "values": [
-                    {
-                        "key": "id",
-                        "negation": False,
-                        "type": "static-cohort",
-                        "value": cohort.pk,
-                    }
-                ],
-            },
-        )
+        assert result.to_dict() == {
+            "type": "AND",
+            "values": [{"key": "id", "negation": False, "type": "static-cohort", "value": cohort.pk}],
+        }
 
     def test_simplified_cohort_filter_properties_static_cohort_with_negation(self):
         _create_person(
@@ -82,20 +72,10 @@ class TestCohortUtils(BaseTest):
 
         result = simplified_cohort_filter_properties(cohort, self.team, is_negated=True)
 
-        self.assertEqual(
-            result.to_dict(),
-            {
-                "type": "AND",
-                "values": [
-                    {
-                        "key": "id",
-                        "negation": True,
-                        "type": "static-cohort",
-                        "value": cohort.pk,
-                    }
-                ],
-            },
-        )
+        assert result.to_dict() == {
+            "type": "AND",
+            "values": [{"key": "id", "negation": True, "type": "static-cohort", "value": cohort.pk}],
+        }
 
     def test_simplified_cohort_filter_properties_precalculated_cohort(self):
         cohort = _create_cohort(
@@ -109,20 +89,10 @@ class TestCohortUtils(BaseTest):
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
             result = simplified_cohort_filter_properties(cohort, self.team, is_negated=False)
 
-        self.assertEqual(
-            result.to_dict(),
-            {
-                "type": "AND",
-                "values": [
-                    {
-                        "key": "id",
-                        "negation": False,
-                        "type": "precalculated-cohort",
-                        "value": cohort.pk,
-                    }
-                ],
-            },
-        )
+        assert result.to_dict() == {
+            "type": "AND",
+            "values": [{"key": "id", "negation": False, "type": "precalculated-cohort", "value": cohort.pk}],
+        }
 
     def test_simplified_cohort_filter_properties_precalculated_cohort_negated(self):
         cohort = _create_cohort(
@@ -136,20 +106,10 @@ class TestCohortUtils(BaseTest):
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
             result = simplified_cohort_filter_properties(cohort, self.team, is_negated=True)
 
-        self.assertEqual(
-            result.to_dict(),
-            {
-                "type": "AND",
-                "values": [
-                    {
-                        "key": "id",
-                        "negation": True,
-                        "type": "precalculated-cohort",
-                        "value": cohort.pk,
-                    }
-                ],
-            },
-        )
+        assert result.to_dict() == {
+            "type": "AND",
+            "values": [{"key": "id", "negation": True, "type": "precalculated-cohort", "value": cohort.pk}],
+        }
 
     def test_simplified_cohort_filter_properties_non_precalculated_cohort_with_behavioural_filter(self):
         cohort = Cohort.objects.create(
@@ -181,39 +141,19 @@ class TestCohortUtils(BaseTest):
 
         result = simplified_cohort_filter_properties(cohort, self.team, is_negated=False)
 
-        self.assertEqual(
-            result.to_dict(),
-            {
-                "type": "AND",
-                "values": [
-                    {
-                        "key": "id",
-                        "negation": False,
-                        "type": "cohort",
-                        "value": cohort.pk,
-                    }
-                ],
-            },
-        )
+        assert result.to_dict() == {
+            "type": "AND",
+            "values": [{"key": "id", "negation": False, "type": "cohort", "value": cohort.pk}],
+        }
 
         # with negation
 
         result = simplified_cohort_filter_properties(cohort, self.team, is_negated=True)
 
-        self.assertEqual(
-            result.to_dict(),
-            {
-                "type": "AND",
-                "values": [
-                    {
-                        "key": "id",
-                        "negation": True,
-                        "type": "cohort",
-                        "value": cohort.pk,
-                    }
-                ],
-            },
-        )
+        assert result.to_dict() == {
+            "type": "AND",
+            "values": [{"key": "id", "negation": True, "type": "cohort", "value": cohort.pk}],
+        }
 
     def test_simplified_cohort_filter_properties_non_precalculated_cohort_with_cohort_filter(self):
         cohort1 = _create_cohort(
@@ -244,48 +184,22 @@ class TestCohortUtils(BaseTest):
 
         result = simplified_cohort_filter_properties(cohort, self.team, is_negated=False)
 
-        self.assertEqual(
-            result.to_dict(),
-            {
-                "type": "AND",
-                "values": [
-                    {
-                        "type": "AND",
-                        "values": [{"key": "name", "value": "test", "type": "person"}],
-                    },
-                    {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "id",
-                                "value": cohort1.pk,
-                                "type": "cohort",
-                                "negation": True,
-                            },
-                        ],
-                    },
-                ],
-            },
-        )
+        assert result.to_dict() == {
+            "type": "AND",
+            "values": [
+                {"type": "AND", "values": [{"key": "name", "value": "test", "type": "person"}]},
+                {"type": "AND", "values": [{"key": "id", "value": cohort1.pk, "type": "cohort", "negation": True}]},
+            ],
+        }
 
         # with negation
 
         result = simplified_cohort_filter_properties(cohort, self.team, is_negated=True)
 
-        self.assertEqual(
-            result.to_dict(),
-            {
-                "type": "AND",
-                "values": [
-                    {
-                        "key": "id",
-                        "negation": True,
-                        "type": "cohort",
-                        "value": cohort.pk,
-                    }
-                ],
-            },
-        )
+        assert result.to_dict() == {
+            "type": "AND",
+            "values": [{"key": "id", "negation": True, "type": "cohort", "value": cohort.pk}],
+        }
 
     def test_simplified_cohort_filter_properties_non_precalculated_cohort_with_only_person_property_filters(self):
         cohort = Cohort.objects.create(
@@ -315,44 +229,28 @@ class TestCohortUtils(BaseTest):
 
         result = simplified_cohort_filter_properties(cohort, self.team, is_negated=False)
 
-        self.assertEqual(
-            result.to_dict(),
-            {
-                "type": "OR",
-                "values": [
-                    {
-                        "type": "AND",
-                        "values": [{"key": "name", "value": "test", "type": "person"}],
-                    },
-                    {
-                        "type": "OR",
-                        "values": [
-                            {"key": "name2", "value": "test", "type": "person"},
-                            {"key": "name3", "value": "test", "type": "person"},
-                        ],
-                    },
-                ],
-            },
-        )
+        assert result.to_dict() == {
+            "type": "OR",
+            "values": [
+                {"type": "AND", "values": [{"key": "name", "value": "test", "type": "person"}]},
+                {
+                    "type": "OR",
+                    "values": [
+                        {"key": "name2", "value": "test", "type": "person"},
+                        {"key": "name3", "value": "test", "type": "person"},
+                    ],
+                },
+            ],
+        }
 
         # with negation
 
         result = simplified_cohort_filter_properties(cohort, self.team, is_negated=True)
 
-        self.assertEqual(
-            result.to_dict(),
-            {
-                "type": "AND",
-                "values": [
-                    {
-                        "key": "id",
-                        "negation": True,
-                        "type": "cohort",
-                        "value": cohort.pk,
-                    }
-                ],
-            },
-        )
+        assert result.to_dict() == {
+            "type": "AND",
+            "values": [{"key": "id", "negation": True, "type": "cohort", "value": cohort.pk}],
+        }
 
     def test_print_cohort_hogql_query_includes_settings(self):
         """Test that cohort queries include HogQL global settings"""
@@ -389,14 +287,14 @@ class TestCohortUtils(BaseTest):
         sql = print_cohort_hogql_query(cohort, context, team=self.team)
 
         # Assert that settings are included
-        self.assertIn("SETTINGS", sql)
-        self.assertIn("transform_null_in=1", sql)
+        assert "SETTINGS" in sql
+        assert "transform_null_in=1" in sql
 
         # Also check for other critical settings
-        self.assertIn("readonly=2", sql)
-        self.assertIn("max_execution_time=60", sql)
-        self.assertIn("allow_experimental_object_type=1", sql)
-        self.assertIn("optimize_min_equality_disjunction_chain_length=4294967295", sql)
+        assert "readonly=2" in sql
+        assert "max_execution_time=60" in sql
+        assert "allow_experimental_object_type=1" in sql
+        assert "optimize_min_equality_disjunction_chain_length=4294967295" in sql
 
     def test_get_static_cohort_size_uses_specified_database(self):
         cohort = _create_cohort(team=self.team, name="test_cohort", groups=[], is_static=True)
@@ -410,7 +308,7 @@ class TestCohortUtils(BaseTest):
             result = get_static_cohort_size(cohort_id=cohort.id, team_id=self.team.id, using_database="test_db")
 
         mock_qs.using.assert_called_once_with("test_db")
-        self.assertEqual(result, 42)
+        assert result == 42
 
     def test_get_static_cohort_size_without_database_does_not_call_using(self):
         cohort = _create_cohort(team=self.team, name="test_cohort", groups=[], is_static=True)
@@ -423,7 +321,7 @@ class TestCohortUtils(BaseTest):
             result = get_static_cohort_size(cohort_id=cohort.id, team_id=self.team.id)
 
         mock_qs.using.assert_not_called()
-        self.assertEqual(result, 10)
+        assert result == 10
 
 
 class TestDependentCohorts(BaseTest):
@@ -434,7 +332,7 @@ class TestDependentCohorts(BaseTest):
             groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
         )
 
-        self.assertEqual(get_all_cohort_dependencies(cohort), [])
+        assert get_all_cohort_dependencies(cohort) == []
 
     def test_dependent_cohorts_for_nested_cohort(self):
         cohort1 = _create_cohort(
@@ -449,8 +347,8 @@ class TestDependentCohorts(BaseTest):
             groups=[{"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}],
         )
 
-        self.assertEqual(get_all_cohort_dependencies(cohort1), [])
-        self.assertEqual(get_all_cohort_dependencies(cohort2), [cohort1])
+        assert get_all_cohort_dependencies(cohort1) == []
+        assert get_all_cohort_dependencies(cohort2) == [cohort1]
 
     def test_dependent_cohorts_for_deeply_nested_cohort(self):
         cohort1 = _create_cohort(
@@ -482,9 +380,9 @@ class TestDependentCohorts(BaseTest):
             ],
         )
 
-        self.assertEqual(get_all_cohort_dependencies(cohort1), [])
-        self.assertEqual(get_all_cohort_dependencies(cohort2), [cohort1])
-        self.assertEqual(get_all_cohort_dependencies(cohort3), [cohort2, cohort1])
+        assert get_all_cohort_dependencies(cohort1) == []
+        assert get_all_cohort_dependencies(cohort2) == [cohort1]
+        assert get_all_cohort_dependencies(cohort3) == [cohort2, cohort1]
 
     def test_dependent_cohorts_for_circular_nested_cohort(self):
         cohort1 = _create_cohort(
@@ -519,9 +417,9 @@ class TestDependentCohorts(BaseTest):
         cohort1.groups = [{"properties": [{"key": "id", "value": cohort3.pk, "type": "cohort"}]}]
         cohort1.save()
 
-        self.assertEqual(get_all_cohort_dependencies(cohort3), [cohort2, cohort1])
-        self.assertEqual(get_all_cohort_dependencies(cohort2), [cohort1, cohort3])
-        self.assertEqual(get_all_cohort_dependencies(cohort1), [cohort3, cohort2])
+        assert get_all_cohort_dependencies(cohort3) == [cohort2, cohort1]
+        assert get_all_cohort_dependencies(cohort2) == [cohort1, cohort3]
+        assert get_all_cohort_dependencies(cohort1) == [cohort3, cohort2]
 
     def test_dependent_cohorts_for_complex_nested_cohort(self):
         cohort1 = _create_cohort(
@@ -601,11 +499,11 @@ class TestDependentCohorts(BaseTest):
             ],
         )
 
-        self.assertEqual(get_all_cohort_dependencies(cohort1), [])
-        self.assertEqual(get_all_cohort_dependencies(cohort2), [cohort1])
-        self.assertEqual(get_all_cohort_dependencies(cohort3), [cohort2, cohort1])
-        self.assertEqual(get_all_cohort_dependencies(cohort4), [cohort1])
-        self.assertEqual(get_all_cohort_dependencies(cohort5), [cohort4, cohort1, cohort2])
+        assert get_all_cohort_dependencies(cohort1) == []
+        assert get_all_cohort_dependencies(cohort2) == [cohort1]
+        assert get_all_cohort_dependencies(cohort3) == [cohort2, cohort1]
+        assert get_all_cohort_dependencies(cohort4) == [cohort1]
+        assert get_all_cohort_dependencies(cohort5) == [cohort4, cohort1, cohort2]
 
     def test_dependent_cohorts_ignore_invalid_ids(self):
         cohort1 = _create_cohort(
@@ -640,8 +538,8 @@ class TestDependentCohorts(BaseTest):
             ],
         )
 
-        self.assertEqual(get_all_cohort_dependencies(cohort2), [cohort1])
-        self.assertEqual(get_all_cohort_dependencies(cohort3), [cohort2, cohort1])
+        assert get_all_cohort_dependencies(cohort2) == [cohort1]
+        assert get_all_cohort_dependencies(cohort3) == [cohort2, cohort1]
 
 
 class TestSortCohortsTopologically(BaseTest):
@@ -657,7 +555,7 @@ class TestSortCohortsTopologically(BaseTest):
 
         result = sort_cohorts_topologically(cohort_ids, seen_cohorts_cache)
 
-        self.assertEqual(result, [cohort.pk])
+        assert result == [cohort.pk]
 
     def test_sort_cohorts_topologically_with_missing_cohort_in_cache(self):
         cohort = _create_cohort(
@@ -675,7 +573,7 @@ class TestSortCohortsTopologically(BaseTest):
 
         result = sort_cohorts_topologically(all_cohort_ids, seen_cohorts_cache)
 
-        self.assertEqual(result, [cohort.pk])
+        assert result == [cohort.pk]
 
 
 class TestParseErrorCode(BaseTest):
@@ -700,7 +598,7 @@ class TestParseErrorCode(BaseTest):
     def test_parse_error_code(self, _name: str, exception_type: str, expected_code: str):
         exception = self._create_exception(exception_type)
         result = parse_error_code(exception)
-        self.assertEqual(result, expected_code)
+        assert result == expected_code
 
     def _create_exception(self, exception_type: str) -> Exception:
         simple_exceptions: dict[str, type[Exception]] = {
@@ -764,12 +662,12 @@ class TestGetFriendlyErrorMessage(BaseTest):
     def test_get_friendly_error_message(self, error_code: str, expected_substring: str):
         message = get_friendly_error_message(error_code)
         assert message is not None
-        self.assertIn(expected_substring, message.lower())
+        assert expected_substring in message.lower()
 
     def test_get_friendly_error_message_none(self):
-        self.assertIsNone(get_friendly_error_message(None))
+        assert get_friendly_error_message(None) is None
 
     def test_get_friendly_error_message_unknown_code(self):
         message = get_friendly_error_message("some_unknown_code")
         assert message is not None
-        self.assertIn("an error occurred", message.lower())
+        assert "an error occurred" in message.lower()

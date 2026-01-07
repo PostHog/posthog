@@ -67,7 +67,7 @@ class TestSessionsModel(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, BaseT
             },
         )
 
-        self.assertEqual(len(response), 1)
+        assert len(response) == 1
 
     def test_handles_different_distinct_id_across_same_session(self):
         distinct_id1 = create_distinct_id()
@@ -90,9 +90,9 @@ class TestSessionsModel(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, BaseT
         )
 
         responses = self.select_by_session_id(session_id)
-        self.assertEqual(len(responses), 1)
-        self.assertIn(responses[0]["distinct_id"], {distinct_id1, distinct_id2})
-        self.assertEqual(responses[0]["pageview_count"], 2)
+        assert len(responses) == 1
+        assert responses[0]["distinct_id"] in {distinct_id1, distinct_id2}
+        assert responses[0]["pageview_count"] == 2
 
     def test_handles_entry_and_exit_urls(self):
         distinct_id = create_distinct_id()
@@ -128,11 +128,11 @@ class TestSessionsModel(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, BaseT
         )
 
         responses = self.select_by_session_id(session_id)
-        self.assertEqual(len(responses), 1)
-        self.assertEqual(responses[0]["entry_url"], "/entry")
-        self.assertEqual(responses[0]["exit_url"], "/exit")
-        self.assertEqual(len(responses[0]["urls"]), 3)
-        self.assertEqual(set(responses[0]["urls"]), {"/entry", "/middle", "/exit"})  # order is not guaranteed
+        assert len(responses) == 1
+        assert responses[0]["entry_url"] == "/entry"
+        assert responses[0]["exit_url"] == "/exit"
+        assert len(responses[0]["urls"]) == 3
+        assert set(responses[0]["urls"]) == {"/entry", "/middle", "/exit"}  # order is not guaranteed
 
     def test_handles_initial_utm_properties(self):
         distinct_id = create_distinct_id()
@@ -154,8 +154,8 @@ class TestSessionsModel(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, BaseT
         )
 
         responses = self.select_by_session_id(session_id)
-        self.assertEqual(len(responses), 1)
-        self.assertEqual(responses[0]["initial_utm_source"], "source")
+        assert len(responses) == 1
+        assert responses[0]["initial_utm_source"] == "source"
 
     def test_counts_pageviews_autocaptures_and_events(self):
         distinct_id = create_distinct_id()
@@ -198,12 +198,10 @@ class TestSessionsModel(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, BaseT
         )
 
         responses = self.select_by_session_id(session_id)
-        self.assertEqual(len(responses), 1)
-        self.assertEqual(responses[0]["pageview_count"], 1)
-        self.assertEqual(responses[0]["autocapture_count"], 2)
-        self.assertEqual(
-            responses[0]["event_count_map"], {"$pageview": 1, "$autocapture": 2, "other event": 1, "$pageleave": 1}
-        )
+        assert len(responses) == 1
+        assert responses[0]["pageview_count"] == 1
+        assert responses[0]["autocapture_count"] == 2
+        assert responses[0]["event_count_map"] == {"$pageview": 1, "$autocapture": 2, "other event": 1, "$pageleave": 1}
 
     def test_separates_sessions_across_same_user(self):
         distinct_id = create_distinct_id()
@@ -227,11 +225,11 @@ class TestSessionsModel(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, BaseT
         )
 
         responses = self.select_by_session_id(session_id1)
-        self.assertEqual(len(responses), 1)
+        assert len(responses) == 1
         responses = self.select_by_session_id(session_id2)
-        self.assertEqual(len(responses), 1)
+        assert len(responses) == 1
         responses = self.select_by_session_id(session_id3)
-        self.assertEqual(len(responses), 0)
+        assert len(responses) == 0
 
     def test_select_from_sessions(self):
         # just make sure that we can select from the sessions table without error
@@ -266,7 +264,7 @@ class TestSessionsModel(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, BaseT
                 "team_id": TEAM_ID,
             },
         )
-        self.assertEqual(len(responses), 1)
+        assert len(responses) == 1
 
     def test_select_from_sessions_mv(self):
         # just make sure that we can select from the sessions mv without error
@@ -301,4 +299,4 @@ class TestSessionsModel(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, BaseT
                 "team_id": TEAM_ID,
             },
         )
-        self.assertEqual(len(responses), 1)
+        assert len(responses) == 1

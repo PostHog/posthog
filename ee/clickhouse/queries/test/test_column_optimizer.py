@@ -38,37 +38,31 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
             filter, self.team.id
         ).properties_used_in_filter
 
-        self.assertEqual(properties_used_in_filter(BASE_FILTER), {})
-        self.assertEqual(
-            properties_used_in_filter(FILTER_WITH_PROPERTIES),
-            {
-                ("event_prop", "event", None): 1,
-                ("person_prop", "person", None): 1,
-                ("id", "cohort", None): 1,
-                ("tag_name", "element", None): 1,
-                ("group_prop", "group", 2): 1,
-            },
-        )
-        self.assertEqual(
-            properties_used_in_filter(FILTER_WITH_GROUPS),
-            {
-                ("event_prop", "event", None): 1,
-                ("person_prop", "person", None): 1,
-                ("id", "cohort", None): 1,
-                ("tag_name", "element", None): 1,
-                ("group_prop", "group", 2): 1,
-            },
-        )
+        assert properties_used_in_filter(BASE_FILTER) == {}
+        assert properties_used_in_filter(FILTER_WITH_PROPERTIES) == {
+            ("event_prop", "event", None): 1,
+            ("person_prop", "person", None): 1,
+            ("id", "cohort", None): 1,
+            ("tag_name", "element", None): 1,
+            ("group_prop", "group", 2): 1,
+        }
+        assert properties_used_in_filter(FILTER_WITH_GROUPS) == {
+            ("event_prop", "event", None): 1,
+            ("person_prop", "person", None): 1,
+            ("id", "cohort", None): 1,
+            ("tag_name", "element", None): 1,
+            ("group_prop", "group", 2): 1,
+        }
 
         # Breakdown cases
         filter = BASE_FILTER.shallow_clone({"breakdown": "some_prop", "breakdown_type": "person"})
-        self.assertEqual(properties_used_in_filter(filter), {("some_prop", "person", None): 1})
+        assert properties_used_in_filter(filter) == {("some_prop", "person", None): 1}
 
         filter = BASE_FILTER.shallow_clone({"breakdown": "some_prop", "breakdown_type": "event"})
-        self.assertEqual(properties_used_in_filter(filter), {("some_prop", "event", None): 1})
+        assert properties_used_in_filter(filter) == {("some_prop", "event", None): 1}
 
         filter = BASE_FILTER.shallow_clone({"breakdown": [11], "breakdown_type": "cohort"})
-        self.assertEqual(properties_used_in_filter(filter), {})
+        assert properties_used_in_filter(filter) == {}
 
         filter = BASE_FILTER.shallow_clone(
             {
@@ -77,7 +71,7 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
                 "breakdown_group_type_index": 1,
             }
         )
-        self.assertEqual(properties_used_in_filter(filter), {("some_prop", "group", 1): 1})
+        assert properties_used_in_filter(filter) == {("some_prop", "group", 1): 1}
 
         # Funnel Correlation cases
         filter = BASE_FILTER.shallow_clone(
@@ -86,7 +80,7 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
                 "funnel_correlation_names": ["random_column"],
             }
         )
-        self.assertEqual(properties_used_in_filter(filter), {})
+        assert properties_used_in_filter(filter) == {}
 
         filter = BASE_FILTER.shallow_clone(
             {
@@ -94,10 +88,10 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
                 "funnel_correlation_names": ["random_column", "$browser"],
             }
         )
-        self.assertEqual(
-            properties_used_in_filter(filter),
-            {("random_column", "person", None): 1, ("$browser", "person", None): 1},
-        )
+        assert properties_used_in_filter(filter) == {
+            ("random_column", "person", None): 1,
+            ("$browser", "person", None): 1,
+        }
 
         filter = BASE_FILTER.shallow_clone(
             {
@@ -106,13 +100,10 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
                 "aggregation_group_type_index": 2,
             }
         )
-        self.assertEqual(
-            properties_used_in_filter(filter),
-            {("random_column", "group", 2): 1, ("$browser", "group", 2): 1},
-        )
+        assert properties_used_in_filter(filter) == {("random_column", "group", 2): 1, ("$browser", "group", 2): 1}
 
         filter = BASE_FILTER.shallow_clone({"funnel_correlation_type": "properties"})
-        self.assertEqual(properties_used_in_filter(filter), {})
+        assert properties_used_in_filter(filter) == {}
 
         filter = Filter(
             data={
@@ -128,17 +119,14 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
                 ]
             }
         )
-        self.assertEqual(
-            properties_used_in_filter(filter),
-            {
-                ("numeric_prop", "event", None): 1,
-                ("event_prop", "event", None): 1,
-                ("person_prop", "person", None): 1,
-                ("id", "cohort", None): 1,
-                ("tag_name", "element", None): 1,
-                ("group_prop", "group", 2): 1,
-            },
-        )
+        assert properties_used_in_filter(filter) == {
+            ("numeric_prop", "event", None): 1,
+            ("event_prop", "event", None): 1,
+            ("person_prop", "person", None): 1,
+            ("id", "cohort", None): 1,
+            ("tag_name", "element", None): 1,
+            ("group_prop", "group", 2): 1,
+        }
 
         filter = Filter(
             data={
@@ -153,7 +141,7 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
                 ]
             }
         )
-        self.assertEqual(properties_used_in_filter(filter), {("$group_1", "event", None): 1})
+        assert properties_used_in_filter(filter) == {("$group_1", "event", None): 1}
 
         filter = Filter(
             data={
@@ -167,7 +155,7 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
                 ]
             }
         )
-        self.assertEqual(properties_used_in_filter(filter), {("$session_id", "event", None): 1})
+        assert properties_used_in_filter(filter) == {("$session_id", "event", None): 1}
 
     def test_properties_used_in_filter_with_actions(self):
         action = Action.objects.create(
@@ -188,39 +176,39 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
         )
 
         filter = Filter(data={"actions": [{"id": action.id, "math": "dau"}]})
-        self.assertEqual(
-            EnterpriseColumnOptimizer(filter, self.team.id).properties_used_in_filter,
-            {("$current_url", "event", None): 1, ("$browser", "person", None): 1},
-        )
+        assert EnterpriseColumnOptimizer(filter, self.team.id).properties_used_in_filter == {
+            ("$current_url", "event", None): 1,
+            ("$browser", "person", None): 1,
+        }
 
         filter = BASE_FILTER.shallow_clone({"exclusions": [{"id": action.id, "type": "actions"}]})
-        self.assertEqual(
-            EnterpriseColumnOptimizer(filter, self.team.id).properties_used_in_filter,
-            {("$current_url", "event", None): 1, ("$browser", "person", None): 1},
-        )
+        assert EnterpriseColumnOptimizer(filter, self.team.id).properties_used_in_filter == {
+            ("$current_url", "event", None): 1,
+            ("$browser", "person", None): 1,
+        }
 
         retention_filter = RetentionFilter(data={"target_entity": {"id": action.id, "type": "actions"}})
-        self.assertEqual(
-            EnterpriseColumnOptimizer(retention_filter, self.team.id).properties_used_in_filter,
-            {("$current_url", "event", None): 2, ("$browser", "person", None): 2},
-        )
+        assert EnterpriseColumnOptimizer(retention_filter, self.team.id).properties_used_in_filter == {
+            ("$current_url", "event", None): 2,
+            ("$browser", "person", None): 2,
+        }
 
     def test_materialized_columns_checks(self):
         optimizer = lambda: EnterpriseColumnOptimizer(FILTER_WITH_PROPERTIES, self.team.id)
         optimizer_groups = lambda: EnterpriseColumnOptimizer(FILTER_WITH_GROUPS, self.team.id)
 
-        self.assertEqual(optimizer().event_columns_to_query, {"properties"})
-        self.assertEqual(optimizer().person_columns_to_query, {"properties"})
-        self.assertEqual(optimizer_groups().event_columns_to_query, {"properties"})
-        self.assertEqual(optimizer_groups().person_columns_to_query, {"properties"})
+        assert optimizer().event_columns_to_query == {"properties"}
+        assert optimizer().person_columns_to_query == {"properties"}
+        assert optimizer_groups().event_columns_to_query == {"properties"}
+        assert optimizer_groups().person_columns_to_query == {"properties"}
 
         materialize("events", "event_prop")
         materialize("person", "person_prop")
 
-        self.assertEqual(optimizer().event_columns_to_query, {"mat_event_prop"})
-        self.assertEqual(optimizer().person_columns_to_query, {"pmat_person_prop"})
-        self.assertEqual(optimizer_groups().event_columns_to_query, {"mat_event_prop"})
-        self.assertEqual(optimizer_groups().person_columns_to_query, {"pmat_person_prop"})
+        assert optimizer().event_columns_to_query == {"mat_event_prop"}
+        assert optimizer().person_columns_to_query == {"pmat_person_prop"}
+        assert optimizer_groups().event_columns_to_query == {"mat_event_prop"}
+        assert optimizer_groups().person_columns_to_query == {"pmat_person_prop"}
 
     def test_materialized_columns_checks_person_on_events(self):
         optimizer = lambda: EnterpriseColumnOptimizer(
@@ -239,20 +227,20 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
             self.team.id,
         )
 
-        self.assertEqual(optimizer().person_on_event_columns_to_query, {"person_properties"})
+        assert optimizer().person_on_event_columns_to_query == {"person_properties"}
 
         # materialising the props on `person` table should make no difference
         materialize("person", "person_prop")
 
-        self.assertEqual(optimizer().person_on_event_columns_to_query, {"person_properties"})
+        assert optimizer().person_on_event_columns_to_query == {"person_properties"}
 
         materialize("events", "person_prop", table_column="person_properties")
 
-        self.assertEqual(optimizer().person_on_event_columns_to_query, {"mat_pp_person_prop"})
+        assert optimizer().person_on_event_columns_to_query == {"mat_pp_person_prop"}
 
     def test_group_types_to_query(self):
         group_types_to_query = lambda filter: EnterpriseColumnOptimizer(filter, self.team.id).group_types_to_query
 
-        self.assertEqual(group_types_to_query(BASE_FILTER), set())
-        self.assertEqual(group_types_to_query(FILTER_WITH_PROPERTIES), {2})
-        self.assertEqual(group_types_to_query(FILTER_WITH_GROUPS), {2})
+        assert group_types_to_query(BASE_FILTER) == set()
+        assert group_types_to_query(FILTER_WITH_PROPERTIES) == {2}
+        assert group_types_to_query(FILTER_WITH_GROUPS) == {2}

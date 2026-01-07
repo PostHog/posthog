@@ -4,6 +4,7 @@ import json
 import time
 import subprocess
 
+import pytest
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -16,43 +17,43 @@ class TestToolbox(unittest.TestCase):
     def test_sanitize_label(self):
         """Test label sanitization function."""
         # Test basic email sanitization
-        self.assertEqual(sanitize_label("user@example.com"), "user_at_example.com")
+        assert sanitize_label("user@example.com") == "user_at_example.com"
 
         # Test with special characters
-        self.assertEqual(sanitize_label("user.name@example.com"), "user.name_at_example.com")
+        assert sanitize_label("user.name@example.com") == "user.name_at_example.com"
 
         # Test with underscores
-        self.assertEqual(sanitize_label("user_name@example.com"), "user_name_at_example.com")
+        assert sanitize_label("user_name@example.com") == "user_name_at_example.com"
 
         # Test with leading/trailing underscores
-        self.assertEqual(sanitize_label("_user@example.com_"), "user_at_example.com")
+        assert sanitize_label("_user@example.com_") == "user_at_example.com"
 
     def test_sanitize_label_truncation(self):
         long_arn = (
             "arn:aws:sts::169684386827:assumed-role/custom-role-name/" + "averyveryveryveryverylongemail@posthog.com"
         )
         sanitized = sanitize_label(long_arn)
-        self.assertTrue(sanitized.startswith("arn_aws_sts__169684386827_assu"))
-        self.assertIn("longemail_at_posthog.com", sanitized)
-        self.assertLessEqual(len(sanitized), 63)
+        assert sanitized.startswith("arn_aws_sts__169684386827_assu")
+        assert "longemail_at_posthog.com" in sanitized
+        assert len(sanitized) <= 63
 
     def test_parse_arn_valid(self):
         """Test parsing valid AWS STS ARN."""
         arn = "arn:aws:sts::169684386827:assumed-role/AWSReservedSSO_developers_0847e649a00cc5e7/michael.k@posthog.com"
         expected = {"toolbox-claimed": "michael.k_at_posthog.com", "role-name": "developers", "assumed-role": "true"}
-        self.assertEqual(parse_arn(arn), expected)
+        assert parse_arn(arn) == expected
 
     def test_parse_arn_different_role(self):
         """Test parsing ARN with different role."""
         arn = "arn:aws:sts::169684386827:assumed-role/AWSReservedSSO_admins_0847e649a00cc5e7/michael.k@posthog.com"
         expected = {"toolbox-claimed": "michael.k_at_posthog.com", "role-name": "admins", "assumed-role": "true"}
-        self.assertEqual(parse_arn(arn), expected)
+        assert parse_arn(arn) == expected
 
     def test_parse_arn_unexpected_format(self):
         """Test parsing ARN with unexpected role format."""
         arn = "arn:aws:sts::169684386827:assumed-role/custom-role-name/michael.k@posthog.com"
         expected = {"toolbox-claimed": "arn_aws_sts__169684386827_assum_e-name_michael.k_at_posthog.com"}
-        self.assertEqual(parse_arn(arn), expected)
+        assert parse_arn(arn) == expected
 
     @patch("subprocess.run")
     def test_get_current_user(self, mock_run):
@@ -78,7 +79,7 @@ class TestToolbox(unittest.TestCase):
 
         user_labels = get_current_user()
         expected = {"toolbox-claimed": "michael.k_at_posthog.com", "role-name": "developers", "assumed-role": "true"}
-        self.assertEqual(user_labels, expected)
+        assert user_labels == expected
         mock_run.assert_called_once_with(
             ["kubectl", "auth", "whoami", "-o", "json"], capture_output=True, text=True, check=True
         )
@@ -134,8 +135,8 @@ class TestToolbox(unittest.TestCase):
         mock_run.return_value = mock_response
 
         pod_name, is_claimed = get_toolbox_pod("michael.k_at_posthog.com")
-        self.assertEqual(pod_name, "toolbox-pod-1")
-        self.assertFalse(is_claimed)
+        assert pod_name == "toolbox-pod-1"
+        assert not is_claimed
         mock_run.assert_called_once_with(
             [
                 "kubectl",
@@ -176,54 +177,60 @@ class TestToolbox(unittest.TestCase):
         claim_pod("toolbox-pod-1", user_labels, 1234567890)
 
         # Verify kubectl commands were called correctly
-        self.assertEqual(mock_run.call_count, 4)
+        assert mock_run.call_count == 4
 
         # Get all calls made to kubectl
         calls = mock_run.call_args_list
 
         # Verify the first call to get pod labels
-        self.assertEqual(
-            calls[0][0][0],
-            ["kubectl", "get", "pod", "-n", "posthog", "toolbox-pod-1", "-o", "jsonpath={.metadata.labels}"],
-        )
+        assert calls[0][0][0] == [
+            "kubectl",
+            "get",
+            "pod",
+            "-n",
+            "posthog",
+            "toolbox-pod-1",
+            "-o",
+            "jsonpath={.metadata.labels}",
+        ]
 
         # Verify the annotation call
-        self.assertEqual(
-            calls[1][0][0],
-            [
-                "kubectl",
-                "annotate",
-                "pod",
-                "-n",
-                "posthog",
-                "toolbox-pod-1",
-                "karpenter.sh/do-not-disrupt=true",
-                "--overwrite=true",
-            ],
-        )
+        assert calls[1][0][0] == [
+            "kubectl",
+            "annotate",
+            "pod",
+            "-n",
+            "posthog",
+            "toolbox-pod-1",
+            "karpenter.sh/do-not-disrupt=true",
+            "--overwrite=true",
+        ]
 
         # Verify the label call
-        self.assertEqual(
-            calls[2][0][0],
-            [
-                "kubectl",
-                "label",
-                "pod",
-                "-n",
-                "posthog",
-                "toolbox-pod-1",
-                "toolbox-claimed=michael.k_at_posthog.com",
-                "role-name=developers",
-                "assumed-role=true",
-                "terminate-after=1234567890",
-            ],
-        )
+        assert calls[2][0][0] == [
+            "kubectl",
+            "label",
+            "pod",
+            "-n",
+            "posthog",
+            "toolbox-pod-1",
+            "toolbox-claimed=michael.k_at_posthog.com",
+            "role-name=developers",
+            "assumed-role=true",
+            "terminate-after=1234567890",
+        ]
 
         # Verify the wait call
-        self.assertEqual(
-            calls[3][0][0],
-            ["kubectl", "wait", "--for=condition=Ready", "--timeout=5m", "-n", "posthog", "pod", "toolbox-pod-1"],
-        )
+        assert calls[3][0][0] == [
+            "kubectl",
+            "wait",
+            "--for=condition=Ready",
+            "--timeout=5m",
+            "-n",
+            "posthog",
+            "pod",
+            "toolbox-pod-1",
+        ]
 
     @patch("subprocess.run")
     def test_claim_pod_custom_duration(self, mock_run):
@@ -251,27 +258,24 @@ class TestToolbox(unittest.TestCase):
         claim_pod("toolbox-pod-1", user_labels, future_timestamp)
 
         # Verify kubectl commands were called correctly
-        self.assertEqual(mock_run.call_count, 4)
+        assert mock_run.call_count == 4
 
         # Get all calls made to kubectl
         calls = mock_run.call_args_list
 
         # Verify the label call includes the future timestamp
-        self.assertEqual(
-            calls[2][0][0],
-            [
-                "kubectl",
-                "label",
-                "pod",
-                "-n",
-                "posthog",
-                "toolbox-pod-1",
-                "toolbox-claimed=michael.k_at_posthog.com",
-                "role-name=developers",
-                "assumed-role=true",
-                f"terminate-after={future_timestamp}",
-            ],
-        )
+        assert calls[2][0][0] == [
+            "kubectl",
+            "label",
+            "pod",
+            "-n",
+            "posthog",
+            "toolbox-pod-1",
+            "toolbox-claimed=michael.k_at_posthog.com",
+            "role-name=developers",
+            "assumed-role=true",
+            f"terminate-after={future_timestamp}",
+        ]
 
     @patch("subprocess.run")
     def test_update_claim(self, mock_run):
@@ -311,64 +315,66 @@ class TestToolbox(unittest.TestCase):
         claim_pod("toolbox-pod-1", user_labels, future_timestamp)
 
         # Verify kubectl commands were called correctly
-        self.assertEqual(mock_run.call_count, 8)
+        assert mock_run.call_count == 8
 
         # Get all calls made to kubectl
         calls = mock_run.call_args_list
 
         # Verify the first call to get pod labels
-        self.assertEqual(
-            calls[0][0][0],
-            ["kubectl", "get", "pod", "-n", "posthog", "toolbox-pod-1", "-o", "jsonpath={.metadata.labels}"],
-        )
+        assert calls[0][0][0] == [
+            "kubectl",
+            "get",
+            "pod",
+            "-n",
+            "posthog",
+            "toolbox-pod-1",
+            "-o",
+            "jsonpath={.metadata.labels}",
+        ]
 
         # Verify the label removal calls
-        self.assertEqual(
-            calls[1][0][0], ["kubectl", "label", "pod", "-n", "posthog", "toolbox-pod-1", "toolbox-claimed-"]
-        )
-        self.assertEqual(calls[2][0][0], ["kubectl", "label", "pod", "-n", "posthog", "toolbox-pod-1", "role-name-"])
-        self.assertEqual(calls[3][0][0], ["kubectl", "label", "pod", "-n", "posthog", "toolbox-pod-1", "assumed-role-"])
-        self.assertEqual(
-            calls[4][0][0], ["kubectl", "label", "pod", "-n", "posthog", "toolbox-pod-1", "terminate-after-"]
-        )
+        assert calls[1][0][0] == ["kubectl", "label", "pod", "-n", "posthog", "toolbox-pod-1", "toolbox-claimed-"]
+        assert calls[2][0][0] == ["kubectl", "label", "pod", "-n", "posthog", "toolbox-pod-1", "role-name-"]
+        assert calls[3][0][0] == ["kubectl", "label", "pod", "-n", "posthog", "toolbox-pod-1", "assumed-role-"]
+        assert calls[4][0][0] == ["kubectl", "label", "pod", "-n", "posthog", "toolbox-pod-1", "terminate-after-"]
 
         # Verify the annotation call
-        self.assertEqual(
-            calls[5][0][0],
-            [
-                "kubectl",
-                "annotate",
-                "pod",
-                "-n",
-                "posthog",
-                "toolbox-pod-1",
-                "karpenter.sh/do-not-disrupt=true",
-                "--overwrite=true",
-            ],
-        )
+        assert calls[5][0][0] == [
+            "kubectl",
+            "annotate",
+            "pod",
+            "-n",
+            "posthog",
+            "toolbox-pod-1",
+            "karpenter.sh/do-not-disrupt=true",
+            "--overwrite=true",
+        ]
 
         # Verify the label call
-        self.assertEqual(
-            calls[6][0][0],
-            [
-                "kubectl",
-                "label",
-                "pod",
-                "-n",
-                "posthog",
-                "toolbox-pod-1",
-                "toolbox-claimed=michael.k_at_posthog.com",
-                "role-name=developers",
-                "assumed-role=true",
-                f"terminate-after={future_timestamp}",
-            ],
-        )
+        assert calls[6][0][0] == [
+            "kubectl",
+            "label",
+            "pod",
+            "-n",
+            "posthog",
+            "toolbox-pod-1",
+            "toolbox-claimed=michael.k_at_posthog.com",
+            "role-name=developers",
+            "assumed-role=true",
+            f"terminate-after={future_timestamp}",
+        ]
 
         # Verify the wait call
-        self.assertEqual(
-            calls[7][0][0],
-            ["kubectl", "wait", "--for=condition=Ready", "--timeout=5m", "-n", "posthog", "pod", "toolbox-pod-1"],
-        )
+        assert calls[7][0][0] == [
+            "kubectl",
+            "wait",
+            "--for=condition=Ready",
+            "--timeout=5m",
+            "-n",
+            "posthog",
+            "pod",
+            "toolbox-pod-1",
+        ]
 
     # New tests for Kubernetes context functions
     @patch("subprocess.run")
@@ -380,7 +386,7 @@ class TestToolbox(unittest.TestCase):
 
         contexts = get_available_contexts()
 
-        self.assertEqual(contexts, ["context1", "context2", "context3"])
+        assert contexts == ["context1", "context2", "context3"]
         mock_run.assert_called_once_with(
             ["kubectl", "config", "get-contexts", "-o", "name"], capture_output=True, text=True, check=True
         )
@@ -394,7 +400,7 @@ class TestToolbox(unittest.TestCase):
 
         contexts = get_available_contexts()
 
-        self.assertEqual(contexts, [])
+        assert contexts == []
         mock_run.assert_called_once()
 
     @patch("subprocess.run")
@@ -402,7 +408,7 @@ class TestToolbox(unittest.TestCase):
         """Test error handling when getting available contexts fails."""
         mock_run.side_effect = subprocess.CalledProcessError(1, "kubectl", "error")
 
-        with self.assertRaises(SystemExit):
+        with pytest.raises(SystemExit):
             get_available_contexts()
 
         mock_run.assert_called_once()
@@ -416,7 +422,7 @@ class TestToolbox(unittest.TestCase):
 
         context = get_current_context()
 
-        self.assertEqual(context, "current-context")
+        assert context == "current-context"
         mock_run.assert_called_once_with(
             ["kubectl", "config", "current-context"], capture_output=True, text=True, check=True
         )
@@ -428,7 +434,7 @@ class TestToolbox(unittest.TestCase):
 
         context = get_current_context()
 
-        self.assertIsNone(context)
+        assert context is None
         mock_run.assert_called_once()
 
     @patch("subprocess.run")
@@ -438,7 +444,7 @@ class TestToolbox(unittest.TestCase):
 
         result = switch_context("new-context")
 
-        self.assertTrue(result)
+        assert result
         mock_run.assert_called_once_with(["kubectl", "config", "use-context", "new-context"], check=True)
 
     @patch("subprocess.run")
@@ -448,7 +454,7 @@ class TestToolbox(unittest.TestCase):
 
         result = switch_context("invalid-context")
 
-        self.assertFalse(result)
+        assert not result
         mock_run.assert_called_once()
 
     @patch("toolbox.kubernetes.get_available_contexts")
@@ -465,7 +471,7 @@ class TestToolbox(unittest.TestCase):
         result = select_context()
 
         # Verify result
-        self.assertEqual(result, "context1")
+        assert result == "context1"
         mock_get_available.assert_called_once()
         mock_get_current.assert_called_once()
         mock_input.assert_called_once()
@@ -476,7 +482,7 @@ class TestToolbox(unittest.TestCase):
         """Test select_context exits if current context is None."""
         mock_get_available.return_value = ["context1", "context2"]
         mock_get_current.return_value = None
-        with self.assertRaises(SystemExit):
+        with pytest.raises(SystemExit):
             select_context()
 
     @patch("subprocess.run")
@@ -503,7 +509,7 @@ class TestToolbox(unittest.TestCase):
 
         mock_run.side_effect = side_effect
         user_labels = {"toolbox-claimed": "michael.k_at_posthog.com", "role-name": "developers", "assumed-role": "true"}
-        with self.assertRaises(SystemExit):
+        with pytest.raises(SystemExit):
             claim_pod("toolbox-pod-1", user_labels, 1234567890)
 
 

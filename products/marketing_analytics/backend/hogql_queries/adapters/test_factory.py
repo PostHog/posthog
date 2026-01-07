@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import BaseTest
 
 from django.core.exceptions import ValidationError
@@ -117,12 +118,12 @@ class TestMarketingSourceFactoryCustomSourceMappings(BaseTest):
     def test_get_all_source_identifier_mappings_duplicate_sources_within_integration_rejected(self):
         """Test that duplicate sources within same integration are rejected"""
 
-        with self.assertRaises(ValidationError) as cm:
+        with pytest.raises(ValidationError) as cm:
             self.config.custom_source_mappings = {
                 "GoogleAds": ["partner_a", "partner_a", "partner_b"],
             }
 
-        assert "appears multiple times" in str(cm.exception)
+        assert "appears multiple times" in str(cm.value)
 
     def test_get_all_source_identifier_mappings_integration_without_source_mapping(self):
         """Test that integrations without get_source_identifier_mapping are handled"""

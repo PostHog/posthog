@@ -1,5 +1,6 @@
 from typing import Any
 
+import pytest
 from unittest import mock
 from unittest.mock import Mock, patch
 
@@ -71,14 +72,14 @@ class TestVercelIntegration(TestCase):
         assert "createdAt" in result
         assert "updatedAt" in result
         # Verify createdAt is in milliseconds (should be > 1 billion ms since epoch)
-        assert (
-            result["createdAt"] > 1_000_000_000_000
-        ), f"createdAt should be in milliseconds, got {result['createdAt']}"
+        assert result["createdAt"] > 1_000_000_000_000, (
+            f"createdAt should be in milliseconds, got {result['createdAt']}"
+        )
         assert isinstance(result["createdAt"], int), f"createdAt should be int, got {type(result['createdAt'])}"
         # Verify updatedAt is in milliseconds
-        assert (
-            result["updatedAt"] > 1_000_000_000_000
-        ), f"updatedAt should be in milliseconds, got {result['updatedAt']}"
+        assert result["updatedAt"] > 1_000_000_000_000, (
+            f"updatedAt should be in milliseconds, got {result['updatedAt']}"
+        )
         assert isinstance(result["updatedAt"], int), f"updatedAt should be int, got {type(result['updatedAt'])}"
 
     def make_vercel_item(self, **overrides):
@@ -143,9 +144,9 @@ class TestVercelIntegration(TestCase):
         assert installation.organization == self.organization
 
     def test_get_installation_not_found(self):
-        with self.assertRaises(NotFound) as context:
+        with pytest.raises(NotFound) as context:
             VercelIntegration._get_installation(self.NONEXISTENT_INSTALLATION_ID)
-        assert str(context.exception) == "Installation not found"
+        assert str(context.value) == "Installation not found"
 
     def test_get_vercel_plans_structure(self):
         plans = VercelIntegration.get_vercel_plans()
@@ -176,7 +177,7 @@ class TestVercelIntegration(TestCase):
         assert not OrganizationIntegration.objects.filter(integration_id=self.installation_id).exists()
 
     def test_delete_installation_not_found(self):
-        with self.assertRaises(NotFound):
+        with pytest.raises(NotFound):
             VercelIntegration.delete_installation(self.NONEXISTENT_INSTALLATION_ID)
 
     def test_get_product_plans_posthog(self):
@@ -186,9 +187,9 @@ class TestVercelIntegration(TestCase):
         assert result["plans"][0]["id"] == "posthog-usage-based"
 
     def test_get_product_plans_invalid_product(self):
-        with self.assertRaises(NotFound) as context:
+        with pytest.raises(NotFound) as context:
             VercelIntegration.get_product_plans("invalid_product")
-        assert str(context.exception) == "Product not found"
+        assert str(context.value) == "Product not found"
 
     def test_upsert_installation_existing_installation(self):
         original_config = self.installation.config.copy()
@@ -273,10 +274,10 @@ class TestVercelIntegration(TestCase):
         with patch("ee.vercel.integration.OrganizationIntegration.objects.update_or_create") as mock_update_or_create:
             mock_update_or_create.side_effect = IntegrityError("Duplicate key")
 
-            with self.assertRaises(ValidationError) as context:
+            with pytest.raises(ValidationError) as context:
                 VercelIntegration.upsert_installation(self.NEW_INSTALLATION_ID, self.payload, error_user_claims)
 
-            detail = context.exception.detail
+            detail = context.value.detail
             if isinstance(detail, dict):
                 assert detail.get("validation_error") == "Something went wrong."
             mock_capture.assert_called_once()
@@ -337,7 +338,7 @@ class TestVercelIntegration(TestCase):
         assert org_integration.created_by == inactive_user
 
     def test_get_resource_not_found(self):
-        with self.assertRaises(NotFound):
+        with pytest.raises(NotFound):
             VercelIntegration.get_resource("999999")
 
     def test_create_resource(self):
@@ -406,7 +407,7 @@ class TestVercelIntegration(TestCase):
         assert not Integration.objects.filter(pk=resource_id).exists()
 
     def test_delete_resource_not_found(self):
-        with self.assertRaises(NotFound):
+        with pytest.raises(NotFound):
             VercelIntegration.delete_resource("999999")
 
     def test_create_resource_missing_name(self):
@@ -416,10 +417,10 @@ class TestVercelIntegration(TestCase):
             "billingPlanId": "posthog-usage-based",
         }
 
-        with self.assertRaises(exceptions.ValidationError) as context:
+        with pytest.raises(exceptions.ValidationError) as context:
             VercelIntegration.create_resource(self.installation_id, resource_data)
 
-        assert "name" in str(context.exception.detail)
+        assert "name" in str(context.value.detail)
 
     def test_build_secrets(self):
         team = Team.objects.create(organization=self.organization, name="Test Team", api_token="test_api_token")

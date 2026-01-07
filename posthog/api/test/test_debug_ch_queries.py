@@ -11,18 +11,18 @@ class TestDebugCHQuery(APIBaseTest):
         with patch("posthog.api.debug_ch_queries.is_cloud", return_value=True):
             with patch("posthog.api.debug_ch_queries.DEBUG", True):
                 resp = self.client.get("/api/debug_ch_queries/")
-                self.assertEqual(resp.status_code, HTTP_200_OK)
+                assert resp.status_code == HTTP_200_OK
 
             with patch("posthog.api.debug_ch_queries.DEBUG", False):
                 resp = self.client.get("/api/debug_ch_queries/")
-                self.assertEqual(resp.status_code, HTTP_403_FORBIDDEN)
+                assert resp.status_code == HTTP_403_FORBIDDEN
 
             self.user.is_staff = True
             self.user.save()
 
             resp = self.client.get("/api/debug_ch_queries/")
-            self.assertEqual(resp.status_code, HTTP_200_OK)
+            assert resp.status_code == HTTP_200_OK
 
         with patch("posthog.api.debug_ch_queries.is_cloud", return_value=False):
             resp = self.client.get("/api/debug_ch_queries/")
-            self.assertEqual(resp.status_code, HTTP_200_OK)
+            assert resp.status_code == HTTP_200_OK

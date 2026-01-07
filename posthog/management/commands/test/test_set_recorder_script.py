@@ -1,5 +1,6 @@
 from io import StringIO
 
+import pytest
 from posthog.test.base import BaseTest
 
 from django.core.management import call_command
@@ -95,14 +96,14 @@ class TestSetRecorderScriptCommand(BaseTest):
     def test_validates_sample_rate(self, _name, sample_rate):
         from django.core.management.base import CommandError
 
-        with self.assertRaises(CommandError) as cm:
+        with pytest.raises(CommandError) as cm:
             call_command(
                 "set_recorder_script",
                 f"--script=test-recorder",
                 f"--sample-rate={sample_rate}",
             )
 
-        assert "Sample rate must be between 0.0 and 1.0" in str(cm.exception)
+        assert "Sample rate must be between 0.0 and 1.0" in str(cm.value)
 
     def test_sampling_is_consistent(self):
         teams = []

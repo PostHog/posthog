@@ -705,7 +705,7 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
         # We can't really guarantee anything about the number of parts on the test DB.
         query = GET_NUM_SHARDED_RAW_SESSIONS_ACTIVE_PARTS(["202511"])
         result = sync_execute(query)
-        self.assertEqual(len(result), 1)
-        self.assertIsInstance(result[0][0], int)
-        self.assertIsInstance(result[0][1], str)
-        self.assertIsInstance(result[0][2], str)
+        assert len(result) == 1
+        assert isinstance(result[0][0], int)
+        assert isinstance(result[0][1], str)
+        assert isinstance(result[0][2], str)

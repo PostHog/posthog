@@ -49,14 +49,14 @@ class TestUserProductListInvites(BaseTest):
         product_paths = set(user_products.values_list("product_path", flat=True))
 
         # Should have top 3 products from colleagues
-        self.assertIn("product_analytics", product_paths)
-        self.assertIn("session_replay", product_paths)
-        self.assertIn("feature_flags", product_paths)
-        self.assertEqual(len(product_paths), 3)
+        assert "product_analytics" in product_paths
+        assert "session_replay" in product_paths
+        assert "feature_flags" in product_paths
+        assert len(product_paths) == 3
 
         # Verify reason is set correctly
         product_analytics = UserProductList.objects.get(user=new_user, team=self.team, product_path="product_analytics")
-        self.assertEqual(product_analytics.reason, UserProductList.Reason.USED_BY_COLLEAGUES)
+        assert product_analytics.reason == UserProductList.Reason.USED_BY_COLLEAGUES
 
     def test_invite_user_backfills_from_other_teams(self):
         """Test that when a user accepts an invite, products are backfilled from their other teams"""
@@ -88,8 +88,8 @@ class TestUserProductListInvites(BaseTest):
         user_products = UserProductList.objects.filter(user=user, team=self.team, enabled=True)
         product_paths = set(user_products.values_list("product_path", flat=True))
 
-        self.assertIn("product_analytics", product_paths)
-        self.assertIn("session_replay", product_paths)
+        assert "product_analytics" in product_paths
+        assert "session_replay" in product_paths
 
     def test_invite_user_combines_colleagues_and_backfill(self):
         """Test that invite combines products from colleagues and backfill from other teams"""
@@ -123,9 +123,9 @@ class TestUserProductListInvites(BaseTest):
         product_paths = set(user_products.values_list("product_path", flat=True))
 
         # Should have backfilled product_analytics from other team
-        self.assertIn("product_analytics", product_paths)
+        assert "product_analytics" in product_paths
         # Should have synced products from colleagues
-        self.assertGreaterEqual(len(product_paths), 1)
+        assert len(product_paths) >= 1
 
     def test_invite_user_respects_allow_sidebar_suggestions(self):
         """Test that users with allow_sidebar_suggestions=False don't get products synced"""
@@ -156,7 +156,7 @@ class TestUserProductListInvites(BaseTest):
         colleague_synced = UserProductList.objects.filter(
             user=user, team=self.team, reason=UserProductList.Reason.USED_BY_COLLEAGUES
         )
-        self.assertEqual(colleague_synced.count(), 0)
+        assert colleague_synced.count() == 0
 
     def test_invite_user_does_not_duplicate_existing_products(self):
         """Test that existing products are not duplicated when syncing"""
@@ -190,7 +190,7 @@ class TestUserProductListInvites(BaseTest):
         product_count = UserProductList.objects.filter(
             user=user, team=self.team, product_path="product_analytics"
         ).count()
-        self.assertEqual(product_count, 1)
+        assert product_count == 1
 
     def test_invite_user_ranks_colleagues_by_popularity(self):
         """Test that products are ranked by how many colleagues have them"""
@@ -242,11 +242,11 @@ class TestUserProductListInvites(BaseTest):
         product_paths = set(user_products.values_list("product_path", flat=True))
 
         # Should have the most popular products
-        self.assertIn("product_analytics", product_paths)
-        self.assertIn("session_replay", product_paths)
-        self.assertIn("feature_flags", product_paths)
-        self.assertNotIn("experiments", product_paths)
-        self.assertLessEqual(len(product_paths), 3)  # Should not exceed count=3
+        assert "product_analytics" in product_paths
+        assert "session_replay" in product_paths
+        assert "feature_flags" in product_paths
+        assert "experiments" not in product_paths
+        assert len(product_paths) <= 3  # Should not exceed count=3
 
 
 class TestUserProductListInvitesWithoutPrivateProjectAccess(BaseTest):
@@ -279,8 +279,8 @@ class TestUserProductListInvitesWithoutPrivateProjectAccess(BaseTest):
         user_products = UserProductList.objects.filter(user=new_user, team=self.team, enabled=True)
         product_paths = set(user_products.values_list("product_path", flat=True))
 
-        self.assertIn("product_analytics", product_paths)
-        self.assertIn("session_replay", product_paths)
+        assert "product_analytics" in product_paths
+        assert "session_replay" in product_paths
 
     def test_invite_user_without_private_project_access_backfills_from_other_teams(self):
         """Test that invite without private_project_access still backfills from user's other teams"""
@@ -311,7 +311,7 @@ class TestUserProductListInvitesWithoutPrivateProjectAccess(BaseTest):
         user_products = UserProductList.objects.filter(user=user, team=self.team, enabled=True)
         product_paths = set(user_products.values_list("product_path", flat=True))
 
-        self.assertIn("product_analytics", product_paths)
+        assert "product_analytics" in product_paths
 
 
 class TestUserProductListTeamCreation(BaseTest):
@@ -334,8 +334,8 @@ class TestUserProductListTeamCreation(BaseTest):
         user_products = UserProductList.objects.filter(user=user, team=new_team, enabled=True)
         product_paths = set(user_products.values_list("product_path", flat=True))
 
-        self.assertIn("product_analytics", product_paths)
-        self.assertIn("session_replay", product_paths)
+        assert "product_analytics" in product_paths
+        assert "session_replay" in product_paths
 
     def test_create_team_no_backfill_if_user_has_no_other_products(self):
         """Test that backfill doesn't happen if user has no products in other teams"""
@@ -350,7 +350,7 @@ class TestUserProductListTeamCreation(BaseTest):
 
         # Verify no products were backfilled
         user_products = UserProductList.objects.filter(user=user, team=new_team)
-        self.assertEqual(user_products.count(), 0)
+        assert user_products.count() == 0
 
     def test_create_team_syncs_products_for_all_users_with_access(self):
         """Test that when a new team is created, all org members get products synced"""
@@ -380,12 +380,12 @@ class TestUserProductListTeamCreation(BaseTest):
         # Verify member1's products were backfilled to new team
         member1_products = UserProductList.objects.filter(user=member1, team=new_team, enabled=True)
         member1_paths = set(member1_products.values_list("product_path", flat=True))
-        self.assertIn("product_analytics", member1_paths)
+        assert "product_analytics" in member1_paths
 
         # Verify member2's products were backfilled to new team
         member2_products = UserProductList.objects.filter(user=member2, team=new_team, enabled=True)
         member2_paths = set(member2_products.values_list("product_path", flat=True))
-        self.assertIn("session_replay", member2_paths)
+        assert "session_replay" in member2_paths
 
     @patch("django.db.transaction.on_commit", lambda fn: fn())
     def test_access_control_signal_triggers_backfill(self):
@@ -423,5 +423,5 @@ class TestUserProductListTeamCreation(BaseTest):
         product_paths = set(user_products.values_list("product_path", flat=True))
 
         # Should have backfilled product_analytics and synced products from colleagues
-        self.assertIn("product_analytics", product_paths)
-        self.assertGreaterEqual(len(product_paths), 1)
+        assert "product_analytics" in product_paths
+        assert len(product_paths) >= 1

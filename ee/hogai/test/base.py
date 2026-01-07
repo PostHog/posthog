@@ -54,7 +54,7 @@ class BaseAssistantTest(NonAtomicBaseTest):
         super().tearDown()
 
     def assertConversationEqual(self, output: list[AssistantOutput], expected_output: list[tuple[Any, Any]]):
-        self.assertEqual(len(output), len(expected_output), output)
+        assert len(output) == len(expected_output), output
         for i, ((output_msg_type, output_msg), (expected_msg_type, expected_msg)) in enumerate(
             zip(output, expected_output)
         ):
@@ -62,7 +62,7 @@ class BaseAssistantTest(NonAtomicBaseTest):
                 output_msg_type == AssistantEventType.CONVERSATION
                 and expected_msg_type == AssistantEventType.CONVERSATION
             ):
-                self.assertEqual(output_msg, expected_msg)
+                assert output_msg == expected_msg
             elif (
                 output_msg_type == AssistantEventType.MESSAGE and expected_msg_type == AssistantEventType.MESSAGE
             ) or (output_msg_type == AssistantEventType.UPDATE and expected_msg_type == AssistantEventType.UPDATE):
@@ -72,16 +72,12 @@ class BaseAssistantTest(NonAtomicBaseTest):
                 msg_dict.pop("id", None)
                 output_msg_dict = cast(BaseModel, output_msg).model_dump(exclude_none=True)
                 output_msg_dict.pop("id", None)
-                self.assertLessEqual(
-                    msg_dict.items(),
-                    output_msg_dict.items(),
-                    f"Message content mismatch at index {i}",
-                )
+                assert msg_dict.items() <= output_msg_dict.items(), f"Message content mismatch at index {i}"
             else:
                 raise ValueError(f"Unexpected message type: {output_msg_type} and {expected_msg_type}")
 
     def assertStateMessagesEqual(self, messages: list[Any], expected_messages: list[Any]):
-        self.assertEqual(len(messages), len(expected_messages))
+        assert len(messages) == len(expected_messages)
         for i, (message, expected_message) in enumerate(zip(messages, expected_messages)):
             expected_msg_dict = (
                 expected_message.model_dump(exclude_none=True)
@@ -91,4 +87,4 @@ class BaseAssistantTest(NonAtomicBaseTest):
             expected_msg_dict.pop("id", None)
             msg_dict = message.model_dump(exclude_none=True) if isinstance(message, BaseModel) else message
             msg_dict.pop("id", None)
-            self.assertLessEqual(expected_msg_dict.items(), msg_dict.items(), f"Message content mismatch at index {i}")
+            assert expected_msg_dict.items() <= msg_dict.items(), f"Message content mismatch at index {i}"

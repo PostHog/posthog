@@ -1,6 +1,7 @@
 import datetime
 from typing import Any, cast
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -275,12 +276,12 @@ class TestBuildBillingToken(BaseTest):
 
     def test_build_billing_token_raises_when_no_organization(self):
         """Should raise NotAuthenticated when organization is None"""
-        with self.assertRaises(NotAuthenticated):
+        with pytest.raises(NotAuthenticated):
             build_billing_token(self.license, None)
 
     def test_build_billing_token_raises_when_no_license(self):
         """Should raise NotAuthenticated when license is None"""
-        with self.assertRaises(NotAuthenticated):
+        with pytest.raises(NotAuthenticated):
             build_billing_token(None, self.organization)
 
     def test_build_billing_token_raises_when_user_not_in_organization(self):
@@ -292,11 +293,11 @@ class TestBuildBillingToken(BaseTest):
             password=None,
         )
 
-        with self.assertRaises(NotAuthenticated) as ctx:
+        with pytest.raises(NotAuthenticated) as ctx:
             build_billing_token(self.license, self.organization, user=non_member_user)
 
         # When user is provided without authorizer_actor, user becomes the authorizer
-        assert "Authorizer is not part of organization" in str(ctx.exception.detail)
+        assert "Authorizer is not part of organization" in str(ctx.value.detail)
 
     @patch("posthog.event_usage.posthoganalytics.capture")
     def test_build_billing_token_with_authorizer_actor_same_as_user(self, mock_capture):
@@ -354,10 +355,10 @@ class TestBuildBillingToken(BaseTest):
             password=None,
         )
 
-        with self.assertRaises(NotAuthenticated) as ctx:
+        with pytest.raises(NotAuthenticated) as ctx:
             build_billing_token(self.license, self.organization, user=self.user, authorizer_actor=non_member_authorizer)
 
-        assert "Authorizer is not part of organization" in str(ctx.exception.detail)
+        assert "Authorizer is not part of organization" in str(ctx.value.detail)
 
     @patch("posthog.event_usage.posthoganalytics.capture")
     def test_build_billing_token_privilege_escalation_user_not_member_allowed(self, mock_capture):

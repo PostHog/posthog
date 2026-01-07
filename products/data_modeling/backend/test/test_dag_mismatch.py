@@ -1,3 +1,4 @@
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
 
@@ -64,5 +65,5 @@ class DagMismatchTest(BaseTest):
         # to force edges to only be created or updated (when key fields are involved)
         source = Node.objects.get(name=source_label)
         target = Node.objects.get(name=target_label)
-        with self.assertRaises(DAGMismatchError):
+        with pytest.raises(DAGMismatchError):
             Edge.objects.create(team=source.team, dag_id=dag_id, source=source, target=target)

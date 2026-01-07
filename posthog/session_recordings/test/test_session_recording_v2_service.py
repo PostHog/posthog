@@ -29,7 +29,7 @@ class TestSessionRecordingV2Service(TestCase):
     def test_list_blocks_returns_empty_list_when_no_metadata(self, mock_replay_events):
         mock_replay_events.return_value.list_blocks.return_value = None
         blocks = list_blocks(self.recording)
-        self.assertEqual(blocks, [])
+        assert blocks == []
 
     @freeze_time("2024-01-01T12:00:00Z")
     @patch("posthog.session_recordings.session_recording_v2_service.SessionReplayEvents")
@@ -41,7 +41,7 @@ class TestSessionRecordingV2Service(TestCase):
             start_time=datetime(2024, 1, 1, 12, 0),
         )
         blocks = list_blocks(self.recording)
-        self.assertEqual(blocks, [])
+        assert blocks == []
 
     @freeze_time("2024-01-01T12:00:00Z")
     @patch("posthog.session_recordings.session_recording_v2_service.SessionReplayEvents")
@@ -66,7 +66,7 @@ class TestSessionRecordingV2Service(TestCase):
             start_time=datetime(2024, 1, 1, 12, 0),
         )
         blocks = list_blocks(self.recording)
-        self.assertEqual(blocks, [])
+        assert blocks == []
 
     @freeze_time("2024-01-01T12:00:00Z")
     @patch("posthog.session_recordings.session_recording_v2_service.SessionReplayEvents")
@@ -78,7 +78,7 @@ class TestSessionRecordingV2Service(TestCase):
             start_time=datetime(2024, 1, 1, 12, 0),
         )
         blocks = list_blocks(self.recording)
-        self.assertEqual(blocks, [])
+        assert blocks == []
 
     @freeze_time("2024-01-02T12:00:00Z")
     @patch("posthog.session_recordings.session_recording_v2_service.SessionReplayEvents")
@@ -104,13 +104,13 @@ class TestSessionRecordingV2Service(TestCase):
 
         blocks = list_blocks(self.recording)
 
-        self.assertEqual(len(blocks), 3)
-        self.assertEqual(blocks[0].start_time, datetime(2024, 1, 1, 12, 0))
-        self.assertEqual(blocks[1].start_time, datetime(2024, 1, 1, 12, 1))
-        self.assertEqual(blocks[2].start_time, datetime(2024, 1, 1, 12, 2))
-        self.assertEqual(blocks[0].url, "s3://bucket/key1")
-        self.assertEqual(blocks[1].url, "s3://bucket/key3")
-        self.assertEqual(blocks[2].url, "s3://bucket/key2")
+        assert len(blocks) == 3
+        assert blocks[0].start_time == datetime(2024, 1, 1, 12, 0)
+        assert blocks[1].start_time == datetime(2024, 1, 1, 12, 1)
+        assert blocks[2].start_time == datetime(2024, 1, 1, 12, 2)
+        assert blocks[0].url == "s3://bucket/key1"
+        assert blocks[1].url == "s3://bucket/key3"
+        assert blocks[2].url == "s3://bucket/key2"
 
     @freeze_time("2024-01-01T12:00:00Z")
     @patch("posthog.session_recordings.session_recording_v2_service.cache")
@@ -121,7 +121,7 @@ class TestSessionRecordingV2Service(TestCase):
 
         result = load_blocks(self.recording)
 
-        self.assertIsNone(result)
+        assert result is None
         mock_cache.set.assert_not_called()
 
     @freeze_time("2024-01-01T12:00:00Z")
@@ -139,7 +139,7 @@ class TestSessionRecordingV2Service(TestCase):
 
         result = load_blocks(self.recording)
 
-        self.assertEqual(result, mock_blocks)
+        assert result == mock_blocks
         expected_cache_key = listing_cache_key(self.recording)
         mock_cache.set.assert_called_once_with(expected_cache_key, mock_blocks, timeout=FIVE_SECONDS)
 
@@ -158,7 +158,7 @@ class TestSessionRecordingV2Service(TestCase):
 
         result = load_blocks(self.recording)
 
-        self.assertEqual(result, mock_blocks)
+        assert result == mock_blocks
         expected_cache_key = listing_cache_key(self.recording)
         # cache is forced to 5 seconds always
         mock_cache.set.assert_called_once_with(expected_cache_key, mock_blocks, timeout=FIVE_SECONDS)
@@ -177,7 +177,7 @@ class TestSessionRecordingV2Service(TestCase):
 
         result = load_blocks(self.recording)
 
-        self.assertEqual(result, cached_blocks)
+        assert result == cached_blocks
         expected_cache_key = listing_cache_key(self.recording)
         mock_cache.get.assert_called_once_with(expected_cache_key)
         mock_replay_events.return_value.list_blocks.assert_not_called()

@@ -59,30 +59,24 @@ class RecordingDomainMigrationTestCase(TestMigrations):
         Team = self.apps.get_model("posthog", "Team")  # type: ignore
 
         # CASE 1:
-        self.assertEqual(set(Team.objects.get(name="t1").recording_domains), set())
+        assert set(Team.objects.get(name="t1").recording_domains) == set()
 
         # CASE 2:
-        self.assertEqual(
-            set(Team.objects.get(name="t2").recording_domains),
-            {
-                "https://example.com",
-                "https://www.example2.com",
-                "http://localhost:8000",
-                "http://localhost:9000",
-            },
-        )
+        assert set(Team.objects.get(name="t2").recording_domains) == {
+            "https://example.com",
+            "https://www.example2.com",
+            "http://localhost:8000",
+            "http://localhost:9000",
+        }
 
         # CASE 3:
-        self.assertEqual(
-            set(Team.objects.get(name="t3").recording_domains),
-            {"https://*.example.com", "https://*.app.example.com"},
-        )
+        assert set(Team.objects.get(name="t3").recording_domains) == {
+            "https://*.example.com",
+            "https://*.app.example.com",
+        }
 
         # CASE 4:
-        self.assertEqual(
-            set(Team.objects.get(name="t4").recording_domains),
-            {"https://test.example.com"},
-        )
+        assert set(Team.objects.get(name="t4").recording_domains) == {"https://test.example.com"}
 
     def tearDown(self):
         Team = self.apps.get_model("posthog", "Team")  # type: ignore

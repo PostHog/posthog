@@ -1,6 +1,5 @@
 import uuid
 from datetime import datetime
-from typing import Optional
 
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_PERFORMANCE_EVENTS
@@ -14,7 +13,7 @@ def create_performance_event(
     session_id: str,
     window_id: str = "window_1",
     current_url: str = "https://posthog.com",
-    timestamp: Optional[datetime] = None,
+    timestamp: datetime | None = None,
     entry_type="resource",
     **kwargs,
 ) -> str:
@@ -37,8 +36,8 @@ def create_performance_event(
 
     selects = [f"%({x})s" for x in data.keys()]
     sql = f"""
-INSERT INTO {PERFORMANCE_EVENT_DATA_TABLE()} ({', '.join(data.keys()) }, _timestamp, _offset)
-SELECT {', '.join(selects) }, now(), 0
+INSERT INTO {PERFORMANCE_EVENT_DATA_TABLE()} ({", ".join(data.keys())}, _timestamp, _offset)
+SELECT {", ".join(selects)}, now(), 0
 """
 
     p = ClickhouseProducer()

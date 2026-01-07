@@ -1,3 +1,4 @@
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, _create_event, flush_persons_and_events
 from unittest.mock import ANY, Mock, patch
@@ -75,7 +76,7 @@ class SendLicenseUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIB
             },
             groups={"instance": ANY, "organization": str(self.organization.id)},
         )
-        self.assertEqual(License.objects.get().valid_until.isoformat(), "2021-11-10T23:01:00+00:00")
+        assert License.objects.get().valid_until.isoformat() == "2021-11-10T23:01:00+00:00"
 
     @freeze_time("2021-10-10T23:01:00Z")
     @patch("posthoganalytics.capture")
@@ -122,7 +123,7 @@ class SendLicenseUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIB
             timestamp="2021-10-10T14:01:01Z",
         )
         flush_persons_and_events()
-        with self.assertRaises(Exception):
+        with pytest.raises(Exception):
             send_license_usage()
         mock_capture.assert_called_once_with(
             "send license usage data error",
@@ -259,7 +260,7 @@ class SendLicenseUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIB
             },
             groups={"instance": ANY, "organization": str(self.organization.id)},
         )
-        self.assertEqual(License.objects.get().valid_until.isoformat(), "2021-10-10T22:01:00+00:00")
+        assert License.objects.get().valid_until.isoformat() == "2021-10-10T22:01:00+00:00"
 
     @freeze_time("2021-10-10T23:01:00Z")
     @patch("posthoganalytics.capture")
@@ -313,4 +314,4 @@ class SendLicenseUsageNoLicenseTest(APIBaseTest):
 
         send_license_usage()
 
-        self.assertEqual(mock_post.call_count, 0)
+        assert mock_post.call_count == 0

@@ -229,7 +229,7 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
         self.charges_table.delete()
         results = self._run_revenue_analytics_top_customers_query().results
 
-        self.assertEqual(results, [])
+        assert results == []
 
     def test_no_crash_when_no_source_is_selected(self):
         results = self._run_revenue_analytics_top_customers_query(
@@ -242,7 +242,7 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
             ],
         ).results
 
-        self.assertEqual(results, [])
+        assert results == []
 
     def test_without_customers_data(self):
         self.customers_table.delete()
@@ -250,14 +250,14 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
 
         # Mostly interested in the number of results
         # but also the query snapshot is more important than the results
-        self.assertEqual(len(results), 16)
+        assert len(results) == 16
 
     def test_with_data(self):
         results = self._run_revenue_analytics_top_customers_query().results
 
         # Mostly interested in the number of results
         # but also the query snapshot is more important than the results
-        self.assertEqual(len(results), 16)
+        assert len(results) == 16
 
     def test_with_data_with_managed_viewsets_ff(self):
         with patch("posthoganalytics.feature_enabled", return_value=True):
@@ -267,14 +267,14 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
 
             # Mostly interested in the number of results
             # but also the query snapshot is more important than the results
-            self.assertEqual(len(results), 16)
+            assert len(results) == 16
 
     def test_with_data_and_limited_date_range(self):
         results = self._run_revenue_analytics_top_customers_query(
             date_range=DateRange(date_from="2025-02-03", date_to="2025-03-04"),
         ).results
 
-        self.assertEqual(len(results), 6)
+        assert len(results) == 6
 
     def test_with_data_group_by_all(self):
         results = self._run_revenue_analytics_top_customers_query(
@@ -283,17 +283,14 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
 
         # Only one entry for each customer, sorted by ID
         results = sorted(results, key=lambda x: x[1])
-        self.assertEqual(
-            results,
-            [
-                ("cus_2", "Jane Doe", Decimal("222.6060849997"), "all"),
-                ("cus_4", "Jane Smith", Decimal("170.9565"), "all"),
-                ("cus_1", "John Doe", Decimal("517.7072798128"), "all"),
-                ("cus_5", "John Doe Jr", Decimal("1379.39181"), "all"),
-                ("cus_6", "John Doe Jr Jr", Decimal("1337.35006"), "all"),
-                ("cus_3", "John Smith", Decimal("1923.372205"), "all"),
-            ],
-        )
+        assert results == [
+            ("cus_2", "Jane Doe", Decimal("222.6060849997"), "all"),
+            ("cus_4", "Jane Smith", Decimal("170.9565"), "all"),
+            ("cus_1", "John Doe", Decimal("517.7072798128"), "all"),
+            ("cus_5", "John Doe Jr", Decimal("1379.39181"), "all"),
+            ("cus_6", "John Doe Jr Jr", Decimal("1337.35006"), "all"),
+            ("cus_3", "John Smith", Decimal("1923.372205"), "all"),
+        ]
 
     def test_with_events_data(self):
         s1 = str(uuid7("2023-12-02"))
@@ -317,13 +314,10 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
             ],
         ).results
 
-        self.assertEqual(
-            results,
-            [
-                (ANY, "p1", Decimal("33.2094"), datetime.date(2023, 12, 1)),
-                (ANY, "p2", Decimal("21.0237251204"), datetime.date(2024, 1, 1)),
-            ],
-        )
+        assert results == [
+            (ANY, "p1", Decimal("33.2094"), datetime.date(2023, 12, 1)),
+            (ANY, "p2", Decimal("21.0237251204"), datetime.date(2024, 1, 1)),
+        ]
 
     def test_with_events_data_with_managed_viewsets_ff(self):
         with patch("posthoganalytics.feature_enabled", return_value=True):
@@ -350,13 +344,10 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
                 ],
             ).results
 
-            self.assertEqual(
-                results,
-                [
-                    (ANY, "p1", Decimal("33.2094"), datetime.date(2023, 12, 1)),
-                    (ANY, "p2", Decimal("21.0237251204"), datetime.date(2024, 1, 1)),
-                ],
-            )
+            assert results == [
+                (ANY, "p1", Decimal("33.2094"), datetime.date(2023, 12, 1)),
+                (ANY, "p2", Decimal("21.0237251204"), datetime.date(2024, 1, 1)),
+            ]
 
     def test_with_events_data_and_currency_aware_divider(self):
         self.team.revenue_analytics_config.events = [
@@ -385,10 +376,7 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
             ],
         ).results
 
-        self.assertEqual(
-            results,
-            [
-                (ANY, "p1", Decimal("33.2094"), datetime.date(2023, 12, 1)),
-                (ANY, "p2", Decimal("21.0237251204"), datetime.date(2024, 1, 1)),
-            ],
-        )
+        assert results == [
+            (ANY, "p1", Decimal("33.2094"), datetime.date(2023, 12, 1)),
+            (ANY, "p2", Decimal("21.0237251204"), datetime.date(2024, 1, 1)),
+        ]

@@ -174,16 +174,16 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query_result = self._calculate(person_id=str(self.person.uuid))
 
         results = query_result["results"]
-        self.assertEqual(len(results), 2)
-        self.assertEqual(results[0]["display"], metric.display)
-        self.assertEqual(results[0]["format"], metric.format)
-        self.assertEqual(results[0]["id"], str(metric.id))
-        self.assertEqual(results[0]["interval"], metric.interval)
-        self.assertEqual(results[0]["name"], metric.name)
-        self.assertEqual(results[0]["value"], 3.0)
+        assert len(results) == 2
+        assert results[0]["display"] == metric.display
+        assert results[0]["format"] == metric.format
+        assert results[0]["id"] == str(metric.id)
+        assert results[0]["interval"] == metric.interval
+        assert results[0]["name"] == metric.name
+        assert results[0]["value"] == 3.0
 
-        self.assertEqual(results[1]["id"], str(another_metric.id))
-        self.assertEqual(results[1]["value"], 5.0)
+        assert results[1]["id"] == str(another_metric.id)
+        assert results[1]["value"] == 5.0
 
     @freeze_time("2025-10-09T12:11:00")
     @snapshot_clickhouse_queries
@@ -222,9 +222,9 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query_result = self._calculate(person_id=str(self.person.uuid))
 
         results = query_result["results"]
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["id"], str(metric.id))
-        self.assertEqual(results[0]["value"], 3.0)
+        assert len(results) == 1
+        assert results[0]["id"] == str(metric.id)
+        assert results[0]["value"] == 3.0
 
     @freeze_time("2025-10-09T12:11:00")
     @snapshot_clickhouse_queries
@@ -277,11 +277,11 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query_result = self._calculate(person_id=str(self.person.uuid))
 
         results = query_result["results"]
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["id"], str(metric.id))
-        self.assertEqual(results[0]["value"], 4.0)
-        self.assertEqual(results[0]["previous"], 3.0)
-        self.assertEqual(results[0]["change_from_previous_pct"], 33.33333333333333)
+        assert len(results) == 1
+        assert results[0]["id"] == str(metric.id)
+        assert results[0]["value"] == 4.0
+        assert results[0]["previous"] == 3.0
+        assert results[0]["change_from_previous_pct"] == 33.33333333333333
 
     @freeze_time("2025-10-09T12:11:00")
     @snapshot_clickhouse_queries
@@ -310,7 +310,7 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query_result = self._calculate(person_id=str(self.person.uuid))
 
         results = query_result["results"]
-        self.assertEqual(len(results), 0)
+        assert len(results) == 0
 
     @freeze_time("2025-10-09T12:11:00")
     @snapshot_clickhouse_queries
@@ -327,7 +327,7 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query_result = self._calculate(person_id=str(self.person.uuid))
 
         results = query_result["results"]
-        self.assertEqual(len(results), 0)
+        assert len(results) == 0
 
     @freeze_time("2025-10-09T12:11:00")
     @snapshot_clickhouse_queries
@@ -388,11 +388,11 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query_result = self._calculate(group_type_index=0, group_key=group_key)
 
         results = query_result["results"]
-        self.assertEqual(len(results), 2)
-        self.assertEqual(results[0]["id"], str(metric.id))
-        self.assertEqual(results[0]["value"], 3.0)
-        self.assertEqual(results[1]["id"], str(another_metric.id))
-        self.assertEqual(results[1]["value"], 5.0)
+        assert len(results) == 2
+        assert results[0]["id"] == str(metric.id)
+        assert results[0]["value"] == 3.0
+        assert results[1]["id"] == str(another_metric.id)
+        assert results[1]["value"] == 5.0
 
     @freeze_time("2025-10-09T12:11:00")
     def test_cache_invalidates_when_metric_created(self):
@@ -411,8 +411,8 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response1 = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
 
         assert isinstance(response1, CachedUsageMetricsQueryResponse)
-        self.assertFalse(response1.is_cached)
-        self.assertEqual(len(response1.results), 0)
+        assert not response1.is_cached
+        assert len(response1.results) == 0
 
         GroupUsageMetric.objects.create(
             team=self.team,
@@ -431,10 +431,10 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response2 = runner2.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
 
         assert isinstance(response2, CachedUsageMetricsQueryResponse)
-        self.assertFalse(response2.is_cached)
-        self.assertEqual(len(response2.results), 1)
-        self.assertEqual(response2.results[0].name, "Test metric")
-        self.assertEqual(response2.results[0].value, 1.0)
+        assert not response2.is_cached
+        assert len(response2.results) == 1
+        assert response2.results[0].name == "Test metric"
+        assert response2.results[0].value == 1.0
 
     @freeze_time("2025-10-09T12:11:00")
     def test_cache_invalidates_when_metric_deleted(self):
@@ -462,9 +462,9 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response1 = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
 
         assert isinstance(response1, CachedUsageMetricsQueryResponse)
-        self.assertFalse(response1.is_cached)
-        self.assertEqual(len(response1.results), 1)
-        self.assertEqual(response1.results[0].name, "Test metric")
+        assert not response1.is_cached
+        assert len(response1.results) == 1
+        assert response1.results[0].name == "Test metric"
 
         metric.delete()
         runner2 = UsageMetricsQueryRunner(
@@ -475,5 +475,5 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response2 = runner2.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
 
         assert isinstance(response2, CachedUsageMetricsQueryResponse)
-        self.assertFalse(response2.is_cached)
-        self.assertEqual(len(response2.results), 0)
+        assert not response2.is_cached
+        assert len(response2.results) == 0

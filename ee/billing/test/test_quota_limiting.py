@@ -153,7 +153,7 @@ class TestQuotaLimiting(BaseTest):
         team_tokens = get_team_attribute_by_quota_resource(self.organization)
         add_limited_team_tokens(
             QuotaResource.EVENTS,
-            {x: 1612137599 for x in team_tokens},
+            dict.fromkeys(team_tokens, 1612137599),
             QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
         )
         quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
@@ -1131,7 +1131,7 @@ class TestQuotaLimiting(BaseTest):
 
         tokens = get_team_attribute_by_quota_resource(self.organization)
 
-        self.assertEqual(set(tokens), {"token1", "token2"})
+        assert set(tokens) == {"token1", "token2"}
 
         team1.delete()
         team2.delete()
@@ -1140,12 +1140,12 @@ class TestQuotaLimiting(BaseTest):
 
         tokens = get_team_attribute_by_quota_resource(self.organization)
 
-        self.assertEqual(tokens, [])
+        assert tokens == []
         mock_capture.assert_called_once()
 
         call_args = mock_capture.call_args
-        self.assertEqual(str(call_args[0][0]), "quota_limiting: No team tokens found for organization")
-        self.assertEqual(call_args[0][1], {"organization_id": self.organization.id})
+        assert str(call_args[0][0]) == "quota_limiting: No team tokens found for organization"
+        assert call_args[0][1] == {"organization_id": self.organization.id}
 
     def test_feature_flags_quota_limiting(self):
         with self.settings(USE_TZ=False), freeze_time("2021-01-25T00:00:00Z"):
@@ -1254,12 +1254,12 @@ class TestQuotaLimiting(BaseTest):
                 quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
 
                 # Should get at least 2-day grace period, or more if trust score allows
-                assert (
-                    quota_limited_orgs["feature_flag_requests"] == {}
-                ), f"Trust score {trust_score} should not immediately limit"
-                assert quota_limiting_suspended_orgs["feature_flag_requests"] == {
-                    org_id: expected_timestamp
-                }, f"Trust score {trust_score} should get appropriate grace period"
+                assert quota_limited_orgs["feature_flag_requests"] == {}, (
+                    f"Trust score {trust_score} should not immediately limit"
+                )
+                assert quota_limiting_suspended_orgs["feature_flag_requests"] == {org_id: expected_timestamp}, (
+                    f"Trust score {trust_score} should get appropriate grace period"
+                )
                 assert self.team.api_token.encode("UTF-8") in self.redis_client.zrange(
                     f"@posthog/quota-limiting-suspended/feature_flag_requests", 0, -1
                 )
@@ -1772,7 +1772,7 @@ class TestQuotaLimiting(BaseTest):
         # Check UsageCounters matches OrganizationUsageInfo
         missing_from_counters = org_usage_keys - usage_counter_keys
         extra_in_counters = usage_counter_keys - org_usage_keys
-        assert (
-            not missing_from_counters
-        ), f"UsageCounters is missing keys from OrganizationUsageInfo: {missing_from_counters}"
+        assert not missing_from_counters, (
+            f"UsageCounters is missing keys from OrganizationUsageInfo: {missing_from_counters}"
+        )
         assert not extra_in_counters, f"UsageCounters has extra keys not in OrganizationUsageInfo: {extra_in_counters}"

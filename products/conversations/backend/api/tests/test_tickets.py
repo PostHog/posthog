@@ -52,9 +52,9 @@ class TestTicketAPI(BaseConversationsAPITest):
 
     def test_list_tickets(self):
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
-        self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 1
+        assert response.json()["results"][0]["id"] == str(self.ticket.id)
 
     def test_list_tickets_only_returns_team_tickets(self):
         other_ticket = Ticket.objects.create(
@@ -64,28 +64,28 @@ class TestTicketAPI(BaseConversationsAPITest):
             distinct_id="other-user",
         )
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 2)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 2
         ticket_ids = {t["id"] for t in response.json()["results"]}
-        self.assertIn(str(self.ticket.id), ticket_ids)
-        self.assertIn(str(other_ticket.id), ticket_ids)
+        assert str(self.ticket.id) in ticket_ids
+        assert str(other_ticket.id) in ticket_ids
 
     def test_retrieve_ticket(self):
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["id"], str(self.ticket.id))
-        self.assertEqual(response.json()["status"], Status.NEW)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["id"] == str(self.ticket.id)
+        assert response.json()["status"] == Status.NEW
 
     def test_retrieve_ticket_marks_as_read(self):
         self.ticket.unread_team_count = 5
         self.ticket.save()
 
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["unread_team_count"], 0)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["unread_team_count"] == 0
 
         self.ticket.refresh_from_db()
-        self.assertEqual(self.ticket.unread_team_count, 0)
+        assert self.ticket.unread_team_count == 0
 
     @parameterized.expand(
         [
@@ -105,17 +105,17 @@ class TestTicketAPI(BaseConversationsAPITest):
             f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
             {field_name: update_value},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()[field_name], expected_response_value)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[field_name] == expected_response_value
 
         # Some fields have nested representations
         if expected_nested_field:
-            self.assertEqual(response.json()["assigned_to_user"]["id"], self.user.id)
+            assert response.json()["assigned_to_user"]["id"] == self.user.id
 
         # Verify database was updated (except for nested fields)
         if field_name != "assigned_to":
             self.ticket.refresh_from_db()
-            self.assertEqual(getattr(self.ticket, field_name), expected_response_value)
+            assert getattr(self.ticket, field_name) == expected_response_value
 
     @parameterized.expand(
         [
@@ -163,21 +163,21 @@ class TestTicketAPI(BaseConversationsAPITest):
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?{filter_param}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 1
 
         result = response.json()["results"][0]
         if expected_response_value is None:
-            self.assertIsNone(result[response_field])
+            assert result[response_field] is None
         else:
-            self.assertEqual(result[response_field], expected_response_value)
+            assert result[response_field] == expected_response_value
 
     @parameterized.expand([("status", "invalid"), ("priority", "invalid")])
     def test_invalid_filter_ignored(self, filter_name, invalid_value):
         """Test that invalid filter values are ignored and all tickets are returned."""
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?{filter_name}={invalid_value}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 1
 
     @parameterized.expand(
         [
@@ -210,13 +210,13 @@ class TestTicketAPI(BaseConversationsAPITest):
             )
 
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         for field_name, expected_value in expected_fields.items():
             if expected_value == "not_none":
-                self.assertIsNotNone(response.json()[field_name])
+                assert response.json()[field_name] is not None
             else:
-                self.assertEqual(response.json()[field_name], expected_value)
+                assert response.json()[field_name] == expected_value
 
     def test_list_tickets_no_n_plus_one_queries(self):
         """Verify ticket list doesn't trigger N+1 queries for messages and assigned users."""
@@ -249,15 +249,15 @@ class TestTicketAPI(BaseConversationsAPITest):
         # Includes: session, user, org, team, permissions, feature flag check, count query, tickets query
         with self.assertNumQueries(11):
             response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
             # Should have original ticket + 10 new tickets = 11 total
-            self.assertEqual(response.json()["count"], 11)
+            assert response.json()["count"] == 11
             # Verify all annotated fields are present
             for ticket_data in response.json()["results"]:
-                self.assertIn("message_count", ticket_data)
-                self.assertIn("last_message_at", ticket_data)
-                self.assertIn("last_message_text", ticket_data)
-                self.assertIn("assigned_to_user", ticket_data)
+                assert "message_count" in ticket_data
+                assert "last_message_at" in ticket_data
+                assert "last_message_text" in ticket_data
+                assert "assigned_to_user" in ticket_data
 
     def test_feature_flag_required(self):
         """Verify that product-conversations feature flag is required for API access."""
@@ -273,8 +273,6 @@ class TestTicketAPI(BaseConversationsAPITest):
 
         for url, method in endpoints:
             response = getattr(self.client, method.lower())(url, format="json")
-            self.assertEqual(
-                response.status_code,
-                status.HTTP_403_FORBIDDEN,
-                f"Failed for {method} {url}: expected 403, got {response.status_code}",
+            assert response.status_code == status.HTTP_403_FORBIDDEN, (
+                f"Failed for {method} {url}: expected 403, got {response.status_code}"
             )

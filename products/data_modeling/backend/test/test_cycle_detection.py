@@ -1,3 +1,4 @@
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
 
@@ -57,7 +58,7 @@ class LinkedListCycleDetectionTest(BaseTest):
         source = Node.objects.get(saved_query__name=f"ll_{source_label}")
         target = Node.objects.get(saved_query__name=f"ll_{target_label}")
         if should_raise:
-            with self.assertRaises(Exception):
+            with pytest.raises(Exception):
                 Edge.objects.create(team=source.team, dag_id=LINKED_LIST_DAG_ID, source=source, target=target)
         else:
             edge = Edge.objects.create(team=source.team, dag_id=LINKED_LIST_DAG_ID, source=source, target=target)
@@ -152,7 +153,7 @@ class TreeCycleDetectionTest(BaseTest):
         source = Node.objects.get(saved_query__name=f"bt_{source_label}")
         target = Node.objects.get(saved_query__name=f"bt_{target_label}")
         if should_raise:
-            with self.assertRaises(CycleDetectionError):
+            with pytest.raises(CycleDetectionError):
                 Edge.objects.create(team=source.team, dag_id=BALANCED_TREE_DAG_ID, source=source, target=target)
         else:
             edge = Edge.objects.create(team=source.team, dag_id=BALANCED_TREE_DAG_ID, source=source, target=target)
@@ -165,7 +166,7 @@ class TreeCycleDetectionTest(BaseTest):
         disallowed = ("dag_id", "source", "source_id", "target", "target_id", "team", "team_id")
         for key in disallowed:
             # test update disallowed for each key
-            with self.assertRaises(NotImplementedError):
+            with pytest.raises(NotImplementedError):
                 if key.endswith("id"):
                     bt_edges.update(**{key: "test"})
                 elif key == "source":
@@ -183,8 +184,8 @@ class TreeCycleDetectionTest(BaseTest):
                     setattr(edge, key, test_node)
                 elif key == "team":
                     setattr(edge, key, test_team)
-            with self.assertRaises(NotImplementedError):
+            with pytest.raises(NotImplementedError):
                 Edge.objects.bulk_update(mock_edges, [key])
         # test bulk_create disallowed
-        with self.assertRaises(NotImplementedError):
+        with pytest.raises(NotImplementedError):
             Edge.objects.bulk_create(bt_edges)

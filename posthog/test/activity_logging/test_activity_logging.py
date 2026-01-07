@@ -32,13 +32,13 @@ class TestActivityLogModel(BaseTest):
         )
         log: ActivityLog = ActivityLog.objects.latest("id")
 
-        self.assertEqual(log.team_id, self.team.id)
-        self.assertEqual(log.organization_id, self.organization.id)
-        self.assertEqual(log.user, self.user)
-        self.assertEqual(log.item_id, "6")
-        self.assertEqual(log.scope, "FeatureFlag")
-        self.assertEqual(log.activity, "updated")
-        self.assertEqual(log.detail["changes"], [change.__dict__])
+        assert log.team_id == self.team.id
+        assert log.organization_id == self.organization.id
+        assert log.user == self.user
+        assert log.item_id == "6"
+        assert log.scope == "FeatureFlag"
+        assert log.activity == "updated"
+        assert log.detail["changes"] == [change.__dict__]
 
     def test_can_save_a_log_that_has_no_model_changes(self) -> None:
         log_activity(
@@ -52,7 +52,7 @@ class TestActivityLogModel(BaseTest):
             detail=Detail(),
         )
         log: ActivityLog = ActivityLog.objects.latest("id")
-        self.assertEqual(log.activity, "added_to_clink_expander")
+        assert log.activity == "added_to_clink_expander"
 
     def test_does_not_save_impersonated_activity_without_user(self) -> None:
         log_activity(
@@ -73,12 +73,12 @@ class TestActivityLogModel(BaseTest):
         ActivityLog.objects.create(team_id=3)
         ActivityLog.objects.create(organization_id=UUIDT())
         # we cannot save a new log if it has neither team nor org id
-        with self.assertRaises(IntegrityError) as error:
+        with pytest.raises(IntegrityError) as error:
             ActivityLog.objects.create()
 
-        self.assertIn(
-            'new row for relation "posthog_activitylog" violates check constraint "must_have_team_or_organization_id',
-            error.exception.args[0],
+        assert (
+            'new row for relation "posthog_activitylog" violates check constraint "must_have_team_or_organization_id'
+            in error.value.args[0]
         )
 
     def test_does_not_throw_if_cannot_log_activity(self) -> None:
@@ -101,15 +101,12 @@ class TestActivityLogModel(BaseTest):
                     raise pytest.fail(f"Should not have raised exception: {e}")
 
             logged_warning = log.records[0].__dict__
-            self.assertEqual(logged_warning["levelname"], "WARNING")
-            self.assertEqual(
-                logged_warning["msg"]["event"],
-                "activity_log.failed_to_write_to_activity_log",
-            )
-            self.assertEqual(logged_warning["msg"]["scope"], "testing throwing exceptions on create")
-            self.assertEqual(logged_warning["msg"]["team"], 1)
-            self.assertEqual(logged_warning["msg"]["activity"], "does not explode")
-            self.assertIsInstance(logged_warning["msg"]["exception"], ValueError)
+            assert logged_warning["levelname"] == "WARNING"
+            assert logged_warning["msg"]["event"] == "activity_log.failed_to_write_to_activity_log"
+            assert logged_warning["msg"]["scope"] == "testing throwing exceptions on create"
+            assert logged_warning["msg"]["team"] == 1
+            assert logged_warning["msg"]["activity"] == "does not explode"
+            assert isinstance(logged_warning["msg"]["exception"], ValueError)
 
 
 class TestActivityLogVisibilityManager(BaseTest):
@@ -141,7 +138,7 @@ class TestActivityLogVisibilityManager(BaseTest):
             activity=activity,
             was_impersonated=was_impersonated,
         )
-        self.assertEqual(activity_visibility_manager.is_restricted(log, restrict_for_staff=True), expected_restricted)
+        assert activity_visibility_manager.is_restricted(log, restrict_for_staff=True) == expected_restricted
 
     @parameterized.expand(
         [
@@ -162,7 +159,7 @@ class TestActivityLogVisibilityManager(BaseTest):
             activity=activity,
             was_impersonated=was_impersonated,
         )
-        self.assertEqual(activity_visibility_manager.is_restricted(log, restrict_for_staff=False), expected_restricted)
+        assert activity_visibility_manager.is_restricted(log, restrict_for_staff=False) == expected_restricted
 
     def test_queryset_excludes_restricted_logs_for_non_staff(self) -> None:
         # Create a mix of activity logs
@@ -176,12 +173,12 @@ class TestActivityLogVisibilityManager(BaseTest):
         queryset = ActivityLog.objects.filter(team_id=self.team.id)
         filtered = activity_visibility_manager.apply_to_queryset(queryset, is_staff=False)
 
-        self.assertEqual(queryset.count(), 4)
-        self.assertEqual(filtered.count(), 2)
-        self.assertFalse(filtered.filter(scope="User", activity="logged_in", was_impersonated=True).exists())
-        self.assertFalse(filtered.filter(scope="User", activity="logged_out", was_impersonated=True).exists())
-        self.assertTrue(filtered.filter(scope="User", activity="logged_in", was_impersonated=False).exists())
-        self.assertTrue(filtered.filter(scope="FeatureFlag", activity="created").exists())
+        assert queryset.count() == 4
+        assert filtered.count() == 2
+        assert not filtered.filter(scope="User", activity="logged_in", was_impersonated=True).exists()
+        assert not filtered.filter(scope="User", activity="logged_out", was_impersonated=True).exists()
+        assert filtered.filter(scope="User", activity="logged_in", was_impersonated=False).exists()
+        assert filtered.filter(scope="FeatureFlag", activity="created").exists()
 
     def test_queryset_includes_all_logs_for_staff(self) -> None:
         ActivityLog.objects.create(team_id=self.team.id, scope="User", activity="logged_in", was_impersonated=True)
@@ -193,4 +190,4 @@ class TestActivityLogVisibilityManager(BaseTest):
         queryset = ActivityLog.objects.filter(team_id=self.team.id)
         filtered = activity_visibility_manager.apply_to_queryset(queryset, is_staff=True)
 
-        self.assertEqual(filtered.count(), 3)
+        assert filtered.count() == 3

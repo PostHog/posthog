@@ -58,7 +58,7 @@ class TestMediaAPI(APIBaseTest):
                     {"image": image},
                     format="multipart",
                 )
-                self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+                assert response.status_code == status.HTTP_201_CREATED, response.json()
                 assert response.json()["name"] == "a-small-but-valid.gif"
                 media_location = response.json()["image_location"]
                 assert re.match(r"^http://localhost:8010/uploaded_media/.*", media_location) is not None
@@ -76,11 +76,7 @@ class TestMediaAPI(APIBaseTest):
             {"image": fake_file},
             format="multipart",
         )
-        self.assertEqual(
-            response.status_code,
-            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            response.json(),
-        )
+        assert response.status_code == status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, response.json()
 
     def test_rejects_file_manually_crafted_to_start_with_image_magic_bytes(self) -> None:
         with open(get_path_to("file-masquerading-as-a.gif"), "rb") as image:
@@ -89,7 +85,7 @@ class TestMediaAPI(APIBaseTest):
                 {"image": image},
                 format="multipart",
             )
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
             assert UploadedMedia.objects.count() == 0
 
@@ -109,8 +105,8 @@ class TestMediaAPI(APIBaseTest):
             {"image": fake_big_file},
             format="multipart",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
-        self.assertEqual(response.json()["detail"], "Uploaded media must be less than 4MB")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["detail"] == "Uploaded media must be less than 4MB"
 
     def test_rejects_upload_when_object_storage_is_unavailable(self) -> None:
         with override_settings(OBJECT_STORAGE_ENABLED=False):
@@ -120,8 +116,5 @@ class TestMediaAPI(APIBaseTest):
                 {"image": fake_big_file},
                 format="multipart",
             )
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
-            self.assertEqual(
-                response.json()["detail"],
-                "Object storage must be available to allow media uploads.",
-            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            assert response.json()["detail"] == "Object storage must be available to allow media uploads."

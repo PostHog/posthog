@@ -58,24 +58,24 @@ class TestMessagePreferencesViews(BaseTest):
         )
         response = self.client.get(reverse("message_preferences", kwargs={"token": self.token}))
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         self.assertTemplateUsed(response, "message_preferences/preferences.html")
 
         # Check context
-        self.assertEqual(response.context["recipient"], self.recipient)
-        self.assertEqual(len(response.context["categories"]), 2)
-        self.assertEqual(response.context["token"], self.token)
+        assert response.context["recipient"] == self.recipient
+        assert len(response.context["categories"]) == 2
+        assert response.context["token"] == self.token
 
         # Verify categories are ordered by name
         categories = response.context["categories"]
-        self.assertEqual(categories[0]["name"], "Newsletter Updates")
-        self.assertEqual(categories[1]["name"], "Product Updates")
+        assert categories[0]["name"] == "Newsletter Updates"
+        assert categories[1]["name"] == "Product Updates"
 
     @patch("posthog.views.validate_messaging_preferences_token")
     def test_preferences_page_invalid_token(self, mock_validate_messaging_preferences_token):
         mock_validate_messaging_preferences_token.return_value = mock_response(400, {"error": "Invalid token"})
         response = self.client.get(reverse("message_preferences", kwargs={"token": "invalid-token"}))
-        self.assertEqual(response.status_code, 400)
+        assert response.status_code == 400
         self.assertTemplateUsed(response, "message_preferences/error.html")
 
     @patch("posthog.views.validate_messaging_preferences_token")
@@ -85,30 +85,30 @@ class TestMessagePreferencesViews(BaseTest):
             200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
         )
         response = self.client.post(reverse("message_preferences_update"), data)
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(json.loads(response.content), {"success": True})
+        assert response.status_code == 200
+        assert json.loads(response.content) == {"success": True}
 
         # Verify preferences were updated
         self.recipient.refresh_from_db()
         prefs = self.recipient.get_all_preferences()
-        self.assertEqual(prefs[str(self.category.id)], PreferenceStatus.OPTED_IN)
-        self.assertEqual(prefs[str(self.category2.id)], PreferenceStatus.OPTED_OUT)
+        assert prefs[str(self.category.id)] == PreferenceStatus.OPTED_IN
+        assert prefs[str(self.category2.id)] == PreferenceStatus.OPTED_OUT
 
     def test_update_preferences_missing_token(self):
         response = self.client.post(
             reverse("message_preferences_update"),
             {"preferences[]": [f"{self.category.id}:true"]},
         )
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(json.loads(response.content), {"error": "Missing token"})
+        assert response.status_code == 400
+        assert json.loads(response.content) == {"error": "Missing token"}
 
     @patch("posthog.views.validate_messaging_preferences_token")
     def test_update_preferences_invalid_token(self, mock_validate_messaging_preferences_token):
         data = {"token": "invalid-token", "preferences[]": [f"{self.category.id}:true"]}
         mock_validate_messaging_preferences_token.return_value = mock_response(400, {"error": "Invalid token"})
         response = self.client.post(reverse("message_preferences_update"), data)
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("error", json.loads(response.content))
+        assert response.status_code == 400
+        assert "error" in json.loads(response.content)
 
     @patch("posthog.views.validate_messaging_preferences_token")
     def test_update_preferences_invalid_preference_format(self, mock_validate_messaging_preferences_token):
@@ -117,8 +117,8 @@ class TestMessagePreferencesViews(BaseTest):
             200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
         )
         response = self.client.post(reverse("message_preferences_update"), data)
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(json.loads(response.content), {"error": "Preference values must be 'true' or 'false'"})
+        assert response.status_code == 400
+        assert json.loads(response.content) == {"error": "Preference values must be 'true' or 'false'"}
 
 
 class TestMessagePreferencesAPIViewSet(APIBaseTest):
@@ -134,10 +134,10 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
     def test_opt_outs_no_category_no_opt_outs(self):
         """Test opt_outs endpoint with no category and no recipients opted out"""
         response = self.client.get(f"/api/environments/{self.team.id}/messaging_preferences/opt_outs/")
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         data = response.json()
-        self.assertEqual(data["count"], 0)
-        self.assertEqual(len(data["results"]), 0)
+        assert data["count"] == 0
+        assert len(data["results"]) == 0
 
     def test_opt_outs_no_category_with_global_opt_outs(self):
         """Test opt_outs endpoint with no category and recipients opted out globally"""
@@ -160,16 +160,16 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
         )
 
         response = self.client.get(f"/api/environments/{self.team.id}/messaging_preferences/opt_outs/")
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         data = response.json()
-        self.assertEqual(data["count"], 2)
-        self.assertEqual(len(data["results"]), 2)
+        assert data["count"] == 2
+        assert len(data["results"]) == 2
 
         # Check that the correct recipients are returned
         identifiers = [item["identifier"] for item in data["results"]]
-        self.assertIn("user1@example.com", identifiers)
-        self.assertIn("user2@example.com", identifiers)
-        self.assertNotIn("user3@example.com", identifiers)
+        assert "user1@example.com" in identifiers
+        assert "user2@example.com" in identifiers
+        assert "user3@example.com" not in identifiers
 
     def test_opt_outs_with_specific_category(self):
         """Test opt_outs endpoint with a specific category"""
@@ -194,16 +194,16 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
         response = self.client.get(
             f"/api/environments/{self.team.id}/messaging_preferences/opt_outs/", {"category_key": self.category.key}
         )
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         data = response.json()
-        self.assertEqual(data["count"], 2)
-        self.assertEqual(len(data["results"]), 2)
+        assert data["count"] == 2
+        assert len(data["results"]) == 2
 
         # Check that only recipients opted out from the specific category are returned
         identifiers = [item["identifier"] for item in data["results"]]
-        self.assertIn("user1@example.com", identifiers)
-        self.assertIn("user3@example.com", identifiers)
-        self.assertNotIn("user2@example.com", identifiers)
+        assert "user1@example.com" in identifiers
+        assert "user3@example.com" in identifiers
+        assert "user2@example.com" not in identifiers
 
     def test_opt_outs_with_nonexistent_category(self):
         """Test opt_outs endpoint with a category that doesn't exist"""
@@ -211,9 +211,9 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
             f"/api/environments/{self.team.id}/messaging_preferences/opt_outs/",
             {"category_key": "nonexistent_category"},
         )
-        self.assertEqual(response.status_code, 404)
+        assert response.status_code == 404
         data = response.json()
-        self.assertEqual(data["error"], "Category not found")
+        assert data["error"] == "Category not found"
 
     def test_opt_outs_serializer_fields(self):
         """Test that the opt_outs endpoint returns the expected fields"""
@@ -224,22 +224,22 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
         )
 
         response = self.client.get(f"/api/environments/{self.team.id}/messaging_preferences/opt_outs/")
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         data = response.json()
-        self.assertEqual(data["count"], 1)
-        self.assertEqual(len(data["results"]), 1)
+        assert data["count"] == 1
+        assert len(data["results"]) == 1
 
         # Check that all expected fields are present
         item = data["results"][0]
         expected_fields = ["id", "identifier", "updated_at", "preferences"]
         for field in expected_fields:
-            self.assertIn(field, item)
+            assert field in item
 
         # Check field values
-        self.assertEqual(item["id"], str(recipient.id))
-        self.assertEqual(item["identifier"], "user@example.com")
-        self.assertIsNotNone(item["updated_at"])
-        self.assertEqual(item["preferences"], {ALL_MESSAGE_PREFERENCE_CATEGORY_ID: PreferenceStatus.OPTED_OUT.value})
+        assert item["id"] == str(recipient.id)
+        assert item["identifier"] == "user@example.com"
+        assert item["updated_at"] is not None
+        assert item["preferences"] == {ALL_MESSAGE_PREFERENCE_CATEGORY_ID: PreferenceStatus.OPTED_OUT.value}
 
     def test_opt_outs_team_isolation(self):
         """Test that opt_outs only returns recipients from the current team"""
@@ -259,8 +259,8 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
         )
 
         response = self.client.get(f"/api/environments/{self.team.id}/messaging_preferences/opt_outs/")
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         data = response.json()
-        self.assertEqual(data["count"], 1)
-        self.assertEqual(len(data["results"]), 1)
-        self.assertEqual(data["results"][0]["identifier"], "user1@example.com")
+        assert data["count"] == 1
+        assert len(data["results"]) == 1
+        assert data["results"][0]["identifier"] == "user1@example.com"

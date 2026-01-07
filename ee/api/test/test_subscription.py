@@ -62,7 +62,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         mock_client.start_workflow = AsyncMock()
         mock_sync.return_value = mock_client
         response = self._create_subscription()
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         data = response.json()
         assert data == {
             "id": data["id"],
@@ -99,7 +99,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         mock_client.start_workflow = AsyncMock()
         mock_sync.return_value = mock_client
         response = self._create_subscription(invite_message=None)
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
         mock_client.start_workflow.assert_called_once()
 

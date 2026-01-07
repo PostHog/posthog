@@ -18,8 +18,8 @@ class TestPerson(BaseTest):
     def test_person_is_identified(self):
         person_identified = Person.objects.create(team=self.team, is_identified=True)
         person_anonymous = Person.objects.create(team=self.team)
-        self.assertEqual(person_identified.is_identified, True)
-        self.assertEqual(person_anonymous.is_identified, False)
+        assert person_identified.is_identified
+        assert not person_anonymous.is_identified
 
     def test_delete_person(self):
         person = Person.objects.create(
@@ -30,7 +30,7 @@ class TestPerson(BaseTest):
             "SELECT toString(id), version, is_deleted, properties FROM person FINAL WHERE team_id = %(team_id)s and id = %(uuid)s",
             {"team_id": self.team.pk, "uuid": person.uuid},
         )
-        self.assertEqual(ch_persons, [(str(person.uuid), 115, 1, "{}")])
+        assert ch_persons == [(str(person.uuid), 115, 1, "{}")]
 
     def test_delete_ch_distinct_ids(self):
         person = Person.objects.create(team=self.team)
@@ -40,11 +40,11 @@ class TestPerson(BaseTest):
             "SELECT is_deleted FROM person_distinct_id2 FINAL WHERE team_id = %(team_id)s and distinct_id = %(distinct_id)s",
             {"team_id": self.team.pk, "distinct_id": "distinct_id1"},
         )
-        self.assertEqual(ch_distinct_ids, [(0,)])
+        assert ch_distinct_ids == [(0,)]
 
         delete_person(person, sync=True)
         ch_distinct_ids = sync_execute(
             "SELECT toString(person_id), version, is_deleted FROM person_distinct_id2 FINAL WHERE team_id = %(team_id)s and distinct_id = %(distinct_id)s",
             {"team_id": self.team.pk, "distinct_id": "distinct_id1"},
         )
-        self.assertEqual(ch_distinct_ids, [(str(person.uuid), 115, 1)])
+        assert ch_distinct_ids == [(str(person.uuid), 115, 1)]

@@ -1,3 +1,4 @@
+import pytest
 from unittest.mock import MagicMock, patch
 
 from django.test import TransactionTestCase
@@ -66,19 +67,19 @@ class TestEnvironmentsRollbackTask(TransactionTestCase):
         staging_annotation.refresh_from_db()
         staging_early_access_feature.refresh_from_db()
 
-        self.assertEqual(staging_insight.team_id, production_env.id)
-        self.assertEqual(staging_dashboard.team_id, production_env.id)
-        self.assertEqual(staging_feature_flag.team_id, production_env.id)
-        self.assertEqual(staging_annotation.team_id, production_env.id)
-        self.assertEqual(staging_early_access_feature.team_id, production_env.id)
+        assert staging_insight.team_id == production_env.id
+        assert staging_dashboard.team_id == production_env.id
+        assert staging_feature_flag.team_id == production_env.id
+        assert staging_annotation.team_id == production_env.id
+        assert staging_early_access_feature.team_id == production_env.id
 
         staging_env.refresh_from_db()
-        self.assertNotEqual(staging_env.project_id, main_project.id)
-        self.assertEqual(staging_env.project_id, staging_env.id)
+        assert staging_env.project_id != main_project.id
+        assert staging_env.project_id == staging_env.id
 
         detached_project = Team.objects.get(id=staging_env.project_id)
-        self.assertEqual(detached_project.name, staging_env.name)
-        self.assertEqual(detached_project.organization, self.organization)
+        assert detached_project.name == staging_env.name
+        assert detached_project.organization == self.organization
 
         mock_get_client.assert_called_once()
         mock_posthog_client.capture.assert_called_once()
@@ -117,17 +118,17 @@ class TestEnvironmentsRollbackTask(TransactionTestCase):
         staging_flag.refresh_from_db()
         dev_flag.refresh_from_db()
 
-        self.assertEqual(staging_insight.team_id, production_env.id)
-        self.assertEqual(dev_insight.team_id, production_env.id)
-        self.assertEqual(staging_flag.team_id, production_env.id)
-        self.assertEqual(dev_flag.team_id, production_env.id)
+        assert staging_insight.team_id == production_env.id
+        assert dev_insight.team_id == production_env.id
+        assert staging_flag.team_id == production_env.id
+        assert dev_flag.team_id == production_env.id
 
         staging_env.refresh_from_db()
         dev_env.refresh_from_db()
-        self.assertNotEqual(staging_env.project_id, main_project.id)
-        self.assertNotEqual(dev_env.project_id, main_project.id)
-        self.assertEqual(staging_env.project_id, staging_env.id)
-        self.assertEqual(dev_env.project_id, dev_env.id)
+        assert staging_env.project_id != main_project.id
+        assert dev_env.project_id != main_project.id
+        assert staging_env.project_id == staging_env.id
+        assert dev_env.project_id == dev_env.id
 
         mock_get_client.assert_called_once()
         mock_posthog_client.capture.assert_called_once()
@@ -179,17 +180,17 @@ class TestEnvironmentsRollbackTask(TransactionTestCase):
         alpha_staging_flag.refresh_from_db()
         beta_staging_flag.refresh_from_db()
 
-        self.assertEqual(alpha_staging_insight.team_id, alpha_production_env.id)
-        self.assertEqual(beta_staging_insight.team_id, beta_production_env.id)
-        self.assertEqual(alpha_staging_flag.team_id, alpha_production_env.id)
-        self.assertEqual(beta_staging_flag.team_id, beta_production_env.id)
+        assert alpha_staging_insight.team_id == alpha_production_env.id
+        assert beta_staging_insight.team_id == beta_production_env.id
+        assert alpha_staging_flag.team_id == alpha_production_env.id
+        assert beta_staging_flag.team_id == beta_production_env.id
 
         alpha_staging_env.refresh_from_db()
         beta_staging_env.refresh_from_db()
-        self.assertNotEqual(alpha_staging_env.project_id, project_alpha.id)
-        self.assertNotEqual(beta_staging_env.project_id, project_beta.id)
-        self.assertEqual(alpha_staging_env.project_id, alpha_staging_env.id)
-        self.assertEqual(beta_staging_env.project_id, beta_staging_env.id)
+        assert alpha_staging_env.project_id != project_alpha.id
+        assert beta_staging_env.project_id != project_beta.id
+        assert alpha_staging_env.project_id == alpha_staging_env.id
+        assert beta_staging_env.project_id == beta_staging_env.id
 
         mock_get_client.assert_called_once()
         mock_posthog_client.capture.assert_called_once()
@@ -216,10 +217,10 @@ class TestEnvironmentsRollbackTask(TransactionTestCase):
         )
 
         production_insight.refresh_from_db()
-        self.assertEqual(production_insight.team_id, production_env.id)
+        assert production_insight.team_id == production_env.id
 
         production_env.refresh_from_db()
-        self.assertEqual(production_env.project_id, main_project.id)
+        assert production_env.project_id == main_project.id
 
         mock_get_client.assert_called_once()
         mock_posthog_client.capture.assert_called_once()
@@ -233,7 +234,7 @@ class TestEnvironmentsRollbackTask(TransactionTestCase):
         mock_get_client.return_value = mock_posthog_client
 
         nonexistent_organization_id = 99999
-        with self.assertRaises(Organization.DoesNotExist):
+        with pytest.raises(Organization.DoesNotExist):
             environments_rollback_migration(
                 organization_id=nonexistent_organization_id,
                 environment_mappings={"1": 2},
@@ -256,7 +257,7 @@ class TestEnvironmentsRollbackTask(TransactionTestCase):
         staging_env = Team.objects.create(organization=self.organization, name="Staging", project_id=main_project.id)
 
         nonexistent_user_id = 99999
-        with self.assertRaises(User.DoesNotExist):
+        with pytest.raises(User.DoesNotExist):
             environments_rollback_migration(
                 organization_id=self.organization.id,
                 environment_mappings={str(staging_env.id): production_env.id},
@@ -278,16 +279,16 @@ class TestEnvironmentsRollbackTask(TransactionTestCase):
         alpha_env = Team.objects.create(organization=self.organization, name="Alpha Env", project_id=project_alpha.id)
         beta_env = Team.objects.create(organization=self.organization, name="Beta Env", project_id=project_beta.id)
 
-        with self.assertRaises(ValueError) as context:
+        with pytest.raises(ValueError) as context:
             environments_rollback_migration(
                 organization_id=self.organization.id,
                 environment_mappings={str(alpha_env.id): beta_env.id},
                 user_id=self.user.id,
             )
 
-        self.assertIn("Cannot migrate between different projects", str(context.exception))
-        self.assertIn(f"source environment {alpha_env.id}", str(context.exception))
-        self.assertIn(f"target environment {beta_env.id}", str(context.exception))
+        assert "Cannot migrate between different projects" in str(context.value)
+        assert f"source environment {alpha_env.id}" in str(context.value)
+        assert f"target environment {beta_env.id}" in str(context.value)
 
         mock_get_client.assert_called_once()
         mock_posthog_client.shutdown.assert_called_once()
@@ -325,21 +326,21 @@ class TestEnvironmentsRollbackTask(TransactionTestCase):
         production_dashboard.refresh_from_db()
         production_feature_flag.refresh_from_db()
 
-        self.assertEqual(production_insight.team_id, staging_env.id)
-        self.assertEqual(production_dashboard.team_id, staging_env.id)
-        self.assertEqual(production_feature_flag.team_id, staging_env.id)
+        assert production_insight.team_id == staging_env.id
+        assert production_dashboard.team_id == staging_env.id
+        assert production_feature_flag.team_id == staging_env.id
 
         staging_env.refresh_from_db()
         production_env.refresh_from_db()
 
-        self.assertEqual(staging_env.project_id, staging_env.id)
-        self.assertNotEqual(staging_env.project_id, project.id)
+        assert staging_env.project_id == staging_env.id
+        assert staging_env.project_id != project.id
 
-        self.assertEqual(production_env.project_id, project.id)
+        assert production_env.project_id == project.id
 
         staging_project = Project.objects.get(id=staging_env.id)
-        self.assertEqual(staging_project.name, "Main Project (Staging)")
-        self.assertEqual(staging_project.organization, self.organization)
+        assert staging_project.name == "Main Project (Staging)"
+        assert staging_project.organization == self.organization
 
         mock_get_client.assert_called_once()
         mock_posthog_client.capture.assert_called_once()
@@ -385,26 +386,26 @@ class TestEnvironmentsRollbackTask(TransactionTestCase):
         project2.refresh_from_db()
 
         # Verify teams with same name as project keep original names
-        self.assertEqual(same_name_env.name, "Default project")
-        self.assertEqual(
-            same_name_env.project.name, "Default project"
+        assert same_name_env.name == "Default project"
+        assert (
+            same_name_env.project.name == "Default project"
         )  # Project name should be the same as the environment name
-        self.assertNotEqual(same_name_env.project.id, project1.id)  # Should be in new project
+        assert same_name_env.project.id != project1.id  # Should be in new project
 
         # Verify teams with different names get renamed
-        self.assertEqual(different_name_env.name, "Default project (Development)")
-        self.assertEqual(different_name_env.project.name, "Default project (Development)")
-        self.assertEqual(different_name_env.project.id, project1.id)  # Should stay in original project
+        assert different_name_env.name == "Default project (Development)"
+        assert different_name_env.project.name == "Default project (Development)"
+        assert different_name_env.project.id == project1.id  # Should stay in original project
 
         # Verify second scenario: Analytics team keeps original name
-        self.assertEqual(analytics_env.name, "Analytics")
-        self.assertEqual(analytics_env.project.name, "Analytics")
-        self.assertNotEqual(analytics_env.project.id, project2.id)  # Should be in new project
+        assert analytics_env.name == "Analytics"
+        assert analytics_env.project.name == "Analytics"
+        assert analytics_env.project.id != project2.id  # Should be in new project
 
         # Verify staging team gets renamed
-        self.assertEqual(staging_env.name, "Analytics (Staging)")
-        self.assertEqual(staging_env.project.name, "Analytics (Staging)")
-        self.assertEqual(staging_env.project.id, project2.id)  # Should stay in original project
+        assert staging_env.name == "Analytics (Staging)"
+        assert staging_env.project.name == "Analytics (Staging)"
+        assert staging_env.project.id == project2.id  # Should stay in original project
 
         # Verify that the migration completed successfully
         mock_posthog_client.capture.assert_called()
@@ -413,7 +414,7 @@ class TestEnvironmentsRollbackTask(TransactionTestCase):
             for call in mock_posthog_client.capture.call_args_list
             if "organization environments rollback completed" in str(call)
         ]
-        self.assertEqual(len(completion_calls), 1)
+        assert len(completion_calls) == 1
 
     @patch("posthog.tasks.environments_rollback.get_client")
     def test_event_definition_project_id_update(self, mock_get_client: MagicMock) -> None:
@@ -449,17 +450,17 @@ class TestEnvironmentsRollbackTask(TransactionTestCase):
 
         # Verify EventDefinitions stay with their original teams but get correct project_ids
         # Staging events should remain on staging team (but staging team was moved to new project)
-        self.assertEqual(staging_event.team_id, staging_env.id)  # Stays with original team
-        self.assertEqual(internal_event.team_id, staging_env.id)  # Stays with original team
-        self.assertEqual(production_event.team_id, production_env.id)  # Stays with original team
+        assert staging_event.team_id == staging_env.id  # Stays with original team
+        assert internal_event.team_id == staging_env.id  # Stays with original team
+        assert production_event.team_id == production_env.id  # Stays with original team
 
         # All EventDefinitions should have project_id matching their team's current project_id
-        self.assertEqual(staging_event.project_id, staging_env.project_id)  # Follows team's new project
-        self.assertEqual(internal_event.project_id, staging_env.project_id)  # Follows team's new project
-        self.assertEqual(production_event.project_id, production_env.project_id)
+        assert staging_event.project_id == staging_env.project_id  # Follows team's new project
+        assert internal_event.project_id == staging_env.project_id  # Follows team's new project
+        assert production_event.project_id == production_env.project_id
 
         # Production team should stay in main project (so team.id != team.project_id in this case)
-        self.assertEqual(production_env.project_id, main_project.id)
+        assert production_env.project_id == main_project.id
 
     @patch("posthog.tasks.environments_rollback.get_client")
     def test_property_definition_project_id_update(self, mock_get_client: MagicMock) -> None:
@@ -501,17 +502,17 @@ class TestEnvironmentsRollbackTask(TransactionTestCase):
         production_env.refresh_from_db()
 
         # Verify PropertyDefinitions stay with their original teams but get correct project_ids
-        self.assertEqual(staging_prop.team_id, staging_env.id)  # Stays with original team
-        self.assertEqual(person_prop.team_id, staging_env.id)  # Stays with original team
-        self.assertEqual(production_prop.team_id, production_env.id)  # Stays with original team
+        assert staging_prop.team_id == staging_env.id  # Stays with original team
+        assert person_prop.team_id == staging_env.id  # Stays with original team
+        assert production_prop.team_id == production_env.id  # Stays with original team
 
         # All PropertyDefinitions should have project_id matching their team's current project_id
-        self.assertEqual(staging_prop.project_id, staging_env.project_id)  # Follows team's new project
-        self.assertEqual(person_prop.project_id, staging_env.project_id)  # Follows team's new project
-        self.assertEqual(production_prop.project_id, production_env.project_id)
+        assert staging_prop.project_id == staging_env.project_id  # Follows team's new project
+        assert person_prop.project_id == staging_env.project_id  # Follows team's new project
+        assert production_prop.project_id == production_env.project_id
 
         # Production team should stay in main project
-        self.assertEqual(production_env.project_id, main_project.id)
+        assert production_env.project_id == main_project.id
 
     @patch("posthog.tasks.environments_rollback.get_client")
     def test_group_type_mapping_project_id_update(self, mock_get_client: MagicMock) -> None:
@@ -565,19 +566,19 @@ class TestEnvironmentsRollbackTask(TransactionTestCase):
         production_env.refresh_from_db()
 
         # Verify GroupTypeMappings stay with their original teams but get correct project_ids
-        self.assertEqual(staging_org_group.team_id, staging_env.id)  # Stays with original team
-        self.assertEqual(staging_company_group.team_id, staging_env.id)  # Stays with original team
-        self.assertEqual(production_workspace_group.team_id, production_env.id)  # Stays with original team
+        assert staging_org_group.team_id == staging_env.id  # Stays with original team
+        assert staging_company_group.team_id == staging_env.id  # Stays with original team
+        assert production_workspace_group.team_id == production_env.id  # Stays with original team
 
         # All GroupTypeMappings should have project_id matching their team's current project_id
-        self.assertEqual(staging_org_group.project_id, staging_env.project_id)  # Follows team's new project
-        self.assertEqual(staging_company_group.project_id, staging_env.project_id)  # Follows team's new project
-        self.assertEqual(production_workspace_group.project_id, production_env.project_id)
+        assert staging_org_group.project_id == staging_env.project_id  # Follows team's new project
+        assert staging_company_group.project_id == staging_env.project_id  # Follows team's new project
+        assert production_workspace_group.project_id == production_env.project_id
 
         # Verify group type indices remain the same
-        self.assertEqual(staging_org_group.group_type_index, 0)
-        self.assertEqual(staging_company_group.group_type_index, 1)
-        self.assertEqual(production_workspace_group.group_type_index, 2)
+        assert staging_org_group.group_type_index == 0
+        assert staging_company_group.group_type_index == 1
+        assert production_workspace_group.group_type_index == 2
 
         # Production team should stay in main project
-        self.assertEqual(production_env.project_id, main_project.id)
+        assert production_env.project_id == main_project.id

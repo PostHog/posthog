@@ -34,19 +34,19 @@ class TestSharePasswordAPI(APIBaseTest):
             content_type="application/json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         data = response.json()
 
-        self.assertEqual(data["password"], "my-secure-password")
-        self.assertEqual(data["note"], "Test password")
-        self.assertEqual(data["created_by_email"], self.user.email)
-        self.assertIn("id", data)
-        self.assertIn("created_at", data)
+        assert data["password"] == "my-secure-password"
+        assert data["note"] == "Test password"
+        assert data["created_by_email"] == self.user.email
+        assert "id" in data
+        assert "created_at" in data
 
         # Verify password was created in database
         share_password = SharePassword.objects.get(id=data["id"])
-        self.assertTrue(share_password.check_password("my-secure-password"))
-        self.assertEqual(share_password.note, "Test password")
+        assert share_password.check_password("my-secure-password")
+        assert share_password.note == "Test password"
 
     def test_create_password_with_generated_password(self):
         response = self.client.post(
@@ -55,17 +55,17 @@ class TestSharePasswordAPI(APIBaseTest):
             content_type="application/json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         data = response.json()
 
         # Should have generated a secure password
-        self.assertIsNotNone(data["password"])
-        self.assertTrue(len(data["password"]) >= 16)
-        self.assertEqual(data["note"], "Auto-generated password")
+        assert data["password"] is not None
+        assert len(data["password"]) >= 16
+        assert data["note"] == "Auto-generated password"
 
         # Verify password works
         share_password = SharePassword.objects.get(id=data["id"])
-        self.assertTrue(share_password.check_password(data["password"]))
+        assert share_password.check_password(data["password"])
 
     def test_create_password_without_password_protection_enabled(self):
         # Disable password protection
@@ -78,8 +78,8 @@ class TestSharePasswordAPI(APIBaseTest):
             content_type="application/json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Password protection must be enabled", response.json()["error"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Password protection must be enabled" in response.json()["error"]
 
     def test_create_password_without_advanced_permissions(self):
         # Mock organization without advanced permissions
@@ -92,8 +92,8 @@ class TestSharePasswordAPI(APIBaseTest):
             content_type="application/json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertIn("Advanced Permissions feature", response.json()["error"])
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "Advanced Permissions feature" in response.json()["error"]
 
     def test_create_password_validation_too_short(self):
         response = self.client.post(
@@ -102,8 +102,8 @@ class TestSharePasswordAPI(APIBaseTest):
             content_type="application/json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("at least 8 characters", str(response.json()))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "at least 8 characters" in str(response.json())
 
     def test_delete_password(self):
         # Create a password first
@@ -118,19 +118,19 @@ class TestSharePasswordAPI(APIBaseTest):
             f"/api/environments/{self.team.id}/dashboards/{self.dashboard.id}/sharing/passwords/{share_password.id}/"
         )
 
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
         # Verify password was deactivated
         share_password.refresh_from_db()
-        self.assertFalse(share_password.is_active)
+        assert not share_password.is_active
 
     def test_delete_nonexistent_password(self):
         response = self.client.delete(
             f"/api/environments/{self.team.id}/dashboards/{self.dashboard.id}/sharing/passwords/99999/"
         )
 
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-        self.assertIn("Password not found", response.json()["detail"])
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert "Password not found" in response.json()["detail"]
 
     def test_delete_password_without_advanced_permissions(self):
         share_password, _ = SharePassword.create_password(
@@ -145,8 +145,8 @@ class TestSharePasswordAPI(APIBaseTest):
             f"/api/environments/{self.team.id}/dashboards/{self.dashboard.id}/sharing/passwords/{share_password.id}/"
         )
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertIn("Advanced Permissions feature", response.json()["error"])
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "Advanced Permissions feature" in response.json()["error"]
 
     def test_password_validation_in_sharing_viewer(self):
         """Test that password validation works correctly in the sharing viewer."""
@@ -162,8 +162,8 @@ class TestSharePasswordAPI(APIBaseTest):
             content_type="application/json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("shareToken", response.json())
+        assert response.status_code == status.HTTP_200_OK
+        assert "shareToken" in response.json()
 
         # Test with incorrect password
         response = self.client.post(
@@ -172,8 +172,8 @@ class TestSharePasswordAPI(APIBaseTest):
             content_type="application/json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertIn("Incorrect password", response.json()["error"])
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        assert "Incorrect password" in response.json()["error"]
 
     @mock_exporter_template
     def test_jwt_token_invalidation_on_password_deletion(self):
@@ -192,7 +192,7 @@ class TestSharePasswordAPI(APIBaseTest):
             data=json.dumps({"password": raw_password1}),
             content_type="application/json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         jwt_token1 = response.json()["shareToken"]
 
         # Authenticate with password2 to get another JWT token
@@ -201,7 +201,7 @@ class TestSharePasswordAPI(APIBaseTest):
             data=json.dumps({"password": raw_password2}),
             content_type="application/json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         jwt_token2 = response.json()["shareToken"]
 
         # Verify both JWT tokens work initially
@@ -209,28 +209,28 @@ class TestSharePasswordAPI(APIBaseTest):
             f"/shared/{self.sharing_config.access_token}",
             headers={"authorization": f"Bearer {jwt_token1}", "accept": "application/json"},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         response = self.client.get(
             f"/shared/{self.sharing_config.access_token}",
             headers={"authorization": f"Bearer {jwt_token2}", "accept": "application/json"},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         # Delete password2 (not the one used for jwt_token1)
         response = self.client.delete(
             f"/api/environments/{self.team.id}/dashboards/{self.dashboard.id}/sharing/passwords/{password2.id}/"
         )
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
         # jwt_token1 should still be valid since it was created with password1
         response = self.client.get(
             f"/shared/{self.sharing_config.access_token}",
             headers={"authorization": f"Bearer {jwt_token1}", "accept": "application/json"},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         # Should contain dashboard data, not unlock page
-        self.assertIn("dashboard", response.json())
+        assert "dashboard" in response.json()
 
         # jwt_token2 should now be invalid since password2 was deleted
         response = self.client.get(
@@ -238,16 +238,16 @@ class TestSharePasswordAPI(APIBaseTest):
             headers={"authorization": f"Bearer {jwt_token2}", "accept": "application/json"},
         )
         # Should not be authenticated anymore, so should show unlock page
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         # Since authentication failed, response is HTML with unlock page text
         response_text = response.content.decode("utf-8")
-        self.assertIn('{"type": "unlock"}', response_text)
+        assert '{"type": "unlock"}' in response_text
 
         # Now delete password1
         response = self.client.delete(
             f"/api/environments/{self.team.id}/dashboards/{self.dashboard.id}/sharing/passwords/{password1.id}/"
         )
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
         # jwt_token1 should now also be invalid
         response = self.client.get(
@@ -255,10 +255,10 @@ class TestSharePasswordAPI(APIBaseTest):
             headers={"authorization": f"Bearer {jwt_token1}", "accept": "application/json"},
         )
         # Should not be authenticated anymore, so should show unlock page
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         # Since authentication failed, response is HTML with unlock page text
         response_text = response.content.decode("utf-8")
-        self.assertIn('{"type": "unlock"}', response_text)
+        assert '{"type": "unlock"}' in response_text
 
     @patch("posthog.rate_limit.is_rate_limit_enabled")
     def test_sharing_view_works_with_rate_limiting_enabled(self, mock_is_rate_limit_enabled):
@@ -280,14 +280,14 @@ class TestSharePasswordAPI(APIBaseTest):
             data=json.dumps({"password": raw_password}),
             content_type="application/json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("shareToken", response.json())
+        assert response.status_code == status.HTTP_200_OK
+        assert "shareToken" in response.json()
 
         # Test that we can access the shared content (this would also fail if throttle checks break)
         response = self.client.get(f"/shared/{self.sharing_config.access_token}")
         # Should get unlock page (HTML response, not 500 error)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("text/html", response.get("Content-Type", ""))
+        assert response.status_code == status.HTTP_200_OK
+        assert "text/html" in response.get("Content-Type", "")
 
     @mock_exporter_template
     def test_unlock_page_respects_whitelabel_setting(self):
@@ -314,9 +314,9 @@ class TestSharePasswordAPI(APIBaseTest):
         # Access the shared resource without authentication - should show unlock page
         response = self.client.get(f"/shared/{self.sharing_config.access_token}")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         # The unlock page should include whitelabel: true in the exported data
         response_content = response.content.decode("utf-8")
-        self.assertIn('"type": "unlock"', response_content)
-        self.assertIn('"whitelabel": true', response_content)
+        assert '"type": "unlock"' in response_content
+        assert '"whitelabel": true' in response_content

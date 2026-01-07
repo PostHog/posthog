@@ -39,11 +39,11 @@ class TestLLMGatewayViewSet(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(data["id"], "msg_01XYZ")
-        self.assertEqual(data["type"], "message")
-        self.assertEqual(data["role"], "assistant")
+        assert data["id"] == "msg_01XYZ"
+        assert data["type"] == "message"
+        assert data["role"] == "assistant"
 
         mock_asyncio_run.assert_called_once()
 
@@ -78,7 +78,7 @@ class TestLLMGatewayViewSet(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         mock_asyncio_run.assert_called_once()
 
     def test_anthropic_messages_missing_model(self):
@@ -91,8 +91,8 @@ class TestLLMGatewayViewSet(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("error", response.json())
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "error" in response.json()
 
     def test_anthropic_messages_missing_messages(self):
         response = self.client.post(
@@ -104,8 +104,8 @@ class TestLLMGatewayViewSet(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("error", response.json())
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "error" in response.json()
 
     @patch("posthog.api.llm_gateway.http.litellm.completion")
     def test_chat_completions_non_streaming(self, mock_completion):
@@ -135,10 +135,10 @@ class TestLLMGatewayViewSet(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(data["id"], "chatcmpl-123")
-        self.assertEqual(data["object"], "chat.completion")
+        assert data["id"] == "chatcmpl-123"
+        assert data["object"] == "chat.completion"
         mock_completion.assert_called_once()
 
     @patch("posthog.api.llm_gateway.http.litellm.completion")
@@ -174,7 +174,7 @@ class TestLLMGatewayViewSet(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         mock_completion.assert_called_once()
 
     def test_chat_completions_missing_model(self):
@@ -186,8 +186,8 @@ class TestLLMGatewayViewSet(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("error", response.json())
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "error" in response.json()
 
     def test_chat_completions_missing_messages(self):
         response = self.client.post(
@@ -198,8 +198,8 @@ class TestLLMGatewayViewSet(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("error", response.json())
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "error" in response.json()
 
     def test_requires_authentication(self):
         self.client.logout()
@@ -212,7 +212,7 @@ class TestLLMGatewayViewSet(APIBaseTest):
             },
             format="json",
         )
-        self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
+        assert response.status_code in [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN]
 
     @patch("posthog.api.llm_gateway.http.posthoganalytics.capture")
     @patch("posthog.api.llm_gateway.http.asyncio.run")
@@ -240,33 +240,33 @@ class TestLLMGatewayViewSet(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         mock_capture.assert_called_once()
         call_kwargs = mock_capture.call_args[1]
 
-        self.assertEqual(call_kwargs["event"], "$ai_generation")
-        self.assertEqual(call_kwargs["distinct_id"], str(self.user.distinct_id))
+        assert call_kwargs["event"] == "$ai_generation"
+        assert call_kwargs["distinct_id"] == str(self.user.distinct_id)
 
         properties = call_kwargs["properties"]
-        self.assertEqual(properties["$ai_model"], "claude-3-5-haiku-20241022")
-        self.assertEqual(properties["$ai_input"], [{"role": "user", "content": "Hello"}])
-        self.assertEqual(properties["$ai_input_tokens"], 10)
-        self.assertEqual(properties["$ai_output_tokens"], 25)
-        self.assertEqual(properties["$ai_http_status"], 200)
-        self.assertEqual(properties["team_id"], self.team.id)
-        self.assertEqual(properties["organization_id"], str(self.organization.id))
-        self.assertIn("$ai_latency", properties)
-        self.assertIn("$ai_trace_id", properties)
-        self.assertIn("$ai_span_id", properties)
-        self.assertIn("$ai_output_choices", properties)
-        self.assertEqual(len(properties["$ai_output_choices"]), 1)
-        self.assertEqual(properties["$ai_output_choices"][0]["role"], "assistant")
-        self.assertEqual(properties["$ai_output_choices"][0]["content"], "Hello! How can I help you?")
+        assert properties["$ai_model"] == "claude-3-5-haiku-20241022"
+        assert properties["$ai_input"] == [{"role": "user", "content": "Hello"}]
+        assert properties["$ai_input_tokens"] == 10
+        assert properties["$ai_output_tokens"] == 25
+        assert properties["$ai_http_status"] == 200
+        assert properties["team_id"] == self.team.id
+        assert properties["organization_id"] == str(self.organization.id)
+        assert "$ai_latency" in properties
+        assert "$ai_trace_id" in properties
+        assert "$ai_span_id" in properties
+        assert "$ai_output_choices" in properties
+        assert len(properties["$ai_output_choices"]) == 1
+        assert properties["$ai_output_choices"][0]["role"] == "assistant"
+        assert properties["$ai_output_choices"][0]["content"] == "Hello! How can I help you?"
 
         groups = call_kwargs["groups"]
-        self.assertEqual(groups["organization"], str(self.organization.id))
-        self.assertEqual(groups["project"], str(self.team.id))
+        assert groups["organization"] == str(self.organization.id)
+        assert groups["project"] == str(self.team.id)
 
     @patch("posthog.api.llm_gateway.http.posthoganalytics.capture")
     @patch("posthog.api.llm_gateway.http.asyncio.run")
@@ -284,17 +284,17 @@ class TestLLMGatewayViewSet(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
 
         mock_capture.assert_called_once()
         call_kwargs = mock_capture.call_args[1]
 
-        self.assertEqual(call_kwargs["event"], "$ai_generation")
+        assert call_kwargs["event"] == "$ai_generation"
 
         properties = call_kwargs["properties"]
-        self.assertEqual(properties["$ai_is_error"], True)
-        self.assertEqual(properties["$ai_error"], "API Error")
-        self.assertEqual(properties["$ai_http_status"], 500)
+        assert properties["$ai_is_error"]
+        assert properties["$ai_error"] == "API Error"
+        assert properties["$ai_http_status"] == 500
 
 
 class TestLLMGatewayRateLimits(APIBaseTest):
@@ -318,8 +318,8 @@ class TestLLMGatewayRateLimits(APIBaseTest):
         burst_rate = _get_rate_for_model(model, "burst", LLM_GATEWAY_DEFAULT_BURST_RATE)
         sustained_rate = _get_rate_for_model(model, "sustained", LLM_GATEWAY_DEFAULT_SUSTAINED_RATE)
 
-        self.assertEqual(burst_rate, expected_burst)
-        self.assertEqual(sustained_rate, expected_sustained)
+        assert burst_rate == expected_burst
+        assert sustained_rate == expected_sustained
 
 
 class TestLLMGatewayPermissions(APIBaseTest):
@@ -384,14 +384,10 @@ class TestLLMGatewayPermissions(APIBaseTest):
         )
 
         if should_have_access:
-            self.assertNotEqual(
-                response.status_code,
-                status.HTTP_403_FORBIDDEN,
-                f"Expected access but got 403 for {scope} on {endpoint}",
+            assert response.status_code != status.HTTP_403_FORBIDDEN, (
+                f"Expected access but got 403 for {scope} on {endpoint}"
             )
         else:
-            self.assertEqual(
-                response.status_code,
-                status.HTTP_403_FORBIDDEN,
-                f"Expected 403 but got {response.status_code} for {scope} on {endpoint}",
+            assert response.status_code == status.HTTP_403_FORBIDDEN, (
+                f"Expected 403 but got {response.status_code} for {scope} on {endpoint}"
             )

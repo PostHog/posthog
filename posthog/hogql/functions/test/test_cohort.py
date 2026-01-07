@@ -51,8 +51,8 @@ class TestCohort(BaseTest):
             pretty=False,
         )
         assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot  # type: ignore
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0][0], random_uuid)
+        assert len(response.results) == 1
+        assert response.results[0][0] == random_uuid
 
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
@@ -71,8 +71,8 @@ class TestCohort(BaseTest):
             pretty=False,
         )
         assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot  # type: ignore
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0][0], random_uuid)
+        assert len(response.results) == 1
+        assert response.results[0][0] == random_uuid
 
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
@@ -107,13 +107,13 @@ class TestCohort(BaseTest):
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=True)
     def test_in_cohort_error(self):
-        with self.assertRaises(QueryError) as e:
+        with pytest.raises(QueryError) as e:
             execute_hogql_query(f"SELECT event FROM events WHERE person_id IN COHORT true", self.team)
-        self.assertEqual(str(e.exception), "cohort() takes exactly one string or integer argument")
+        assert str(e.value) == "cohort() takes exactly one string or integer argument"
 
-        with self.assertRaises(QueryError) as e:
+        with pytest.raises(QueryError) as e:
             execute_hogql_query(
                 f"SELECT event FROM events WHERE person_id IN COHORT 'blabla'",
                 self.team,
             )
-        self.assertEqual(str(e.exception), "Could not find a cohort with the name 'blabla'")
+        assert str(e.value) == "Could not find a cohort with the name 'blabla'"

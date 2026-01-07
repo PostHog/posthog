@@ -83,30 +83,36 @@ class TagsTestCase(TestMigrations):
         Insight = self.apps.get_model("posthog", "Insight")  # type: ignore
 
         dashboard = Dashboard.objects.get(id=self.dashboard.id)
-        self.assertEqual(
-            list(dashboard.tagged_items.order_by("tag__name").values_list("tag__name", flat=True)),
-            ["a", "b", "c", "existing tag"],
-        )
+        assert list(dashboard.tagged_items.order_by("tag__name").values_list("tag__name", flat=True)) == [
+            "a",
+            "b",
+            "c",
+            "existing tag",
+        ]
 
         insight_with_tags = Insight.objects.get(id=self.insight_with_tags.id)
-        self.assertEqual(
-            list(insight_with_tags.tagged_items.order_by("tag__name").values_list("tag__name", flat=True)),
-            ["c", "d", "existing tag"],
-        )
+        assert list(insight_with_tags.tagged_items.order_by("tag__name").values_list("tag__name", flat=True)) == [
+            "c",
+            "d",
+            "existing tag",
+        ]
 
         insight_without_tags = Insight.objects.get(id=self.insight_without_tags.id)
-        self.assertEqual(insight_without_tags.tagged_items.count(), 0)
+        assert insight_without_tags.tagged_items.count() == 0
 
-        self.assertEqual(
-            sorted(Tag.objects.filter(team_id=self.team.id).all().values_list("name", flat=True)),
-            ["a", "b", "c", "d", "existing tag"],
-        )
+        assert sorted(Tag.objects.filter(team_id=self.team.id).all().values_list("name", flat=True)) == [
+            "a",
+            "b",
+            "c",
+            "d",
+            "existing tag",
+        ]
 
         # By the end of the migration, the total count for team 2 should be
         # Tags = team2_total_insights + 2 + team1_tags
         # TaggedItems = team2_total_insights * 3 + team1_taggeditems
-        self.assertEqual(Tag.objects.all().count(), self.team2_total_insights + 1 + 5)
-        self.assertEqual(TaggedItem.objects.all().count(), self.team2_total_insights * 2 + 7)
+        assert Tag.objects.all().count() == self.team2_total_insights + 1 + 5
+        assert TaggedItem.objects.all().count() == self.team2_total_insights * 2 + 7
 
     def tearDown(self):
         Insight = self.apps.get_model("posthog", "Insight")  # type: ignore

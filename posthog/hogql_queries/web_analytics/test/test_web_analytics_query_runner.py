@@ -74,7 +74,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         stats_key = self._create_web_stats_table_query(date_from, date_to, properties)._sample_rate_cache_key()
         overview_key = self._create__web_overview_query(date_from, date_to, properties)._sample_rate_cache_key()
 
-        self.assertEqual(stats_key, overview_key)
+        assert stats_key == overview_key
 
     def test_sample_rate_cache_key_is_same_with_different_properties(self):
         properties_a: list[Union[EventPropertyFilter, PersonPropertyFilter]] = [
@@ -89,7 +89,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         key_a = self._create_web_stats_table_query(date_from, date_to, properties_a)._sample_rate_cache_key()
         key_b = self._create_web_stats_table_query(date_from, date_to, properties_b)._sample_rate_cache_key()
 
-        self.assertEqual(key_a, key_b)
+        assert key_a == key_b
 
     def test_sample_rate_cache_key_changes_with_date_range(self):
         properties: list[Union[EventPropertyFilter, PersonPropertyFilter]] = [
@@ -102,15 +102,15 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         key_a = self._create_web_stats_table_query(date_from_a, date_to, properties)._sample_rate_cache_key()
         key_b = self._create_web_stats_table_query(date_from_b, date_to, properties)._sample_rate_cache_key()
 
-        self.assertNotEqual(key_a, key_b)
+        assert key_a != key_b
 
     def test_sample_rate_from_count(self):
-        self.assertEqual(SamplingRate(numerator=1), _sample_rate_from_count(0))
-        self.assertEqual(SamplingRate(numerator=1), _sample_rate_from_count(1_000))
-        self.assertEqual(SamplingRate(numerator=1), _sample_rate_from_count(10_000))
-        self.assertEqual(SamplingRate(numerator=1, denominator=10), _sample_rate_from_count(100_000))
-        self.assertEqual(SamplingRate(numerator=1, denominator=10), _sample_rate_from_count(999_999))
-        self.assertEqual(SamplingRate(numerator=1, denominator=100), _sample_rate_from_count(1_000_000))
-        self.assertEqual(SamplingRate(numerator=1, denominator=100), _sample_rate_from_count(9_999_999))
-        self.assertEqual(SamplingRate(numerator=1, denominator=1000), _sample_rate_from_count(10_000_000))
-        self.assertEqual(SamplingRate(numerator=1, denominator=1000), _sample_rate_from_count(99_999_999))
+        assert SamplingRate(numerator=1) == _sample_rate_from_count(0)
+        assert SamplingRate(numerator=1) == _sample_rate_from_count(1000)
+        assert SamplingRate(numerator=1) == _sample_rate_from_count(10000)
+        assert SamplingRate(numerator=1, denominator=10) == _sample_rate_from_count(100000)
+        assert SamplingRate(numerator=1, denominator=10) == _sample_rate_from_count(999999)
+        assert SamplingRate(numerator=1, denominator=100) == _sample_rate_from_count(1000000)
+        assert SamplingRate(numerator=1, denominator=100) == _sample_rate_from_count(9999999)
+        assert SamplingRate(numerator=1, denominator=1000) == _sample_rate_from_count(10000000)
+        assert SamplingRate(numerator=1, denominator=1000) == _sample_rate_from_count(99999999)

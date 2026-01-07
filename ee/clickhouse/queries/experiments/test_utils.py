@@ -29,7 +29,7 @@ class TestUtils(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        self.assertTrue(requires_flag_warning(filter, self.team))
+        assert requires_flag_warning(filter, self.team)
 
     def test_with_feature_flag_properties_on_events(self):
         journeys_for(
@@ -57,7 +57,7 @@ class TestUtils(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        self.assertFalse(requires_flag_warning(filter, self.team))
+        assert not requires_flag_warning(filter, self.team)
 
     def test_with_no_feature_flag_properties_on_actions(self):
         action_credit_card = Action.objects.create(
@@ -109,7 +109,7 @@ class TestUtils(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-        self.assertTrue(requires_flag_warning(filter, self.team))
+        assert requires_flag_warning(filter, self.team)
 
     def test_with_feature_flag_properties_on_actions(self):
         action_credit_card = Action.objects.create(
@@ -159,4 +159,4 @@ class TestUtils(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-        self.assertFalse(requires_flag_warning(filter, self.team))
+        assert not requires_flag_warning(filter, self.team)

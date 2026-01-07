@@ -1,3 +1,6 @@
+import re
+
+import pytest
 from posthog.test.base import BaseTest
 
 from django.db.utils import IntegrityError
@@ -18,13 +21,13 @@ class TestInsightModel(BaseTest):
 
         count = Insight.objects.count()
 
-        with self.assertRaises(IntegrityError):
+        with pytest.raises(IntegrityError):
             Insight.objects.create(team=self.team, short_id="123456")
-            self.assertEqual(Insight.objects.count(), count)
+            assert Insight.objects.count() == count
 
     def test_short_id_is_automatically_generated(self) -> None:
         d = Insight.objects.create(team=self.team)
-        self.assertRegex(d.short_id, r"[0-9A-Za-z_-]{8}")
+        assert re.search(r"[0-9A-Za-z_-]{8}", d.short_id)
 
     def test_dashboard_with_no_filters_does_not_override_date_from(self) -> None:
         insight = Insight.objects.create(team=self.team, filters={"date_from": "-30d"})

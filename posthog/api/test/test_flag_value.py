@@ -16,11 +16,11 @@ class TestFlagValueViewSet(APIBaseTest):
         )
 
         response = self.client.get(f"/api/projects/{self.team.project_id}/flag_value/values?key={flag.id}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         data = response.json()
         expected_values = [{"name": True}, {"name": False}]
-        self.assertEqual(data, expected_values)
+        assert data == expected_values
 
     def test_flag_values_multivariate_flag(self):
         """Test that multivariate flags return true/false plus variant keys."""
@@ -40,7 +40,7 @@ class TestFlagValueViewSet(APIBaseTest):
         )
 
         response = self.client.get(f"/api/projects/{self.team.project_id}/flag_value/values?key={flag.id}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         data = response.json()
         expected_values = [
@@ -49,31 +49,31 @@ class TestFlagValueViewSet(APIBaseTest):
             {"name": "variant1"},
             {"name": "variant2"},
         ]
-        self.assertEqual(data, expected_values)
+        assert data == expected_values
 
     def test_flag_values_missing_key_parameter(self):
         """Test that missing key parameter returns 400."""
         response = self.client.get(f"/api/projects/{self.team.project_id}/flag_value/values")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
         data = response.json()
-        self.assertEqual(data["error"], "Missing flag ID parameter")
+        assert data["error"] == "Missing flag ID parameter"
 
     def test_flag_values_invalid_key_parameter(self):
         """Test that invalid key parameter returns 400."""
         response = self.client.get(f"/api/projects/{self.team.project_id}/flag_value/values?key=invalid")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
         data = response.json()
-        self.assertEqual(data["error"], "Invalid flag ID - must be a valid integer")
+        assert data["error"] == "Invalid flag ID - must be a valid integer"
 
     def test_flag_values_nonexistent_flag(self):
         """Test that nonexistent flag returns 404."""
         response = self.client.get(f"/api/projects/{self.team.project_id}/flag_value/values?key=99999")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
         data = response.json()
-        self.assertEqual(data["error"], "Feature flag not found")
+        assert data["error"] == "Feature flag not found"
 
     def test_flag_values_flag_from_different_team(self):
         """Test that flag from different team returns 404."""
@@ -90,10 +90,10 @@ class TestFlagValueViewSet(APIBaseTest):
         )
 
         response = self.client.get(f"/api/projects/{self.team.project_id}/flag_value/values?key={other_flag.id}")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
         data = response.json()
-        self.assertEqual(data["error"], "Feature flag not found")
+        assert data["error"] == "Feature flag not found"
 
     def test_flag_values_deleted_flag(self):
         """Test that deleted flag returns 404."""
@@ -106,10 +106,10 @@ class TestFlagValueViewSet(APIBaseTest):
         )
 
         response = self.client.get(f"/api/projects/{self.team.project_id}/flag_value/values?key={flag.id}")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
         data = response.json()
-        self.assertEqual(data["error"], "Feature flag not found")
+        assert data["error"] == "Feature flag not found"
 
     def test_flag_values_multivariate_no_variants(self):
         """Test multivariate flag with no variants returns only true/false."""
@@ -124,11 +124,11 @@ class TestFlagValueViewSet(APIBaseTest):
         )
 
         response = self.client.get(f"/api/projects/{self.team.project_id}/flag_value/values?key={flag.id}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         data = response.json()
         expected_values = [{"name": True}, {"name": False}]
-        self.assertEqual(data, expected_values)
+        assert data == expected_values
 
     def test_flag_values_multivariate_with_empty_variant_key(self):
         """Test multivariate flag with empty variant key ignores that variant."""
@@ -149,7 +149,7 @@ class TestFlagValueViewSet(APIBaseTest):
         )
 
         response = self.client.get(f"/api/projects/{self.team.project_id}/flag_value/values?key={flag.id}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         data = response.json()
         expected_values = [
@@ -157,4 +157,4 @@ class TestFlagValueViewSet(APIBaseTest):
             {"name": False},
             {"name": "valid_variant"},
         ]
-        self.assertEqual(data, expected_values)
+        assert data == expected_values

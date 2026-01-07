@@ -60,9 +60,9 @@ class TestFeatureFlagDependencyDeletion(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Cannot delete this feature flag because other flags depend on it", response.json()["detail"])
-        self.assertIn(f"{dependent_flag.key} (ID: {dependent_flag.id})", response.json()["detail"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Cannot delete this feature flag because other flags depend on it" in response.json()["detail"]
+        assert f"{dependent_flag.key} (ID: {dependent_flag.id})" in response.json()["detail"]
 
     def test_can_delete_flag_with_no_dependents(self):
         """Test that a flag can be deleted if no other flags depend on it."""
@@ -76,11 +76,11 @@ class TestFeatureFlagDependencyDeletion(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         # Verify flag is deleted
         flag.refresh_from_db()
-        self.assertTrue(flag.deleted)
+        assert flag.deleted
 
     def test_can_delete_flag_with_inactive_dependents(self):
         """Test that a flag can be deleted if dependent flags are inactive."""
@@ -99,7 +99,7 @@ class TestFeatureFlagDependencyDeletion(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_can_delete_flag_with_deleted_dependents(self):
         """Test that a flag can be deleted if dependent flags are already deleted."""
@@ -118,7 +118,7 @@ class TestFeatureFlagDependencyDeletion(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_cannot_delete_flag_with_multiple_dependents(self):
         """Test error message when multiple flags depend on the flag being deleted."""
@@ -137,15 +137,15 @@ class TestFeatureFlagDependencyDeletion(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         error_detail = response.json()["detail"]
 
         # Should show first 5 flags
         for i in range(5):
-            self.assertIn(f"{dependent_flags[i].key} (ID: {dependent_flags[i].id})", error_detail)
+            assert f"{dependent_flags[i].key} (ID: {dependent_flags[i].id})" in error_detail
 
         # Should indicate there are more
-        self.assertIn("and 3 more", error_detail)
+        assert "and 3 more" in error_detail
 
     def test_cannot_delete_flag_in_dependency_chain(self):
         """Test that middle flags in a dependency chain cannot be deleted."""
@@ -161,8 +161,8 @@ class TestFeatureFlagDependencyDeletion(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn(f"{flag_c.key} (ID: {flag_c.id})", response.json()["detail"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert f"{flag_c.key} (ID: {flag_c.id})" in response.json()["detail"]
 
         # Try to delete flag A (start of chain)
         response = self.client.patch(
@@ -171,8 +171,8 @@ class TestFeatureFlagDependencyDeletion(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn(f"{flag_b.key} (ID: {flag_b.id})", response.json()["detail"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert f"{flag_b.key} (ID: {flag_b.id})" in response.json()["detail"]
 
         # Should be able to delete flag C (end of chain)
         response = self.client.patch(
@@ -181,7 +181,7 @@ class TestFeatureFlagDependencyDeletion(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_flag_with_mixed_properties_prevents_deletion(self):
         """Test that flags with both flag dependencies and other properties prevent deletion."""
@@ -218,8 +218,8 @@ class TestFeatureFlagDependencyDeletion(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn(f"{dependent_flag.key} (ID: {dependent_flag.id})", response.json()["detail"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert f"{dependent_flag.key} (ID: {dependent_flag.id})" in response.json()["detail"]
 
     def test_dependency_check_only_within_same_team(self):
         """Test that dependency checks are scoped to the same team."""
@@ -258,7 +258,7 @@ class TestFeatureFlagDependencyDeletion(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_has_active_dependents_with_no_dependencies(self):
         """Test has_active_dependents returns False with 0 dependent flags."""
@@ -269,9 +269,9 @@ class TestFeatureFlagDependencyDeletion(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["has_active_dependents"], False)
-        self.assertEqual(len(response.json()["dependent_flags"]), 0)
+        assert response.status_code == status.HTTP_200_OK
+        assert not response.json()["has_active_dependents"]
+        assert len(response.json()["dependent_flags"]) == 0
 
     def test_has_active_dependents_with_active_dependencies(self):
         """Test has_active_dependents returns True with 1 active dependent flag."""
@@ -283,9 +283,9 @@ class TestFeatureFlagDependencyDeletion(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["has_active_dependents"], True)
-        self.assertEqual(len(response.json()["dependent_flags"]), 1)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["has_active_dependents"]
+        assert len(response.json()["dependent_flags"]) == 1
 
     def test_has_active_dependents_with_inactive_dependencies(self):
         """Test has_active_dependents returns False when dependent flags are inactive."""
@@ -299,6 +299,6 @@ class TestFeatureFlagDependencyDeletion(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["has_active_dependents"], False)
-        self.assertEqual(len(response.json()["dependent_flags"]), 0)
+        assert response.status_code == status.HTTP_200_OK
+        assert not response.json()["has_active_dependents"]
+        assert len(response.json()["dependent_flags"]) == 0

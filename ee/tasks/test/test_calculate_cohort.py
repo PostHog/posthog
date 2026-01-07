@@ -77,8 +77,8 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
         )
         cohort = Cohort.objects.get(pk=cohort_id)
         people = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual(people.count(), 1)
-        self.assertEqual(cohort.count, 1)
+        assert people.count() == 1
+        assert cohort.count == 1
 
     @patch("posthog.tasks.calculate_cohort.insert_cohort_from_insight_filter.delay")
     def test_create_trends_cohort(self, _insert_cohort_from_insight_filter):
@@ -148,24 +148,20 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
         )
         cohort = Cohort.objects.get(pk=cohort_id)
         people = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual(cohort.errors_calculating, 0)
-        self.assertEqual(
-            people.count(),
-            1,
-            {
-                "a": sync_execute(
-                    "select person_id from person_static_cohort where team_id = {} and cohort_id = {} ".format(
-                        self.team.id, cohort.pk
-                    )
-                ),
-                "b": sync_execute(
-                    "select person_id from person_static_cohort FINAL where team_id = {} and cohort_id = {} ".format(
-                        self.team.id, cohort.pk
-                    )
-                ),
-            },
-        )
-        self.assertEqual(cohort.count, 1)
+        assert cohort.errors_calculating == 0
+        assert people.count() == 1, {
+            "a": sync_execute(
+                "select person_id from person_static_cohort where team_id = {} and cohort_id = {} ".format(
+                    self.team.id, cohort.pk
+                )
+            ),
+            "b": sync_execute(
+                "select person_id from person_static_cohort FINAL where team_id = {} and cohort_id = {} ".format(
+                    self.team.id, cohort.pk
+                )
+            ),
+        }
+        assert cohort.count == 1
 
     @patch("posthog.tasks.calculate_cohort.insert_cohort_from_insight_filter.delay")
     def test_create_trends_cohort_arg_test(self, _insert_cohort_from_insight_filter):
@@ -267,24 +263,20 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
         )
         cohort = Cohort.objects.get(pk=cohort_id)
         people = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual(cohort.errors_calculating, 0)
-        self.assertEqual(
-            people.count(),
-            1,
-            {
-                "a": sync_execute(
-                    "select person_id from person_static_cohort where team_id = {} and cohort_id = {} ".format(
-                        self.team.id, cohort.pk
-                    )
-                ),
-                "b": sync_execute(
-                    "select person_id from person_static_cohort FINAL where team_id = {} and cohort_id = {} ".format(
-                        self.team.id, cohort.pk
-                    )
-                ),
-            },
-        )
-        self.assertEqual(cohort.count, 1)
+        assert cohort.errors_calculating == 0
+        assert people.count() == 1, {
+            "a": sync_execute(
+                "select person_id from person_static_cohort where team_id = {} and cohort_id = {} ".format(
+                    self.team.id, cohort.pk
+                )
+            ),
+            "b": sync_execute(
+                "select person_id from person_static_cohort FINAL where team_id = {} and cohort_id = {} ".format(
+                    self.team.id, cohort.pk
+                )
+            ),
+        }
+        assert cohort.count == 1
 
     @patch("posthog.tasks.calculate_cohort.insert_cohort_from_insight_filter.delay")
     def test_create_funnels_cohort(self, _insert_cohort_from_insight_filter):
@@ -367,9 +359,9 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
 
         cohort = Cohort.objects.get(pk=cohort_id)
         people = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual(cohort.errors_calculating, 0)
-        self.assertEqual(people.count(), 1)
-        self.assertEqual(cohort.count, 1)
+        assert cohort.errors_calculating == 0
+        assert people.count() == 1
+        assert cohort.count == 1
 
     @patch("posthog.tasks.calculate_cohort.insert_cohort_from_insight_filter.delay")
     def test_create_lifecycle_cohort(self, _insert_cohort_from_insight_filter):
@@ -472,7 +464,7 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
         )
         cohort = Cohort.objects.get(pk=response["id"])
         people_result = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id).values_list("id", flat=True)
-        self.assertIn(people[0].id, people_result)
+        assert people[0].id in people_result
 
         query_params = {
             "date_from": "2020-01-12T00:00:00Z",
@@ -514,7 +506,7 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
             },
             self.team.pk,
         )
-        self.assertEqual(_insert_cohort_from_insight_filter.call_count, 2)
+        assert _insert_cohort_from_insight_filter.call_count == 2
 
         insert_cohort_from_insight_filter(
             cohort_id,
@@ -536,6 +528,6 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
         )
 
         cohort = Cohort.objects.get(pk=response["id"])
-        self.assertEqual(cohort.count, 2)
+        assert cohort.count == 2
         people_result = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id).values_list("id", flat=True)
-        self.assertCountEqual([people[1].id, people[2].id], people_result)
+        assert sorted([people[1].id, people[2].id]) == sorted(people_result)

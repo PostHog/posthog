@@ -305,10 +305,7 @@ class TestGroupsRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-            self.assertEqual(
-                response.results,
-                [("lolol0:xxx", Decimal("350.42"), Decimal("350.42"))],
-            )
+            assert response.results == [("lolol0:xxx", Decimal("350.42"), Decimal("350.42"))]
 
     def test_get_revenue_for_events_with_managed_viewsets_ff(self):
         with patch("posthoganalytics.feature_enabled", return_value=True):
@@ -336,10 +333,7 @@ class TestGroupsRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                     self.team,
                 )
 
-                self.assertEqual(
-                    response.results,
-                    [("lolol0:xxx", Decimal("350.42"), Decimal("350.42"))],
-                )
+                assert response.results == [("lolol0:xxx", Decimal("350.42"), Decimal("350.42"))]
 
     def test_get_revenue_for_schema_source_for_id_join(self):
         self.setup_schema_sources()
@@ -360,18 +354,15 @@ class TestGroupsRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             for query in queries:
                 response = execute_hogql_query(parse_select(query), self.team, modifiers=self.MODIFIERS)
 
-                self.assertEqual(
-                    response.results,
-                    [
-                        ("cus_1", Decimal("283.8496260553")),
-                        ("cus_2", Decimal("482.2158673452")),
-                        ("cus_3", Decimal("4161.34422")),
-                        ("cus_4", Decimal("254.12345")),
-                        ("cus_5", Decimal("1494.0562")),
-                        ("cus_6", Decimal("2796.37014")),
-                        ("dummy", None),
-                    ],
-                )
+                assert response.results == [
+                    ("cus_1", Decimal("283.8496260553")),
+                    ("cus_2", Decimal("482.2158673452")),
+                    ("cus_3", Decimal("4161.34422")),
+                    ("cus_4", Decimal("254.12345")),
+                    ("cus_5", Decimal("1494.0562")),
+                    ("cus_6", Decimal("2796.37014")),
+                    ("dummy", None),
+                ]
 
     def test_get_revenue_for_schema_source_for_id_join_with_managed_viewsets_ff(self):
         with patch("posthoganalytics.feature_enabled", return_value=True):
@@ -394,18 +385,15 @@ class TestGroupsRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                 for query in queries:
                     response = execute_hogql_query(parse_select(query), self.team, modifiers=self.MODIFIERS)
 
-                    self.assertEqual(
-                        response.results,
-                        [
-                            ("cus_1", Decimal("283.8496260553")),
-                            ("cus_2", Decimal("482.2158673452")),
-                            ("cus_3", Decimal("4161.34422")),
-                            ("cus_4", Decimal("254.12345")),
-                            ("cus_5", Decimal("1494.0562")),
-                            ("cus_6", Decimal("2796.37014")),
-                            ("dummy", None),
-                        ],
-                    )
+                    assert response.results == [
+                        ("cus_1", Decimal("283.8496260553")),
+                        ("cus_2", Decimal("482.2158673452")),
+                        ("cus_3", Decimal("4161.34422")),
+                        ("cus_4", Decimal("254.12345")),
+                        ("cus_5", Decimal("1494.0562")),
+                        ("cus_6", Decimal("2796.37014")),
+                        ("dummy", None),
+                    ]
 
     def test_get_revenue_for_schema_source_for_email_join(self):
         self.setup_schema_sources()
@@ -431,18 +419,15 @@ class TestGroupsRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                 modifiers=self.MODIFIERS,
             )
 
-            self.assertEqual(
-                response.results,
-                [
-                    ("jane.doe@example.com", Decimal("482.2158673452"), Decimal("482.2158673452")),
-                    ("jane.smith@example.com", Decimal("254.12345"), Decimal("254.12345")),
-                    ("john.doe@example.com", Decimal("283.8496260553"), Decimal("283.8496260553")),
-                    ("john.doejr@example.com", Decimal("1494.0562"), Decimal("1494.0562")),
-                    ("john.doejrjr@example.com", Decimal("2796.37014"), Decimal("2796.37014")),
-                    ("john.smith@example.com", Decimal("4161.34422"), Decimal("4161.34422")),
-                    ("zdummy", None, None),
-                ],
-            )
+            assert response.results == [
+                ("jane.doe@example.com", Decimal("482.2158673452"), Decimal("482.2158673452")),
+                ("jane.smith@example.com", Decimal("254.12345"), Decimal("254.12345")),
+                ("john.doe@example.com", Decimal("283.8496260553"), Decimal("283.8496260553")),
+                ("john.doejr@example.com", Decimal("1494.0562"), Decimal("1494.0562")),
+                ("john.doejrjr@example.com", Decimal("2796.37014"), Decimal("2796.37014")),
+                ("john.smith@example.com", Decimal("4161.34422"), Decimal("4161.34422")),
+                ("zdummy", None, None),
+            ]
 
     def test_get_revenue_for_schema_source_for_email_join_with_managed_viewsets_ff(self):
         with patch("posthoganalytics.feature_enabled", return_value=True):
@@ -470,18 +455,15 @@ class TestGroupsRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                     modifiers=self.MODIFIERS,
                 )
 
-                self.assertEqual(
-                    response.results,
-                    [
-                        ("jane.doe@example.com", Decimal("482.2158673452"), Decimal("482.2158673452")),
-                        ("jane.smith@example.com", Decimal("254.12345"), Decimal("254.12345")),
-                        ("john.doe@example.com", Decimal("283.8496260553"), Decimal("283.8496260553")),
-                        ("john.doejr@example.com", Decimal("1494.0562"), Decimal("1494.0562")),
-                        ("john.doejrjr@example.com", Decimal("2796.37014"), Decimal("2796.37014")),
-                        ("john.smith@example.com", Decimal("4161.34422"), Decimal("4161.34422")),
-                        ("zdummy", None, None),
-                    ],
-                )
+                assert response.results == [
+                    ("jane.doe@example.com", Decimal("482.2158673452"), Decimal("482.2158673452")),
+                    ("jane.smith@example.com", Decimal("254.12345"), Decimal("254.12345")),
+                    ("john.doe@example.com", Decimal("283.8496260553"), Decimal("283.8496260553")),
+                    ("john.doejr@example.com", Decimal("1494.0562"), Decimal("1494.0562")),
+                    ("john.doejrjr@example.com", Decimal("2796.37014"), Decimal("2796.37014")),
+                    ("john.smith@example.com", Decimal("4161.34422"), Decimal("4161.34422")),
+                    ("zdummy", None, None),
+                ]
 
     def test_get_revenue_for_schema_source_for_metadata_join(self):
         self.setup_schema_sources()
@@ -507,18 +489,15 @@ class TestGroupsRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                 modifiers=self.MODIFIERS,
             )
 
-            self.assertEqual(
-                response.results,
-                [
-                    ("cus_1_metadata", Decimal("283.8496260553"), Decimal("283.8496260553")),
-                    ("cus_2_metadata", Decimal("482.2158673452"), Decimal("482.2158673452")),
-                    ("cus_3_metadata", Decimal("4161.34422"), Decimal("4161.34422")),
-                    ("cus_4_metadata", Decimal("254.12345"), Decimal("254.12345")),
-                    ("cus_5_metadata", Decimal("1494.0562"), Decimal("1494.0562")),
-                    ("cus_6_metadata", Decimal("2796.37014"), Decimal("2796.37014")),
-                    ("dummy", None, None),
-                ],
-            )
+            assert response.results == [
+                ("cus_1_metadata", Decimal("283.8496260553"), Decimal("283.8496260553")),
+                ("cus_2_metadata", Decimal("482.2158673452"), Decimal("482.2158673452")),
+                ("cus_3_metadata", Decimal("4161.34422"), Decimal("4161.34422")),
+                ("cus_4_metadata", Decimal("254.12345"), Decimal("254.12345")),
+                ("cus_5_metadata", Decimal("1494.0562"), Decimal("1494.0562")),
+                ("cus_6_metadata", Decimal("2796.37014"), Decimal("2796.37014")),
+                ("dummy", None, None),
+            ]
 
     def test_get_revenue_for_schema_source_for_metadata_join_with_managed_viewsets_ff(self):
         with patch("posthoganalytics.feature_enabled", return_value=True):
@@ -546,18 +525,15 @@ class TestGroupsRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                     modifiers=self.MODIFIERS,
                 )
 
-                self.assertEqual(
-                    response.results,
-                    [
-                        ("cus_1_metadata", Decimal("283.8496260553"), Decimal("283.8496260553")),
-                        ("cus_2_metadata", Decimal("482.2158673452"), Decimal("482.2158673452")),
-                        ("cus_3_metadata", Decimal("4161.34422"), Decimal("4161.34422")),
-                        ("cus_4_metadata", Decimal("254.12345"), Decimal("254.12345")),
-                        ("cus_5_metadata", Decimal("1494.0562"), Decimal("1494.0562")),
-                        ("cus_6_metadata", Decimal("2796.37014"), Decimal("2796.37014")),
-                        ("dummy", None, None),
-                    ],
-                )
+                assert response.results == [
+                    ("cus_1_metadata", Decimal("283.8496260553"), Decimal("283.8496260553")),
+                    ("cus_2_metadata", Decimal("482.2158673452"), Decimal("482.2158673452")),
+                    ("cus_3_metadata", Decimal("4161.34422"), Decimal("4161.34422")),
+                    ("cus_4_metadata", Decimal("254.12345"), Decimal("254.12345")),
+                    ("cus_5_metadata", Decimal("1494.0562"), Decimal("1494.0562")),
+                    ("cus_6_metadata", Decimal("2796.37014"), Decimal("2796.37014")),
+                    ("dummy", None, None),
+                ]
 
     def test_get_mrr_via_lazy_join_for_schema_source(self):
         self.setup_schema_sources()
@@ -576,18 +552,15 @@ class TestGroupsRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                 modifiers=self.MODIFIERS,
             )
 
-            self.assertEqual(
-                response.results,
-                [
-                    ("cus_1", Decimal("283.8496260553"), Decimal("22.9631447238")),
-                    ("cus_2", Decimal("482.2158673452"), Decimal("40.8052916666")),
-                    ("cus_3", Decimal("4161.34422"), Decimal("1546.59444")),
-                    ("cus_4", Decimal("254.12345"), Decimal("83.16695")),
-                    ("cus_5", Decimal("1494.0562"), Decimal("43.82703")),
-                    ("cus_6", Decimal("2796.37014"), Decimal("1459.02008")),
-                    ("dummy", None, None),
-                ],
-            )
+            assert response.results == [
+                ("cus_1", Decimal("283.8496260553"), Decimal("22.9631447238")),
+                ("cus_2", Decimal("482.2158673452"), Decimal("40.8052916666")),
+                ("cus_3", Decimal("4161.34422"), Decimal("1546.59444")),
+                ("cus_4", Decimal("254.12345"), Decimal("83.16695")),
+                ("cus_5", Decimal("1494.0562"), Decimal("43.82703")),
+                ("cus_6", Decimal("2796.37014"), Decimal("1459.02008")),
+                ("dummy", None, None),
+            ]
 
     def test_get_mrr_via_lazy_join_for_schema_source_with_managed_viewsets_ff(self):
         with patch("posthoganalytics.feature_enabled", return_value=True):
@@ -609,18 +582,15 @@ class TestGroupsRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                     modifiers=self.MODIFIERS,
                 )
 
-                self.assertEqual(
-                    response.results,
-                    [
-                        ("cus_1", Decimal("283.8496260553"), Decimal("22.9631447238")),
-                        ("cus_2", Decimal("482.2158673452"), Decimal("40.8052916666")),
-                        ("cus_3", Decimal("4161.34422"), Decimal("1546.59444")),
-                        ("cus_4", Decimal("254.12345"), Decimal("83.16695")),
-                        ("cus_5", Decimal("1494.0562"), Decimal("43.82703")),
-                        ("cus_6", Decimal("2796.37014"), Decimal("1459.02008")),
-                        ("dummy", None, None),
-                    ],
-                )
+                assert response.results == [
+                    ("cus_1", Decimal("283.8496260553"), Decimal("22.9631447238")),
+                    ("cus_2", Decimal("482.2158673452"), Decimal("40.8052916666")),
+                    ("cus_3", Decimal("4161.34422"), Decimal("1546.59444")),
+                    ("cus_4", Decimal("254.12345"), Decimal("83.16695")),
+                    ("cus_5", Decimal("1494.0562"), Decimal("43.82703")),
+                    ("cus_6", Decimal("2796.37014"), Decimal("1459.02008")),
+                    ("dummy", None, None),
+                ]
 
     def test_get_mrr_via_lazy_join_for_events(self):
         self.setup_events_with_subscriptions()
@@ -648,10 +618,7 @@ class TestGroupsRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                 modifiers=self.MODIFIERS,
             )
 
-            self.assertEqual(
-                response.results,
-                [(self.group0_id, Decimal("350.42"), Decimal("257.23"))],
-            )
+            assert response.results == [(self.group0_id, Decimal("350.42"), Decimal("257.23"))]
 
     def test_get_mrr_via_lazy_join_for_events_with_managed_viewsets_ff(self):
         with patch("posthoganalytics.feature_enabled", return_value=True):
@@ -682,10 +649,7 @@ class TestGroupsRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                     modifiers=self.MODIFIERS,
                 )
 
-                self.assertEqual(
-                    response.results,
-                    [(self.group0_id, Decimal("350.42"), Decimal("257.23"))],
-                )
+                assert response.results == [(self.group0_id, Decimal("350.42"), Decimal("257.23"))]
 
     def test_query_revenue_analytics_table_sources(self):
         self.setup_schema_sources()
@@ -704,17 +668,14 @@ class TestGroupsRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             )
 
             # MRR values come from the MRR view based on recurring invoices with subscriptions
-            self.assertEqual(
-                results.results,
-                [
-                    ("cus_3", Decimal("4161.34422"), Decimal("1546.59444")),
-                    ("cus_6", Decimal("2796.37014"), Decimal("1459.02008")),
-                    ("cus_4", Decimal("254.12345"), Decimal("83.16695")),
-                    ("cus_5", Decimal("1494.0562"), Decimal("43.82703")),
-                    ("cus_2", Decimal("482.2158673452"), Decimal("40.8052916666")),
-                    ("cus_1", Decimal("283.8496260553"), Decimal("22.9631447238")),
-                ],
-            )
+            assert results.results == [
+                ("cus_3", Decimal("4161.34422"), Decimal("1546.59444")),
+                ("cus_6", Decimal("2796.37014"), Decimal("1459.02008")),
+                ("cus_4", Decimal("254.12345"), Decimal("83.16695")),
+                ("cus_5", Decimal("1494.0562"), Decimal("43.82703")),
+                ("cus_2", Decimal("482.2158673452"), Decimal("40.8052916666")),
+                ("cus_1", Decimal("283.8496260553"), Decimal("22.9631447238")),
+            ]
 
     def test_query_revenue_analytics_table_sources_with_managed_viewsets_ff(self):
         with patch("posthoganalytics.feature_enabled", return_value=True):
@@ -736,17 +697,14 @@ class TestGroupsRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                 )
 
                 # MRR values from managed viewsets
-                self.assertEqual(
-                    results.results,
-                    [
-                        ("cus_3", Decimal("4161.34422"), Decimal("1546.59444")),
-                        ("cus_6", Decimal("2796.37014"), Decimal("1459.02008")),
-                        ("cus_4", Decimal("254.12345"), Decimal("83.16695")),
-                        ("cus_5", Decimal("1494.0562"), Decimal("43.82703")),
-                        ("cus_2", Decimal("482.2158673452"), Decimal("40.8052916666")),
-                        ("cus_1", Decimal("283.8496260553"), Decimal("22.9631447238")),
-                    ],
-                )
+                assert results.results == [
+                    ("cus_3", Decimal("4161.34422"), Decimal("1546.59444")),
+                    ("cus_6", Decimal("2796.37014"), Decimal("1459.02008")),
+                    ("cus_4", Decimal("254.12345"), Decimal("83.16695")),
+                    ("cus_5", Decimal("1494.0562"), Decimal("43.82703")),
+                    ("cus_2", Decimal("482.2158673452"), Decimal("40.8052916666")),
+                    ("cus_1", Decimal("283.8496260553"), Decimal("22.9631447238")),
+                ]
 
     def test_query_revenue_analytics_table_events(self):
         self.setup_events_with_subscriptions()
@@ -772,14 +730,11 @@ class TestGroupsRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             )
 
             # MRR is calculated from recurring events (those with subscription_id)
-            self.assertEqual(
-                results.results,
-                [
-                    (self.group0_id, Decimal("350.42"), Decimal("257.23")),
-                    (self.group1_id, Decimal("225"), Decimal("257.23")),
-                    (self.another_group0_id, Decimal("32.23"), Decimal("257.23")),
-                ],
-            )
+            assert results.results == [
+                (self.group0_id, Decimal("350.42"), Decimal("257.23")),
+                (self.group1_id, Decimal("225"), Decimal("257.23")),
+                (self.another_group0_id, Decimal("32.23"), Decimal("257.23")),
+            ]
 
     def test_query_revenue_analytics_table_events_with_managed_viewsets_ff(self):
         with patch("posthoganalytics.feature_enabled", return_value=True):
@@ -808,11 +763,8 @@ class TestGroupsRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                 )
 
                 # MRR is calculated from recurring events (those with subscription_id)
-                self.assertEqual(
-                    results.results,
-                    [
-                        (self.group0_id, Decimal("350.42"), Decimal("257.23")),
-                        (self.group1_id, Decimal("225"), Decimal("257.23")),
-                        (self.another_group0_id, Decimal("32.23"), Decimal("257.23")),
-                    ],
-                )
+                assert results.results == [
+                    (self.group0_id, Decimal("350.42"), Decimal("257.23")),
+                    (self.group1_id, Decimal("225"), Decimal("257.23")),
+                    (self.another_group0_id, Decimal("32.23"), Decimal("257.23")),
+                ]

@@ -1,5 +1,4 @@
 from datetime import datetime, timedelta
-from typing import Optional
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
@@ -85,7 +84,7 @@ class TestExports(APIBaseTest):
             f"/api/projects/{self.team.id}/exports",
             {"export_format": "image/png", "dashboard": self.dashboard.id},
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         data = response.json()
         assert data == {
             "id": data["id"],
@@ -117,7 +116,7 @@ class TestExports(APIBaseTest):
                 "expires_after": one_week_from_now.isoformat(),
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         data = response.json()
 
         # Expiry is determined by format (PNG = 180 days), not the provided value
@@ -158,11 +157,7 @@ class TestExports(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(
-            response.status_code,
-            status.HTTP_201_CREATED,
-            msg=f"was not HTTP 201 😱 - {response.json()}",
-        )
+        assert response.status_code == status.HTTP_201_CREATED, f"was not HTTP 201 😱 - {response.json()}"
         data = response.json()
         mock_exporter_task.export_asset.assert_called_once_with(data["id"])
 
@@ -174,27 +169,24 @@ class TestExports(APIBaseTest):
             f"/api/projects/{self.team.id}/exports",
             {"export_format": "image/png", "insight": self.insight.id},
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         data = response.json()
-        self.assertEqual(
-            data,
-            {
-                "id": data["id"],
-                "created_at": data["created_at"],
-                "insight": self.insight.id,
-                "export_format": "image/png",
-                "filename": "export-example-insight.png",
-                "has_content": False,
-                "dashboard": None,
-                "exception": None,
-                "export_context": None,
-                # PNG format gets 180 days (6 months) expiry
-                "expires_after": (now() + timedelta(days=180))
-                .replace(hour=0, minute=0, second=0, microsecond=0)
-                .isoformat()
-                .replace("+00:00", "Z"),
-            },
-        )
+        assert data == {
+            "id": data["id"],
+            "created_at": data["created_at"],
+            "insight": self.insight.id,
+            "export_format": "image/png",
+            "filename": "export-example-insight.png",
+            "has_content": False,
+            "dashboard": None,
+            "exception": None,
+            "export_context": None,
+            # PNG format gets 180 days (6 months) expiry
+            "expires_after": (now() + timedelta(days=180))
+            .replace(hour=0, minute=0, second=0, microsecond=0)
+            .isoformat()
+            .replace("+00:00", "Z"),
+        }
 
         self._assert_logs_the_activity(
             insight_id=self.insight.id,
@@ -247,29 +239,23 @@ class TestExports(APIBaseTest):
 
     def test_errors_if_missing_related_instance(self) -> None:
         response = self.client.post(f"/api/projects/{self.team.id}/exports", {"export_format": "image/png"})
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "attr": None,
-                "code": "invalid_input",
-                "detail": "Either dashboard, insight or export_context is required for an export.",
-                "type": "validation_error",
-            },
-        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "attr": None,
+            "code": "invalid_input",
+            "detail": "Either dashboard, insight or export_context is required for an export.",
+            "type": "validation_error",
+        }
 
     def test_errors_if_bad_format(self) -> None:
         response = self.client.post(f"/api/projects/{self.team.id}/exports", {"export_format": "not/allowed"})
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "attr": "export_format",
-                "code": "invalid_choice",
-                "detail": '"not/allowed" is not a valid choice.',
-                "type": "validation_error",
-            },
-        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "attr": "export_format",
+            "code": "invalid_choice",
+            "detail": '"not/allowed" is not a valid choice.',
+            "type": "validation_error",
+        }
 
     @patch("posthog.api.exports.exporter")
     def test_will_respond_even_if_task_timesout(self, mock_exporter_task) -> None:
@@ -278,7 +264,7 @@ class TestExports(APIBaseTest):
             f"/api/projects/{self.team.id}/exports",
             {"export_format": "image/png", "insight": self.insight.id},
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
     @patch("posthog.api.exports.exporter")
     def test_will_error_if_export_unsupported(self, mock_exporter_task) -> None:
@@ -287,32 +273,26 @@ class TestExports(APIBaseTest):
             f"/api/projects/{self.team.id}/exports",
             {"export_format": "image/jpeg", "insight": self.insight.id},
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "attr": "export_format",
-                "code": "invalid_choice",
-                "detail": '"image/jpeg" is not a valid choice.',
-                "type": "validation_error",
-            },
-        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "attr": "export_format",
+            "code": "invalid_choice",
+            "detail": '"image/jpeg" is not a valid choice.',
+            "type": "validation_error",
+        }
 
     def test_will_error_if_dashboard_missing(self) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
             {"export_format": "application/pdf", "dashboard": 54321},
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "attr": "dashboard",
-                "code": "does_not_exist",
-                "detail": 'Invalid pk "54321" - object does not exist.',
-                "type": "validation_error",
-            },
-        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "attr": "dashboard",
+            "code": "does_not_exist",
+            "detail": 'Invalid pk "54321" - object does not exist.',
+            "type": "validation_error",
+        }
 
     def test_will_error_if_export_contains_other_team_dashboard(self) -> None:
         other_team = Team.objects.create(
@@ -335,16 +315,13 @@ class TestExports(APIBaseTest):
             f"/api/projects/{self.team.id}/exports",
             {"export_format": "application/pdf", "dashboard": other_dashboard.id},
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "attr": "dashboard",
-                "code": "invalid_input",
-                "detail": "This dashboard does not belong to your team.",
-                "type": "validation_error",
-            },
-        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "attr": "dashboard",
+            "code": "invalid_input",
+            "detail": "This dashboard does not belong to your team.",
+            "type": "validation_error",
+        }
 
     def test_will_error_if_export_contains_other_team_insight(self) -> None:
         other_team = Team.objects.create(
@@ -369,16 +346,13 @@ class TestExports(APIBaseTest):
             f"/api/projects/{self.team.id}/exports",
             {"export_format": "application/pdf", "insight": other_insight.id},
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "attr": "insight",
-                "code": "invalid_input",
-                "detail": "This insight does not belong to your team.",
-                "type": "validation_error",
-            },
-        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "attr": "insight",
+            "code": "invalid_input",
+            "detail": "This insight does not belong to your team.",
+            "type": "validation_error",
+        }
 
     @patch("posthog.tasks.exports.csv_exporter.requests.request")
     def test_can_download_a_csv(self, patched_request) -> None:
@@ -438,18 +412,14 @@ class TestExports(APIBaseTest):
                     },
                 },
             )
-            self.assertEqual(
-                response.status_code,
-                status.HTTP_201_CREATED,
-                msg=f"was not HTTP 201 😱 - {response.json()}",
-            )
+            assert response.status_code == status.HTTP_201_CREATED, f"was not HTTP 201 😱 - {response.json()}"
             instance = response.json()
 
             # limit the query to force it to page against the API
             with self.settings(OBJECT_STORAGE_ENABLED=False):
                 exporter.export_asset(instance["id"], limit=1)
 
-            download_response: Optional[HttpResponse] = None
+            download_response: HttpResponse | None = None
             attempt_count = 0
             while attempt_count < 10 and not download_response:
                 download_response = self.client.get(
@@ -460,24 +430,24 @@ class TestExports(APIBaseTest):
             if not download_response:
                 self.fail("must have a response by this point")  # hi mypy
 
-            self.assertEqual(download_response.status_code, status.HTTP_200_OK)
-            self.assertIsNotNone(download_response.content)
+            assert download_response.status_code == status.HTTP_200_OK
+            assert download_response.content is not None
             file_content = download_response.content.decode("utf-8")
             file_lines = file_content.split("\n")
             # has a header row and at least two other rows
             # don't care if the DB hasn't been reset before the test
-            self.assertTrue(len(file_lines) > 3)
-            self.assertIn(expected_event_id, file_content)
-            self.assertIn(second_expected_event_id, file_content)
-            self.assertIn(third_expected_event_id, file_content)
+            assert len(file_lines) > 3
+            assert expected_event_id in file_content
+            assert second_expected_event_id in file_content
+            assert third_expected_event_id in file_content
             for line in file_lines[1:]:  # every result has to match the filter though
                 if line != "":  # skip the final empty line of the file
-                    self.assertIn("Safari", line)
+                    assert "Safari" in line
 
     def _get_insight_activity(self, insight_id: int, expected_status: int = status.HTTP_200_OK):
         url = f"/api/projects/{self.team.id}/insights/{insight_id}/activity"
         activity = self.client.get(url)
-        self.assertEqual(activity.status_code, expected_status)
+        assert activity.status_code == expected_status
         return activity.json()
 
     def _assert_logs_the_activity(self, insight_id: int, expected: list[dict]) -> None:
@@ -486,12 +456,12 @@ class TestExports(APIBaseTest):
         activity: list[dict] = activity_response["results"]
 
         self.maxDiff = None
-        self.assertEqual(activity, expected)
+        assert activity == expected
 
     def test_can_list_exports(self) -> None:
         response = self.client.get(f"/api/projects/{self.team.id}/exports")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["results"]), 1)
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 1
 
         ExportedAsset.objects.create(
             team=self.team, dashboard_id=self.dashboard.id, export_format="image/png", created_by=self.user
@@ -503,8 +473,8 @@ class TestExports(APIBaseTest):
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/exports")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["results"]), 2)
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 2
 
     def test_list_shows_stuck_exports_as_failed_in_response(self) -> None:
         with freeze_time(now() - timedelta(seconds=2 * HOGQL_INCREASED_MAX_EXECUTION_TIME)):
@@ -553,31 +523,31 @@ class TestExports(APIBaseTest):
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/exports")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         results = response.json()["results"]
         results_by_id = {result["id"]: result for result in results}
 
         stuck_result = results_by_id[stuck_export.id]
-        self.assertIsNotNone(stuck_result["exception"])
-        self.assertIn(f"Export failed without throwing an exception", stuck_result["exception"])
+        assert stuck_result["exception"] is not None
+        assert f"Export failed without throwing an exception" in stuck_result["exception"]
 
         recent_result = results_by_id[recent_export.id]
-        self.assertIsNone(recent_result["exception"])
+        assert recent_result["exception"] is None
 
         completed_result = results_by_id[completed_export.id]
-        self.assertIsNone(completed_result["exception"])
+        assert completed_result["exception"] is None
 
         completed_result = results_by_id[errored_export.id]
-        self.assertEqual("exception", completed_result["exception"])
+        assert "exception" == completed_result["exception"]
 
         # Verify that the database wasn't actually modified
         stuck_export.refresh_from_db()
         recent_export.refresh_from_db()
         completed_export.refresh_from_db()
-        self.assertIsNone(stuck_export.exception)
-        self.assertIsNone(recent_export.exception)
-        self.assertIsNone(completed_export.exception)
+        assert stuck_export.exception is None
+        assert recent_export.exception is None
+        assert completed_export.exception is None
 
     def test_retrieve_shows_stuck_export_as_failed_in_response(self) -> None:
         with freeze_time(now() - timedelta(seconds=2 * HOGQL_INCREASED_MAX_EXECUTION_TIME)):
@@ -594,17 +564,17 @@ class TestExports(APIBaseTest):
             )
 
         response = self.client.get(f"/api/projects/{self.team.id}/exports/{stuck_export.id}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         result = response.json()
 
         # Check that the stuck export appears to have an exception in the response
-        self.assertIsNotNone(result["exception"])
-        self.assertIn(f"Export failed without throwing an exception", result["exception"])
+        assert result["exception"] is not None
+        assert f"Export failed without throwing an exception" in result["exception"]
 
         # Verify that the database wasn't actually modified
         stuck_export.refresh_from_db()
-        self.assertIsNone(stuck_export.exception)
+        assert stuck_export.exception is None
 
     @parameterized.expand(
         [
@@ -627,7 +597,7 @@ class TestExports(APIBaseTest):
             url += f"?export_format={export_format}"
 
         response = self.client.get(url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
 
         assert len(results) == expected_count
@@ -677,7 +647,7 @@ class TestExports(APIBaseTest):
             payload = {"export_format": export_format, "dashboard": self.dashboard.id}
 
         response = self.client.post(f"/api/projects/{self.team.id}/exports", payload)
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         data = response.json()
 
         expected_expiry = (
@@ -687,7 +657,7 @@ class TestExports(APIBaseTest):
             .replace("+00:00", "Z")
         )
 
-        self.assertEqual(data["expires_after"], expected_expiry)
+        assert data["expires_after"] == expected_expiry
 
         if not is_video_format:
             mock_exporter_task.export_asset.assert_called_once_with(data["id"])
@@ -716,7 +686,7 @@ class TestExports(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
         # The 11th video export should fail with limit exceeded error
         response = self.client.post(
@@ -729,11 +699,11 @@ class TestExports(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         error_data = response.json()
-        self.assertEqual(error_data["type"], "validation_error")
-        self.assertEqual(error_data["attr"], "export_limit_exceeded")
-        self.assertIn("reached the limit of 10 full video exports this month", error_data["detail"])
+        assert error_data["type"] == "validation_error"
+        assert error_data["attr"] == "export_limit_exceeded"
+        assert "reached the limit of 10 full video exports this month" in error_data["detail"]
 
     @patch("posthog.api.exports.async_to_sync")
     @patch("posthog.api.exports.async_connect")
@@ -759,7 +729,7 @@ class TestExports(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
         # But clip export (screenshot mode) should succeed
         response = self.client.post(
@@ -774,7 +744,7 @@ class TestExports(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
         # Other video formats should also succeed
         response = self.client.post(
@@ -787,7 +757,7 @@ class TestExports(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
     @patch("posthog.api.exports.async_to_sync")
     @patch("posthog.api.exports.async_connect")
@@ -815,7 +785,7 @@ class TestExports(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
         # Move to February 1st
         with freeze_time("2024-02-01T12:00:00Z"):
@@ -830,7 +800,7 @@ class TestExports(APIBaseTest):
                     },
                 },
             )
-            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            assert response.status_code == status.HTTP_201_CREATED
 
     @patch("posthog.tasks.exports.image_exporter.export_image")
     def test_synchronous_export_records_failure_on_query_error(self, mock_export_direct) -> None:
@@ -845,13 +815,13 @@ class TestExports(APIBaseTest):
         )
 
         # Should return 201 even though the export failed internally
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         data = response.json()
 
         # Reload the asset and verify failure info was recorded
         asset = ExportedAsset.objects.get(pk=data["id"])
-        self.assertEqual(asset.exception, "Unknown table 'nonexistent_table'")
-        self.assertEqual(asset.exception_type, "QueryError")
+        assert asset.exception == "Unknown table 'nonexistent_table'"
+        assert asset.exception_type == "QueryError"
 
     @patch("posthog.tasks.exports.image_exporter.export_image")
     def test_synchronous_export_raises_retriable_errors(self, mock_export_direct) -> None:
@@ -867,7 +837,7 @@ class TestExports(APIBaseTest):
             f"/api/projects/{self.team.id}/exports",
             {"export_format": "image/png", "insight": self.insight.id},
         )
-        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
 
 
 class TestExportMixin(APIBaseTest):

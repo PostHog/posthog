@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import APIBaseTest
 
 from parameterized import parameterized
@@ -41,10 +42,10 @@ class TestCSVExporterURLSanitization(APIBaseTest):
 
     @parameterized.expand(error_test_cases)
     def test_sanitise_url_error_cases_as_paths(self, _name, site_url, provided_url_or_path) -> None:
-        with self.settings(SITE_URL=site_url), self.assertRaises(PotentialSecurityProblemException):
+        with self.settings(SITE_URL=site_url), pytest.raises(PotentialSecurityProblemException):
             absolute_uri(None or provided_url_or_path)
 
     @parameterized.expand(error_test_cases)
     def test_sanitise_url_error_cases_as_next_url(self, _name, site_url, provided_url_or_path) -> None:
-        with self.settings(SITE_URL=site_url), self.assertRaises(PotentialSecurityProblemException):
+        with self.settings(SITE_URL=site_url), pytest.raises(PotentialSecurityProblemException):
             absolute_uri(provided_url_or_path or None)

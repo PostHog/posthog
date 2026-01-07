@@ -1,3 +1,6 @@
+import re
+
+import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
@@ -56,10 +59,10 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
         query_str = hogql_query.query_str("clickhouse")
 
         # If the optimization worked, there should be no INTERSECT in the query
-        self.assertNotIn("INTERSECT DISTINCT", query_str)
-        self.assertIn(
-            "and(isNotNull(persons.properties___email), ifNull(ilike(toString(persons.properties___email), %(hogql_val_8)s), 0), ifNull(notILike(toString(persons.properties___email), %(hogql_val_9)s), 1))",
-            query_str,
+        assert "INTERSECT DISTINCT" not in query_str
+        assert (
+            "and(isNotNull(persons.properties___email), ifNull(ilike(toString(persons.properties___email), %(hogql_val_8)s), 0), ifNull(notILike(toString(persons.properties___email), %(hogql_val_9)s), 1))"
+            in query_str
         )
 
     @patch("posthoganalytics.feature_enabled", return_value=False)
@@ -103,7 +106,7 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
         query_str = hogql_query.query_str("clickhouse")
 
         # With the feature flag off, should use INTERSECT DISTINCT
-        self.assertIn("INTERSECT DISTINCT", query_str)
+        assert "INTERSECT DISTINCT" in query_str
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_optimization_skipped_for_mixed_property_types(self, mock_feature_enabled: MagicMock) -> None:
@@ -148,7 +151,7 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
         query_str = hogql_query.query_str("clickhouse")
 
         # Should use INTERSECT DISTINCT because properties are mixed
-        self.assertIn("INTERSECT DISTINCT", query_str)
+        assert "INTERSECT DISTINCT" in query_str
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_optimization_skipped_for_properties_with_negation(self, mock_feature_enabled: MagicMock) -> None:
@@ -191,7 +194,7 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
         query_str = hogql_query.query_str("clickhouse")
 
         # Should use EXCEPT because one property is negated
-        self.assertIn("EXCEPT", query_str)
+        assert "EXCEPT" in query_str
 
 
 class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
@@ -229,9 +232,9 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
         query_str = hogql_query.query_str("clickhouse")
 
         # Should query precalculated_person_properties table for person properties
-        self.assertIn("precalculated_person_properties", query_str)
+        assert "precalculated_person_properties" in query_str
         # Should have condition hash filter
-        self.assertIn("condition", query_str)
+        assert "condition" in query_str
 
     def test_behavioral_performed_event_pageview(self) -> None:
         """
@@ -267,13 +270,13 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
         query_str = hogql_query.query_str("clickhouse")
 
         # Should query precalculated_events table
-        self.assertIn("precalculated_events", query_str)
+        assert "precalculated_events" in query_str
         # Should have condition field (conditionHash is parameterized)
-        self.assertIn("precalculated_events.condition", query_str)
+        assert "precalculated_events.condition" in query_str
         # Should use person_id directly from precalculated_events
-        self.assertIn("person_id", query_str)
+        assert "person_id" in query_str
         # Should have date filtering with toDate
-        self.assertIn("toDate", query_str)
+        assert "toDate" in query_str
 
     def test_cohort_membership_in_cohort_direct(self) -> None:
         """
@@ -305,15 +308,15 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
         query_str = prepare_and_print_ast(query_ast, hogql_query.hogql_context, "clickhouse", pretty=True)[0]
 
         # Should query cohort_membership table
-        self.assertIn("cohort_membership", query_str)
+        assert "cohort_membership" in query_str
         # Should have cohort_id filter
-        self.assertIn("cohort_membership.cohort_id", query_str)
+        assert "cohort_membership.cohort_id" in query_str
         # Should check status field and use argMax for latest status
-        self.assertIn("cohort_membership.status", query_str)
-        self.assertIn("argmax", query_str.lower())
+        assert "cohort_membership.status" in query_str
+        assert "argmax" in query_str.lower()
         # Should filter by person_id and use HAVING clause for status check
-        self.assertIn("person_id", query_str.lower())
-        self.assertIn("having", query_str.lower())
+        assert "person_id" in query_str.lower()
+        assert "having" in query_str.lower()
 
     def test_cohort_membership_not_in_cohort_direct(self) -> None:
         """
@@ -346,9 +349,9 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
         query_str = prepare_and_print_ast(query_ast, hogql_query.hogql_context, "clickhouse", pretty=True)[0]
 
         # Should still query cohort_membership table
-        self.assertIn("cohort_membership", query_str)
+        assert "cohort_membership" in query_str
         # Should have cohort_id filter
-        self.assertIn("cohort_membership.cohort_id", query_str)
+        assert "cohort_membership.cohort_id" in query_str
 
     def test_behavioral_performed_event_multiple(self) -> None:
         """
@@ -385,15 +388,15 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
         query_str = hogql_query.query_str("clickhouse")
 
         # Should query precalculated_events
-        self.assertIn("precalculated_events", query_str)
+        assert "precalculated_events" in query_str
         # Should have count aggregation
-        self.assertIn("count()", query_str)
+        assert "count()" in query_str
         # Should have HAVING clause for count filtering
-        self.assertIn("HAVING", query_str)
+        assert "HAVING" in query_str
         # Should use person_id directly from precalculated_events
-        self.assertIn("person_id", query_str)
+        assert "person_id" in query_str
         # Should group by person_id
-        self.assertIn("GROUP BY", query_str)
+        assert "GROUP BY" in query_str
 
     def test_static_cohort_raises_error(self) -> None:
         """
@@ -422,10 +425,10 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
         hogql_query = HogQLRealtimeCohortQuery(cohort=cohort)
 
         # Should raise ValueError when trying to generate query
-        with self.assertRaises(ValueError) as context:
+        with pytest.raises(ValueError) as context:
             hogql_query.query_str("clickhouse")
 
-        self.assertIn("static cohort", str(context.exception).lower())
+        assert "static cohort" in str(context.value).lower()
 
     def test_or_group_with_same_key_operator_merges(self) -> None:
         """
@@ -619,20 +622,20 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
         in_clause_count = query_str.lower().count("in(precalculated_person_properties.condition,")
 
         # Should have exactly 1 IN clause for the merged conditions
-        self.assertEqual(in_clause_count, 1, "Should have exactly 1 IN clause for merged conditions")
+        assert in_clause_count == 1, "Should have exactly 1 IN clause for merged conditions"
 
         # Should have exactly 3 single condition checks (one for each non-mergeable property)
         single_condition_count = query_str.lower().count("equals(precalculated_person_properties.condition,")
-        self.assertEqual(single_condition_count, 3, "Should have exactly 3 single condition checks")
+        assert single_condition_count == 3, "Should have exactly 3 single condition checks"
 
         # Should use IN clause for merged conditions
-        self.assertIn("in(precalculated_person_properties.condition,", query_str.lower())
+        assert "in(precalculated_person_properties.condition," in query_str.lower()
 
         # The merged query should check for at least 1 match using countIf
-        self.assertIn("countif", query_str.lower())
+        assert "countif" in query_str.lower()
 
         # Should have UNION DISTINCT since we have non-mergeable properties too
-        self.assertIn("UNION DISTINCT", query_str)
+        assert "UNION DISTINCT" in query_str
 
     def test_or_group_with_nested_single_property_groups_merges(self) -> None:
         """
@@ -756,14 +759,14 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
         # All 3 nested single-property groups should be unwrapped and merged
         # Should have exactly 1 IN clause for all 3 conditions
         in_clause_count = query_str.lower().count("in(precalculated_person_properties.condition,")
-        self.assertEqual(in_clause_count, 1, "Should have exactly 1 IN clause for merged conditions")
+        assert in_clause_count == 1, "Should have exactly 1 IN clause for merged conditions"
 
         # Should have no single condition checks (all merged)
         single_condition_count = query_str.lower().count("equals(precalculated_person_properties.condition,")
-        self.assertEqual(single_condition_count, 0, "Should have no single condition checks (all merged)")
+        assert single_condition_count == 0, "Should have no single condition checks (all merged)"
 
         # Should NOT use UNION DISTINCT since all properties are merged
-        self.assertNotIn("UNION DISTINCT", query_str)
+        assert "UNION DISTINCT" not in query_str
 
     def test_and_group_with_same_key_operator_merges(self) -> None:
         """
@@ -869,13 +872,13 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
         query_str = hogql_query.query_str("clickhouse")
 
         # Should use IN clause to fetch all conditions at once
-        self.assertIn("in(precalculated_person_properties.condition,", query_str.lower())
+        assert "in(precalculated_person_properties.condition," in query_str.lower()
         # Should use countIf for counting matches
-        self.assertIn("countif", query_str.lower())
+        assert "countif" in query_str.lower()
         # For AND semantics, should check that ALL 3 conditions matched
-        self.assertIn(", 3)", query_str)  # equals(countIf(...), 3)
+        assert ", 3)" in query_str  # equals(countIf(...), 3)
         # Should NOT use UNION DISTINCT since properties are merged
-        self.assertNotIn("UNION DISTINCT", query_str)
+        assert "UNION DISTINCT" not in query_str
 
     def test_sibling_single_property_groups_under_or_merge(self) -> None:
         """
@@ -1050,20 +1053,20 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
 
         # Should have 1 IN clause for ALL merged email properties (yahoo + protonmail + live = 3 hashes)
         in_clause_count = query_str.lower().count("in(precalculated_person_properties.condition,")
-        self.assertEqual(in_clause_count, 1, "Should have exactly 1 IN clause for all merged email properties")
+        assert in_clause_count == 1, "Should have exactly 1 IN clause for all merged email properties"
 
         # Verify the IN clause has a tuple with 3 values (all 3 hashes merged)
         # The pattern will be: tuple(%(hogql_val_X)s, %(hogql_val_Y)s, %(hogql_val_Z)s)
 
         # Match tuple with exactly 3 comma-separated parameter placeholders
         tuple_pattern = r"tuple\(%\(hogql_val_\d+\)s,\s*%\(hogql_val_\d+\)s,\s*%\(hogql_val_\d+\)s\)"
-        self.assertRegex(query_str, tuple_pattern, "IN clause should have tuple with 3 values")
+        assert re.search(tuple_pattern, query_str), "IN clause should have tuple with 3 values"
 
         # Should use UNION DISTINCT since we have multiple top-level groups
-        self.assertIn("UNION DISTINCT", query_str)
+        assert "UNION DISTINCT" in query_str
 
         # Should have INTERSECT DISTINCT for the AND group (email + name)
-        self.assertIn("INTERSECT DISTINCT", query_str)
+        assert "INTERSECT DISTINCT" in query_str
 
     def test_properties_without_condition_hash_are_not_merged(self) -> None:
         """
@@ -1107,10 +1110,10 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
         hogql_query = HogQLRealtimeCohortQuery(cohort=cohort)
 
         # Should raise ValueError because realtime cohorts require conditionHash
-        with self.assertRaises(ValueError) as context:
+        with pytest.raises(ValueError) as context:
             hogql_query.query_str("clickhouse")
 
-        self.assertIn("conditionhash", str(context.exception).lower())
+        assert "conditionhash" in str(context.value).lower()
 
     def test_merged_property_with_empty_hashes_raises_error(self) -> None:
         """
@@ -1141,12 +1144,12 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
         prop._is_or_group = True  # type: ignore[attr-defined]
 
         # Should raise ValueError about empty condition hashes
-        with self.assertRaises(ValueError) as context:
+        with pytest.raises(ValueError) as context:
             hogql_query.get_person_condition(prop)
 
-        error_msg = str(context.exception).lower()
-        self.assertIn("empty condition hashes", error_msg)
-        self.assertIn("invalid sql", error_msg)
+        error_msg = str(context.value).lower()
+        assert "empty condition hashes" in error_msg
+        assert "invalid sql" in error_msg
 
     def test_create_merged_property_with_empty_hashes_raises_error(self) -> None:
         """
@@ -1172,11 +1175,11 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
         # Should raise ValueError when unique_hashes is empty
-        with self.assertRaises(ValueError) as context:
+        with pytest.raises(ValueError) as context:
             hogql_query._create_merged_property(template, [], is_or_group=True)
 
-        error_msg = str(context.exception).lower()
-        self.assertIn("empty unique_hashes", error_msg)
+        error_msg = str(context.value).lower()
+        assert "empty unique_hashes" in error_msg
 
     def test_duplicate_condition_hashes_deduplicated_correctly(self) -> None:
         """
@@ -1286,10 +1289,10 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
         # Should have been deduplicated to a single condition
         # The IN clause should contain only one hash, not three
         in_clause_count = query_str.lower().count("in(precalculated_person_properties.condition,")
-        self.assertEqual(in_clause_count, 1, "Should have exactly 1 IN clause after deduplication")
+        assert in_clause_count == 1, "Should have exactly 1 IN clause after deduplication"
 
         # Should have HAVING countIf(...) = 1 (not 3) because duplicates were removed
-        self.assertIn(", 1)", query_str)  # countIf(...), 1) in equals function
+        assert ", 1)" in query_str  # countIf(...), 1) in equals function
 
         # Should NOT use INTERSECT since all properties merged into one
-        self.assertNotIn("INTERSECT DISTINCT", query_str)
+        assert "INTERSECT DISTINCT" not in query_str

@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -388,10 +389,10 @@ class TestBillingServiceAuthentication(BaseTest):
 
         from rest_framework.exceptions import AuthenticationFailed
 
-        with self.assertRaises(AuthenticationFailed) as context:
+        with pytest.raises(AuthenticationFailed) as context:
             self.auth.authenticate(request)
 
-        assert "expired" in str(context.exception.detail).lower()
+        assert "expired" in str(context.value.detail).lower()
 
     def test_wrong_audience_fails(self, mock_license):
         mock_license.return_value = self.license
@@ -402,10 +403,10 @@ class TestBillingServiceAuthentication(BaseTest):
 
         from rest_framework.exceptions import AuthenticationFailed
 
-        with self.assertRaises(AuthenticationFailed) as context:
+        with pytest.raises(AuthenticationFailed) as context:
             self.auth.authenticate(request)
 
-        assert "audience" in str(context.exception.detail).lower()
+        assert "audience" in str(context.value.detail).lower()
 
     def test_wrong_secret_fails(self, mock_license):
         mock_license.return_value = self.license
@@ -416,7 +417,7 @@ class TestBillingServiceAuthentication(BaseTest):
 
         from rest_framework.exceptions import AuthenticationFailed
 
-        with self.assertRaises(AuthenticationFailed):
+        with pytest.raises(AuthenticationFailed):
             self.auth.authenticate(request)
 
     def test_missing_token_fails(self, mock_license):
@@ -427,10 +428,10 @@ class TestBillingServiceAuthentication(BaseTest):
 
         from rest_framework.exceptions import AuthenticationFailed
 
-        with self.assertRaises(AuthenticationFailed) as context:
+        with pytest.raises(AuthenticationFailed) as context:
             self.auth.authenticate(request)
 
-        assert "missing" in str(context.exception.detail).lower()
+        assert "missing" in str(context.value.detail).lower()
 
     def test_no_license_fails(self, mock_license):
         mock_license.return_value = None
@@ -441,7 +442,7 @@ class TestBillingServiceAuthentication(BaseTest):
 
         from rest_framework.exceptions import AuthenticationFailed
 
-        with self.assertRaises(AuthenticationFailed) as context:
+        with pytest.raises(AuthenticationFailed) as context:
             self.auth.authenticate(request)
 
-        assert "license" in str(context.exception.detail).lower()
+        assert "license" in str(context.value.detail).lower()

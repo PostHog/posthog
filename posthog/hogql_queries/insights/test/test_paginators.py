@@ -2,6 +2,7 @@ import json
 import base64
 from typing import cast
 
+import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
@@ -60,8 +61,8 @@ class TestHogQLHasMorePaginator(ClickhouseTestMixin, APIBaseTest):
             ActorsQuery(select=["properties.email"], orderBy=["properties.email DESC"], limit=1)
         )
         response = runner.calculate()
-        self.assertEqual(response.results, [[f"jacob9@{self.random_uuid}.posthog.com"]])
-        self.assertEqual(response.hasMore, True)
+        assert response.results == [[f"jacob9@{self.random_uuid}.posthog.com"]]
+        assert response.hasMore
 
         runner = self._create_runner(
             ActorsQuery(
@@ -72,33 +73,33 @@ class TestHogQLHasMorePaginator(ClickhouseTestMixin, APIBaseTest):
             )
         )
         response = runner.calculate()
-        self.assertEqual(response.results, [[f"jacob7@{self.random_uuid}.posthog.com"]])
-        self.assertEqual(response.hasMore, True)
+        assert response.results == [[f"jacob7@{self.random_uuid}.posthog.com"]]
+        assert response.hasMore
 
     def test_zero_limit(self):
         """Test behavior with limit set to zero."""
         runner = self._create_runner(ActorsQuery(select=["properties.email"], limit=0))
         response = runner.calculate()
-        self.assertEqual(runner.paginator.limit, 100)
-        self.assertEqual(response.limit, 100)
-        self.assertEqual(len(response.results), 10)
-        self.assertFalse(response.hasMore)
+        assert runner.paginator.limit == 100
+        assert response.limit == 100
+        assert len(response.results) == 10
+        assert not response.hasMore
 
     def test_negative_limit(self):
         """Test behavior with negative limit value."""
         runner = self._create_runner(ActorsQuery(select=["properties.email"], limit=-1))
         response = runner.calculate()
-        self.assertEqual(runner.paginator.limit, 100)
-        self.assertEqual(response.limit, 100)
-        self.assertEqual(len(response.results), 10)
-        self.assertFalse(response.hasMore)
+        assert runner.paginator.limit == 100
+        assert response.limit == 100
+        assert len(response.results) == 10
+        assert not response.hasMore
 
     def test_exact_limit_match(self):
         """Test when available items equal the limit."""
         runner = self._create_runner(ActorsQuery(select=["properties.email"], limit=10))
         response = runner.calculate()
-        self.assertEqual(len(response.results), 10)
-        self.assertFalse(response.hasMore)
+        assert len(response.results) == 10
+        assert not response.hasMore
 
     def test_empty_result_set(self):
         """Test behavior when query returns no results."""
@@ -112,24 +113,24 @@ class TestHogQLHasMorePaginator(ClickhouseTestMixin, APIBaseTest):
             )
         )
         response = runner.calculate()
-        self.assertEqual(len(response.results), 0)
-        self.assertFalse(response.hasMore)
+        assert len(response.results) == 0
+        assert not response.hasMore
 
     def test_large_offset(self):
         """Test behavior with offset larger than the total number of items."""
         self.random_uuid = self._create_random_persons()
         runner = self._create_runner(ActorsQuery(select=["properties.email"], limit=5, offset=100))
         response = runner.calculate()
-        self.assertEqual(len(response.results), 0)
-        self.assertFalse(response.hasMore)
+        assert len(response.results) == 0
+        assert not response.hasMore
 
     def test_offset_plus_limit_exceeding_total(self):
         """Test when sum of offset and limit exceeds total items."""
         runner = self._create_runner(ActorsQuery(select=["properties.email"], limit=10, offset=5))
         response = runner.calculate()
-        self.assertEqual(runner.paginator.offset, 5)
-        self.assertEqual(len(response.results), 5)
-        self.assertFalse(response.hasMore)
+        assert runner.paginator.offset == 5
+        assert len(response.results) == 5
+        assert not response.hasMore
 
     def test_response_params_consistency(self):
         """Test consistency of response_params method."""
@@ -140,16 +141,16 @@ class TestHogQLHasMorePaginator(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
         )
         params = paginator.response_params()
-        self.assertEqual(params["limit"], 5)
-        self.assertEqual(params["offset"], 10)
-        self.assertEqual(params["hasMore"], paginator.has_more())
+        assert params["limit"] == 5
+        assert params["offset"] == 10
+        assert params["hasMore"] == paginator.has_more()
 
     def test_handle_none_response(self):
         """Test handling of None response."""
         paginator = HogQLHasMorePaginator(limit=5, offset=0)
         paginator.response = None  # Simulate a None response
-        self.assertEqual(paginator.trim_results(), [])
-        self.assertFalse(paginator.has_more())
+        assert paginator.trim_results() == []
+        assert not paginator.has_more()
 
     def test_limit_context_variations(self):
         limit_context = LimitContext.QUERY
@@ -204,8 +205,8 @@ class TestHogQLHasMorePaginator(ClickhouseTestMixin, APIBaseTest):
                 paginator = HogQLHasMorePaginator.from_limit_context(
                     limit_context=limit_context, limit=case["limit"], offset=case["offset"]
                 )
-                self.assertEqual(paginator.limit, case["expected_limit"])
-                self.assertEqual(paginator.offset, case["expected_offset"])
+                assert paginator.limit == case["expected_limit"]
+                assert paginator.offset == case["expected_offset"]
 
     @patch("posthog.hogql_queries.insights.paginators.execute_hogql_query")
     def test_passes_limit_context(self, mock_execute_hogql_query: MagicMock):
@@ -215,7 +216,7 @@ class TestHogQLHasMorePaginator(ClickhouseTestMixin, APIBaseTest):
             query=cast(SelectQuery, parse_select("SELECT * FROM persons")), query_type="query type"
         )
         mock_execute_hogql_query.assert_called_once()
-        self.assertEqual(mock_execute_hogql_query.call_args.kwargs["limit_context"], limit_context)
+        assert mock_execute_hogql_query.call_args.kwargs["limit_context"] == limit_context
 
 
 class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
@@ -231,17 +232,17 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
 
         paginator = HogQLCursorPaginator(limit=10, after=cursor, order_field="start_time", order_direction="DESC")
 
-        self.assertIsNotNone(paginator.cursor_data)
+        assert paginator.cursor_data is not None
         assert paginator.cursor_data is not None  # Type narrowing for mypy
         # The cursor decoder automatically parses datetime strings back to datetime objects
-        self.assertEqual(paginator.cursor_data["order_value"], datetime(2025, 1, 6, 12, 0))
-        self.assertEqual(paginator.cursor_data["session_id"], "session_123")
+        assert paginator.cursor_data["order_value"] == datetime(2025, 1, 6, 12, 0)
+        assert paginator.cursor_data["session_id"] == "session_123"
 
     def test_invalid_cursor_raises_error(self):
         """Test that invalid cursor format raises ValueError"""
-        with self.assertRaises(ValueError) as context:
+        with pytest.raises(ValueError) as context:
             HogQLCursorPaginator(limit=10, after="invalid_cursor", order_field="start_time", order_direction="DESC")
-        self.assertIn("Invalid cursor format", str(context.exception))
+        assert "Invalid cursor format" in str(context.value)
 
     def test_cursor_extraction_from_dict_results(self):
         """Test cursor extraction when results are dicts"""
@@ -261,11 +262,11 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
 
         cursor = paginator.get_next_cursor()
 
-        self.assertIsNotNone(cursor)
+        assert cursor is not None
         assert cursor is not None  # Type narrowing for mypy
         decoded = json.loads(base64.b64decode(cursor).decode("utf-8"))
-        self.assertEqual(decoded["session_id"], "s5")
-        self.assertEqual(decoded["order_value"], "2025-01-06 06:00:00")
+        assert decoded["session_id"] == "s5"
+        assert decoded["order_value"] == "2025-01-06 06:00:00"
 
     def test_cursor_extraction_from_tuple_results_with_field_indices(self):
         """Test cursor extraction when results are tuples using field_indices"""
@@ -293,8 +294,8 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
         cursor = paginator.get_next_cursor()
         assert cursor is not None  # Type narrowing for mypy
         decoded = json.loads(base64.b64decode(cursor).decode("utf-8"))
-        self.assertEqual(decoded["session_id"], "s3")
-        self.assertEqual(decoded["order_value"], "2025-01-06 08:00:00")
+        assert decoded["session_id"] == "s3"
+        assert decoded["order_value"] == "2025-01-06 08:00:00"
 
         # Test with console_error_count ordering (different field)
         paginator2 = HogQLCursorPaginator(
@@ -307,8 +308,8 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
         cursor2 = paginator2.get_next_cursor()
         assert cursor2 is not None  # Type narrowing for mypy
         decoded2 = json.loads(base64.b64decode(cursor2).decode("utf-8"))
-        self.assertEqual(decoded2["session_id"], "s3")
-        self.assertEqual(decoded2["order_value"], 2)  # console_error_count is at index 13
+        assert decoded2["session_id"] == "s3"
+        assert decoded2["order_value"] == 2  # console_error_count is at index 13
 
     def test_no_cursor_when_no_more_results(self):
         """Test that cursor is None when there are no more results"""
@@ -321,7 +322,7 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
         paginator.response.results = paginator.results  # Only 2 items, limit is 5, so no more
 
         cursor = paginator.get_next_cursor()
-        self.assertIsNone(cursor)
+        assert cursor is None
 
     def test_where_clause_generation_desc(self):
         """Test that WHERE clause is correctly generated for DESC ordering"""
@@ -335,10 +336,10 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
         paginated_query = cast(SelectQuery, paginator.paginate(query))
 
         # Check that WHERE clause was added
-        self.assertIsNotNone(paginated_query.where)
+        assert paginated_query.where is not None
         assert paginated_query.where is not None  # Type narrowing for mypy
         where_clause = cast(CompareOperation, paginated_query.where)
-        self.assertEqual(where_clause.op.name, "Lt")  # Less than for DESC
+        assert where_clause.op.name == "Lt"  # Less than for DESC
 
     def test_where_clause_generation_asc(self):
         """Test that WHERE clause is correctly generated for ASC ordering"""
@@ -352,10 +353,10 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
         paginated_query = cast(SelectQuery, paginator.paginate(query))
 
         # Check that WHERE clause was added
-        self.assertIsNotNone(paginated_query.where)
+        assert paginated_query.where is not None
         assert paginated_query.where is not None  # Type narrowing for mypy
         where_clause = cast(CompareOperation, paginated_query.where)
-        self.assertEqual(where_clause.op.name, "Gt")  # Greater than for ASC
+        assert where_clause.op.name == "Gt"  # Greater than for ASC
 
     def test_where_clause_combines_with_existing(self):
         """Test that cursor WHERE clause is combined with existing WHERE clause"""
@@ -369,11 +370,11 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
         paginated_query = cast(SelectQuery, paginator.paginate(query))
 
         # Check that WHERE clause is now an AND combining both conditions
-        self.assertIsNotNone(paginated_query.where)
+        assert paginated_query.where is not None
         assert paginated_query.where is not None  # Type narrowing for mypy
-        self.assertIsInstance(paginated_query.where, And)
+        assert isinstance(paginated_query.where, And)
         where_clause = cast(And, paginated_query.where)
-        self.assertEqual(len(where_clause.exprs), 2)  # Should combine 2 conditions
+        assert len(where_clause.exprs) == 2  # Should combine 2 conditions
 
     def test_limit_plus_one_for_has_more_detection(self):
         """Test that paginator fetches limit+1 to detect has_more"""
@@ -385,7 +386,7 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
         # Check that limit is set to limit+1
         assert paginated_query.limit is not None  # Type narrowing for mypy
         limit_value = cast(Constant, paginated_query.limit)
-        self.assertEqual(limit_value.value, 11)
+        assert limit_value.value == 11
 
     def test_has_more_detection(self):
         """Test has_more is correctly detected when results exceed limit"""
@@ -395,11 +396,11 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
         paginator.response = MagicMock()
         paginator.response.results = [{"id": i} for i in range(6)]
 
-        self.assertTrue(paginator.has_more())
+        assert paginator.has_more()
 
         # Test with exactly limit results
         paginator.response.results = [{"id": i} for i in range(5)]
-        self.assertFalse(paginator.has_more())
+        assert not paginator.has_more()
 
     def test_trim_results_removes_extra_item(self):
         """Test that trim_results removes the extra item used for has_more detection"""
@@ -411,8 +412,8 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
 
         trimmed = paginator.trim_results()
 
-        self.assertEqual(len(trimmed), 5)
-        self.assertNotIn({"id": 5}, trimmed)
+        assert len(trimmed) == 5
+        assert {"id": 5} not in trimmed
 
     def test_response_params_includes_next_cursor(self):
         """Test that response_params includes nextCursor"""
@@ -423,11 +424,11 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
 
         params = paginator.response_params()
 
-        self.assertIn("nextCursor", params)
-        self.assertIn("hasMore", params)
-        self.assertIn("limit", params)
-        self.assertTrue(params["hasMore"])
-        self.assertIsNotNone(params["nextCursor"])
+        assert "nextCursor" in params
+        assert "hasMore" in params
+        assert "limit" in params
+        assert params["hasMore"]
+        assert params["nextCursor"] is not None
 
     def test_from_limit_context_with_field_indices(self):
         """Test from_limit_context factory method passes field_indices correctly"""
@@ -440,5 +441,5 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
             field_indices=field_indices,
         )
 
-        self.assertEqual(paginator.field_indices, field_indices)
-        self.assertEqual(paginator.order_field, "start_time")
+        assert paginator.field_indices == field_indices
+        assert paginator.order_field == "start_time"

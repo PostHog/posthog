@@ -30,9 +30,9 @@ class TestTrendsResultsFormatter(BaseTest):
             }
         ]
 
-        self.assertEqual(
-            TrendsResultsFormatter(AssistantTrendsQuery(series=[]), results).format(),
-            "Date|$pageview\n2025-01-23|242\n2025-01-24|46\n2025-01-25|0",
+        assert (
+            TrendsResultsFormatter(AssistantTrendsQuery(series=[]), results).format()
+            == "Date|$pageview\n2025-01-23|242\n2025-01-24|46\n2025-01-25|0"
         )
 
     def test_trends_multiple_series(self):
@@ -53,9 +53,9 @@ class TestTrendsResultsFormatter(BaseTest):
             },
         ]
 
-        self.assertEqual(
-            TrendsResultsFormatter(AssistantTrendsQuery(series=[]), results).format(),
-            "Date|$pageview1|$pageview2\n2025-01-23|242|46\n2025-01-24|46|0\n2025-01-25|0|242",
+        assert (
+            TrendsResultsFormatter(AssistantTrendsQuery(series=[]), results).format()
+            == "Date|$pageview1|$pageview2\n2025-01-23|242|46\n2025-01-24|46|0\n2025-01-25|0|242"
         )
 
     def test_trends_comparison(self):
@@ -79,9 +79,9 @@ class TestTrendsResultsFormatter(BaseTest):
             },
         ]
 
-        self.assertEqual(
-            TrendsResultsFormatter(AssistantTrendsQuery(series=[]), results).format(),
-            "Previous period:\nDate|$pageview\n2025-01-20|242\n2025-01-21|46\n2025-01-22|0\n\nCurrent period:\nDate|$pageview\n2025-01-23|46\n2025-01-24|0\n2025-01-25|242",
+        assert (
+            TrendsResultsFormatter(AssistantTrendsQuery(series=[]), results).format()
+            == "Previous period:\nDate|$pageview\n2025-01-20|242\n2025-01-21|46\n2025-01-22|0\n\nCurrent period:\nDate|$pageview\n2025-01-23|46\n2025-01-24|0\n2025-01-25|242"
         )
 
     def test_trends_empty_series(self):
@@ -97,9 +97,9 @@ class TestTrendsResultsFormatter(BaseTest):
             },
         ]
 
-        self.assertEqual(
-            TrendsResultsFormatter(AssistantTrendsQuery(series=[]), results).format(),
-            "Date|$pageview\n2025-01-20|242\n2025-01-21|46\n2025-01-22|0",
+        assert (
+            TrendsResultsFormatter(AssistantTrendsQuery(series=[]), results).format()
+            == "Date|$pageview\n2025-01-20|242\n2025-01-21|46\n2025-01-22|0"
         )
 
     def test_trends_breakdown_and_custom_name_label(self):
@@ -115,9 +115,9 @@ class TestTrendsResultsFormatter(BaseTest):
         }
         formatter = TrendsResultsFormatter(AssistantTrendsQuery(series=[]), [series])
 
-        self.assertEqual(formatter._extract_series_label(series), "Custom Name breakdown for the value `0`")
+        assert formatter._extract_series_label(series) == "Custom Name breakdown for the value `0`"
         series.pop("action")
-        self.assertEqual(formatter._extract_series_label(series), "$pageview breakdown for the value `0`")
+        assert formatter._extract_series_label(series) == "$pageview breakdown for the value `0`"
 
     def test_trends_aggregated_value(self):
         results = [
@@ -132,9 +132,9 @@ class TestTrendsResultsFormatter(BaseTest):
                 },
             }
         ]
-        self.assertEqual(
-            TrendsResultsFormatter(AssistantTrendsQuery(series=[]), results).format(),
-            "Date range|Aggregated value for $pageview\n2025-01-20 to 2025-01-22|993",
+        assert (
+            TrendsResultsFormatter(AssistantTrendsQuery(series=[]), results).format()
+            == "Date range|Aggregated value for $pageview\n2025-01-20 to 2025-01-22|993"
         )
 
     def test_trends_aggregated_values(self):
@@ -160,9 +160,9 @@ class TestTrendsResultsFormatter(BaseTest):
                 },
             },
         ]
-        self.assertEqual(
-            TrendsResultsFormatter(AssistantTrendsQuery(series=[]), results).format(),
-            "Date range|Aggregated value for $pageview|Aggregated value for $pageleave\n2025-01-20 to 2025-01-22|993|1000",
+        assert (
+            TrendsResultsFormatter(AssistantTrendsQuery(series=[]), results).format()
+            == "Date range|Aggregated value for $pageview|Aggregated value for $pageleave\n2025-01-20 to 2025-01-22|993|1000"
         )
 
     def test_trends_aggregated_values_with_comparison(self):
@@ -192,7 +192,7 @@ class TestTrendsResultsFormatter(BaseTest):
                 "compare_label": Compare.CURRENT,
             },
         ]
-        self.assertEqual(
-            TrendsResultsFormatter(AssistantTrendsQuery(series=[]), results).format(),
-            "Previous period:\nDate range|Aggregated value for $pageview\n2025-01-17 to 2025-01-19|993\n\nCurrent period:\nDate range|Aggregated value for $pageview\n2025-01-20 to 2025-01-22|1000",
+        assert (
+            TrendsResultsFormatter(AssistantTrendsQuery(series=[]), results).format()
+            == "Previous period:\nDate range|Aggregated value for $pageview\n2025-01-17 to 2025-01-19|993\n\nCurrent period:\nDate range|Aggregated value for $pageview\n2025-01-20 to 2025-01-22|1000"
         )

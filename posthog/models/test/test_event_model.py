@@ -125,7 +125,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
         def assertActionEventsMatch(self, action, expected_events):
             events = _get_events_for_action(action)
 
-            self.assertCountEqual([e.uuid for e in events], list(expected_events))
+            assert sorted([e.uuid for e in events]) == sorted(list(expected_events))
 
         def test_with_normal_filters(self):
             # this test also specifically tests the back to back receipt of
@@ -247,11 +247,11 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             )
 
             events = _get_events_for_action(action1)
-            self.assertEqual(len(events), 4)
-            self.assertEqual(events[0].uuid, event4_uuid)
-            self.assertEqual(events[1].uuid, event3_uuid)
-            self.assertEqual(events[2].uuid, event2_uuid)
-            self.assertEqual(events[3].uuid, event1_uuid)
+            assert len(events) == 4
+            assert events[0].uuid == event4_uuid
+            assert events[1].uuid == event3_uuid
+            assert events[2].uuid == event2_uuid
+            assert events[3].uuid == event1_uuid
 
         def test_with_href_contains(self):
             _create_person(distinct_ids=["whatever"], team=self.team)
@@ -343,10 +343,10 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             )
 
             events = _get_events_for_action(action1)
-            self.assertEqual(len(events), 3)
-            self.assertEqual(events[0].uuid, event3_uuid)
-            self.assertEqual(events[1].uuid, event2_uuid)
-            self.assertEqual(events[2].uuid, event1_uuid)
+            assert len(events) == 3
+            assert events[0].uuid == event3_uuid
+            assert events[1].uuid == event2_uuid
+            assert events[2].uuid == event1_uuid
 
         def test_with_class(self):
             _create_person(distinct_ids=["whatever"], team=self.team)
@@ -382,8 +382,8 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             )
 
             events = _get_events_for_action(action1)
-            self.assertEqual(events[0].uuid, event1_uuid)
-            self.assertEqual(len(events), 1)
+            assert events[0].uuid == event1_uuid
+            assert len(events) == 1
 
         def test_with_class_with_escaped_symbols(self):
             _create_person(distinct_ids=["whatever"], team=self.team)
@@ -408,8 +408,8 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             )
 
             events = _get_events_for_action(action1)
-            self.assertEqual(events[0].uuid, event1_uuid)
-            self.assertEqual(len(events), 1)
+            assert events[0].uuid == event1_uuid
+            assert len(events) == 1
 
         def test_with_class_with_escaped_slashes(self):
             _create_person(distinct_ids=["whatever"], team=self.team)
@@ -434,8 +434,8 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             )
 
             events = _get_events_for_action(action1)
-            self.assertEqual(events[0].uuid, event1_uuid)
-            self.assertEqual(len(events), 1)
+            assert events[0].uuid == event1_uuid
+            assert len(events) == 1
 
         def test_with_tag_matching_class_selector(self):
             _create_person(distinct_ids=["whatever"], team=self.team)
@@ -468,8 +468,8 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             )
 
             events = _get_events_for_action(action1)
-            self.assertEqual(len(events), 1)
-            self.assertEqual(events[0].uuid, event_matching_tag_uuid)
+            assert len(events) == 1
+            assert events[0].uuid == event_matching_tag_uuid
 
         def test_attributes(self):
             _create_person(distinct_ids=["whatever"], team=self.team)
@@ -485,8 +485,8 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             )
 
             events = _get_events_for_action(action1)
-            self.assertEqual(len(events), 1)
-            self.assertEqual(events[0].uuid, event1_uuid)
+            assert len(events) == 1
+            assert events[0].uuid == event1_uuid
 
         def test_filter_events_by_url(self):
             _create_person(distinct_ids=["whatever"], team=self.team)
@@ -552,20 +552,20 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             )
 
             events = _get_events_for_action(action1)
-            self.assertEqual(events[0].uuid, event2_uuid)
-            self.assertEqual(len(events), 1)
+            assert events[0].uuid == event2_uuid
+            assert len(events) == 1
 
             events = _get_events_for_action(action2)
-            self.assertEqual(events[0].uuid, event2_uuid)
-            self.assertEqual(len(events), 1)
+            assert events[0].uuid == event2_uuid
+            assert len(events) == 1
 
             events = _get_events_for_action(action3)
-            self.assertEqual(events[0].uuid, event2_uuid)
-            self.assertEqual(len(events), 1)
+            assert events[0].uuid == event2_uuid
+            assert len(events) == 1
 
             events = _get_events_for_action(action4)
-            self.assertEqual(events[0].uuid, event2_uuid)
-            self.assertEqual(len(events), 1)
+            assert events[0].uuid == event2_uuid
+            assert len(events) == 1
 
         def test_person_with_different_distinct_id(self):
             action_watch_movie = Action.objects.create(
@@ -596,8 +596,8 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             )
 
             events = _get_events_for_action(action_watch_movie)
-            self.assertEqual(events[0].uuid, event_watched_movie_uuid)
-            self.assertEqual(events[0].distinct_id, "is_now_signed_up")
+            assert events[0].uuid == event_watched_movie_uuid
+            assert events[0].distinct_id == "is_now_signed_up"
 
         def test_no_person_leakage_from_other_teams(self):
             action_watch_movie = Action.objects.create(
@@ -611,8 +611,8 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             _create_person(distinct_ids=["anonymous_user2"], team=team2)
 
             events = _get_events_for_action(action_watch_movie)
-            self.assertEqual(len(events), 1)
-            self.assertEqual(events[0].distinct_id, "anonymous_user")
+            assert len(events) == 1
+            assert events[0].distinct_id == "anonymous_user"
 
         def test_person_property(self):
             _create_person(
@@ -634,7 +634,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
                 ],
             )
             events = _get_events_for_action(action)
-            self.assertEqual(len(events), 1)
+            assert len(events) == 1
 
         def test_no_steps(self):
             _create_person(distinct_ids=["whatever"], team=self.team)
@@ -647,7 +647,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             action1 = Action.objects.create(team=self.team)
 
             events = _get_events_for_action(action1)
-            self.assertEqual(len(events), 0)
+            assert len(events) == 0
 
         def test_empty_selector_same_as_null(self):
             _create_person(distinct_ids=["whatever"], team=self.team)
@@ -665,11 +665,11 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             )
 
             events_null_selector = _get_events_for_action(action_null_selector)
-            self.assertEqual(events_null_selector[0].uuid, event1_uuid)
-            self.assertEqual(len(events_null_selector), 1)
+            assert events_null_selector[0].uuid == event1_uuid
+            assert len(events_null_selector) == 1
 
             events_empty_selector = _get_events_for_action(action_empty_selector)
-            self.assertEqual(events_empty_selector, events_null_selector)
+            assert events_empty_selector == events_null_selector
 
     return TestFilterByActions
 
@@ -681,123 +681,117 @@ class TestSelectors(BaseTest):
         selector3 = Selector("div span a")
         selector4 = Selector("div > span a")
 
-        self.assertEqual(len(selector1.parts), 3)
-        self.assertEqual(len(selector2.parts), 3)
-        self.assertEqual(len(selector3.parts), 3)
-        self.assertEqual(len(selector4.parts), 3)
+        assert len(selector1.parts) == 3
+        assert len(selector2.parts) == 3
+        assert len(selector3.parts) == 3
+        assert len(selector4.parts) == 3
 
     def test_selector_child(self):
         selector1 = Selector("div span")
-        self.assertEqual(selector1.parts[0].data, {"tag_name": "span"})
-        self.assertEqual(selector1.parts[0].direct_descendant, False)
-        self.assertEqual(selector1.parts[0].unique_order, 0)
+        assert selector1.parts[0].data == {"tag_name": "span"}
+        assert not selector1.parts[0].direct_descendant
+        assert selector1.parts[0].unique_order == 0
 
-        self.assertEqual(selector1.parts[1].data, {"tag_name": "div"})
-        self.assertEqual(selector1.parts[1].direct_descendant, False)
-        self.assertEqual(selector1.parts[1].unique_order, 0)
+        assert selector1.parts[1].data == {"tag_name": "div"}
+        assert not selector1.parts[1].direct_descendant
+        assert selector1.parts[1].unique_order == 0
 
     def test_selector_child_direct_descendant(self):
         selector1 = Selector("div > span")
-        self.assertEqual(selector1.parts[0].data, {"tag_name": "span"})
-        self.assertEqual(selector1.parts[0].direct_descendant, False)
-        self.assertEqual(selector1.parts[0].unique_order, 0)
+        assert selector1.parts[0].data == {"tag_name": "span"}
+        assert not selector1.parts[0].direct_descendant
+        assert selector1.parts[0].unique_order == 0
 
-        self.assertEqual(selector1.parts[1].data, {"tag_name": "div"})
-        self.assertEqual(selector1.parts[1].direct_descendant, True)
-        self.assertEqual(selector1.parts[1].unique_order, 0)
+        assert selector1.parts[1].data == {"tag_name": "div"}
+        assert selector1.parts[1].direct_descendant
+        assert selector1.parts[1].unique_order == 0
 
     def test_selector_attribute(self):
         selector1 = Selector('div[data-id="5"] > span')
 
-        self.assertEqual(selector1.parts[0].data, {"tag_name": "span"})
-        self.assertEqual(selector1.parts[0].direct_descendant, False)
-        self.assertEqual(selector1.parts[0].unique_order, 0)
+        assert selector1.parts[0].data == {"tag_name": "span"}
+        assert not selector1.parts[0].direct_descendant
+        assert selector1.parts[0].unique_order == 0
 
-        self.assertEqual(
-            selector1.parts[1].data,
-            {"tag_name": "div", "attributes__attr__data-id": "5"},
-        )
-        self.assertEqual(selector1.parts[1].direct_descendant, True)
-        self.assertEqual(selector1.parts[1].unique_order, 0)
+        assert selector1.parts[1].data == {"tag_name": "div", "attributes__attr__data-id": "5"}
+        assert selector1.parts[1].direct_descendant
+        assert selector1.parts[1].unique_order == 0
 
     def test_selector_id(self):
         selector1 = Selector('[id="5"] > span')
 
-        self.assertEqual(selector1.parts[0].data, {"tag_name": "span"})
-        self.assertEqual(selector1.parts[0].direct_descendant, False)
-        self.assertEqual(selector1.parts[0].unique_order, 0)
+        assert selector1.parts[0].data == {"tag_name": "span"}
+        assert not selector1.parts[0].direct_descendant
+        assert selector1.parts[0].unique_order == 0
 
-        self.assertEqual(selector1.parts[1].data, {"attr_id": "5"})
-        self.assertEqual(selector1.parts[1].direct_descendant, True)
-        self.assertEqual(selector1.parts[1].unique_order, 0)
+        assert selector1.parts[1].data == {"attr_id": "5"}
+        assert selector1.parts[1].direct_descendant
+        assert selector1.parts[1].unique_order == 0
 
     def test_selector_attribute_with_spaces(self):
         selector1 = Selector('  [data-id="foo bar]"]  ')
 
-        self.assertEqual(selector1.parts[0].data, {"attributes__attr__data-id": "foo bar]"})
-        self.assertEqual(selector1.parts[0].direct_descendant, False)
-        self.assertEqual(selector1.parts[0].unique_order, 0)
+        assert selector1.parts[0].data == {"attributes__attr__data-id": "foo bar]"}
+        assert not selector1.parts[0].direct_descendant
+        assert selector1.parts[0].unique_order == 0
 
     def test_selector_with_spaces(self):
         selector1 = Selector("span    ")
 
-        self.assertEqual(selector1.parts[0].data, {"tag_name": "span"})
-        self.assertEqual(selector1.parts[0].direct_descendant, False)
-        self.assertEqual(selector1.parts[0].unique_order, 0)
+        assert selector1.parts[0].data == {"tag_name": "span"}
+        assert not selector1.parts[0].direct_descendant
+        assert selector1.parts[0].unique_order == 0
 
     def test_class(self):
         selector1 = Selector("div.classone.classtwo > span")
 
-        self.assertEqual(selector1.parts[0].data, {"tag_name": "span"})
-        self.assertEqual(selector1.parts[0].direct_descendant, False)
-        self.assertEqual(selector1.parts[0].unique_order, 0)
+        assert selector1.parts[0].data == {"tag_name": "span"}
+        assert not selector1.parts[0].direct_descendant
+        assert selector1.parts[0].unique_order == 0
 
-        self.assertEqual(
-            selector1.parts[1].data,
-            {"tag_name": "div", "attr_class__contains": ["classone", "classtwo"]},
-        )
-        self.assertEqual(selector1.parts[1].direct_descendant, True)
-        self.assertEqual(selector1.parts[1].unique_order, 0)
+        assert selector1.parts[1].data == {"tag_name": "div", "attr_class__contains": ["classone", "classtwo"]}
+        assert selector1.parts[1].direct_descendant
+        assert selector1.parts[1].unique_order == 0
 
     def test_nth_child(self):
         selector1 = Selector("div > span:nth-child(3)")
-        self.assertEqual(selector1.parts[0].data, {"tag_name": "span", "nth_child": "3"})
-        self.assertEqual(selector1.parts[0].direct_descendant, False)
-        self.assertEqual(selector1.parts[0].unique_order, 0)
+        assert selector1.parts[0].data == {"tag_name": "span", "nth_child": "3"}
+        assert not selector1.parts[0].direct_descendant
+        assert selector1.parts[0].unique_order == 0
 
-        self.assertEqual(selector1.parts[1].data, {"tag_name": "div"})
-        self.assertEqual(selector1.parts[1].direct_descendant, True)
-        self.assertEqual(selector1.parts[1].unique_order, 0)
+        assert selector1.parts[1].data == {"tag_name": "div"}
+        assert selector1.parts[1].direct_descendant
+        assert selector1.parts[1].unique_order == 0
 
     def test_unique_order(self):
         selector1 = Selector("div > div")
-        self.assertEqual(selector1.parts[0].data, {"tag_name": "div"})
-        self.assertEqual(selector1.parts[0].direct_descendant, False)
-        self.assertEqual(selector1.parts[0].unique_order, 0)
+        assert selector1.parts[0].data == {"tag_name": "div"}
+        assert not selector1.parts[0].direct_descendant
+        assert selector1.parts[0].unique_order == 0
 
-        self.assertEqual(selector1.parts[1].data, {"tag_name": "div"})
-        self.assertEqual(selector1.parts[1].direct_descendant, True)
-        self.assertEqual(selector1.parts[1].unique_order, 1)
+        assert selector1.parts[1].data == {"tag_name": "div"}
+        assert selector1.parts[1].direct_descendant
+        assert selector1.parts[1].unique_order == 1
 
     def test_asterisk_in_query(self):
         # Sometimes people randomly add * but they don't do very much, so just remove them
         selector1 = Selector("div > *")
-        self.assertEqual(selector1.parts[0].data, {"tag_name": "div"})
-        self.assertEqual(selector1.parts[0].direct_descendant, False)
-        self.assertEqual(selector1.parts[0].unique_order, 0)
-        self.assertEqual(len(selector1.parts), 1)
+        assert selector1.parts[0].data == {"tag_name": "div"}
+        assert not selector1.parts[0].direct_descendant
+        assert selector1.parts[0].unique_order == 0
+        assert len(selector1.parts) == 1
 
     def test_asterisk_in_middle_of_query(self):
         selector1 = Selector("div > * > div")
-        self.assertEqual(selector1.parts[0].data, {"tag_name": "div"})
-        self.assertEqual(selector1.parts[0].direct_descendant, False)
-        self.assertEqual(selector1.parts[0].unique_order, 0)
+        assert selector1.parts[0].data == {"tag_name": "div"}
+        assert not selector1.parts[0].direct_descendant
+        assert selector1.parts[0].unique_order == 0
 
-        self.assertEqual(selector1.parts[1].data, {"tag_name": "div"})
-        self.assertEqual(selector1.parts[1].direct_descendant, False)
-        self.assertEqual(selector1.parts[1].unique_order, 1)
+        assert selector1.parts[1].data == {"tag_name": "div"}
+        assert not selector1.parts[1].direct_descendant
+        assert selector1.parts[1].unique_order == 1
 
     def test_slash_colon(self):
         # Make sure we strip these for full text search to work in the database
         selector1 = Selector("div#root\\:id")
-        self.assertEqual(selector1.parts[0].data, {"tag_name": "div", "attr_id": "root:id"})
+        assert selector1.parts[0].data == {"tag_name": "div", "attr_id": "root:id"}

@@ -183,8 +183,8 @@ class TestClickhouseStickiness(
             team=self.team,
         )
 
-        self.assertEqual(data[0]["days"], [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
-        self.assertEqual(data[0]["data"], [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+        assert data[0]["days"] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+        assert data[0]["data"] == [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
         self.team.timezone = "US/Pacific"
         self.team.save()
@@ -202,5 +202,5 @@ class TestClickhouseStickiness(
             team=self.team,
         )
 
-        self.assertEqual(data_pacific[0]["days"], [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
-        self.assertEqual(data_pacific[0]["data"], [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+        assert data_pacific[0]["days"] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+        assert data_pacific[0]["data"] == [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]

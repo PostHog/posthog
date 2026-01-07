@@ -63,14 +63,12 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
 
             result = funnel.run()
 
-            self.assertEqual(result[0]["count"], 1)
-            self.assertEqual(
-                result[1]["average_conversion_time"], 3600
-            )  # one hour to convert, disregard the incomplete tries
-            self.assertEqual(result[1]["median_conversion_time"], 3600)
+            assert result[0]["count"] == 1
+            assert result[1]["average_conversion_time"] == 3600  # one hour to convert, disregard the incomplete tries
+            assert result[1]["median_conversion_time"] == 3600
 
             # check ordering of people in every step
-            self.assertCountEqual(self._get_actor_ids_at_step(filter, 1), [people["person1"].uuid])
+            assert sorted(self._get_actor_ids_at_step(filter, 1)) == sorted([people["person1"].uuid])
 
         def test_funnel_step_conversion_times(self):
             filters = {
@@ -110,13 +108,13 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
 
             result = funnel.run()
 
-            self.assertEqual(result[0]["average_conversion_time"], None)
-            self.assertEqual(result[1]["average_conversion_time"], 6000)
-            self.assertEqual(result[2]["average_conversion_time"], 5400)
+            assert result[0]["average_conversion_time"] is None
+            assert result[1]["average_conversion_time"] == 6000
+            assert result[2]["average_conversion_time"] == 5400
 
-            self.assertEqual(result[0]["median_conversion_time"], None)
-            self.assertEqual(result[1]["median_conversion_time"], 7200)
-            self.assertEqual(result[2]["median_conversion_time"], 5400)
+            assert result[0]["median_conversion_time"] is None
+            assert result[1]["median_conversion_time"] == 7200
+            assert result[2]["median_conversion_time"] == 5400
 
         def test_funnel_times_with_different_conversion_windows(self):
             filters = {
@@ -165,25 +163,23 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
             )
 
             result = funnel.run()
-            self.assertEqual(result[0]["count"], 3)
-            self.assertEqual(result[1]["count"], 2)
-            self.assertEqual(result[1]["average_conversion_time"], 600)
+            assert result[0]["count"] == 3
+            assert result[1]["count"] == 2
+            assert result[1]["average_conversion_time"] == 600
 
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 1),
+            assert sorted(self._get_actor_ids_at_step(filter, 1)) == sorted(
                 [
                     people["stopped_after_signup1"].uuid,
                     people["stopped_after_signup2"].uuid,
                     people["stopped_after_signup3"].uuid,
-                ],
+                ]
             )
 
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 2),
+            assert sorted(self._get_actor_ids_at_step(filter, 2)) == sorted(
                 [
                     people["stopped_after_signup1"].uuid,
                     people["stopped_after_signup3"].uuid,
-                ],
+                ]
             )
 
             filter = filter.shallow_clone({"funnel_window_interval": 5, "funnel_window_interval_unit": "minute"})
@@ -191,23 +187,19 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
             funnel = Funnel(filter, self.team)
             result4 = funnel.run()
 
-            self.assertNotEqual(result, result4)
-            self.assertEqual(result4[0]["count"], 3)
-            self.assertEqual(result4[1]["count"], 1)
-            self.assertEqual(result4[1]["average_conversion_time"], 300)
+            assert result != result4
+            assert result4[0]["count"] == 3
+            assert result4[1]["count"] == 1
+            assert result4[1]["average_conversion_time"] == 300
 
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 1),
+            assert sorted(self._get_actor_ids_at_step(filter, 1)) == sorted(
                 [
                     people["stopped_after_signup1"].uuid,
                     people["stopped_after_signup2"].uuid,
                     people["stopped_after_signup3"].uuid,
-                ],
+                ]
             )
 
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 2),
-                [people["stopped_after_signup1"].uuid],
-            )
+            assert sorted(self._get_actor_ids_at_step(filter, 2)) == sorted([people["stopped_after_signup1"].uuid])
 
     return TestFunnelConversionTime

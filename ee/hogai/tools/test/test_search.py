@@ -1,5 +1,6 @@
 from uuid import uuid4
 
+import pytest
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -35,11 +36,11 @@ class TestSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
     async def test_run_docs_search_without_api_key(self):
         with patch("ee.hogai.tools.search.settings") as mock_settings:
             mock_settings.INKEEP_API_KEY = None
-            with self.assertRaises(MaxToolFatalError) as context:
+            with pytest.raises(MaxToolFatalError) as context:
                 await self.tool._arun_impl(kind="docs", query="How to use feature flags?")
 
-            error_message = str(context.exception)
-            self.assertIn("not available", error_message.lower())
+            error_message = str(context.value)
+            assert "not available" in error_message.lower()
 
     async def test_run_docs_search_with_api_key(self):
         mock_docs_tool = MagicMock()
@@ -53,16 +54,16 @@ class TestSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
             result, artifact = await self.tool._arun_impl(kind="docs", query="How to use feature flags?")
 
             mock_docs_tool.execute.assert_called_once_with("How to use feature flags?", self.tool_call_id)
-            self.assertEqual(result, "")
-            self.assertIsNotNone(artifact)
+            assert result == ""
+            assert artifact is not None
 
     async def test_run_unknown_kind(self):
-        with self.assertRaises(MaxToolRetryableError) as context:
+        with pytest.raises(MaxToolRetryableError) as context:
             await self.tool._arun_impl(kind="unknown", query="test")
 
-        error_message = str(context.exception)
-        self.assertIn("Invalid entity kind", error_message)
-        self.assertIn("unknown", error_message)
+        error_message = str(context.value)
+        assert "Invalid entity kind" in error_message
+        assert "unknown" in error_message
 
 
 class TestInkeepDocsSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
@@ -123,9 +124,9 @@ class TestInkeepDocsSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
             count=2, docs=f"{expected_doc_1}\n\n---\n\n{expected_doc_2}"
         )
 
-        self.assertEqual(result, expected_result)
+        assert result == expected_result
         mock_llm_class.assert_called_once()
-        self.assertEqual(mock_llm_class.call_args.kwargs["model"], "inkeep-rag")
-        self.assertEqual(mock_llm_class.call_args.kwargs["base_url"], "https://api.inkeep.com/v1/")
-        self.assertEqual(mock_llm_class.call_args.kwargs["api_key"], "test-inkeep-key")
-        self.assertEqual(mock_llm_class.call_args.kwargs["streaming"], False)
+        assert mock_llm_class.call_args.kwargs["model"] == "inkeep-rag"
+        assert mock_llm_class.call_args.kwargs["base_url"] == "https://api.inkeep.com/v1/"
+        assert mock_llm_class.call_args.kwargs["api_key"] == "test-inkeep-key"
+        assert not mock_llm_class.call_args.kwargs["streaming"]

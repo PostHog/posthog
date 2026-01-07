@@ -72,8 +72,8 @@ class TestModelPath(BaseTest):
         model_paths = DataWarehouseModelPath.objects.create_from_saved_query(saved_query)
 
         paths = [model_path.path for model_path in model_paths]
-        self.assertEqual(len(paths), 1)
-        self.assertIn([saved_query.id.hex], paths)
+        assert len(paths) == 1
+        assert [saved_query.id.hex] in paths
 
     def test_create_from_posthog_root_nodes_query(self):
         """Test creation of a model path from a query that reads from PostHog root tables."""
@@ -94,9 +94,9 @@ class TestModelPath(BaseTest):
         model_paths = DataWarehouseModelPath.objects.create_from_saved_query(saved_query)
         paths = [model_path.path for model_path in model_paths]
 
-        self.assertEqual(len(paths), 2)
-        self.assertIn(["events", saved_query.id.hex], paths)
-        self.assertIn(["persons", saved_query.id.hex], paths)
+        assert len(paths) == 2
+        assert ["events", saved_query.id.hex] in paths
+        assert ["persons", saved_query.id.hex] in paths
 
     def test_create_from_warehouse_table_old_notation_nodes_query(self):
         """Test creation of a model path from a query that reads from a managed source using old notation."""
@@ -118,8 +118,8 @@ class TestModelPath(BaseTest):
         model_paths = DataWarehouseModelPath.objects.create_from_saved_query(saved_query)
         paths = [model_path.path for model_path in model_paths]
 
-        self.assertEqual(len(paths), 1)
-        self.assertIn([table.id.hex, saved_query.id.hex], paths)
+        assert len(paths) == 1
+        assert [table.id.hex, saved_query.id.hex] in paths
 
     def test_create_from_warehouse_table_new_notation_nodes_query(self):
         """Test creation of a model path from a query that reads from a managed source using new notation."""
@@ -141,8 +141,8 @@ class TestModelPath(BaseTest):
         model_paths = DataWarehouseModelPath.objects.create_from_saved_query(saved_query)
         paths = [model_path.path for model_path in model_paths]
 
-        self.assertEqual(len(paths), 1)
-        self.assertIn([table.id.hex, saved_query.id.hex], paths)
+        assert len(paths) == 1
+        assert [table.id.hex, saved_query.id.hex] in paths
 
     def test_create_from_table_functions_root_nodes_query(self):
         query = "select * from numbers(10)"
@@ -155,8 +155,8 @@ class TestModelPath(BaseTest):
         model_paths = DataWarehouseModelPath.objects.create_from_saved_query(saved_query)
         paths = [model_path.path for model_path in model_paths]
 
-        self.assertEqual(len(paths), 1)
-        self.assertIn(["numbers", saved_query.id.hex], paths)
+        assert len(paths) == 1
+        assert ["numbers", saved_query.id.hex] in paths
 
     def test_create_from_existing_path(self):
         """Test creation of a model path from a query that reads from another query."""
@@ -185,13 +185,13 @@ class TestModelPath(BaseTest):
         parent_paths = [model_path.path for model_path in parent_model_paths]
         child_paths = [model_path.path for model_path in child_model_paths]
 
-        self.assertEqual(len(parent_paths), 2)
-        self.assertIn(["events", parent_saved_query.id.hex], parent_paths)
-        self.assertIn(["persons", parent_saved_query.id.hex], parent_paths)
+        assert len(parent_paths) == 2
+        assert ["events", parent_saved_query.id.hex] in parent_paths
+        assert ["persons", parent_saved_query.id.hex] in parent_paths
 
-        self.assertEqual(len(child_paths), 2)
-        self.assertIn(["events", parent_saved_query.id.hex, child_saved_query.id.hex], child_paths)
-        self.assertIn(["persons", parent_saved_query.id.hex, child_saved_query.id.hex], child_paths)
+        assert len(child_paths) == 2
+        assert ["events", parent_saved_query.id.hex, child_saved_query.id.hex] in child_paths
+        assert ["persons", parent_saved_query.id.hex, child_saved_query.id.hex] in child_paths
 
     def test_update_path_from_saved_query(self):
         """Test update of a model path from a query that reads from another query."""
@@ -236,10 +236,10 @@ class TestModelPath(BaseTest):
         ).all()
         grand_child_paths = [model_path.path for model_path in grand_child_refreshed_model_paths]
 
-        self.assertEqual(len(child_paths), 1)
-        self.assertIn(["events", child_saved_query.id.hex], child_paths)
-        self.assertEqual(len(grand_child_paths), 1)
-        self.assertIn(["events", child_saved_query.id.hex, grand_child_saved_query.id.hex], grand_child_paths)
+        assert len(child_paths) == 1
+        assert ["events", child_saved_query.id.hex] in child_paths
+        assert len(grand_child_paths) == 1
+        assert ["events", child_saved_query.id.hex, grand_child_saved_query.id.hex] in grand_child_paths
 
     def test_get_dag(self):
         """Test the generation of a DAG with a couple simple models."""
@@ -267,16 +267,16 @@ class TestModelPath(BaseTest):
 
         dag = DataWarehouseModelPath.objects.get_dag(team=self.team)
 
-        self.assertIn((parent_saved_query.id.hex, child_saved_query.id.hex), dag.edges)
-        self.assertIn(("events", parent_saved_query.id.hex), dag.edges)
-        self.assertIn(("persons", parent_saved_query.id.hex), dag.edges)
-        self.assertEqual(len(dag.edges), 3)
+        assert (parent_saved_query.id.hex, child_saved_query.id.hex) in dag.edges
+        assert ("events", parent_saved_query.id.hex) in dag.edges
+        assert ("persons", parent_saved_query.id.hex) in dag.edges
+        assert len(dag.edges) == 3
 
-        self.assertIn((child_saved_query.id.hex, NodeType.SAVED_QUERY), dag.nodes)
-        self.assertIn((parent_saved_query.id.hex, NodeType.SAVED_QUERY), dag.nodes)
-        self.assertIn(("events", NodeType.POSTHOG), dag.nodes)
-        self.assertIn(("persons", NodeType.POSTHOG), dag.nodes)
-        self.assertEqual(len(dag.nodes), 4)
+        assert (child_saved_query.id.hex, NodeType.SAVED_QUERY) in dag.nodes
+        assert (parent_saved_query.id.hex, NodeType.SAVED_QUERY) in dag.nodes
+        assert ("events", NodeType.POSTHOG) in dag.nodes
+        assert ("persons", NodeType.POSTHOG) in dag.nodes
+        assert len(dag.nodes) == 4
 
     def test_update_child_when_parent_has_multiple_paths_does_not_crash(self):
         """Test updating a child model when its parent has multiple paths doesn't crash.
@@ -319,7 +319,7 @@ class TestModelPath(BaseTest):
         parent_paths = list(
             DataWarehouseModelPath.objects.filter(saved_query=parent_saved_query).values_list("path", flat=True)
         )
-        self.assertEqual(len(parent_paths), 2)
+        assert len(parent_paths) == 2
         child_saved_query.query = {"query": "select event, properties from parent where event = 'login'"}
         child_saved_query.save()
 
@@ -328,11 +328,11 @@ class TestModelPath(BaseTest):
         grandchild_paths = list(
             DataWarehouseModelPath.objects.filter(saved_query=grandchild_saved_query).values_list("path", flat=True)
         )
-        self.assertGreaterEqual(len(grandchild_paths), 1)
+        assert len(grandchild_paths) >= 1
         # verify the lineage is still correct
-        self.assertEqual(grandchild_paths[0][-1], grandchild_saved_query.id.hex)
-        self.assertEqual(grandchild_paths[0][-2], child_saved_query.id.hex)
-        self.assertEqual(grandchild_paths[0][-3], parent_saved_query.id.hex)
+        assert grandchild_paths[0][-1] == grandchild_saved_query.id.hex
+        assert grandchild_paths[0][-2] == child_saved_query.id.hex
+        assert grandchild_paths[0][-3] == parent_saved_query.id.hex
 
     def test_creating_cycles_via_updates_raises_exception(self):
         """Test cycles cannot be created just by updating queries that select from each other."""

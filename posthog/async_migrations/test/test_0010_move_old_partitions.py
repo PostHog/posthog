@@ -76,7 +76,7 @@ class Test0010MoveOldPartitions(AsyncMigrationBaseTest):
         super().tearDown()
 
     def test_completes_successfully(self):
-        self.assertTrue(run_migration())
+        assert run_migration()
 
         # this test is not very helpful, but we will at least catch if this changes
-        self.assertEqual(len(MIGRATION_DEFINITION.operations), FuzzyInt(5, 12))
+        assert len(MIGRATION_DEFINITION.operations) == FuzzyInt(5, 12)

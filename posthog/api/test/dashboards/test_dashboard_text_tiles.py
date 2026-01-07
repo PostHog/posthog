@@ -1,5 +1,5 @@
 import datetime
-from typing import Optional, Union
+from typing import Union
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, QueryMatchingTest
@@ -19,7 +19,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
 
     @staticmethod
-    def _serialised_user(user: Optional[User]) -> Optional[dict[str, Optional[Union[int, str]]]]:
+    def _serialised_user(user: User | None) -> dict[str, Union[int, str] | None] | None:
         if user is None:
             return None
 
@@ -38,9 +38,9 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
     def _expected_text(
         self,
         body: str,
-        created_by: Optional[User] = None,
-        last_modified_by: Optional[User] = None,
-        text_id: Optional[int] = None,
+        created_by: User | None = None,
+        last_modified_by: User | None = None,
+        text_id: int | None = None,
         last_modified_at: str = "2022-04-01T12:45:00Z",
     ) -> dict:
         if not created_by:
@@ -61,11 +61,11 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
     def _expected_tile_with_text(
         self,
         body: str,
-        tile_id: Optional[int] = None,
-        created_by: Optional[User] = None,
-        last_modified_by: Optional[User] = None,
-        text_id: Optional[int] = None,
-        color: Optional[str] = None,
+        tile_id: int | None = None,
+        created_by: User | None = None,
+        last_modified_by: User | None = None,
+        text_id: int | None = None,
+        color: str | None = None,
         last_modified_at: str = "2022-04-01T12:45:00Z",
     ) -> dict:
         if not tile_id:
@@ -89,7 +89,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
         }
 
     @staticmethod
-    def _tile_layout(lg: Optional[dict] = None) -> dict:
+    def _tile_layout(lg: dict | None = None) -> dict:
         if lg is None:
             lg = {"x": "0", "y": "0", "w": "6", "h": "5"}
 
@@ -193,7 +193,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
             # can send just tile id and deleted flag
             {"tiles": [{"id": last_tile["id"], "deleted": True}]},
         )
-        self.assertEqual(delete_response.status_code, status.HTTP_200_OK)
+        assert delete_response.status_code == status.HTTP_200_OK
 
         dashboard_json = self.dashboard_api.get_dashboard(dashboard_id)
         tiles = dashboard_json["tiles"]
@@ -237,7 +237,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
             {"tiles": [{"text": {"body": valid_text}}]},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         # Test with 4001 characters (should fail)
         invalid_text = "a" * 4001
@@ -245,12 +245,12 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
             {"tiles": [{"text": {"body": invalid_text}}]},
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         response_data = response.json()
-        self.assertEqual(response_data["type"], "validation_error")
-        self.assertEqual(response_data["code"], "max_length")
-        self.assertEqual(response_data["detail"], "Text body cannot exceed 4000 characters")
-        self.assertEqual(response_data["attr"], "text__body")
+        assert response_data["type"] == "validation_error"
+        assert response_data["code"] == "max_length"
+        assert response_data["detail"] == "Text body cannot exceed 4000 characters"
+        assert response_data["attr"] == "text__body"
 
     def test_cannot_update_text_tile_with_body_over_4000_characters(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
@@ -263,9 +263,9 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
             {"tiles": [{"id": tile["id"], "text": {**tile["text"], "body": invalid_text}}]},
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         response_data = response.json()
-        self.assertEqual(response_data["type"], "validation_error")
-        self.assertEqual(response_data["code"], "max_length")
-        self.assertEqual(response_data["detail"], "Text body cannot exceed 4000 characters")
-        self.assertEqual(response_data["attr"], "text__body")
+        assert response_data["type"] == "validation_error"
+        assert response_data["code"] == "max_length"
+        assert response_data["detail"] == "Text body cannot exceed 4000 characters"
+        assert response_data["attr"] == "text__body"

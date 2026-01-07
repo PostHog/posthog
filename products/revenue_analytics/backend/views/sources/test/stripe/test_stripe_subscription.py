@@ -1,3 +1,5 @@
+import pytest
+
 from posthog.temporal.data_imports.sources.stripe.constants import SUBSCRIPTION_RESOURCE_NAME
 
 from products.revenue_analytics.backend.views.schemas.subscription import SCHEMA as SUBSCRIPTION_SCHEMA
@@ -73,7 +75,7 @@ class TestSubscriptionStripeBuilder(StripeSourceBaseTest):
         """Test that build returns none when source is None."""
         handle = self.create_stripe_handle_without_source()
 
-        with self.assertRaises(ValueError):
+        with pytest.raises(ValueError):
             build(handle)
 
     def test_subscription_query_contains_required_fields(self):
@@ -84,9 +86,9 @@ class TestSubscriptionStripeBuilder(StripeSourceBaseTest):
         query_sql = query.query.to_hogql()
 
         # Check for specific fields in the query based on the subscription schema
-        self.assertIn("id", query_sql)
-        self.assertIn("source_label", query_sql)
+        assert "id" in query_sql
+        assert "source_label" in query_sql
 
         # Check that source_label contains the expected prefix
         expected_prefix = f"stripe.{self.external_data_source.prefix}"
-        self.assertIn(f"'{expected_prefix}'", query_sql)
+        assert f"'{expected_prefix}'" in query_sql

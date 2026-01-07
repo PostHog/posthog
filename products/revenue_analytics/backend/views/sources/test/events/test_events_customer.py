@@ -33,7 +33,7 @@ class TestCustomerEventsBuilder(EventsSourceBaseTest):
 
         # Should use DISTINCT in the events subquery to get unique persons
         query_sql = query.query.to_hogql()
-        self.assertIn("SELECT DISTINCT", query_sql)
+        assert "SELECT DISTINCT" in query_sql
         self.assertQueryMatchesSnapshot(query_sql, replace_all_numbers=True)
 
     def test_query_structure_contains_required_fields(self):

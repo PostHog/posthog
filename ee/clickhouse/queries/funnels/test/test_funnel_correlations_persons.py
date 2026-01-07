@@ -126,7 +126,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         )
         _, serialized_actors, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
-        self.assertCountEqual([str(val["id"]) for val in serialized_actors], success_target_persons)
+        assert sorted([str(val["id"]) for val in serialized_actors]) == sorted(success_target_persons)
 
         # test negatively_related failures
         filter = filter.shallow_clone(
@@ -141,7 +141,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
 
         _, serialized_actors, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
-        self.assertCountEqual([str(val["id"]) for val in serialized_actors], failure_target_persons)
+        assert sorted([str(val["id"]) for val in serialized_actors]) == sorted(failure_target_persons)
 
         # test positively_related failures
         filter = filter.shallow_clone(
@@ -155,7 +155,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         )
         _, serialized_actors, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
-        self.assertCountEqual([str(val["id"]) for val in serialized_actors], [str(person_fail.uuid)])
+        assert sorted([str(val["id"]) for val in serialized_actors]) == sorted([str(person_fail.uuid)])
 
         # test negatively_related successes
         filter = filter.shallow_clone(
@@ -169,7 +169,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         )
         _, serialized_actors, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
-        self.assertCountEqual([str(val["id"]) for val in serialized_actors], [str(person_succ.uuid)])
+        assert sorted([str(val["id"]) for val in serialized_actors]) == sorted([str(person_succ.uuid)])
 
         # test all positively_related
         filter = filter.shallow_clone(
@@ -183,9 +183,8 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         )
         _, serialized_actors, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
-        self.assertCountEqual(
-            [str(val["id"]) for val in serialized_actors],
-            [*success_target_persons, str(person_fail.uuid)],
+        assert sorted([str(val["id"]) for val in serialized_actors]) == sorted(
+            [*success_target_persons, str(person_fail.uuid)]
         )
 
         # test all negatively_related
@@ -200,9 +199,8 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         )
         _, serialized_actors, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
-        self.assertCountEqual(
-            [str(val["id"]) for val in serialized_actors],
-            [*failure_target_persons, str(person_succ.uuid)],
+        assert sorted([str(val["id"]) for val in serialized_actors]) == sorted(
+            [*failure_target_persons, str(person_succ.uuid)]
         )
 
     @patch("posthog.tasks.calculate_cohort.insert_cohort_from_insight_filter.delay")
@@ -256,9 +254,9 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
 
         cohort = Cohort.objects.get(pk=cohort_id)
         people = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual(cohort.errors_calculating, 0)
-        self.assertEqual(people.count(), 5)
-        self.assertEqual(cohort.count, 5)
+        assert cohort.errors_calculating == 0
+        assert people.count() == 5
+        assert cohort.count == 5
 
     def test_people_arent_returned_multiple_times(self):
         people = journeys_for(
@@ -299,7 +297,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         )
         _, serialized_actors, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
-        self.assertCountEqual([str(val["id"]) for val in serialized_actors], [str(people["user_1"].uuid)])
+        assert sorted([str(val["id"]) for val in serialized_actors]) == sorted([str(people["user_1"].uuid)])
 
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-02 00:00:00.000Z")
@@ -360,22 +358,19 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         )
         _, results, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
-        self.assertEqual(results[0]["id"], p1.uuid)
-        self.assertEqual(
-            results[0]["matched_recordings"],
-            [
-                {
-                    "events": [
-                        {
-                            "timestamp": timezone.now() + timedelta(minutes=3),
-                            "uuid": UUID("21111111-1111-1111-1111-111111111111"),
-                            "window_id": "w2",
-                        }
-                    ],
-                    "session_id": "s2",
-                }
-            ],
-        )
+        assert results[0]["id"] == p1.uuid
+        assert results[0]["matched_recordings"] == [
+            {
+                "events": [
+                    {
+                        "timestamp": timezone.now() + timedelta(minutes=3),
+                        "uuid": UUID("21111111-1111-1111-1111-111111111111"),
+                        "window_id": "w2",
+                    }
+                ],
+                "session_id": "s2",
+            }
+        ]
 
         # Drop off filter
         filter = Filter(
@@ -399,22 +394,19 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         )
         _, results, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
-        self.assertEqual(results[0]["id"], p1.uuid)
-        self.assertEqual(
-            results[0]["matched_recordings"],
-            [
-                {
-                    "events": [
-                        {
-                            "timestamp": timezone.now() + timedelta(minutes=3),
-                            "uuid": UUID("21111111-1111-1111-1111-111111111111"),
-                            "window_id": "w2",
-                        }
-                    ],
-                    "session_id": "s2",
-                }
-            ],
-        )
+        assert results[0]["id"] == p1.uuid
+        assert results[0]["matched_recordings"] == [
+            {
+                "events": [
+                    {
+                        "timestamp": timezone.now() + timedelta(minutes=3),
+                        "uuid": UUID("21111111-1111-1111-1111-111111111111"),
+                        "window_id": "w2",
+                    }
+                ],
+                "session_id": "s2",
+            }
+        ]
 
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-02 00:00:00.000Z")
@@ -471,22 +463,19 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         )
         _, results, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
-        self.assertEqual(results[0]["id"], p1.uuid)
-        self.assertEqual(
-            results[0]["matched_recordings"],
-            [
-                {
-                    "events": [
-                        {
-                            "timestamp": timezone.now() + timedelta(minutes=3),
-                            "uuid": UUID("21111111-1111-1111-1111-111111111111"),
-                            "window_id": "w2",
-                        }
-                    ],
-                    "session_id": "s2",
-                }
-            ],
-        )
+        assert results[0]["id"] == p1.uuid
+        assert results[0]["matched_recordings"] == [
+            {
+                "events": [
+                    {
+                        "timestamp": timezone.now() + timedelta(minutes=3),
+                        "uuid": UUID("21111111-1111-1111-1111-111111111111"),
+                        "window_id": "w2",
+                    }
+                ],
+                "session_id": "s2",
+            }
+        ]
 
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-02 00:00:00.000Z")
@@ -587,23 +576,20 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         )
         _, results, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["id"], p1.uuid)
-        self.assertEqual(
-            results[0]["matched_recordings"],
-            [
-                {
-                    "events": [
-                        {
-                            "timestamp": timezone.now() + timedelta(minutes=3),
-                            "uuid": UUID("31111111-1111-1111-1111-111111111111"),
-                            "window_id": "w2",
-                        }
-                    ],
-                    "session_id": "s2",
-                }
-            ],
-        )
+        assert len(results) == 1
+        assert results[0]["id"] == p1.uuid
+        assert results[0]["matched_recordings"] == [
+            {
+                "events": [
+                    {
+                        "timestamp": timezone.now() + timedelta(minutes=3),
+                        "uuid": UUID("31111111-1111-1111-1111-111111111111"),
+                        "window_id": "w2",
+                    }
+                ],
+                "session_id": "s2",
+            }
+        ]
 
         # Drop off filter
         filter = Filter(
@@ -631,19 +617,16 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         )
         _, results, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
-        self.assertEqual(results[0]["id"], p2.uuid)
-        self.assertEqual(
-            results[0]["matched_recordings"],
-            [
-                {
-                    "events": [
-                        {
-                            "timestamp": timezone.now(),
-                            "uuid": UUID("51111111-1111-1111-1111-111111111111"),
-                            "window_id": "w1",
-                        }
-                    ],
-                    "session_id": "s3",
-                }
-            ],
-        )
+        assert results[0]["id"] == p2.uuid
+        assert results[0]["matched_recordings"] == [
+            {
+                "events": [
+                    {
+                        "timestamp": timezone.now(),
+                        "uuid": UUID("51111111-1111-1111-1111-111111111111"),
+                        "window_id": "w1",
+                    }
+                ],
+                "session_id": "s3",
+            }
+        ]

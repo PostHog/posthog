@@ -2,7 +2,7 @@
 
 import asyncio
 import operator
-from typing import Annotated, Any, Optional, TypedDict
+from typing import Annotated, Any, TypedDict
 from uuid import uuid4
 
 from posthog.test.base import NonAtomicBaseTest
@@ -176,20 +176,20 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
         await saver.aput(write_config, chkpnt, metadata, {})
 
         checkpoint = await ConversationCheckpoint.objects.select_related("thread", "parent_checkpoint").afirst()
-        self.assertIsNotNone(checkpoint)
-        self.assertEqual(checkpoint.thread, thread1)
-        self.assertEqual(checkpoint.checkpoint_ns, "")
-        self.assertEqual(str(checkpoint.id), chkpnt["id"])
-        self.assertIsNone(checkpoint.parent_checkpoint)
+        assert checkpoint is not None
+        assert checkpoint.thread == thread1
+        assert checkpoint.checkpoint_ns == ""
+        assert str(checkpoint.id) == chkpnt["id"]
+        assert checkpoint.parent_checkpoint is None
         chkpnt.pop("channel_values")
-        self.assertEqual(checkpoint.checkpoint, chkpnt)
-        self.assertEqual(checkpoint.metadata, metadata)
+        assert checkpoint.checkpoint == chkpnt
+        assert checkpoint.metadata == metadata
 
         checkpoints = [result async for result in saver.alist(read_config)]
-        self.assertEqual(len(checkpoints), 1)
+        assert len(checkpoints) == 1
 
         checkpoint_tuple = await saver.aget_tuple(read_config)
-        self.assertEqual(checkpoint_tuple.checkpoint, checkpoints[0].checkpoint)
+        assert checkpoint_tuple.checkpoint == checkpoints[0].checkpoint
 
     async def test_put_copies_checkpoint(self):
         """Test that put operations properly copy checkpoint data."""
@@ -219,7 +219,7 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
         write_config = {"configurable": {"thread_id": thread1.id, "checkpoint_ns": ""}}
         saver = DjangoCheckpointer()
         await saver.aput(write_config, chkpnt, metadata, {})
-        self.assertIn("channel_values", chkpnt)
+        assert "channel_values" in chkpnt
 
     async def test_concurrent_puts_and_put_writes(self):
         """Test concurrent checkpoint operations and write operations."""
@@ -230,9 +230,9 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
             {"val": 0},
             config=config,
         )
-        self.assertEqual(await ConversationCheckpoint.objects.acount(), 4)
-        self.assertEqual(await ConversationCheckpointBlob.objects.acount(), 9)
-        self.assertEqual(await ConversationCheckpointWrite.objects.acount(), 5)
+        assert await ConversationCheckpoint.objects.acount() == 4
+        assert await ConversationCheckpointBlob.objects.acount() == 9
+        assert await ConversationCheckpointWrite.objects.acount() == 5
 
     async def test_resuming(self):
         """Test resuming execution from a checkpoint after an interrupt."""
@@ -246,51 +246,51 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
             config=config,
         )
         snapshot = await graph.aget_state(config)
-        self.assertIsNotNone(snapshot.next)
-        self.assertEqual(snapshot.tasks[0].interrupts[0].value, "test")
+        assert snapshot.next is not None
+        assert snapshot.tasks[0].interrupts[0].value == "test"
 
-        self.assertEqual(await ConversationCheckpoint.objects.acount(), 2)
-        self.assertEqual(await ConversationCheckpointBlob.objects.acount(), 4)
-        self.assertEqual(await ConversationCheckpointWrite.objects.acount(), 3)
+        assert await ConversationCheckpoint.objects.acount() == 2
+        assert await ConversationCheckpointBlob.objects.acount() == 4
+        assert await ConversationCheckpointWrite.objects.acount() == 3
         checkpoints_list = [result async for result in checkpointer.alist(config)]
-        self.assertEqual(len(checkpoints_list), 2)
+        assert len(checkpoints_list) == 2
 
         latest_checkpoint = await ConversationCheckpoint.objects.alast()
         latest_write = await ConversationCheckpointWrite.objects.filter(checkpoint=latest_checkpoint).afirst()
         actual_checkpoint = await checkpointer.aget_tuple(config)
-        self.assertIsNotNone(actual_checkpoint)
-        self.assertIsNotNone(latest_write)
-        self.assertEqual(await latest_checkpoint.writes.acount(), 1)
+        assert actual_checkpoint is not None
+        assert latest_write is not None
+        assert await latest_checkpoint.writes.acount() == 1
         blobs = [blob async for blob in latest_checkpoint.blobs.all()]
-        self.assertEqual(len(blobs), 3)
-        self.assertEqual(actual_checkpoint.checkpoint["id"], str(latest_checkpoint.id))
-        self.assertEqual(len(actual_checkpoint.pending_writes), 1)
-        self.assertEqual(actual_checkpoint.pending_writes[0][0], str(latest_write.task_id))
+        assert len(blobs) == 3
+        assert actual_checkpoint.checkpoint["id"] == str(latest_checkpoint.id)
+        assert len(actual_checkpoint.pending_writes) == 1
+        assert actual_checkpoint.pending_writes[0][0] == str(latest_write.task_id)
 
         await graph.aupdate_state(config, {"val": 2})
         # add the value update checkpoint
-        self.assertEqual(await ConversationCheckpoint.objects.acount(), 3)
-        self.assertEqual(await ConversationCheckpointBlob.objects.acount(), 6)
-        self.assertEqual(await ConversationCheckpointWrite.objects.acount(), 5)
+        assert await ConversationCheckpoint.objects.acount() == 3
+        assert await ConversationCheckpointBlob.objects.acount() == 6
+        assert await ConversationCheckpointWrite.objects.acount() == 5
         checkpoints_list = [result async for result in checkpointer.alist(config)]
-        self.assertEqual(len(checkpoints_list), 3)
+        assert len(checkpoints_list) == 3
 
         res = await graph.ainvoke(None, config=config)
-        self.assertEqual(await ConversationCheckpoint.objects.acount(), 5)
-        self.assertEqual(await ConversationCheckpointBlob.objects.acount(), 11)
-        self.assertEqual(await ConversationCheckpointWrite.objects.acount(), 8)
+        assert await ConversationCheckpoint.objects.acount() == 5
+        assert await ConversationCheckpointBlob.objects.acount() == 11
+        assert await ConversationCheckpointWrite.objects.acount() == 8
         checkpoints_list = [result async for result in checkpointer.alist(config)]
-        self.assertEqual(len(checkpoints_list), 5)
-        self.assertEqual(res, {"val": 3})
+        assert len(checkpoints_list) == 5
+        assert res == {"val": 3}
         snapshot = await graph.aget_state(config)
-        self.assertFalse(snapshot.next)
+        assert not snapshot.next
 
     async def test_checkpoint_blobs_are_bound_to_thread(self):
         """Test that checkpoint blobs are properly bound to their thread."""
 
         class State(TypedDict, total=False):
             messages: Annotated[list[str], operator.add]
-            string: Optional[str]
+            string: str | None
 
         graph = StateGraph(State)
 
@@ -314,22 +314,22 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
         await compiled.ainvoke({"messages": ["hello"], "string": "world"}, config=config)
 
         snapshot = await compiled.aget_state(config)
-        self.assertIsNotNone(snapshot.next)
-        self.assertEqual(snapshot.tasks[0].interrupts[0].value, "test")
+        assert snapshot.next is not None
+        assert snapshot.tasks[0].interrupts[0].value == "test"
         saved_state = snapshot.values
-        self.assertEqual(saved_state["messages"], ["hello"])
-        self.assertEqual(saved_state["string"], "world")
+        assert saved_state["messages"] == ["hello"]
+        assert saved_state["string"] == "world"
 
     async def test_checkpoint_can_save_and_load_pydantic_state(self):
         """Test that checkpoints can save and load Pydantic model state."""
 
         class State(BaseModel):
             messages: Annotated[list[str], operator.add]
-            string: Optional[str]
+            string: str | None
 
         class PartialState(BaseModel):
-            messages: Optional[list[str]] = Field(default=None)
-            string: Optional[str] = Field(default=None)
+            messages: list[str] | None = Field(default=None)
+            string: str | None = Field(default=None)
 
         graph = StateGraph(State)
 
@@ -353,11 +353,11 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
         await compiled.ainvoke({"messages": ["hello"], "string": "world"}, config=config)
 
         snapshot = await compiled.aget_state(config)
-        self.assertIsNotNone(snapshot.next)
-        self.assertEqual(snapshot.tasks[0].interrupts[0].value, "test")
+        assert snapshot.next is not None
+        assert snapshot.tasks[0].interrupts[0].value == "test"
         saved_state = snapshot.values
-        self.assertEqual(saved_state["messages"], ["hello"])
-        self.assertEqual(saved_state["string"], "world")
+        assert saved_state["messages"] == ["hello"]
+        assert saved_state["string"] == "world"
 
     async def test_saved_blobs(self):
         """Test that blobs are properly saved during checkpoint operations."""
@@ -383,54 +383,42 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
         await compiled.ainvoke({"messages": ["hello"]}, config=config)
 
         snapshot = await compiled.aget_state(config)
-        self.assertFalse(snapshot.next)
+        assert not snapshot.next
         saved_state = snapshot.values
-        self.assertEqual(saved_state["messages"], ["hello", "world"])
+        assert saved_state["messages"] == ["hello", "world"]
 
         blobs = [blob async for blob in ConversationCheckpointBlob.objects.filter(thread=thread)]
-        self.assertEqual(len(blobs), 6)
+        assert len(blobs) == 6
 
         # Set initial state
-        self.assertEqual(blobs[0].channel, "__start__")
-        self.assertEqual(blobs[0].type, "msgpack")
-        self.assertEqual(
-            checkpointer.serde.loads_typed((blobs[0].type, blobs[0].blob)),
-            {"messages": ["hello"]},
-        )
+        assert blobs[0].channel == "__start__"
+        assert blobs[0].type == "msgpack"
+        assert checkpointer.serde.loads_typed((blobs[0].type, blobs[0].blob)) == {"messages": ["hello"]}
 
         # Set first node
-        self.assertEqual(blobs[1].channel, "__start__")
-        self.assertEqual(blobs[1].type, "empty")
-        self.assertIsNone(blobs[1].blob)
+        assert blobs[1].channel == "__start__"
+        assert blobs[1].type == "empty"
+        assert blobs[1].blob is None
 
         # Set value channels before start
-        self.assertEqual(blobs[2].channel, "messages")
-        self.assertEqual(blobs[2].type, "msgpack")
-        self.assertEqual(
-            checkpointer.serde.loads_typed((blobs[2].type, blobs[2].blob)),
-            ["hello"],
-        )
+        assert blobs[2].channel == "messages"
+        assert blobs[2].type == "msgpack"
+        assert checkpointer.serde.loads_typed((blobs[2].type, blobs[2].blob)) == ["hello"]
 
         # Transition to node1
-        self.assertEqual(blobs[3].channel, "branch:to:node1")
-        self.assertEqual(blobs[3].type, "null")
-        self.assertEqual(
-            checkpointer.serde.loads_typed((blobs[3].type, blobs[3].blob)),
-            None,
-        )
+        assert blobs[3].channel == "branch:to:node1"
+        assert blobs[3].type == "null"
+        assert checkpointer.serde.loads_typed((blobs[3].type, blobs[3].blob)) is None
 
         # Set new state for messages
-        self.assertEqual(blobs[4].channel, "messages")
-        self.assertEqual(blobs[4].type, "msgpack")
-        self.assertEqual(
-            checkpointer.serde.loads_typed((blobs[4].type, blobs[4].blob)),
-            ["hello", "world"],
-        )
+        assert blobs[4].channel == "messages"
+        assert blobs[4].type == "msgpack"
+        assert checkpointer.serde.loads_typed((blobs[4].type, blobs[4].blob)) == ["hello", "world"]
 
         # After setting a state
-        self.assertEqual(blobs[5].channel, "branch:to:node1")
-        self.assertEqual(blobs[5].type, "empty")
-        self.assertIsNone(blobs[5].blob)
+        assert blobs[5].channel == "branch:to:node1"
+        assert blobs[5].type == "empty"
+        assert blobs[5].blob is None
 
     def test_alist_query_efficiency(self):
         """Test that alist doesn't cause N+1 queries when fetching pending writes."""
@@ -484,7 +472,7 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
 
             call_list()
 
-            self.assertEqual(len(context.captured_queries), 7)
+            assert len(context.captured_queries) == 7
 
     async def test_thread_put_and_put_writes_race_condition(self):
         """Test race condition with threads calling put and put_writes for same checkpoint."""
@@ -563,11 +551,11 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
 
             # Verify checkpoint exists
             checkpoint = await ConversationCheckpoint.objects.filter(thread=thread, id=checkpoint_id).afirst()
-            self.assertIsNotNone(checkpoint, f"Checkpoint not found on attempt {attempt + 1}")
+            assert checkpoint is not None, f"Checkpoint not found on attempt {attempt + 1}"
 
             # Verify writes exist
             writes_count = await ConversationCheckpointWrite.objects.filter(checkpoint=checkpoint).acount()
-            self.assertEqual(writes_count, 2, f"Expected 2 writes, got {writes_count} on attempt {attempt + 1}")
+            assert writes_count == 2, f"Expected 2 writes, got {writes_count} on attempt {attempt + 1}"
 
     async def test_null_checkpoint_not_retrieved(self):
         """Test that checkpoints with null checkpoint field cannot be retrieved."""
@@ -598,18 +586,18 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
         )
 
         # Verify the null checkpoint exists in the database
-        self.assertEqual(await ConversationCheckpoint.objects.filter(thread=thread).acount(), 2)
+        assert await ConversationCheckpoint.objects.filter(thread=thread).acount() == 2
 
         # Try to retrieve checkpoints using the saver
         retrieved_checkpoints = [result async for result in saver.alist(config)]
 
         # Should only get the valid checkpoint, not the null one
-        self.assertEqual(len(retrieved_checkpoints), 1)
-        self.assertEqual(retrieved_checkpoints[0].metadata["source"], "valid")
+        assert len(retrieved_checkpoints) == 1
+        assert retrieved_checkpoints[0].metadata["source"] == "valid"
 
         # Try to get the specific null checkpoint directly
         null_config = {
             "configurable": {"thread_id": str(thread.id), "checkpoint_ns": "", "checkpoint_id": str(null_checkpoint.id)}
         }
         retrieved_null = await saver.aget_tuple(null_config)
-        self.assertIsNone(retrieved_null)
+        assert retrieved_null is None

@@ -1,6 +1,7 @@
 import datetime
 import xml.etree.ElementTree as ET
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
@@ -127,16 +128,16 @@ class TestFormatEventsPrompt(BaseTest):
 
         # Verify the XML structure
         root = ET.fromstring(result)
-        self.assertEqual(root.tag, "defined_events")
+        assert root.tag == "defined_events"
 
         # Should contain "All events" and the events from taxonomy and context
         event_names = self._get_event_names_from_xml(result)
         expected_events = ["All events", "$pageview", "custom_event", "another_event"]
-        self.assertEqual(set(event_names), set(expected_events))
+        assert set(event_names) == set(expected_events)
 
         # Verify descriptions are present
         descriptions = [desc.text for event in root.findall("event") if (desc := event.find("description")) is not None]
-        self.assertGreater(len(descriptions), 0)
+        assert len(descriptions) > 0
 
     @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
     def test_format_events_xml_filters_low_count_events(self, mock_runner_class):
@@ -158,9 +159,9 @@ class TestFormatEventsPrompt(BaseTest):
         event_names = self._get_event_names_from_xml(result)
 
         # Should not contain the low count event
-        self.assertNotIn("low_count_event", event_names)
-        self.assertIn("high_count_event", event_names)
-        self.assertIn("medium_count_event", event_names)
+        assert "low_count_event" not in event_names
+        assert "high_count_event" in event_names
+        assert "medium_count_event" in event_names
 
     @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
     def test_format_events_xml_keeps_low_count_events_when_few_results(self, mock_runner_class):
@@ -180,7 +181,7 @@ class TestFormatEventsPrompt(BaseTest):
         event_names = self._get_event_names_from_xml(result)
 
         # Should contain the low count event when there are few results
-        self.assertIn("low_count_event", event_names)
+        assert "low_count_event" in event_names
 
     @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
     def test_format_events_xml_skips_ignored_events(self, mock_runner_class):
@@ -198,7 +199,7 @@ class TestFormatEventsPrompt(BaseTest):
         event_names = self._get_event_names_from_xml(result)
 
         # Should not contain ignored events that are not in the context
-        self.assertNotIn("$autocapture", event_names)
+        assert "$autocapture" not in event_names
 
     @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
     def test_format_events_xml_keeps_ignored_events_in_context(self, mock_runner_class):
@@ -223,7 +224,7 @@ class TestFormatEventsPrompt(BaseTest):
         event_names = self._get_event_names_from_xml(result)
 
         # Should contain the ignored event because it's in context
-        self.assertIn("$autocapture", event_names)
+        assert "$autocapture" in event_names
 
     @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
     def test_format_events_xml_uses_context_descriptions(self, mock_runner_class):
@@ -244,7 +245,7 @@ class TestFormatEventsPrompt(BaseTest):
         result = format_events_xml(events_in_context, self.team)
 
         description = self._get_event_description(result, "custom_event")
-        self.assertEqual(description, "Custom event description")
+        assert description == "Custom event description"
 
     @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
     def test_format_events_xml_removes_line_breaks(self, mock_runner_class):
@@ -260,7 +261,7 @@ class TestFormatEventsPrompt(BaseTest):
         result = format_events_xml(events_in_context, self.team)
 
         description = self._get_event_description(result, "test_event")
-        self.assertEqual(description, "Line 1 Line 2 Line 3")
+        assert description == "Line 1 Line 2 Line 3"
 
     @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
     def test_format_events_xml_handles_empty_context(self, mock_runner_class):
@@ -276,7 +277,7 @@ class TestFormatEventsPrompt(BaseTest):
         result = format_events_xml(events_in_context, self.team)
 
         event_names = self._get_event_names_from_xml(result)
-        self.assertEqual(set(event_names), {"All events", "$pageview"})
+        assert set(event_names) == {"All events", "$pageview"}
 
     @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
     def test_format_events_xml_handles_none_description(self, mock_runner_class):
@@ -297,7 +298,7 @@ class TestFormatEventsPrompt(BaseTest):
         description = test_event.find("description")
 
         # Should not have a description tag
-        self.assertIsNone(description)
+        assert description is None
 
     @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
     def test_format_events_xml_handles_empty_description(self, mock_runner_class):
@@ -317,7 +318,7 @@ class TestFormatEventsPrompt(BaseTest):
         assert test_event is not None
         description = test_event.find("description")
         # Empty string descriptions should not create a description tag
-        self.assertIsNone(description)
+        assert description is None
 
     @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
     def test_format_events_xml_handles_duplicate_events(self, mock_runner_class):
@@ -340,7 +341,7 @@ class TestFormatEventsPrompt(BaseTest):
         event_names = self._get_event_names_from_xml(result)
 
         # Should only appear once
-        self.assertEqual(event_names.count("duplicate_event"), 1)
+        assert event_names.count("duplicate_event") == 1
 
     @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
     def test_format_events_xml_handles_non_cached_response(self, mock_runner_class):
@@ -351,7 +352,7 @@ class TestFormatEventsPrompt(BaseTest):
 
         events_in_context: list[MaxEventContext] = []
 
-        with self.assertRaises(ValueError, msg="Failed to generate events prompt."):
+        with pytest.raises(ValueError):
             format_events_xml(events_in_context, self.team)
 
     @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
@@ -370,10 +371,10 @@ class TestFormatEventsPrompt(BaseTest):
         description = self._get_event_description(result, "$pageview")
 
         # Should use label_llm if available, otherwise label
-        self.assertIsNotNone(description)
+        assert description is not None
         # The actual content depends on the core definitions, but it should contain the label
         if description is not None:
-            self.assertIn("Pageview", description)
+            assert "Pageview" in description
 
     @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
     def test_format_events_xml_handles_events_without_names(self, mock_runner_class):
@@ -390,7 +391,7 @@ class TestFormatEventsPrompt(BaseTest):
         event_names = self._get_event_names_from_xml(result)
 
         # Should only contain "All events" since context events have no names
-        self.assertEqual(set(event_names), {"All events"})
+        assert set(event_names) == {"All events"}
 
     @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
     def test_format_events_xml_calls_runner_with_correct_parameters(self, mock_runner_class):

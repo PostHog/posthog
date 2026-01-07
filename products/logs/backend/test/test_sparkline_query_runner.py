@@ -35,7 +35,7 @@ class TestSparklineQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def _make_sparkline_api_request(self, query_params, expected_status=status.HTTP_200_OK):
         response = self.client.post(f"/api/projects/{self.team.id}/logs/sparkline", data={"query": query_params})
-        self.assertEqual(response.status_code, expected_status)
+        assert response.status_code == expected_status
         return response.json() if expected_status == status.HTTP_200_OK else response
 
     @freeze_time("2025-12-16T10:33:00Z")
@@ -47,8 +47,8 @@ class TestSparklineQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response = self._make_sparkline_api_request(query_params)
 
-        self.assertEqual(len(response), 1)
-        self.assertEqual(response[0]["count"], 1)
+        assert len(response) == 1
+        assert response[0]["count"] == 1
 
     @freeze_time("2025-12-16T10:33:00Z")
     def test_sparkline_near_full(self):
@@ -59,5 +59,5 @@ class TestSparklineQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response = self._make_sparkline_api_request(query_params)
 
-        self.assertEqual(len(response), 49)
-        self.assertEqual(sum(r["count"] for r in response), 900)
+        assert len(response) == 49
+        assert sum(r["count"] for r in response) == 900

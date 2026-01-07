@@ -31,10 +31,10 @@ class TestEvaluationModel(BaseTest):
 
         evaluation.refresh_from_db()
 
-        self.assertEqual(len(evaluation.conditions), 1)
-        self.assertIn("bytecode", evaluation.conditions[0])
-        self.assertIsNotNone(evaluation.conditions[0]["bytecode"])
-        self.assertIsInstance(evaluation.conditions[0]["bytecode"], list)
+        assert len(evaluation.conditions) == 1
+        assert "bytecode" in evaluation.conditions[0]
+        assert evaluation.conditions[0]["bytecode"] is not None
+        assert isinstance(evaluation.conditions[0]["bytecode"], list)
 
     def test_sets_bytecode_error_when_compilation_fails(self):
         """
@@ -63,9 +63,9 @@ class TestEvaluationModel(BaseTest):
 
             evaluation.refresh_from_db()
 
-            self.assertEqual(len(evaluation.conditions), 1)
-            self.assertIn("bytecode_error", evaluation.conditions[0])
-            self.assertEqual(evaluation.conditions[0]["bytecode_error"], "Invalid property filter")
+            assert len(evaluation.conditions) == 1
+            assert "bytecode_error" in evaluation.conditions[0]
+            assert evaluation.conditions[0]["bytecode_error"] == "Invalid property filter"
 
     def test_handles_empty_properties_list(self):
         """
@@ -91,9 +91,9 @@ class TestEvaluationModel(BaseTest):
 
         evaluation.refresh_from_db()
 
-        self.assertEqual(len(evaluation.conditions), 1)
-        self.assertEqual(evaluation.conditions[0]["properties"], [])
-        self.assertIn("bytecode", evaluation.conditions[0])
+        assert len(evaluation.conditions) == 1
+        assert evaluation.conditions[0]["properties"] == []
+        assert "bytecode" in evaluation.conditions[0]
 
     def test_compiles_bytecode_for_multiple_conditions(self):
         """
@@ -126,11 +126,11 @@ class TestEvaluationModel(BaseTest):
 
         evaluation.refresh_from_db()
 
-        self.assertEqual(len(evaluation.conditions), 2)
-        self.assertIn("bytecode", evaluation.conditions[0])
-        self.assertIn("bytecode", evaluation.conditions[1])
-        self.assertIsNotNone(evaluation.conditions[0]["bytecode"])
-        self.assertIsNotNone(evaluation.conditions[1]["bytecode"])
+        assert len(evaluation.conditions) == 2
+        assert "bytecode" in evaluation.conditions[0]
+        assert "bytecode" in evaluation.conditions[1]
+        assert evaluation.conditions[0]["bytecode"] is not None
+        assert evaluation.conditions[1]["bytecode"] is not None
 
     @patch("posthog.plugins.plugin_server_api.reload_evaluations_on_workers")
     def test_sends_reload_signal_on_save(self, mock_reload):
@@ -199,5 +199,5 @@ class TestEvaluationModel(BaseTest):
 
         evaluation.refresh_from_db()
 
-        self.assertEqual(evaluation.conditions[0]["id"], "my-custom-id")
-        self.assertEqual(evaluation.conditions[0]["rollout_percentage"], 75)
+        assert evaluation.conditions[0]["id"] == "my-custom-id"
+        assert evaluation.conditions[0]["rollout_percentage"] == 75

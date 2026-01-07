@@ -1,6 +1,6 @@
 import json
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Any
 
 from posthog.test.base import (
     APIBaseTest,
@@ -49,8 +49,8 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
 
     def _get_cohort_activity(
         self,
-        flag_id: Optional[int] = None,
-        team_id: Optional[int] = None,
+        flag_id: int | None = None,
+        team_id: int | None = None,
         expected_status: int = status.HTTP_200_OK,
     ):
         if team_id is None:
@@ -62,10 +62,10 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             url = f"/api/projects/{team_id}/cohorts/activity"
 
         activity = self.client.get(url)
-        self.assertEqual(activity.status_code, expected_status)
+        assert activity.status_code == expected_status
         return activity.json()
 
-    def assert_cohort_activity(self, cohort_id: Optional[int], expected: list[dict]):
+    def assert_cohort_activity(self, cohort_id: int | None, expected: list[dict]):
         activity_response = self._get_cohort_activity(cohort_id)
 
         activity: list[dict] = activity_response["results"]
@@ -130,10 +130,10 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             f"/api/projects/{self.team.id}/cohorts",
             data={"name": "whatever", "groups": [{"properties": {"team_id": "5"}}]},
         )
-        self.assertEqual(response.status_code, 201, response.content)
-        self.assertEqual(response.json()["created_by"]["id"], self.user.pk)
-        self.assertEqual(patch_calculate_cohort.call_count, 1)
-        self.assertEqual(patch_capture.call_count, 1)
+        assert response.status_code == 201, response.content
+        assert response.json()["created_by"]["id"] == self.user.pk
+        assert patch_calculate_cohort.call_count == 1
+        assert patch_capture.call_count == 1
 
         # Assert analytics are sent
         patch_capture.assert_called_with(
@@ -167,13 +167,11 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
                     "deleted": False,
                 },
             )
-            self.assertEqual(response.status_code, 200, response.content)
-            self.assertLessEqual(
-                {"name": "whatever2", "description": "A great cohort!"}.items(), response.json().items()
-            )
-            self.assertEqual(patch_calculate_cohort.call_count, 2)
+            assert response.status_code == 200, response.content
+            assert {"name": "whatever2", "description": "A great cohort!"}.items() <= response.json().items()
+            assert patch_calculate_cohort.call_count == 2
 
-            self.assertIn(f" user_id:{self.user.id} ", insert_statements[0])
+            assert f" user_id:{self.user.id} " in insert_statements[0]
 
         # Assert analytics are sent
         patch_capture.assert_called_with(
@@ -258,10 +256,10 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
                 },
             },
         )
-        self.assertEqual(response.status_code, 201, response.content)
-        self.assertEqual(response.json()["created_by"]["id"], self.user.pk)
-        self.assertEqual(patch_calculate_cohort.call_count, 1)
-        self.assertEqual(patch_capture.call_count, 1)
+        assert response.status_code == 201, response.content
+        assert response.json()["created_by"]["id"] == self.user.pk
+        assert patch_calculate_cohort.call_count == 1
+        assert patch_capture.call_count == 1
 
         with self.capture_queries_startswith("INSERT INTO cohortpeople") as insert_statements:
             response = self.client.patch(
@@ -279,7 +277,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
 
             # Assert that the cohort calculation uses the materialized column
             # on the person table.
-            self.assertIn(f"person.pmat_favorite_number", insert_statements[0])
+            assert f"person.pmat_favorite_number" in insert_statements[0]
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -293,7 +291,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             f"/api/projects/{self.team.id}/cohorts",
             data={"name": "whatever", "groups": [{"properties": {"team_id": 5}}]},
         )
-        self.assertEqual(response.status_code, 201, response.content)
+        assert response.status_code == 201, response.content
 
         with self.assertNumQueries(13):
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
@@ -303,12 +301,12 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             f"/api/projects/{self.team.id}/cohorts",
             data={"name": "whatever", "groups": [{"properties": {"team_id": 5}}]},
         )
-        self.assertEqual(response.status_code, 201, response.content)
+        assert response.status_code == 201, response.content
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
             data={"name": "whatever", "groups": [{"properties": {"team_id": 5}}]},
         )
-        self.assertEqual(response.status_code, 201, response.content)
+        assert response.status_code == 201, response.content
 
         with self.assertNumQueries(13):
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
@@ -343,15 +341,15 @@ email@example.org
                 format="multipart",
             )
 
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
         cohort = Cohort.objects.get(pk=response.json()["id"])
-        self.assertFalse(cohort.is_calculating)
+        assert not cohort.is_calculating
         # Verify CSV parsing worked correctly - should include 123 and 0 (only existing distinct_ids)
         cohort_people = Person.objects.filter(cohort__id=cohort.id, team_id=cohort.team_id)
         distinct_ids = set()
         for person in cohort_people:
             distinct_ids.update(person.distinct_ids)
-        self.assertEqual(distinct_ids, {"123", "0"})
+        assert distinct_ids == {"123", "0"}
 
         # Test CSV update
         csv_update = SimpleUploadedFile(
@@ -372,15 +370,15 @@ User ID
                 format="multipart",
             )
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         cohort.refresh_from_db()
-        self.assertFalse(cohort.is_calculating)
+        assert not cohort.is_calculating
         # Verify CSV update worked - 456 should now be included
         cohort_people = Person.objects.filter(cohort__id=cohort.id, team_id=cohort.team_id)
         distinct_ids = set()
         for person in cohort_people:
             distinct_ids.update(person.distinct_ids)
-        self.assertIn("456", distinct_ids)  # New ID should be included
+        assert "456" in distinct_ids  # New ID should be included
 
         # Test name-only update without CSV
         response = self.client.patch(
@@ -389,16 +387,16 @@ User ID
             format="multipart",
         )
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         cohort.refresh_from_db()
-        self.assertFalse(cohort.is_calculating)
-        self.assertEqual(cohort.name, "test2")
+        assert not cohort.is_calculating
+        assert cohort.name == "test2"
         # Verify distinct_ids remain the same after name-only update
         cohort_people = Person.objects.filter(cohort__id=cohort.id, team_id=cohort.team_id)
         distinct_ids = set()
         for person in cohort_people:
             distinct_ids.update(person.distinct_ids)
-        self.assertIn("456", distinct_ids)  # Should still contain 456
+        assert "456" in distinct_ids  # Should still contain 456
 
     def test_static_cohort_create_and_patch_with_query(self):
         _create_person(
@@ -439,7 +437,7 @@ email@example.org
             format="multipart",
         )
 
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         response = self.client.patch(
@@ -458,12 +456,12 @@ email@example.org
                 }
             },
         )
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         cohort.refresh_from_db()
 
         # Verify the persons were actually added to the cohort
         people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual(people_in_cohort.count(), 2)
+        assert people_in_cohort.count() == 2
 
     @parameterized.expand([("distinct-id",), ("distinct_id",)])
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay", side_effect=calculate_cohort_from_list)
@@ -493,18 +491,18 @@ Zero User,0,zero@example.com
             format="multipart",
         )
 
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify all three persons were actually added to the cohort
         people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual(people_in_cohort.count(), 3)
+        assert people_in_cohort.count() == 3
 
         # Verify specific persons are in the cohort
         person_uuids_in_cohort = {str(p.uuid) for p in people_in_cohort}
-        self.assertIn(str(person1.uuid), person_uuids_in_cohort)
-        self.assertIn(str(person2.uuid), person_uuids_in_cohort)
-        self.assertIn(str(person3.uuid), person_uuids_in_cohort)
+        assert str(person1.uuid) in person_uuids_in_cohort
+        assert str(person2.uuid) in person_uuids_in_cohort
+        assert str(person3.uuid) in person_uuids_in_cohort
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     def test_static_cohort_csv_upload_multicolumn_without_valid_identifier_fails(
@@ -528,12 +526,12 @@ Jane Smith,25
             format="multipart",
         )
 
-        self.assertEqual(response.status_code, 400)
+        assert response.status_code == 400
         response_data = response.json()
-        self.assertEqual(response_data["attr"], "csv")
-        self.assertIn("distinct_id", response_data["detail"])
-        self.assertIn("name, age", response_data["detail"])
-        self.assertEqual(patch_calculate_cohort_from_list.call_count, 0)
+        assert response_data["attr"] == "csv"
+        assert "distinct_id" in response_data["detail"]
+        assert "name, age" in response_data["detail"]
+        assert patch_calculate_cohort_from_list.call_count == 0
 
     @parameterized.expand([("person-id",), ("person_id",), ("Person .id",)])
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay", side_effect=calculate_cohort_from_list)
@@ -561,17 +559,17 @@ Jane Smith,{person2.uuid},jane@example.com
             format="multipart",
         )
 
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify the persons were actually added to the cohort
         people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual(people_in_cohort.count(), 2)
+        assert people_in_cohort.count() == 2
 
         # Verify specific persons are in the cohort
         person_uuids_in_cohort = {str(p.uuid) for p in people_in_cohort}
-        self.assertIn(str(person1.uuid), person_uuids_in_cohort)
-        self.assertIn(str(person2.uuid), person_uuids_in_cohort)
+        assert str(person1.uuid) in person_uuids_in_cohort
+        assert str(person2.uuid) in person_uuids_in_cohort
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay", side_effect=calculate_cohort_from_list)
     def test_static_cohort_csv_upload_person_id_preference_over_email(self, patch_calculate_cohort_from_list):
@@ -604,21 +602,21 @@ Jane Smith,{person2.uuid},jane@example.com
             format="multipart",
         )
 
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify the persons were actually added to the cohort
         people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual(people_in_cohort.count(), 2)
+        assert people_in_cohort.count() == 2
 
         # Verify specific persons are in the cohort (the ones matched by person_id, not email)
         person_uuids_in_cohort = {str(p.uuid) for p in people_in_cohort}
-        self.assertIn(str(person1.uuid), person_uuids_in_cohort)
-        self.assertIn(str(person2.uuid), person_uuids_in_cohort)
+        assert str(person1.uuid) in person_uuids_in_cohort
+        assert str(person2.uuid) in person_uuids_in_cohort
 
         # Verify that persons matched by email are NOT in the cohort
-        self.assertNotIn(str(person_with_email1.uuid), person_uuids_in_cohort)
-        self.assertNotIn(str(person_with_email2.uuid), person_uuids_in_cohort)
+        assert str(person_with_email1.uuid) not in person_uuids_in_cohort
+        assert str(person_with_email2.uuid) not in person_uuids_in_cohort
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay", side_effect=calculate_cohort_from_list)
     def test_static_cohort_csv_upload_distinct_id_preference_over_email(self, patch_calculate_cohort_from_list):
@@ -651,21 +649,21 @@ Jane Smith,user456,jane@example.com
             format="multipart",
         )
 
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify the persons were actually added to the cohort
         people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual(people_in_cohort.count(), 2)
+        assert people_in_cohort.count() == 2
 
         # Verify specific persons are in the cohort (the ones matched by distinct_id, not email)
         person_uuids_in_cohort = {str(p.uuid) for p in people_in_cohort}
-        self.assertIn(str(person1.uuid), person_uuids_in_cohort)
-        self.assertIn(str(person2.uuid), person_uuids_in_cohort)
+        assert str(person1.uuid) in person_uuids_in_cohort
+        assert str(person2.uuid) in person_uuids_in_cohort
 
         # Verify that persons matched by email are NOT in the cohort
-        self.assertNotIn(str(person_with_email1.uuid), person_uuids_in_cohort)
-        self.assertNotIn(str(person_with_email2.uuid), person_uuids_in_cohort)
+        assert str(person_with_email1.uuid) not in person_uuids_in_cohort
+        assert str(person_with_email2.uuid) not in person_uuids_in_cohort
 
     def test_static_cohort_with_manually_added_person_ids(self):
         person1 = Person.objects.create(team=self.team, distinct_ids=["user123"])
@@ -681,24 +679,24 @@ Jane Smith,user456,jane@example.com
             format="multipart",
         )
 
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
 
         response_data = response.json()
         cohort = Cohort.objects.get(pk=response_data["id"])
 
         # Verify the response contains a valid count (not a CombinedExpression or None)
-        self.assertIn("count", response_data)
-        self.assertIsInstance(response_data["count"], int)
-        self.assertEqual(response_data["count"], 2)
+        assert "count" in response_data
+        assert isinstance(response_data["count"], int)
+        assert response_data["count"] == 2
 
         # Verify the persons were actually added to the cohort
         people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual(people_in_cohort.count(), 2)
+        assert people_in_cohort.count() == 2
 
         # Verify specific persons are in the cohort
         person_uuids_in_cohort = {str(p.uuid) for p in people_in_cohort}
-        self.assertIn(str(person1.uuid), person_uuids_in_cohort)
-        self.assertIn(str(person2.uuid), person_uuids_in_cohort)
+        assert str(person1.uuid) in person_uuids_in_cohort
+        assert str(person2.uuid) in person_uuids_in_cohort
 
     def test_static_cohort_csv_and_manually_added(self):
         """Test CSV upload with person_id column using async task"""
@@ -726,17 +724,17 @@ John Doe,{person1.uuid},john@example.com
             format="multipart",
         )
 
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify the persons were actually added to the cohort
         people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual(people_in_cohort.count(), 2)
+        assert people_in_cohort.count() == 2
 
         # Verify specific persons are in the cohort
         person_uuids_in_cohort = {str(p.uuid) for p in people_in_cohort}
-        self.assertIn(str(person1.uuid), person_uuids_in_cohort)
-        self.assertIn(str(person2.uuid), person_uuids_in_cohort)
+        assert str(person1.uuid) in person_uuids_in_cohort
+        assert str(person2.uuid) in person_uuids_in_cohort
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     def test_static_cohort_csv_upload_person_id_preference_over_distinct_id(self, patch_calculate_cohort_from_list):
@@ -761,7 +759,7 @@ Jane Smith,{person2.uuid},ignore_this_too,jane@example.com
             format="multipart",
         )
 
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
         # Should use person_id task, not distinct_id task
         patch_calculate_cohort_from_list.assert_called_once_with(
             response.json()["id"], [str(person1.uuid), str(person2.uuid)], team_id=self.team.id, id_type="person_id"
@@ -790,7 +788,7 @@ Jane Smith,   ,jane@example.com
             format="multipart",
         )
 
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
         # Should only include the non-empty person_id
         patch_calculate_cohort_from_list.assert_called_once_with(
             response.json()["id"], [str(person1.uuid)], team_id=self.team.id, id_type="person_id"
@@ -815,14 +813,14 @@ Jane Smith,25
             format="multipart",
         )
 
-        self.assertEqual(response.status_code, 400)
+        assert response.status_code == 400
         response_data = response.json()
-        self.assertEqual(response_data["attr"], "csv")
+        assert response_data["attr"] == "csv"
         # Should reference all supported ID column types with clearer messaging
-        self.assertIn("at least one column with a supported ID header", response_data["detail"])
-        self.assertIn("person_id", response_data["detail"])
-        self.assertIn("distinct_id", response_data["detail"])
-        self.assertIn("name, age", response_data["detail"])
+        assert "at least one column with a supported ID header" in response_data["detail"]
+        assert "person_id" in response_data["detail"]
+        assert "distinct_id" in response_data["detail"]
+        assert "name, age" in response_data["detail"]
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     def test_static_cohort_csv_upload_empty_file_fails(self, patch_calculate_cohort_from_list):
@@ -839,11 +837,11 @@ Jane Smith,25
             format="multipart",
         )
 
-        self.assertEqual(response.status_code, 400)
+        assert response.status_code == 400
         response_data = response.json()
-        self.assertEqual(response_data["attr"], "csv")
-        self.assertIn("empty", response_data["detail"])
-        self.assertEqual(patch_calculate_cohort_from_list.call_count, 0)
+        assert response_data["attr"] == "csv"
+        assert "empty" in response_data["detail"]
+        assert patch_calculate_cohort_from_list.call_count == 0
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     def test_static_cohort_csv_upload_no_valid_ids_fails(self, patch_calculate_cohort_from_list):
@@ -865,11 +863,11 @@ Jane Smith,25
             format="multipart",
         )
 
-        self.assertEqual(response.status_code, 400)
+        assert response.status_code == 400
         response_data = response.json()
-        self.assertEqual(response_data["attr"], "csv")
-        self.assertIn("no valid person IDs, distinct IDs, or email addresses", response_data["detail"])
-        self.assertEqual(patch_calculate_cohort_from_list.call_count, 0)
+        assert response_data["attr"] == "csv"
+        assert "no valid person IDs, distinct IDs, or email addresses" in response_data["detail"]
+        assert patch_calculate_cohort_from_list.call_count == 0
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     def test_static_cohort_csv_upload_single_column_backwards_compatibility(self, patch_calculate_cohort_from_list):
@@ -892,8 +890,8 @@ another_user
             format="multipart",
         )
 
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(patch_calculate_cohort_from_list.call_count, 1)
+        assert response.status_code == 201
+        assert patch_calculate_cohort_from_list.call_count == 1
         patch_calculate_cohort_from_list.assert_called_with(
             response.json()["id"], ["legacy_user", "another_user"], team_id=self.team.id, id_type="distinct_id"
         )
@@ -921,8 +919,8 @@ another_user
             format="multipart",
         )
 
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(patch_calculate_cohort_from_list.call_count, 1)
+        assert response.status_code == 201
+        assert patch_calculate_cohort_from_list.call_count == 1
         # Single column format with person_id header uses person UUID processing
         patch_calculate_cohort_from_list.assert_called_with(
             response.json()["id"], [str(person1.uuid), str(person2.uuid)], team_id=self.team.id, id_type="person_id"
@@ -951,8 +949,8 @@ Jane Smith,	user456	,jane@example.com
             format="multipart",
         )
 
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(patch_calculate_cohort_from_list.call_count, 1)
+        assert response.status_code == 201
+        assert patch_calculate_cohort_from_list.call_count == 1
         # Verify whitespace is trimmed from distinct IDs
         patch_calculate_cohort_from_list.assert_called_with(
             response.json()["id"], ["user123", "user456"], team_id=self.team.id, id_type="distinct_id"
@@ -981,8 +979,8 @@ Jane Smith,	user456	,jane@example.com
             format="multipart",
         )
 
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(patch_calculate_cohort_from_list.call_count, 1)
+        assert response.status_code == 201
+        assert patch_calculate_cohort_from_list.call_count == 1
         # Verify comma-containing distinct IDs are correctly parsed
         patch_calculate_cohort_from_list.assert_called_with(
             response.json()["id"], ["user,123", "user,456,special"], team_id=self.team.id, id_type="distinct_id"
@@ -1011,8 +1009,8 @@ Jane Smith,	user456	,jane@example.com
             format="multipart",
         )
 
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(patch_calculate_cohort_from_list.call_count, 1)
+        assert response.status_code == 201
+        assert patch_calculate_cohort_from_list.call_count == 1
         # Verify quote-containing distinct IDs are correctly parsed
         patch_calculate_cohort_from_list.assert_called_with(
             response.json()["id"], ['user"123', 'user"special"456'], team_id=self.team.id, id_type="distinct_id"
@@ -1044,8 +1042,8 @@ user789
             format="multipart",
         )
 
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(patch_calculate_cohort_from_list.call_count, 1)
+        assert response.status_code == 201
+        assert patch_calculate_cohort_from_list.call_count == 1
         # Verify only rows with correct column count are processed
         # Should skip: "incomplete_row_missing_distinct_id", "another_incomplete_row", "user789"
         # Should include: "user123", "user456"
@@ -1076,12 +1074,12 @@ user456
             format="multipart",
         )
 
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
         cohort_id = response.json()["id"]
 
         # Check that is_calculating was set to True
         cohort = Cohort.objects.get(pk=cohort_id)
-        self.assertTrue(cohort.is_calculating, "is_calculating should be True immediately after CSV upload")
+        assert cohort.is_calculating, "is_calculating should be True immediately after CSV upload"
 
         # Verify the task was called
         patch_calculate_cohort_from_list.assert_called_once()
@@ -1103,13 +1101,13 @@ user456
         )
 
         # Should get an error response
-        self.assertEqual(response.status_code, 400)
+        assert response.status_code == 400
 
         # Check that no cohort was created with is_calculating stuck at True
         # (The cohort shouldn't be created at all, but if error handling was wrong
         # it might leave a cohort in calculating state)
         calculating_cohorts = Cohort.objects.filter(team=self.team, name="test_error", is_calculating=True)
-        self.assertEqual(calculating_cohorts.count(), 0, "No cohort should be left in calculating state after error")
+        assert calculating_cohorts.count() == 0, "No cohort should be left in calculating state after error"
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
@@ -1140,11 +1138,11 @@ email@example.org,
             {"name": "test", "csv": csv, "is_static": True},
             format="multipart",
         )
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(patch_calculate_cohort_from_list.call_count, 1)
+        assert response.status_code == 201
+        assert patch_calculate_cohort_from_list.call_count == 1
         # After CSV upload, is_calculating should be True since processing starts immediately
-        self.assertTrue(response.json()["is_calculating"])
-        self.assertTrue(Cohort.objects.get(pk=response.json()["id"]).is_calculating)
+        assert response.json()["is_calculating"]
+        assert Cohort.objects.get(pk=response.json()["id"]).is_calculating
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/cohorts/{response.json()['id']}",
@@ -1153,8 +1151,8 @@ email@example.org,
                 "groups": [{"properties": [{"key": "email", "value": "email@example.org"}]}],
             },
         )
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(patch_calculate_cohort.call_count, 1)
+        assert response.status_code == 200
+        assert patch_calculate_cohort.call_count == 1
 
     def test_cohort_list_with_search(self):
         self.team.app_urls = ["http://somewebsite.com"]
@@ -1174,14 +1172,14 @@ email@example.org,
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts").json()
-        self.assertEqual(len(response["results"]), 2)
+        assert len(response["results"]) == 2
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts?search=cohort1").json()
-        self.assertEqual(len(response["results"]), 1)
-        self.assertEqual(response["results"][0]["name"], "cohort1")
+        assert len(response["results"]) == 1
+        assert response["results"][0]["name"] == "cohort1"
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts?search=nomatch").json()
-        self.assertEqual(len(response["results"]), 0)
+        assert len(response["results"]) == 0
 
     def test_cohort_list_with_type_filter(self):
         Person.objects.create(team=self.team, properties={"prop": 5})
@@ -1200,19 +1198,19 @@ email@example.org,
 
         # Test no filter returns both
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts").json()
-        self.assertEqual(len(response["results"]), 2)
+        assert len(response["results"]) == 2
 
         # Test static filter
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts?type=static").json()
-        self.assertEqual(len(response["results"]), 1)
-        self.assertEqual(response["results"][0]["name"], "static_cohort")
-        self.assertTrue(response["results"][0]["is_static"])
+        assert len(response["results"]) == 1
+        assert response["results"][0]["name"] == "static_cohort"
+        assert response["results"][0]["is_static"]
 
         # Test dynamic filter
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts?type=dynamic").json()
-        self.assertEqual(len(response["results"]), 1)
-        self.assertEqual(response["results"][0]["name"], "dynamic_cohort")
-        self.assertFalse(response["results"][0]["is_static"])
+        assert len(response["results"]) == 1
+        assert response["results"][0]["name"] == "dynamic_cohort"
+        assert not response["results"][0]["is_static"]
 
     def test_cohort_list_with_created_by_filter(self):
         Person.objects.create(team=self.team, properties={"prop": 5})
@@ -1236,24 +1234,24 @@ email@example.org,
 
         # Test no filter returns all cohorts
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts").json()
-        self.assertEqual(len(response["results"]), 3)
+        assert len(response["results"]) == 3
 
         # Test filter by self.user's cohorts
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts?created_by_id={self.user.id}").json()
-        self.assertEqual(len(response["results"]), 2)
+        assert len(response["results"]) == 2
         for cohort in response["results"]:
-            self.assertEqual(cohort["created_by"]["id"], self.user.id)
-            self.assertEqual(cohort["name"][:-2], "self_user_cohort")
+            assert cohort["created_by"]["id"] == self.user.id
+            assert cohort["name"][:-2] == "self_user_cohort"
 
         # Test filter by other_user's cohorts
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts?created_by_id={other_user.id}").json()
-        self.assertEqual(len(response["results"]), 1)
-        self.assertEqual(response["results"][0]["name"], other_user_cohort.name)
+        assert len(response["results"]) == 1
+        assert response["results"][0]["name"] == other_user_cohort.name
 
         # Test filter by blank user (should return no cohorts)
         blank_user = User.objects.create_user(email="blank@test.com", password="password", first_name="blank")
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts?created_by_id={blank_user.id}").json()
-        self.assertEqual(len(response["results"]), 0)
+        assert len(response["results"]) == 0
 
     def test_cohort_list_with_combined_filters(self):
         Person.objects.create(team=self.team, properties={"prop": 5})
@@ -1272,22 +1270,22 @@ email@example.org,
 
         # Test combined type and search filters
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts?type=dynamic&search=dynamic").json()
-        self.assertEqual(len(response["results"]), 1)
-        self.assertEqual(response["results"][0]["name"], "dynamic_test")
-        self.assertFalse(response["results"][0]["is_static"])
+        assert len(response["results"]) == 1
+        assert response["results"][0]["name"] == "dynamic_test"
+        assert not response["results"][0]["is_static"]
 
         # Test combined filters with no matches
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts?type=static&search=dynamic").json()
-        self.assertEqual(len(response["results"]), 0)
+        assert len(response["results"]) == 0
 
         # Test all filters combined
         response = self.client.get(
             f"/api/projects/{self.team.id}/cohorts?type=static&search=static&created_by_id={self.user.id}"
         ).json()
-        self.assertEqual(len(response["results"]), 1)
-        self.assertEqual(response["results"][0]["name"], "static_test")
-        self.assertTrue(response["results"][0]["is_static"])
-        self.assertEqual(response["results"][0]["created_by"]["id"], self.user.id)
+        assert len(response["results"]) == 1
+        assert response["results"][0]["name"] == "static_test"
+        assert response["results"][0]["is_static"]
+        assert response["results"][0]["created_by"]["id"] == self.user.id
 
     @patch("posthog.api.cohort.report_user_action")
     def test_list_cohorts_excludes_behavioral_cohorts(self, patch_capture):
@@ -1331,15 +1329,15 @@ email@example.org,
 
         # Test without filter
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["results"]), 2)
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 2
 
         # Test with behavioral filter
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts?hide_behavioral_cohorts=true")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["id"], regular_cohort.id)
+        assert len(results) == 1
+        assert results[0]["id"] == regular_cohort.id
 
     @patch("posthog.api.cohort.report_user_action")
     def test_list_cohorts_excludes_nested_behavioral_cohorts(self, patch_capture):
@@ -1394,10 +1392,10 @@ email@example.org,
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts?hide_behavioral_cohorts=true")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["id"], regular_cohort.id)
+        assert len(results) == 1
+        assert results[0]["id"] == regular_cohort.id
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_cohort_activity_log(self, patch_on_commit):
@@ -1510,7 +1508,7 @@ email@example.org,
             {"name": "my static cohort", "is_static": True, "_create_static_person_ids": person_uuids[:num_people]},
         )
 
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
         cohort_id = response.json()["id"]
 
         self.assert_cohort_activity(
@@ -1552,7 +1550,7 @@ email@example.org,
             {"name": "my large cohort", "is_static": True, "_create_static_person_ids": person_uuids},
         )
 
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
         cohort_id = response.json()["id"]
 
         # Update the cohort - this should not load all people into memory
@@ -1561,7 +1559,7 @@ email@example.org,
             {"name": "renamed large cohort", "description": "A cohort with many people"},
         )
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
         # Verify the activity log was created with changes tracked
         self.assert_cohort_activity(
@@ -1635,9 +1633,9 @@ email@example.org,
 
         lines = self._get_export_output(f"/api/cohort/{cohort.pk}/persons")
         headers = lines[0].split(",")
-        self.assertEqual(len(lines), 3)
-        self.assertEqual(lines[1].split(",")[headers.index("email")], "test@test.com")
-        self.assertEqual(lines[0].count("distinct_id"), 10)
+        assert len(lines) == 3
+        assert lines[1].split(",")[headers.index("email")] == "test@test.com"
+        assert lines[0].count("distinct_id") == 10
 
     def test_filter_by_cohort(self):
         _create_person(team=self.team, distinct_ids=[f"fake"], properties={})
@@ -1656,10 +1654,10 @@ email@example.org,
         cohort.calculate_people_ch(pending_version=0)
 
         response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
-        self.assertEqual(len(response.json()["results"]), 100, response)
+        assert len(response.json()["results"]) == 100, response
 
         response = self.client.get(response.json()["next"])
-        self.assertEqual(len(response.json()["results"]), 50, response)
+        assert len(response.json()["results"]) == 50, response
 
     def test_filter_by_cohort_prop(self):
         for i in range(5):
@@ -1685,7 +1683,7 @@ email@example.org,
             f"/api/cohort/{cohort.pk}/persons?properties=%s"
             % (json.dumps([{"key": "$browser", "value": "Safari", "type": "person"}]))
         )
-        self.assertEqual(len(response.json()["results"]), 1, response)
+        assert len(response.json()["results"]) == 1, response
 
     def test_filter_by_cohort_prop_from_clickhouse(self):
         for i in range(5):
@@ -1716,7 +1714,7 @@ email@example.org,
             f"/api/cohort/{cohort.pk}/persons?properties=%s"
             % (json.dumps([{"key": "$browser", "value": "Safari", "type": "person"}]))
         )
-        self.assertEqual(len(response.json()["results"]), 1, response)
+        assert len(response.json()["results"]) == 1, response
 
     def test_filter_by_cohort_search(self):
         for i in range(5):
@@ -1740,7 +1738,7 @@ email@example.org,
         cohort.calculate_people_ch(pending_version=0)
 
         response = self.client.get(f"/api/cohort/{cohort.pk}/persons?search=target")
-        self.assertEqual(len(response.json()["results"]), 1, response)
+        assert len(response.json()["results"]) == 1, response
 
     def test_filter_by_static_cohort(self):
         Person.objects.create(team_id=self.team.pk, distinct_ids=["1"])
@@ -1754,7 +1752,7 @@ email@example.org,
         cohort.insert_users_by_list(["1", "123"])
 
         response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
-        self.assertEqual(len(response.json()["results"]), 2, response)
+        assert len(response.json()["results"]) == 2, response
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.api.cohort.report_user_action")
@@ -1776,7 +1774,7 @@ email@example.org,
             f"/api/projects/{self.team.id}/cohorts",
             data={"name": "cohort A", "groups": [{"properties": {"team_id": 5}}]},
         )
-        self.assertEqual(get_total_calculation_calls(), 1)
+        assert get_total_calculation_calls() == 1
 
         # Cohort B that depends on Cohort A
         response_b = self.client.post(
@@ -1796,7 +1794,7 @@ email@example.org,
                 ],
             },
         )
-        self.assertEqual(get_total_calculation_calls(), 2)
+        assert get_total_calculation_calls() == 2
 
         # Cohort C that depends on Cohort B
         response_c = self.client.post(
@@ -1816,7 +1814,7 @@ email@example.org,
                 ],
             },
         )
-        self.assertEqual(get_total_calculation_calls(), 3)
+        assert get_total_calculation_calls() == 3
 
         # Update Cohort A to depend on Cohort C
         response = self.client.patch(
@@ -1836,15 +1834,12 @@ email@example.org,
                 ],
             },
         )
-        self.assertEqual(response.status_code, 400, response.content)
-        self.assertLessEqual(
-            {
-                "detail": "Cohorts cannot reference other cohorts in a loop.",
-                "type": "validation_error",
-            }.items(),
-            response.json().items(),
-        )
-        self.assertEqual(get_total_calculation_calls(), 3)
+        assert response.status_code == 400, response.content
+        assert {
+            "detail": "Cohorts cannot reference other cohorts in a loop.",
+            "type": "validation_error",
+        }.items() <= response.json().items()
+        assert get_total_calculation_calls() == 3
 
         # Update Cohort A to depend on Cohort A itself
         response = self.client.patch(
@@ -1864,15 +1859,12 @@ email@example.org,
                 ],
             },
         )
-        self.assertEqual(response.status_code, 400, response.content)
-        self.assertLessEqual(
-            {
-                "detail": "Cohorts cannot reference other cohorts in a loop.",
-                "type": "validation_error",
-            }.items(),
-            response.json().items(),
-        )
-        self.assertEqual(get_total_calculation_calls(), 3)
+        assert response.status_code == 400, response.content
+        assert {
+            "detail": "Cohorts cannot reference other cohorts in a loop.",
+            "type": "validation_error",
+        }.items() <= response.json().items()
+        assert get_total_calculation_calls() == 3
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.api.cohort.report_user_action")
@@ -1894,7 +1886,7 @@ email@example.org,
             f"/api/projects/{self.team.id}/cohorts",
             data={"name": "cohort A", "groups": [{"properties": {"team_id": 5}}]},
         )
-        self.assertEqual(get_total_calculation_calls(), 1)
+        assert get_total_calculation_calls() == 1
 
         # Cohort B that depends on Cohort A
         response_b = self.client.post(
@@ -1914,7 +1906,7 @@ email@example.org,
                 ],
             },
         )
-        self.assertEqual(get_total_calculation_calls(), 2)
+        assert get_total_calculation_calls() == 2
 
         # Cohort C that depends on both Cohort A & B
         response_c = self.client.post(
@@ -1939,7 +1931,7 @@ email@example.org,
                 ],
             },
         )
-        self.assertEqual(get_total_calculation_calls(), 3)
+        assert get_total_calculation_calls() == 3
 
         # Update Cohort C
         response = self.client.patch(
@@ -1949,8 +1941,8 @@ email@example.org,
             },
         )
         # it's not a loop because C depends on A & B, B depends on A, and A depends on nothing.
-        self.assertEqual(response.status_code, 200, response.content)
-        self.assertEqual(get_total_calculation_calls(), 4)
+        assert response.status_code == 200, response.content
+        assert get_total_calculation_calls() == 4
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.api.cohort.report_user_action")
@@ -1963,7 +1955,7 @@ email@example.org,
             f"/api/projects/{self.team.id}/cohorts",
             data={"name": "cohort A", "groups": [{"properties": {"team_id": 5}}]},
         )
-        self.assertEqual(patch_calculate_cohort.call_count, 1)
+        assert patch_calculate_cohort.call_count == 1
 
         # Update Cohort A to depend on an invalid cohort
         response = self.client.patch(
@@ -1973,12 +1965,9 @@ email@example.org,
                 "groups": [{"properties": [{"type": "cohort", "value": "99999", "key": "id"}]}],
             },
         )
-        self.assertEqual(response.status_code, 400, response.content)
-        self.assertLessEqual(
-            {"detail": "Invalid Cohort ID in filter", "type": "validation_error"}.items(),
-            response.json().items(),
-        )
-        self.assertEqual(patch_calculate_cohort.call_count, 1)
+        assert response.status_code == 400, response.content
+        assert {"detail": "Invalid Cohort ID in filter", "type": "validation_error"}.items() <= response.json().items()
+        assert patch_calculate_cohort.call_count == 1
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.api.cohort.report_user_action")
@@ -2048,7 +2037,7 @@ email@example.org,
                 },
             },
         )
-        self.assertEqual(response.status_code, 201, response.content)
+        assert response.status_code == 201, response.content
 
         cohort_id = response.json()["id"]
 
@@ -2056,8 +2045,8 @@ email@example.org,
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/persons/?cohort={cohort_id}")
-        self.assertEqual(response.status_code, 200, response.content)
-        self.assertEqual(2, len(response.json()["results"]))
+        assert response.status_code == 200, response.content
+        assert 2 == len(response.json()["results"])
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.api.cohort.report_user_action")
@@ -2138,7 +2127,7 @@ email@example.org,
                 },
             },
         )
-        self.assertEqual(response.status_code, 201, response.content)
+        assert response.status_code == 201, response.content
 
         cohort_id = response.json()["id"]
 
@@ -2146,8 +2135,8 @@ email@example.org,
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/persons/?cohort={cohort_id}")
-        self.assertEqual(response.status_code, 200, response.content)
-        self.assertEqual(1, len(response.json()["results"]))
+        assert response.status_code == 200, response.content
+        assert 1 == len(response.json()["results"])
 
     @patch("posthog.api.cohort.report_user_action")
     def test_creating_update_and_calculating_with_new_cohort_query(self, patch_capture):
@@ -2195,7 +2184,7 @@ email@example.org,
                 },
             },
         )
-        self.assertEqual(response.status_code, 201, response.content)
+        assert response.status_code == 201, response.content
 
         cohort_id = response.json()["id"]
 
@@ -2203,8 +2192,8 @@ email@example.org,
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/persons/?cohort={cohort_id}")
-        self.assertEqual(response.status_code, 200, response.content)
-        self.assertEqual(1, len(response.json()["results"]))
+        assert response.status_code == 200, response.content
+        assert 1 == len(response.json()["results"])
 
     @patch("posthog.api.cohort.report_user_action")
     def test_creating_update_and_calculating_with_new_cohort_query_dynamic_error(self, patch_capture):
@@ -2225,7 +2214,7 @@ email@example.org,
                 },
             },
         )
-        self.assertEqual(response.status_code, 400, response.content)
+        assert response.status_code == 400, response.content
 
     @patch("posthog.api.cohort.report_user_action")
     def test_creating_with_query_and_fields(self, patch_capture):
@@ -2268,20 +2257,20 @@ email@example.org,
             return len(response.json()["results"])
 
         # works with "actor_id"
-        self.assertEqual(2, _calc("select id as actor_id from persons where properties.$some_prop='not it'"))
+        assert 2 == _calc("select id as actor_id from persons where properties.$some_prop='not it'")
 
         # works with "person_id"
-        self.assertEqual(2, _calc("select id as person_id from persons where properties.$some_prop='not it'"))
+        assert 2 == _calc("select id as person_id from persons where properties.$some_prop='not it'")
 
         # works with "id"
-        self.assertEqual(2, _calc("select id from persons where properties.$some_prop='not it'"))
+        assert 2 == _calc("select id from persons where properties.$some_prop='not it'")
 
         # only "p4" had events
-        self.assertEqual(1, _calc("select person_id from events"))
+        assert 1 == _calc("select person_id from events")
 
         # works with selecting anything from persons and events
-        self.assertEqual(4, _calc("select 1 from persons"))
-        self.assertEqual(1, _calc("select 1 from events"))
+        assert 4 == _calc("select 1 from persons")
+        assert 1 == _calc("select 1 from events")
 
         # raises on all other cases
         query_post_response = self.client.post(
@@ -2299,10 +2288,10 @@ email@example.org,
             f"/api/projects/{self.team.id}/cohorts/{query_post_response.json()['id']}/"
         )
 
-        self.assertEqual(query_post_response.status_code, 201)
-        self.assertEqual(query_get_response.status_code, 200)
-        self.assertEqual(
-            query_get_response.json()["errors_calculating"], 1
+        assert query_post_response.status_code == 201
+        assert query_get_response.status_code == 200
+        assert (
+            query_get_response.json()["errors_calculating"] == 1
         )  # Should be because selecting from groups is not allowed
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
@@ -2346,7 +2335,7 @@ email@example.org,
                 },
             },
         )
-        self.assertEqual(response.status_code, 201, response.content)
+        assert response.status_code == 201, response.content
 
         cohort_id = response.json()["id"]
 
@@ -2354,8 +2343,8 @@ email@example.org,
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/persons/?cohort={cohort_id}")
-        self.assertEqual(response.status_code, 200, response.content)
-        self.assertEqual(3, len(response.json()["results"]))
+        assert response.status_code == 200, response.content
+        assert 3 == len(response.json()["results"])
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -2380,14 +2369,11 @@ email@example.org,
             },
         )
 
-        self.assertEqual(update_response.status_code, 400, response.content)
-        self.assertLessEqual(
-            {
-                "detail": "Must contain a 'properties' key with type and values",
-                "type": "validation_error",
-            }.items(),
-            update_response.json().items(),
-        )
+        assert update_response.status_code == 400, response.content
+        assert {
+            "detail": "Must contain a 'properties' key with type and values",
+            "type": "validation_error",
+        }.items() <= update_response.json().items()
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -2398,7 +2384,7 @@ email@example.org,
         )
 
         response = self.client.delete(f"/api/projects/{self.team.id}/cohorts/{response_a.json()['id']}")
-        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -2486,16 +2472,13 @@ email@example.org,
                 },
             },
         )
-        self.assertEqual(response.status_code, 400)
-        self.assertLessEqual(
-            {
-                "type": "validation_error",
-                "code": "behavioral_cohort_found",
-                "detail": "Behavioral filters cannot be added to cohorts used in feature flags.",
-                "attr": "filters",
-            }.items(),
-            response.json().items(),
-        )
+        assert response.status_code == 400
+        assert {
+            "type": "validation_error",
+            "code": "behavioral_cohort_found",
+            "detail": "Behavioral filters cannot be added to cohorts used in feature flags.",
+            "attr": "filters",
+        }.items() <= response.json().items()
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/cohorts/{cohort_pk}",
@@ -2521,16 +2504,13 @@ email@example.org,
                 },
             },
         )
-        self.assertEqual(response.status_code, 400)
-        self.assertLessEqual(
-            {
-                "type": "validation_error",
-                "code": "behavioral_cohort_found",
-                "detail": "A cohort dependency (cohort XX) has filters based on events. These cohorts can't be used in feature flags.",
-                "attr": "filters",
-            }.items(),
-            response.json().items(),
-        )
+        assert response.status_code == 400
+        assert {
+            "type": "validation_error",
+            "code": "behavioral_cohort_found",
+            "detail": "A cohort dependency (cohort XX) has filters based on events. These cohorts can't be used in feature flags.",
+            "attr": "filters",
+        }.items() <= response.json().items()
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_duplicating_dynamic_cohort_as_static(self, patch_on_commit):
@@ -2599,7 +2579,7 @@ email@example.org,
                 },
             },
         )
-        self.assertEqual(response.status_code, 201, response.content)
+        assert response.status_code == 201, response.content
 
         cohort_id = response.json()["id"]
 
@@ -2607,21 +2587,21 @@ email@example.org,
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/duplicate_as_static_cohort")
-        self.assertEqual(response.status_code, 200, response.content)
+        assert response.status_code == 200, response.content
 
         new_cohort_id = response.json()["id"]
         new_cohort = Cohort.objects.get(pk=new_cohort_id)
-        self.assertEqual(new_cohort.is_static, True)
+        assert new_cohort.is_static
 
         while new_cohort.is_calculating:
             new_cohort.refresh_from_db()
             import time
 
             time.sleep(0.1)
-        self.assertEqual(new_cohort.name, "cohort A (static copy)")
-        self.assertEqual(new_cohort.is_calculating, False)
-        self.assertEqual(new_cohort.errors_calculating, 0)
-        self.assertEqual(new_cohort.count, 2)
+        assert new_cohort.name == "cohort A (static copy)"
+        assert not new_cohort.is_calculating
+        assert new_cohort.errors_calculating == 0
+        assert new_cohort.count == 2
 
     def test_duplicating_static_cohort_as_static(self):
         p1 = _create_person(distinct_ids=["p1"], team_id=self.team.pk)
@@ -2639,20 +2619,20 @@ email@example.org,
 
         # Verify original cohort has people
         cohort.refresh_from_db()
-        self.assertEqual(cohort.count, 2, "Original cohort should have 2 people")
+        assert cohort.count == 2, "Original cohort should have 2 people"
 
         # Duplicate static cohort as static
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.pk}/duplicate_as_static_cohort")
-        self.assertEqual(response.status_code, 200, response.content)
+        assert response.status_code == 200, response.content
 
         new_cohort_id = response.json()["id"]
         new_cohort = Cohort.objects.get(pk=new_cohort_id)
 
         # Verify the duplicated cohort
-        self.assertEqual(new_cohort.name, "static cohort A (static copy)")
-        self.assertEqual(new_cohort.is_static, True)
+        assert new_cohort.name == "static cohort A (static copy)"
+        assert new_cohort.is_static
         new_cohort.refresh_from_db()
-        self.assertEqual(new_cohort.count, 2)
+        assert new_cohort.count == 2
 
     @patch("posthog.tasks.calculate_cohort.insert_cohort_from_insight_filter.delay")
     def test_duplicating_static_cohort_sets_is_calculating(self, mock_insert_cohort):
@@ -2672,22 +2652,20 @@ email@example.org,
 
         # Duplicate static cohort as static
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.pk}/duplicate_as_static_cohort")
-        self.assertEqual(response.status_code, 200, response.content)
+        assert response.status_code == 200, response.content
 
         new_cohort_id = response.json()["id"]
         new_cohort = Cohort.objects.get(pk=new_cohort_id)
 
         # Verify is_calculating is True immediately (before async task completes)
-        self.assertTrue(
-            new_cohort.is_calculating, "is_calculating should be True while async duplication is in progress"
-        )
+        assert new_cohort.is_calculating, "is_calculating should be True while async duplication is in progress"
 
         # Verify the async task was called with correct parameters
         mock_insert_cohort.assert_called_once()
         call_args = mock_insert_cohort.call_args
-        self.assertEqual(call_args[0][0], new_cohort_id)  # cohort_id
-        self.assertEqual(call_args[0][1]["from_cohort_id"], cohort.pk)  # filter_data contains source cohort
-        self.assertEqual(call_args[0][2], self.team.pk)  # team_id
+        assert call_args[0][0] == new_cohort_id  # cohort_id
+        assert call_args[0][1]["from_cohort_id"] == cohort.pk  # filter_data contains source cohort
+        assert call_args[0][2] == self.team.pk  # team_id
 
     def test_duplicating_dynamic_cohort_as_dynamic(self):
         _create_person(
@@ -2760,7 +2738,7 @@ email@example.org,
                 },
             },
         )
-        self.assertEqual(response.status_code, 201, response.content)
+        assert response.status_code == 201, response.content
 
         cohort_id = response.json()["id"]
 
@@ -2809,14 +2787,14 @@ email@example.org,
             data=payload,
             format="json",
         )
-        self.assertEqual(response.status_code, 201, response.json())
+        assert response.status_code == 201, response.json()
         cohort_data = response.json()
-        self.assertIsNotNone(cohort_data.get("id"))
+        assert cohort_data.get("id") is not None
 
         new_cohort_id = response.json()["id"]
         new_cohort = Cohort.objects.get(pk=new_cohort_id)
-        self.assertEqual(new_cohort.is_static, False)
-        self.assertEqual(new_cohort.name, "cohort A (dynamic copy)")
+        assert not new_cohort.is_static
+        assert new_cohort.name == "cohort A (dynamic copy)"
 
     def test_deletion_of_cohort_cancels_async_deletion(self):
         cohort = Cohort.objects.create(
@@ -2832,7 +2810,7 @@ email@example.org,
             },
         )
 
-        self.assertEqual(len(AsyncDeletion.objects.all()), 1)
+        assert len(AsyncDeletion.objects.all()) == 1
 
         self.client.patch(
             f"/api/projects/{self.team.id}/cohorts/{cohort.pk}",
@@ -2841,7 +2819,7 @@ email@example.org,
             },
         )
 
-        self.assertEqual(len(AsyncDeletion.objects.all()), 0)
+        assert len(AsyncDeletion.objects.all()) == 0
 
     @patch("posthog.api.cohort.report_user_action")
     def test_cohort_property_validation_missing_operator(self, patch_capture):
@@ -2864,8 +2842,8 @@ email@example.org,
                 },
             },
         )
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["detail"], "Missing required keys for person filter: operator")
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Missing required keys for person filter: operator"
 
     @patch("posthog.api.cohort.report_user_action")
     def test_cohort_property_validation_missing_value(self, patch_capture):
@@ -2889,8 +2867,8 @@ email@example.org,
                 },
             },
         )
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["detail"], "Missing required keys for person filter: value")
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Missing required keys for person filter: value"
 
     @patch("posthog.api.cohort.report_user_action")
     def test_cohort_property_validation_behavioral_filter(self, patch_capture):
@@ -2913,8 +2891,8 @@ email@example.org,
                 },
             },
         )
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["detail"], "Missing required keys for behavioral filter: event_type")
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Missing required keys for behavioral filter: event_type"
 
     @patch("posthog.api.cohort.report_user_action")
     def test_cohort_property_validation_nested_groups(self, patch_capture):
@@ -2942,8 +2920,8 @@ email@example.org,
                 },
             },
         )
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["detail"], "Missing required keys for person filter: value, operator")
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Missing required keys for person filter: value, operator"
 
     @patch("posthog.api.cohort.report_user_action")
     def test_cohort_property_validation_is_set_operator(self, patch_capture):
@@ -2960,8 +2938,8 @@ email@example.org,
                 },
             },
         )
-        self.assertEqual(response.status_code, 201)
-        self.assertNotEqual(response.json()["id"], None)
+        assert response.status_code == 201
+        assert response.json()["id"] is not None
 
     @patch("posthog.api.cohort.report_user_action")
     def test_cohort_property_validation_cohort_filter(self, patch_capture):
@@ -2998,8 +2976,8 @@ email@example.org,
                 },
             },
         )
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["detail"], "Missing required keys for cohort filter: value")
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Missing required keys for cohort filter: value"
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.api.cohort.report_user_action")
@@ -3028,12 +3006,12 @@ email@example.org,
                 },
             },
         )
-        self.assertEqual(response.status_code, 201, response.content)
+        assert response.status_code == 201, response.content
         cohort_id = response.json()["id"]
         while response.json()["is_calculating"]:
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
         # Should create successfully
-        self.assertEqual(response.status_code, 200, response.content)
+        assert response.status_code == 200, response.content
 
     @patch("posthog.api.cohort.report_user_action")
     def test_behavioral_filter_missing_operator(self, patch_capture):
@@ -3061,7 +3039,7 @@ email@example.org,
             },
         )
         # Should still succeed, as operator is optional
-        self.assertEqual(response.status_code, 201, response.content)
+        assert response.status_code == 201, response.content
 
     @patch("posthog.api.cohort.report_user_action")
     def test_behavioral_filter_invalid_operator_value_type(self, patch_capture):
@@ -3087,8 +3065,8 @@ email@example.org,
                 },
             },
         )
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("operator_value", str(response.content))
+        assert response.status_code == 400
+        assert "operator_value" in str(response.content)
 
     @patch("posthog.api.cohort.report_user_action")
     def test_behavioral_filter_extra_field_forbidden(self, patch_capture):
@@ -3115,8 +3093,8 @@ email@example.org,
                 },
             },
         )
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("not_a_field", str(response.content))
+        assert response.status_code == 400
+        assert "not_a_field" in str(response.content)
 
     @patch("posthog.api.cohort.report_user_action")
     def test_behavioral_filter_seq_event_types(self, patch_capture):
@@ -3144,7 +3122,7 @@ email@example.org,
                 },
             },
         )
-        self.assertEqual(response.status_code, 201, response.content)
+        assert response.status_code == 201, response.content
 
         # Test with integer seq_event (action ID)
         response = self.client.post(
@@ -3170,7 +3148,7 @@ email@example.org,
                 },
             },
         )
-        self.assertEqual(response.status_code, 201, response.content)
+        assert response.status_code == 201, response.content
 
         # Test with null seq_event
         response = self.client.post(
@@ -3196,7 +3174,7 @@ email@example.org,
                 },
             },
         )
-        self.assertEqual(response.status_code, 201, response.content)
+        assert response.status_code == 201, response.content
 
     def test_create_cohort_in_specific_folder(self):
         response = self.client.post(
@@ -3217,9 +3195,9 @@ email@example.org,
 
         fs_entry = FileSystem.objects.filter(team=self.team, ref=str(cohort_id), type="cohort").first()
         assert fs_entry is not None, "A FileSystem entry was not created for this Cohort."
-        assert (
-            "Special Folder/Cohorts" in fs_entry.path
-        ), f"Expected path to include 'Special Folder/Cohorts', got '{fs_entry.path}'."
+        assert "Special Folder/Cohorts" in fs_entry.path, (
+            f"Expected path to include 'Special Folder/Cohorts', got '{fs_entry.path}'."
+        )
 
     def test_cohort_delete_restore_logs_activity(self):
         cohort = Cohort.objects.create(
@@ -3319,9 +3297,9 @@ email@example.org,
             data=payload,
             format="json",
         )
-        self.assertEqual(response.status_code, 201, response.json())
+        assert response.status_code == 201, response.json()
         cohort_data = response.json()
-        self.assertIsNotNone(cohort_data.get("id"))
+        assert cohort_data.get("id") is not None
 
     def test_remove_person_from_static_cohort(self):
         static_cohort = Cohort.objects.create(
@@ -3471,10 +3449,10 @@ email@example.org,
             data={"name": "cohort A", "groups": [{"properties": [{"key": "email", "value": "email@example.org"}]}]},
         )
 
-        self.assertEqual(response_b.status_code, 200, response_a.json())
-        self.assertEqual(patch_cohort_changed.call_count, 2)
-        self.assertEqual(patch_calculate.call_count, 2)
-        self.assertEqual(calls, [patch_cohort_changed, patch_calculate, patch_cohort_changed, patch_calculate])
+        assert response_b.status_code == 200, response_a.json()
+        assert patch_cohort_changed.call_count == 2
+        assert patch_calculate.call_count == 2
+        assert calls == [patch_cohort_changed, patch_calculate, patch_cohort_changed, patch_calculate]
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.api.cohort.report_user_action")
@@ -3501,7 +3479,7 @@ email@example.org,
             f"/api/projects/{self.team.id}/cohorts",
             data={"name": "cohort A", "groups": [{"properties": {"team_id": 5}}]},
         )
-        self.assertEqual(get_total_calculation_calls(), 1)
+        assert get_total_calculation_calls() == 1
 
         # Cohort B that depends on Cohort A
         response_b = self.client.post(
@@ -3522,7 +3500,7 @@ email@example.org,
             },
         )
 
-        self.assertEqual(get_total_calculation_calls(), 2)
+        assert get_total_calculation_calls() == 2
 
         # Cohort C that depends on Cohort B
         response_c = self.client.post(
@@ -3542,7 +3520,7 @@ email@example.org,
                 ],
             },
         )
-        self.assertEqual(get_total_calculation_calls(), 3)
+        assert get_total_calculation_calls() == 3
 
         # Update Cohort A, should trigger dependency recalculation of B, then C
         self.client.patch(
@@ -3563,13 +3541,13 @@ email@example.org,
             },
         )
 
-        self.assertEqual(get_total_calculation_calls(), 4)
+        assert get_total_calculation_calls() == 4
 
         # Verify that all 3 cohorts (A, B, C) were included in the dependency chain to be recalculated
         si_calls = patch_calculate_cohort_si.call_args_list
         chain_cohort_ids = [call[0][0] for call in si_calls[-3:]]  # Last 3 si() calls for the chain
         expected_cohort_ids = {response_a.json()["id"], response_b.json()["id"], response_c.json()["id"]}
-        self.assertEqual(set(chain_cohort_ids), expected_cohort_ids)
+        assert set(chain_cohort_ids) == expected_cohort_ids
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -3594,8 +3572,8 @@ email@example.org,
             data={"deleted": True},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("This cohort is used in 1 active feature flag(s): Flag using cohort", response.json()["detail"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "This cohort is used in 1 active feature flag(s): Flag using cohort" in response.json()["detail"]
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -3629,11 +3607,11 @@ email@example.org,
             data={"deleted": True},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         detail = response.json()["detail"]
-        self.assertIn("This cohort is used in 2 active feature flag(s):", detail)
-        self.assertIn("First Flag", detail)
-        self.assertIn("Second Flag", detail)
+        assert "This cohort is used in 2 active feature flag(s):" in detail
+        assert "First Flag" in detail
+        assert "Second Flag" in detail
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -3649,9 +3627,9 @@ email@example.org,
             data={"deleted": True},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         cohort = Cohort.objects.get(id=cohort_id)
-        self.assertTrue(cohort.deleted)
+        assert cohort.deleted
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -3676,9 +3654,9 @@ email@example.org,
             data={"deleted": True},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         cohort = Cohort.objects.get(id=cohort_id)
-        self.assertTrue(cohort.deleted)
+        assert cohort.deleted
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -3704,9 +3682,9 @@ email@example.org,
             data={"deleted": True},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         cohort = Cohort.objects.get(id=cohort_id)
-        self.assertTrue(cohort.deleted)
+        assert cohort.deleted
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -3726,12 +3704,12 @@ email@example.org,
             data={"deleted": True},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn(
-            "This cohort is used in 'Filter out internal and test users' for 1 environment(s):",
-            response.json()["detail"],
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert (
+            "This cohort is used in 'Filter out internal and test users' for 1 environment(s):"
+            in response.json()["detail"]
         )
-        self.assertIn(self.team.name, response.json()["detail"])
+        assert self.team.name in response.json()["detail"]
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -3757,11 +3735,11 @@ email@example.org,
             data={"deleted": True},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         detail = response.json()["detail"]
-        self.assertIn("This cohort is used in 'Filter out internal and test users' for 2 environment(s):", detail)
-        self.assertIn(self.team.name, detail)
-        self.assertIn(team2.name, detail)
+        assert "This cohort is used in 'Filter out internal and test users' for 2 environment(s):" in detail
+        assert self.team.name in detail
+        assert team2.name in detail
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -3784,9 +3762,9 @@ email@example.org,
             data={"deleted": True},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         cohort = Cohort.objects.get(id=cohort_id)
-        self.assertTrue(cohort.deleted)
+        assert cohort.deleted
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -3811,8 +3789,8 @@ email@example.org,
             data={"deleted": True},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("This cohort is used in 1 insight(s): Test Insight", response.json()["detail"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "This cohort is used in 1 insight(s): Test Insight" in response.json()["detail"]
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -3842,11 +3820,11 @@ email@example.org,
             data={"deleted": True},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         detail = response.json()["detail"]
-        self.assertIn("This cohort is used in 2 insight(s):", detail)
-        self.assertIn("First Insight", detail)
-        self.assertIn("Second Insight", detail)
+        assert "This cohort is used in 2 insight(s):" in detail
+        assert "First Insight" in detail
+        assert "Second Insight" in detail
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -3872,20 +3850,20 @@ email@example.org,
             data={"deleted": True},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         detail = response.json()["detail"]
-        self.assertIn("This cohort is used in 7 insight(s):", detail)
+        assert "This cohort is used in 7 insight(s):" in detail
         # Should list first 5 insights
-        self.assertIn("Insight 1", detail)
-        self.assertIn("Insight 2", detail)
-        self.assertIn("Insight 3", detail)
-        self.assertIn("Insight 4", detail)
-        self.assertIn("Insight 5", detail)
+        assert "Insight 1" in detail
+        assert "Insight 2" in detail
+        assert "Insight 3" in detail
+        assert "Insight 4" in detail
+        assert "Insight 5" in detail
         # Should cap at 5 and mention the remaining
-        self.assertIn("and 2 more", detail)
+        assert "and 2 more" in detail
         # Should NOT list insights 6 and 7 individually
-        self.assertNotIn("Insight 6", detail)
-        self.assertNotIn("Insight 7", detail)
+        assert "Insight 6" not in detail
+        assert "Insight 7" not in detail
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -3913,9 +3891,9 @@ email@example.org,
             data={"deleted": True},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         cohort = Cohort.objects.get(id=cohort_id)
-        self.assertTrue(cohort.deleted)
+        assert cohort.deleted
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -3940,8 +3918,8 @@ email@example.org,
             data={"deleted": True},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("This cohort is used in 1 insight(s): Breakdown Insight", response.json()["detail"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "This cohort is used in 1 insight(s): Breakdown Insight" in response.json()["detail"]
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -3975,8 +3953,8 @@ email@example.org,
             data={"deleted": True},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("This cohort is used in 1 insight(s): Nested Properties Insight", response.json()["detail"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "This cohort is used in 1 insight(s): Nested Properties Insight" in response.json()["detail"]
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -4001,7 +3979,7 @@ email@example.org,
                 },
             },
         )
-        self.assertEqual(dependent_response.status_code, status.HTTP_201_CREATED)
+        assert dependent_response.status_code == status.HTTP_201_CREATED
 
         # Try to delete the base cohort
         response = self.client.patch(
@@ -4009,10 +3987,8 @@ email@example.org,
             data={"deleted": True},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn(
-            "This cohort is used as criteria in 1 other cohort(s): Dependent Cohort", response.json()["detail"]
-        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "This cohort is used as criteria in 1 other cohort(s): Dependent Cohort" in response.json()["detail"]
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -4038,7 +4014,7 @@ email@example.org,
                     },
                 },
             )
-            self.assertEqual(dependent_response.status_code, status.HTTP_201_CREATED)
+            assert dependent_response.status_code == status.HTTP_201_CREATED
 
         # Try to delete the base cohort
         response = self.client.patch(
@@ -4046,9 +4022,9 @@ email@example.org,
             data={"deleted": True},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("This cohort is used as criteria in 3 other cohort(s):", response.json()["detail"])
-        self.assertIn("Dependent Cohort", response.json()["detail"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "This cohort is used as criteria in 3 other cohort(s):" in response.json()["detail"]
+        assert "Dependent Cohort" in response.json()["detail"]
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -4086,7 +4062,7 @@ email@example.org,
                 },
             },
         )
-        self.assertEqual(dependent_response.status_code, status.HTTP_201_CREATED)
+        assert dependent_response.status_code == status.HTTP_201_CREATED
 
         # Try to delete the base cohort
         response = self.client.patch(
@@ -4094,9 +4070,10 @@ email@example.org,
             data={"deleted": True},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn(
-            "This cohort is used as criteria in 1 other cohort(s): Complex Dependent Cohort", response.json()["detail"]
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert (
+            "This cohort is used as criteria in 1 other cohort(s): Complex Dependent Cohort"
+            in response.json()["detail"]
         )
 
     @patch("posthog.api.cohort.report_user_action")
@@ -4120,9 +4097,9 @@ email@example.org,
             data={"deleted": True},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         cohort = Cohort.objects.get(id=cohort1_id)
-        self.assertTrue(cohort.deleted)
+        assert cohort.deleted
 
     def test_cohort_last_error_message_from_calculation_history(self):
         """Test that API returns friendly error message from failed calculation"""
@@ -4148,9 +4125,9 @@ email@example.org,
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIsNotNone(response.json()["last_error_message"])
-        self.assertIn("taking too long", response.json()["last_error_message"].lower())
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["last_error_message"] is not None
+        assert "taking too long" in response.json()["last_error_message"].lower()
 
     def test_cohort_last_error_message_in_list_view(self):
         """Test that list view includes last_error_message via annotation"""
@@ -4176,10 +4153,10 @@ email@example.org,
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         cohort_data = next(c for c in response.json()["results"] if c["id"] == cohort.id)
-        self.assertIsNotNone(cohort_data["last_error_message"])
-        self.assertIn("too much memory", cohort_data["last_error_message"].lower())
+        assert cohort_data["last_error_message"] is not None
+        assert "too much memory" in cohort_data["last_error_message"].lower()
 
     def test_cohort_last_error_message_none_when_successful(self):
         """Test that successful cohorts return None for last_error_message"""
@@ -4204,8 +4181,8 @@ email@example.org,
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIsNone(response.json()["last_error_message"])
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["last_error_message"] is None
 
     def test_cohort_last_error_message_uses_most_recent_failure(self):
         """Test that only the most recent failed calculation's error is returned"""
@@ -4243,8 +4220,8 @@ email@example.org,
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("too much memory", response.json()["last_error_message"].lower())
+        assert response.status_code == status.HTTP_200_OK
+        assert "too much memory" in response.json()["last_error_message"].lower()
 
 
 class TestCalculateCohortCommand(APIBaseTest):
@@ -4266,8 +4243,8 @@ class TestCalculateCohortCommand(APIBaseTest):
             # Verify the cohort is calculated
             cohort.refresh_from_db()
             mock_calculate_cohort.assert_called_once_with(cohort.id, cohort.pending_version, None)
-            self.assertFalse(cohort.is_calculating)
-            self.assertIn(f"Successfully calculated cohort {cohort.id}", out.getvalue())
+            assert not cohort.is_calculating
+            assert f"Successfully calculated cohort {cohort.id}" in out.getvalue()
 
     def test_calculate_cohort_command_error(self):
         # Create a test cohort
@@ -4289,11 +4266,11 @@ class TestCalculateCohortCommand(APIBaseTest):
             # Verify the error was handled
             cohort.refresh_from_db()
             mock_calculate_cohort.assert_called_once_with(cohort.id, cohort.pending_version, None)
-            self.assertFalse(cohort.is_calculating)
+            assert not cohort.is_calculating
             output = out.getvalue()
-            self.assertIn("Error calculating cohort: Test error 2", output)
-            self.assertIn("Full traceback:", output)
-            self.assertIn("Exception: Test error 2", output)
+            assert "Error calculating cohort: Test error 2" in output
+            assert "Full traceback:" in output
+            assert "Exception: Test error 2" in output
 
 
 def create_cohort(client: Client, team_id: int, name: str, groups: list[dict[str, Any]]):
@@ -4345,10 +4322,10 @@ class TestCohortTypeIntegration(APIBaseTest):
             f"/api/projects/{self.team.id}/cohorts/{cohort.id}/", {"name": "Updated Name"}, format="json"
         )
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         cohort.refresh_from_db()
-        self.assertEqual(cohort.cohort_type, CohortType.BEHAVIORAL)  # Should remain unchanged
-        self.assertEqual(response.data["cohort_type"], CohortType.BEHAVIORAL)
+        assert cohort.cohort_type == CohortType.BEHAVIORAL  # Should remain unchanged
+        assert response.data["cohort_type"] == CohortType.BEHAVIORAL
 
     def test_cohort_type_not_set_when_not_provided(self):
         """cohort_type should remain None when not provided"""
@@ -4369,11 +4346,11 @@ class TestCohortTypeIntegration(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
         cohort = Cohort.objects.get(id=response.data["id"])
         # cohort_type is auto-computed for realtime-capable filters
-        self.assertEqual(cohort.cohort_type, "realtime")
-        self.assertEqual(response.data["cohort_type"], "realtime")
+        assert cohort.cohort_type == "realtime"
+        assert response.data["cohort_type"] == "realtime"
 
     def test_api_response_includes_cohort_type(self):
         """API responses should include the cohort_type field"""
@@ -4408,18 +4385,18 @@ class TestCohortTypeIntegration(APIBaseTest):
         # Test GET request
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/")
 
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("cohort_type", response.data)
-        self.assertEqual(response.data["cohort_type"], CohortType.BEHAVIORAL)
+        assert response.status_code == 200
+        assert "cohort_type" in response.data
+        assert response.data["cohort_type"] == CohortType.BEHAVIORAL
 
         # Test LIST request
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts/")
 
-        self.assertEqual(response.status_code, 200)
-        self.assertGreaterEqual(len(response.data["results"]), 1)
+        assert response.status_code == 200
+        assert len(response.data["results"]) >= 1
         cohort_data = next(c for c in response.data["results"] if c["id"] == cohort.id)
-        self.assertIn("cohort_type", cohort_data)
-        self.assertEqual(cohort_data["cohort_type"], CohortType.BEHAVIORAL)
+        assert "cohort_type" in cohort_data
+        assert cohort_data["cohort_type"] == CohortType.BEHAVIORAL
 
     def test_explicit_cohort_type_validation_success(self):
         """Should accept valid explicit cohort types"""
@@ -4448,11 +4425,11 @@ class TestCohortTypeIntegration(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
         cohort = Cohort.objects.get(id=response.data["id"])
         # cohort_type is auto-computed and stored as 'realtime'
-        self.assertEqual(cohort.cohort_type, "realtime")
-        self.assertEqual(response.data["cohort_type"], "realtime")
+        assert cohort.cohort_type == "realtime"
+        assert response.data["cohort_type"] == "realtime"
 
     def test_explicit_cohort_type_validation_failure(self):
         """Should reject mismatched explicit cohort types"""
@@ -4481,9 +4458,9 @@ class TestCohortTypeIntegration(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("does not match the filters", str(response.data))
-        self.assertIn("Expected type: 'behavioral'", str(response.data))
+        assert response.status_code == 400
+        assert "does not match the filters" in str(response.data)
+        assert "Expected type: 'behavioral'" in str(response.data)
 
     def test_explicit_cohort_type_update_validation(self):
         """Should validate explicit cohort type matches filters on updates"""
@@ -4504,9 +4481,9 @@ class TestCohortTypeIntegration(APIBaseTest):
             {"cohort_type": CohortType.BEHAVIORAL},  # Wrong - filters are person_property
             format="json",
         )
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("does not match the filters", str(response.data))
-        self.assertIn("Expected type: 'person_property'", str(response.data))
+        assert response.status_code == 400
+        assert "does not match the filters" in str(response.data)
+        assert "Expected type: 'person_property'" in str(response.data)
 
         # Valid update - correct type for existing filters
         response = self.client.patch(
@@ -4514,9 +4491,9 @@ class TestCohortTypeIntegration(APIBaseTest):
             {"cohort_type": CohortType.PERSON_PROPERTY},  # Correct type
             format="json",
         )
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         cohort.refresh_from_db()
-        self.assertEqual(cohort.cohort_type, CohortType.PERSON_PROPERTY)
+        assert cohort.cohort_type == CohortType.PERSON_PROPERTY
 
         # Update both filters and type together
         response = self.client.patch(
@@ -4542,10 +4519,10 @@ class TestCohortTypeIntegration(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         cohort.refresh_from_db()
         # cohort_type is auto-computed and stored as 'realtime'
-        self.assertEqual(cohort.cohort_type, "realtime")
+        assert cohort.cohort_type == "realtime"
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay", side_effect=calculate_cohort_from_list)
     def test_static_cohort_csv_upload_with_email_column_only(self, patch_calculate_cohort_from_list):
@@ -4574,17 +4551,17 @@ jane@example.com
             format="multipart",
         )
 
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify the persons were actually added to the cohort
         people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual(people_in_cohort.count(), 2)
+        assert people_in_cohort.count() == 2
 
         # Verify specific persons are in the cohort
         person_uuids_in_cohort = {str(p.uuid) for p in people_in_cohort}
-        self.assertIn(str(person1.uuid), person_uuids_in_cohort)
-        self.assertIn(str(person2.uuid), person_uuids_in_cohort)
+        assert str(person1.uuid) in person_uuids_in_cohort
+        assert str(person2.uuid) in person_uuids_in_cohort
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay", side_effect=calculate_cohort_from_list)
     def test_static_cohort_csv_upload_person_id_preference_over_email(self, patch_calculate_cohort_from_list):
@@ -4617,21 +4594,21 @@ Jane Smith,{person2.uuid},jane@example.com
             format="multipart",
         )
 
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify the persons were actually added to the cohort
         people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual(people_in_cohort.count(), 2)
+        assert people_in_cohort.count() == 2
 
         # Verify specific persons are in the cohort (the ones matched by person_id, not email)
         person_uuids_in_cohort = {str(p.uuid) for p in people_in_cohort}
-        self.assertIn(str(person1.uuid), person_uuids_in_cohort)
-        self.assertIn(str(person2.uuid), person_uuids_in_cohort)
+        assert str(person1.uuid) in person_uuids_in_cohort
+        assert str(person2.uuid) in person_uuids_in_cohort
 
         # Verify that persons matched by email are NOT in the cohort
-        self.assertNotIn(str(person_with_email1.uuid), person_uuids_in_cohort)
-        self.assertNotIn(str(person_with_email2.uuid), person_uuids_in_cohort)
+        assert str(person_with_email1.uuid) not in person_uuids_in_cohort
+        assert str(person_with_email2.uuid) not in person_uuids_in_cohort
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay", side_effect=calculate_cohort_from_list)
     def test_static_cohort_csv_upload_distinct_id_preference_over_email(self, patch_calculate_cohort_from_list):
@@ -4664,18 +4641,18 @@ Jane Smith,user456,jane@example.com
             format="multipart",
         )
 
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify the persons were actually added to the cohort
         people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual(people_in_cohort.count(), 2)
+        assert people_in_cohort.count() == 2
 
         # Verify specific persons are in the cohort (the ones matched by distinct_id, not email)
         person_uuids_in_cohort = {str(p.uuid) for p in people_in_cohort}
-        self.assertIn(str(person1.uuid), person_uuids_in_cohort)
-        self.assertIn(str(person2.uuid), person_uuids_in_cohort)
+        assert str(person1.uuid) in person_uuids_in_cohort
+        assert str(person2.uuid) in person_uuids_in_cohort
 
         # Verify that persons matched by email are NOT in the cohort
-        self.assertNotIn(str(person_with_email1.uuid), person_uuids_in_cohort)
-        self.assertNotIn(str(person_with_email2.uuid), person_uuids_in_cohort)
+        assert str(person_with_email1.uuid) not in person_uuids_in_cohort
+        assert str(person_with_email2.uuid) not in person_uuids_in_cohort

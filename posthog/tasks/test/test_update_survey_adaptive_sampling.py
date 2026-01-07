@@ -40,7 +40,7 @@ class TestUpdateSurveyAdaptiveSampling(BaseTest):
         update_survey_adaptive_sampling()
 
         internal_response_sampling_flag = FeatureFlag.objects.get(id=self.internal_response_sampling_flag.id)
-        self.assertEqual(internal_response_sampling_flag.rollout_percentage, 20)
+        assert internal_response_sampling_flag.rollout_percentage == 20
         mock_get_count.assert_called_once_with(self.survey.id)
 
     @freeze_time("2024-12-21T12:00:00Z")
@@ -49,11 +49,11 @@ class TestUpdateSurveyAdaptiveSampling(BaseTest):
         mock_get_count.return_value = 50
         update_survey_adaptive_sampling()
         internal_response_sampling_flag = FeatureFlag.objects.get(id=self.internal_response_sampling_flag.id)
-        self.assertEqual(internal_response_sampling_flag.rollout_percentage, 100)
+        assert internal_response_sampling_flag.rollout_percentage == 100
         mock_get_count.assert_called_once_with(self.survey.id)
         survey = Survey.objects.get(id=self.survey.id)
         response_sampling_daily_limits = json.loads(survey.response_sampling_daily_limits)
-        self.assertEqual(response_sampling_daily_limits[0].get("date"), "2024-12-22")
+        assert response_sampling_daily_limits[0].get("date") == "2024-12-22"
 
     @freeze_time("2024-12-13T12:00:00Z")
     @patch("posthog.tasks.update_survey_adaptive_sampling._get_survey_responses_count")
@@ -62,7 +62,7 @@ class TestUpdateSurveyAdaptiveSampling(BaseTest):
         update_survey_adaptive_sampling()
 
         internal_response_sampling_flag = FeatureFlag.objects.get(id=self.internal_response_sampling_flag.id)
-        self.assertEqual(internal_response_sampling_flag.rollout_percentage, 100)
+        assert internal_response_sampling_flag.rollout_percentage == 100
         mock_get_count.assert_called_once_with(self.survey.id)
 
     @patch("posthog.tasks.update_survey_adaptive_sampling._get_survey_responses_count")
@@ -76,7 +76,7 @@ class TestUpdateSurveyAdaptiveSampling(BaseTest):
         update_survey_adaptive_sampling()
 
         internal_response_sampling_flag = FeatureFlag.objects.get(id=self.internal_response_sampling_flag.id)
-        self.assertEqual(internal_response_sampling_flag.rollout_percentage, 100)
+        assert internal_response_sampling_flag.rollout_percentage == 100
         mock_get_count.assert_not_called()
 
     @patch("posthog.tasks.update_survey_adaptive_sampling._get_survey_responses_count")
@@ -87,5 +87,5 @@ class TestUpdateSurveyAdaptiveSampling(BaseTest):
         update_survey_adaptive_sampling()
 
         internal_response_sampling_flag = FeatureFlag.objects.get(id=self.internal_response_sampling_flag.id)
-        self.assertEqual(internal_response_sampling_flag.rollout_percentage, 100)
+        assert internal_response_sampling_flag.rollout_percentage == 100
         mock_get_count.assert_not_called()

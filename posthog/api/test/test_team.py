@@ -2,6 +2,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries_context
 from unittest import mock
@@ -64,41 +65,40 @@ def team_api_test_factory():
 
         def test_list_teams(self):
             response = self.client.get("/api/environments/")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
 
             # Listing endpoint always uses the simplified serializer
             response_data = response.json()
-            self.assertEqual(len(response_data["results"]), 1)
-            self.assertEqual(response_data["results"][0]["name"], self.team.name)
-            self.assertNotIn("test_account_filters", response_data["results"][0])
-            self.assertNotIn("data_attributes", response_data["results"][0])
+            assert len(response_data["results"]) == 1
+            assert response_data["results"][0]["name"] == self.team.name
+            assert "test_account_filters" not in response_data["results"][0]
+            assert "data_attributes" not in response_data["results"][0]
 
             # TODO: These assertions will no longer make sense when we fully remove these attributes from the model
-            self.assertNotIn("event_names", response_data["results"][0])
-            self.assertNotIn("event_properties", response_data["results"][0])
-            self.assertNotIn("event_properties_numerical", response_data["results"][0])
+            assert "event_names" not in response_data["results"][0]
+            assert "event_properties" not in response_data["results"][0]
+            assert "event_properties_numerical" not in response_data["results"][0]
 
         def test_retrieve_team(self):
             response = self.client.get("/api/environments/@current/")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
 
             response_data = response.json()
-            self.assertEqual(response_data["name"], self.team.name)
-            self.assertEqual(response_data["timezone"], "UTC")
-            self.assertEqual(response_data["is_demo"], False)
-            self.assertEqual(response_data["slack_incoming_webhook"], self.team.slack_incoming_webhook)
-            self.assertEqual(response_data["has_group_types"], False)
-            self.assertEqual(
-                response_data["person_on_events_querying_enabled"],
-                get_instance_setting("PERSON_ON_EVENTS_ENABLED") or get_instance_setting("PERSON_ON_EVENTS_V2_ENABLED"),
+            assert response_data["name"] == self.team.name
+            assert response_data["timezone"] == "UTC"
+            assert not response_data["is_demo"]
+            assert response_data["slack_incoming_webhook"] == self.team.slack_incoming_webhook
+            assert not response_data["has_group_types"]
+            assert response_data["person_on_events_querying_enabled"] == (
+                get_instance_setting("PERSON_ON_EVENTS_ENABLED") or get_instance_setting("PERSON_ON_EVENTS_V2_ENABLED")
             )
 
             # TODO: These assertions will no longer make sense when we fully remove these attributes from the model
-            self.assertNotIn("event_names", response_data)
-            self.assertNotIn("event_properties", response_data)
-            self.assertNotIn("event_properties_numerical", response_data)
-            self.assertNotIn("event_names_with_usage", response_data)
-            self.assertNotIn("event_properties_with_usage", response_data)
+            assert "event_names" not in response_data
+            assert "event_properties" not in response_data
+            assert "event_properties_numerical" not in response_data
+            assert "event_names_with_usage" not in response_data
+            assert "event_properties_with_usage" not in response_data
 
         def test_retrieve_team_has_group_types(self):
             other_team = Team.objects.create(organization=self.organization, project=self.project)
@@ -106,9 +106,9 @@ def team_api_test_factory():
             response = self.client.get("/api/environments/@current/")
             response_data = response.json()
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK, response_data)
-            self.assertEqual(response_data["has_group_types"], False)
-            self.assertEqual(response_data["group_types"], [])
+            assert response.status_code == status.HTTP_200_OK, response_data
+            assert not response_data["has_group_types"]
+            assert response_data["group_types"] == []
 
             create_group_type_mapping_without_created_at(
                 project=self.project, team=other_team, group_type="person", group_type_index=0
@@ -123,48 +123,45 @@ def team_api_test_factory():
             response = self.client.get("/api/environments/@current/")
             response_data = response.json()
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK, response_data)
-            self.assertEqual(response_data["has_group_types"], True)
-            self.assertEqual(
-                response_data["group_types"],
-                [
-                    {
-                        "group_type": "person",
-                        "group_type_index": 0,
-                        "name_singular": None,
-                        "name_plural": None,
-                        "default_columns": None,
-                        "detail_dashboard": None,
-                        "created_at": None,
-                    },
-                    {
-                        "group_type": "place",
-                        "group_type_index": 1,
-                        "name_singular": None,
-                        "name_plural": None,
-                        "default_columns": None,
-                        "detail_dashboard": None,
-                        "created_at": None,
-                    },
-                    {
-                        "group_type": "thing",
-                        "group_type_index": 2,
-                        "name_singular": None,
-                        "name_plural": None,
-                        "default_columns": None,
-                        "detail_dashboard": None,
-                        "created_at": None,
-                    },
-                ],
-            )
+            assert response.status_code == status.HTTP_200_OK, response_data
+            assert response_data["has_group_types"]
+            assert response_data["group_types"] == [
+                {
+                    "group_type": "person",
+                    "group_type_index": 0,
+                    "name_singular": None,
+                    "name_plural": None,
+                    "default_columns": None,
+                    "detail_dashboard": None,
+                    "created_at": None,
+                },
+                {
+                    "group_type": "place",
+                    "group_type_index": 1,
+                    "name_singular": None,
+                    "name_plural": None,
+                    "default_columns": None,
+                    "detail_dashboard": None,
+                    "created_at": None,
+                },
+                {
+                    "group_type": "thing",
+                    "group_type_index": 2,
+                    "name_singular": None,
+                    "name_plural": None,
+                    "default_columns": None,
+                    "detail_dashboard": None,
+                    "created_at": None,
+                },
+            ]
 
         def test_cant_retrieve_team_from_another_org(self):
             org = Organization.objects.create(name="New Org")
             team = Team.objects.create(organization=org, name="Default project")
 
             response = self.client.get(f"/api/environments/{team.pk}/")
-            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-            self.assertEqual(response.json(), self.not_found_response())
+            assert response.status_code == status.HTTP_404_NOT_FOUND
+            assert response.json() == self.not_found_response()
 
         @patch("posthog.api.project.get_geoip_properties")
         @patch("posthog.api.team.get_geoip_properties")
@@ -184,81 +181,75 @@ def team_api_test_factory():
 
             get_geoip_properties_mock.return_value = {}
             response = self.client.post("/api/projects/@current/environments/", {"name": "Test World"})
-            self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-            self.assertLessEqual({"name": "Test World", "week_start_day": None}.items(), response.json().items())
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
+            assert {"name": "Test World", "week_start_day": None}.items() <= response.json().items()
 
             get_geoip_properties_mock.return_value = {"$geoip_country_code": "US"}
             response = self.client.post("/api/projects/@current/environments/", {"name": "Test US"})
-            self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-            self.assertLessEqual({"name": "Test US", "week_start_day": 0}.items(), response.json().items())
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
+            assert {"name": "Test US", "week_start_day": 0}.items() <= response.json().items()
 
             get_geoip_properties_mock.return_value = {"$geoip_country_code": "PL"}
             response = self.client.post("/api/projects/@current/environments/", {"name": "Test PL"})
-            self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-            self.assertLessEqual({"name": "Test PL", "week_start_day": 1}.items(), response.json().items())
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
+            assert {"name": "Test PL", "week_start_day": 1}.items() <= response.json().items()
 
             get_geoip_properties_mock.return_value = {"$geoip_country_code": "IR"}
             response = self.client.post("/api/projects/@current/environments/", {"name": "Test IR"})
-            self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-            self.assertLessEqual({"name": "Test IR", "week_start_day": 0}.items(), response.json().items())
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
+            assert {"name": "Test IR", "week_start_day": 0}.items() <= response.json().items()
 
         def test_cant_create_team_without_license_on_selfhosted(self):
             with self.is_cloud(False):
                 response = self.client.post("/api/projects/@current/environments/", {"name": "Test"})
-                self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-                self.assertEqual(Team.objects.count(), 1)
+                assert response.status_code == status.HTTP_403_FORBIDDEN
+                assert Team.objects.count() == 1
                 response = self.client.post("/api/projects/@current/environments/", {"name": "Test"})
-                self.assertEqual(Team.objects.count(), 1)
+                assert Team.objects.count() == 1
 
         def test_cant_create_a_second_team_without_license(self):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
-            self.assertEqual(Team.objects.count(), 1)
+            assert Team.objects.count() == 1
 
             response = self.client.post("/api/projects/@current/environments/", {"name": "Hedgebox", "is_demo": False})
-            self.assertEqual(response.status_code, 403)
+            assert response.status_code == 403
             response_data = response.json()
-            self.assertEqual(
-                response_data.get("detail"),
-                (
-                    "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
-                    if self.client_class is not EnvironmentToProjectRewriteClient
-                    else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
-                ),
+            assert response_data.get("detail") == (
+                "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
+                if self.client_class is not EnvironmentToProjectRewriteClient
+                else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
             )
-            self.assertEqual(response_data.get("type"), "authentication_error")
-            self.assertEqual(response_data.get("code"), "permission_denied")
-            self.assertEqual(Team.objects.count(), 1)
+            assert response_data.get("type") == "authentication_error"
+            assert response_data.get("code") == "permission_denied"
+            assert Team.objects.count() == 1
 
             # another request without the is_demo parameter
             response = self.client.post("/api/projects/@current/environments/", {"name": "Hedgebox"})
-            self.assertEqual(response.status_code, 403)
+            assert response.status_code == 403
             response_data = response.json()
-            self.assertEqual(
-                response_data.get("detail"),
-                (
-                    "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
-                    if self.client_class is not EnvironmentToProjectRewriteClient
-                    else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
-                ),
+            assert response_data.get("detail") == (
+                "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
+                if self.client_class is not EnvironmentToProjectRewriteClient
+                else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
             )
-            self.assertEqual(response_data.get("type"), "authentication_error")
-            self.assertEqual(response_data.get("code"), "permission_denied")
-            self.assertEqual(Team.objects.count(), 1)
+            assert response_data.get("type") == "authentication_error"
+            assert response_data.get("code") == "permission_denied"
+            assert Team.objects.count() == 1
 
         @freeze_time("2022-02-08")
         def test_update_team_timezone(self):
             self._assert_activity_log_is_empty()
 
             response = self.client.patch("/api/environments/@current/", {"timezone": "Europe/Lisbon"})
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
 
             response_data = response.json()
-            self.assertEqual(response_data["name"], self.team.name)
-            self.assertEqual(response_data["timezone"], "Europe/Lisbon")
+            assert response_data["name"] == self.team.name
+            assert response_data["timezone"] == "Europe/Lisbon"
 
             self.team.refresh_from_db()
-            self.assertEqual(self.team.timezone, "Europe/Lisbon")
+            assert self.team.timezone == "Europe/Lisbon"
 
             self._assert_activity_log(
                 [
@@ -294,33 +285,33 @@ def team_api_test_factory():
             response = self.client.patch(
                 "/api/environments/@current/", {"test_account_filters_default_checked": "true"}
             )
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
 
             response_data = response.json()
-            self.assertEqual(response_data["test_account_filters_default_checked"], True)
+            assert response_data["test_account_filters_default_checked"]
 
             self.team.refresh_from_db()
-            self.assertEqual(self.team.test_account_filters_default_checked, True)
+            assert self.team.test_account_filters_default_checked
 
         def test_retrieve_receive_org_level_activity_logs(self):
             response = self.client.get("/api/environments/@current/")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
 
             response_data = response.json()
-            self.assertEqual(response_data["receive_org_level_activity_logs"], False)
+            assert not response_data["receive_org_level_activity_logs"]
 
         def test_update_receive_org_level_activity_logs(self):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
 
             response = self.client.patch("/api/environments/@current/", {"receive_org_level_activity_logs": True})
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
 
             response_data = response.json()
-            self.assertEqual(response_data["receive_org_level_activity_logs"], True)
+            assert response_data["receive_org_level_activity_logs"]
 
             self.team.refresh_from_db()
-            self.assertEqual(self.team.receive_org_level_activity_logs, True)
+            assert self.team.receive_org_level_activity_logs
 
         def test_update_receive_org_level_activity_logs_requires_admin(self):
             member_user = User.objects.create_user(email="member@posthog.com", password="password", first_name="Member")
@@ -332,19 +323,16 @@ def team_api_test_factory():
             self.client.force_login(member_user)
 
             response = self.client.patch("/api/environments/@current/", {"receive_org_level_activity_logs": True})
-            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-            self.assertEqual(
-                response.json(),
-                {
-                    "type": "authentication_error",
-                    "code": "permission_denied",
-                    "detail": "Only organization owners and admins can modify the receive_org_level_activity_logs setting.",
-                    "attr": None,
-                },
-            )
+            assert response.status_code == status.HTTP_403_FORBIDDEN
+            assert response.json() == {
+                "type": "authentication_error",
+                "code": "permission_denied",
+                "detail": "Only organization owners and admins can modify the receive_org_level_activity_logs setting.",
+                "attr": None,
+            }
 
             self.team.refresh_from_db()
-            self.assertEqual(self.team.receive_org_level_activity_logs, False)
+            assert not self.team.receive_org_level_activity_logs
 
         def test_update_receive_org_level_activity_logs_allows_admin(self):
             admin_user = User.objects.create_user(email="admin@posthog.com", password="password", first_name="Admin")
@@ -356,29 +344,26 @@ def team_api_test_factory():
             self.client.force_login(admin_user)
 
             response = self.client.patch("/api/environments/@current/", {"receive_org_level_activity_logs": True})
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
 
             response_data = response.json()
-            self.assertEqual(response_data["receive_org_level_activity_logs"], True)
+            assert response_data["receive_org_level_activity_logs"]
 
             self.team.refresh_from_db()
-            self.assertEqual(self.team.receive_org_level_activity_logs, True)
+            assert self.team.receive_org_level_activity_logs
 
         def test_cannot_set_invalid_timezone_for_team(self):
             response = self.client.patch("/api/environments/@current/", {"timezone": "America/I_Dont_Exist"})
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-            self.assertEqual(
-                response.json(),
-                {
-                    "type": "validation_error",
-                    "code": "invalid_choice",
-                    "detail": '"America/I_Dont_Exist" is not a valid choice.',
-                    "attr": "timezone",
-                },
-            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert response.json() == {
+                "type": "validation_error",
+                "code": "invalid_choice",
+                "detail": '"America/I_Dont_Exist" is not a valid choice.',
+                "attr": "timezone",
+            }
 
             self.team.refresh_from_db()
-            self.assertNotEqual(self.team.timezone, "America/I_Dont_Exist")
+            assert self.team.timezone != "America/I_Dont_Exist"
 
         @parameterized.expand(
             [
@@ -404,38 +389,35 @@ def team_api_test_factory():
                 {"slack_incoming_webhook": webhook_url},
             )
             if should_succeed:
-                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                assert response.status_code == status.HTTP_200_OK
                 self.team.refresh_from_db()
-                self.assertEqual(self.team.slack_incoming_webhook, webhook_url if webhook_url else None)
+                assert self.team.slack_incoming_webhook == (webhook_url if webhook_url else None)
             else:
-                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+                assert response.status_code == status.HTTP_400_BAD_REQUEST
                 response_data = response.json()
-                self.assertIn("Invalid webhook URL", response_data.get("detail", "") or str(response_data))
+                assert "Invalid webhook URL" in (response_data.get("detail", "") or str(response_data))
 
         def test_cant_update_team_from_another_org(self):
             org = Organization.objects.create(name="New Org")
             team = Team.objects.create(organization=org, name="Default project")
 
             response = self.client.patch(f"/api/environments/{team.pk}/", {"timezone": "Africa/Accra"})
-            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-            self.assertEqual(response.json(), self.not_found_response())
+            assert response.status_code == status.HTTP_404_NOT_FOUND
+            assert response.json() == self.not_found_response()
 
             team.refresh_from_db()
-            self.assertEqual(team.timezone, "UTC")
+            assert team.timezone == "UTC"
 
         def test_filter_permission(self):
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/",
                 {"test_account_filters": [{"key": "$current_url", "value": "test"}]},
             )
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
 
             response_data = response.json()
-            self.assertEqual(response_data["name"], self.team.name)
-            self.assertEqual(
-                response_data["test_account_filters"],
-                [{"key": "$current_url", "value": "test"}],
-            )
+            assert response_data["name"] == self.team.name
+            assert response_data["test_account_filters"] == [{"key": "$current_url", "value": "test"}]
 
         @freeze_time("2022-02-08")
         def test_delete_team_activity_log(self):
@@ -544,17 +526,15 @@ def team_api_test_factory():
 
             team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
 
-            self.assertEqual(Team.objects.filter(organization=self.organization).count(), 2)
+            assert Team.objects.filter(organization=self.organization).count() == 2
 
             response = self.client.delete(f"/api/environments/{team.id}")
 
-            self.assertEqual(response.status_code, 204)
-            self.assertEqual(Team.objects.filter(organization=self.organization).count(), 1)
-            self.assertEqual(
-                AsyncDeletion.objects.filter(
-                    team_id=team.id, deletion_type=DeletionType.Team, key=str(team.id)
-                ).count(),
-                1,
+            assert response.status_code == 204
+            assert Team.objects.filter(organization=self.organization).count() == 1
+            assert (
+                AsyncDeletion.objects.filter(team_id=team.id, deletion_type=DeletionType.Team, key=str(team.id)).count()
+                == 1
             )
             expected_capture_calls = [
                 call(
@@ -588,7 +568,7 @@ def team_api_test_factory():
 
             team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
 
-            self.assertEqual(Team.objects.filter(organization=self.organization).count(), 2)
+            assert Team.objects.filter(organization=self.organization).count() == 2
 
             from posthog.models.cohort import Cohort, CohortPeople
             from posthog.models.feature_flag.feature_flag import FeatureFlag, FeatureFlagHashKeyOverride
@@ -630,7 +610,7 @@ def team_api_test_factory():
                 self, custom_query_matcher=lambda query: "DELETE" in query and "posthog_person" in query
             ):
                 response = self.client.delete(f"/api/environments/{team.id}")
-            self.assertEqual(response.status_code, 204)
+            assert response.status_code == 204
 
         def test_delete_batch_exports(self):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -674,7 +654,7 @@ def team_api_test_factory():
                 response = self.client.get(f"/api/environments/{team.id}/batch_exports/{batch_export_id}")
                 assert response.status_code == 404, response.json()
 
-                with self.assertRaises(RPCError):
+                with pytest.raises(RPCError):
                     describe_schedule(temporal, batch_export_id)
 
         @freeze_time("2022-02-08")
@@ -691,10 +671,10 @@ def team_api_test_factory():
             response_data = response.json()
 
             self.team.refresh_from_db()
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertNotEqual(response_data["api_token"], "xyz")
-            self.assertEqual(response_data["api_token"], self.team.api_token)
-            self.assertTrue(response_data["api_token"].startswith("phc_"))
+            assert response.status_code == status.HTTP_200_OK
+            assert response_data["api_token"] != "xyz"
+            assert response_data["api_token"] == self.team.api_token
+            assert response_data["api_token"].startswith("phc_")
 
             self._assert_activity_log(
                 [
@@ -731,7 +711,7 @@ def team_api_test_factory():
             self.team.save()
 
             response = self.client.patch(f"/api/environments/{self.team.id}/reset_token/")
-            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            assert response.status_code == status.HTTP_403_FORBIDDEN
 
         @freeze_time("2022-02-08")
         def test_generate_secret_token(self):
@@ -751,11 +731,11 @@ def team_api_test_factory():
             response_data = response.json()
 
             self.team.refresh_from_db()
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
             new_secret_api_token = self.team.secret_api_token or ""
-            self.assertTrue(new_secret_api_token.startswith("phs_"))
-            self.assertEqual(response_data["secret_api_token"], new_secret_api_token)
-            self.assertIsNone(self.team.secret_api_token_backup)
+            assert new_secret_api_token.startswith("phs_")
+            assert response_data["secret_api_token"] == new_secret_api_token
+            assert self.team.secret_api_token_backup is None
             self._assert_activity_log(
                 [
                     {
@@ -807,13 +787,13 @@ def team_api_test_factory():
             response_data = response.json()
 
             self.team.refresh_from_db()
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertNotEqual(response_data["secret_api_token"], secret_api_token)
-            self.assertNotEqual(response_data["secret_api_token"], self.team.secret_api_token_backup)
-            self.assertEqual(response_data["secret_api_token"], self.team.secret_api_token)
-            self.assertTrue(response_data["secret_api_token"].startswith("phs_"))
+            assert response.status_code == status.HTTP_200_OK
+            assert response_data["secret_api_token"] != secret_api_token
+            assert response_data["secret_api_token"] != self.team.secret_api_token_backup
+            assert response_data["secret_api_token"] == self.team.secret_api_token
+            assert response_data["secret_api_token"].startswith("phs_")
             # Backup token should now be the old secret API token
-            self.assertEqual(response_data["secret_api_token_backup"], secret_api_token)
+            assert response_data["secret_api_token_backup"] == secret_api_token
             self._assert_activity_log(
                 [
                     {
@@ -869,12 +849,12 @@ def team_api_test_factory():
             response_data = response.json()
 
             self.team.refresh_from_db()
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertNotEqual(response_data["secret_api_token"], secret_api_token)
-            self.assertEqual(response_data["secret_api_token"], self.team.secret_api_token)
-            self.assertTrue(response_data["secret_api_token"].startswith("phs_"))
+            assert response.status_code == status.HTTP_200_OK
+            assert response_data["secret_api_token"] != secret_api_token
+            assert response_data["secret_api_token"] == self.team.secret_api_token
+            assert response_data["secret_api_token"].startswith("phs_")
             # Backup token should now be the old secret API token
-            self.assertEqual(response_data["secret_api_token_backup"], secret_api_token)
+            assert response_data["secret_api_token_backup"] == secret_api_token
             self._assert_activity_log(
                 [
                     {
@@ -927,10 +907,10 @@ def team_api_test_factory():
             response_data = response.json()
 
             self.team.refresh_from_db()
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(response_data["secret_api_token"], "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C")
-            self.assertIsNone(response_data["secret_api_token_backup"])
-            self.assertIsNone(self.team.secret_api_token_backup)
+            assert response.status_code == status.HTTP_200_OK
+            assert response_data["secret_api_token"] == "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
+            assert response_data["secret_api_token_backup"] is None
+            assert self.team.secret_api_token_backup is None
             self._assert_activity_log(
                 [
                     {
@@ -967,10 +947,10 @@ def team_api_test_factory():
             self.team.save()
 
             response = self.client.patch(f"/api/environments/{self.team.id}/rotate_secret_token/")
-            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            assert response.status_code == status.HTTP_403_FORBIDDEN
             # Make sure it's unchanged
-            self.assertEqual(self.team.secret_api_token, "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C")
-            self.assertIsNone(self.team.secret_api_token_backup)
+            assert self.team.secret_api_token == "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
+            assert self.team.secret_api_token_backup is None
 
         def test_delete_secret_token_backup_insufficient_privileges(self):
             self.team.secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
@@ -978,10 +958,10 @@ def team_api_test_factory():
             self.team.save()
 
             response = self.client.patch(f"/api/environments/{self.team.id}/delete_secret_token_backup/")
-            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            assert response.status_code == status.HTTP_403_FORBIDDEN
             # Make sure it's unchanged
-            self.assertEqual(self.team.secret_api_token, "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C")
-            self.assertEqual(self.team.secret_api_token_backup, "phs_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+            assert self.team.secret_api_token == "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
+            assert self.team.secret_api_token_backup == "phs_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
         def test_update_primary_dashboard(self):
             d = Dashboard.objects.create(name="Test", team=self.team)
@@ -990,9 +970,9 @@ def team_api_test_factory():
             response = self.client.patch("/api/environments/@current/", {"primary_dashboard": d.id})
             response_data = response.json()
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-            self.assertEqual(response_data["name"], self.team.name)
-            self.assertEqual(response_data["primary_dashboard"], d.id)
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert response_data["name"] == self.team.name
+            assert response_data["primary_dashboard"] == d.id
 
         def test_cant_set_primary_dashboard_to_another_teams_dashboard(self):
             self.team.primary_dashboard_id = None  # Remove the default primary dashboard from the picture
@@ -1002,22 +982,21 @@ def team_api_test_factory():
             d = Dashboard.objects.create(name="Test", team=team_2)
 
             response = self.client.patch("/api/environments/@current/", {"primary_dashboard": d.id})
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-            self.assertEqual(
-                response.json(),
-                self.validation_error_response("Dashboard does not belong to this team.", attr="primary_dashboard"),
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert response.json() == self.validation_error_response(
+                "Dashboard does not belong to this team.", attr="primary_dashboard"
             )
 
         def test_is_generating_demo_data(self):
             cache_key = f"is_generating_demo_data_{self.team.pk}"
             cache.set(cache_key, "True")
             response = self.client.get(f"/api/environments/{self.team.id}/is_generating_demo_data/")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(response.json(), {"is_generating_demo_data": True})
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json() == {"is_generating_demo_data": True}
             cache.delete(cache_key)
             response = self.client.get(f"/api/environments/{self.team.id}/is_generating_demo_data/")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(response.json(), {"is_generating_demo_data": False})
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json() == {"is_generating_demo_data": False}
 
         @patch("posthog.demo.matrix.manager.MatrixManager.run_on_team")  # We don't actually need demo data, it's slow
         def test_org_member_can_create_demo_project(self, mock_create_data_for_demo_team: MagicMock):
@@ -1037,7 +1016,7 @@ def team_api_test_factory():
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
             self.organization_membership.save()
             response = self.client.post("/api/projects/@current/environments/", {"name": "Hedgebox", "is_demo": True})
-            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            assert response.status_code == status.HTTP_201_CREATED
             mock_create_data_for_demo_team.assert_called_once()
 
         @freeze_time("2022-02-08")
@@ -1792,18 +1771,18 @@ def team_api_test_factory():
                 "/api/projects/@current/environments/",
                 {"name": "Test Environment", "access_control": True},
             )
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
             error_data = response.json()
-            self.assertIn("deprecated", error_data["detail"])
-            self.assertIn("https://posthog.com/docs/settings/access-control", error_data["detail"])
+            assert "deprecated" in error_data["detail"]
+            assert "https://posthog.com/docs/settings/access-control" in error_data["detail"]
 
             # Verify that the exception was captured
             mock_capture_exception.assert_called_once()
             call_args = mock_capture_exception.call_args
-            self.assertEqual(call_args[0][0].args[0], "Deprecated access control field used")
-            self.assertEqual(call_args[1]["properties"]["field"], "access_control")
-            self.assertEqual(call_args[1]["properties"]["value"], "True")
-            self.assertEqual(call_args[1]["properties"]["user_id"], self.user.id)
+            assert call_args[0][0].args[0] == "Deprecated access control field used"
+            assert call_args[1]["properties"]["field"] == "access_control"
+            assert call_args[1]["properties"]["value"] == "True"
+            assert call_args[1]["properties"]["user_id"] == self.user.id
 
         @patch("posthoganalytics.capture_exception")
         def test_access_control_field_deprecated_on_update(self, mock_capture_exception):
@@ -1815,18 +1794,18 @@ def team_api_test_factory():
                 "/api/environments/@current/",
                 {"name": "Updated Name", "access_control": False},
             )
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
             error_data = response.json()
-            self.assertIn("deprecated", error_data["detail"])
-            self.assertIn("https://posthog.com/docs/settings/access-control", error_data["detail"])
+            assert "deprecated" in error_data["detail"]
+            assert "https://posthog.com/docs/settings/access-control" in error_data["detail"]
 
             # Verify that the exception was captured
             mock_capture_exception.assert_called_once()
             call_args = mock_capture_exception.call_args
-            self.assertEqual(call_args[0][0].args[0], "Deprecated access control field used")
-            self.assertEqual(call_args[1]["properties"]["field"], "access_control")
-            self.assertEqual(call_args[1]["properties"]["value"], "False")
-            self.assertEqual(call_args[1]["properties"]["user_id"], self.user.id)
+            assert call_args[0][0].args[0] == "Deprecated access control field used"
+            assert call_args[1]["properties"]["field"] == "access_control"
+            assert call_args[1]["properties"]["value"] == "False"
+            assert call_args[1]["properties"]["user_id"] == self.user.id
 
         @patch("posthoganalytics.capture_exception")
         def test_access_control_field_deprecated_on_partial_update(self, mock_capture_exception):
@@ -1838,18 +1817,18 @@ def team_api_test_factory():
                 "/api/environments/@current/",
                 {"access_control": True},
             )
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
             error_data = response.json()
-            self.assertIn("deprecated", error_data["detail"])
-            self.assertIn("https://posthog.com/docs/settings/access-control", error_data["detail"])
+            assert "deprecated" in error_data["detail"]
+            assert "https://posthog.com/docs/settings/access-control" in error_data["detail"]
 
             # Verify that the exception was captured
             mock_capture_exception.assert_called_once()
             call_args = mock_capture_exception.call_args
-            self.assertEqual(call_args[0][0].args[0], "Deprecated access control field used")
-            self.assertEqual(call_args[1]["properties"]["field"], "access_control")
-            self.assertEqual(call_args[1]["properties"]["value"], "True")
-            self.assertEqual(call_args[1]["properties"]["user_id"], self.user.id)
+            assert call_args[0][0].args[0] == "Deprecated access control field used"
+            assert call_args[1]["properties"]["field"] == "access_control"
+            assert call_args[1]["properties"]["value"] == "True"
+            assert call_args[1]["properties"]["user_id"] == self.user.id
 
         @patch("posthoganalytics.capture_exception")
         def test_access_control_field_deprecated_with_other_valid_fields(self, mock_capture_exception):
@@ -1861,22 +1840,22 @@ def team_api_test_factory():
                 "/api/environments/@current/",
                 {"timezone": "Europe/London", "access_control": True},
             )
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
             error_data = response.json()
-            self.assertIn("deprecated", error_data["detail"])
-            self.assertIn("https://posthog.com/docs/settings/access-control", error_data["detail"])
+            assert "deprecated" in error_data["detail"]
+            assert "https://posthog.com/docs/settings/access-control" in error_data["detail"]
 
             # Verify that the exception was captured
             mock_capture_exception.assert_called_once()
             call_args = mock_capture_exception.call_args
-            self.assertEqual(call_args[0][0].args[0], "Deprecated access control field used")
-            self.assertEqual(call_args[1]["properties"]["field"], "access_control")
-            self.assertEqual(call_args[1]["properties"]["value"], "True")
-            self.assertEqual(call_args[1]["properties"]["user_id"], self.user.id)
+            assert call_args[0][0].args[0] == "Deprecated access control field used"
+            assert call_args[1]["properties"]["field"] == "access_control"
+            assert call_args[1]["properties"]["value"] == "True"
+            assert call_args[1]["properties"]["user_id"] == self.user.id
 
             # Verify that no changes were made to the team
             self.team.refresh_from_db()
-            self.assertEqual(self.team.timezone, "UTC")  # Should remain unchanged
+            assert self.team.timezone == "UTC"  # Should remain unchanged
 
         @parameterized.expand(
             [
@@ -2063,11 +2042,9 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
 
         response = self.client.get("/api/environments/", headers={"authorization": f"Bearer {personal_api_key}"})
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            {team["id"] for team in response.json()["results"]},
-            {other_team_in_project.id},
-            "Only the scoped team listed here, the other two should be excluded",
+        assert response.status_code == status.HTTP_200_OK
+        assert {team["id"] for team in response.json()["results"]} == {other_team_in_project.id}, (
+            "Only the scoped team listed here, the other two should be excluded"
         )
 
     def test_teams_outside_personal_api_key_scoped_organizations_not_listed(self):
@@ -2083,11 +2060,9 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
 
         response = self.client.get("/api/environments/", headers={"authorization": f"Bearer {personal_api_key}"})
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            {team["id"] for team in response.json()["results"]},
-            {team_in_other_org.id},
-            "Only the team belonging to the scoped organization should be listed, the other one should be excluded",
+        assert response.status_code == status.HTTP_200_OK
+        assert {team["id"] for team in response.json()["results"]} == {team_in_other_org.id}, (
+            "Only the team belonging to the scoped organization should be listed, the other one should be excluded"
         )
 
     @override_settings(
@@ -2124,7 +2099,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
 
         response = self.client.get("/api/environments/", headers={"authorization": f"Bearer {access_token.token}"})
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     @override_settings(
         OAUTH2_PROVIDER={
@@ -2156,11 +2131,9 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
 
         response = self.client.get("/api/environments/", headers={"authorization": f"Bearer {access_token.token}"})
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            {team["id"] for team in response.json()["results"]},
-            {team_in_other_org.id},
-            "Only the team belonging to the scoped organization should be listed, the other one should be excluded",
+        assert response.status_code == status.HTTP_200_OK
+        assert {team["id"] for team in response.json()["results"]} == {team_in_other_org.id}, (
+            "Only the team belonging to the scoped organization should be listed, the other one should be excluded"
         )
 
     def test_can_create_team_with_valid_environments_limit(self):
@@ -2174,11 +2147,11 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             }
         ]
         self.organization.save()
-        self.assertEqual(Team.objects.count(), 1)
+        assert Team.objects.count() == 1
 
         response = self.client.post("/api/projects/@current/environments/", {"name": "New environment"})
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(Team.objects.count(), 2)
+        assert response.status_code == 201
+        assert Team.objects.count() == 2
 
     def test_cant_create_team_when_at_environments_limit(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -2191,22 +2164,19 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             }
         ]
         self.organization.save()
-        self.assertEqual(Team.objects.count(), 1)
+        assert Team.objects.count() == 1
 
         response = self.client.post("/api/projects/@current/environments/", {"name": "New environment"})
-        self.assertEqual(response.status_code, 403)
+        assert response.status_code == 403
         response_data = response.json()
-        self.assertEqual(
-            response_data.get("detail"),
-            (
-                "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
-                if self.client_class is not EnvironmentToProjectRewriteClient
-                else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
-            ),
+        assert response_data.get("detail") == (
+            "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
+            if self.client_class is not EnvironmentToProjectRewriteClient
+            else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
         )
-        self.assertEqual(response_data.get("type"), "authentication_error")
-        self.assertEqual(response_data.get("code"), "permission_denied")
-        self.assertEqual(Team.objects.count(), 1)
+        assert response_data.get("type") == "authentication_error"
+        assert response_data.get("code") == "permission_denied"
+        assert Team.objects.count() == 1
 
     def test_can_create_team_with_unlimited_environments_feature(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -2215,15 +2185,15 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             {"key": AvailableFeature.ENVIRONMENTS, "name": "Environments", "limit": None}
         ]
         self.organization.save()
-        self.assertEqual(Team.objects.count(), 1)
+        assert Team.objects.count() == 1
 
         response = self.client.post("/api/projects/@current/environments/", {"name": "New environment"})
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(Team.objects.count(), 2)
+        assert response.status_code == 201
+        assert Team.objects.count() == 2
 
         response = self.client.post("/api/projects/@current/environments/", {"name": "New environment 2"})
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(Team.objects.count(), 3)
+        assert response.status_code == 201
+        assert Team.objects.count() == 3
 
     def test_new_team_inherits_org_ip_anonymization_default_when_true(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -2238,7 +2208,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         assert response.status_code == 201
 
         new_team = Team.objects.get(name="Test IP Anonymization")
-        self.assertTrue(new_team.anonymize_ips)
+        assert new_team.anonymize_ips
 
     def test_new_team_inherits_org_ip_anonymization_default_when_false(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -2253,7 +2223,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         assert response.status_code == 201
 
         new_team = Team.objects.get(name="Test No IP Anonymization")
-        self.assertFalse(new_team.anonymize_ips)
+        assert not new_team.anonymize_ips
 
     def test_new_team_explicit_anonymize_ips_overrides_org_default(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -2272,7 +2242,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         assert response.json()["anonymize_ips"] is True
 
         new_team = Team.objects.get(name="Explicit Anonymize IPs")
-        self.assertTrue(new_team.anonymize_ips)
+        assert new_team.anonymize_ips
 
     def test_new_team_defaults_to_false_when_org_default_is_none(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -2287,7 +2257,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         assert response.status_code == 201
 
         new_team = Team.objects.get(name="Test Default Behavior")
-        self.assertFalse(new_team.anonymize_ips)
+        assert not new_team.anonymize_ips
 
     @override_settings(SITE_URL="https://eu.posthog.com", CLOUD_DEPLOYMENT="EU")
     def test_new_eu_organization_defaults_to_anonymize_ips_true(self):
@@ -2295,7 +2265,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         new_org = Organization.objects.create(name="EU Test Org")
 
         # Should automatically be True for EU cloud
-        self.assertTrue(new_org.default_anonymize_ips)
+        assert new_org.default_anonymize_ips
 
     @override_settings(SITE_URL="https://us.posthog.com", CLOUD_DEPLOYMENT="US")
     def test_new_us_organization_defaults_to_anonymize_ips_false(self):
@@ -2303,7 +2273,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         new_org = Organization.objects.create(name="US Test Org")
 
         # Should be False for US cloud
-        self.assertFalse(new_org.default_anonymize_ips)
+        assert not new_org.default_anonymize_ips
 
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT=None)
     def test_new_selfhosted_organization_defaults_to_anonymize_ips_false(self):
@@ -2311,7 +2281,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         new_org = Organization.objects.create(name="Self-Hosted Test Org")
 
         # Should be False for self-hosted
-        self.assertFalse(new_org.default_anonymize_ips)
+        assert not new_org.default_anonymize_ips
 
     def test_team_member_can_write_to_team_config_with_member_access_control(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -2337,16 +2307,16 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             "/api/environments/@current/",
             {"timezone": "Europe/Lisbon", "session_recording_opt_in": True},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         response_data = response.json()
-        self.assertEqual(response_data["timezone"], "Europe/Lisbon")
-        self.assertEqual(response_data["session_recording_opt_in"], True)
+        assert response_data["timezone"] == "Europe/Lisbon"
+        assert response_data["session_recording_opt_in"]
 
         # Verify changes were made
         self.team.refresh_from_db()
-        self.assertEqual(self.team.timezone, "Europe/Lisbon")
-        self.assertEqual(self.team.session_recording_opt_in, True)
+        assert self.team.timezone == "Europe/Lisbon"
+        assert self.team.session_recording_opt_in
 
     def test_team_member_cannot_write_to_team_config_with_no_access_access_control(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -2372,12 +2342,12 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             "/api/environments/@current/",
             {"timezone": "Europe/Lisbon", "session_recording_opt_in": True},
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
         # Verify changes were made
         self.team.refresh_from_db()
-        self.assertEqual(self.team.timezone, "UTC")
-        self.assertEqual(self.team.session_recording_opt_in, False)
+        assert self.team.timezone == "UTC"
+        assert not self.team.session_recording_opt_in
 
     def test_team_member_can_write_to_team_config_without_access_control(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -2395,16 +2365,16 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             "/api/environments/@current/",
             {"timezone": "Europe/Lisbon", "session_recording_opt_in": True},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         response_data = response.json()
-        self.assertEqual(response_data["timezone"], "Europe/Lisbon")
-        self.assertEqual(response_data["session_recording_opt_in"], True)
+        assert response_data["timezone"] == "Europe/Lisbon"
+        assert response_data["session_recording_opt_in"]
 
         # Verify changes were made
         self.team.refresh_from_db()
-        self.assertEqual(self.team.timezone, "Europe/Lisbon")
-        self.assertEqual(self.team.session_recording_opt_in, True)
+        assert self.team.timezone == "Europe/Lisbon"
+        assert self.team.session_recording_opt_in
 
     def test_team_admin_can_write_to_team_patch_with_access_control(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -2429,16 +2399,16 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             "/api/environments/@current/",
             {"timezone": "Europe/Lisbon", "session_recording_opt_in": True},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         response_data = response.json()
-        self.assertEqual(response_data["timezone"], "Europe/Lisbon")
-        self.assertEqual(response_data["session_recording_opt_in"], True)
+        assert response_data["timezone"] == "Europe/Lisbon"
+        assert response_data["session_recording_opt_in"]
 
         # Verify changes were made
         self.team.refresh_from_db()
-        self.assertEqual(self.team.timezone, "Europe/Lisbon")
-        self.assertEqual(self.team.session_recording_opt_in, True)
+        assert self.team.timezone == "Europe/Lisbon"
+        assert self.team.session_recording_opt_in
 
     def test_team_member_cannot_write_to_team_patch_with_access_control(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -2463,12 +2433,12 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             "/api/environments/@current/",
             {"timezone": "Europe/Lisbon", "session_recording_opt_in": True},
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
         # Verify no changes were made
         self.team.refresh_from_db()
-        self.assertEqual(self.team.timezone, "UTC")
-        self.assertEqual(self.team.session_recording_opt_in, False)
+        assert self.team.timezone == "UTC"
+        assert not self.team.session_recording_opt_in
 
     def test_team_member_can_write_to_team_patch_without_access_control(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -2486,12 +2456,12 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             "/api/environments/@current/",
             {"timezone": "Europe/Lisbon", "session_recording_opt_in": True},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         # Verify changes were made
         self.team.refresh_from_db()
-        self.assertEqual(self.team.timezone, "Europe/Lisbon")
-        self.assertEqual(self.team.session_recording_opt_in, True)
+        assert self.team.timezone == "Europe/Lisbon"
+        assert self.team.session_recording_opt_in
 
     @freeze_time("2025-01-01T00:00:00Z")
     def test_settings_as_of_requires_at_param(self):

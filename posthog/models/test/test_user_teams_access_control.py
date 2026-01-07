@@ -36,10 +36,10 @@ class TestUserTeamsAccessControl(BaseTest):
 
         # User should see all teams
         user_teams = self.user.teams.all()
-        self.assertEqual(user_teams.count(), 3)
-        self.assertIn(self.team, user_teams)
-        self.assertIn(team2, user_teams)
-        self.assertIn(team3, user_teams)
+        assert user_teams.count() == 3
+        assert self.team in user_teams
+        assert team2 in user_teams
+        assert team3 in user_teams
 
     def test_user_teams_with_no_private_teams(self):
         """Test that with advanced permissions but no private teams, user sees all teams."""
@@ -49,10 +49,10 @@ class TestUserTeamsAccessControl(BaseTest):
 
         # User should see all teams (no access controls set)
         user_teams = self.user.teams.all()
-        self.assertEqual(user_teams.count(), 3)
-        self.assertIn(self.team, user_teams)
-        self.assertIn(team2, user_teams)
-        self.assertIn(team3, user_teams)
+        assert user_teams.count() == 3
+        assert self.team in user_teams
+        assert team2 in user_teams
+        assert team3 in user_teams
 
     def test_user_teams_with_private_team_no_access(self):
         """Test that users cannot see private teams they don't have access to."""
@@ -69,9 +69,9 @@ class TestUserTeamsAccessControl(BaseTest):
 
         # User should only see the original team, not the private one
         user_teams = self.user.teams.all()
-        self.assertEqual(user_teams.count(), 1)
-        self.assertIn(self.team, user_teams)
-        self.assertNotIn(private_team, user_teams)
+        assert user_teams.count() == 1
+        assert self.team in user_teams
+        assert private_team not in user_teams
 
     def test_user_teams_with_private_team_explicit_access(self):
         """Test that users can see private teams they have explicit access to."""
@@ -98,9 +98,9 @@ class TestUserTeamsAccessControl(BaseTest):
 
         # User should see both teams
         user_teams = self.user.teams.all()
-        self.assertEqual(user_teams.count(), 2)
-        self.assertIn(self.team, user_teams)
-        self.assertIn(private_team, user_teams)
+        assert user_teams.count() == 2
+        assert self.team in user_teams
+        assert private_team in user_teams
 
     def test_user_teams_with_private_team_role_based_access(self):
         """Test that users can see private teams they have role-based access to."""
@@ -135,9 +135,9 @@ class TestUserTeamsAccessControl(BaseTest):
 
         # User should see both teams
         user_teams = self.user.teams.all()
-        self.assertEqual(user_teams.count(), 2)
-        self.assertIn(self.team, user_teams)
-        self.assertIn(private_team, user_teams)
+        assert user_teams.count() == 2
+        assert self.team in user_teams
+        assert private_team in user_teams
 
     def test_organization_admin_sees_all_teams(self):
         """Test that organization admins can see all teams, including private ones."""
@@ -161,9 +161,9 @@ class TestUserTeamsAccessControl(BaseTest):
 
         # Admin should see all teams
         user_teams = self.user.teams.all()
-        self.assertEqual(user_teams.count(), 2)
-        self.assertIn(self.team, user_teams)
-        self.assertIn(private_team, user_teams)
+        assert user_teams.count() == 2
+        assert self.team in user_teams
+        assert private_team in user_teams
 
     def test_organization_owner_sees_all_teams(self):
         """Test that organization owners can see all teams, including private ones."""
@@ -187,9 +187,9 @@ class TestUserTeamsAccessControl(BaseTest):
 
         # Owner should see all teams
         user_teams = self.user.teams.all()
-        self.assertEqual(user_teams.count(), 2)
-        self.assertIn(self.team, user_teams)
-        self.assertIn(private_team, user_teams)
+        assert user_teams.count() == 2
+        assert self.team in user_teams
+        assert private_team in user_teams
 
     def test_user_teams_multiple_organizations(self):
         """Test that user only sees teams from organizations they belong to."""
@@ -199,9 +199,9 @@ class TestUserTeamsAccessControl(BaseTest):
 
         # User should only see teams from their organization
         user_teams = self.user.teams.all()
-        self.assertEqual(user_teams.count(), 1)
-        self.assertIn(self.team, user_teams)
-        self.assertNotIn(other_team, user_teams)
+        assert user_teams.count() == 1
+        assert self.team in user_teams
+        assert other_team not in user_teams
 
     def test_user_teams_complex_scenario(self):
         """Test a complex scenario with multiple teams, roles, and access controls."""
@@ -253,12 +253,12 @@ class TestUserTeamsAccessControl(BaseTest):
         # User should see: original team, public team, private_team_1, private_team_2
         # User should NOT see: private_team_3
         user_teams = self.user.teams.all()
-        self.assertEqual(user_teams.count(), 4)
-        self.assertIn(self.team, user_teams)
-        self.assertIn(public_team, user_teams)
-        self.assertIn(private_team_1, user_teams)
-        self.assertIn(private_team_2, user_teams)
-        self.assertNotIn(private_team_3, user_teams)
+        assert user_teams.count() == 4
+        assert self.team in user_teams
+        assert public_team in user_teams
+        assert private_team_1 in user_teams
+        assert private_team_2 in user_teams
+        assert private_team_3 not in user_teams
 
     def test_user_teams_with_both_explicit_and_role_access(self):
         """Test that user sees team when they have both explicit and role access."""
@@ -301,9 +301,9 @@ class TestUserTeamsAccessControl(BaseTest):
 
         # User should see the team (no duplication)
         user_teams = self.user.teams.all()
-        self.assertEqual(user_teams.count(), 2)
-        self.assertIn(self.team, user_teams)
-        self.assertIn(private_team, user_teams)
+        assert user_teams.count() == 2
+        assert self.team in user_teams
+        assert private_team in user_teams
 
     def test_user_teams_ordering(self):
         """Test that teams are ordered correctly."""
@@ -314,7 +314,7 @@ class TestUserTeamsAccessControl(BaseTest):
         # Get teams and check they're ordered by ID
         user_teams = list(self.user.teams.all())
         team_ids = [team.id for team in user_teams]
-        self.assertEqual(team_ids, sorted(team_ids))
+        assert team_ids == sorted(team_ids)
 
     def test_user_teams_caching(self):
         """Test that the teams property is cached correctly."""
@@ -327,10 +327,10 @@ class TestUserTeamsAccessControl(BaseTest):
 
         # Teams should still be cached (same result)
         teams_2 = self.user.teams.all()
-        self.assertEqual(teams_2.count(), initial_count)
+        assert teams_2.count() == initial_count
 
         # Clear cache and check again
         del self.user.teams  # Clear cached property
         teams_3 = self.user.teams.all()
-        self.assertEqual(teams_3.count(), initial_count + 1)
-        self.assertIn(new_team, teams_3)
+        assert teams_3.count() == initial_count + 1
+        assert new_team in teams_3

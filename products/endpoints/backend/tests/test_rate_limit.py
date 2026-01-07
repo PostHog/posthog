@@ -27,17 +27,17 @@ class TestMaterializationCache(TestCase):
         cache.clear()
 
     def test_cache_miss_returns_none(self):
-        self.assertIsNone(is_endpoint_materialization_ready(123, "nonexistent"))
+        assert is_endpoint_materialization_ready(123, "nonexistent") is None
 
     @parameterized.expand([(True,), (False,)])
     def test_set_and_get_materialization_status(self, is_ready):
         set_endpoint_materialization_ready(123, "test_endpoint", is_ready)
-        self.assertEqual(is_endpoint_materialization_ready(123, "test_endpoint"), is_ready)
+        assert is_endpoint_materialization_ready(123, "test_endpoint") == is_ready
 
     def test_clear_cache(self):
         set_endpoint_materialization_ready(123, "test_endpoint", True)
         clear_endpoint_materialization_cache(123, "test_endpoint")
-        self.assertIsNone(is_endpoint_materialization_ready(123, "test_endpoint"))
+        assert is_endpoint_materialization_ready(123, "test_endpoint") is None
 
 
 class TestCheckAndCacheMaterializationStatus(APIBaseTest):
@@ -50,7 +50,7 @@ class TestCheckAndCacheMaterializationStatus(APIBaseTest):
         super().tearDown()
 
     def test_nonexistent_endpoint_returns_false(self):
-        self.assertFalse(_check_and_cache_materialization_status(self.team.id, "nonexistent"))
+        assert not _check_and_cache_materialization_status(self.team.id, "nonexistent")
 
     def test_non_materialized_endpoint_returns_false_and_caches(self):
         Endpoint.objects.create(
@@ -61,8 +61,8 @@ class TestCheckAndCacheMaterializationStatus(APIBaseTest):
             is_active=True,
         )
 
-        self.assertFalse(_check_and_cache_materialization_status(self.team.id, "inline_endpoint"))
-        self.assertFalse(is_endpoint_materialization_ready(self.team.id, "inline_endpoint"))
+        assert not _check_and_cache_materialization_status(self.team.id, "inline_endpoint")
+        assert not is_endpoint_materialization_ready(self.team.id, "inline_endpoint")
 
     @parameterized.expand(
         [
@@ -90,8 +90,8 @@ class TestCheckAndCacheMaterializationStatus(APIBaseTest):
         )
 
         result = _check_and_cache_materialization_status(self.team.id, f"endpoint_{status}")
-        self.assertEqual(result, expected_ready)
-        self.assertEqual(is_endpoint_materialization_ready(self.team.id, f"endpoint_{status}"), expected_ready)
+        assert result == expected_ready
+        assert is_endpoint_materialization_ready(self.team.id, f"endpoint_{status}") == expected_ready
 
 
 class TestIsMaterializedEndpointRequest(APIBaseTest):
@@ -115,7 +115,7 @@ class TestIsMaterializedEndpointRequest(APIBaseTest):
         view.team_id = team_id
         view.kwargs = {"name": endpoint_name} if endpoint_name else {}
 
-        self.assertFalse(_is_materialized_endpoint_request(request, view))
+        assert not _is_materialized_endpoint_request(request, view)
 
     def test_uses_cached_value(self):
         set_endpoint_materialization_ready(123, "test", True)
@@ -125,7 +125,7 @@ class TestIsMaterializedEndpointRequest(APIBaseTest):
         view.team_id = 123
         view.kwargs = {"name": "test"}
 
-        self.assertTrue(_is_materialized_endpoint_request(request, view))
+        assert _is_materialized_endpoint_request(request, view)
 
     def test_lazy_loads_on_cache_miss(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
@@ -145,15 +145,15 @@ class TestIsMaterializedEndpointRequest(APIBaseTest):
             saved_query=saved_query,
         )
 
-        self.assertIsNone(is_endpoint_materialization_ready(self.team.id, "lazy_endpoint"))
+        assert is_endpoint_materialization_ready(self.team.id, "lazy_endpoint") is None
 
         request = MagicMock()
         view = MagicMock()
         view.team_id = self.team.id
         view.kwargs = {"name": "lazy_endpoint"}
 
-        self.assertTrue(_is_materialized_endpoint_request(request, view))
-        self.assertTrue(is_endpoint_materialization_ready(self.team.id, "lazy_endpoint"))
+        assert _is_materialized_endpoint_request(request, view)
+        assert is_endpoint_materialization_ready(self.team.id, "lazy_endpoint")
 
 
 class TestEndpointThrottles(APIBaseTest):
@@ -176,7 +176,7 @@ class TestEndpointThrottles(APIBaseTest):
         with patch.object(throttle, "allow_request", wraps=throttle.allow_request):
             throttle.allow_request(request, view)
 
-        self.assertEqual(throttle.scope, "api_queries_burst")
+        assert throttle.scope == "api_queries_burst"
 
     def test_uses_materialized_scope_when_materialized(self):
         set_endpoint_materialization_ready(self.team.id, "mat_endpoint", True)
@@ -193,4 +193,4 @@ class TestEndpointThrottles(APIBaseTest):
 
             throttle.allow_request(request, view)
 
-            self.assertEqual(throttle.scope, expected_scope)
+            assert throttle.scope == expected_scope

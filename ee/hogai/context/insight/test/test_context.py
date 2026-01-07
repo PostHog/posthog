@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -26,29 +27,29 @@ class TestInsightContext(BaseTest):
             variables_override={"var1": {"value": "test"}},
         )
 
-        self.assertEqual(context.team, self.team)
-        self.assertEqual(context.query, query)
-        self.assertEqual(context.name, "Test Insight")
-        self.assertEqual(context.description, "Test Description")
-        self.assertEqual(context.insight_id, "test_id")
-        self.assertEqual(context.insight_model_id, 123)
-        self.assertEqual(context.dashboard_filters, {"date_from": "-7d"})
-        self.assertEqual(context.filters_override, {"date_to": "2025-01-01"})
-        self.assertEqual(context.variables_override, {"var1": {"value": "test"}})
+        assert context.team == self.team
+        assert context.query == query
+        assert context.name == "Test Insight"
+        assert context.description == "Test Description"
+        assert context.insight_id == "test_id"
+        assert context.insight_model_id == 123
+        assert context.dashboard_filters == {"date_from": "-7d"}
+        assert context.filters_override == {"date_to": "2025-01-01"}
+        assert context.variables_override == {"var1": {"value": "test"}}
 
     def test_initialization_with_minimal_parameters(self):
         query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
         context = InsightContext(team=self.team, query=query)
 
-        self.assertEqual(context.team, self.team)
-        self.assertEqual(context.query, query)
-        self.assertIsNone(context.name)
-        self.assertIsNone(context.description)
-        self.assertIsNone(context.insight_id)
-        self.assertIsNone(context.insight_model_id)
-        self.assertIsNone(context.dashboard_filters)
-        self.assertIsNone(context.filters_override)
-        self.assertIsNone(context.variables_override)
+        assert context.team == self.team
+        assert context.query == query
+        assert context.name is None
+        assert context.description is None
+        assert context.insight_id is None
+        assert context.insight_model_id is None
+        assert context.dashboard_filters is None
+        assert context.filters_override is None
+        assert context.variables_override is None
 
     async def test_get_effective_query_no_filters(self):
         query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
@@ -56,7 +57,7 @@ class TestInsightContext(BaseTest):
 
         effective_query = await context._get_effective_query()
 
-        self.assertEqual(effective_query, query)
+        assert effective_query == query
 
     @parameterized.expand(
         [
@@ -78,7 +79,7 @@ class TestInsightContext(BaseTest):
         )
 
         effective_query = await context._get_effective_query()
-        self.assertIsNotNone(effective_query)
+        assert effective_query is not None
 
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
     async def test_execute_and_format_successful_execution(self, mock_execute):
@@ -96,10 +97,10 @@ class TestInsightContext(BaseTest):
 
         result = await context.execute_and_format()
 
-        self.assertIn("Test Results", result)
-        self.assertIn("Test Insight", result)
-        self.assertIn("Test Description", result)
-        self.assertIn("test_id", result)
+        assert "Test Results" in result
+        assert "Test Insight" in result
+        assert "Test Description" in result
+        assert "test_id" in result
         mock_execute.assert_called_once()
 
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
@@ -111,7 +112,7 @@ class TestInsightContext(BaseTest):
 
         result = await context.execute_and_format()
 
-        self.assertIn("Insight", result)
+        assert "Insight" in result
         mock_execute.assert_called_once()
 
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
@@ -124,9 +125,9 @@ class TestInsightContext(BaseTest):
 
         result = await context.execute_and_format(prompt_template=custom_template)
 
-        self.assertIn("Custom:", result)
-        self.assertIn("My Insight", result)
-        self.assertIn("Test Results", result)
+        assert "Custom:" in result
+        assert "My Insight" in result
+        assert "Test Results" in result
 
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
     async def test_execute_and_format_raises_error_by_default(self, mock_execute):
@@ -135,10 +136,10 @@ class TestInsightContext(BaseTest):
         query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
         context = InsightContext(team=self.team, query=query)
 
-        with self.assertRaises(MaxToolRetryableError) as exc:
+        with pytest.raises(MaxToolRetryableError) as exc:
             await context.execute_and_format()
 
-        self.assertIn("Error executing query: Query failed", str(exc.exception))
+        assert "Error executing query: Query failed" in str(exc.value)
 
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
     async def test_execute_and_format_returns_exception_when_flag_set(self, mock_execute):
@@ -149,8 +150,8 @@ class TestInsightContext(BaseTest):
 
         result = await context.execute_and_format(return_exceptions=True)
 
-        self.assertIn("Error executing query: Query failed", result)
-        self.assertIn("Test Insight", result)
+        assert "Error executing query: Query failed" in result
+        assert "Test Insight" in result
 
     async def test_format_schema_basic(self):
         query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
@@ -160,11 +161,11 @@ class TestInsightContext(BaseTest):
 
         result = await context.format_schema()
 
-        self.assertIn("Test Insight", result)
-        self.assertIn("Test Description", result)
-        self.assertIn("test_id", result)
-        self.assertIn('"kind":"TrendsQuery"', result)
-        self.assertIn("$pageview", result)
+        assert "Test Insight" in result
+        assert "Test Description" in result
+        assert "test_id" in result
+        assert '"kind":"TrendsQuery"' in result
+        assert "$pageview" in result
 
     async def test_format_schema_with_custom_template(self):
         custom_template = "Schema: {{{query_schema}}}"
@@ -173,8 +174,8 @@ class TestInsightContext(BaseTest):
 
         result = await context.format_schema(prompt_template=custom_template)
 
-        self.assertIn("Schema:", result)
-        self.assertIn('"kind":"TrendsQuery"', result)
+        assert "Schema:" in result
+        assert '"kind":"TrendsQuery"' in result
 
     async def test_format_schema_without_optional_fields(self):
         query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
@@ -182,8 +183,8 @@ class TestInsightContext(BaseTest):
 
         result = await context.format_schema()
 
-        self.assertNotIn("Insight ID:", result)
-        self.assertNotIn("Description:", result)
+        assert "Insight ID:" not in result
+        assert "Description:" not in result
 
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
     async def test_execute_and_format_applies_dashboard_filters(self, mock_execute):
@@ -196,7 +197,7 @@ class TestInsightContext(BaseTest):
 
         call_args = mock_execute.call_args
         executed_query = call_args[0][1]
-        self.assertIsNotNone(executed_query)
+        assert executed_query is not None
 
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
     async def test_execute_and_format_with_insight_model_id(self, mock_execute):
@@ -213,7 +214,7 @@ class TestInsightContext(BaseTest):
 
         call_args = mock_execute.call_args
         insight_id_kwarg = call_args[1].get("insight_id")
-        self.assertEqual(insight_id_kwarg, 456)
+        assert insight_id_kwarg == 456
 
     async def test_format_schema_applies_dashboard_filters(self):
         query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
@@ -221,7 +222,7 @@ class TestInsightContext(BaseTest):
 
         result = await context.format_schema()
 
-        self.assertIn('"kind":"TrendsQuery"', result)
+        assert '"kind":"TrendsQuery"' in result
 
     @parameterized.expand(
         [
@@ -245,19 +246,19 @@ class TestInsightContext(BaseTest):
 
         effective_query = await context._get_effective_query()
 
-        self.assertIsNotNone(effective_query)
+        assert effective_query is not None
 
     def test_insight_url_is_none_when_no_short_id(self):
         query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
         context = InsightContext(team=self.team, query=query)
 
-        self.assertIsNone(context.insight_url)
+        assert context.insight_url is None
 
     def test_insight_url_generated_from_short_id(self):
         query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
         context = InsightContext(team=self.team, query=query, insight_short_id="abc123")
 
-        self.assertEqual(context.insight_url, f"/project/{self.team.id}/insights/abc123")
+        assert context.insight_url == f"/project/{self.team.id}/insights/abc123"
 
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
     async def test_execute_and_format_includes_insight_url(self, mock_execute):
@@ -274,7 +275,7 @@ class TestInsightContext(BaseTest):
 
         result = await context.execute_and_format()
 
-        self.assertIn(f"/project/{self.team.id}/insights/xyz789", result)
+        assert f"/project/{self.team.id}/insights/xyz789" in result
 
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
     async def test_execute_and_format_shows_fallback_when_no_url(self, mock_execute):
@@ -289,4 +290,4 @@ class TestInsightContext(BaseTest):
 
         result = await context.execute_and_format()
 
-        self.assertIn("This insight cannot be accessed via a URL.", result)
+        assert "This insight cannot be accessed via a URL." in result

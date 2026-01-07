@@ -10,19 +10,19 @@ from products.data_warehouse.backend.models.external_data_schema import External
 
 class TestExternalDataSchemaActivityLogging(ActivityLogTestHelper):
     def test_external_data_schema_model_has_activity_mixin(self):
-        self.assertTrue(issubclass(ExternalDataSchema, ModelActivityMixin))
+        assert issubclass(ExternalDataSchema, ModelActivityMixin)
 
     def test_external_data_schema_field_exclusions_configured(self):
         external_data_schema_exclusions = field_exclusions.get("ExternalDataSchema", [])
 
-        self.assertIn("sync_type_config", external_data_schema_exclusions)
-        self.assertIn("latest_error", external_data_schema_exclusions)
-        self.assertIn("last_synced_at", external_data_schema_exclusions)
-        self.assertIn("status", external_data_schema_exclusions)
-        self.assertEqual(len(external_data_schema_exclusions), 4)
+        assert "sync_type_config" in external_data_schema_exclusions
+        assert "latest_error" in external_data_schema_exclusions
+        assert "last_synced_at" in external_data_schema_exclusions
+        assert "status" in external_data_schema_exclusions
+        assert len(external_data_schema_exclusions) == 4
 
     def test_external_data_schema_scope_in_activity_log_types(self):
-        self.assertIn("ExternalDataSchema", get_args(ActivityScope))
+        assert "ExternalDataSchema" in get_args(ActivityScope)
 
     def test_external_data_schema_creation_activity_logging(self):
         external_data_source = self.create_external_data_source()
@@ -33,7 +33,7 @@ class TestExternalDataSchemaActivityLogging(ActivityLogTestHelper):
 
         # Verify that no creation logs are created
         activity_logs = self.get_activity_logs_for_item("ExternalDataSchema", str(schema.id))
-        self.assertEqual(len(activity_logs), 0)
+        assert len(activity_logs) == 0
 
     def test_external_data_schema_update_activity_logging(self):
         external_data_source = self.create_external_data_source()
@@ -47,11 +47,11 @@ class TestExternalDataSchemaActivityLogging(ActivityLogTestHelper):
         self.update_external_data_schema(str(schema.id), {"should_sync": False, "sync_type": "incremental"})
 
         activity_logs = self.get_activity_logs_for_item("ExternalDataSchema", str(schema.id))
-        self.assertEqual(len(activity_logs), 1)
+        assert len(activity_logs) == 1
 
         log_entry = activity_logs[0]
-        self.assertEqual(log_entry.activity, "updated")
-        self.assertEqual(log_entry.scope, "ExternalDataSchema")
+        assert log_entry.activity == "updated"
+        assert log_entry.scope == "ExternalDataSchema"
 
     def test_external_data_schema_deletion_activity_logging(self):
         external_data_source = self.create_external_data_source()
@@ -68,18 +68,18 @@ class TestExternalDataSchemaActivityLogging(ActivityLogTestHelper):
         self.delete_external_data_schema(schema_id)
 
         activity_logs = self.get_activity_logs_for_item("ExternalDataSchema", schema_id)
-        self.assertEqual(len(activity_logs), 1)
+        assert len(activity_logs) == 1
 
         log_entry = activity_logs[0]
-        self.assertEqual(log_entry.activity, "updated")
-        self.assertEqual(log_entry.scope, "ExternalDataSchema")
+        assert log_entry.activity == "updated"
+        assert log_entry.scope == "ExternalDataSchema"
 
         # Check that deletion is tracked via deleted field change
         detail_changes = log_entry.detail.get("changes", [])
         deleted_change = next((change for change in detail_changes if change.get("field") == "deleted"), None)
-        self.assertIsNotNone(deleted_change)
         assert deleted_change is not None
-        self.assertEqual(deleted_change["after"], True)
+        assert deleted_change is not None
+        assert deleted_change["after"]
 
     def test_external_data_schema_relationship_logging(self):
         external_data_source = self.create_external_data_source()
@@ -89,17 +89,17 @@ class TestExternalDataSchemaActivityLogging(ActivityLogTestHelper):
         assert schema is not None
 
         activity_logs = self.get_activity_logs_for_item("ExternalDataSchema", str(schema.id))
-        self.assertEqual(len(activity_logs), 0)
+        assert len(activity_logs) == 0
 
         self.update_external_data_schema(str(schema.id), {"should_sync": False})
 
         activity_logs = self.get_activity_logs_for_item("ExternalDataSchema", str(schema.id))
-        self.assertEqual(len(activity_logs), 1)
+        assert len(activity_logs) == 1
 
         log_entry = activity_logs[0]
-        self.assertEqual(log_entry.activity, "updated")
+        assert log_entry.activity == "updated"
 
         context = log_entry.detail.get("context")
-        self.assertIsNotNone(context)
-        self.assertEqual(context.get("source_id"), str(source_obj.id))
-        self.assertEqual(context.get("source_type"), "Stripe")
+        assert context is not None
+        assert context.get("source_id") == str(source_obj.id)
+        assert context.get("source_type") == "Stripe"

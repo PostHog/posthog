@@ -1,3 +1,4 @@
+import re
 import json
 import urllib.parse
 from datetime import datetime
@@ -717,10 +718,7 @@ class TestBillingAPI(APILicensedTest):
         res = self.client.get("/api/billing")
         assert res.status_code == 200
         self.organization.refresh_from_db()
-        TestCase().assertDictEqual(
-            self.organization.usage,
-            create_usage_summary(events={"usage": 1000, "limit": None, "todays_usage": 0}),
-        )
+        assert self.organization.usage == create_usage_summary(events={"usage": 1000, "limit": None, "todays_usage": 0})
 
         self.organization.usage = {"events": {"limit": None, "usage": 1000, "todays_usage": 1100000}}
         self.organization.save()
@@ -765,10 +763,10 @@ class TestBillingAPI(APILicensedTest):
         # Create a demo project
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
-        self.assertEqual(Team.objects.count(), 1)
+        assert Team.objects.count() == 1
         response = self.client.post("/api/projects/", {"name": "Test", "is_demo": True})
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(Team.objects.count(), 3)
+        assert response.status_code == 201
+        assert Team.objects.count() == 3
 
         demo_team = Team.objects.filter(is_demo=True).first()
 
@@ -878,8 +876,8 @@ class TestPortalBillingAPI(APILicensedTest):
 
         response = self.client.get("/api/billing/portal")
 
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-        self.assertIn("https://billing.stripe.com/p/session/test_1234", response.url)
+        assert response.status_code == status.HTTP_302_FOUND
+        assert "https://billing.stripe.com/p/session/test_1234" in response.url
 
 
 class TestActivateBillingAPI(APILicensedTest):
@@ -888,24 +886,24 @@ class TestActivateBillingAPI(APILicensedTest):
         data = {"products": "product_1:plan_1,product_2:plan_2", "redirect_path": "custom/path"}
 
         response = self.client.get(url, data=data)
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        assert response.status_code == status.HTTP_302_FOUND
 
-        self.assertIn("/activate", response.url)
-        self.assertIn("products=product_1:plan_1,product_2:plan_2", response.url)
+        assert "/activate" in response.url
+        assert "products=product_1:plan_1,product_2:plan_2" in response.url
         url_pattern = r"redirect_uri=http://[^/]+/custom/path"
-        self.assertRegex(response.url, url_pattern)
+        assert re.search(url_pattern, response.url)
 
     def test_deprecated_activation_success(self):
         url = "/api/billing/activate"
         data = {"products": "product_1:plan_1,product_2:plan_2", "redirect_path": "custom/path"}
 
         response = self.client.get(url, data=data)
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        assert response.status_code == status.HTTP_302_FOUND
 
-        self.assertIn("/activate", response.url)
-        self.assertIn("products=product_1:plan_1,product_2:plan_2", response.url)
+        assert "/activate" in response.url
+        assert "products=product_1:plan_1,product_2:plan_2" in response.url
         url_pattern = r"redirect_uri=http://[^/]+/custom/path"
-        self.assertRegex(response.url, url_pattern)
+        assert re.search(url_pattern, response.url)
 
     def test_activate_with_default_redirect_path(self):
         url = "/api/billing/activate"
@@ -915,10 +913,10 @@ class TestActivateBillingAPI(APILicensedTest):
 
         response = self.client.get(url, data)
 
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-        self.assertIn("products=product_1:plan_1,product_2:plan_2", response.url)
+        assert response.status_code == status.HTTP_302_FOUND
+        assert "products=product_1:plan_1,product_2:plan_2" in response.url
         url_pattern = r"redirect_uri=http://[^/]+/organization/billing"
-        self.assertRegex(response.url, url_pattern)
+        assert re.search(url_pattern, response.url)
 
     def test_activate_failure(self):
         url = "/api/billing/activate"
@@ -926,7 +924,7 @@ class TestActivateBillingAPI(APILicensedTest):
 
         response = self.client.get(url, data)
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_activate_with_plan_error(self):
         url = "/api/billing/activate"
@@ -934,16 +932,13 @@ class TestActivateBillingAPI(APILicensedTest):
 
         response = self.client.get(url, data)
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "attr": "plan",
-                "code": "invalid_input",
-                "detail": "The 'plan' parameter is no longer supported. Please use the 'products' parameter instead.",
-                "type": "validation_error",
-            },
-        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "attr": "plan",
+            "code": "invalid_input",
+            "detail": "The 'plan' parameter is no longer supported. Please use the 'products' parameter instead.",
+            "type": "validation_error",
+        }
 
     @patch("ee.billing.billing_manager.BillingManager.deactivate_products")
     @patch("ee.billing.billing_manager.BillingManager.get_billing")
@@ -959,7 +954,7 @@ class TestActivateBillingAPI(APILicensedTest):
 
         response = self.client.get(url, data)
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         mock_deactivate_products.assert_called_once_with(self.organization, "product_1")
         mock_get_billing.assert_called_once_with(self.organization, {})
 
@@ -969,7 +964,7 @@ class TestActivateBillingAPI(APILicensedTest):
 
         response = self.client.get(url, data)
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 
 class TestStartupApplicationBillingAPI(APILicensedTest):
@@ -988,8 +983,8 @@ class TestStartupApplicationBillingAPI(APILicensedTest):
 
         response = self.client.post(self.url, self.data)
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"success": True})
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"success": True}
         mock_apply_startup_program.assert_called_once()
 
     def test_startup_apply_non_admin_failure(self):
@@ -998,9 +993,10 @@ class TestStartupApplicationBillingAPI(APILicensedTest):
 
         response = self.client.post(self.url, self.data)
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(
-            response.json()["detail"], "You need to be an organization admin or owner to apply for the startup program"
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert (
+            response.json()["detail"]
+            == "You need to be an organization admin or owner to apply for the startup program"
         )
 
     def test_startup_apply_missing_org_id(self):
@@ -1008,16 +1004,13 @@ class TestStartupApplicationBillingAPI(APILicensedTest):
 
         response = self.client.post(self.url, empty_data)
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "invalid_input",
-                "detail": "This field is required.",
-                "attr": "organization_id",
-            },
-        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": "This field is required.",
+            "attr": "organization_id",
+        }
 
     @patch("ee.billing.billing_manager.BillingManager.apply_startup_program")
     def test_startup_apply_passes_user_info(self, mock_apply_startup_program):
@@ -1038,7 +1031,7 @@ class TestStartupApplicationBillingAPI(APILicensedTest):
 
         response = self.client.post(self.url, data)
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         expected_data = {
             "organization_id": str(self.organization.id),
@@ -1052,8 +1045,8 @@ class TestStartupApplicationBillingAPI(APILicensedTest):
         # Check that apply_startup_program was called with the organization and the expected data
         mock_apply_startup_program.assert_called_once()
         _, call_args, _ = mock_apply_startup_program.mock_calls[0]
-        self.assertEqual(call_args[0], self.organization)
-        self.assertEqual(call_args[1], expected_data)
+        assert call_args[0] == self.organization
+        assert call_args[1] == expected_data
 
 
 class TestCouponClaimBillingAPI(APILicensedTest):
@@ -1076,9 +1069,9 @@ class TestCouponClaimBillingAPI(APILicensedTest):
 
         response = self.client.post(self.url, self.data)
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["success"], True)
-        self.assertEqual(response.json()["code"], "TEST-CODE-123")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["success"]
+        assert response.json()["code"] == "TEST-CODE-123"
         mock_claim_coupon.assert_called_once_with(self.organization, {"code": "TEST-CODE-123"})
 
     def test_claim_coupon_non_admin_failure(self):
@@ -1087,24 +1080,21 @@ class TestCouponClaimBillingAPI(APILicensedTest):
 
         response = self.client.post(self.url, self.data)
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json()["detail"], "You need to be an organization admin or owner to claim coupons")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "You need to be an organization admin or owner to claim coupons"
 
     def test_claim_coupon_missing_code(self):
         empty_data: dict[str, Any] = {}
 
         response = self.client.post(self.url, empty_data)
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "invalid_input",
-                "detail": "This field is required.",
-                "attr": "code",
-            },
-        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": "This field is required.",
+            "attr": "code",
+        }
 
     @patch("ee.billing.billing_manager.BillingManager.claim_coupon")
     def test_claim_coupon_billing_error_with_detail(self, mock_claim_coupon):
@@ -1117,29 +1107,29 @@ class TestCouponClaimBillingAPI(APILicensedTest):
 
         response = self.client.post(self.url, self.data)
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         response_json = response.json()
-        self.assertEqual(response_json["detail"], "Customer has already claimed a coupon from this campaign.")
+        assert response_json["detail"] == "Customer has already claimed a coupon from this campaign."
 
 
 class TestBillingUsageRequestSerializer(TestCase):
     def test_valid_dates(self):
         serializer = BillingUsageRequestSerializer(data={"start_date": "2025-01-01", "end_date": "2025-01-31"})
-        self.assertTrue(serializer.is_valid(), serializer.errors)
-        self.assertEqual(serializer.validated_data["start_date"], "2025-01-01")
-        self.assertEqual(serializer.validated_data["end_date"], "2025-01-31")
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["start_date"] == "2025-01-01"
+        assert serializer.validated_data["end_date"] == "2025-01-31"
 
     @freeze_time("2025-02-15")
     def test_relative_dates(self):
         serializer = BillingUsageRequestSerializer(data={"start_date": "-7d", "end_date": "-1d"})
-        self.assertTrue(serializer.is_valid(), serializer.errors)
-        self.assertEqual(serializer.validated_data["start_date"], "2025-02-08")
-        self.assertEqual(serializer.validated_data["end_date"], "2025-02-14")
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["start_date"] == "2025-02-08"
+        assert serializer.validated_data["end_date"] == "2025-02-14"
 
     def test_start_date_all(self):
         serializer = BillingUsageRequestSerializer(data={"start_date": "all"})
-        self.assertTrue(serializer.is_valid(), serializer.errors)
-        self.assertEqual(serializer.validated_data["start_date"], "2020-01-01")
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["start_date"] == "2020-01-01"
 
     def test_passthrough_fields(self):
         data = {
@@ -1149,15 +1139,15 @@ class TestBillingUsageRequestSerializer(TestCase):
             "interval": "week",
         }
         serializer = BillingUsageRequestSerializer(data=data)
-        self.assertTrue(serializer.is_valid(), serializer.errors)
+        assert serializer.is_valid(), serializer.errors
         for key, value in data.items():
-            self.assertEqual(serializer.validated_data[key], value)
+            assert serializer.validated_data[key] == value
 
     def test_empty_and_null_dates_are_valid(self):
         serializer = BillingUsageRequestSerializer(data={"start_date": "", "end_date": None})
-        self.assertTrue(serializer.is_valid(), serializer.errors)
-        self.assertIsNone(serializer.validated_data.get("start_date"))
-        self.assertIsNone(serializer.validated_data.get("end_date"))
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data.get("start_date") is None
+        assert serializer.validated_data.get("end_date") is None
 
 
 class TestBillingUsageAndSpendAPI(APILicensedTest):
@@ -1175,18 +1165,18 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         mock_get_usage_data.return_value = self.MOCK_USAGE_DATA
 
         response = self.client.get(f"/api/billing/usage/?start_date=2025-01-01&team_ids=[{self.team.pk}]")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), self.MOCK_USAGE_DATA)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == self.MOCK_USAGE_DATA
         mock_get_usage_data.assert_called_once()
         call_args = mock_get_usage_data.call_args[0]
-        self.assertEqual(call_args[0], self.organization)  # First arg is organization
+        assert call_args[0] == self.organization  # First arg is organization
         passed_params = call_args[1]  # Second arg is params dict
-        self.assertEqual(passed_params["start_date"], "2025-01-01")
-        self.assertEqual(passed_params["team_ids"], f"[{str(self.team.pk)}]")
-        self.assertIn("teams_map", passed_params)
+        assert passed_params["start_date"] == "2025-01-01"
+        assert passed_params["team_ids"] == f"[{str(self.team.pk)}]"
+        assert "teams_map" in passed_params
 
         teams_map_dict = json.loads(passed_params["teams_map"])
-        self.assertEqual(teams_map_dict, {str(self.team.pk): self.team.name})
+        assert teams_map_dict == {str(self.team.pk): self.team.name}
 
     @patch("ee.billing.billing_manager.BillingManager.get_spend_data")
     def test_get_spend_success(self, mock_get_spend_data):
@@ -1195,31 +1185,31 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         response = self.client.get(
             f"/api/billing/spend/?start_date=2025-01-01&usage_types=events&team_ids=[{self.team.pk}]"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), self.MOCK_SPEND_DATA)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == self.MOCK_SPEND_DATA
         mock_get_spend_data.assert_called_once()
         call_args = mock_get_spend_data.call_args[0]
-        self.assertEqual(call_args[0], self.organization)
+        assert call_args[0] == self.organization
         passed_params = call_args[1]
-        self.assertEqual(passed_params["start_date"], "2025-01-01")
-        self.assertEqual(passed_params["usage_types"], "events")
-        self.assertEqual(passed_params["team_ids"], f"[{str(self.team.pk)}]")
-        self.assertIn("teams_map", passed_params)
+        assert passed_params["start_date"] == "2025-01-01"
+        assert passed_params["usage_types"] == "events"
+        assert passed_params["team_ids"] == f"[{str(self.team.pk)}]"
+        assert "teams_map" in passed_params
 
         teams_map_dict = json.loads(passed_params["teams_map"])
-        self.assertEqual(teams_map_dict, {str(self.team.pk): self.team.name})
+        assert teams_map_dict == {str(self.team.pk): self.team.name}
 
     def test_get_usage_permission_denied_for_member(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
         response = self.client.get("/api/billing/usage/")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_get_spend_permission_denied_for_member(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
         response = self.client.get("/api/billing/spend/")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
     @patch("ee.api.billing.BillingViewset._get_teams_map")
@@ -1228,15 +1218,15 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         mock_get_usage_data.return_value = self.MOCK_USAGE_DATA
 
         response = self.client.get(f"/api/billing/usage/?start_date=2025-01-01")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), self.MOCK_USAGE_DATA)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == self.MOCK_USAGE_DATA
         mock_get_usage_data.assert_called_once()
         call_args = mock_get_usage_data.call_args[0]
         passed_params = call_args[1]
-        self.assertIn("teams_map", passed_params)
+        assert "teams_map" in passed_params
 
         teams_map_dict = json.loads(passed_params["teams_map"])
-        self.assertEqual(teams_map_dict, {})
+        assert teams_map_dict == {}
         mock_get_teams_map.assert_called_once()
 
     @patch("ee.billing.billing_manager.BillingManager.get_spend_data")
@@ -1246,13 +1236,13 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         mock_get_spend_data.return_value = self.MOCK_SPEND_DATA
 
         response = self.client.get(f"/api/billing/spend/?start_date=2025-01-01")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), self.MOCK_SPEND_DATA)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == self.MOCK_SPEND_DATA
         mock_get_spend_data.assert_called_once()
         call_args = mock_get_spend_data.call_args[0]
         passed_params = call_args[1]
-        self.assertIn("teams_map", passed_params)
+        assert "teams_map" in passed_params
 
         teams_map_dict = json.loads(passed_params["teams_map"])
-        self.assertEqual(teams_map_dict, {})
+        assert teams_map_dict == {}
         mock_get_teams_map.assert_called_once()

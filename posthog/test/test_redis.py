@@ -83,7 +83,7 @@ class TestRedis(TestCase):
                     # Within the same loop, should get same instance
                     c1 = get_async_client()
                     c2 = get_async_client()
-                    self.assertIs(c1, c2)
+                    assert c1 is c2
                     return c1
 
                 # Run in two different event loops
@@ -91,9 +91,9 @@ class TestRedis(TestCase):
                 client2 = asyncio.run(runner())
 
                 # Different loops should get different client instances
-                self.assertIsNot(client1, client2)
+                assert client1 is not client2
                 # Should have been called twice (once per loop)
-                self.assertEqual(mock_from_url.call_count, 2)
+                assert mock_from_url.call_count == 2
                 # Verify the calls were made with correct parameters
                 mock_from_url.assert_any_call("redis://mocked:6379", db=0)
 
@@ -103,7 +103,7 @@ class TestRedis(TestCase):
         async def runner():
             c1 = get_async_client("redis://mocked:6379")
             c2 = get_async_client("redis://mocked:6379")
-            self.assertIs(c1, c2)
+            assert c1 is c2
 
         asyncio.run(runner())
 
@@ -117,4 +117,4 @@ class TestRedis(TestCase):
         c2 = asyncio.run(get_client())
 
         # In test mode with simple caching, same URL returns same instance
-        self.assertIs(c1, c2)
+        assert c1 is c2

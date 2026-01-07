@@ -47,33 +47,33 @@ class TestEvalSchema(BaseTest):
         # Test serialization
         snapshots = list(DataWarehouseTableSnapshot.serialize_for_team(team_id=self.team.id))
 
-        self.assertEqual(len(snapshots), 2)
+        assert len(snapshots) == 2
 
         # Test first table snapshot
-        self.assertEqual(snapshots[0].name, "users_table")
-        self.assertEqual(snapshots[0].format, "Parquet")
-        self.assertTrue(isinstance(snapshots[0].columns, str))
-        self.assertEqual(json.loads(snapshots[0].columns), columns)
+        assert snapshots[0].name == "users_table"
+        assert snapshots[0].format == "Parquet"
+        assert isinstance(snapshots[0].columns, str)
+        assert json.loads(snapshots[0].columns) == columns
 
         # Test second table snapshot
-        self.assertEqual(snapshots[1].name, "events_table")
-        self.assertEqual(snapshots[1].format, "CSV")
-        self.assertTrue(isinstance(snapshots[1].columns, str))
-        self.assertEqual(json.loads(snapshots[1].columns), columns)
+        assert snapshots[1].name == "events_table"
+        assert snapshots[1].format == "CSV"
+        assert isinstance(snapshots[1].columns, str)
+        assert json.loads(snapshots[1].columns) == columns
 
         deserialized_snapshots = list(
             DataWarehouseTableSnapshot.deserialize_for_team(snapshots, team_id=self.team.id, project_id=self.project.id)
         )
 
-        self.assertEqual(len(deserialized_snapshots), 2)
+        assert len(deserialized_snapshots) == 2
 
-        self.assertEqual(deserialized_snapshots[0].name, "users_table")
-        self.assertEqual(deserialized_snapshots[0].format, "Parquet")
-        self.assertEqual(deserialized_snapshots[0].columns, columns)
+        assert deserialized_snapshots[0].name == "users_table"
+        assert deserialized_snapshots[0].format == "Parquet"
+        assert deserialized_snapshots[0].columns == columns
 
-        self.assertEqual(deserialized_snapshots[1].name, "events_table")
-        self.assertEqual(deserialized_snapshots[1].format, "CSV")
-        self.assertEqual(deserialized_snapshots[1].columns, columns)
+        assert deserialized_snapshots[1].name == "events_table"
+        assert deserialized_snapshots[1].format == "CSV"
+        assert deserialized_snapshots[1].columns == columns
 
     def test_serialize_deserialize_for_team_empty_columns(self):
         # Create test data warehouse tables
@@ -88,21 +88,21 @@ class TestEvalSchema(BaseTest):
 
         snapshots = list(DataWarehouseTableSnapshot.serialize_for_team(team_id=self.team.id))
 
-        self.assertEqual(len(snapshots), 1)
+        assert len(snapshots) == 1
 
-        self.assertEqual(snapshots[0].name, "users_table")
-        self.assertEqual(snapshots[0].format, "Parquet")
-        self.assertEqual(snapshots[0].columns, "")
+        assert snapshots[0].name == "users_table"
+        assert snapshots[0].format == "Parquet"
+        assert snapshots[0].columns == ""
 
         deserialized_snapshots = list(
             DataWarehouseTableSnapshot.deserialize_for_team(snapshots, team_id=self.team.id, project_id=self.project.id)
         )
 
-        self.assertEqual(len(deserialized_snapshots), 1)
+        assert len(deserialized_snapshots) == 1
 
-        self.assertEqual(deserialized_snapshots[0].name, "users_table")
-        self.assertEqual(deserialized_snapshots[0].format, "Parquet")
-        self.assertEqual(deserialized_snapshots[0].columns, {})
+        assert deserialized_snapshots[0].name == "users_table"
+        assert deserialized_snapshots[0].format == "Parquet"
+        assert deserialized_snapshots[0].columns == {}
 
     def test_fastavro_serialization(self):
         """Test that a serialized DataWarehouseTableSnapshot can be dumped with fastavro"""
@@ -122,7 +122,7 @@ class TestEvalSchema(BaseTest):
 
         # Serialize to snapshot
         snapshots = list(DataWarehouseTableSnapshot.serialize_for_team(team_id=self.team.id))
-        self.assertEqual(len(snapshots), 1)
+        assert len(snapshots) == 1
         snapshot = snapshots[0]
 
         # Get the Avro schema from the snapshot
@@ -149,12 +149,12 @@ class TestEvalSchema(BaseTest):
                 project_id=self.project.id,
             )
         )
-        self.assertEqual(len(records), 1)
+        assert len(records) == 1
 
         record = records[0]
-        self.assertEqual(record.name, "test_table")
-        self.assertEqual(record.format, "Parquet")
-        self.assertEqual(record.columns, columns)
+        assert record.name == "test_table"
+        assert record.format == "Parquet"
+        assert record.columns == columns
 
     def test_fastavro_serialization_empty_columns(self):
         """Test that a serialized DataWarehouseTableSnapshot can be dumped with fastavro"""
@@ -170,7 +170,7 @@ class TestEvalSchema(BaseTest):
 
         # Serialize to snapshot
         snapshots = list(DataWarehouseTableSnapshot.serialize_for_team(team_id=self.team.id))
-        self.assertEqual(len(snapshots), 1)
+        assert len(snapshots) == 1
         snapshot = snapshots[0]
 
         # Get the Avro schema from the snapshot
@@ -197,9 +197,9 @@ class TestEvalSchema(BaseTest):
                 project_id=self.project.id,
             )
         )
-        self.assertEqual(len(records), 1)
+        assert len(records) == 1
 
         record = records[0]
-        self.assertEqual(record.name, "test_table")
-        self.assertEqual(record.format, "Parquet")
-        self.assertEqual(record.columns, {})
+        assert record.name == "test_table"
+        assert record.format == "Parquet"
+        assert record.columns == {}

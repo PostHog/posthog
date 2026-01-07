@@ -48,10 +48,10 @@ class TestNodePath(BaseTest):
         await compiled.ainvoke(AssistantState(messages=[]), {"configurable": {"thread_id": conversation.id}})
 
         assert captured_path is not None
-        self.assertEqual(len(captured_path), 2)
-        self.assertEqual(captured_path[0].name, AssistantGraphName.ASSISTANT.value)
+        assert len(captured_path) == 2
+        assert captured_path[0].name == AssistantGraphName.ASSISTANT.value
         # Node name is determined at init time, so it's the class name
-        self.assertEqual(captured_path[1].name, AssistantNodeName.ROOT)
+        assert captured_path[1].name == AssistantNodeName.ROOT
 
     async def test_graph_to_sync_node_has_two_elements(self):
         """Graph -> Node (sync) should have path: [graph, node]"""
@@ -86,9 +86,9 @@ class TestNodePath(BaseTest):
         await compiled.ainvoke(AssistantState(messages=[]), {"configurable": {"thread_id": conversation.id}})
 
         assert captured_path is not None
-        self.assertEqual(len(captured_path), 2)
-        self.assertEqual(captured_path[0].name, AssistantGraphName.ASSISTANT.value)
-        self.assertEqual(captured_path[1].name, AssistantNodeName.ROOT)
+        assert len(captured_path) == 2
+        assert captured_path[0].name == AssistantGraphName.ASSISTANT.value
+        assert captured_path[1].name == AssistantNodeName.ROOT
 
     async def test_graph_to_node_to_async_node_has_three_elements(self):
         """Graph -> Node -> Node (async) should have path: [graph, node, node]"""
@@ -133,16 +133,16 @@ class TestNodePath(BaseTest):
 
         # First node: [graph, node]
         assert captured_paths[0] is not None
-        self.assertEqual(len(captured_paths[0]), 2)
-        self.assertEqual(captured_paths[0][0].name, AssistantGraphName.ASSISTANT.value)
-        self.assertEqual(captured_paths[0][1].name, AssistantNodeName.ROOT)
+        assert len(captured_paths[0]) == 2
+        assert captured_paths[0][0].name == AssistantGraphName.ASSISTANT.value
+        assert captured_paths[0][1].name == AssistantNodeName.ROOT
 
         # Second node: [graph, node, node]
         assert captured_paths[1] is not None
-        self.assertEqual(len(captured_paths[1]), 3)
-        self.assertEqual(captured_paths[1][0].name, AssistantGraphName.ASSISTANT.value)
-        self.assertEqual(captured_paths[1][1].name, AssistantNodeName.ROOT)
-        self.assertEqual(captured_paths[1][2].name, AssistantNodeName.ROOT)
+        assert len(captured_paths[1]) == 3
+        assert captured_paths[1][0].name == AssistantGraphName.ASSISTANT.value
+        assert captured_paths[1][1].name == AssistantNodeName.ROOT
+        assert captured_paths[1][2].name == AssistantNodeName.ROOT
 
     async def test_graph_to_node_to_sync_node_has_three_elements(self):
         """Graph -> Node -> Node (sync) - calling .run() directly doesn't extend path"""
@@ -189,17 +189,15 @@ class TestNodePath(BaseTest):
 
         # First node: [graph, node]
         assert captured_paths[0] is not None
-        self.assertEqual(len(captured_paths[0]), 2)
-        self.assertEqual(captured_paths[0][0].name, AssistantGraphName.ASSISTANT.value)
-        self.assertEqual(captured_paths[0][1].name, AssistantNodeName.ROOT)
+        assert len(captured_paths[0]) == 2
+        assert captured_paths[0][0].name == AssistantGraphName.ASSISTANT.value
+        assert captured_paths[0][1].name == AssistantNodeName.ROOT
 
         # Second node: [graph, node] - initialized within FirstNode's context, so gets same path
         assert captured_paths[1] is not None
-        self.assertEqual(len(captured_paths[1]), 2)
-        self.assertEqual(captured_paths[1][0].name, AssistantGraphName.ASSISTANT.value)
-        self.assertEqual(
-            captured_paths[1][1].name, AssistantNodeName.ROOT
-        )  # Same as first because initialized in same context
+        assert len(captured_paths[1]) == 2
+        assert captured_paths[1][0].name == AssistantGraphName.ASSISTANT.value
+        assert captured_paths[1][1].name == AssistantNodeName.ROOT  # Same as first because initialized in same context
 
     async def test_graph_to_node_to_graph_to_node_has_four_elements(self):
         """Graph -> Node -> Graph -> Node should have path: [graph, node, graph, node]"""
@@ -261,17 +259,17 @@ class TestNodePath(BaseTest):
 
         # Outer node: [graph, node]
         assert captured_paths[0] is not None
-        self.assertEqual(len(captured_paths[0]), 2)
-        self.assertEqual(captured_paths[0][0].name, AssistantGraphName.ASSISTANT.value)
-        self.assertEqual(captured_paths[0][1].name, AssistantNodeName.ROOT)
+        assert len(captured_paths[0]) == 2
+        assert captured_paths[0][0].name == AssistantGraphName.ASSISTANT.value
+        assert captured_paths[0][1].name == AssistantNodeName.ROOT
 
         # Inner node: [graph, node, graph, node]
         assert captured_paths[1] is not None
-        self.assertEqual(len(captured_paths[1]), 4)
-        self.assertEqual(captured_paths[1][0].name, AssistantGraphName.ASSISTANT.value)
-        self.assertEqual(captured_paths[1][1].name, AssistantNodeName.ROOT)
-        self.assertEqual(captured_paths[1][2].name, AssistantGraphName.INSIGHTS.value)
-        self.assertEqual(captured_paths[1][3].name, AssistantNodeName.TRENDS_GENERATOR)
+        assert len(captured_paths[1]) == 4
+        assert captured_paths[1][0].name == AssistantGraphName.ASSISTANT.value
+        assert captured_paths[1][1].name == AssistantNodeName.ROOT
+        assert captured_paths[1][2].name == AssistantGraphName.INSIGHTS.value
+        assert captured_paths[1][3].name == AssistantNodeName.TRENDS_GENERATOR
 
     async def test_graph_to_graph_to_node_has_three_elements(self):
         """Graph -> Graph -> Node should have path: [graph, graph, node]"""
@@ -322,9 +320,9 @@ class TestNodePath(BaseTest):
 
         # Inner node: [graph, node] - outer graph context is not propagated when calling graph methods directly
         assert captured_path is not None
-        self.assertEqual(len(captured_path), 2)
-        self.assertEqual(captured_path[0].name, AssistantGraphName.INSIGHTS.value)
-        self.assertEqual(captured_path[1].name, AssistantNodeName.TRENDS_GENERATOR)
+        assert len(captured_path) == 2
+        assert captured_path[0].name == AssistantGraphName.INSIGHTS.value
+        assert captured_path[1].name == AssistantNodeName.TRENDS_GENERATOR
 
     async def test_node_path_preserved_across_async_and_sync_methods(self):
         """Test that calling .run() directly doesn't extend path"""
@@ -368,19 +366,19 @@ class TestNodePath(BaseTest):
         await compiled.ainvoke(AssistantState(messages=[]), {"configurable": {"thread_id": conversation.id}})
 
         # Async node: [graph, node]
-        self.assertEqual(captured_paths[0][0], "async")
+        assert captured_paths[0][0] == "async"
         assert captured_paths[0][1] is not None
-        self.assertEqual(len(captured_paths[0][1]), 2)
-        self.assertEqual(captured_paths[0][1][0].name, AssistantGraphName.ASSISTANT.value)
-        self.assertEqual(captured_paths[0][1][1].name, AssistantNodeName.ROOT)
+        assert len(captured_paths[0][1]) == 2
+        assert captured_paths[0][1][0].name == AssistantGraphName.ASSISTANT.value
+        assert captured_paths[0][1][1].name == AssistantNodeName.ROOT
 
         # Sync node: [graph, node] - initialized within AsyncNode's context, so gets same path
-        self.assertEqual(captured_paths[1][0], "sync")
+        assert captured_paths[1][0] == "sync"
         assert captured_paths[1][1] is not None
-        self.assertEqual(len(captured_paths[1][1]), 2)
-        self.assertEqual(captured_paths[1][1][0].name, AssistantGraphName.ASSISTANT.value)
-        self.assertEqual(
-            captured_paths[1][1][1].name, AssistantNodeName.ROOT
+        assert len(captured_paths[1][1]) == 2
+        assert captured_paths[1][1][0].name == AssistantGraphName.ASSISTANT.value
+        assert (
+            captured_paths[1][1][1].name == AssistantNodeName.ROOT
         )  # Same as async because initialized in same context
 
     def test_node_path_with_explicit_node_path_parameter(self):
@@ -393,9 +391,9 @@ class TestNodePath(BaseTest):
 
         node = TestNode(self.team, self.user, node_path=custom_path)
 
-        self.assertEqual(len(node._node_path), 2)
-        self.assertEqual(node._node_path[0].name, "custom_graph")
-        self.assertEqual(node._node_path[1].name, "custom_node")
+        assert len(node._node_path) == 2
+        assert node._node_path[0].name == "custom_graph"
+        assert node._node_path[1].name == "custom_node"
 
     async def test_multiple_nested_graphs(self):
         """Test deeply nested graph composition: Graph -> Node -> Graph -> Node -> Graph -> Node"""
@@ -483,24 +481,24 @@ class TestNodePath(BaseTest):
 
         # Level 1: [graph, node]
         assert captured_paths[0][1] is not None
-        self.assertEqual(len(captured_paths[0][1]), 2)
-        self.assertEqual(captured_paths[0][1][0].name, AssistantGraphName.ASSISTANT.value)
-        self.assertEqual(captured_paths[0][1][1].name, AssistantNodeName.ROOT)
+        assert len(captured_paths[0][1]) == 2
+        assert captured_paths[0][1][0].name == AssistantGraphName.ASSISTANT.value
+        assert captured_paths[0][1][1].name == AssistantNodeName.ROOT
 
         # Level 2: [graph, node, graph, node]
         assert captured_paths[1][1] is not None
-        self.assertEqual(len(captured_paths[1][1]), 4)
-        self.assertEqual(captured_paths[1][1][0].name, AssistantGraphName.ASSISTANT.value)
-        self.assertEqual(captured_paths[1][1][1].name, AssistantNodeName.ROOT)
-        self.assertEqual(captured_paths[1][1][2].name, AssistantGraphName.INSIGHTS.value)
-        self.assertEqual(captured_paths[1][1][3].name, AssistantNodeName.TRENDS_GENERATOR)
+        assert len(captured_paths[1][1]) == 4
+        assert captured_paths[1][1][0].name == AssistantGraphName.ASSISTANT.value
+        assert captured_paths[1][1][1].name == AssistantNodeName.ROOT
+        assert captured_paths[1][1][2].name == AssistantGraphName.INSIGHTS.value
+        assert captured_paths[1][1][3].name == AssistantNodeName.TRENDS_GENERATOR
 
         # Level 3: [graph, node, graph, node, graph, node]
         assert captured_paths[2][1] is not None
-        self.assertEqual(len(captured_paths[2][1]), 6)
-        self.assertEqual(captured_paths[2][1][0].name, AssistantGraphName.ASSISTANT.value)
-        self.assertEqual(captured_paths[2][1][1].name, AssistantNodeName.ROOT)
-        self.assertEqual(captured_paths[2][1][2].name, AssistantGraphName.INSIGHTS.value)
-        self.assertEqual(captured_paths[2][1][3].name, AssistantNodeName.TRENDS_GENERATOR)
-        self.assertEqual(captured_paths[2][1][4].name, AssistantGraphName.TAXONOMY.value)
-        self.assertEqual(captured_paths[2][1][5].name, AssistantNodeName.FUNNEL_GENERATOR)
+        assert len(captured_paths[2][1]) == 6
+        assert captured_paths[2][1][0].name == AssistantGraphName.ASSISTANT.value
+        assert captured_paths[2][1][1].name == AssistantNodeName.ROOT
+        assert captured_paths[2][1][2].name == AssistantGraphName.INSIGHTS.value
+        assert captured_paths[2][1][3].name == AssistantNodeName.TRENDS_GENERATOR
+        assert captured_paths[2][1][4].name == AssistantGraphName.TAXONOMY.value
+        assert captured_paths[2][1][5].name == AssistantNodeName.FUNNEL_GENERATOR

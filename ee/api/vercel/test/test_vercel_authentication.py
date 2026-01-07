@@ -3,6 +3,7 @@ import base64
 from datetime import UTC, datetime
 from typing import Any
 
+import pytest
 from posthog.test.base import SimpleTestCase
 from unittest.mock import patch
 
@@ -96,9 +97,9 @@ class TestVercelAuthentication(SimpleTestCase):
 
     def _assert_auth_fail(self, token: str, auth_type: str, msg: str):
         request = self._make_request(token, auth_type)
-        with self.assertRaises(AuthenticationFailed) as cm:
+        with pytest.raises(AuthenticationFailed) as cm:
             self.auth.authenticate(request)
-        assert msg in str(cm.exception)
+        assert msg in str(cm.value)
 
     def _exp(self, seconds: int = 3600) -> float:
         return timezone.now().timestamp() + seconds
@@ -131,13 +132,13 @@ class TestVercelAuthentication(SimpleTestCase):
 
     def test_missing_authorization_header(self, mock_get_jwks):
         request = self.factory.get("/", HTTP_X_VERCEL_AUTH="user")
-        with self.assertRaises(AuthenticationFailed):
+        with pytest.raises(AuthenticationFailed):
             self.auth.authenticate(request)
 
     def test_missing_vercel_auth_header(self, mock_get_jwks):
         token = self._token()
         request = self.factory.get("/", HTTP_AUTHORIZATION=f"Bearer {token}")
-        with self.assertRaises(AuthenticationFailed):
+        with pytest.raises(AuthenticationFailed):
             self.auth.authenticate(request)
 
     def test_invalid_vercel_auth_header(self, mock_get_jwks):
@@ -199,9 +200,9 @@ class TestVercelAuthentication(SimpleTestCase):
         mock_get_jwks.side_effect = Exception("JWKS fetch failed")
         token = self._token()
         request = self._make_request(token)
-        with self.assertRaises(AuthenticationFailed) as cm:
+        with pytest.raises(AuthenticationFailed) as cm:
             self.auth.authenticate(request)
-        assert "User authentication failed" in str(cm.exception)
+        assert "User authentication failed" in str(cm.value)
 
     def test_jwks_cache_behavior(self, mock_get_jwks):
         mock_get_jwks.return_value = self.mock_jwks

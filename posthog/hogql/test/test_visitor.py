@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import BaseTest
 
 from posthog.hogql import ast
@@ -30,11 +31,11 @@ class TestVisitor(BaseTest):
 
         visitor = ConstantVisitor()
         visitor.visit(ast.Constant(value="asd"))
-        self.assertEqual(visitor.constants, ["asd"])
+        assert visitor.constants == ["asd"]
 
         visitor.visit(parse_expr("1 + 3 / 'asd2'"))
-        self.assertEqual(visitor.operations, ["+", "/"])
-        self.assertEqual(visitor.constants, ["asd", 1, 3, "asd2"])
+        assert visitor.operations == ["+", "/"]
+        assert visitor.constants == ["asd", 1, 3, "asd2"]
 
     def test_everything_visitor(self):
         node = ast.Or(
@@ -108,7 +109,7 @@ class TestVisitor(BaseTest):
                 ),
             ]
         )
-        self.assertEqual(node, CloningVisitor().visit(node))
+        assert node == CloningVisitor().visit(node)
 
     def test_unknown_visitor(self):
         class UnknownVisitor(Visitor):
@@ -118,16 +119,16 @@ class TestVisitor(BaseTest):
             def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
                 return self.visit(node.left) + node.op + self.visit(node.right)
 
-        self.assertEqual(UnknownVisitor().visit(parse_expr("1 + 3 / 'asd2'")), "!!+!!/!!")
+        assert UnknownVisitor().visit(parse_expr("1 + 3 / 'asd2'")) == "!!+!!/!!"
 
     def test_unknown_error_visitor(self):
         class UnknownNotDefinedVisitor(Visitor):
             def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
                 return self.visit(node.left) + node.op + self.visit(node.right)
 
-        with self.assertRaises(InternalHogQLError) as e:
+        with pytest.raises(InternalHogQLError) as e:
             UnknownNotDefinedVisitor().visit(parse_expr("1 + 3 / 'asd2'"))
-        self.assertEqual(str(e.exception), "UnknownNotDefinedVisitor has no method visit_constant")
+        assert str(e.value) == "UnknownNotDefinedVisitor has no method visit_constant"
 
     def test_hogql_exception_start_end(self):
         class EternalVisitor(TraversingVisitor):
@@ -135,11 +136,11 @@ class TestVisitor(BaseTest):
                 if node.value == 616:
                     raise InternalHogQLError("You tried accessing a forbidden number, perish!")
 
-        with self.assertRaises(InternalHogQLError) as e:
+        with pytest.raises(InternalHogQLError) as e:
             EternalVisitor().visit(parse_expr("1 + 616 / 'asd2'"))
-        self.assertEqual(str(e.exception), "You tried accessing a forbidden number, perish!")
-        self.assertEqual(e.exception.start, 4)
-        self.assertEqual(e.exception.end, 7)
+        assert str(e.value) == "You tried accessing a forbidden number, perish!"
+        assert e.value.start == 4
+        assert e.value.end == 7
 
     def test_hogql_visitor_naming_exceptions(self):
         class NamingCheck(Visitor):

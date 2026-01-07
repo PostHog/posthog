@@ -1,4 +1,3 @@
-from typing import Optional
 
 from posthog.test.base import APIBaseTest
 
@@ -137,10 +136,10 @@ class TestChangesBetweenFeatureFlags(APIBaseTest):
             previous=self._a_feature_flag_with(created_at="before", created_by="before", is_simple_flag=True),
             current=self._a_feature_flag_with(created_at="after", created_by="after", is_simple_flag=False),
         )
-        self.assertEqual(actual, [])
+        assert actual == []
 
     @staticmethod
-    def _a_feature_flag_with(id: Optional[int] = None, **kwargs) -> FeatureFlag:
+    def _a_feature_flag_with(id: int | None = None, **kwargs) -> FeatureFlag:
         if not id:
             id = 2
 

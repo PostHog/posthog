@@ -131,14 +131,14 @@ class TestUserSavedSignalHandler(TestCase):
 
         # First save - should trigger cache update
         user_saved(sender=User, instance=mock_user, created=False)
-        self.assertEqual(mock_on_commit.call_count, 1)
+        assert mock_on_commit.call_count == 1
 
         # Verify the snapshot was updated to current value
-        self.assertEqual(mock_user._original_is_active, False)
+        assert not mock_user._original_is_active
 
         # Second save of same instance - should NOT trigger cache update
         user_saved(sender=User, instance=mock_user, created=False)
-        self.assertEqual(mock_on_commit.call_count, 1)  # Still 1, not 2
+        assert mock_on_commit.call_count == 1  # Still 1, not 2
 
 
 class TestOrganizationMembershipDeletedSignalHandler(TestCase):

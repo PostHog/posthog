@@ -85,15 +85,15 @@ class TestStreamProcessor(BaseTest):
         event = self._create_dispatcher_event(NodeStartAction(), node_run_id=run_id)
         result = await self.stream_processor.process(event)
 
-        self.assertIsNotNone(result)
         assert result is not None
-        self.assertEqual(len(result), 1)
+        assert result is not None
+        assert len(result) == 1
         first_result = result[0]
-        self.assertIsInstance(first_result, AssistantGenerationStatusEvent)
         assert isinstance(first_result, AssistantGenerationStatusEvent)
-        self.assertEqual(first_result.type, AssistantGenerationStatusType.ACK)
-        self.assertIn(run_id, self.stream_processor._chunks)
-        self.assertEqual(self.stream_processor._chunks[run_id].content, "")
+        assert isinstance(first_result, AssistantGenerationStatusEvent)
+        assert first_result.type == AssistantGenerationStatusType.ACK
+        assert run_id in self.stream_processor._chunks
+        assert self.stream_processor._chunks[run_id].content == ""
 
     async def test_node_end_cleans_up_chunk(self):
         """Test NodeEndAction removes the chunk for the run_id."""
@@ -104,7 +104,7 @@ class TestStreamProcessor(BaseTest):
         event = self._create_dispatcher_event(NodeEndAction(state=state), node_run_id=run_id)
         await self.stream_processor.process(event)
 
-        self.assertNotIn(run_id, self.stream_processor._chunks)
+        assert run_id not in self.stream_processor._chunks
 
     async def test_node_end_processes_messages_from_state(self):
         """Test NodeEndAction processes all messages from the final state."""
@@ -118,11 +118,11 @@ class TestStreamProcessor(BaseTest):
         )
         results = await self.stream_processor.process(event)
 
-        self.assertIsNotNone(results)
         assert results is not None
-        self.assertEqual(len(results), 2)
-        self.assertEqual(results[0], message1)
-        self.assertEqual(results[1], message2)
+        assert results is not None
+        assert len(results) == 2
+        assert results[0] == message1
+        assert results[1] == message2
 
     # Message streaming tests
 
@@ -136,13 +136,13 @@ class TestStreamProcessor(BaseTest):
         )
         result = await self.stream_processor.process(event)
 
-        self.assertIsNotNone(result)
         assert result is not None
-        self.assertEqual(len(result), 1)
-        self.assertIsInstance(result[0], AssistantMessage)
+        assert result is not None
+        assert len(result) == 1
         assert isinstance(result[0], AssistantMessage)
-        self.assertEqual(result[0].content, "Hello ")
-        self.assertEqual(result[0].id, "temp-0")  # First temporary message of stream
+        assert isinstance(result[0], AssistantMessage)
+        assert result[0].content == "Hello "
+        assert result[0].id == "temp-0"  # First temporary message of stream
 
     async def test_message_chunk_ignored_for_non_streaming_nodes(self):
         """Test MessageChunkAction returns None for nodes not in streaming_nodes."""
@@ -154,7 +154,7 @@ class TestStreamProcessor(BaseTest):
         )
         result = await self.stream_processor.process(event)
 
-        self.assertIsNone(result)
+        assert result is None
 
     async def test_multiple_chunks_merged_correctly(self):
         """Test that multiple MessageChunkActions are merged correctly."""
@@ -172,14 +172,14 @@ class TestStreamProcessor(BaseTest):
         )
         result2 = await self.stream_processor.process(event2)
 
-        self.assertIsNotNone(result1)
+        assert result1 is not None
         assert result1 is not None
         assert isinstance(result1[0], AssistantMessage)
-        self.assertEqual(result1[0].content, "Hello ")
-        self.assertIsNotNone(result2)
+        assert result1[0].content == "Hello "
+        assert result2 is not None
         assert result2 is not None
         assert isinstance(result2[0], AssistantMessage)
-        self.assertEqual(result2[0].content, "Hello world!")
+        assert result2[0].content == "Hello world!"
 
     async def test_concurrent_chunks_from_different_runs(self):
         """Test that chunks from different node runs are kept separate."""
@@ -198,8 +198,8 @@ class TestStreamProcessor(BaseTest):
         )
         await self.stream_processor.process(event2)
 
-        self.assertEqual(self.stream_processor._chunks[run_id_1].content, "Run 1")
-        self.assertEqual(self.stream_processor._chunks[run_id_2].content, "Run 2")
+        assert self.stream_processor._chunks[run_id_1].content == "Run 1"
+        assert self.stream_processor._chunks[run_id_2].content == "Run 2"
 
     async def test_handles_mixed_content_types_in_chunks(self):
         """Test that stream processor handles switching between string and list content formats."""
@@ -220,10 +220,10 @@ class TestStreamProcessor(BaseTest):
         result = await self.stream_processor.process(event2)
 
         # The result should normalize to string content
-        self.assertIsNotNone(result)
+        assert result is not None
         assert result is not None
         assert isinstance(result[0], AssistantMessage)
-        self.assertEqual(result[0].content, "list content")
+        assert result[0].content == "list content"
 
     # Root vs nested message handling tests
 
@@ -237,10 +237,10 @@ class TestStreamProcessor(BaseTest):
         )
         result = await self.stream_processor.process(event)
 
-        self.assertIsNotNone(result)
         assert result is not None
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0], message)
+        assert result is not None
+        assert len(result) == 1
+        assert result[0] == message
 
     async def test_root_message_from_non_verbose_node_filtered(self):
         """Test messages from root level in non-verbose nodes are filtered out."""
@@ -252,7 +252,7 @@ class TestStreamProcessor(BaseTest):
         )
         result = await self.stream_processor.process(event)
 
-        self.assertIsNone(result)
+        assert result is None
 
     async def test_nested_visualization_message_filtered(self):
         """Test VisualizationMessage from nested node/graph is filtered (no longer special-cased)."""
@@ -273,7 +273,7 @@ class TestStreamProcessor(BaseTest):
         result = await self.stream_processor.process(event)
 
         # VisualizationMessage is filtered for nested messages - only ArtifactMessage, NotebookUpdateMessage, FailureMessage pass
-        self.assertIsNone(result)
+        assert result is None
 
     async def test_nested_multi_visualization_message_filtered(self):
         """Test MultiVisualizationMessage from nested node/graph is filtered (no longer special-cased)."""
@@ -294,7 +294,7 @@ class TestStreamProcessor(BaseTest):
         result = await self.stream_processor.process(event)
 
         # MultiVisualizationMessage is filtered for nested messages - only ArtifactMessage, NotebookUpdateMessage, FailureMessage pass
-        self.assertIsNone(result)
+        assert result is None
 
     async def test_nested_notebook_message_returned(self):
         """Test NotebookUpdateMessage from nested node/graph is returned."""
@@ -313,10 +313,10 @@ class TestStreamProcessor(BaseTest):
         )
         result = await self.stream_processor.process(event)
 
-        self.assertIsNotNone(result)
         assert result is not None
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0], notebook_message)
+        assert result is not None
+        assert len(result) == 1
+        assert result[0] == notebook_message
 
     async def test_nested_failure_message_returned(self):
         """Test FailureMessage from nested node/graph is returned."""
@@ -334,10 +334,10 @@ class TestStreamProcessor(BaseTest):
         )
         result = await self.stream_processor.process(event)
 
-        self.assertIsNotNone(result)
         assert result is not None
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0], failure_message)
+        assert result is not None
+        assert len(result) == 1
+        assert result[0] == failure_message
 
     async def test_nested_context_message_filtered(self):
         """Test ContextMessage from nested node/graph is filtered out."""
@@ -355,7 +355,7 @@ class TestStreamProcessor(BaseTest):
         )
         result = await self.stream_processor.process(event)
 
-        self.assertIsNone(result)
+        assert result is None
 
     async def test_nested_tool_call_message_filtered(self):
         """Test AssistantToolCallMessage from nested node/graph is filtered out."""
@@ -373,7 +373,7 @@ class TestStreamProcessor(BaseTest):
         )
         result = await self.stream_processor.process(event)
 
-        self.assertIsNone(result)
+        assert result is None
 
     async def test_short_node_path_treated_as_root(self):
         """Test that node_path with length <= 2 is treated as root level."""
@@ -387,10 +387,10 @@ class TestStreamProcessor(BaseTest):
         )
         result = await self.stream_processor.process(event)
 
-        self.assertIsNotNone(result)
         assert result is not None
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0], message)
+        assert result is not None
+        assert len(result) == 1
+        assert result[0] == message
 
     # UpdateAction tests
 
@@ -410,14 +410,14 @@ class TestStreamProcessor(BaseTest):
         )
         result = await self.stream_processor.process(event)
 
-        self.assertIsNotNone(result)
         assert result is not None
-        self.assertEqual(len(result), 1)
-        self.assertIsInstance(result[0], AssistantUpdateEvent)
+        assert result is not None
+        assert len(result) == 1
+        assert isinstance(result[0], AssistantUpdateEvent)
         update_event = cast(AssistantUpdateEvent, result[0])
-        self.assertEqual(update_event.id, message_id)
-        self.assertEqual(update_event.tool_call_id, tool_call_id)
-        self.assertEqual(update_event.content, "Update content")
+        assert update_event.id == message_id
+        assert update_event.tool_call_id == tool_call_id
+        assert update_event.content == "Update content"
 
     async def test_update_action_without_parent_returns_none(self):
         """Test UpdateAction without parent tool_call_id in node_path returns None."""
@@ -429,14 +429,14 @@ class TestStreamProcessor(BaseTest):
         )
         result = await self.stream_processor.process(event)
 
-        self.assertIsNone(result)
+        assert result is None
 
     async def test_update_action_without_node_path_returns_none(self):
         """Test UpdateAction without node_path returns None."""
         event = self._create_dispatcher_event(UpdateAction(content="Update content"), node_path=None)
         result = await self.stream_processor.process(event)
 
-        self.assertIsNone(result)
+        assert result is None
 
     async def test_update_action_finds_closest_tool_call_in_reversed_path(self):
         """Test UpdateAction finds the closest (most recent) tool_call_id by reversing the path."""
@@ -458,13 +458,13 @@ class TestStreamProcessor(BaseTest):
         )
         result = await self.stream_processor.process(event)
 
-        self.assertIsNotNone(result)
         assert result is not None
-        self.assertEqual(len(result), 1)
+        assert result is not None
+        assert len(result) == 1
         update_event = cast(AssistantUpdateEvent, result[0])
         # Should use the closest parent (last one in reversed path)
-        self.assertEqual(update_event.id, message_id_2)
-        self.assertEqual(update_event.tool_call_id, tool_call_id_2)
+        assert update_event.id == message_id_2
+        assert update_event.tool_call_id == tool_call_id_2
 
     # Message deduplication tests
 
@@ -481,16 +481,16 @@ class TestStreamProcessor(BaseTest):
             MessageAction(message=message1), node_name=AssistantNodeName.ROOT, node_path=node_path
         )
         result1 = await self.stream_processor.process(event1)
-        self.assertIsNotNone(result1)
         assert result1 is not None
-        self.assertEqual(result1[0], message1)
+        assert result1 is not None
+        assert result1[0] == message1
 
         # Process second message with same ID - should be filtered
         event2 = self._create_dispatcher_event(
             MessageAction(message=message2), node_name=AssistantNodeName.ROOT, node_path=node_path
         )
         result2 = await self.stream_processor.process(event2)
-        self.assertIsNone(result2)
+        assert result2 is None
 
     async def test_messages_without_id_not_deduplicated(self):
         """Test that messages without ID are always yielded (not deduplicated)."""
@@ -503,17 +503,17 @@ class TestStreamProcessor(BaseTest):
             MessageAction(message=message1), node_name=AssistantNodeName.ROOT, node_path=node_path
         )
         result1 = await self.stream_processor.process(event1)
-        self.assertIsNotNone(result1)
         assert result1 is not None
-        self.assertEqual(result1[0], message1)
+        assert result1 is not None
+        assert result1[0] == message1
 
         event2 = self._create_dispatcher_event(
             MessageAction(message=message2), node_name=AssistantNodeName.ROOT, node_path=node_path
         )
         result2 = await self.stream_processor.process(event2)
-        self.assertIsNotNone(result2)
         assert result2 is not None
-        self.assertEqual(result2[0], message2)
+        assert result2 is not None
+        assert result2[0] == message2
 
     async def test_preexisting_message_ids_filtered(self):
         """Test that stream processor filters messages with IDs already in _streamed_update_ids."""
@@ -530,7 +530,7 @@ class TestStreamProcessor(BaseTest):
         )
         result = await self.stream_processor.process(event)
 
-        self.assertIsNone(result)
+        assert result is None
 
     # LangGraph update processing tests
 
@@ -544,12 +544,12 @@ class TestStreamProcessor(BaseTest):
 
         result = await self.stream_processor.process_langgraph_update(event)
 
-        self.assertIsNotNone(result)
         assert result is not None
-        self.assertEqual(len(result), 1)
-        self.assertIsInstance(result[0], AssistantMessage)
+        assert result is not None
+        assert len(result) == 1
         assert isinstance(result[0], AssistantMessage)
-        self.assertEqual(result[0].content, "LangGraph chunk")
+        assert isinstance(result[0], AssistantMessage)
+        assert result[0].content == "LangGraph chunk"
 
     async def test_langgraph_state_update_stored(self):
         """Test that LangGraph state updates are stored in _state."""
@@ -559,10 +559,10 @@ class TestStreamProcessor(BaseTest):
         event = LangGraphUpdateEvent(update=update)
         result = await self.stream_processor.process_langgraph_update(event)
 
-        self.assertIsNone(result)
-        self.assertIsNotNone(self.stream_processor._state)
+        assert result is None
         assert self.stream_processor._state is not None
-        self.assertEqual(self.stream_processor._state.plan, "Test plan")
+        assert self.stream_processor._state is not None
+        assert self.stream_processor._state.plan == "Test plan"
 
     async def test_langgraph_non_message_chunk_ignored(self):
         """Test that LangGraph updates that are not AIMessageChunk are ignored."""
@@ -574,7 +574,7 @@ class TestStreamProcessor(BaseTest):
 
         result = await self.stream_processor.process_langgraph_update(event)
 
-        self.assertIsNone(result)
+        assert result is None
 
     async def test_langgraph_invalid_update_format_ignored(self):
         """Test that invalid LangGraph update formats are ignored."""
@@ -583,7 +583,7 @@ class TestStreamProcessor(BaseTest):
 
         result = await self.stream_processor.process_langgraph_update(event)
 
-        self.assertIsNone(result)
+        assert result is None
 
     # Edge cases and error conditions
 
@@ -596,10 +596,10 @@ class TestStreamProcessor(BaseTest):
         )
         result = await self.stream_processor.process(event)
 
-        self.assertIsNotNone(result)
         assert result is not None
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0], message)
+        assert result is not None
+        assert len(result) == 1
+        assert result[0] == message
 
     async def test_none_node_path_treated_as_root(self):
         """Test that None node_path is treated as root level."""
@@ -610,17 +610,17 @@ class TestStreamProcessor(BaseTest):
         )
         result = await self.stream_processor.process(event)
 
-        self.assertIsNotNone(result)
         assert result is not None
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0], message)
+        assert result is not None
+        assert len(result) == 1
+        assert result[0] == message
 
     async def test_node_end_with_none_state_returns_none(self):
         """Test NodeEndAction with None state returns None."""
         event = self._create_dispatcher_event(NodeEndAction(state=None))
         result = await self.stream_processor.process(event)
 
-        self.assertIsNone(result)
+        assert result is None
 
     async def test_update_action_with_empty_content_returns_none(self):
         """Test UpdateAction with empty content returns None."""
@@ -632,7 +632,7 @@ class TestStreamProcessor(BaseTest):
         event = self._create_dispatcher_event(UpdateAction(content=""), node_path=node_path)
         result = await self.stream_processor.process(event)
 
-        self.assertIsNone(result)
+        assert result is None
 
     async def test_special_messages_from_root_level_returned(self):
         """Test that special message types from root level are handled by root message logic."""
@@ -647,10 +647,10 @@ class TestStreamProcessor(BaseTest):
         )
         result = await self.stream_processor.process(event)
 
-        self.assertIsNotNone(result)
         assert result is not None
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0], viz_message)
+        assert result is not None
+        assert len(result) == 1
+        assert result[0] == viz_message
 
 
 class TestStreamProcessorArtifactEnrichment(BaseTest):
@@ -703,14 +703,14 @@ class TestStreamProcessorArtifactEnrichment(BaseTest):
         )
         result = await self.stream_processor.process(event)
 
-        self.assertIsNotNone(result)
         assert result is not None
-        self.assertEqual(len(result), 1)
-        self.assertIsInstance(result[0], ArtifactMessage)
+        assert result is not None
+        assert len(result) == 1
         assert isinstance(result[0], ArtifactMessage)
-        self.assertEqual(result[0].artifact_id, artifact.short_id)
+        assert isinstance(result[0], ArtifactMessage)
+        assert result[0].artifact_id == artifact.short_id
         assert isinstance(result[0].content, VisualizationArtifactContent)
-        self.assertEqual(result[0].content.name, "Chart Name")
+        assert result[0].content.name == "Chart Name"
 
     async def test_enriched_artifact_message_passed_to_nested_handler(self):
         """Test that enriched ArtifactMessage from nested graph is returned as special child message."""
@@ -742,10 +742,10 @@ class TestStreamProcessorArtifactEnrichment(BaseTest):
         )
         result = await self.stream_processor.process(event)
 
-        self.assertIsNotNone(result)
         assert result is not None
-        self.assertEqual(len(result), 1)
-        self.assertIsInstance(result[0], ArtifactMessage)
+        assert result is not None
+        assert len(result) == 1
+        assert isinstance(result[0], ArtifactMessage)
         assert isinstance(result[0], ArtifactMessage)
         assert isinstance(result[0].content, VisualizationArtifactContent)
-        self.assertEqual(result[0].content.name, "Nested Chart")
+        assert result[0].content.name == "Nested Chart"

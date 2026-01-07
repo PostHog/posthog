@@ -60,11 +60,8 @@ class TestEELoginPrecheckAPI(APILicensedTest):
 
         with self.settings(**GOOGLE_MOCK_SETTINGS):
             response = self.client.post("/api/login/precheck", {"email": "spain@witw.app"})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            response.json(),
-            {"sso_enforcement": "google-oauth2", "saml_available": False},
-        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"sso_enforcement": "google-oauth2", "saml_available": False}
 
     def test_login_precheck_with_unverified_domain(self):
         OrganizationDomain.objects.create(
@@ -78,8 +75,8 @@ class TestEELoginPrecheckAPI(APILicensedTest):
             response = self.client.post(
                 "/api/login/precheck", {"email": "i_do_not_exist@witw.app"}
             )  # Note we didn't create a user that matches, only domain is matched
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"sso_enforcement": None, "saml_available": False})
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"sso_enforcement": None, "saml_available": False}
 
     def test_login_precheck_with_inexistent_account(self):
         OrganizationDomain.objects.create(
@@ -92,8 +89,8 @@ class TestEELoginPrecheckAPI(APILicensedTest):
 
         with self.settings(**GITHUB_MOCK_SETTINGS):
             response = self.client.post("/api/login/precheck", {"email": "i_do_not_exist@anotherdomain.com"})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"sso_enforcement": "github", "saml_available": False})
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"sso_enforcement": "github", "saml_available": False}
 
     def test_login_precheck_with_enforced_sso_but_improperly_configured_sso(self):
         OrganizationDomain.objects.create(
@@ -107,8 +104,8 @@ class TestEELoginPrecheckAPI(APILicensedTest):
         response = self.client.post(
             "/api/login/precheck", {"email": "spain@witw.app"}
         )  # Note Google OAuth is not configured
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"sso_enforcement": None, "saml_available": False})
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"sso_enforcement": None, "saml_available": False}
 
 
 class TestEEAuthenticationAPI(APILicensedTest):
@@ -134,8 +131,8 @@ class TestEEAuthenticationAPI(APILicensedTest):
                 "/api/login",
                 {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD},
             )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"success": True})
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"success": True}
 
         # Forcing SSO disables regular API password login
         self.create_enforced_domain()
@@ -144,16 +141,13 @@ class TestEEAuthenticationAPI(APILicensedTest):
                 "/api/login",
                 {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD},
             )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "sso_enforced",
-                "detail": "You can only login with SSO for this account (google-oauth2).",
-                "attr": None,
-            },
-        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "sso_enforced",
+            "detail": "You can only login with SSO for this account (google-oauth2).",
+            "attr": None,
+        }
 
     def test_can_enforce_sso_on_cloud_enviroment(self):
         self.client.logout()
@@ -167,16 +161,13 @@ class TestEEAuthenticationAPI(APILicensedTest):
                 "/api/login",
                 {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD},
             )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "sso_enforced",
-                "detail": "You can only login with SSO for this account (google-oauth2).",
-                "attr": None,
-            },
-        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "sso_enforced",
+            "detail": "You can only login with SSO for this account (google-oauth2).",
+            "attr": None,
+        }
 
     def test_cannot_reset_password_with_enforced_sso(self):
         self.create_enforced_domain()
@@ -186,17 +177,14 @@ class TestEEAuthenticationAPI(APILicensedTest):
             SITE_URL="https://my.posthog.net",
         ):
             response = self.client.post("/api/reset/", {"email": "i_dont_exist@posthog.com"})
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "sso_enforced",
-                "detail": "Password reset is disabled because SSO login is enforced for this domain.",
-                "attr": None,
-            },
-        )
-        self.assertEqual(len(mail.outbox), 0)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "sso_enforced",
+            "detail": "Password reset is disabled because SSO login is enforced for this domain.",
+            "attr": None,
+        }
+        assert len(mail.outbox) == 0
 
     @patch("posthog.models.organization_domain.logger.warning")
     def test_cannot_enforce_sso_without_a_license(self, mock_warning):
@@ -212,15 +200,15 @@ class TestEEAuthenticationAPI(APILicensedTest):
                 "/api/login",
                 {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD},
             )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"success": True})
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"success": True}
 
         # Attempting to use SAML fails
         with self.settings(**GOOGLE_MOCK_SETTINGS):
             response = self.client.get("/login/google-oauth2/")
 
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-        self.assertIn("/login?error_code=improperly_configured_sso", response.headers["Location"])
+        assert response.status_code == status.HTTP_302_FOUND
+        assert "/login?error_code=improperly_configured_sso" in response.headers["Location"]
 
         # Ensure warning is properly logged for debugging
         mock_warning.assert_called_with(
@@ -234,7 +222,7 @@ class TestEEAuthenticationAPI(APILicensedTest):
             first_key = self.client.session.session_key
             self.client.post("/login/google-oauth2/", {})
             second_key = self.client.session.session_key
-            self.assertNotEqual(first_key, second_key)
+            assert first_key != second_key
 
     def test_existing_session_remains_valid_when_sso_enforced(self):
         """Test that existing password-authenticated sessions remain valid after SSO is enforced"""
@@ -245,20 +233,20 @@ class TestEEAuthenticationAPI(APILicensedTest):
             "/api/login",
             {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         # Step 2: Verify user can access protected endpoints
         response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["email"], self.CONFIG_EMAIL)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["email"] == self.CONFIG_EMAIL
 
         # Step 3: Admin enforces SSO for the domain
         self.create_enforced_domain()
 
         # Step 4: User's existing session should still work
         response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["email"], self.CONFIG_EMAIL)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["email"] == self.CONFIG_EMAIL
 
         # Step 5: User logs out
         self.client.logout()
@@ -269,16 +257,13 @@ class TestEEAuthenticationAPI(APILicensedTest):
                 "/api/login",
                 {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD},
             )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "sso_enforced",
-                "detail": "You can only login with SSO for this account (google-oauth2).",
-                "attr": None,
-            },
-        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "sso_enforced",
+            "detail": "You can only login with SSO for this account (google-oauth2).",
+            "attr": None,
+        }
 
 
 @pytest.mark.skip_on_multitenancy
@@ -327,21 +312,20 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         )
 
         response = self.client.get("/api/saml/metadata/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue("/complete/saml/" in response.content.decode())
+        assert response.status_code == status.HTTP_200_OK
+        assert "/complete/saml/" in response.content.decode()
 
     def test_need_to_be_authenticated_to_get_saml_metadata(self):
         response = self.client.get("/api/saml/metadata/")
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual(response.json(), self.unauthenticated_response())
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        assert response.json() == self.unauthenticated_response()
 
     def test_only_admins_can_get_saml_metadata(self):
         self.client.force_login(self.user)
         response = self.client.get("/api/saml/metadata/")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(
-            response.json(),
-            self.permission_denied_response("You need to be an administrator or owner to access this resource."),
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json() == self.permission_denied_response(
+            "You need to be an administrator or owner to access this resource."
         )
 
     # Login precheck
@@ -350,39 +334,36 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         response = self.client.post(
             "/api/login/precheck", {"email": "helloworld@posthog.com"}
         )  # Note Google OAuth is not configured
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"sso_enforcement": None, "saml_available": True})
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"sso_enforcement": None, "saml_available": True}
 
     # Initiate SAML flow
 
     def test_can_initiate_saml_flow(self):
         response = self.client.get("/login/saml/?email=hellohello@posthog.com")
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        assert response.status_code == status.HTTP_302_FOUND
 
         # Assert user is redirected to the IdP's login page
         location = response.headers["Location"]
-        self.assertIn("https://idp.hogflix.io/saml?SAMLRequest=", location)
+        assert "https://idp.hogflix.io/saml?SAMLRequest=" in location
 
     def test_cannot_initiate_saml_flow_without_target_email_address(self):
         """
         We need the email address to know how to route the SAML request.
         """
-        with self.assertRaises(AuthMissingParameter) as e:
+        with pytest.raises(AuthMissingParameter) as e:
             self.client.get("/login/saml/")
 
-        self.assertEqual(str(e.exception), "Missing needed parameter email")
+        assert str(e.value) == "Missing needed parameter email"
 
     def test_cannot_initiate_saml_flow_for_unconfigured_domain(self):
         """
         SAML settings have not been configured for the domain.
         """
-        with self.assertRaises(AuthFailed) as e:
+        with pytest.raises(AuthFailed) as e:
             self.client.get("/login/saml/?email=hellohello@gmail.com")
 
-        self.assertEqual(
-            str(e.exception),
-            "Authentication failed: SAML not configured for this user.",
-        )
+        assert str(e.value) == "Authentication failed: SAML not configured for this user."
 
     def test_cannot_initiate_saml_flow_for_unverified_domain(self):
         """
@@ -392,13 +373,10 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         self.organization_domain.verified_at = None
         self.organization_domain.save()
 
-        with self.assertRaises(AuthFailed) as e:
+        with pytest.raises(AuthFailed) as e:
             self.client.get("/login/saml/?email=hellohello@gmail.com")
 
-        self.assertEqual(
-            str(e.exception),
-            "Authentication failed: SAML not configured for this user.",
-        )
+        assert str(e.value) == "Authentication failed: SAML not configured for this user."
 
     # Finish SAML flow (i.e. actual log in)
 
@@ -407,7 +385,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         user = User.objects.create(email="engineering@posthog.com", distinct_id=str(uuid.uuid4()))
 
         response = self.client.get("/login/saml/?email=engineering@posthog.com")
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        assert response.status_code == status.HTTP_302_FOUND
 
         _session = self.client.session
         _session.update({"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6"})
@@ -429,16 +407,16 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
             format="multipart",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
+        assert response.status_code == status.HTTP_200_OK  # because `follow=True`
         self.assertRedirects(response, "/")  # redirect to the home page
 
         # Ensure proper user was assigned
         _session = self.client.session
-        self.assertEqual(_session.get("_auth_user_id"), str(user.pk))
+        assert _session.get("_auth_user_id") == str(user.pk)
 
         # Test logged in request
         response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     @freeze_time("2021-08-25T23:37:55.345Z")
     def test_saml_jit_provisioning_and_assertion_with_different_attribute_names(self):
@@ -449,7 +427,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         """
 
         response = self.client.get("/login/saml/?email=engineering@posthog.com")
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        assert response.status_code == status.HTTP_302_FOUND
 
         _session = self.client.session
         _session.update({"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6"})
@@ -473,24 +451,24 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
             follow=True,
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
+        assert response.status_code == status.HTTP_200_OK  # because `follow=True`
         self.assertRedirects(response, "/")  # redirect to the home page
 
         # User is created
-        self.assertEqual(User.objects.count(), user_count + 1)
+        assert User.objects.count() == user_count + 1
         user = cast(User, User.objects.last())
-        self.assertEqual(user.first_name, "PostHog")
-        self.assertEqual(user.email, "engineering@posthog.com")
-        self.assertEqual(user.organization, self.organization)
-        self.assertEqual(user.team, self.team)
-        self.assertEqual(user.organization_memberships.count(), 1)
-        self.assertEqual(
-            cast(OrganizationMembership, user.organization_memberships.first()).level,
-            OrganizationMembership.Level.MEMBER,
+        assert user.first_name == "PostHog"
+        assert user.email == "engineering@posthog.com"
+        assert user.organization == self.organization
+        assert user.team == self.team
+        assert user.organization_memberships.count() == 1
+        assert (
+            cast(OrganizationMembership, user.organization_memberships.first()).level
+            == OrganizationMembership.Level.MEMBER
         )
 
         _session = self.client.session
-        self.assertEqual(_session.get("_auth_user_id"), str(user.pk))
+        assert _session.get("_auth_user_id") == str(user.pk)
 
     @freeze_time("2021-08-25T23:37:55.345Z")
     def test_saml_jit_provisioning_with_case_insensitive_domain(self):
@@ -505,7 +483,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         uppercase_email = f"engineering@{original_domain.upper()}"
 
         response = self.client.get(f"/login/saml/?email={uppercase_email}")
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        assert response.status_code == status.HTTP_302_FOUND
 
         _session = self.client.session
         _session.update({"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6"})
@@ -529,23 +507,23 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
             follow=True,
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
+        assert response.status_code == status.HTTP_200_OK  # because `follow=True`
         self.assertRedirects(response, "/")  # redirect to the home page
 
         # User is created despite the case difference in domain
-        self.assertEqual(User.objects.count(), user_count + 1)
+        assert User.objects.count() == user_count + 1
         user = cast(User, User.objects.last())
-        self.assertEqual(user.email, uppercase_email.lower())  # The SSO middleware will make this lowercase
-        self.assertEqual(user.organization, self.organization)
-        self.assertEqual(user.team, self.team)
-        self.assertEqual(user.organization_memberships.count(), 1)
-        self.assertEqual(
-            cast(OrganizationMembership, user.organization_memberships.first()).level,
-            OrganizationMembership.Level.MEMBER,
+        assert user.email == uppercase_email.lower()  # The SSO middleware will make this lowercase
+        assert user.organization == self.organization
+        assert user.team == self.team
+        assert user.organization_memberships.count() == 1
+        assert (
+            cast(OrganizationMembership, user.organization_memberships.first()).level
+            == OrganizationMembership.Level.MEMBER
         )
 
         _session = self.client.session
-        self.assertEqual(_session.get("_auth_user_id"), str(user.pk))
+        assert _session.get("_auth_user_id") == str(user.pk)
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_cannot_login_with_improperly_signed_payload(self):
@@ -570,7 +548,7 @@ YotAcSbU3p5bzd11wpyebYHB"""
         self.organization_domain.save()
 
         response = self.client.get("/login/saml/?email=engineering@posthog.com")
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        assert response.status_code == status.HTTP_302_FOUND
 
         _session = self.client.session
         _session.update({"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6"})
@@ -584,7 +562,7 @@ YotAcSbU3p5bzd11wpyebYHB"""
 
         user_count = User.objects.count()
 
-        with self.assertRaises(AuthFailed) as e:
+        with pytest.raises(AuthFailed) as e:
             response = self.client.post(
                 "/complete/saml/",
                 {
@@ -595,13 +573,13 @@ YotAcSbU3p5bzd11wpyebYHB"""
                 follow=True,
             )
 
-        self.assertIn("Signature validation failed. SAML Response rejected", str(e.exception))
+        assert "Signature validation failed. SAML Response rejected" in str(e.value)
 
-        self.assertEqual(User.objects.count(), user_count)
+        assert User.objects.count() == user_count
 
         # Test logged in request fails
         response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_cannot_signup_with_saml_if_jit_provisioning_is_disabled(self):
@@ -609,7 +587,7 @@ YotAcSbU3p5bzd11wpyebYHB"""
         self.organization_domain.save()
 
         response = self.client.get("/login/saml/?email=engineering@posthog.com")
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        assert response.status_code == status.HTTP_302_FOUND
 
         _session = self.client.session
         _session.update({"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6"})
@@ -633,20 +611,20 @@ YotAcSbU3p5bzd11wpyebYHB"""
             follow=True,
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
+        assert response.status_code == status.HTTP_200_OK  # because `follow=True`
         self.assertRedirects(response, "/login?error_code=jit_not_enabled")  # show the appropriate login error
 
         # User is created
-        self.assertEqual(User.objects.count(), user_count)
+        assert User.objects.count() == user_count
 
         # Test logged in request fails
         response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     @freeze_time("2021-08-25T23:53:51.000Z")
     def test_cannot_create_account_without_first_name_in_payload(self):
         response = self.client.get("/login/saml/?email=engineering@posthog.com")
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        assert response.status_code == status.HTTP_302_FOUND
 
         _session = self.client.session
         _session.update({"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6"})
@@ -660,7 +638,7 @@ YotAcSbU3p5bzd11wpyebYHB"""
 
         user_count = User.objects.count()
 
-        with self.assertRaises(ValidationError) as e:
+        with pytest.raises(ValidationError) as e:
             response = self.client.post(
                 "/complete/saml/",
                 {
@@ -671,19 +649,16 @@ YotAcSbU3p5bzd11wpyebYHB"""
                 follow=True,
             )
 
-        self.assertEqual(
-            str(e.exception),
-            "{'name': ['This field is required and was not provided by the IdP.']}",
-        )
+        assert str(e.value) == "{'name': ['This field is required and was not provided by the IdP.']}"
 
-        self.assertEqual(User.objects.count(), user_count)
+        assert User.objects.count() == user_count
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_cannot_login_with_saml_on_unverified_domain(self):
         User.objects.create(email="engineering@posthog.com", distinct_id=str(uuid.uuid4()))
 
         response = self.client.get("/login/saml/?email=engineering@posthog.com")
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        assert response.status_code == status.HTTP_302_FOUND
 
         # Note we "unverify" the domain after the initial request because we want to test the actual login process (not SAML initiation)
         self.organization_domain.verified_at = None
@@ -699,7 +674,7 @@ YotAcSbU3p5bzd11wpyebYHB"""
         ) as f:
             saml_response = f.read()
 
-        with self.assertRaises(AuthFailed) as e:
+        with pytest.raises(AuthFailed) as e:
             response = self.client.post(
                 "/complete/saml/",
                 {
@@ -710,14 +685,11 @@ YotAcSbU3p5bzd11wpyebYHB"""
                 format="multipart",
             )
 
-        self.assertEqual(
-            str(e.exception),
-            "Authentication failed: Authentication request is invalid. Invalid RelayState.",
-        )
+        assert str(e.value) == "Authentication failed: Authentication request is invalid. Invalid RelayState."
 
         # Assert user is not logged in
         response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_saml_can_be_enforced(self):
         User.objects.create_and_join(
@@ -731,8 +703,8 @@ YotAcSbU3p5bzd11wpyebYHB"""
             "/api/login",
             {"email": "engineering@posthog.com", "password": self.CONFIG_PASSWORD},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"success": True})
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"success": True}
 
         # Forcing only SAML disables regular API password login
         self.organization_domain.sso_enforcement = "saml"
@@ -741,21 +713,18 @@ YotAcSbU3p5bzd11wpyebYHB"""
             "/api/login",
             {"email": "engineering@posthog.com", "password": self.CONFIG_PASSWORD},
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "sso_enforced",
-                "detail": "You can only login with SSO for this account (saml).",
-                "attr": None,
-            },
-        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "sso_enforced",
+            "detail": "You can only login with SSO for this account (saml).",
+            "attr": None,
+        }
 
         # Login precheck returns SAML info
         response = self.client.post("/api/login/precheck", {"email": "engineering@posthog.com"})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"sso_enforcement": "saml", "saml_available": True})
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"sso_enforcement": "saml", "saml_available": True}
 
     def test_cannot_use_saml_without_enterprise_license(self):
         self.organization.available_product_features = [
@@ -767,15 +736,14 @@ YotAcSbU3p5bzd11wpyebYHB"""
         self.organization_domain.sso_enforcement = "saml"
         self.organization_domain.save()
         response = self.client.post("/api/login/precheck", {"email": self.CONFIG_EMAIL})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"sso_enforcement": None, "saml_available": False})
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"sso_enforcement": None, "saml_available": False}
 
         # Cannot start SAML flow
-        with self.assertRaises(AuthFailed) as e:
+        with pytest.raises(AuthFailed) as e:
             response = self.client.get("/login/saml/?email=engineering@posthog.com")
-        self.assertEqual(
-            str(e.exception),
-            "Authentication failed: Your organization does not have the required license to use SAML.",
+        assert (
+            str(e.value) == "Authentication failed: Your organization does not have the required license to use SAML."
         )
 
         # Attempting to use SAML fails
@@ -789,7 +757,7 @@ YotAcSbU3p5bzd11wpyebYHB"""
         ) as f:
             saml_response = f.read()
 
-        with self.assertRaises(AuthFailed) as e:
+        with pytest.raises(AuthFailed) as e:
             response = self.client.post(
                 "/complete/saml/",
                 {
@@ -800,9 +768,8 @@ YotAcSbU3p5bzd11wpyebYHB"""
                 format="multipart",
             )
 
-        self.assertEqual(
-            str(e.exception),
-            "Authentication failed: Your organization does not have the required license to use SAML.",
+        assert (
+            str(e.value) == "Authentication failed: Your organization does not have the required license to use SAML."
         )
 
     # Remove after we figure out saml / xmlsec issues
@@ -837,7 +804,7 @@ class TestCustomGoogleOAuth2(APILicensedTest):
         extra_args = self.google_oauth.auth_extra_arguments()
 
         # Should only contain base arguments from parent class, no login_hint
-        self.assertNotIn("login_hint", extra_args)
+        assert "login_hint" not in extra_args
 
     def test_auth_extra_arguments_with_email(self):
         """Test that auth_extra_arguments adds login_hint when email is provided."""
@@ -853,7 +820,7 @@ class TestCustomGoogleOAuth2(APILicensedTest):
 
         extra_args = self.google_oauth.auth_extra_arguments()
 
-        self.assertEqual(extra_args["login_hint"], "test@posthog.com")
+        assert extra_args["login_hint"] == "test@posthog.com"
 
     def test_get_user_id_existing_user_with_sub(self):
         """Test that a user with sub as uid continues using that sub."""
@@ -864,11 +831,11 @@ class TestCustomGoogleOAuth2(APILicensedTest):
 
         uid = self.google_oauth.get_user_id(self.details, response)
 
-        self.assertEqual(uid, self.sub)
+        assert uid == self.sub
         # Verify no migration occurred (count should be 1)
-        self.assertEqual(UserSocialAuth.objects.filter(provider="google-oauth2").count(), 1)
+        assert UserSocialAuth.objects.filter(provider="google-oauth2").count() == 1
         # Verify uid is still sub
-        self.assertEqual(UserSocialAuth.objects.get(provider="google-oauth2").uid, self.sub)
+        assert UserSocialAuth.objects.get(provider="google-oauth2").uid == self.sub
 
     def test_get_user_id_migrates_email_to_sub(self):
         """Test that a user with email as uid gets migrated to using sub."""
@@ -879,10 +846,10 @@ class TestCustomGoogleOAuth2(APILicensedTest):
 
         uid = self.google_oauth.get_user_id(self.details, response)
 
-        self.assertEqual(uid, self.sub)
+        assert uid == self.sub
         # Verify the uid was updated
         social_auth.refresh_from_db()
-        self.assertEqual(social_auth.uid, self.sub)
+        assert social_auth.uid == self.sub
 
     def test_get_user_id_new_user_uses_sub(self):
         """Test that a new user gets sub as uid."""
@@ -890,9 +857,9 @@ class TestCustomGoogleOAuth2(APILicensedTest):
 
         uid = self.google_oauth.get_user_id(self.details, response)
 
-        self.assertEqual(uid, self.sub)
+        assert uid == self.sub
         # Verify no UserSocialAuth objects were created
-        self.assertEqual(UserSocialAuth.objects.filter(provider="google-oauth2").count(), 0)
+        assert UserSocialAuth.objects.filter(provider="google-oauth2").count() == 0
 
     def test_get_user_id_missing_sub_raises_error(self):
         """Test that missing sub in response raises ValueError."""
@@ -901,10 +868,10 @@ class TestCustomGoogleOAuth2(APILicensedTest):
             # no sub provided
         }
 
-        with self.assertRaises(ValueError) as e:
+        with pytest.raises(ValueError) as e:
             self.google_oauth.get_user_id(self.details, response)
 
-        self.assertEqual(str(e.exception), "Google OAuth response missing 'sub' claim")
+        assert str(e.value) == "Google OAuth response missing 'sub' claim"
 
 
 class TestSSOEnforcement(APILicensedTest):
@@ -935,20 +902,20 @@ class TestSSOEnforcement(APILicensedTest):
         )
 
         # Test that Google OAuth2 is blocked
-        with self.assertRaises(AuthFailed) as context:
+        with pytest.raises(AuthFailed) as context:
             social_auth_allowed(
                 backend=type("MockBackend", (), {"name": "google-oauth2"})(),
                 details={"email": self.test_email},
                 response={},
             )
-        self.assertEqual(context.exception.args[0], "saml_sso_enforced")
+        assert context.value.args[0] == "saml_sso_enforced"
 
         # Test that GitHub is also blocked
-        with self.assertRaises(AuthFailed) as context:
+        with pytest.raises(AuthFailed) as context:
             social_auth_allowed(
                 backend=type("MockBackend", (), {"name": "github"})(), details={"email": self.test_email}, response={}
             )
-        self.assertEqual(context.exception.args[0], "saml_sso_enforced")
+        assert context.value.args[0] == "saml_sso_enforced"
 
     @override_settings(**SAML_MOCK_SETTINGS, **GOOGLE_MOCK_SETTINGS)
     def test_other_social_auth_blocked_with_google_enforcement(self):
@@ -963,20 +930,20 @@ class TestSSOEnforcement(APILicensedTest):
         )
 
         # Test that GitHub auth is blocked
-        with self.assertRaises(AuthFailed) as context:
+        with pytest.raises(AuthFailed) as context:
             social_auth_allowed(
                 backend=type("MockBackend", (), {"name": "github"})(), details={"email": self.test_email}, response={}
             )
-        self.assertEqual(context.exception.args[0], "google_sso_enforced")
+        assert context.value.args[0] == "google_sso_enforced"
 
         # Test that SAML auth is blocked
-        with self.assertRaises(AuthFailed) as context:
+        with pytest.raises(AuthFailed) as context:
             social_auth_allowed(
                 backend=type("MockBackend", (), {"name": "saml"})(),
                 details={"email": self.test_email},
                 response={},
             )
-        self.assertEqual(context.exception.args[0], "google_sso_enforced")
+        assert context.value.args[0] == "google_sso_enforced"
 
         # Test that Google OAuth2 is allowed
         try:
@@ -1050,5 +1017,5 @@ dcKmj4EG6bfcI3KY6wK46JoogXZdHDaFP+WOJNj/pJ165hYsYLcqkJktj/rEgGQmqAXWPOXHmFJb
         )
 
         # Should be redirected to login with SSO enforcement error
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-        self.assertIn("/login?error_code=google_sso_enforced", response.headers["Location"])
+        assert response.status_code == status.HTTP_302_FOUND
+        assert "/login?error_code=google_sso_enforced" in response.headers["Location"]

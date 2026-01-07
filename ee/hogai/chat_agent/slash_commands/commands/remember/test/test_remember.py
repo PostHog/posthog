@@ -20,31 +20,31 @@ class TestRememberCommand(BaseTest):
         """Test extracting memory content from /remember command."""
         state = AssistantState(messages=[HumanMessage(content="/remember My main KPI is MAU")])
         result = self.command.get_memory_content(state)
-        self.assertEqual(result, "My main KPI is MAU")
+        assert result == "My main KPI is MAU"
 
     def test_get_memory_content_without_args(self):
         """Test that /remember without args returns empty string."""
         state = AssistantState(messages=[HumanMessage(content="/remember")])
         result = self.command.get_memory_content(state)
-        self.assertEqual(result, "")
+        assert result == ""
 
     def test_get_memory_content_with_whitespace(self):
         """Test that extra whitespace is trimmed."""
         state = AssistantState(messages=[HumanMessage(content="/remember   test fact   ")])
         result = self.command.get_memory_content(state)
-        self.assertEqual(result, "test fact")
+        assert result == "test fact"
 
     def test_get_memory_content_non_remember_message(self):
         """Test that non-remember messages return None."""
         state = AssistantState(messages=[HumanMessage(content="Hello world")])
         result = self.command.get_memory_content(state)
-        self.assertIsNone(result)
+        assert result is None
 
     def test_get_memory_content_empty_messages(self):
         """Test that empty messages return None."""
         state = AssistantState(messages=[])
         result = self.command.get_memory_content(state)
-        self.assertIsNone(result)
+        assert result is None
 
     @pytest.mark.asyncio
     async def test_execute_appends_to_memory(self):
@@ -54,14 +54,14 @@ class TestRememberCommand(BaseTest):
 
         result = await self.command.execute(config, state)
 
-        self.assertEqual(len(result.messages), 1)
+        assert len(result.messages) == 1
         message = result.messages[0]
         assert isinstance(message, AssistantMessage)
         assert isinstance(message.content, str)
-        self.assertIn("remember", message.content.lower())
+        assert "remember" in message.content.lower()
 
         core_memory = await sync_to_async(CoreMemory.objects.get)(team=self.team)
-        self.assertIn("Test fact to remember", core_memory.text)
+        assert "Test fact to remember" in core_memory.text
 
     @pytest.mark.asyncio
     async def test_execute_without_content_returns_help(self):
@@ -71,11 +71,11 @@ class TestRememberCommand(BaseTest):
 
         result = await self.command.execute(config, state)
 
-        self.assertEqual(len(result.messages), 1)
+        assert len(result.messages) == 1
         message = result.messages[0]
         assert isinstance(message, AssistantMessage)
         assert isinstance(message.content, str)
-        self.assertIn("Usage:", message.content)
+        assert "Usage:" in message.content
 
     @pytest.mark.asyncio
     async def test_execute_appends_multiple_memories(self):
@@ -89,5 +89,5 @@ class TestRememberCommand(BaseTest):
         await self.command.execute(config, state2)
 
         core_memory = await sync_to_async(CoreMemory.objects.get)(team=self.team)
-        self.assertIn("First fact", core_memory.text)
-        self.assertIn("Second fact", core_memory.text)
+        assert "First fact" in core_memory.text
+        assert "Second fact" in core_memory.text

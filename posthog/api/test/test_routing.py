@@ -82,18 +82,18 @@ class TestTeamAndOrgViewSetMixin(APIBaseTest):
 
     def test_environment_nested_filtering(self):
         response = self.client.get(f"/api/environments/{self.team.id}/foos/")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["count"], 1)  # Just current_team_annotation
+        assert response.status_code == 200
+        assert response.json()["count"] == 1  # Just current_team_annotation
 
     def test_project_nested_filtering(self):
         response = self.client.get(f"/api/projects/{self.team.id}/foos/")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["count"], 2)  # Both current_team_annotation and other_team_annotation
+        assert response.status_code == 200
+        assert response.json()["count"] == 2  # Both current_team_annotation and other_team_annotation
 
     def test_organization_nested_filtering(self):
         response = self.client.get(f"/api/organizations/{self.organization.id}/foos/")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["count"], 3)  # All except other_org_annotation
+        assert response.status_code == 200
+        assert response.json()["count"] == 3  # All except other_org_annotation
 
     def test_cannot_override_special_methods(self):
         with pytest.raises(Exception) as e:
@@ -180,9 +180,9 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
             headers={"authorization": f"Bearer {self.access_token.token}"},
         )
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["count"], 1)
-        self.assertEqual(response.json()["results"][0]["id"], annotation.id)
+        assert response.status_code == 200
+        assert response.json()["count"] == 1
+        assert response.json()["results"][0]["id"] == annotation.id
 
     def test_oauth_token_cannot_access_other_team_resources(self):
         """Test that OAuth tokens respect team boundaries"""
@@ -199,7 +199,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
         )
 
         # Should not have access to other org's team (self.user is not a member of other_org)
-        self.assertEqual(response.status_code, 403)
+        assert response.status_code == 403
 
     def test_oauth_token_can_access_organization_resources(self):
         """Test that OAuth tokens can access organization-scoped resources"""
@@ -210,8 +210,8 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
             headers={"authorization": f"Bearer {self.access_token.token}"},
         )
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["count"], 1)
+        assert response.status_code == 200
+        assert response.json()["count"] == 1
 
     def test_oauth_token_fails_with_expired_token(self):
         """Test that expired OAuth tokens are rejected"""
@@ -228,25 +228,25 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
             headers={"authorization": f"Bearer {expired_token.token}"},
         )
 
-        self.assertEqual(response.status_code, 401)
+        assert response.status_code == 401
 
     def test_oauth_token_works_alongside_session_auth(self):
         """Test that OAuth authentication is part of the authentication chain"""
         # First, verify session auth works
         Annotation.objects.create(team=self.team, organization=self.organization)
         response = self.client.get(f"/api/scoped_environments/{self.team.id}/scoped_foos/")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["count"], 1)
+        assert response.status_code == 200
+        assert response.json()["count"] == 1
 
         # Logout and verify OAuth token works
         self.client.logout()
         response = self.client.get(f"/api/scoped_environments/{self.team.id}/scoped_foos/")
-        self.assertEqual(response.status_code, 401)
+        assert response.status_code == 401
 
         # Now use OAuth token
         response = self.client.get(
             f"/api/scoped_environments/{self.team.id}/scoped_foos/",
             headers={"authorization": f"Bearer {self.access_token.token}"},
         )
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["count"], 1)
+        assert response.status_code == 200
+        assert response.json()["count"] == 1

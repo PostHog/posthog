@@ -11,16 +11,16 @@ class TestDynamicEntityTools(BaseTest):
 
         properties_tool, values_tool = get_dynamic_entity_tools(team_group_types)
 
-        self.assertTrue(hasattr(properties_tool, "__annotations__"))
-        self.assertTrue(hasattr(values_tool, "__annotations__"))
+        assert hasattr(properties_tool, "__annotations__")
+        assert hasattr(values_tool, "__annotations__")
 
         # Test that we can create instances with the dynamic types
         properties_instance = properties_tool(entity="organization")
-        self.assertEqual(properties_instance.entity, "organization")
+        assert properties_instance.entity == "organization"
 
         values_instance = values_tool(entity="project", property_name="test_prop")
-        self.assertEqual(values_instance.entity, "project")
-        self.assertEqual(values_instance.property_name, "test_prop")
+        assert values_instance.entity == "project"
+        assert values_instance.property_name == "test_prop"
 
     def test_get_dynamic_entity_tools_empty_groups(self):
         team_group_types: list[str] = []
@@ -29,10 +29,10 @@ class TestDynamicEntityTools(BaseTest):
 
         # Should still work with just person and session
         properties_instance = properties_tool(entity="person")
-        self.assertEqual(properties_instance.entity, "person")
+        assert properties_instance.entity == "person"
 
         values_instance = values_tool(entity="session", property_name="$session_duration")
-        self.assertEqual(values_instance.entity, "session")
+        assert values_instance.entity == "session"
 
     def test_get_dynamic_entity_tools_with_multiple_groups(self):
         team_group_types = ["organization", "project", "account", "team"]
@@ -42,18 +42,18 @@ class TestDynamicEntityTools(BaseTest):
         # Test each group type
         for group_type in team_group_types:
             properties_instance = properties_tool(entity=group_type)
-            self.assertEqual(properties_instance.entity, group_type)
+            assert properties_instance.entity == group_type
 
             values_instance = values_tool(entity=group_type, property_name="test_prop")
-            self.assertEqual(values_instance.entity, group_type)
+            assert values_instance.entity == group_type
 
     def test_dynamic_tools_have_docstrings(self):
         team_group_types = ["organization"]
 
         properties_tool, values_tool = get_dynamic_entity_tools(team_group_types)
 
-        self.assertIn("retrieve property names for a property group", properties_tool.__doc__)
-        self.assertIn("retrieve property values for a property name", values_tool.__doc__)
+        assert "retrieve property names for a property group" in properties_tool.__doc__
+        assert "retrieve property values for a property name" in values_tool.__doc__
 
     def test_dynamic_tools_field_descriptions(self):
         team_group_types = ["organization"]
@@ -63,9 +63,9 @@ class TestDynamicEntityTools(BaseTest):
         properties_fields = properties_tool.__annotations__
         values_fields = values_tool.__annotations__
 
-        self.assertIn("entity", properties_fields)
-        self.assertIn("entity", values_fields)
-        self.assertIn("property_name", values_fields)
+        assert "entity" in properties_fields
+        assert "entity" in values_fields
+        assert "property_name" in values_fields
 
 
 class TestFinalAnswerModel(BaseTest):
@@ -77,17 +77,17 @@ class TestFinalAnswerModel(BaseTest):
 
     def test_final_answer_model_basic(self):
         test_answer = self.TestAnswerModel(value="test")
-        self.assertEqual(self.final_answer(answer=test_answer).answer.value, "test")
+        assert self.final_answer(answer=test_answer).answer.value == "test"
 
     def test_final_answer_model_docstring(self):
         doc = self.final_answer.__doc__
         assert doc is not None
-        self.assertIn("Use this tool to finalize the answer.", doc)
-        self.assertIn("ask_user_for_help", doc)
+        assert "Use this tool to finalize the answer." in doc
+        assert "ask_user_for_help" in doc
 
     def test_final_answer_model_field_description(self):
         test_answer = self.TestAnswerModel(value="test")
-        self.assertIsInstance(self.final_answer(answer=test_answer).answer, self.TestAnswerModel)
+        assert isinstance(self.final_answer(answer=test_answer).answer, self.TestAnswerModel)
 
     def test_final_answer_model_name(self):
-        self.assertEqual(self.final_answer.__name__, "final_answer")
+        assert self.final_answer.__name__ == "final_answer"

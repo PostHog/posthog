@@ -61,8 +61,8 @@ class TestPluginLogEntry(BaseTest):
             before=timezone.now() + datetime.timedelta(seconds=5),
         )
 
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0].message, "Something happened!")
+        assert len(results) == 1
+        assert results[0].message == "Something happened!"
 
     def test_log_search_works(self):
         plugin_server_instance_id = str(UUIDT())
@@ -91,8 +91,8 @@ class TestPluginLogEntry(BaseTest):
 
         results = fetch_plugin_log_entries(plugin_config_id=some_plugin_config.pk, search="somethinG")
 
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0].message, "Something happened!")
+        assert len(results) == 1
+        assert results[0].message == "Something happened!"
 
     def test_log_type_filter_works(self):
         plugin_server_instance_id = str(UUIDT())
@@ -133,9 +133,9 @@ class TestPluginLogEntry(BaseTest):
             type_filter=[PluginLogEntryType.ERROR, PluginLogEntryType.DEBUG],
         )
 
-        self.assertEqual(len(results), 2)
-        self.assertEqual(results[0].message, "debug message")
-        self.assertEqual(results[1].message, "Random error")
+        assert len(results) == 2
+        assert results[0].message == "debug message"
+        assert results[1].message == "Random error"
 
     def test_log_limit_works(self):
         plugin_server_instance_id = str(UUIDT())
@@ -164,5 +164,5 @@ class TestPluginLogEntry(BaseTest):
 
         results = fetch_plugin_log_entries(plugin_config_id=some_plugin_config.pk, limit=1)
 
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0].message, "Random error")
+        assert len(results) == 1
+        assert results[0].message == "Random error"

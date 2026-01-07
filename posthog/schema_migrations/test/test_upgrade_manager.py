@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any
 
 import pytest
 from unittest.mock import Mock
@@ -43,6 +43,6 @@ def test_upgrade_query_manager():
     mock_insight.query = None
 
     with upgrade_query(mock_insight):
-        query: Optional[dict[str, Any]] = mock_insight.query
+        query: dict[str, Any] | None = mock_insight.query
         assert query is not None
         assert query["aggregationGroupTypeIndex"] == 2

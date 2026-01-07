@@ -3,6 +3,7 @@ from datetime import timedelta
 from functools import wraps
 from urllib.parse import quote
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, Mock, patch
@@ -543,7 +544,7 @@ class TestSharing(APIBaseTest):
         # This should raise IntegrityError due to unique constraint
         from django.db import IntegrityError
 
-        with self.assertRaises(IntegrityError):
+        with pytest.raises(IntegrityError):
             config2.save()
 
     def test_token_rotation_creates_new_config(self):

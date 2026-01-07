@@ -25,18 +25,18 @@ class TestCohort(BaseTest):
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
         cohort.insert_users_by_list(["a header or something", "123", "000", "email@example.org"])
         cohort.refresh_from_db()
-        self.assertEqual(cohort.people.count(), 2)
-        self.assertEqual(cohort.is_calculating, False)
+        assert cohort.people.count() == 2
+        assert not cohort.is_calculating
 
         #  If we accidentally call calculate_people it shouldn't erase people
         cohort.calculate_people_ch(pending_version=0)
-        self.assertEqual(cohort.people.count(), 2)
+        assert cohort.people.count() == 2
 
         # if we add people again, don't increase the number of people in cohort
         cohort.insert_users_by_list(["123"])
         cohort.refresh_from_db()
-        self.assertEqual(cohort.people.count(), 2)
-        self.assertEqual(cohort.is_calculating, False)
+        assert cohort.people.count() == 2
+        assert not cohort.is_calculating
 
     def test_insert_by_distinct_id_in_batches(self):
         Person.objects.create(team=self.team, distinct_ids=["000"])
@@ -55,10 +55,10 @@ class TestCohort(BaseTest):
         batch_count = cohort.insert_users_by_list(
             ["000", "001", "002", "003", "004", "005", "006", "007", "008", "009", "010", "011", "012"], batch_size=3
         )
-        self.assertEqual(batch_count, 5)
+        assert batch_count == 5
         cohort.refresh_from_db()
-        self.assertEqual(cohort.people.count(), 11)
-        self.assertEqual(cohort.is_calculating, False)
+        assert cohort.people.count() == 11
+        assert not cohort.is_calculating
 
     @pytest.mark.ee
     def test_calculating_cohort_clickhouse(self):
@@ -91,7 +91,7 @@ class TestCohort(BaseTest):
                 },
             )
         ]
-        self.assertCountEqual(uuids, [person1.uuid, person3.uuid])
+        assert sorted(uuids) == sorted([person1.uuid, person3.uuid])
 
     def test_empty_query(self):
         cohort2 = Cohort.objects.create(
@@ -102,7 +102,7 @@ class TestCohort(BaseTest):
 
         cohort2.calculate_people_ch(pending_version=0)
         cohort2.refresh_from_db()
-        self.assertFalse(cohort2.is_calculating)
+        assert not cohort2.is_calculating
 
     def test_group_to_property_conversion(self):
         cohort = Cohort.objects.create(
@@ -130,45 +130,33 @@ class TestCohort(BaseTest):
             name="cohort1",
         )
 
-        self.assertEqual(
-            cohort.properties.to_dict(),
-            {
-                "type": "OR",
-                "values": [
-                    {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "$some_prop",
-                                "type": "person",
-                                "value": "something",
-                                "operator": "contains",
-                            },
-                            {
-                                "key": "other_prop",
-                                "type": "person",
-                                "value": "other_value",
-                            },
-                        ],
-                    },
-                    {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": 1,
-                                "type": "behavioral",
-                                "value": "performed_event_multiple",
-                                "event_type": "actions",
-                                "operator": "eq",
-                                "operator_value": 3,
-                                "time_interval": "day",
-                                "time_value": "4",
-                            }
-                        ],
-                    },
-                ],
-            },
-        )
+        assert cohort.properties.to_dict() == {
+            "type": "OR",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [
+                        {"key": "$some_prop", "type": "person", "value": "something", "operator": "contains"},
+                        {"key": "other_prop", "type": "person", "value": "other_value"},
+                    ],
+                },
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": 1,
+                            "type": "behavioral",
+                            "value": "performed_event_multiple",
+                            "event_type": "actions",
+                            "operator": "eq",
+                            "operator_value": 3,
+                            "time_interval": "day",
+                            "time_value": "4",
+                        }
+                    ],
+                },
+            ],
+        }
 
     def test_group_to_property_conversion_with_valid_zero_count(self):
         cohort = Cohort.objects.create(
@@ -196,45 +184,33 @@ class TestCohort(BaseTest):
             name="cohort1",
         )
 
-        self.assertEqual(
-            cohort.properties.to_dict(),
-            {
-                "type": "OR",
-                "values": [
-                    {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "$some_prop",
-                                "type": "person",
-                                "value": "something",
-                                "operator": "contains",
-                            },
-                            {
-                                "key": "other_prop",
-                                "type": "person",
-                                "value": "other_value",
-                            },
-                        ],
-                    },
-                    {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "$pageview",
-                                "type": "behavioral",
-                                "value": "performed_event",
-                                "event_type": "events",
-                                "operator": "gte",
-                                "operator_value": 0,
-                                "time_interval": "day",
-                                "time_value": "4",
-                            }
-                        ],
-                    },
-                ],
-            },
-        )
+        assert cohort.properties.to_dict() == {
+            "type": "OR",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [
+                        {"key": "$some_prop", "type": "person", "value": "something", "operator": "contains"},
+                        {"key": "other_prop", "type": "person", "value": "other_value"},
+                    ],
+                },
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "type": "behavioral",
+                            "value": "performed_event",
+                            "event_type": "events",
+                            "operator": "gte",
+                            "operator_value": 0,
+                            "time_interval": "day",
+                            "time_value": "4",
+                        }
+                    ],
+                },
+            ],
+        }
 
     def test_group_to_property_conversion_with_valid_zero_count_different_operator(self):
         cohort = Cohort.objects.create(
@@ -251,29 +227,26 @@ class TestCohort(BaseTest):
             name="cohort1",
         )
 
-        self.assertEqual(
-            cohort.properties.to_dict(),
-            {
-                "type": "OR",
-                "values": [
-                    {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "$pageview",
-                                "type": "behavioral",
-                                "value": "performed_event",
-                                "event_type": "events",
-                                "operator": "lte",
-                                "operator_value": 0,
-                                "time_interval": "day",
-                                "time_value": "4",
-                            }
-                        ],
-                    }
-                ],
-            },
-        )
+        assert cohort.properties.to_dict() == {
+            "type": "OR",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "type": "behavioral",
+                            "value": "performed_event",
+                            "event_type": "events",
+                            "operator": "lte",
+                            "operator_value": 0,
+                            "time_interval": "day",
+                            "time_value": "4",
+                        }
+                    ],
+                }
+            ],
+        }
 
     def test_group_to_property_conversion_with_missing_days_and_invalid_count(self):
         cohort = Cohort.objects.create(
@@ -289,29 +262,26 @@ class TestCohort(BaseTest):
             name="cohort1",
         )
 
-        self.assertEqual(
-            cohort.properties.to_dict(),
-            {
-                "type": "OR",
-                "values": [
-                    {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "$pageview",
-                                "type": "behavioral",
-                                "value": "performed_event",
-                                "event_type": "events",
-                                "operator": "gte",
-                                "operator_value": 0,
-                                "time_interval": "day",
-                                "time_value": 365,
-                            }
-                        ],
-                    }
-                ],
-            },
-        )
+        assert cohort.properties.to_dict() == {
+            "type": "OR",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "type": "behavioral",
+                            "value": "performed_event",
+                            "event_type": "events",
+                            "operator": "gte",
+                            "operator_value": 0,
+                            "time_interval": "day",
+                            "time_value": 365,
+                        }
+                    ],
+                }
+            ],
+        }
 
     def test_insert_users_list_by_uuid(self):
         # These are some fine uuids.
@@ -355,7 +325,7 @@ class TestCohort(BaseTest):
         # First insertion - add users 0-4 (batch size 3 will create batches: [0,1,2], [3,4])
         cohort.insert_users_by_list(["user0", "user1", "user2", "user3", "user4"], batch_size=3)
         cohort.refresh_from_db()
-        self.assertEqual(cohort.people.count(), 5)
+        assert cohort.people.count() == 5
 
         # Second insertion - try to add users 2-7 (users 2,3,4 are already in cohort)
         # This tests that our LEFT JOIN optimization works across batch boundaries
@@ -363,7 +333,7 @@ class TestCohort(BaseTest):
         cohort.refresh_from_db()
 
         # Should have 8 people total (user0-user7) - no duplicates
-        self.assertEqual(cohort.people.count(), 8)
+        assert cohort.people.count() == 8
 
         # Verify all expected people are in the cohort
         cohort_person_distinct_ids = set()
@@ -371,10 +341,10 @@ class TestCohort(BaseTest):
             cohort_person_distinct_ids.update(person.distinct_ids)
 
         expected_distinct_ids = {f"user{i}" for i in range(8)}
-        self.assertEqual(cohort_person_distinct_ids, expected_distinct_ids)
+        assert cohort_person_distinct_ids == expected_distinct_ids
 
         # Verify the cohort is not in calculating state
-        self.assertFalse(cohort.is_calculating)
+        assert not cohort.is_calculating
 
     @parameterized.expand(
         [
@@ -427,7 +397,7 @@ class TestCohort(BaseTest):
             )
         ]
 
-        self.assertCountEqual(uuids, [p.uuid for p in expected_people])
+        assert sorted(uuids) == sorted([p.uuid for p in expected_people])
 
     def test_get_static_cohort_size(self):
         """Test that get_static_cohort_size works with db_constraint=False on the person foreign key."""

@@ -20,14 +20,14 @@ class TestEmailNormalizer(TestCase):
         for input_email, expected in test_cases:
             with self.subTest(input_email=input_email):
                 result = EmailNormalizer.normalize(input_email)
-                self.assertEqual(result, expected)
+                assert result == expected
 
 
 class TestEmailLookupHandler(TestCase):
     def test_get_user_by_email_no_user(self):
         """Test getting user by email when none exists."""
         result = EmailLookupHandler.get_user_by_email("nonexistent@example.com")
-        self.assertIsNone(result)
+        assert result is None
 
     def test_get_user_by_email_case_insensitive(self):
         """Test getting user by email with case variations."""
@@ -41,9 +41,9 @@ class TestEmailLookupHandler(TestCase):
             for email_variation in test_variations:
                 with self.subTest(email=email_variation):
                     found_user = EmailLookupHandler.get_user_by_email(email_variation)
-                    self.assertIsNotNone(found_user)
+                    assert found_user is not None
                     if found_user is not None:
-                        self.assertEqual(found_user.id, user.id)
+                        assert found_user.id == user.id
         finally:
             user.delete()
 
@@ -52,7 +52,7 @@ class TestEmailValidationHelper(TestCase):
     def test_user_exists_no_user(self):
         """Test checking if user exists when none exists."""
         result = EmailValidationHelper.user_exists("nonexistent@example.com")
-        self.assertFalse(result)
+        assert not result
 
     def test_user_exists_with_user(self):
         """Test checking if user exists when user exists."""
@@ -69,6 +69,6 @@ class TestEmailValidationHelper(TestCase):
             for email_variation in test_variations:
                 with self.subTest(email=email_variation):
                     result = EmailValidationHelper.user_exists(email_variation)
-                    self.assertTrue(result)
+                    assert result
         finally:
             user.delete()

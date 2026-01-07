@@ -46,32 +46,67 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
     def test_can_update_survey_iteration(self) -> None:
         self.recurring_survey.start_date = now() - timedelta(self.iteration_frequency_days * 3)
         self.recurring_survey.save()
-        self.assertEqual(self.recurring_survey.current_iteration, 1)
+        assert self.recurring_survey.current_iteration == 1
         update_survey_iteration()
         self.recurring_survey.refresh_from_db()
-        self.assertEqual(self.recurring_survey.current_iteration, 3)
+        assert self.recurring_survey.current_iteration == 3
 
     def test_can_guard_for_current_survey_iteration_overflow(self) -> None:
         self.recurring_survey.start_date = now() - timedelta(self.iteration_frequency_days * 3)
         self.recurring_survey.save()
-        self.assertEqual(self.recurring_survey.current_iteration, 1)
+        assert self.recurring_survey.current_iteration == 1
         self.recurring_survey.iteration_frequency_days = 0
         self.recurring_survey.save()
         update_survey_iteration()
         self.recurring_survey.refresh_from_db()
-        self.assertIsNone(self.recurring_survey.current_iteration)
+        assert self.recurring_survey.current_iteration is None
 
     def test_can_update_internal_targeting_flag(self) -> None:
         # expected_targeting_filters =
         self.recurring_survey.start_date = now() - timedelta(self.iteration_frequency_days * 3)
         self.recurring_survey.save()
-        self.assertEqual(self.recurring_survey.current_iteration, 1)
+        assert self.recurring_survey.current_iteration == 1
         update_survey_iteration()
         self.recurring_survey.refresh_from_db()
-        self.assertEqual(self.recurring_survey.current_iteration, 3)
+        assert self.recurring_survey.current_iteration == 3
 
-        self.assertLessEqual(
-            {
+        assert {
+            "groups": [
+                {
+                    "variant": "",
+                    "properties": [
+                        {
+                            "key": f"$survey_dismissed/{self.recurring_survey.id}/3",
+                            "type": "person",
+                            "value": "is_not_set",
+                            "operator": "is_not_set",
+                        },
+                        {
+                            "key": f"$survey_responded/{self.recurring_survey.id}/3",
+                            "type": "person",
+                            "value": "is_not_set",
+                            "operator": "is_not_set",
+                        },
+                    ],
+                    "rollout_percentage": 100,
+                }
+            ]
+        }.items() <= self.recurring_survey.internal_targeting_flag.filters.items()
+
+    def test_can_create_internal_targeting_flag(self) -> None:
+        self.recurring_survey.start_date = now() - timedelta(self.iteration_frequency_days * 3)
+        self.recurring_survey.save()
+        assert self.recurring_survey.current_iteration == 1
+        self.recurring_survey.internal_targeting_flag = None
+        self.recurring_survey.save()
+        update_survey_iteration()
+        self.recurring_survey.refresh_from_db()
+        assert self.recurring_survey.current_iteration == 3
+
+        internal_flag = FeatureFlag.objects.get(key=self.recurring_survey.id)
+        assert internal_flag is not None
+        if internal_flag is not None:
+            assert {
                 "groups": [
                     {
                         "variant": "",
@@ -92,48 +127,7 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
                         "rollout_percentage": 100,
                     }
                 ]
-            }.items(),
-            self.recurring_survey.internal_targeting_flag.filters.items(),
-        )
-
-    def test_can_create_internal_targeting_flag(self) -> None:
-        self.recurring_survey.start_date = now() - timedelta(self.iteration_frequency_days * 3)
-        self.recurring_survey.save()
-        self.assertEqual(self.recurring_survey.current_iteration, 1)
-        self.recurring_survey.internal_targeting_flag = None
-        self.recurring_survey.save()
-        update_survey_iteration()
-        self.recurring_survey.refresh_from_db()
-        self.assertEqual(self.recurring_survey.current_iteration, 3)
-
-        internal_flag = FeatureFlag.objects.get(key=self.recurring_survey.id)
-        assert internal_flag is not None
-        if internal_flag is not None:
-            self.assertLessEqual(
-                {
-                    "groups": [
-                        {
-                            "variant": "",
-                            "properties": [
-                                {
-                                    "key": f"$survey_dismissed/{self.recurring_survey.id}/3",
-                                    "type": "person",
-                                    "value": "is_not_set",
-                                    "operator": "is_not_set",
-                                },
-                                {
-                                    "key": f"$survey_responded/{self.recurring_survey.id}/3",
-                                    "type": "person",
-                                    "value": "is_not_set",
-                                    "operator": "is_not_set",
-                                },
-                            ],
-                            "rollout_percentage": 100,
-                        }
-                    ]
-                }.items(),
-                internal_flag.filters.items(),
-            )
+            }.items() <= internal_flag.filters.items()
 
     def test_iteration_change_updates_flag_with_new_iteration_suffix(self) -> None:
         """Test that when iteration changes, the flag is updated with the NEW iteration suffix.
@@ -142,7 +136,7 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
         """
         self.recurring_survey.start_date = now() - timedelta(self.iteration_frequency_days * 3)
         self.recurring_survey.save()
-        self.assertEqual(self.recurring_survey.current_iteration, 1)
+        assert self.recurring_survey.current_iteration == 1
 
         # Set up flag with OLD iteration suffix (/1)
         old_filters = {
@@ -174,7 +168,7 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
         # Run the job - should update to iteration 3
         update_survey_iteration()
         self.recurring_survey.refresh_from_db()
-        self.assertEqual(self.recurring_survey.current_iteration, 3)
+        assert self.recurring_survey.current_iteration == 3
 
         # Verify flag now has NEW iteration suffix (/3), not old (/1)
         assert self.recurring_survey.internal_targeting_flag is not None
@@ -183,7 +177,7 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
         properties = flag_filters["groups"][0]["properties"]
         property_keys = [p["key"] for p in properties]
 
-        self.assertIn(f"$survey_dismissed/{self.recurring_survey.id}/3", property_keys)
-        self.assertIn(f"$survey_responded/{self.recurring_survey.id}/3", property_keys)
-        self.assertNotIn(f"$survey_dismissed/{self.recurring_survey.id}/1", property_keys)
-        self.assertNotIn(f"$survey_responded/{self.recurring_survey.id}/1", property_keys)
+        assert f"$survey_dismissed/{self.recurring_survey.id}/3" in property_keys
+        assert f"$survey_responded/{self.recurring_survey.id}/3" in property_keys
+        assert f"$survey_dismissed/{self.recurring_survey.id}/1" not in property_keys
+        assert f"$survey_responded/{self.recurring_survey.id}/1" not in property_keys

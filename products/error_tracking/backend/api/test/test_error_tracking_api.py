@@ -247,7 +247,7 @@ class TestErrorTracking(APIBaseTest):
                     data,
                     format="multipart",
                 )
-                self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+                assert response.status_code == status.HTTP_204_NO_CONTENT
 
     def test_rejects_upload_when_object_storage_is_unavailable(self) -> None:
         symbol_set = ErrorTrackingSymbolSet.objects.create(
@@ -261,11 +261,8 @@ class TestErrorTracking(APIBaseTest):
                 data,
                 format="multipart",
             )
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
-            self.assertEqual(
-                response.json()["detail"],
-                "Object storage must be available to allow source map uploads.",
-            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            assert response.json()["detail"] == "Object storage must be available to allow source map uploads."
 
     def test_fetching_symbol_sets(self):
         other_team = self.create_team_with_organization(organization=self.organization)
@@ -277,11 +274,11 @@ class TestErrorTracking(APIBaseTest):
             ref="source_2", team=other_team, storage_ptr="https://app-static-prod.posthog.com/static/chunk-BPTF6YBO.js"
         )
 
-        self.assertEqual(ErrorTrackingSymbolSet.objects.count(), 3)
+        assert ErrorTrackingSymbolSet.objects.count() == 3
 
         # it only fetches symbol sets for the specified team
         response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/symbol_sets")
-        self.assertEqual(len(response.json()["results"]), 2)
+        assert len(response.json()["results"]) == 2
 
     def test_fetching_stack_frames(self):
         other_team = self.create_team_with_organization(organization=self.organization)
@@ -297,38 +294,38 @@ class TestErrorTracking(APIBaseTest):
             raw_id="raw_id", team=other_team, symbol_set=symbol_set, resolved=True, contents={}
         )
 
-        self.assertEqual(ErrorTrackingStackFrame.objects.count(), 3)
+        assert ErrorTrackingStackFrame.objects.count() == 3
 
         # it only fetches stack traces for the specified team
         response = self.client.post(f"/api/environments/{self.team.id}/error_tracking/stack_frames/batch_get")
-        self.assertEqual(len(response.json()["results"]), 2)
+        assert len(response.json()["results"]) == 2
 
         # fetching can be filtered by raw_ids
         data = {"raw_ids": ["raw_id"]}
         response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/stack_frames/batch_get", data=data
         )
-        self.assertEqual(len(response.json()["results"]), 1)
+        assert len(response.json()["results"]) == 1
 
         # fetching can be filtered by symbol set
         data = {"symbol_set": symbol_set.id}
         response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/stack_frames/batch_get", data=data
         )
-        self.assertEqual(len(response.json()["results"]), 1)
-        self.assertEqual(response.json()["results"][0]["symbol_set_ref"], symbol_set.ref)
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["symbol_set_ref"] == symbol_set.ref
 
     def test_assigning_issues(self):
         issue = self.create_issue()
 
-        self.assertEqual(ErrorTrackingIssueAssignment.objects.count(), 0)
+        assert ErrorTrackingIssueAssignment.objects.count() == 0
         self.client.patch(
             f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/assign",
             data={"assignee": {"id": self.user.id, "type": "user"}},
         )
         # assigns the issue
-        self.assertEqual(ErrorTrackingIssueAssignment.objects.count(), 1)
-        self.assertEqual(ErrorTrackingIssueAssignment.objects.filter(issue=issue, user_id=self.user.id).count(), 1)
+        assert ErrorTrackingIssueAssignment.objects.count() == 1
+        assert ErrorTrackingIssueAssignment.objects.filter(issue=issue, user_id=self.user.id).count() == 1
 
         self._assert_logs_the_activity(
             issue.id,
@@ -363,7 +360,7 @@ class TestErrorTracking(APIBaseTest):
             data={"assignee": None},
         )
         # deletes the assignment
-        self.assertEqual(ErrorTrackingIssueAssignment.objects.count(), 0)
+        assert ErrorTrackingIssueAssignment.objects.count() == 0
 
         other_team = self.create_team_with_organization(organization=self.organization)
         response = self.client.patch(
@@ -371,14 +368,14 @@ class TestErrorTracking(APIBaseTest):
             data={"assignee": None},
         )
         # cannot assign issues from other teams
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_error_tracking_issue_bulk_resolve(self):
         issue_one = self.create_issue()
         issue_two = self.create_issue()
 
-        self.assertEqual(issue_one.status, ErrorTrackingIssue.Status.ACTIVE)
-        self.assertEqual(issue_two.status, ErrorTrackingIssue.Status.ACTIVE)
+        assert issue_one.status == ErrorTrackingIssue.Status.ACTIVE
+        assert issue_two.status == ErrorTrackingIssue.Status.ACTIVE
 
         self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/issues/bulk",
@@ -388,8 +385,8 @@ class TestErrorTracking(APIBaseTest):
         issue_one.refresh_from_db()
         issue_two.refresh_from_db()
 
-        self.assertEqual(issue_one.status, ErrorTrackingIssue.Status.RESOLVED)
-        self.assertEqual(issue_two.status, ErrorTrackingIssue.Status.RESOLVED)
+        assert issue_one.status == ErrorTrackingIssue.Status.RESOLVED
+        assert issue_two.status == ErrorTrackingIssue.Status.RESOLVED
 
     def test_error_tracking_issue_bulk_assign(self):
         issue_one = self.create_issue()
@@ -408,10 +405,8 @@ class TestErrorTracking(APIBaseTest):
             },
         )
 
-        self.assertEqual(len(ErrorTrackingIssueAssignment.objects.filter(issue=issue_one, user=self.user)), 0)
-        self.assertEqual(
-            len(ErrorTrackingIssueAssignment.objects.filter(issue__in=[issue_one, issue_two], role=role)), 2
-        )
+        assert len(ErrorTrackingIssueAssignment.objects.filter(issue=issue_one, user=self.user)) == 0
+        assert len(ErrorTrackingIssueAssignment.objects.filter(issue__in=[issue_one, issue_two], role=role)) == 2
 
     def test_can_start_bulk_symbol_set_upload(self) -> None:
         chunk_id_one = uuid7()
@@ -724,14 +719,14 @@ class TestErrorTracking(APIBaseTest):
         activity_response = self._get_error_tracking_issue_activity(error_tracking_issue_id)
         activity: list[dict] = activity_response["results"]
         self.maxDiff = None
-        self.assertEqual(activity, expected)
+        assert activity == expected
 
     def _get_error_tracking_issue_activity(
         self, error_tracking_issue_id: int, expected_status: int = status.HTTP_200_OK
     ) -> dict:
         url = f"/api/environments/{self.team.id}/error_tracking/issues/{error_tracking_issue_id}/activity"
         activity = self.client.get(url)
-        self.assertEqual(activity.status_code, expected_status)
+        assert activity.status_code == expected_status
         return activity.json()
 
     def test_fetch_release_by_hash_id(self) -> None:

@@ -39,21 +39,21 @@ class TestFunnelsGeneratorNode(BaseTest):
 
             # Verify node output contains ArtifactRefMessage pointing to database artifact
             assert new_state is not None
-            self.assertEqual(len(new_state.messages), 1)
+            assert len(new_state.messages) == 1
             msg = new_state.messages[0]
-            self.assertIsInstance(msg, ArtifactRefMessage)
             assert isinstance(msg, ArtifactRefMessage)
-            self.assertEqual(msg.content_type, ArtifactContentType.VISUALIZATION)
-            self.assertEqual(msg.source, ArtifactSource.ARTIFACT)
-            self.assertIsNotNone(msg.artifact_id)
+            assert isinstance(msg, ArtifactRefMessage)
+            assert msg.content_type == ArtifactContentType.VISUALIZATION
+            assert msg.source == ArtifactSource.ARTIFACT
+            assert msg.artifact_id is not None
 
             # Verify node clears these state fields
-            self.assertIsNone(new_state.intermediate_steps)
-            self.assertIsNone(new_state.plan)
-            self.assertIsNone(new_state.rag_context)
+            assert new_state.intermediate_steps is None
+            assert new_state.plan is None
+            assert new_state.rag_context is None
 
     def test_schema_does_not_require_aggregation_by_hogql(self):
         """Catches the regression where the schema set funnelAggregateByHogQL."""
         schema = AssistantFunnelsQuery(series=[], funnelsFilter=AssistantFunnelsFilter())
         assert schema.funnelsFilter is not None
-        self.assertIsNone(schema.funnelsFilter.funnelAggregateByHogQL)
+        assert schema.funnelsFilter.funnelAggregateByHogQL is None

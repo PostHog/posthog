@@ -47,11 +47,11 @@ class TestTeamTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         results = TeamTaxonomyQueryRunner(team=self.team, query=TeamTaxonomyQuery()).calculate()
-        self.assertEqual(len(results.results), 2)
-        self.assertEqual(results.results[0].event, "event1")
-        self.assertEqual(results.results[0].count, 2)
-        self.assertEqual(results.results[1].event, "event2")
-        self.assertEqual(results.results[1].count, 1)
+        assert len(results.results) == 2
+        assert results.results[0].event == "event1"
+        assert results.results[0].count == 2
+        assert results.results[1].event == "event2"
+        assert results.results[1].count == 1
 
     def test_caching(self):
         now = timezone.now()
@@ -72,7 +72,7 @@ class TestTeamTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
             response = runner.run()
 
             assert isinstance(response, CachedTeamTaxonomyQueryResponse)
-            self.assertEqual(len(response.results), 1)
+            assert len(response.results) == 1
 
             key = response.cache_key
             _create_event(
@@ -86,22 +86,22 @@ class TestTeamTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
             response = runner.run()
 
             assert isinstance(response, CachedTeamTaxonomyQueryResponse)
-            self.assertEqual(response.cache_key, key)
-            self.assertEqual(len(response.results), 1)
+            assert response.cache_key == key
+            assert len(response.results) == 1
 
         with freeze_time(now + timedelta(minutes=59)):
             runner = TeamTaxonomyQueryRunner(team=self.team, query=TeamTaxonomyQuery())
             response = runner.run()
 
             assert isinstance(response, CachedTeamTaxonomyQueryResponse)
-            self.assertEqual(len(response.results), 1)
+            assert len(response.results) == 1
 
         with freeze_time(now + timedelta(minutes=61)):
             runner = TeamTaxonomyQueryRunner(team=self.team, query=TeamTaxonomyQuery())
             response = runner.run()
 
             assert isinstance(response, CachedTeamTaxonomyQueryResponse)
-            self.assertEqual(len(response.results), 2)
+            assert len(response.results) == 2
 
     def test_limit(self):
         now = timezone.now()
@@ -126,7 +126,7 @@ class TestTeamTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = runner.run()
 
         assert isinstance(response, CachedTeamTaxonomyQueryResponse)
-        self.assertEqual(len(response.results), 500)
+        assert len(response.results) == 500
 
     def test_events_not_useful_for_llm_ignored(self):
         _create_person(
@@ -173,4 +173,4 @@ class TestTeamTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = runner.run()
 
         assert isinstance(response, CachedTeamTaxonomyQueryResponse)
-        self.assertEqual([result.event for result in response.results], ["$pageview", "did custom thing"])
+        assert [result.event for result in response.results] == ["$pageview", "did custom thing"]

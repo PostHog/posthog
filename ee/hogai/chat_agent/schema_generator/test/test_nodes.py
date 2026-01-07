@@ -3,6 +3,7 @@ from collections.abc import Iterable
 from typing import Any, cast
 from uuid import uuid4
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -76,15 +77,13 @@ class TestSchemaGeneratorNode(BaseTest):
                 config,
             )
             assert new_state is not None
-            self.assertEqual(new_state.intermediate_steps, None)
-            self.assertEqual(new_state.plan, None)
-            self.assertEqual(len(new_state.messages), 1)
-            self.assertIsInstance(new_state.messages[0], ArtifactRefMessage)
-            self.assertEqual(
-                cast(ArtifactRefMessage, new_state.messages[0]).content_type, ArtifactContentType.VISUALIZATION
-            )
-            self.assertEqual(cast(ArtifactRefMessage, new_state.messages[0]).source, ArtifactSource.ARTIFACT)
-            self.assertIsNotNone(cast(ArtifactRefMessage, new_state.messages[0]).artifact_id)
+            assert new_state.intermediate_steps is None
+            assert new_state.plan is None
+            assert len(new_state.messages) == 1
+            assert isinstance(new_state.messages[0], ArtifactRefMessage)
+            assert cast(ArtifactRefMessage, new_state.messages[0]).content_type == ArtifactContentType.VISUALIZATION
+            assert cast(ArtifactRefMessage, new_state.messages[0]).source == ArtifactSource.ARTIFACT
+            assert cast(ArtifactRefMessage, new_state.messages[0]).artifact_id is not None
 
     async def test_node_sets_name_description_and_plan_in_artifact(self):
         node = DummyGeneratorNode(self.team, self.user)
@@ -106,15 +105,15 @@ class TestSchemaGeneratorNode(BaseTest):
                 config,
             )
             assert new_state is not None
-            self.assertEqual(len(new_state.messages), 1)
+            assert len(new_state.messages) == 1
             artifact_message = cast(ArtifactRefMessage, new_state.messages[0])
 
             artifact = await AgentArtifact.objects.aget(short_id=artifact_message.artifact_id)
             content = VisualizationArtifactContent.model_validate(artifact.data)
 
-            self.assertEqual(content.name, "Test Query Name")
-            self.assertEqual(content.description, "Test Query Description")
-            self.assertEqual(content.plan, "Test Plan Content")
+            assert content.name == "Test Query Name"
+            assert content.description == "Test Query Description"
+            assert content.plan == "Test Plan Content"
 
     async def test_node_sets_empty_plan_when_no_plan_in_state(self):
         node = DummyGeneratorNode(self.team, self.user)
@@ -141,21 +140,21 @@ class TestSchemaGeneratorNode(BaseTest):
             artifact = await AgentArtifact.objects.aget(short_id=artifact_message.artifact_id)
             content = VisualizationArtifactContent.model_validate(artifact.data)
 
-            self.assertEqual(content.name, "Query Name")
-            self.assertEqual(content.description, "Description")
-            self.assertEqual(content.plan, "")
+            assert content.name == "Query Name"
+            assert content.description == "Description"
+            assert content.plan == ""
 
     async def test_agent_reconstructs_conversation_and_does_not_add_an_empty_plan(self):
         node = DummyGeneratorNode(self.team, self.user)
         history = await node._construct_messages(
             AssistantState(messages=[HumanMessage(content="Text", id="0")], start_id="0")
         )
-        self.assertEqual(len(history), 2)
-        self.assertEqual(history[0].type, "human")
-        self.assertIn("mapping", history[0].content)
-        self.assertEqual(history[1].type, "human")
-        self.assertIn("Answer to this question:", history[1].content)
-        self.assertNotIn("{{question}}", history[1].content)
+        assert len(history) == 2
+        assert history[0].type == "human"
+        assert "mapping" in history[0].content
+        assert history[1].type == "human"
+        assert "Answer to this question:" in history[1].content
+        assert "{{question}}" not in history[1].content
 
     async def test_agent_reconstructs_conversation_adds_plan(self):
         node = DummyGeneratorNode(self.team, self.user)
@@ -167,17 +166,17 @@ class TestSchemaGeneratorNode(BaseTest):
                 root_tool_insight_plan="Text",
             )
         )
-        self.assertEqual(len(history), 3)
-        self.assertEqual(history[0].type, "human")
-        self.assertIn("mapping", history[0].content)
-        self.assertEqual(history[1].type, "human")
-        self.assertIn("the plan", history[1].content)
-        self.assertNotIn("{{plan}}", history[1].content)
-        self.assertIn("randomplan", history[1].content)
-        self.assertEqual(history[2].type, "human")
-        self.assertIn("Answer to this question:", history[2].content)
-        self.assertNotIn("{{question}}", history[2].content)
-        self.assertIn("Text", history[2].content)
+        assert len(history) == 3
+        assert history[0].type == "human"
+        assert "mapping" in history[0].content
+        assert history[1].type == "human"
+        assert "the plan" in history[1].content
+        assert "{{plan}}" not in history[1].content
+        assert "randomplan" in history[1].content
+        assert history[2].type == "human"
+        assert "Answer to this question:" in history[2].content
+        assert "{{question}}" not in history[2].content
+        assert "Text" in history[2].content
 
     async def test_agent_reconstructs_conversation_can_handle_follow_ups(self):
         node = DummyGeneratorNode(self.team, self.user)
@@ -207,27 +206,27 @@ class TestSchemaGeneratorNode(BaseTest):
             )
         )
 
-        self.assertEqual(len(history), 6)
-        self.assertEqual(history[0].type, "human")
-        self.assertIn("mapping", history[0].content)
-        self.assertEqual(history[1].type, "human")
-        self.assertIn("the plan", history[1].content)
-        self.assertNotIn("{{plan}}", history[1].content)
-        self.assertIn("randomplan", history[1].content)
-        self.assertEqual(history[2].type, "human")
-        self.assertIn("Answer to this question:", history[2].content)
-        self.assertNotIn("{{question}}", history[2].content)
-        self.assertIn("Query", history[2].content)
-        self.assertEqual(history[3].type, "ai")
-        self.assertEqual(history[3].content, self.basic_trends.model_dump_json())
-        self.assertEqual(history[4].type, "human")
-        self.assertIn("the new plan", history[4].content)
-        self.assertNotIn("{{plan}}", history[4].content)
-        self.assertIn("newrandomplan", history[4].content)
-        self.assertEqual(history[5].type, "human")
-        self.assertIn("Answer to this question:", history[5].content)
-        self.assertNotIn("{{question}}", history[5].content)
-        self.assertIn("Follow Up", history[5].content)
+        assert len(history) == 6
+        assert history[0].type == "human"
+        assert "mapping" in history[0].content
+        assert history[1].type == "human"
+        assert "the plan" in history[1].content
+        assert "{{plan}}" not in history[1].content
+        assert "randomplan" in history[1].content
+        assert history[2].type == "human"
+        assert "Answer to this question:" in history[2].content
+        assert "{{question}}" not in history[2].content
+        assert "Query" in history[2].content
+        assert history[3].type == "ai"
+        assert history[3].content == self.basic_trends.model_dump_json()
+        assert history[4].type == "human"
+        assert "the new plan" in history[4].content
+        assert "{{plan}}" not in history[4].content
+        assert "newrandomplan" in history[4].content
+        assert history[5].type == "human"
+        assert "Answer to this question:" in history[5].content
+        assert "{{question}}" not in history[5].content
+        assert "Follow Up" in history[5].content
 
     async def test_agent_reconstructs_typical_conversation(self):
         node = DummyGeneratorNode(self.team, self.user)
@@ -276,25 +275,25 @@ class TestSchemaGeneratorNode(BaseTest):
             )
         )
 
-        self.assertEqual(len(history), 9)
-        self.assertEqual(history[0].type, "human")
-        self.assertIn("mapping", history[0].content)
-        self.assertEqual(history[1].type, "human")
-        self.assertIn("Plan 1", history[1].content)
-        self.assertEqual(history[2].type, "human")
-        self.assertIn("Query 1", history[2].content)
-        self.assertEqual(history[3].type, "ai")
+        assert len(history) == 9
+        assert history[0].type == "human"
+        assert "mapping" in history[0].content
+        assert history[1].type == "human"
+        assert "Plan 1" in history[1].content
+        assert history[2].type == "human"
+        assert "Query 1" in history[2].content
+        assert history[3].type == "ai"
         AssistantTrendsQuery.model_validate_json(cast(str, history[3].content))
-        self.assertEqual(history[4].type, "human")
-        self.assertIn("Plan 2", history[4].content)
-        self.assertEqual(history[5].type, "human")
-        self.assertIn("Query 2", history[5].content)
-        self.assertEqual(history[6].type, "ai")
+        assert history[4].type == "human"
+        assert "Plan 2" in history[4].content
+        assert history[5].type == "human"
+        assert "Query 2" in history[5].content
+        assert history[6].type == "ai"
         AssistantTrendsQuery.model_validate_json(cast(str, history[6].content))
-        self.assertEqual(history[7].type, "human")
-        self.assertIn("Plan 3", history[7].content)
-        self.assertEqual(history[8].type, "human")
-        self.assertIn("Query 3", history[8].content)
+        assert history[7].type == "human"
+        assert "Plan 3" in history[7].content
+        assert history[8].type == "human"
+        assert "Query 3" in history[8].content
 
     async def test_prompt_messages_merged(self):
         node = DummyGeneratorNode(self.team, self.user)
@@ -342,13 +341,13 @@ class TestSchemaGeneratorNode(BaseTest):
         with patch.object(DummyGeneratorNode, "_model") as generator_model_mock:
 
             def assert_prompt(prompt):
-                self.assertEqual(len(prompt), 6)
-                self.assertEqual(prompt[0].type, "system")
-                self.assertEqual(prompt[1].type, "human")
-                self.assertEqual(prompt[2].type, "ai")
-                self.assertEqual(prompt[3].type, "human")
-                self.assertEqual(prompt[4].type, "ai")
-                self.assertEqual(prompt[5].type, "human")
+                assert len(prompt) == 6
+                assert prompt[0].type == "system"
+                assert prompt[1].type == "human"
+                assert prompt[2].type == "ai"
+                assert prompt[3].type == "human"
+                assert prompt[4].type == "ai"
+                assert prompt[5].type == "human"
 
             generator_model_mock.return_value = RunnableLambda(assert_prompt)
             await node(state, {})
@@ -362,7 +361,7 @@ class TestSchemaGeneratorNode(BaseTest):
 
             new_state = await node(AssistantState(messages=[HumanMessage(content="Text")]), {})
             new_state = cast(PartialAssistantState, new_state)
-            self.assertEqual(len(new_state.intermediate_steps or []), 1)
+            assert len(new_state.intermediate_steps or []) == 1
 
             new_state = await node(
                 AssistantState(
@@ -372,7 +371,7 @@ class TestSchemaGeneratorNode(BaseTest):
                 {},
             )
             assert new_state is not None
-            self.assertEqual(len(new_state.intermediate_steps or []), 2)
+            assert len(new_state.intermediate_steps or []) == 2
 
     async def test_quality_check_failure_with_retries_available(self):
         """Test quality check failure triggering retry when retries are available."""
@@ -394,11 +393,11 @@ class TestSchemaGeneratorNode(BaseTest):
             new_state = cast(PartialAssistantState, new_state)
 
             # Should trigger retry
-            self.assertEqual(len(new_state.intermediate_steps or []), 1)
+            assert len(new_state.intermediate_steps or []) == 1
             action, _ = cast(list[IntermediateStep], new_state.intermediate_steps)[0]
-            self.assertEqual(action.tool, "handle_incorrect_response")
-            self.assertEqual(action.tool_input, "SELECT x FROM events")
-            self.assertEqual(action.log, "Field validation failed")
+            assert action.tool == "handle_incorrect_response"
+            assert action.tool_input == "SELECT x FROM events"
+            assert action.log == "Field validation failed"
 
     async def test_quality_check_failure_with_retries_exhausted(self):
         """Test quality check failure with retries exhausted raises SchemaGenerationException."""
@@ -418,7 +417,7 @@ class TestSchemaGeneratorNode(BaseTest):
             )
 
             # Start with RETRIES_ALLOWED intermediate steps (so no more allowed)
-            with self.assertRaises(SchemaGenerationException) as cm:
+            with pytest.raises(SchemaGenerationException) as cm:
                 await node(
                     AssistantState(
                         messages=[HumanMessage(content="Text", id="0")],
@@ -435,8 +434,8 @@ class TestSchemaGeneratorNode(BaseTest):
                 )
 
             # Verify the exception contains the expected information
-            self.assertEqual(cm.exception.llm_output, '{"query": "test"}')
-            self.assertEqual(cm.exception.validation_message, "Quality check failed")
+            assert cm.value.llm_output == '{"query": "test"}'
+            assert cm.value.validation_message == "Quality check failed"
 
     async def test_node_leaves_failover(self):
         node = DummyGeneratorNode(self.team, self.user)
@@ -458,7 +457,7 @@ class TestSchemaGeneratorNode(BaseTest):
                 config,
             )
             assert new_state is not None
-            self.assertEqual(new_state.intermediate_steps, None)
+            assert new_state.intermediate_steps is None
 
             new_state = await node(
                 AssistantState(
@@ -471,7 +470,7 @@ class TestSchemaGeneratorNode(BaseTest):
                 config,
             )
             assert new_state is not None
-            self.assertEqual(new_state.intermediate_steps, None)
+            assert new_state.intermediate_steps is None
 
     async def test_node_leaves_failover_after_second_unsuccessful_attempt(self):
         node = DummyGeneratorNode(self.team, self.user)
@@ -480,7 +479,7 @@ class TestSchemaGeneratorNode(BaseTest):
             schema = DummySchema.model_construct(query=[]).model_dump()  # type: ignore
             generator_model_mock.return_value = RunnableLambda(lambda _: json.dumps(schema))
 
-            with self.assertRaises(SchemaGenerationException):
+            with pytest.raises(SchemaGenerationException):
                 await node(
                     AssistantState(
                         messages=[HumanMessage(content="Text")],
@@ -504,20 +503,20 @@ class TestSchemaGeneratorNode(BaseTest):
             ),
             validation_error_message="uniqexception",
         )
-        self.assertEqual(len(history), 4)
-        self.assertEqual(history[0].type, "human")
-        self.assertIn("mapping", history[0].content)
-        self.assertEqual(history[1].type, "human")
-        self.assertIn("the plan", history[1].content)
-        self.assertNotIn("{{plan}}", history[1].content)
-        self.assertIn("randomplan", history[1].content)
-        self.assertEqual(history[2].type, "human")
-        self.assertIn("Answer to this question:", history[2].content)
-        self.assertNotIn("{{question}}", history[2].content)
-        self.assertIn("Text", history[2].content)
-        self.assertEqual(history[3].type, "human")
-        self.assertIn("Pydantic", history[3].content)
-        self.assertIn("uniqexception", history[3].content)
+        assert len(history) == 4
+        assert history[0].type == "human"
+        assert "mapping" in history[0].content
+        assert history[1].type == "human"
+        assert "the plan" in history[1].content
+        assert "{{plan}}" not in history[1].content
+        assert "randomplan" in history[1].content
+        assert history[2].type == "human"
+        assert "Answer to this question:" in history[2].content
+        assert "{{question}}" not in history[2].content
+        assert "Text" in history[2].content
+        assert history[3].type == "human"
+        assert "Pydantic" in history[3].content
+        assert "uniqexception" in history[3].content
 
     async def test_agent_reconstructs_conversation_with_failed_messages(self):
         node = DummyGeneratorNode(self.team, self.user)
@@ -531,26 +530,26 @@ class TestSchemaGeneratorNode(BaseTest):
                 plan="randomplan",
             ),
         )
-        self.assertEqual(len(history), 3)
-        self.assertEqual(history[0].type, "human")
-        self.assertIn("mapping", history[0].content)
-        self.assertEqual(history[1].type, "human")
-        self.assertIn("the plan", history[1].content)
-        self.assertNotIn("{{plan}}", history[1].content)
-        self.assertIn("randomplan", history[1].content)
-        self.assertEqual(history[2].type, "human")
-        self.assertIn("Answer to this question:", history[2].content)
-        self.assertNotIn("{{question}}", history[2].content)
-        self.assertIn("Text", history[2].content)
+        assert len(history) == 3
+        assert history[0].type == "human"
+        assert "mapping" in history[0].content
+        assert history[1].type == "human"
+        assert "the plan" in history[1].content
+        assert "{{plan}}" not in history[1].content
+        assert "randomplan" in history[1].content
+        assert history[2].type == "human"
+        assert "Answer to this question:" in history[2].content
+        assert "{{question}}" not in history[2].content
+        assert "Text" in history[2].content
 
     def test_router(self):
         node = DummyGeneratorNode(self.team, self.user)
         state = node.router(AssistantState(messages=[], intermediate_steps=None))
-        self.assertEqual(state, "next")
+        assert state == "next"
         state = node.router(
             AssistantState(messages=[], intermediate_steps=[(AgentAction(tool="", tool_input="", log=""), None)])
         )
-        self.assertEqual(state, "tools")
+        assert state == "tools"
 
     async def test_injects_insight_description(self):
         node = DummyGeneratorNode(self.team, self.user)
@@ -562,12 +561,12 @@ class TestSchemaGeneratorNode(BaseTest):
                 root_tool_insight_type="trends",
             )
         )
-        self.assertEqual(len(history), 2)
-        self.assertEqual(history[0].type, "human")
-        self.assertIn("group", history[0].content)
-        self.assertEqual(history[1].type, "human")
-        self.assertIn("Foobar", history[1].content)
-        self.assertNotIn("{{question}}", history[1].content)
+        assert len(history) == 2
+        assert history[0].type == "human"
+        assert "group" in history[0].content
+        assert history[1].type == "human"
+        assert "Foobar" in history[1].content
+        assert "{{question}}" not in history[1].content
 
     async def test_injects_insight_description_and_keeps_original_question(self):
         node = DummyGeneratorNode(self.team, self.user)
@@ -597,19 +596,19 @@ class TestSchemaGeneratorNode(BaseTest):
                 root_tool_insight_type="trends",
             )
         )
-        self.assertEqual(len(history), 5)
-        self.assertEqual(history[0].type, "human")
-        self.assertIn("group", history[0].content)
-        self.assertEqual(history[1].type, "human")
-        self.assertIn("Plan 1", history[1].content)
-        self.assertNotIn("{{question}}", history[1].content)
-        self.assertEqual(history[2].type, "human")
-        self.assertIn("Query 1", history[2].content)
-        self.assertNotIn("{{question}}", history[2].content)
-        self.assertEqual(history[3].type, "ai")
-        self.assertEqual(history[4].type, "human")
-        self.assertIn("Foobar", history[4].content)
-        self.assertNotIn("{{question}}", history[4].content)
+        assert len(history) == 5
+        assert history[0].type == "human"
+        assert "group" in history[0].content
+        assert history[1].type == "human"
+        assert "Plan 1" in history[1].content
+        assert "{{question}}" not in history[1].content
+        assert history[2].type == "human"
+        assert "Query 1" in history[2].content
+        assert "{{question}}" not in history[2].content
+        assert history[3].type == "ai"
+        assert history[4].type == "human"
+        assert "Foobar" in history[4].content
+        assert "{{question}}" not in history[4].content
 
     async def test_keeps_maximum_number_of_viz_messages(self):
         node = DummyGeneratorNode(self.team, self.user)
@@ -640,48 +639,48 @@ class TestSchemaGeneratorNode(BaseTest):
                 root_tool_insight_type="trends",
             )
         )
-        self.assertEqual(len(history), 17)
-        self.assertEqual(history[0].type, "human")
-        self.assertIn("group", history[0].content)
+        assert len(history) == 17
+        assert history[0].type == "human"
+        assert "group" in history[0].content
 
         # Query 3
-        self.assertEqual(history[1].type, "human")
-        self.assertIn("Plan 3", history[1].content)
-        self.assertEqual(history[2].type, "human")
-        self.assertIn("Query 3", history[2].content)
-        self.assertEqual(history[3].type, "ai")
+        assert history[1].type == "human"
+        assert "Plan 3" in history[1].content
+        assert history[2].type == "human"
+        assert "Query 3" in history[2].content
+        assert history[3].type == "ai"
 
         # Query 4
-        self.assertEqual(history[4].type, "human")
-        self.assertIn("Plan 4", history[4].content)
-        self.assertEqual(history[5].type, "human")
-        self.assertIn("Query 4", history[5].content)
-        self.assertEqual(history[6].type, "ai")
+        assert history[4].type == "human"
+        assert "Plan 4" in history[4].content
+        assert history[5].type == "human"
+        assert "Query 4" in history[5].content
+        assert history[6].type == "ai"
 
         # Query 5
-        self.assertEqual(history[7].type, "human")
-        self.assertIn("Plan 5", history[7].content)
-        self.assertEqual(history[8].type, "human")
-        self.assertIn("Query 5", history[8].content)
-        self.assertEqual(history[9].type, "ai")
+        assert history[7].type == "human"
+        assert "Plan 5" in history[7].content
+        assert history[8].type == "human"
+        assert "Query 5" in history[8].content
+        assert history[9].type == "ai"
 
         # Query 6
-        self.assertEqual(history[10].type, "human")
-        self.assertIn("Plan 6", history[10].content)
-        self.assertEqual(history[11].type, "human")
-        self.assertIn("Query 6", history[11].content)
-        self.assertEqual(history[12].type, "ai")
+        assert history[10].type == "human"
+        assert "Plan 6" in history[10].content
+        assert history[11].type == "human"
+        assert "Query 6" in history[11].content
+        assert history[12].type == "ai"
 
         # Query 7
-        self.assertEqual(history[13].type, "human")
-        self.assertIn("Plan 7", history[13].content)
-        self.assertEqual(history[14].type, "human")
-        self.assertIn("Query 7", history[14].content)
-        self.assertEqual(history[15].type, "ai")
+        assert history[13].type == "human"
+        assert "Plan 7" in history[13].content
+        assert history[14].type == "human"
+        assert "Query 7" in history[14].content
+        assert history[15].type == "ai"
 
         # New query
-        self.assertEqual(history[16].type, "human")
-        self.assertIn("Query 8", history[16].content)
+        assert history[16].type == "human"
+        assert "Query 8" in history[16].content
 
     async def test_agent_handles_incomplete_json(self):
         node = DummyGeneratorNode(self.team, self.user)
@@ -694,7 +693,7 @@ class TestSchemaGeneratorNode(BaseTest):
         ):
             new_state = await node(AssistantState(messages=[HumanMessage(content="Text")]), {})
             assert new_state is not None
-            self.assertEqual(len(new_state.intermediate_steps or []), 1)
+            assert len(new_state.intermediate_steps or []) == 1
 
 
 class TestSchemaGeneratorToolsNode(BaseTest):
@@ -703,10 +702,6 @@ class TestSchemaGeneratorToolsNode(BaseTest):
         action = AgentAction(tool="fix", tool_input="validationerror", log="pydanticexception")
         state = await node(AssistantState(messages=[], intermediate_steps=[(action, None)]), {})
         state = cast(PartialAssistantState, state)
-        self.assertIsNotNone("validationerror", cast(list[IntermediateStep], state.intermediate_steps)[0][1])
-        self.assertIn(
-            "validationerror", cast(Iterable[Any], cast(list[IntermediateStep], state.intermediate_steps)[0][1])
-        )
-        self.assertIn(
-            "pydanticexception", cast(Iterable[Any], cast(list[IntermediateStep], state.intermediate_steps)[0][1])
-        )
+        assert "validationerror" != None, cast(list[IntermediateStep], state.intermediate_steps)[0][1]
+        assert "validationerror" in cast(Iterable[Any], cast(list[IntermediateStep], state.intermediate_steps)[0][1])
+        assert "pydanticexception" in cast(Iterable[Any], cast(list[IntermediateStep], state.intermediate_steps)[0][1])

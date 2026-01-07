@@ -37,7 +37,7 @@ class TestSafeFloat(APIBaseTest):
     )
     def test_safe_float_conversions(self, input_val, expected):
         result = safe_float(input_val)
-        self.assertEqual(result, expected)
+        assert result == expected
 
 
 class TestEndpointsUsageOverviewQueryRunner(ClickhouseTestMixin, QueryMatchingTest, APIBaseTest):

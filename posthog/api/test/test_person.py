@@ -1,6 +1,6 @@
 import json
 from datetime import timedelta
-from typing import Optional, cast
+from typing import cast
 from uuid import uuid4
 
 import pytest
@@ -49,8 +49,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # with self.assertNumQueries(7):
         response = self.client.get(f"/api/person/{person.pk}")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["id"], person.pk)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["id"] == person.pk
 
     @also_test_with_materialized_columns(event_properties=["email"], person_properties=["email"])
     @snapshot_clickhouse_queries
@@ -69,12 +69,12 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         flush_persons_and_events()
         response = self.client.get("/api/person/?search=another@gm")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["results"]), 1)
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 1
 
         response = self.client.get("/api/person/?search=distinct_id_3")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["results"]), 1)
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 1
 
     @also_test_with_materialized_columns(event_properties=["email"], person_properties=["email"])
     @snapshot_clickhouse_queries
@@ -86,8 +86,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         flush_persons_and_events()
         response = self.client.get(f"/api/person/?search={person.uuid}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["results"]), 1)
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 1
 
     @also_test_with_materialized_columns(event_properties=["email"], person_properties=["email"])
     @snapshot_clickhouse_queries
@@ -119,8 +119,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 )
             )
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["results"]), 2)
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 2
 
         response = self.client.get(
             "/api/person/?properties={}".format(
@@ -136,8 +136,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 )
             )
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["results"]), 1)
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 1
 
     @also_test_with_materialized_columns(person_properties=["random_prop"])
     @snapshot_clickhouse_queries
@@ -165,18 +165,18 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         flush_persons_and_events()
 
         response = self.client.get("/api/person/values/?key=random_prop")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
-        self.assertEqual(response_data[0]["name"], "asdf")
-        self.assertEqual(response_data[0]["count"], 2)
-        self.assertEqual(response_data[1]["name"], "qwerty")
-        self.assertEqual(response_data[1]["count"], 1)
-        self.assertEqual(len(response_data), 2)
+        assert response_data[0]["name"] == "asdf"
+        assert response_data[0]["count"] == 2
+        assert response_data[1]["name"] == "qwerty"
+        assert response_data[1]["count"] == 1
+        assert len(response_data) == 2
 
         response = self.client.get("/api/person/values/?key=random_prop&value=qw")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()[0]["name"], "qwerty")
-        self.assertEqual(response.json()[0]["count"], 1)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[0]["name"] == "qwerty"
+        assert response.json()[0]["count"] == 1
 
     @also_test_with_materialized_columns(event_properties=["email"], person_properties=["email"])
     @snapshot_clickhouse_queries
@@ -198,12 +198,12 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # Filter
         response = self.client.get("/api/person/?email=another@gmail.com")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["results"]), 1)
-        self.assertEqual(response.json()["results"][0]["id"], str(person2.uuid))
-        self.assertEqual(response.json()["results"][0]["uuid"], str(person2.uuid))
-        self.assertEqual(response.json()["results"][0]["properties"]["email"], "another@gmail.com")
-        self.assertEqual(response.json()["results"][0]["distinct_ids"], ["distinct_id_2"])
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["id"] == str(person2.uuid)
+        assert response.json()["results"][0]["uuid"] == str(person2.uuid)
+        assert response.json()["results"][0]["properties"]["email"] == "another@gmail.com"
+        assert response.json()["results"][0]["distinct_ids"] == ["distinct_id_2"]
 
     @snapshot_clickhouse_queries
     def test_filter_person_prop(self):
@@ -228,10 +228,10 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 json.dumps([{"key": "some_prop", "value": "some_value", "type": "person"}])
             )
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["results"]), 1)
-        self.assertEqual(response.json()["results"][0]["id"], str(person2.uuid))
-        self.assertEqual(response.json()["results"][0]["uuid"], str(person2.uuid))
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["id"] == str(person2.uuid)
+        assert response.json()["results"][0]["uuid"] == str(person2.uuid)
 
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     @snapshot_clickhouse_queries
@@ -254,29 +254,29 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # Filter by distinct ID
         # with self.assertNumQueries(11):
         response = self.client.get("/api/person/?distinct_id=distinct_id")  # must be exact matches
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["results"]), 1)
-        self.assertEqual(response.json()["results"][0]["id"], str(person1.uuid))
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["id"] == str(person1.uuid)
 
         response = self.client.get("/api/person/?distinct_id=another_one")  # can search on any of the distinct IDs
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["results"]), 1)
-        self.assertEqual(response.json()["results"][0]["id"], str(person1.uuid))
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["id"] == str(person1.uuid)
 
         # Filter by email
         response = self.client.get("/api/person/?email=another@gmail.com")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["results"]), 1)
-        self.assertEqual(response.json()["results"][0]["id"], str(person2.uuid))
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["id"] == str(person2.uuid)
 
         # Non-matches return an empty list
         response = self.client.get("/api/person/?email=inexistent")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["results"]), 0)
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 0
 
         response = self.client.get("/api/person/?distinct_id=inexistent")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["results"]), 0)
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 0
 
     def test_cant_see_another_organization_pii_with_filters(self):
         # Completely different organization
@@ -294,15 +294,15 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # Filter by distinct ID
         response = self.client.get("/api/person/?distinct_id=distinct_id")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["results"]), 1)
-        self.assertEqual(
-            response.json()["results"][0]["id"], str(person.uuid)
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["id"] == str(
+            person.uuid
         )  # note that even with shared distinct IDs, only the person from the same team is returned
 
         response = self.client.get("/api/person/?distinct_id=x_another_one")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["results"], [])
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"] == []
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_delete_person(self):
@@ -323,12 +323,12 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         ):
             response = self.client.delete(f"/api/person/{person.uuid}/")
 
-        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
-        self.assertEqual(response.content, b"")  # Empty response
-        self.assertEqual(Person.objects.filter(team=self.team).count(), 0)
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        assert response.content == b""  # Empty response
+        assert Person.objects.filter(team=self.team).count() == 0
 
         response = self.client.delete(f"/api/person/{person.uuid}/")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
         self._assert_person_activity(
             person_id=None,  # can't query directly for deleted person
@@ -355,14 +355,14 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "SELECT version, is_deleted, properties FROM person FINAL WHERE team_id = %(team_id)s and id = %(uuid)s",
             {"team_id": self.team.pk, "uuid": person.uuid},
         )
-        self.assertEqual([(100, 1, "{}")], ch_persons)
+        assert [(100, 1, "{}")] == ch_persons
         # No async deletion is scheduled
-        self.assertEqual(AsyncDeletion.objects.filter(team_id=self.team.id).count(), 0)
+        assert AsyncDeletion.objects.filter(team_id=self.team.id).count() == 0
         ch_events = sync_execute(
             "SELECT count() FROM events WHERE team_id = %(team_id)s",
             {"team_id": self.team.pk},
         )[0][0]
-        self.assertEqual(ch_events, 3)
+        assert ch_events == 3
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_delete_person_and_events(self):
@@ -377,21 +377,21 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         _create_event(event="test", team=self.team, distinct_id="someone_else")
 
         response = self.client.delete(f"/api/person/{person.uuid}/?delete_events=true")
-        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
-        self.assertEqual(response.content, b"")  # Empty response
-        self.assertEqual(Person.objects.filter(team=self.team).count(), 0)
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        assert response.content == b""  # Empty response
+        assert Person.objects.filter(team=self.team).count() == 0
 
         ch_persons = sync_execute(
             "SELECT version, is_deleted, properties FROM person FINAL WHERE team_id = %(team_id)s and id = %(uuid)s",
             {"team_id": self.team.pk, "uuid": person.uuid},
         )
-        self.assertEqual([(100, 1, "{}")], ch_persons)
+        assert [(100, 1, "{}")] == ch_persons
 
         # async deletion scheduled and executed
         async_deletion = cast(AsyncDeletion, AsyncDeletion.objects.filter(team_id=self.team.id).first())
-        self.assertEqual(async_deletion.deletion_type, DeletionType.Person)
-        self.assertEqual(async_deletion.key, str(person.uuid))
-        self.assertIsNone(async_deletion.delete_verified_at)
+        assert async_deletion.deletion_type == DeletionType.Person
+        assert async_deletion.key == str(person.uuid)
+        assert async_deletion.delete_verified_at is None
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_delete_person_and_recordings(self):
@@ -427,9 +427,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     ),
                 )
 
-        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
-        self.assertEqual(response.content, b"")  # Empty response
-        self.assertEqual(Person.objects.filter(team=self.team).count(), 0)
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        assert response.content == b""  # Empty response
+        assert Person.objects.filter(team=self.team).count() == 0
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_delete_person_and_recordings_and_events(self):
@@ -468,21 +468,21 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     ),
                 )
 
-        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
-        self.assertEqual(response.content, b"")  # Empty response
-        self.assertEqual(Person.objects.filter(team=self.team).count(), 0)
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        assert response.content == b""  # Empty response
+        assert Person.objects.filter(team=self.team).count() == 0
 
         ch_persons = sync_execute(
             "SELECT version, is_deleted, properties FROM person FINAL WHERE team_id = %(team_id)s and id = %(uuid)s",
             {"team_id": self.team.pk, "uuid": person.uuid},
         )
-        self.assertEqual([(100, 1, "{}")], ch_persons)
+        assert [(100, 1, "{}")] == ch_persons
 
         # async deletion scheduled and executed
         async_deletion = cast(AsyncDeletion, AsyncDeletion.objects.filter(team_id=self.team.id).first())
-        self.assertEqual(async_deletion.deletion_type, DeletionType.Person)
-        self.assertEqual(async_deletion.key, str(person.uuid))
-        self.assertIsNone(async_deletion.delete_verified_at)
+        assert async_deletion.deletion_type == DeletionType.Person
+        assert async_deletion.key == str(person.uuid)
+        assert async_deletion.delete_verified_at is None
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_bulk_delete_ids(self):
@@ -506,24 +506,24 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             f"/api/person/bulk_delete/", {"ids": [person.uuid, person2.uuid], "delete_events": True}
         )
 
-        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED, response.content)
-        self.assertEqual(response.content, b"")  # Empty response
-        self.assertEqual(Person.objects.filter(team=self.team).count(), 0)
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.content
+        assert response.content == b""  # Empty response
+        assert Person.objects.filter(team=self.team).count() == 0
 
         response = self.client.delete(f"/api/person/{person.uuid}/")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
         ch_persons = sync_execute(
             "SELECT version, is_deleted, properties FROM person FINAL WHERE team_id = %(team_id)s and id = %(uuid)s",
             {"team_id": self.team.pk, "uuid": person.uuid},
         )
-        self.assertEqual([(100, 1, "{}")], ch_persons)
+        assert [(100, 1, "{}")] == ch_persons
 
         # async deletion scheduled and executed
         async_deletion = cast(AsyncDeletion, AsyncDeletion.objects.filter(team_id=self.team.id).first())
-        self.assertEqual(async_deletion.deletion_type, DeletionType.Person)
-        self.assertEqual(async_deletion.key, str(person.uuid))
-        self.assertIsNone(async_deletion.delete_verified_at)
+        assert async_deletion.deletion_type == DeletionType.Person
+        assert async_deletion.key == str(person.uuid)
+        assert async_deletion.delete_verified_at is None
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_bulk_delete_distinct_id(self):
@@ -545,25 +545,25 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         response = self.client.post(f"/api/person/bulk_delete/", {"distinct_ids": ["anonymous_id", "person_2"]})
 
-        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED, response.content)
-        self.assertEqual(response.content, b"")  # Empty response
-        self.assertEqual(Person.objects.filter(team=self.team).count(), 0)
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.content
+        assert response.content == b""  # Empty response
+        assert Person.objects.filter(team=self.team).count() == 0
 
         response = self.client.delete(f"/api/person/{person.uuid}/")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
         ch_persons = sync_execute(
             "SELECT version, is_deleted, properties FROM person FINAL WHERE team_id = %(team_id)s and id = %(uuid)s",
             {"team_id": self.team.pk, "uuid": person.uuid},
         )
-        self.assertEqual([(100, 1, "{}")], ch_persons)
+        assert [(100, 1, "{}")] == ch_persons
         # No async deletion is scheduled
-        self.assertEqual(AsyncDeletion.objects.filter(team_id=self.team.id).count(), 0)
+        assert AsyncDeletion.objects.filter(team_id=self.team.id).count() == 0
         ch_events = sync_execute(
             "SELECT count() FROM events WHERE team_id = %(team_id)s",
             {"team_id": self.team.pk},
         )[0][0]
-        self.assertEqual(ch_events, 3)
+        assert ch_events == 3
 
     def test_bulk_delete_with_keep_person(self):
         """Test that bulk_delete with keep_person=True doesn't delete the person record"""
@@ -581,14 +581,14 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             {"ids": [person.uuid], "delete_events": True, "keep_person": True},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        assert response.status_code == status.HTTP_202_ACCEPTED
         # Person should still exist
-        self.assertEqual(Person.objects.filter(team=self.team, uuid=person.uuid).count(), 1)
+        assert Person.objects.filter(team=self.team, uuid=person.uuid).count() == 1
         # But async deletion for events should be scheduled
         async_deletion = cast(AsyncDeletion, AsyncDeletion.objects.filter(team_id=self.team.id).first())
-        self.assertIsNotNone(async_deletion)
-        self.assertEqual(async_deletion.deletion_type, DeletionType.Person)
-        self.assertEqual(async_deletion.key, str(person.uuid))
+        assert async_deletion is not None
+        assert async_deletion.deletion_type == DeletionType.Person
+        assert async_deletion.key == str(person.uuid)
 
     def test_bulk_delete_with_recordings(self):
         """Test that bulk_delete queues recording deletion"""
@@ -610,13 +610,13 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     {"ids": [person.uuid], "delete_recordings": True},
                 )
 
-                self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+                assert response.status_code == status.HTTP_202_ACCEPTED
                 mock_connect.assert_called_once()
                 mock_client.start_workflow.assert_called_once()
                 # Verify workflow was called with correct parameters
                 call_args = mock_client.start_workflow.call_args
-                self.assertEqual(call_args[0][0], "delete-recordings-with-person")
-                self.assertEqual(call_args[1]["id"], f"delete-recordings-with-person-{person.uuid}-1234")
+                assert call_args[0][0] == "delete-recordings-with-person"
+                assert call_args[1]["id"] == f"delete-recordings-with-person-{person.uuid}-1234"
 
     def test_bulk_delete_validation_too_many_ids(self):
         """Test that bulk_delete rejects more than 1000 IDs"""
@@ -625,16 +625,16 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             f"/api/person/bulk_delete/",
             {"ids": [str(uuid4()) for _ in range(1001)]},
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("1000", str(response.content))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "1000" in str(response.content)
 
         # Test with distinct_ids
         response = self.client.post(
             f"/api/person/bulk_delete/",
             {"distinct_ids": [f"id_{i}" for i in range(1001)]},
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("1000", str(response.content))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "1000" in str(response.content)
 
     def test_bulk_delete_validation_missing_ids(self):
         """Test that bulk_delete requires either ids or distinct_ids"""
@@ -642,8 +642,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             f"/api/person/bulk_delete/",
             {"delete_events": True},
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("distinct_ids or ids", str(response.content))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "distinct_ids or ids" in str(response.content)
 
     def test_destroy_with_keep_person_param(self):
         """Test that destroy endpoint respects keep_person parameter"""
@@ -656,11 +656,11 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         response = self.client.delete(f"/api/person/{person.uuid}/?keep_person=true&delete_events=true")
 
-        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        assert response.status_code == status.HTTP_202_ACCEPTED
         # Person should still exist when keep_person=true
-        self.assertEqual(Person.objects.filter(team=self.team, uuid=person.uuid).count(), 1)
+        assert Person.objects.filter(team=self.team, uuid=person.uuid).count() == 1
         # But async deletion should be scheduled
-        self.assertEqual(AsyncDeletion.objects.filter(team_id=self.team.id).count(), 1)
+        assert AsyncDeletion.objects.filter(team_id=self.team.id).count() == 1
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_split_people_keep_props(self) -> None:
@@ -674,11 +674,11 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.client.post("/api/person/{}/split/".format(person1.pk), {"main_distinct_id": "1"})
 
         people = Person.objects.filter(team_id=self.team.id).order_by("id")
-        self.assertEqual(people.count(), 3)
-        self.assertEqual(people[0].distinct_ids, ["1"])
-        self.assertEqual(people[0].properties, {"$browser": "whatever", "$os": "Mac OS X"})
-        self.assertEqual(people[1].distinct_ids, ["2"])
-        self.assertEqual(people[2].distinct_ids, ["3"])
+        assert people.count() == 3
+        assert people[0].distinct_ids == ["1"]
+        assert people[0].properties == {"$browser": "whatever", "$os": "Mac OS X"}
+        assert people[1].distinct_ids == ["2"]
+        assert people[2].distinct_ids == ["3"]
 
         self._assert_person_activity(
             person_id=person1.uuid,
@@ -719,12 +719,12 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         response = self.client.post("/api/person/{}/split/".format(person1.pk))
         people = Person.objects.filter(team_id=self.team.id).order_by("id")
-        self.assertEqual(people.count(), 3)
-        self.assertEqual(people[0].distinct_ids, ["1"])
-        self.assertEqual(people[0].properties, {})
-        self.assertEqual(people[1].distinct_ids, ["2"])
-        self.assertEqual(people[2].distinct_ids, ["3"])
-        self.assertTrue(response.json()["success"])
+        assert people.count() == 3
+        assert people[0].distinct_ids == ["1"]
+        assert people[0].properties == {}
+        assert people[1].distinct_ids == ["2"]
+        assert people[2].distinct_ids == ["3"]
+        assert response.json()["success"]
 
     def test_update_multiple_person_properties_validation(self) -> None:
         person = _create_person(
@@ -736,11 +736,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         response = self.client.patch(f"/api/person/{person.uuid}", {"foo": "bar", "bar": "baz"})
 
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(
-            response.json(),
-            self.validation_error_response("required", "This field is required.", "properties"),
-        )
+        assert response.status_code == 400
+        assert response.json() == self.validation_error_response("required", "This field is required.", "properties")
 
     @mock.patch("posthog.api.person.capture_internal")
     def test_new_update_single_person_property(self, mock_capture) -> None:
@@ -807,19 +804,17 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         response = self.client.get("/api/person/").json()
 
-        self.assertEqual(response["results"][0]["name"], "distinct_id2")
-        self.assertEqual(response["results"][1]["name"], "distinct_id1")
+        assert response["results"][0]["name"] == "distinct_id2"
+        assert response["results"][1]["name"] == "distinct_id1"
 
-        self.assertCountEqual(
-            response["results"][0]["distinct_ids"],
-            ["17787c327b-0e8f623ea9-336473-1aeaa0-17787c30995b7c", "distinct_id2"],
+        assert sorted(response["results"][0]["distinct_ids"]) == sorted(
+            ["17787c327b-0e8f623ea9-336473-1aeaa0-17787c30995b7c", "distinct_id2"]
         )
-        self.assertCountEqual(
-            response["results"][1]["distinct_ids"],
+        assert sorted(response["results"][1]["distinct_ids"]) == sorted(
             [
                 "distinct_id1",
                 "17787c3099427b-0e8f6c86323ea9-33647309-1aeaa0-17787c30995b7c",
-            ],
+            ]
         )
 
     def test_person_display_name(self) -> None:
@@ -852,9 +847,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get("/api/person/").json()
 
         results = response["results"][::-1]  # results are in reverse order
-        self.assertEqual(results[0]["name"], "someone")
-        self.assertEqual(results[1]["name"], "another_one@custom.com")
-        self.assertEqual(results[2]["name"], "distinct_id3")
+        assert results[0]["name"] == "someone"
+        assert results[1]["name"] == "another_one@custom.com"
+        assert results[2]["name"] == "distinct_id3"
 
     def test_person_display_name_defaults(self) -> None:
         _create_person(
@@ -876,9 +871,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get("/api/person/").json()
 
         results = response["results"][::-1]  # results are in reverse order
-        self.assertEqual(results[0]["name"], "someone@gmail.com")
-        self.assertEqual(results[1]["name"], "another_one")
-        self.assertEqual(results[2]["name"], "distinct_id3")
+        assert results[0]["name"] == "someone@gmail.com"
+        assert results[1]["name"] == "another_one"
+        assert results[2]["name"] == "distinct_id3"
 
     def test_person_cohorts(self) -> None:
         PropertyDefinition.objects.create(
@@ -925,16 +920,10 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         response = self.client.get(f"/api/person/cohorts/?person_id={person2.uuid}").json()
         response["results"].sort(key=lambda cohort: cohort["name"])
-        self.assertEqual(len(response["results"]), 3)
-        self.assertLessEqual(
-            {"id": cohort1.id, "count": 2, "name": cohort1.name}.items(), response["results"][0].items()
-        )
-        self.assertLessEqual(
-            {"id": cohort3.id, "count": 1, "name": cohort3.name}.items(), response["results"][1].items()
-        )
-        self.assertLessEqual(
-            {"id": cohort4.id, "count": 1, "name": cohort4.name}.items(), response["results"][2].items()
-        )
+        assert len(response["results"]) == 3
+        assert {"id": cohort1.id, "count": 2, "name": cohort1.name}.items() <= response["results"][0].items()
+        assert {"id": cohort3.id, "count": 1, "name": cohort3.name}.items() <= response["results"][1].items()
+        assert {"id": cohort4.id, "count": 1, "name": cohort4.name}.items() <= response["results"][2].items()
 
     def test_person_cohorts_with_cohort_version(self) -> None:
         PropertyDefinition.objects.create(
@@ -955,8 +944,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         cohort.calculate_people_ch(pending_version=0)
 
         response = self.client.get(f"/api/person/cohorts/?person_id={person.uuid}").json()
-        self.assertEqual(len(response["results"]), 1)
-        self.assertLessEqual({"id": cohort.id, "count": 1, "name": cohort.name}.items(), response["results"][0].items())
+        assert len(response["results"]) == 1
+        assert {"id": cohort.id, "count": 1, "name": cohort.name}.items() <= response["results"][0].items()
 
         # Update the group to no longer include person
         cohort.groups = [{"properties": [{"key": "no", "value": "no", "type": "person"}]}]
@@ -964,7 +953,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         cohort.calculate_people_ch(pending_version=1)
 
         response = self.client.get(f"/api/person/cohorts/?person_id={person.uuid}").json()
-        self.assertEqual(len(response["results"]), 0)
+        assert len(response["results"]) == 0
 
     def test_person_cohorts_returns_minimal_fields(self) -> None:
         """Verify that person cohorts endpoint returns only minimal fields (id, name, count)."""
@@ -982,12 +971,12 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         cohort.calculate_people_ch(pending_version=0)
 
         response = self.client.get(f"/api/person/cohorts/?person_id={person.uuid}")
-        self.assertEqual(response.status_code, 200, response.json())
+        assert response.status_code == 200, response.json()
         data = response.json()
 
-        self.assertEqual(len(data["results"]), 1)
+        assert len(data["results"]) == 1
         # CohortMinimalSerializer only returns id, name, count
-        self.assertEqual(set(data["results"][0].keys()), {"id", "name", "count"})
+        assert set(data["results"][0].keys()) == {"id", "name", "count"}
 
     def test_split_person_clickhouse(self):
         person = _create_person(
@@ -998,26 +987,26 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         response = self.client.post("/api/person/{}/split/".format(person.uuid)).json()
-        self.assertTrue(response["success"])
+        assert response["success"]
 
         people = Person.objects.filter(team_id=self.team.id).order_by("id")
         clickhouse_people = sync_execute(
             "SELECT id FROM person FINAL WHERE team_id = %(team_id)s",
             {"team_id": self.team.pk},
         )
-        self.assertCountEqual(clickhouse_people, [(person.uuid,) for person in people])
+        assert sorted(clickhouse_people) == sorted([(person.uuid,) for person in people])
 
         pdis2 = sync_execute(
             "SELECT person_id, distinct_id, is_deleted FROM person_distinct_id2 FINAL WHERE team_id = %(team_id)s",
             {"team_id": self.team.pk},
         )
 
-        self.assertEqual(len(pdis2), PersonDistinctId.objects.count())
+        assert len(pdis2) == PersonDistinctId.objects.count()
 
         for person in people:
-            self.assertEqual(len(person.distinct_ids), 1)
+            assert len(person.distinct_ids) == 1
             matching_row = next(row for row in pdis2 if row[0] == person.uuid)
-            self.assertEqual(matching_row, (person.uuid, person.distinct_ids[0], 0))
+            assert matching_row == (person.uuid, person.distinct_ids[0], 0)
 
     def test_split_person_overrides_delete_version(self):
         """
@@ -1086,11 +1075,11 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # Now person_b has both "active_user" and "deleted_user"
         person_b.refresh_from_db()
-        self.assertEqual(set(person_b.distinct_ids), {"active_user", "deleted_user"})
+        assert set(person_b.distinct_ids) == {"active_user", "deleted_user"}
 
         # Split person B
         response = self.client.post("/api/person/{}/split/".format(person_b.uuid)).json()
-        self.assertTrue(response["success"])
+        assert response["success"]
 
         # Verify ClickHouse has the correct state
         ch_persons = sync_execute(
@@ -1110,13 +1099,13 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         # Should have exactly one person (the split creates a new one with version 101)
-        self.assertEqual(len(ch_persons), 1)
+        assert len(ch_persons) == 1
         _, version, is_deleted = ch_persons[0]
 
         # The split person should have version 101 (person_b version 0 + 101)
         # which is higher than the delete version 100 (person_a version 0 + 100)
-        self.assertEqual(version, 101)
-        self.assertEqual(is_deleted, 0)
+        assert version == 101
+        assert is_deleted == 0
 
         # Verify person_distinct_id2 for the deleted_user distinct_id
         ch_pdis = sync_execute(
@@ -1129,10 +1118,10 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             {"team_id": self.team.pk},
         )
 
-        self.assertEqual(len(ch_pdis), 1)
+        assert len(ch_pdis) == 1
         _, pdi_distinct_id, _, pdi_is_deleted = ch_pdis[0]
-        self.assertEqual(pdi_distinct_id, "deleted_user")
-        self.assertEqual(pdi_is_deleted, 0)
+        assert pdi_distinct_id == "deleted_user"
+        assert pdi_is_deleted == 0
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_patch_user_property_activity(self):
@@ -1146,7 +1135,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         created_person = self.client.get("/api/person/{}/".format(person.uuid)).json()
         created_person["properties"]["a"] = "b"
         response = self.client.patch("/api/person/{}/".format(person.uuid), created_person)
-        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        assert response.status_code == status.HTTP_202_ACCEPTED
 
         self.client.get("/api/person/{}/".format(person.uuid))
 
@@ -1195,12 +1184,12 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         flush_persons_and_events()
         response = self.client.get("/api/person.csv")
-        self.assertEqual(len(response.content.splitlines()), 3, response.content)
+        assert len(response.content.splitlines()) == 3, response.content
 
         response = self.client.get(
             "/api/person.csv?properties={}".format(json.dumps([{"key": "$os", "value": "Windows", "type": "person"}]))
         )
-        self.assertEqual(len(response.content.splitlines()), 2)
+        assert len(response.content.splitlines()) == 2
 
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_pagination_limit(self):
@@ -1223,18 +1212,18 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         returned_ids = []
         with self.assertNumQueries(9):
             response = self.client.get("/api/person/?limit=10").json()
-        self.assertEqual(len(response["results"]), 9)
+        assert len(response["results"]) == 9
         returned_ids += [x["distinct_ids"][0] for x in response["results"]]
         response_next = self.client.get(response["next"]).json()
         returned_ids += [x["distinct_ids"][0] for x in response_next["results"]]
-        self.assertEqual(len(response_next["results"]), 10)
+        assert len(response_next["results"]) == 10
 
         created_ids.reverse()  # ids are returned in desc order
-        self.assertEqual(returned_ids, created_ids, returned_ids)
+        assert returned_ids == created_ids, returned_ids
 
         with self.assertNumQueries(9):
             response_include_total = self.client.get("/api/person/?limit=10&include_total").json()
-        self.assertEqual(response_include_total["count"], 20)  #  With `include_total`, the total count is returned too
+        assert response_include_total["count"] == 20  #  With `include_total`, the total count is returned too
 
     def test_retrieve_person(self):
         person = Person.objects.create(  # creating without _create_person to guarentee created_at ordering
@@ -1268,7 +1257,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     def _get_person_activity(
         self,
-        person_id: Optional[str] = None,
+        person_id: str | None = None,
         *,
         expected_status: int = status.HTTP_200_OK,
     ):
@@ -1278,15 +1267,15 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             url = f"/api/person/activity"
 
         activity = self.client.get(url)
-        self.assertEqual(activity.status_code, expected_status)
+        assert activity.status_code == expected_status
         return activity.json()
 
-    def _assert_person_activity(self, person_id: Optional[str], expected: list[dict]):
+    def _assert_person_activity(self, person_id: str | None, expected: list[dict]):
         activity_response = self._get_person_activity(person_id)
 
         activity: list[dict] = activity_response["results"]
         self.maxDiff = None
-        self.assertCountEqual(activity, expected)
+        assert sorted(activity) == sorted(expected)
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_delete_events_only(self):
@@ -1308,7 +1297,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.content == b""  # Empty response
 
         # Person still exists
-        self.assertEqual(Person.objects.filter(team=self.team).count(), 1)
+        assert Person.objects.filter(team=self.team).count() == 1
 
         # async deletion scheduled
         async_deletion = cast(AsyncDeletion, AsyncDeletion.objects.filter(team_id=self.team.id).first())
@@ -1386,15 +1375,15 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # postgres
         pg_distinct_ids = PersonDistinctId.objects.all()
-        self.assertEqual(len(pg_distinct_ids), 2)
+        assert len(pg_distinct_ids) == 2
 
-        self.assertEqual(pg_distinct_ids[0].distinct_id, "distinct_id-2")
-        self.assertEqual(pg_distinct_ids[0].version, 0)
-        self.assertEqual(pg_distinct_ids[1].distinct_id, "distinct_id")
+        assert pg_distinct_ids[0].distinct_id == "distinct_id-2"
+        assert pg_distinct_ids[0].version == 0
+        assert pg_distinct_ids[1].distinct_id == "distinct_id"
         assert (pg_distinct_ids[1].version or 0) > distinct_id_version
 
-        self.assertEqual(pg_distinct_ids[0].person.uuid, person_linked_to_after.uuid)
-        self.assertEqual(pg_distinct_ids[1].person.uuid, person_linked_to_after.uuid)
+        assert pg_distinct_ids[0].person.uuid == person_linked_to_after.uuid
+        assert pg_distinct_ids[1].person.uuid == person_linked_to_after.uuid
 
         # CH
         ch_person_distinct_ids = sync_execute(
@@ -1404,13 +1393,10 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             {"team_id": self.team.pk},
         )
 
-        self.assertEqual(
-            ch_person_distinct_ids,
-            [
-                (person_linked_to_after.uuid, self.team.pk, "distinct_id", pg_distinct_ids[1].version, False),
-            ],
-        )
-        self.assertEqual(mocked_ch_call.call_count, 1)
+        assert ch_person_distinct_ids == [
+            (person_linked_to_after.uuid, self.team.pk, "distinct_id", pg_distinct_ids[1].version, False)
+        ]
+        assert mocked_ch_call.call_count == 1
         # Second call has nothing to do
         response = self.client.post(
             f"/api/projects/{self.team.pk}/persons/reset_distinct_id/",
@@ -1419,7 +1405,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             },
         )
 
-        self.assertEqual(mocked_ch_call.call_count, 1)
+        assert mocked_ch_call.call_count == 1
 
     @mock.patch(
         f"{posthog.models.person.deletion.__name__}.create_person_distinct_id",
@@ -1463,10 +1449,10 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # postgres
         pg_distinct_ids = PersonDistinctId.objects.all()
-        self.assertEqual(len(pg_distinct_ids), 1)
-        self.assertEqual(pg_distinct_ids[0].version, 0)
-        self.assertEqual(pg_distinct_ids[0].distinct_id, "distinct_id-1")
-        self.assertEqual(pg_distinct_ids[0].person.uuid, person_not_changed_1.uuid)
+        assert len(pg_distinct_ids) == 1
+        assert pg_distinct_ids[0].version == 0
+        assert pg_distinct_ids[0].distinct_id == "distinct_id-1"
+        assert pg_distinct_ids[0].person.uuid == person_not_changed_1.uuid
 
         # clickhouse
         ch_person_distinct_ids = sync_execute(
@@ -1475,13 +1461,10 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             """,
             {"team_id": self.team.pk},
         )
-        self.assertEqual(
-            ch_person_distinct_ids,
-            [
-                (person_not_changed_1.uuid, self.team.pk, "distinct_id-1", 0, False),
-                (person_deleted_1.uuid, self.team.pk, "distinct_id-del-1", 116, True),
-            ],
-        )
+        assert ch_person_distinct_ids == [
+            (person_not_changed_1.uuid, self.team.pk, "distinct_id-1", 0, False),
+            (person_deleted_1.uuid, self.team.pk, "distinct_id-del-1", 116, True),
+        ]
         mocked_ch_call.assert_not_called()
 
 
@@ -1499,14 +1482,14 @@ class TestPersonFromClickhouse(TestPerson):
             )
         returned_ids = []
         response = self.client.get("/api/person/?limit=10").json()
-        self.assertEqual(len(response["results"]), 10)
+        assert len(response["results"]) == 10
         returned_ids += [x["distinct_ids"][0] for x in response["results"]]
         response_next = self.client.get(response["next"]).json()
         returned_ids += [x["distinct_ids"][0] for x in response_next["results"]]
-        self.assertEqual(len(response_next["results"]), 9)
+        assert len(response_next["results"]) == 9
 
         created_ids.reverse()  # ids are returned in desc order
-        self.assertEqual(returned_ids, created_ids, returned_ids)
+        assert returned_ids == created_ids, returned_ids
 
         response_include_total = self.client.get("/api/person/?limit=10&include_total").json()
-        self.assertEqual(response_include_total["count"], 19)  #  With `include_total`, the total count is returned too
+        assert response_include_total["count"] == 19  #  With `include_total`, the total count is returned too

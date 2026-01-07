@@ -122,22 +122,22 @@ class TestImageExporter(APIBaseTest):
         with self.settings(OBJECT_STORAGE_ENABLED=False):
             image_exporter.export_image(dashboard_asset)
 
-        assert (
-            mock_process_query.call_count == insight_count
-        ), f"Expected cache warming for {insight_count} insights, got {mock_process_query.call_count} calls"
+        assert mock_process_query.call_count == insight_count, (
+            f"Expected cache warming for {insight_count} insights, got {mock_process_query.call_count} calls"
+        )
 
         for i, call in enumerate(mock_process_query.call_args_list):
             call_kwargs = call[1]
 
-            assert call_kwargs["dashboard_id"] == dashboard.id, f"Call {i+1} missing dashboard_id"
+            assert call_kwargs["dashboard_id"] == dashboard.id, f"Call {i + 1} missing dashboard_id"
 
-            assert (
-                call_kwargs["execution_mode"] == ExecutionMode.CALCULATE_BLOCKING_ALWAYS
-            ), f"Call {i+1} should use CALCULATE_BLOCKING_ALWAYS, got {call_kwargs['execution_mode']}"
+            assert call_kwargs["execution_mode"] == ExecutionMode.CALCULATE_BLOCKING_ALWAYS, (
+                f"Call {i + 1} should use CALCULATE_BLOCKING_ALWAYS, got {call_kwargs['execution_mode']}"
+            )
 
-            assert call_kwargs["insight_id"] in [
-                ins.id for ins in insights
-            ], f"Call {i+1} has unexpected insight_id {call_kwargs['insight_id']}"
+            assert call_kwargs["insight_id"] in [ins.id for ins in insights], (
+                f"Call {i + 1} has unexpected insight_id {call_kwargs['insight_id']}"
+            )
 
     @patch("posthog.tasks.exports.image_exporter.process_query_dict")
     def test_export_captures_cache_keys_and_passes_to_url(
@@ -213,9 +213,9 @@ class TestImageExporter(APIBaseTest):
 
         # URL should contain cache_keys for all insights
         for insight in insights:
-            assert (
-                f"cache_key_for_insight_{insight.id}" in url_to_render
-            ), f"URL should contain cache key for insight {insight.id}"
+            assert f"cache_key_for_insight_{insight.id}" in url_to_render, (
+                f"URL should contain cache key for insight {insight.id}"
+            )
 
     @patch("posthog.tasks.exports.image_exporter._screenshot_asset")
     @patch("posthog.tasks.exports.image_exporter.open", new_callable=mock_open, read_data=b"image_data")
@@ -253,12 +253,12 @@ class TestImageExporter(APIBaseTest):
             call_kwargs = mock_process_query.call_args[1]
 
             assert "variables_override_json" in call_kwargs, "variables_override_json parameter missing"
-            assert (
-                call_kwargs["variables_override_json"] is not None
-            ), "variables_override_json should not be None when dashboard has variables"
+            assert call_kwargs["variables_override_json"] is not None, (
+                "variables_override_json should not be None when dashboard has variables"
+            )
 
             variables = list(InsightVariable.objects.filter(team=self.team).all())
             expected_variables = map_stale_to_latest(dashboard.variables or {}, variables)
-            assert (
-                call_kwargs["variables_override_json"] == expected_variables
-            ), "variables_override_json should match the transformed dashboard variables"
+            assert call_kwargs["variables_override_json"] == expected_variables, (
+                "variables_override_json should match the transformed dashboard variables"
+            )

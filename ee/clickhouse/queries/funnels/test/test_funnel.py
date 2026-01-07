@@ -195,8 +195,8 @@ class TestClickhouseFunnel(ClickhouseTestMixin, APIBaseTest):
         funnel = ClickhouseFunnel(filter, self.team)
         result = funnel.run()
 
-        self.assertEqual(result[0]["name"], "user signed up")
-        self.assertEqual(result[0]["count"], 2)
+        assert result[0]["name"] == "user signed up"
+        assert result[0]["count"] == 2
 
-        self.assertEqual(result[1]["name"], "paid")
-        self.assertEqual(result[1]["count"], 1)
+        assert result[1]["name"] == "paid"
+        assert result[1]["count"] == 1

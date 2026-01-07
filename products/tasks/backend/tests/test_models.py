@@ -1,6 +1,7 @@
 import json
 import uuid
 
+import pytest
 from unittest.mock import patch
 
 from django.conf import settings
@@ -37,10 +38,10 @@ class TestTask(TestCase):
             description="Test Description",
             origin_product=origin_product,
         )
-        self.assertEqual(task.team, self.team)
-        self.assertEqual(task.title, "Test Task")
-        self.assertEqual(task.description, "Test Description")
-        self.assertEqual(task.origin_product, origin_product)
+        assert task.team == self.team
+        assert task.title == "Test Task"
+        assert task.description == "Test Description"
+        assert task.origin_product == origin_product
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_minimal(self, mock_execute_workflow):
@@ -56,23 +57,23 @@ class TestTask(TestCase):
             repository="posthog/posthog",
         )
 
-        self.assertIsNotNone(task.id)
-        self.assertEqual(task.title, "Test Create and Run")
-        self.assertEqual(task.description, "Test Description")
-        self.assertEqual(task.origin_product, Task.OriginProduct.USER_CREATED)
-        self.assertEqual(task.team, self.team)
-        self.assertEqual(task.created_by, user)
-        self.assertEqual(task.repository, "posthog/posthog")
+        assert task.id is not None
+        assert task.title == "Test Create and Run"
+        assert task.description == "Test Description"
+        assert task.origin_product == Task.OriginProduct.USER_CREATED
+        assert task.team == self.team
+        assert task.created_by == user
+        assert task.repository == "posthog/posthog"
 
         mock_execute_workflow.assert_called_once()
         call_args = mock_execute_workflow.call_args
-        self.assertEqual(call_args.kwargs["task_id"], str(task.id))
-        self.assertEqual(call_args.kwargs["team_id"], self.team.id)
-        self.assertEqual(call_args.kwargs["user_id"], user.id)
-        self.assertIsNotNone(call_args.kwargs["run_id"])
+        assert call_args.kwargs["task_id"] == str(task.id)
+        assert call_args.kwargs["team_id"] == self.team.id
+        assert call_args.kwargs["user_id"] == user.id
+        assert call_args.kwargs["run_id"] is not None
         task_run = TaskRun.objects.get(id=call_args.kwargs["run_id"])
-        self.assertEqual(task_run.task, task)
-        self.assertEqual(task_run.status, TaskRun.Status.QUEUED)
+        assert task_run.task == task
+        assert task_run.status == TaskRun.Status.QUEUED
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_with_repository(self, mock_execute_workflow):
@@ -88,7 +89,7 @@ class TestTask(TestCase):
             repository="posthog/posthog-js",
         )
 
-        self.assertEqual(task.repository, "posthog/posthog-js")
+        assert task.repository == "posthog/posthog-js"
 
         mock_execute_workflow.assert_called_once()
 
@@ -97,7 +98,7 @@ class TestTask(TestCase):
         user = User.objects.create(email="test@test.com")
         Integration.objects.create(team=self.team, kind="github", config={})
 
-        with self.assertRaises(ValidationError) as cm:
+        with pytest.raises(ValidationError) as cm:
             Task.create_and_run(
                 team=self.team,
                 title="Test Task",
@@ -107,7 +108,7 @@ class TestTask(TestCase):
                 repository="invalid-format",
             )
 
-        self.assertIn("Format for repository is organization/repo", str(cm.exception))
+        assert "Format for repository is organization/repo" in str(cm.value)
         mock_execute_workflow.assert_not_called()
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
@@ -124,7 +125,7 @@ class TestTask(TestCase):
             repository="posthog/posthog",
         )
 
-        self.assertEqual(task.github_integration, integration)
+        assert task.github_integration == integration
         mock_execute_workflow.assert_called_once()
 
     @parameterized.expand(
@@ -134,7 +135,7 @@ class TestTask(TestCase):
         ]
     )
     def test_repository_validation_fails_without_slash(self, repository):
-        with self.assertRaises(ValidationError) as cm:
+        with pytest.raises(ValidationError) as cm:
             Task.objects.create(
                 team=self.team,
                 title="Test Task",
@@ -143,7 +144,7 @@ class TestTask(TestCase):
                 repository=repository,
             )
 
-        self.assertIn("Format for repository is organization/repo", str(cm.exception))
+        assert "Format for repository is organization/repo" in str(cm.value)
 
     @parameterized.expand(
         [
@@ -163,7 +164,7 @@ class TestTask(TestCase):
             repository=input_repo,
         )
 
-        self.assertEqual(task.repository, expected_repo)
+        assert task.repository == expected_repo
 
     def test_soft_delete(self):
         task = Task.objects.create(
@@ -173,14 +174,14 @@ class TestTask(TestCase):
             origin_product=Task.OriginProduct.USER_CREATED,
         )
 
-        self.assertFalse(task.deleted)
-        self.assertIsNone(task.deleted_at)
+        assert not task.deleted
+        assert task.deleted_at is None
 
         task.soft_delete()
 
         task.refresh_from_db()
-        self.assertTrue(task.deleted)
-        self.assertIsNotNone(task.deleted_at)
+        assert task.deleted
+        assert task.deleted_at is not None
 
     def test_hard_delete_blocked(self):
         task = Task.objects.create(
@@ -190,14 +191,14 @@ class TestTask(TestCase):
             origin_product=Task.OriginProduct.USER_CREATED,
         )
 
-        with self.assertRaises(Exception) as cm:
+        with pytest.raises(Exception) as cm:
             task.delete()
 
-        self.assertIn("Cannot hard delete Task", str(cm.exception))
-        self.assertIn("Use soft_delete() instead", str(cm.exception))
+        assert "Cannot hard delete Task" in str(cm.value)
+        assert "Use soft_delete() instead" in str(cm.value)
 
         task.refresh_from_db()
-        self.assertIsNotNone(task.id)
+        assert task.id is not None
 
 
 class TestTaskSlug(TestCase):
@@ -220,7 +221,7 @@ class TestTaskSlug(TestCase):
     )
     def test_generate_team_prefix(self, team_name, expected_prefix):
         result = Task.generate_team_prefix(team_name)
-        self.assertEqual(result, expected_prefix)
+        assert result == expected_prefix
 
     def test_task_number_auto_generation(self):
         task = Task.objects.create(
@@ -229,8 +230,8 @@ class TestTaskSlug(TestCase):
             description="Description",
             origin_product=Task.OriginProduct.USER_CREATED,
         )
-        self.assertIsNotNone(task.task_number)
-        self.assertEqual(task.task_number, 0)
+        assert task.task_number is not None
+        assert task.task_number == 0
 
     def test_task_number_sequential(self):
         task1 = Task.objects.create(
@@ -252,9 +253,9 @@ class TestTaskSlug(TestCase):
             origin_product=Task.OriginProduct.USER_CREATED,
         )
 
-        self.assertEqual(task1.task_number, 0)
-        self.assertEqual(task2.task_number, 1)
-        self.assertEqual(task3.task_number, 2)
+        assert task1.task_number == 0
+        assert task2.task_number == 1
+        assert task3.task_number == 2
 
     def test_slug_generation(self):
         task = Task.objects.create(
@@ -263,7 +264,7 @@ class TestTaskSlug(TestCase):
             description="Description",
             origin_product=Task.OriginProduct.USER_CREATED,
         )
-        self.assertEqual(task.slug, "TES-0")
+        assert task.slug == "TES-0"
 
     def test_slug_with_different_teams(self):
         other_team = Team.objects.create(organization=self.organization, name="JonathanLab")
@@ -281,8 +282,8 @@ class TestTaskSlug(TestCase):
             origin_product=Task.OriginProduct.USER_CREATED,
         )
 
-        self.assertEqual(task1.slug, "TES-0")
-        self.assertEqual(task2.slug, "JON-0")
+        assert task1.slug == "TES-0"
+        assert task2.slug == "JON-0"
 
 
 class TestTaskRun(TestCase):
@@ -310,9 +311,9 @@ class TestTaskRun(TestCase):
             team=self.team,
             status=status,
         )
-        self.assertEqual(run.task, self.task)
-        self.assertEqual(run.team, self.team)
-        self.assertEqual(run.status, status)
+        assert run.task == self.task
+        assert run.team == self.team
+        assert run.status == status
 
     def test_str_representation(self):
         run = TaskRun.objects.create(
@@ -320,7 +321,7 @@ class TestTaskRun(TestCase):
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
         )
-        self.assertEqual(str(run), "Run for Test Task - In Progress")
+        assert str(run) == "Run for Test Task - In Progress"
 
     def test_append_log_to_empty(self):
         run = TaskRun.objects.create(
@@ -337,9 +338,9 @@ class TestTaskRun(TestCase):
         assert log_content is not None
 
         log_entries = [json.loads(line) for line in log_content.strip().split("\n")]
-        self.assertEqual(len(log_entries), 1)
-        self.assertEqual(log_entries[0]["type"], "info")
-        self.assertEqual(log_entries[0]["message"], "First log entry")
+        assert len(log_entries) == 1
+        assert log_entries[0]["type"] == "info"
+        assert log_entries[0]["message"] == "First log entry"
 
     def test_append_log_multiple_entries(self):
         run = TaskRun.objects.create(
@@ -360,10 +361,10 @@ class TestTaskRun(TestCase):
         assert log_content is not None
 
         log_entries = [json.loads(line) for line in log_content.strip().split("\n")]
-        self.assertEqual(len(log_entries), 3)
-        self.assertEqual(log_entries[0]["type"], "info")
-        self.assertEqual(log_entries[1]["type"], "warning")
-        self.assertEqual(log_entries[2]["type"], "error")
+        assert len(log_entries) == 3
+        assert log_entries[0]["type"] == "info"
+        assert log_entries[1]["type"] == "warning"
+        assert log_entries[2]["type"] == "error"
 
     def test_append_log_to_existing(self):
         run = TaskRun.objects.create(
@@ -386,10 +387,10 @@ class TestTaskRun(TestCase):
         assert log_content is not None
 
         log_entries = [json.loads(line) for line in log_content.strip().split("\n")]
-        self.assertEqual(len(log_entries), 3)
-        self.assertEqual(log_entries[0]["message"], "First entry")
-        self.assertEqual(log_entries[1]["message"], "New entry 1")
-        self.assertEqual(log_entries[2]["message"], "New entry 2")
+        assert len(log_entries) == 3
+        assert log_entries[0]["message"] == "First entry"
+        assert log_entries[1]["message"] == "New entry 1"
+        assert log_entries[2]["message"] == "New entry 2"
 
     def test_log_file_tagged_with_ttl(self):
         run = TaskRun.objects.create(
@@ -401,7 +402,7 @@ class TestTaskRun(TestCase):
         run.append_log(entries)
         run.refresh_from_db()
 
-        self.assertIsNotNone(run.log_url)
+        assert run.log_url is not None
 
         # Verify S3 object has TTL tags
         from botocore.exceptions import ClientError
@@ -413,8 +414,8 @@ class TestTaskRun(TestCase):
             if isinstance(client, ObjectStorage):
                 response = client.aws_client.get_object_tagging(Bucket=settings.OBJECT_STORAGE_BUCKET, Key=run.log_url)
                 tags = {tag["Key"]: tag["Value"] for tag in response.get("TagSet", [])}
-                self.assertEqual(tags.get("ttl_days"), "30")
-                self.assertEqual(tags.get("team_id"), str(self.team.id))
+                assert tags.get("ttl_days") == "30"
+                assert tags.get("team_id") == str(self.team.id)
         except (ClientError, AttributeError):
             # Tagging might not be available in test environment
             pass
@@ -426,12 +427,12 @@ class TestTaskRun(TestCase):
             status=TaskRun.Status.IN_PROGRESS,
         )
 
-        self.assertIsNone(run.completed_at)
+        assert run.completed_at is None
         run.mark_completed()
 
         run.refresh_from_db()
-        self.assertEqual(run.status, TaskRun.Status.COMPLETED)
-        self.assertIsNotNone(run.completed_at)
+        assert run.status == TaskRun.Status.COMPLETED
+        assert run.completed_at is not None
 
     def test_mark_failed(self):
         run = TaskRun.objects.create(
@@ -444,9 +445,9 @@ class TestTaskRun(TestCase):
         run.mark_failed(error_msg)
 
         run.refresh_from_db()
-        self.assertEqual(run.status, TaskRun.Status.FAILED)
-        self.assertEqual(run.error_message, error_msg)
-        self.assertIsNotNone(run.completed_at)
+        assert run.status == TaskRun.Status.FAILED
+        assert run.error_message == error_msg
+        assert run.completed_at is not None
 
     def test_output_jsonfield(self):
         run = TaskRun.objects.create(
@@ -457,14 +458,14 @@ class TestTaskRun(TestCase):
 
         run.refresh_from_db()
         assert run.output is not None
-        self.assertEqual(run.output["pr_url"], "https://github.com/org/repo/pull/123")
-        self.assertEqual(run.output["commit_sha"], "abc123")
+        assert run.output["pr_url"] == "https://github.com/org/repo/pull/123"
+        assert run.output["commit_sha"] == "abc123"
 
         run.output["status"] = "success"
         run.save()
         run.refresh_from_db()
         assert run.output is not None
-        self.assertEqual(run.output["status"], "success")
+        assert run.output["status"] == "success"
 
     def test_state_jsonfield(self):
         run = TaskRun.objects.create(
@@ -474,13 +475,13 @@ class TestTaskRun(TestCase):
         )
 
         run.refresh_from_db()
-        self.assertEqual(run.state["last_checkpoint"], "step_3")
-        self.assertEqual(run.state["variables"]["x"], 1)
+        assert run.state["last_checkpoint"] == "step_3"
+        assert run.state["variables"]["x"] == 1
 
         run.state["completed_checkpoints"] = ["step_1", "step_2", "step_3"]
         run.save()
         run.refresh_from_db()
-        self.assertEqual(len(run.state["completed_checkpoints"]), 3)
+        assert len(run.state["completed_checkpoints"]) == 3
 
     def test_delete_blocked(self):
         run = TaskRun.objects.create(
@@ -488,14 +489,14 @@ class TestTaskRun(TestCase):
             team=self.team,
         )
 
-        with self.assertRaises(Exception) as cm:
+        with pytest.raises(Exception) as cm:
             run.delete()
 
-        self.assertIn("Cannot delete TaskRun", str(cm.exception))
-        self.assertIn("immutable", str(cm.exception))
+        assert "Cannot delete TaskRun" in str(cm.value)
+        assert "immutable" in str(cm.value)
 
         run.refresh_from_db()
-        self.assertIsNotNone(run.id)
+        assert run.id is not None
 
     def test_emit_console_event_acp_format(self):
         run = TaskRun.objects.create(
@@ -509,13 +510,13 @@ class TestTaskRun(TestCase):
         assert log_content is not None
         entry = json.loads(log_content.strip())
 
-        self.assertEqual(entry["type"], "notification")
-        self.assertIn("timestamp", entry)
-        self.assertEqual(entry["notification"]["jsonrpc"], "2.0")
-        self.assertEqual(entry["notification"]["method"], "_posthog/console")
-        self.assertEqual(entry["notification"]["params"]["sessionId"], str(run.id))
-        self.assertEqual(entry["notification"]["params"]["level"], "info")
-        self.assertEqual(entry["notification"]["params"]["message"], "Test message")
+        assert entry["type"] == "notification"
+        assert "timestamp" in entry
+        assert entry["notification"]["jsonrpc"] == "2.0"
+        assert entry["notification"]["method"] == "_posthog/console"
+        assert entry["notification"]["params"]["sessionId"] == str(run.id)
+        assert entry["notification"]["params"]["level"] == "info"
+        assert entry["notification"]["params"]["message"] == "Test message"
 
     @parameterized.expand(
         [
@@ -536,14 +537,14 @@ class TestTaskRun(TestCase):
         assert log_content is not None
         entry = json.loads(log_content.strip())
 
-        self.assertEqual(entry["type"], "notification")
-        self.assertIn("timestamp", entry)
-        self.assertEqual(entry["notification"]["jsonrpc"], "2.0")
-        self.assertEqual(entry["notification"]["method"], "_posthog/sandbox_output")
-        self.assertEqual(entry["notification"]["params"]["sessionId"], str(run.id))
-        self.assertEqual(entry["notification"]["params"]["stdout"], stdout)
-        self.assertEqual(entry["notification"]["params"]["stderr"], stderr)
-        self.assertEqual(entry["notification"]["params"]["exitCode"], exit_code)
+        assert entry["type"] == "notification"
+        assert "timestamp" in entry
+        assert entry["notification"]["jsonrpc"] == "2.0"
+        assert entry["notification"]["method"] == "_posthog/sandbox_output"
+        assert entry["notification"]["params"]["sessionId"] == str(run.id)
+        assert entry["notification"]["params"]["stdout"] == stdout
+        assert entry["notification"]["params"]["stderr"] == stderr
+        assert entry["notification"]["params"]["exitCode"] == exit_code
 
 
 class TestSandboxSnapshot(TestCase):
@@ -567,16 +568,16 @@ class TestSandboxSnapshot(TestCase):
             repos=["PostHog/posthog", "PostHog/posthog-js"],
             status=status,
         )
-        self.assertEqual(snapshot.integration, self.integration)
-        self.assertEqual(snapshot.external_id, external_id)
-        self.assertEqual(snapshot.repos, ["PostHog/posthog", "PostHog/posthog-js"])
-        self.assertEqual(snapshot.status, status)
+        assert snapshot.integration == self.integration
+        assert snapshot.external_id == external_id
+        assert snapshot.repos == ["PostHog/posthog", "PostHog/posthog-js"]
+        assert snapshot.status == status
 
     def test_snapshot_default_values(self):
         snapshot = SandboxSnapshot.objects.create(integration=self.integration)
-        self.assertEqual(snapshot.repos, [])
-        self.assertEqual(snapshot.metadata, {})
-        self.assertEqual(snapshot.status, SandboxSnapshot.Status.IN_PROGRESS)
+        assert snapshot.repos == []
+        assert snapshot.metadata == {}
+        assert snapshot.status == SandboxSnapshot.Status.IN_PROGRESS
 
     def test_str_representation(self):
         snapshot = SandboxSnapshot.objects.create(
@@ -585,7 +586,7 @@ class TestSandboxSnapshot(TestCase):
             repos=["PostHog/posthog", "PostHog/posthog-js"],
             status=SandboxSnapshot.Status.COMPLETE,
         )
-        self.assertEqual(str(snapshot), f"Snapshot {snapshot.external_id} (Complete, 2 repos)")
+        assert str(snapshot) == f"Snapshot {snapshot.external_id} (Complete, 2 repos)"
 
     def test_is_complete(self):
         snapshot = SandboxSnapshot.objects.create(
@@ -593,11 +594,11 @@ class TestSandboxSnapshot(TestCase):
             status=SandboxSnapshot.Status.IN_PROGRESS,
             external_id=f"snapshot-{uuid.uuid4()}",
         )
-        self.assertFalse(snapshot.is_complete())
+        assert not snapshot.is_complete()
 
         snapshot.status = SandboxSnapshot.Status.COMPLETE
         snapshot.save()
-        self.assertTrue(snapshot.is_complete())
+        assert snapshot.is_complete()
 
     @parameterized.expand(
         [
@@ -610,7 +611,7 @@ class TestSandboxSnapshot(TestCase):
         snapshot = SandboxSnapshot.objects.create(
             integration=self.integration, repos=repos, external_id=f"snapshot-{uuid.uuid4()}"
         )
-        self.assertEqual(snapshot.has_repo(check_repo), expected)
+        assert snapshot.has_repo(check_repo) == expected
 
     @parameterized.expand(
         [
@@ -624,22 +625,22 @@ class TestSandboxSnapshot(TestCase):
         snapshot = SandboxSnapshot.objects.create(
             integration=self.integration, repos=snapshot_repos, external_id=f"snapshot-{uuid.uuid4()}"
         )
-        self.assertEqual(snapshot.has_repos(required_repos), expected)
+        assert snapshot.has_repos(required_repos) == expected
 
     def test_update_status_to_complete(self):
         snapshot = SandboxSnapshot.objects.create(integration=self.integration, external_id=f"snapshot-{uuid.uuid4()}")
-        self.assertEqual(snapshot.status, SandboxSnapshot.Status.IN_PROGRESS)
+        assert snapshot.status == SandboxSnapshot.Status.IN_PROGRESS
 
         snapshot.update_status(SandboxSnapshot.Status.COMPLETE)
         snapshot.refresh_from_db()
-        self.assertEqual(snapshot.status, SandboxSnapshot.Status.COMPLETE)
+        assert snapshot.status == SandboxSnapshot.Status.COMPLETE
 
     def test_update_status_to_error(self):
         snapshot = SandboxSnapshot.objects.create(integration=self.integration, external_id=f"snapshot-{uuid.uuid4()}")
 
         snapshot.update_status(SandboxSnapshot.Status.ERROR)
         snapshot.refresh_from_db()
-        self.assertEqual(snapshot.status, SandboxSnapshot.Status.ERROR)
+        assert snapshot.status == SandboxSnapshot.Status.ERROR
 
     @parameterized.expand(
         [
@@ -652,7 +653,7 @@ class TestSandboxSnapshot(TestCase):
         snapshot = SandboxSnapshot.objects.create(
             integration=self.integration, repos=repos, external_id=f"snapshot-{uuid.uuid4()}"
         )
-        self.assertEqual(snapshot.has_repo(check_repo), expected)
+        assert snapshot.has_repo(check_repo) == expected
 
     @parameterized.expand(
         [
@@ -664,7 +665,7 @@ class TestSandboxSnapshot(TestCase):
         snapshot = SandboxSnapshot.objects.create(
             integration=self.integration, repos=snapshot_repos, external_id=f"snapshot-{uuid.uuid4()}"
         )
-        self.assertEqual(snapshot.has_repos(required_repos), expected)
+        assert snapshot.has_repos(required_repos) == expected
 
     def test_get_latest_snapshot_for_integration(self):
         SandboxSnapshot.objects.create(
@@ -675,7 +676,7 @@ class TestSandboxSnapshot(TestCase):
         )
 
         latest = SandboxSnapshot.get_latest_snapshot_for_integration(self.integration.id)
-        self.assertEqual(latest, snapshot2)
+        assert latest == snapshot2
 
     def test_get_latest_snapshot_for_integration_ignores_in_progress(self):
         SandboxSnapshot.objects.create(
@@ -689,7 +690,7 @@ class TestSandboxSnapshot(TestCase):
 
         latest = SandboxSnapshot.get_latest_snapshot_for_integration(self.integration.id)
         assert latest is not None
-        self.assertEqual(latest.status, SandboxSnapshot.Status.COMPLETE)
+        assert latest.status == SandboxSnapshot.Status.COMPLETE
 
     def test_get_latest_snapshot_for_integration_ignores_error(self):
         SandboxSnapshot.objects.create(
@@ -705,11 +706,11 @@ class TestSandboxSnapshot(TestCase):
 
         latest = SandboxSnapshot.get_latest_snapshot_for_integration(self.integration.id)
         assert latest is not None
-        self.assertEqual(latest.status, SandboxSnapshot.Status.COMPLETE)
+        assert latest.status == SandboxSnapshot.Status.COMPLETE
 
     def test_get_latest_snapshot_for_integration_none(self):
         latest = SandboxSnapshot.get_latest_snapshot_for_integration(self.integration.id)
-        self.assertIsNone(latest)
+        assert latest is None
 
     def test_get_latest_snapshot_with_repos(self):
         SandboxSnapshot.objects.create(
@@ -726,12 +727,12 @@ class TestSandboxSnapshot(TestCase):
         )
 
         result = SandboxSnapshot.get_latest_snapshot_with_repos(self.integration.id, ["PostHog/posthog"])
-        self.assertEqual(result, snapshot2)
+        assert result == snapshot2
 
         result = SandboxSnapshot.get_latest_snapshot_with_repos(
             self.integration.id, ["PostHog/posthog", "PostHog/posthog-js"]
         )
-        self.assertEqual(result, snapshot2)
+        assert result == snapshot2
 
     def test_get_latest_snapshot_with_repos_not_found(self):
         SandboxSnapshot.objects.create(
@@ -744,7 +745,7 @@ class TestSandboxSnapshot(TestCase):
         result = SandboxSnapshot.get_latest_snapshot_with_repos(
             self.integration.id, ["PostHog/posthog", "PostHog/other"]
         )
-        self.assertIsNone(result)
+        assert result is None
 
     def test_get_latest_snapshot_with_repos_ignores_in_progress(self):
         SandboxSnapshot.objects.create(
@@ -763,7 +764,7 @@ class TestSandboxSnapshot(TestCase):
         result = SandboxSnapshot.get_latest_snapshot_with_repos(
             self.integration.id, ["PostHog/posthog", "PostHog/posthog-js"]
         )
-        self.assertIsNone(result)
+        assert result is None
 
     def test_multiple_snapshots_per_integration(self):
         snapshot1 = SandboxSnapshot.objects.create(integration=self.integration, external_id=f"snapshot-{uuid.uuid4()}")
@@ -771,27 +772,27 @@ class TestSandboxSnapshot(TestCase):
         snapshot3 = SandboxSnapshot.objects.create(integration=self.integration, external_id=f"snapshot-{uuid.uuid4()}")
 
         snapshots = SandboxSnapshot.objects.filter(integration=self.integration)
-        self.assertEqual(snapshots.count(), 3)
-        self.assertIn(snapshot1, snapshots)
-        self.assertIn(snapshot2, snapshots)
-        self.assertIn(snapshot3, snapshots)
+        assert snapshots.count() == 3
+        assert snapshot1 in snapshots
+        assert snapshot2 in snapshots
+        assert snapshot3 in snapshots
 
     def test_set_null_on_integration_delete(self):
         SandboxSnapshot.objects.create(integration=self.integration, external_id=f"snapshot-{uuid.uuid4()}")
         SandboxSnapshot.objects.create(integration=self.integration, external_id=f"snapshot-{uuid.uuid4()}")
 
-        self.assertEqual(SandboxSnapshot.objects.filter(integration=self.integration).count(), 2)
+        assert SandboxSnapshot.objects.filter(integration=self.integration).count() == 2
 
         self.integration.delete()
 
-        self.assertEqual(SandboxSnapshot.objects.filter(integration__isnull=True).count(), 2)
+        assert SandboxSnapshot.objects.filter(integration__isnull=True).count() == 2
 
     def test_delete_without_external_id_succeeds(self):
         snapshot = SandboxSnapshot.objects.create(integration=self.integration)
 
         snapshot.delete()
 
-        self.assertEqual(SandboxSnapshot.objects.filter(id=snapshot.id).count(), 0)
+        assert SandboxSnapshot.objects.filter(id=snapshot.id).count() == 0
 
 
 class TestSandboxEnvironment(TestCase):
@@ -806,12 +807,12 @@ class TestSandboxEnvironment(TestCase):
             created_by=self.user,
             name="Test Environment",
         )
-        self.assertEqual(env.network_access_level, SandboxEnvironment.NetworkAccessLevel.FULL)
-        self.assertEqual(env.allowed_domains, [])
-        self.assertFalse(env.include_default_domains)
-        self.assertEqual(env.repositories, [])
-        self.assertTrue(env.private)
-        self.assertEqual(env.environment_variables, {})
+        assert env.network_access_level == SandboxEnvironment.NetworkAccessLevel.FULL
+        assert env.allowed_domains == []
+        assert not env.include_default_domains
+        assert env.repositories == []
+        assert env.private
+        assert env.environment_variables == {}
 
     def test_environment_variables_encrypted_roundtrip(self):
         env = SandboxEnvironment.objects.create(
@@ -825,8 +826,8 @@ class TestSandboxEnvironment(TestCase):
         )
 
         env.refresh_from_db()
-        self.assertEqual(env.environment_variables["API_KEY"], "sk-live-123456")
-        self.assertEqual(env.environment_variables["SECRET_TOKEN"], "super-secret-token")
+        assert env.environment_variables["API_KEY"] == "sk-live-123456"
+        assert env.environment_variables["SECRET_TOKEN"] == "super-secret-token"
 
     def test_environment_variables_stored_encrypted(self):
         secret_value = "my-super-secret-api-key-12345"
@@ -846,7 +847,7 @@ class TestSandboxEnvironment(TestCase):
             )
             raw_value = cursor.fetchone()[0]
 
-        self.assertNotIn(secret_value, raw_value)
+        assert secret_value not in raw_value
 
     def test_created_by_set_null_on_user_delete(self):
         env = SandboxEnvironment.objects.create(
@@ -857,7 +858,7 @@ class TestSandboxEnvironment(TestCase):
 
         self.user.delete()
         env.refresh_from_db()
-        self.assertIsNone(env.created_by)
+        assert env.created_by is None
 
     def test_cascade_delete_on_team_delete(self):
         env = SandboxEnvironment.objects.create(
@@ -868,7 +869,7 @@ class TestSandboxEnvironment(TestCase):
         env_id = env.id
 
         self.team.delete()
-        self.assertEqual(SandboxEnvironment.objects.filter(id=env_id).count(), 0)
+        assert SandboxEnvironment.objects.filter(id=env_id).count() == 0
 
     @parameterized.expand(
         [
@@ -881,7 +882,7 @@ class TestSandboxEnvironment(TestCase):
         ]
     )
     def test_is_valid_env_var_key(self, key, expected_valid):
-        self.assertEqual(SandboxEnvironment.is_valid_env_var_key(key), expected_valid)
+        assert SandboxEnvironment.is_valid_env_var_key(key) == expected_valid
 
     @parameterized.expand(
         [
@@ -902,4 +903,4 @@ class TestSandboxEnvironment(TestCase):
         )
         domains = env.get_effective_domains()
         for expected in expected_contains:
-            self.assertIn(expected, domains)
+            assert expected in domains

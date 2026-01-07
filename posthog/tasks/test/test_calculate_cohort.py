@@ -48,7 +48,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             calculate_cohort_from_list(cohort_id, ["blabla"], team_id=self.team.id, id_type="distinct_id")
             cohort = Cohort.objects.get(pk=cohort_id)
             people = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-            self.assertEqual(people.count(), 1)
+            assert people.count() == 1
 
         @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
         def test_create_trends_cohort(self, _calculate_cohort_from_list: MagicMock) -> None:
@@ -80,7 +80,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             calculate_cohort_from_list(cohort_id, ["blabla"], team_id=self.team.id, id_type="distinct_id")
             cohort = Cohort.objects.get(pk=cohort_id)
             people = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-            self.assertEqual(people.count(), 1)
+            assert people.count() == 1
 
         def test_calculate_cohort_from_list_with_person_id_type(self) -> None:
             """Test that calculate_cohort_from_list works correctly with person UUIDs"""
@@ -97,12 +97,12 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             # Verify persons were added to cohort
             cohort.refresh_from_db()
             people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-            self.assertEqual(people_in_cohort.count(), 2)
+            assert people_in_cohort.count() == 2
 
             # Verify specific persons are in the cohort
             person_uuids_in_cohort = {str(p.uuid) for p in people_in_cohort}
-            self.assertIn(str(person1.uuid), person_uuids_in_cohort)
-            self.assertIn(str(person2.uuid), person_uuids_in_cohort)
+            assert str(person1.uuid) in person_uuids_in_cohort
+            assert str(person2.uuid) in person_uuids_in_cohort
 
         def test_calculate_cohort_from_list_with_distinct_id_type(self) -> None:
             """Test that calculate_cohort_from_list works correctly with distinct IDs"""
@@ -117,12 +117,12 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             # Verify persons were added to cohort
             cohort.refresh_from_db()
             people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-            self.assertEqual(people_in_cohort.count(), 2)
+            assert people_in_cohort.count() == 2
 
             # Verify specific persons are in the cohort
             person_uuids_in_cohort = {str(p.uuid) for p in people_in_cohort}
-            self.assertIn(str(person1.uuid), person_uuids_in_cohort)
-            self.assertIn(str(person2.uuid), person_uuids_in_cohort)
+            assert str(person1.uuid) in person_uuids_in_cohort
+            assert str(person2.uuid) in person_uuids_in_cohort
 
         @patch("posthog.tasks.calculate_cohort.increment_version_and_enqueue_calculate_cohort")
         def test_exponential_backoff(self, patch_increment_version_and_enqueue_calculate_cohort: MagicMock) -> None:
@@ -146,7 +146,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
                 team_id=self.team.pk,
             )
             enqueue_cohorts_to_calculate(5)
-            self.assertEqual(patch_increment_version_and_enqueue_calculate_cohort.call_count, 2)
+            assert patch_increment_version_and_enqueue_calculate_cohort.call_count == 2
 
         @patch.object(COHORTS_STALE_COUNT_GAUGE, "labels")
         def test_update_stale_cohort_metrics(self, mock_labels: MagicMock) -> None:
@@ -244,11 +244,11 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             mock_labels.assert_any_call(hours="48")
 
             set_calls = mock_gauge.set.call_args_list
-            self.assertEqual(len(set_calls), 3)
+            assert len(set_calls) == 3
 
-            self.assertEqual(set_calls[0][0][0], 3)  # 24h: stale_24h, stale_36h, stale_48h
-            self.assertEqual(set_calls[1][0][0], 2)  # 36h: stale_36h, stale_48h
-            self.assertEqual(set_calls[2][0][0], 1)  # 48h: stale_48h
+            assert set_calls[0][0][0] == 3  # 24h: stale_24h, stale_36h, stale_48h
+            assert set_calls[1][0][0] == 2  # 36h: stale_36h, stale_48h
+            assert set_calls[2][0][0] == 1  # 48h: stale_48h
 
         @patch.object(COHORT_STUCK_COUNT_GAUGE, "set")
         def test_stuck_cohort_metrics(self, mock_set: MagicMock) -> None:
@@ -386,8 +386,8 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             # Verify that stuck cohorts were reset
             stuck_cohort_1.refresh_from_db()
             stuck_cohort_2.refresh_from_db()
-            self.assertFalse(stuck_cohort_1.is_calculating)
-            self.assertFalse(stuck_cohort_2.is_calculating)
+            assert not stuck_cohort_1.is_calculating
+            assert not stuck_cohort_2.is_calculating
 
             # Verify that non-stuck cohorts were NOT reset
             not_stuck_cohort.refresh_from_db()
@@ -396,18 +396,18 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             null_last_calc_cohort.refresh_from_db()
             not_calculating_cohort.refresh_from_db()
 
-            self.assertTrue(not_stuck_cohort.is_calculating)  # Should still be calculating
-            self.assertTrue(static_cohort.is_calculating)  # Should still be calculating
-            self.assertTrue(deleted_cohort.is_calculating)  # Should still be calculating
-            self.assertTrue(null_last_calc_cohort.is_calculating)  # Should still be calculating
-            self.assertFalse(not_calculating_cohort.is_calculating)  # Should remain not calculating
+            assert not_stuck_cohort.is_calculating  # Should still be calculating
+            assert static_cohort.is_calculating  # Should still be calculating
+            assert deleted_cohort.is_calculating  # Should still be calculating
+            assert null_last_calc_cohort.is_calculating  # Should still be calculating
+            assert not not_calculating_cohort.is_calculating  # Should remain not calculating
 
             # Verify logging
             mock_logger.warning.assert_called_once()
             args, kwargs = mock_logger.warning.call_args
-            self.assertEqual(args[0], "reset_stuck_cohorts")
-            self.assertEqual(set(kwargs["cohort_ids"]), {stuck_cohort_1.pk, stuck_cohort_2.pk})
-            self.assertEqual(kwargs["count"], 2)
+            assert args[0] == "reset_stuck_cohorts"
+            assert set(kwargs["cohort_ids"]) == {stuck_cohort_1.pk, stuck_cohort_2.pk}
+            assert kwargs["count"] == 2
 
         @patch("posthog.tasks.calculate_cohort.logger")
         def test_reset_stuck_cohorts_respects_limit(self, mock_logger: MagicMock) -> None:
@@ -436,14 +436,14 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
                 if not cohort.is_calculating:
                     reset_count += 1
 
-            self.assertEqual(reset_count, MAX_STUCK_COHORTS_TO_RESET)
+            assert reset_count == MAX_STUCK_COHORTS_TO_RESET
 
             # Verify logging
             mock_logger.warning.assert_called_once()
             args, kwargs = mock_logger.warning.call_args
-            self.assertEqual(args[0], "reset_stuck_cohorts")
-            self.assertEqual(len(kwargs["cohort_ids"]), MAX_STUCK_COHORTS_TO_RESET)
-            self.assertEqual(kwargs["count"], MAX_STUCK_COHORTS_TO_RESET)
+            assert args[0] == "reset_stuck_cohorts"
+            assert len(kwargs["cohort_ids"]) == MAX_STUCK_COHORTS_TO_RESET
+            assert kwargs["count"] == MAX_STUCK_COHORTS_TO_RESET
 
         @patch("posthog.tasks.calculate_cohort.increment_version_and_enqueue_calculate_cohort")
         @patch("posthog.tasks.calculate_cohort.logger")
@@ -471,7 +471,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
 
             enqueue_cohorts_to_calculate(2)
 
-            self.assertEqual(mock_logger.warning.call_count, 1)
+            assert mock_logger.warning.call_count == 1
             args, kwargs = mock_logger.warning.call_args
             assert args[0] == "enqueued_cohort_calculation"
             assert set(kwargs["cohort_ids"]) == {cohort1.pk, cohort2.pk}
@@ -553,22 +553,22 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             cohort_c.refresh_from_db()
             cohort_d.refresh_from_db()
 
-            self.assertEqual(cohort_a.pending_version, 1)
-            self.assertEqual(cohort_b.pending_version, 1)
-            self.assertEqual(cohort_c.pending_version, 1)
-            self.assertEqual(cohort_d.pending_version, 1)
-            self.assertTrue(cohort_a.is_calculating)
-            self.assertTrue(cohort_b.is_calculating)
-            self.assertTrue(cohort_c.is_calculating)
-            self.assertTrue(cohort_d.is_calculating)
+            assert cohort_a.pending_version == 1
+            assert cohort_b.pending_version == 1
+            assert cohort_c.pending_version == 1
+            assert cohort_d.pending_version == 1
+            assert cohort_a.is_calculating
+            assert cohort_b.is_calculating
+            assert cohort_c.is_calculating
+            assert cohort_d.is_calculating
 
-            self.assertEqual(mock_calculate_cohort_ch_si.call_count, 4)
+            assert mock_calculate_cohort_ch_si.call_count == 4
 
             # Extract the actual call order and verify dependency constraints are satisfied
             actual_calls = mock_calculate_cohort_ch_si.call_args_list
             actual_cohort_order = [call[0][0] for call in actual_calls]  # Extract cohort IDs
 
-            self.assertEqual(set(actual_cohort_order), {cohort_a.id, cohort_b.id, cohort_c.id, cohort_d.id})
+            assert set(actual_cohort_order) == {cohort_a.id, cohort_b.id, cohort_c.id, cohort_d.id}
 
             # Verify dependency constraints:
             # Both A and B (leaf nodes) must come before C
@@ -577,9 +577,9 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             c_index = actual_cohort_order.index(cohort_c.id)
             d_index = actual_cohort_order.index(cohort_d.id)
 
-            self.assertLess(a_index, c_index, "Cohort A must be processed before C (dependency)")
-            self.assertLess(b_index, c_index, "Cohort B must be processed before C (dependency)")
-            self.assertLess(c_index, d_index, "Cohort C must be processed before D (dependency)")
+            assert a_index < c_index, "Cohort A must be processed before C (dependency)"
+            assert b_index < c_index, "Cohort B must be processed before C (dependency)"
+            assert c_index < d_index, "Cohort C must be processed before D (dependency)"
 
             mock_chain.assert_called_once_with(mock_task, mock_task, mock_task, mock_task)
             mock_chain_instance.apply_async.assert_called_once()
@@ -629,22 +629,20 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             # Verify the cohort was still processed despite missing dependency
             cohort_with_missing_dependency.refresh_from_db()
             cohort_a.refresh_from_db()
-            self.assertEqual(cohort_with_missing_dependency.pending_version, 1)
-            self.assertEqual(cohort_a.pending_version, 1)
-            self.assertTrue(cohort_with_missing_dependency.is_calculating)
-            self.assertTrue(cohort_a.is_calculating)
+            assert cohort_with_missing_dependency.pending_version == 1
+            assert cohort_a.pending_version == 1
+            assert cohort_with_missing_dependency.is_calculating
+            assert cohort_a.is_calculating
 
-            self.assertEqual(mock_calculate_cohort_ch_si.call_count, 2)
+            assert mock_calculate_cohort_ch_si.call_count == 2
 
             # Extract the actual call order and verify dependency cohort comes first
             actual_calls = mock_calculate_cohort_ch_si.call_args_list
             actual_cohort_order = [call[0][0] for call in actual_calls]  # Extract cohort IDs
             expected_cohort_order = [cohort_a.id, cohort_with_missing_dependency.id]
 
-            self.assertEqual(
-                actual_cohort_order,
-                expected_cohort_order,
-                "Dependency cohort A should be processed before cohort with missing dependency",
+            assert actual_cohort_order == expected_cohort_order, (
+                "Dependency cohort A should be processed before cohort with missing dependency"
             )
 
             mock_chain.assert_called_once_with(mock_task, mock_task)
@@ -687,24 +685,22 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             static_cohort_a.refresh_from_db()
             dynamic_cohort.refresh_from_db()
 
-            self.assertEqual(static_cohort_a.pending_version, None)
-            self.assertFalse(static_cohort_a.is_calculating)
+            assert static_cohort_a.pending_version is None
+            assert not static_cohort_a.is_calculating
 
-            self.assertEqual(dynamic_cohort.pending_version, 1)
-            self.assertTrue(dynamic_cohort.is_calculating)
+            assert dynamic_cohort.pending_version == 1
+            assert dynamic_cohort.is_calculating
 
             # Only one task should be created (for the dynamic cohort)
-            self.assertEqual(mock_calculate_cohort_ch_si.call_count, 1)
+            assert mock_calculate_cohort_ch_si.call_count == 1
 
             # Verify the dynamic cohort was called
             actual_calls = mock_calculate_cohort_ch_si.call_args_list
             actual_cohort_order = [call[0][0] for call in actual_calls]
             expected_cohort_order = [dynamic_cohort.id]
 
-            self.assertEqual(
-                actual_cohort_order,
-                expected_cohort_order,
-                "Only the dynamic cohort should be processed, static dependencies are skipped",
+            assert actual_cohort_order == expected_cohort_order, (
+                "Only the dynamic cohort should be processed, static dependencies are skipped"
             )
 
             mock_chain.assert_called_once_with(mock_task)
@@ -782,20 +778,20 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             cohort_b.refresh_from_db()
             cohort_c.refresh_from_db()
 
-            self.assertEqual(cohort_a.pending_version, 1)
-            self.assertEqual(cohort_b.pending_version, 1)
-            self.assertEqual(cohort_c.pending_version, 1)
-            self.assertTrue(cohort_a.is_calculating)
-            self.assertTrue(cohort_b.is_calculating)
-            self.assertTrue(cohort_c.is_calculating)
+            assert cohort_a.pending_version == 1
+            assert cohort_b.pending_version == 1
+            assert cohort_c.pending_version == 1
+            assert cohort_a.is_calculating
+            assert cohort_b.is_calculating
+            assert cohort_c.is_calculating
 
-            self.assertEqual(mock_calculate_cohort_ch_si.call_count, 3)
+            assert mock_calculate_cohort_ch_si.call_count == 3
 
             actual_calls = mock_calculate_cohort_ch_si.call_args_list
             actual_cohort_order = [call[0][0] for call in actual_calls]
 
-            self.assertEqual(len(actual_cohort_order), 3)
-            self.assertEqual(len(set(actual_cohort_order)), 3)
+            assert len(actual_cohort_order) == 3
+            assert len(set(actual_cohort_order)) == 3
 
             mock_chain.assert_called_once_with(mock_task, mock_task, mock_task)
             mock_chain_instance.apply_async.assert_called_once()
@@ -818,8 +814,8 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
                 cohort._safe_save_cohort_state(team_id=self.team.pk, processing_error=None)
 
             # Verify cohort state is still set correctly in memory even though save failed
-            self.assertFalse(cohort.is_calculating)
-            self.assertEqual(cohort.errors_calculating, 0)  # Should be reset for successful processing
+            assert not cohort.is_calculating
+            assert cohort.errors_calculating == 0  # Should be reset for successful processing
 
         def test_insert_cohort_from_query_count_updated_on_exception(self) -> None:
             """Test that insert_cohort_from_query updates count even when processing fails"""
@@ -850,11 +846,9 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
 
                 # Verify count was updated despite processing errors (should be 0 since no people were inserted due to mocked failures)
                 cohort.refresh_from_db()
-                self.assertEqual(
-                    cohort.count, 0, "Count should be updated using PostgreSQL even when query processing fails"
-                )
-                self.assertFalse(cohort.is_calculating, "Cohort should not be in calculating state")
-                self.assertGreater(cohort.errors_calculating, 0, "Should have recorded the processing error")
+                assert cohort.count == 0, "Count should be updated using PostgreSQL even when query processing fails"
+                assert not cohort.is_calculating, "Cohort should not be in calculating state"
+                assert cohort.errors_calculating > 0, "Should have recorded the processing error"
 
         @patch("posthog.tasks.calculate_cohort.chain")
         @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.si")
@@ -912,13 +906,13 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             increment_version_and_enqueue_calculate_cohort(cohort_a, initiating_user=None)
 
             # Should call calculate_cohort_ch.si for all 3 cohorts (A, B, C)
-            self.assertEqual(mock_calculate_cohort_ch_si.call_count, 3)
+            assert mock_calculate_cohort_ch_si.call_count == 3
 
             # Verify all cohorts are included
             actual_calls = mock_calculate_cohort_ch_si.call_args_list
             actual_cohort_ids = {call[0][0] for call in actual_calls}
             expected_cohort_ids = {cohort_a.id, cohort_b.id, cohort_c.id}
-            self.assertEqual(actual_cohort_ids, expected_cohort_ids)
+            assert actual_cohort_ids == expected_cohort_ids
 
             mock_chain.assert_called_once()
             mock_chain_instance.apply_async.assert_called_once()

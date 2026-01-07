@@ -12,25 +12,25 @@ class TestSurveyResponseFunctions(TestCase):
     def test_build_id_based_key_with_question_id(self):
         """Test building an ID-based key when a question ID is provided"""
         key = _build_id_based_key(0, "question123")
-        self.assertEqual(key, "'$survey_response_question123'")
+        assert key == "'$survey_response_question123'"
 
     def test_build_id_based_key_without_question_id(self):
         """Test building an ID-based key when no question ID is provided"""
         key = _build_id_based_key(2, None)
-        self.assertEqual(
-            key,
-            "CONCAT('$survey_response_', JSONExtractString(JSONExtractArrayRaw(properties, '$survey_questions')[3], 'id'))",
+        assert (
+            key
+            == "CONCAT('$survey_response_', JSONExtractString(JSONExtractArrayRaw(properties, '$survey_questions')[3], 'id'))"
         )
 
     def test_build_index_based_key_for_first_question(self):
         """Test building an index-based key for the first question"""
         key = _build_index_based_key(0)
-        self.assertEqual(key, "$survey_response")
+        assert key == "$survey_response"
 
     def test_build_index_based_key_for_other_questions(self):
         """Test building an index-based key for non-first questions"""
         key = _build_index_based_key(3)
-        self.assertEqual(key, "$survey_response_3")
+        assert key == "$survey_response_3"
 
     def test_build_coalesce_query(self):
         """Test building the final coalesce query"""
@@ -39,7 +39,7 @@ class TestSurveyResponseFunctions(TestCase):
         NULLIF(JSONExtractString(properties, '$survey_response_abc123'), ''),
         NULLIF(JSONExtractString(properties, '$survey_response_2'), '')
     )"""
-        self.assertEqual(query, expected)
+        assert query == expected
 
     def test_get_survey_response_clickhouse_query_with_question_id(self):
         """Test the full query generation with a specific question ID"""
@@ -48,7 +48,7 @@ class TestSurveyResponseFunctions(TestCase):
         NULLIF(JSONExtractString(properties, '$survey_response_abc123'), ''),
         NULLIF(JSONExtractString(properties, '$survey_response_1'), '')
     )"""
-        self.assertEqual(query, expected)
+        assert query == expected
 
     def test_get_survey_response_clickhouse_query_without_question_id(self):
         """Test the full query generation with just a question index"""
@@ -57,7 +57,7 @@ class TestSurveyResponseFunctions(TestCase):
         NULLIF(JSONExtractString(properties, CONCAT('$survey_response_', JSONExtractString(JSONExtractArrayRaw(properties, '$survey_questions')[1], 'id'))), ''),
         NULLIF(JSONExtractString(properties, '$survey_response'), '')
     )"""
-        self.assertEqual(query, expected)
+        assert query == expected
 
     def test_get_survey_response_clickhouse_query_multiple_choice(self):
         """Test the full query generation with a multiple choice question"""
@@ -67,4 +67,4 @@ class TestSurveyResponseFunctions(TestCase):
         JSONExtractArrayRaw(properties, '$survey_response_abc123'),
         JSONExtractArrayRaw(properties, '$survey_response_1')
     )"""
-        self.assertEqual(query, expected)
+        assert query == expected

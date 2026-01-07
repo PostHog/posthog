@@ -1,5 +1,6 @@
 import datetime
 
+import pytest
 from posthog.test.base import APIBaseTest
 
 from django.core.exceptions import ValidationError
@@ -30,7 +31,7 @@ class TestDashboardTileModel(APIBaseTest):
         insight = Insight.objects.create(team=self.team, short_id="123456", name="My Test subscription")
         text = Text.objects.create(team=self.team, body="I am a text")
 
-        with self.assertRaises(IntegrityError):
+        with pytest.raises(IntegrityError):
             DashboardTile.objects.create(dashboard=self.dashboard, insight=insight, text=text)
 
     def test_cannot_set_caching_data_for_text_tiles(self) -> None:
@@ -42,7 +43,7 @@ class TestDashboardTileModel(APIBaseTest):
         ]
         for invalid_text_tile_field in tile_fields:
             with self.subTest(option=invalid_text_tile_field):
-                with self.assertRaises(ValidationError):
+                with pytest.raises(ValidationError):
                     text = Text.objects.create(team=self.team, body="I am a text")
                     tile = DashboardTile.objects.create(dashboard=self.dashboard, text=text, **invalid_text_tile_field)
                     tile.clean()

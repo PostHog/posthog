@@ -41,8 +41,8 @@ class TestSchemaHelpers(TestCase):
         q1 = EventPropertyFilter(key="abc", operator=PropertyOperator.GT)
         q2 = PersonPropertyFilter(key="abc", operator=PropertyOperator.GT)
 
-        self.assertNotEqual(to_dict(q1), to_dict(q2))
-        self.assertIn("'type': 'event'", str(to_dict(q1)))
+        assert to_dict(q1) != to_dict(q2)
+        assert "'type': 'event'" in str(to_dict(q1))
 
     def test_serializes_to_same_json_for_default_value(self):
         """
@@ -55,79 +55,75 @@ class TestSchemaHelpers(TestCase):
         q2 = EventPropertyFilter(key="abc", operator=None)
         q3 = EventPropertyFilter(key="abc", operator=PropertyOperator.EXACT)
 
-        self.assertEqual(to_dict(q1), to_dict(q2))
-        self.assertEqual(to_dict(q2), to_dict(q3))
-        self.assertNotIn("operator", str(to_dict(q1)))
+        assert to_dict(q1) == to_dict(q2)
+        assert to_dict(q2) == to_dict(q3)
+        assert "operator" not in str(to_dict(q1))
 
     def test_serializes_empty_and_missing_insight_filter_equally(self):
         q1 = TrendsQuery(**base_trends)
         q2 = TrendsQuery(**{**base_trends, "trendsFilter": {}})
 
-        self.assertEqual(to_dict(q1), {"kind": "TrendsQuery", "series": []})
-        self.assertEqual(to_dict(q2), {"kind": "TrendsQuery", "series": []})
+        assert to_dict(q1) == {"kind": "TrendsQuery", "series": []}
+        assert to_dict(q2) == {"kind": "TrendsQuery", "series": []}
 
     def test_serializes_empty_and_missing_breakdown_filter_equally(self):
         q1 = TrendsQuery(**base_trends)
         q2 = TrendsQuery(**{**base_trends, "breakdownFilter": {}})
 
-        self.assertEqual(to_dict(q1), {"kind": "TrendsQuery", "series": []})
-        self.assertEqual(to_dict(q2), {"kind": "TrendsQuery", "series": []})
+        assert to_dict(q1) == {"kind": "TrendsQuery", "series": []}
+        assert to_dict(q2) == {"kind": "TrendsQuery", "series": []}
 
     def test_serializes_empty_and_missing_date_range_equally(self):
         q1 = TrendsQuery(**base_trends)
         q2 = TrendsQuery(**{**base_trends, "dateRange": {}})
 
-        self.assertEqual(to_dict(q1), {"kind": "TrendsQuery", "series": []})
-        self.assertEqual(to_dict(q2), {"kind": "TrendsQuery", "series": []})
+        assert to_dict(q1) == {"kind": "TrendsQuery", "series": []}
+        assert to_dict(q2) == {"kind": "TrendsQuery", "series": []}
 
     def test_serializes_series_without_frontend_only_props(self):
         query = TrendsQuery(**{**base_trends, "series": [EventsNode(name="$pageview", custom_name="My custom name")]})
 
         result_dict = to_dict(query)
 
-        self.assertEqual(result_dict, {"kind": "TrendsQuery", "series": [{"name": "$pageview"}]})
+        assert result_dict == {"kind": "TrendsQuery", "series": [{"name": "$pageview"}]}
 
     def test_serializes_insight_filter_without_frontend_only_props(self):
         query = TrendsQuery(**{**base_trends, "trendsFilter": {"showLegend": True}})
 
         result_dict = to_dict(query)
 
-        self.assertEqual(result_dict, {"kind": "TrendsQuery", "series": []})
+        assert result_dict == {"kind": "TrendsQuery", "series": []}
 
     def test_serializes_retention_filter_without_frontend_only_props(self):
         query = RetentionQuery(**{"retentionFilter": {"targetEntity": {"uuid": "1"}, "returningEntity": {"uuid": "2"}}})
 
         result_dict = to_dict(query)
 
-        self.assertEqual(
-            result_dict, {"kind": "RetentionQuery", "retentionFilter": {"targetEntity": {}, "returningEntity": {}}}
-        )
+        assert result_dict == {"kind": "RetentionQuery", "retentionFilter": {"targetEntity": {}, "returningEntity": {}}}
 
     def test_serializes_display_with_canonic_alternatives(self):
         # time series (gets removed as ActionsLineGraph is the default)
         query = TrendsQuery(**{**base_trends, "trendsFilter": {"display": "ActionsAreaGraph"}})
-        self.assertEqual(to_dict(query), {"kind": "TrendsQuery", "series": []})
+        assert to_dict(query) == {"kind": "TrendsQuery", "series": []}
 
         # cumulative time series
         query = TrendsQuery(**{**base_trends, "trendsFilter": {"display": "ActionsLineGraphCumulative"}})
-        self.assertEqual(
-            to_dict(query),
-            {"kind": "TrendsQuery", "series": [], "trendsFilter": {"display": "ActionsLineGraphCumulative"}},
-        )
+        assert to_dict(query) == {
+            "kind": "TrendsQuery",
+            "series": [],
+            "trendsFilter": {"display": "ActionsLineGraphCumulative"},
+        }
 
         # total value
         query = TrendsQuery(**{**base_trends, "trendsFilter": {"display": "BoldNumber"}})
-        self.assertEqual(
-            to_dict(query),
-            {"kind": "TrendsQuery", "series": [], "trendsFilter": {"display": "ActionsBarValue"}},
-        )
+        assert to_dict(query) == {"kind": "TrendsQuery", "series": [], "trendsFilter": {"display": "ActionsBarValue"}}
 
     def _assert_filter(self, key: str, num_keys: int, q1: BaseModel, q2: BaseModel):
-        self.assertEqual(to_dict(q1), to_dict(q2))
+        assert to_dict(q1) == to_dict(q2)
         if num_keys == 0:
-            self.assertEqual(key in to_dict(q1), False)
+            assert key not in to_dict(q1)
         else:
-            self.assertEqual(num_keys, len(to_dict(q1)[key].keys()))
+            assert num_keys == len(to_dict(q1)[key].keys())
 
     @parameterized.expand(
         [
@@ -243,31 +239,31 @@ class TestSchemaHelpers(TestCase):
             interval="week", series=[EventsNode(name="$pageview", math=BaseMathType.WEEKLY_ACTIVE)]
         )
         result = to_dict(query_with_day_interval)
-        self.assertEqual(result["series"][0]["math"], BaseMathType.DAU)
+        assert result["series"][0]["math"] == BaseMathType.DAU
 
         query_with_day_interval = TrendsQuery(
             interval="week", series=[EventsNode(name="$pageview", math=BaseMathType.MONTHLY_ACTIVE)]
         )
         result = to_dict(query_with_day_interval)
-        self.assertEqual(result["series"][0]["math"], BaseMathType.MONTHLY_ACTIVE)
+        assert result["series"][0]["math"] == BaseMathType.MONTHLY_ACTIVE
 
         query_with_day_interval = TrendsQuery(
             interval="month", series=[EventsNode(name="$pageview", math=BaseMathType.MONTHLY_ACTIVE)]
         )
         result = to_dict(query_with_day_interval)
-        self.assertEqual(result["series"][0]["math"], BaseMathType.DAU)
+        assert result["series"][0]["math"] == BaseMathType.DAU
 
         # Test case where DAU should NOT be set (assuming 'month' interval doesn't trigger it)
         query_with_month_interval = TrendsQuery(
             interval="day", series=[EventsNode(name="$pageview", math=BaseMathType.WEEKLY_ACTIVE)]
         )
         result = to_dict(query_with_month_interval)
-        self.assertEqual(result["series"][0]["math"], BaseMathType.WEEKLY_ACTIVE)
+        assert result["series"][0]["math"] == BaseMathType.WEEKLY_ACTIVE
 
         # Test case with existing math that should NOT be overridden
         query_with_existing_math = TrendsQuery(interval="day", series=[EventsNode(name="$pageview")])
         result = to_dict(query_with_existing_math)
-        self.assertNotIn("math", result["series"][0])
+        assert "math" not in result["series"][0]
 
     def test_serializes_versions_equally(self):
         """
@@ -277,4 +273,4 @@ class TestSchemaHelpers(TestCase):
         q1 = TrendsQuery(series=[EventsNode(name="$pageview", version=1)], version=1)
         q2 = TrendsQuery(series=[EventsNode(name="$pageview", version=2)], version=2)
 
-        self.assertEqual(to_dict(q1), to_dict(q2))
+        assert to_dict(q1) == to_dict(q2)

@@ -33,11 +33,11 @@ class TestQueryMetadata(BaseTest):
             query=query,
         )
 
-        self.assertEqual(metadata.found_insight_ids, {1, 2, 3})
-        self.assertEqual(metadata.created_insight_ids, {4, 5})
-        self.assertEqual(metadata.found_insight_messages, ["Found message 1", "Found message 2"])
-        self.assertEqual(metadata.created_insight_messages, ["Created message 1"])
-        self.assertEqual(metadata.query, query)
+        assert metadata.found_insight_ids == {1, 2, 3}
+        assert metadata.created_insight_ids == {4, 5}
+        assert metadata.found_insight_messages == ["Found message 1", "Found message 2"]
+        assert metadata.created_insight_messages == ["Created message 1"]
+        assert metadata.query == query
 
 
 class TestDashboardCreationExecutorNode(BaseTest):

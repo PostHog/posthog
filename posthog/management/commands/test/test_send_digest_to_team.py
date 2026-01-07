@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -14,10 +15,10 @@ class TestSendDigestToTeamCommand(BaseTest):
 
     def test_send_digest_to_nonexistent_team(self):
         """Test that the command raises CommandError for non-existent team"""
-        with self.assertRaises(CommandError) as cm:
+        with pytest.raises(CommandError) as cm:
             call_command("send_digest_to_team", 99999)
 
-        self.assertIn("Team with ID 99999 does not exist", str(cm.exception))
+        assert "Team with ID 99999 does not exist" in str(cm.value)
 
     def test_send_digest_with_notification_settings(self):
         """Test that the command works with teams that have members with notification settings"""
@@ -34,7 +35,7 @@ class TestSendDigestToTeamCommand(BaseTest):
         with patch("posthog.management.commands.send_digest_to_team.send_team_hog_functions_digest") as mock_send:
             mock_send.side_effect = Exception("Task failed")
 
-            with self.assertRaises(CommandError) as cm:
+            with pytest.raises(CommandError) as cm:
                 call_command("send_digest_to_team", self.team.id, "--email", "test@example.com")
 
-            self.assertIn("Failed to send digest: Task failed", str(cm.exception))
+            assert "Failed to send digest: Task failed" in str(cm.value)

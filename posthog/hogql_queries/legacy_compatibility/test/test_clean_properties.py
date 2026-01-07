@@ -9,43 +9,32 @@ class TestCleanGlobalProperties(BaseTest):
 
         result = clean_global_properties(properties)
 
-        self.assertEqual(result, None)
+        assert result is None
 
     def test_handles_old_style_properties(self):
         properties = {"utm_medium__icontains": "email"}
 
         result = clean_global_properties(properties)
 
-        self.assertEqual(
-            result,
-            {
-                "type": "AND",
-                "values": [
-                    {
-                        "type": "AND",
-                        "values": [{"key": "utm_medium", "operator": "icontains", "type": "event", "value": "email"}],
-                    }
-                ],
-            },
-        )
+        assert result == {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [{"key": "utm_medium", "operator": "icontains", "type": "event", "value": "email"}],
+                }
+            ],
+        }
 
     def test_handles_property_filter_lists(self):
         properties = [{"key": "id", "type": "cohort", "value": 636, "operator": None}]
 
         result = clean_global_properties(properties)
 
-        self.assertEqual(
-            result,
-            {
-                "type": "AND",
-                "values": [
-                    {
-                        "type": "AND",
-                        "values": [{"key": "id", "type": "cohort", "operator": "in", "value": 636}],
-                    }
-                ],
-            },
-        )
+        assert result == {
+            "type": "AND",
+            "values": [{"type": "AND", "values": [{"key": "id", "type": "cohort", "operator": "in", "value": 636}]}],
+        }
 
     def test_handles_property_group_filters(self):
         properties = {
@@ -55,18 +44,10 @@ class TestCleanGlobalProperties(BaseTest):
 
         result = clean_global_properties(properties)
 
-        self.assertEqual(
-            result,
-            {
-                "type": "AND",
-                "values": [
-                    {
-                        "type": "AND",
-                        "values": [{"key": "id", "type": "cohort", "operator": "in", "value": 850}],
-                    }
-                ],
-            },
-        )
+        assert result == {
+            "type": "AND",
+            "values": [{"type": "AND", "values": [{"key": "id", "type": "cohort", "operator": "in", "value": 850}]}],
+        }
 
     def test_handles_cohort_negation(self):
         properties = {
@@ -81,18 +62,12 @@ class TestCleanGlobalProperties(BaseTest):
 
         result = clean_global_properties(properties)
 
-        self.assertEqual(
-            result,
-            {
-                "type": "AND",
-                "values": [
-                    {
-                        "type": "AND",
-                        "values": [{"key": "id", "type": "cohort", "operator": "not_in", "value": 850}],
-                    }
-                ],
-            },
-        )
+        assert result == {
+            "type": "AND",
+            "values": [
+                {"type": "AND", "values": [{"key": "id", "type": "cohort", "operator": "not_in", "value": 850}]}
+            ],
+        }
 
     def test_handles_property_group_filters_values(self):
         properties = {
@@ -102,18 +77,10 @@ class TestCleanGlobalProperties(BaseTest):
 
         result = clean_global_properties(properties)
 
-        self.assertEqual(
-            result,
-            {
-                "type": "AND",
-                "values": [
-                    {
-                        "type": "AND",
-                        "values": [{"key": "id", "type": "cohort", "operator": "in", "value": 850}],
-                    }
-                ],
-            },
-        )
+        assert result == {
+            "type": "AND",
+            "values": [{"type": "AND", "values": [{"key": "id", "type": "cohort", "operator": "in", "value": 850}]}],
+        }
 
 
 class TestCleanEntityProperties(BaseTest):
@@ -122,17 +89,14 @@ class TestCleanEntityProperties(BaseTest):
 
         result = clean_entity_properties(properties)
 
-        self.assertEqual(result, None)
+        assert result is None
 
     def test_handles_old_style_properties(self):
         properties = {"utm_medium__icontains": "email"}
 
         result = clean_entity_properties(properties)
 
-        self.assertEqual(
-            result,
-            [{"key": "utm_medium", "operator": "icontains", "type": "event", "value": "email"}],
-        )
+        assert result == [{"key": "utm_medium", "operator": "icontains", "type": "event", "value": "email"}]
 
     def test_handles_property_filter_lists(self):
         properties = [
@@ -141,12 +105,9 @@ class TestCleanEntityProperties(BaseTest):
 
         result = clean_entity_properties(properties)
 
-        self.assertEqual(
-            result,
-            [
-                {"key": "$current_url", type: "event", "value": "https://hedgebox.net/signup/", "operator": "exact"},
-            ],
-        )
+        assert result == [
+            {"key": "$current_url", type: "event", "value": "https://hedgebox.net/signup/", "operator": "exact"}
+        ]
 
     def test_handles_property_group_values(self):
         properties = {
@@ -163,14 +124,6 @@ class TestCleanEntityProperties(BaseTest):
 
         result = clean_entity_properties(properties)
 
-        self.assertEqual(
-            result,
-            [
-                {
-                    "key": "$current_url",
-                    "operator": "exact",
-                    "type": "event",
-                    "value": "https://hedgebox.net/signup/",
-                },
-            ],
-        )
+        assert result == [
+            {"key": "$current_url", "operator": "exact", "type": "event", "value": "https://hedgebox.net/signup/"}
+        ]

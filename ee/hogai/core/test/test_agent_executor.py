@@ -2,6 +2,7 @@ import time
 from typing import cast
 from uuid import uuid4
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -40,8 +41,8 @@ class TestAgentExecutor(BaseTest):
         """Test ConversationStreamManager initialization."""
         manager = AgentExecutor(self.conversation)
 
-        self.assertEqual(manager._conversation.id, self.conversation.id)
-        self.assertIsInstance(manager._redis_stream, ConversationRedisStream)
+        assert manager._conversation.id == self.conversation.id
+        assert isinstance(manager._redis_stream, ConversationRedisStream)
 
     @patch("ee.hogai.core.executor.async_connect")
     async def test_start_workflow_and_stream_success(self, mock_connect):
@@ -76,21 +77,21 @@ class TestAgentExecutor(BaseTest):
                 results.append(chunk)
 
             # Verify results
-            self.assertEqual(len(results), 2)
-            self.assertEqual(results[0], ("message", {"content": "chunk1"}))
-            self.assertEqual(results[1], ("message", {"content": "chunk2"}))
+            assert len(results) == 2
+            assert results[0] == ("message", {"content": "chunk1"})
+            assert results[1] == ("message", {"content": "chunk2"})
 
             # Verify client.start_workflow was called with correct parameters
             mock_client.start_workflow.assert_called_once()
             call_args = mock_client.start_workflow.call_args
 
             # Check workflow function and inputs
-            self.assertEqual(call_args[0][0], ChatAgentWorkflow.run)
-            self.assertEqual(call_args[0][1], workflow_inputs)
+            assert call_args[0][0] == ChatAgentWorkflow.run
+            assert call_args[0][1] == workflow_inputs
 
             # Check keyword arguments
-            self.assertEqual(call_args[1]["task_queue"], settings.MAX_AI_TASK_QUEUE)
-            self.assertIn("conversation-", call_args[1]["id"])
+            assert call_args[1]["task_queue"] == settings.MAX_AI_TASK_QUEUE
+            assert "conversation-" in call_args[1]["id"]
 
     @patch("ee.hogai.core.executor.async_connect")
     async def test_start_workflow_and_stream_connection_error(self, mock_connect):
@@ -112,11 +113,11 @@ class TestAgentExecutor(BaseTest):
             results.append(chunk)
 
         # Verify failure message is returned
-        self.assertEqual(len(results), 1)
+        assert len(results) == 1
         event_type, message = results[0]
-        self.assertEqual(event_type, "message")
+        assert event_type == "message"
         message = cast(AssistantMessage, message)
-        self.assertEqual(message.content, "Oops! Something went wrong. Please try again.")
+        assert message.content == "Oops! Something went wrong. Please try again."
 
     async def test_stream_conversation_success(self):
         """Test successful conversation streaming."""
@@ -150,9 +151,9 @@ class TestAgentExecutor(BaseTest):
                 results.append(chunk)
 
             # Verify results
-            self.assertEqual(len(results), 2)
-            self.assertEqual(results[0], ("message", {"content": "chunk1"}))
-            self.assertEqual(results[1], ("message", {"content": "chunk2"}))
+            assert len(results) == 2
+            assert results[0] == ("message", {"content": "chunk1"})
+            assert results[1] == ("message", {"content": "chunk2"})
 
             # Verify method calls
             mock_wait.assert_called_once()
@@ -169,11 +170,11 @@ class TestAgentExecutor(BaseTest):
                 results.append(chunk)
 
             # Verify failure message is returned
-            self.assertEqual(len(results), 1)
+            assert len(results) == 1
             event_type, message = results[0]
-            self.assertEqual(event_type, "message")
+            assert event_type == "message"
             message = cast(AssistantMessage, message)
-            self.assertEqual(message.content, "Oops! Something went wrong. Please try again.")
+            assert message.content == "Oops! Something went wrong. Please try again."
 
     async def test_stream_conversation_redis_error(self):
         """Test streaming with Redis error."""
@@ -196,11 +197,11 @@ class TestAgentExecutor(BaseTest):
                 results.append(chunk)
 
             # Verify failure message
-            self.assertEqual(len(results), 1)
+            assert len(results) == 1
             event_type, message = results[0]
-            self.assertEqual(event_type, "message")
+            assert event_type == "message"
             message = cast(AssistantMessage, message)
-            self.assertEqual(message.content, "Oops! Something went wrong. Please try again.")
+            assert message.content == "Oops! Something went wrong. Please try again."
 
     async def test_stream_conversation_general_error(self):
         """Test streaming with general exception."""
@@ -218,21 +219,21 @@ class TestAgentExecutor(BaseTest):
                 results.append(chunk)
 
             # Verify failure message
-            self.assertEqual(len(results), 1)
+            assert len(results) == 1
             event_type, message = results[0]
-            self.assertEqual(event_type, "message")
+            assert event_type == "message"
             message = cast(AssistantMessage, message)
-            self.assertEqual(message.content, "Oops! Something went wrong. Please try again.")
+            assert message.content == "Oops! Something went wrong. Please try again."
 
     def test_failure_message(self):
         """Test failure message generation."""
         event_type, message = self.manager._failure_message()
 
         # Verify message format
-        self.assertEqual(event_type, AssistantEventType.MESSAGE)
+        assert event_type == AssistantEventType.MESSAGE
         message = cast(AssistantMessage, message)
-        self.assertEqual(message.content, "Oops! Something went wrong. Please try again.")
-        self.assertIsNotNone(message.id)
+        assert message.content == "Oops! Something went wrong. Please try again."
+        assert message.id is not None
 
     async def test_redis_stream_to_assistant_output_message(self):
         message_data = MessageEvent(type=AssistantEventType.MESSAGE, payload=HumanMessage(content="test message"))
@@ -241,8 +242,8 @@ class TestAgentExecutor(BaseTest):
         result = await self.manager._redis_stream_to_assistant_output(event)
 
         result = cast(AssistantOutput, result)
-        self.assertEqual(cast(AssistantOutput, result[0]), AssistantEventType.MESSAGE)
-        self.assertEqual(cast(AssistantMessage, result[1]).content, "test message")
+        assert cast(AssistantOutput, result[0]) == AssistantEventType.MESSAGE
+        assert cast(AssistantMessage, result[1]).content == "test message"
 
     async def test_redis_stream_to_assistant_output_conversation(self):
         """Test conversion of conversation data."""
@@ -252,12 +253,12 @@ class TestAgentExecutor(BaseTest):
         result = await self.manager._redis_stream_to_assistant_output(event)
 
         result = cast(AssistantOutput, result)
-        self.assertEqual(result[0], AssistantEventType.CONVERSATION)
-        self.assertEqual(cast(Conversation, result[1]).id, self.conversation.id)
+        assert result[0] == AssistantEventType.CONVERSATION
+        assert cast(Conversation, result[1]).id == self.conversation.id
 
     async def test_redis_stream_to_assistant_output_conversation_not_found(self):
         """Test conversion when conversation doesn't exist."""
-        with self.assertRaises(Conversation.DoesNotExist):
+        with pytest.raises(Conversation.DoesNotExist):
             fake_uuid = uuid4()
             conversation_data = ConversationEvent(type="conversation", payload=fake_uuid)
             event = StreamEvent(event=conversation_data)
@@ -271,7 +272,7 @@ class TestAgentExecutor(BaseTest):
 
         result = await self.manager._redis_stream_to_assistant_output(event)
 
-        self.assertIsNone(result)
+        assert result is None
 
     async def test_cancel_conversation_success(self):
         """Test successful conversation cancellation."""
@@ -304,7 +305,7 @@ class TestAgentExecutor(BaseTest):
             mock_delete.assert_called_once()
 
             # Verify conversation status update
-            self.assertEqual(self.conversation.status, Conversation.Status.IDLE)
+            assert self.conversation.status == Conversation.Status.IDLE
             mock_save.assert_called()
 
     @patch("ee.hogai.core.executor.async_connect")
@@ -314,7 +315,7 @@ class TestAgentExecutor(BaseTest):
         mock_connect.side_effect = Exception("Temporal connection failed")
 
         # Call the method - should raise exception
-        with self.assertRaises(Exception):
+        with pytest.raises(Exception):
             await self.manager.cancel_workflow()
 
     async def test_cancel_conversation_workflow_cancel_error(self):
@@ -333,7 +334,7 @@ class TestAgentExecutor(BaseTest):
             mock_handle.cancel = cancel_error
 
             # Call the method - should raise exception
-            with self.assertRaises(Exception):
+            with pytest.raises(Exception):
                 await self.manager.cancel_workflow()
 
     async def test_cancel_conversation_redis_cleanup_error(self):
@@ -355,7 +356,7 @@ class TestAgentExecutor(BaseTest):
             mock_delete.side_effect = Exception("Redis cleanup failed")
 
             # Call the method - should raise exception
-            with self.assertRaises(Exception):
+            with pytest.raises(Exception):
                 await self.manager.cancel_workflow()
 
     async def test_cancel_conversation_save_error(self):
@@ -379,7 +380,7 @@ class TestAgentExecutor(BaseTest):
             mock_handle.cancel = cancel_mock
 
             # Call the method - should raise exception
-            with self.assertRaises(Exception):
+            with pytest.raises(Exception):
                 await self.manager.cancel_workflow()
 
     async def test_wait_for_workflow_to_start_success(self):
@@ -391,7 +392,7 @@ class TestAgentExecutor(BaseTest):
 
         # Should return immediately when workflow is running
         result = await self.manager._wait_for_workflow_to_start(mock_handle)
-        self.assertTrue(result)
+        assert result
 
         # Verify describe was called at least once
         mock_handle.describe.assert_called()
@@ -409,10 +410,10 @@ class TestAgentExecutor(BaseTest):
 
         # Should succeed after waiting
         result = await self.manager._wait_for_workflow_to_start(mock_handle)
-        self.assertTrue(result)
+        assert result
 
         # Verify describe was called twice
-        self.assertEqual(mock_handle.describe.call_count, 2)
+        assert mock_handle.describe.call_count == 2
 
     async def test_wait_for_workflow_to_start_failed_immediately(self):
         """Test workflow that ends unexpectedly in FAILED state."""
@@ -423,7 +424,7 @@ class TestAgentExecutor(BaseTest):
 
         # Should return False for unexpected failure
         result = await self.manager._wait_for_workflow_to_start(mock_handle)
-        self.assertFalse(result)
+        assert not result
 
     async def test_wait_for_workflow_to_start_timeout(self):
         """Test workflow start timeout."""
@@ -436,7 +437,7 @@ class TestAgentExecutor(BaseTest):
         with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
             # Should return False for timeout
             result = await self.manager._wait_for_workflow_to_start(mock_handle)
-            self.assertFalse(result)
+            assert not result
 
             # Verify sleep was called (indicating retry attempts)
             mock_sleep.assert_called()
@@ -537,7 +538,7 @@ class TestAgentExecutor(BaseTest):
         await self.manager._cancel_subagent_workflows(mock_client)
 
         # Both handles should have been attempted
-        self.assertEqual(len(cancel_calls), 2)
+        assert len(cancel_calls) == 2
 
     async def test_cancel_subagent_workflows_list_fails(self):
         """Test that failure to list workflows is handled gracefully."""

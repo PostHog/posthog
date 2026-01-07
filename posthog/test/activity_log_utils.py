@@ -5,7 +5,7 @@ This module provides a test helper class with methods to create and update all m
 covered by the activity logging system.
 """
 
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from django.utils import timezone
@@ -44,13 +44,13 @@ class ActivityLogTestHelper(APILicensedTest):
             **kwargs,
         }
         response = self.client.post(f"/api/projects/{self.team.id}/cohorts/", data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         return response.json()
 
     def update_cohort(self, cohort_id: int, updates: dict[str, Any]) -> dict[str, Any]:
         """Update a cohort via API."""
         response = self.client.patch(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/", updates, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         return response.json()
 
     # FeatureFlag
@@ -64,17 +64,17 @@ class ActivityLogTestHelper(APILicensedTest):
             **kwargs,
         }
         response = self.client.post(f"/api/projects/{self.team.id}/feature_flags/", data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         return response.json()
 
     def update_feature_flag(self, flag_id: int, updates: dict[str, Any]) -> dict[str, Any]:
         """Update a feature flag via API."""
         response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/", updates, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         return response.json()
 
     # Person
-    def create_person(self, distinct_id: Optional[str] = None, **kwargs) -> dict[str, Any]:
+    def create_person(self, distinct_id: str | None = None, **kwargs) -> dict[str, Any]:
         """Create a person via API."""
         if not distinct_id:
             distinct_id = str(uuid4())
@@ -83,17 +83,17 @@ class ActivityLogTestHelper(APILicensedTest):
             "properties": {"email": "person@test.com", **kwargs.get("properties", {})},
         }
         response = self.client.post(f"/api/projects/{self.team.id}/persons/", data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         return response.json()
 
     def update_person(self, person_id: str, updates: dict[str, Any]) -> dict[str, Any]:
         """Update a person via API."""
         response = self.client.patch(f"/api/projects/{self.team.id}/persons/{person_id}/", updates, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         return response.json()
 
     # Group
-    def create_group(self, group_type_index: int = 0, group_key: Optional[str] = None, **kwargs) -> dict[str, Any]:
+    def create_group(self, group_type_index: int = 0, group_key: str | None = None, **kwargs) -> dict[str, Any]:
         """Create a group via API."""
         # First ensure group type exists
         from posthog.models.group_type_mapping import GroupTypeMapping
@@ -111,7 +111,7 @@ class ActivityLogTestHelper(APILicensedTest):
             "properties": {"name": "Test Organization", **kwargs.get("properties", {})},
         }
         response = self.client.post(f"/api/projects/{self.team.id}/groups/", data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         return response.json()
 
     def update_group(self, group_type_index: int, group_key: str, updates: dict[str, Any]) -> dict[str, Any]:
@@ -119,7 +119,7 @@ class ActivityLogTestHelper(APILicensedTest):
         response = self.client.patch(
             f"/api/projects/{self.team.id}/groups/{group_type_index}/{group_key}/", updates, format="json"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         return response.json()
 
     # Insight
@@ -132,13 +132,13 @@ class ActivityLogTestHelper(APILicensedTest):
             **kwargs,
         }
         response = self.client.post(f"/api/projects/{self.team.id}/insights/", data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         return response.json()
 
     def update_insight(self, insight_id: int, updates: dict[str, Any]) -> dict[str, Any]:
         """Update an insight via API."""
         response = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}/", updates, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         return response.json()
 
     # Plugin
@@ -152,13 +152,13 @@ class ActivityLogTestHelper(APILicensedTest):
             **kwargs,
         }
         response = self.client.post("/api/organizations/@current/plugins/", data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         return response.json()
 
     def update_plugin(self, plugin_id: int, updates: dict[str, Any]) -> dict[str, Any]:
         """Update a plugin via API."""
         response = self.client.patch(f"/api/organizations/@current/plugins/{plugin_id}/", updates, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         return response.json()
 
     # PluginConfig
@@ -166,7 +166,7 @@ class ActivityLogTestHelper(APILicensedTest):
         """Create a plugin config via API."""
         data = {"plugin": plugin_id, "enabled": True, "order": 0, "config": {"key": "value"}, **kwargs}
         response = self.client.post(f"/api/projects/{self.team.id}/plugin_configs/", data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         return response.json()
 
     def update_plugin_config(self, config_id: int, updates: dict[str, Any]) -> dict[str, Any]:
@@ -174,7 +174,7 @@ class ActivityLogTestHelper(APILicensedTest):
         response = self.client.patch(
             f"/api/projects/{self.team.id}/plugin_configs/{config_id}/", updates, format="json"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         return response.json()
 
     # HogFunction (using Plugin as base)
@@ -189,7 +189,7 @@ class ActivityLogTestHelper(APILicensedTest):
             **kwargs,
         }
         response = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         return response.json()
 
     def update_hog_function(self, function_id: str, updates: dict[str, Any]) -> dict[str, Any]:
@@ -197,7 +197,7 @@ class ActivityLogTestHelper(APILicensedTest):
         response = self.client.patch(
             f"/api/projects/{self.team.id}/hog_functions/{function_id}/", updates, format="json"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         return response.json()
 
     # EventDefinition
@@ -205,7 +205,7 @@ class ActivityLogTestHelper(APILicensedTest):
         """Create an event definition via API."""
         data = {"name": name, "description": "Page view event", "tags": [], **kwargs}
         response = self.client.post(f"/api/projects/{self.team.id}/event_definitions/", data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         return response.json()
 
     def update_event_definition(self, definition_id: str, updates: dict[str, Any]) -> dict[str, Any]:
@@ -213,7 +213,7 @@ class ActivityLogTestHelper(APILicensedTest):
         response = self.client.patch(
             f"/api/projects/{self.team.id}/event_definitions/{definition_id}/", updates, format="json"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         return response.json()
 
     # PropertyDefinition
@@ -221,7 +221,7 @@ class ActivityLogTestHelper(APILicensedTest):
         """Create a property definition via API."""
         data = {"name": name, "description": "Test property", "type": "String", **kwargs}
         response = self.client.post(f"/api/projects/{self.team.id}/property_definitions/", data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         return response.json()
 
     def update_property_definition(self, definition_id: str, updates: dict[str, Any]) -> dict[str, Any]:
@@ -229,7 +229,7 @@ class ActivityLogTestHelper(APILicensedTest):
         response = self.client.patch(
             f"/api/projects/{self.team.id}/property_definitions/{definition_id}/", updates, format="json"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         return response.json()
 
     # Notebook
@@ -244,13 +244,13 @@ class ActivityLogTestHelper(APILicensedTest):
             **kwargs,
         }
         response = self.client.post(f"/api/projects/{self.team.id}/notebooks/", data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         return response.json()
 
     def update_notebook(self, notebook_id: str, updates: dict[str, Any]) -> dict[str, Any]:
         """Update a notebook via API."""
         response = self.client.patch(f"/api/projects/{self.team.id}/notebooks/{notebook_id}/", updates, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         return response.json()
 
     # Dashboard
@@ -258,13 +258,13 @@ class ActivityLogTestHelper(APILicensedTest):
         """Create a dashboard via API."""
         data = {"name": name, "description": "Test dashboard", "tags": [], **kwargs}
         response = self.client.post(f"/api/projects/{self.team.id}/dashboards/", data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         return response.json()
 
     def update_dashboard(self, dashboard_id: int, updates: dict[str, Any]) -> dict[str, Any]:
         """Update a dashboard via API."""
         response = self.client.patch(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/", updates, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         return response.json()
 
     # Replay (SessionRecordingPlaylist)
@@ -279,7 +279,7 @@ class ActivityLogTestHelper(APILicensedTest):
             **kwargs,
         }
         response = self.client.post(f"/api/projects/{self.team.id}/session_recording_playlists/", data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         return response.json()
 
     def update_session_recording_playlist(self, playlist_id: str, updates: dict[str, Any]) -> dict[str, Any]:
@@ -287,7 +287,7 @@ class ActivityLogTestHelper(APILicensedTest):
         response = self.client.patch(
             f"/api/projects/{self.team.id}/session_recording_playlists/{playlist_id}/", updates, format="json"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         return response.json()
 
     # Experiment
@@ -341,7 +341,7 @@ class ActivityLogTestHelper(APILicensedTest):
         response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{experiment_id}/", updates, format="json"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         return response.json()
 
     # Survey
@@ -356,13 +356,13 @@ class ActivityLogTestHelper(APILicensedTest):
             **kwargs,
         }
         response = self.client.post(f"/api/projects/{self.team.id}/surveys/", data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         return response.json()
 
     def update_survey(self, survey_id: str, updates: dict[str, Any]) -> dict[str, Any]:
         """Update a survey via API."""
         response = self.client.patch(f"/api/projects/{self.team.id}/surveys/{survey_id}/", updates, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         return response.json()
 
     # EarlyAccessFeature
@@ -379,7 +379,7 @@ class ActivityLogTestHelper(APILicensedTest):
             **kwargs,
         }
         response = self.client.post(f"/api/projects/{self.team.id}/early_access_features/", data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         return response.json()
 
     def update_early_access_feature(self, feature_id: str, updates: dict[str, Any]) -> dict[str, Any]:
@@ -387,7 +387,7 @@ class ActivityLogTestHelper(APILicensedTest):
         response = self.client.patch(
             f"/api/projects/{self.team.id}/early_access_features/{feature_id}/", updates, format="json"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         return response.json()
 
     # Comment
@@ -398,13 +398,13 @@ class ActivityLogTestHelper(APILicensedTest):
 
         data = {"content": content, "scope": "Insight", "item_id": str(insight["id"]), **kwargs}
         response = self.client.post(f"/api/projects/{self.team.id}/comments/", data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         return response.json()
 
     def update_comment(self, comment_id: str, updates: dict[str, Any]) -> dict[str, Any]:
         """Update a comment via API."""
         response = self.client.patch(f"/api/projects/{self.team.id}/comments/{comment_id}/", updates, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         return response.json()
 
     # Team
@@ -412,13 +412,13 @@ class ActivityLogTestHelper(APILicensedTest):
         """Create a team via API."""
         data = {"name": name, "timezone": "UTC", **kwargs}
         response = self.client.post("/api/projects/", data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         return response.json()
 
     def update_team(self, team_id: int, updates: dict[str, Any]) -> dict[str, Any]:
         """Update a team via API."""
         response = self.client.patch(f"/api/projects/{team_id}/", updates, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         return response.json()
 
     # Organization
@@ -426,13 +426,13 @@ class ActivityLogTestHelper(APILicensedTest):
         """Create an organization via API."""
         data = {"name": name, **kwargs}
         response = self.client.post("/api/organizations/", data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         return response.json()
 
     def update_organization(self, org_id: str, updates: dict[str, Any]) -> dict[str, Any]:
         """Update an organization via API."""
         response = self.client.patch(f"/api/organizations/{org_id}/", updates, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         return response.json()
 
     # OrganizationMembership
@@ -444,7 +444,7 @@ class ActivityLogTestHelper(APILicensedTest):
             **kwargs,
         }
         response = self.client.post(f"/api/organizations/{self.organization.id}/invites/", data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         return response.json()
 
     def update_organization_membership(self, user_id: str, updates: dict[str, Any]) -> dict[str, Any]:
@@ -452,24 +452,24 @@ class ActivityLogTestHelper(APILicensedTest):
         response = self.client.patch(
             f"/api/organizations/{self.organization.id}/members/{user_id}/", updates, format="json"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         return response.json()
 
-    def delete_organization_membership(self, user_id: str, org_id: Optional[str] = None) -> None:
+    def delete_organization_membership(self, user_id: str, org_id: str | None = None) -> None:
         """Delete an organization membership via API."""
         if not org_id:
             org_id = self.organization.id
 
         response = self.client.delete(f"/api/organizations/{org_id}/members/{user_id}/")
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
-    def delete_organization_invite(self, invite_id: str, org_id: Optional[str] = None) -> None:
+    def delete_organization_invite(self, invite_id: str, org_id: str | None = None) -> None:
         """Delete an organization invite via API."""
         if not org_id:
             org_id = self.organization.id
 
         response = self.client.delete(f"/api/organizations/{org_id}/invites/{invite_id}/")
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
     # Role
     def create_role(self, name: str = "Test Role", **kwargs) -> dict[str, Any]:
@@ -479,7 +479,7 @@ class ActivityLogTestHelper(APILicensedTest):
             **kwargs,
         }
         response = self.client.post(f"/api/organizations/{self.organization.id}/roles/", data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         return response.json()
 
     def update_role(self, role_id: str, updates: dict[str, Any]) -> dict[str, Any]:
@@ -487,7 +487,7 @@ class ActivityLogTestHelper(APILicensedTest):
         response = self.client.patch(
             f"/api/organizations/{self.organization.id}/roles/{role_id}/", updates, format="json"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         return response.json()
 
     # BatchExport
@@ -541,7 +541,7 @@ class ActivityLogTestHelper(APILicensedTest):
             data = {"kind": kind, **kwargs}
 
         response = self.client.post(f"/api/projects/{self.team.id}/integrations/", data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         return response.json()
 
     # Annotation
@@ -549,7 +549,7 @@ class ActivityLogTestHelper(APILicensedTest):
         """Create an annotation via API."""
         data = {"content": content, "date_marker": timezone.now().isoformat(), "scope": "project", **kwargs}
         response = self.client.post(f"/api/projects/{self.team.id}/annotations/", data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         return response.json()
 
     def update_annotation(self, annotation_id: int, updates: dict[str, Any]) -> dict[str, Any]:
@@ -557,7 +557,7 @@ class ActivityLogTestHelper(APILicensedTest):
         response = self.client.patch(
             f"/api/projects/{self.team.id}/annotations/{annotation_id}/", updates, format="json"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         return response.json()
 
     # Tag
@@ -586,7 +586,7 @@ class ActivityLogTestHelper(APILicensedTest):
             **kwargs,
         }
         response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/", data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         return response.json()
 
     def update_subscription(self, subscription_id: str, updates: dict[str, Any]) -> dict[str, Any]:
@@ -594,7 +594,7 @@ class ActivityLogTestHelper(APILicensedTest):
         response = self.client.patch(
             f"/api/projects/{self.team.id}/subscriptions/{subscription_id}/", updates, format="json"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         return response.json()
 
     # AlertConfiguration
@@ -613,13 +613,13 @@ class ActivityLogTestHelper(APILicensedTest):
             **kwargs,
         }
         response = self.client.post(f"/api/projects/{self.team.id}/alerts/", data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         return response.json()
 
     def update_alert_configuration(self, alert_id: str, updates: dict[str, Any]) -> dict[str, Any]:
         """Update an alert configuration via API."""
         response = self.client.patch(f"/api/projects/{self.team.id}/alerts/{alert_id}/", updates, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         return response.json()
 
     # PersonalAPIKey
@@ -633,18 +633,18 @@ class ActivityLogTestHelper(APILicensedTest):
             **kwargs,
         }
         response = self.client.post("/api/personal_api_keys/", data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         return response.json()
 
     def update_personal_api_key(self, key_id: str, updates: dict[str, Any]) -> dict[str, Any]:
         """Update a personal API key via API."""
         response = self.client.patch(f"/api/personal_api_keys/{key_id}/", updates, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         return response.json()
 
     # User
     def create_user_via_invite(
-        self, email: Optional[str] = None, org_id: Optional[str] = None, **kwargs
+        self, email: str | None = None, org_id: str | None = None, **kwargs
     ) -> dict[str, Any]:
         """Create a user by sending an organization invite."""
         if not email:
@@ -660,10 +660,10 @@ class ActivityLogTestHelper(APILicensedTest):
         }
 
         response = self.client.post(f"/api/organizations/{org_id}/invites/", invite_data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         return response.json()
 
-    def create_user(self, email: Optional[str] = None, **kwargs) -> dict[str, Any]:
+    def create_user(self, email: str | None = None, **kwargs) -> dict[str, Any]:
         """Create a user via API (as admin)."""
         if not email:
             email = f"user-{uuid4()}@test.com"
@@ -674,13 +674,13 @@ class ActivityLogTestHelper(APILicensedTest):
 
         data = {"first_name": "Test", "email": email, **kwargs}
         response = self.client.post(f"/api/organizations/{self.organization.id}/invites/", data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         return response.json()
 
     def update_user(self, updates: dict[str, Any]) -> dict[str, Any]:
         """Update current user via API."""
         response = self.client.patch("/api/users/@me/", updates, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         return response.json()
 
     # Action
@@ -693,13 +693,13 @@ class ActivityLogTestHelper(APILicensedTest):
             **kwargs,
         }
         response = self.client.post(f"/api/projects/{self.team.id}/actions/", data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         return response.json()
 
     def update_action(self, action_id: int, updates: dict[str, Any]) -> dict[str, Any]:
         """Update an action via API."""
         response = self.client.patch(f"/api/projects/{self.team.id}/actions/{action_id}/", updates, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         return response.json()
 
     # DataWarehouseSavedQuery
@@ -707,7 +707,7 @@ class ActivityLogTestHelper(APILicensedTest):
         """Create a data warehouse saved query via API."""
         data = {"name": name, "query": {"kind": "HogQLQuery", "query": "SELECT event FROM events LIMIT 10"}, **kwargs}
         response = self.client.post(f"/api/projects/{self.team.id}/warehouse_saved_queries/", data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         return response.json()
 
     def update_data_warehouse_saved_query(self, query_id: str, updates: dict[str, Any]) -> dict[str, Any]:
@@ -715,7 +715,7 @@ class ActivityLogTestHelper(APILicensedTest):
         response = self.client.patch(
             f"/api/projects/{self.team.id}/warehouse_saved_queries/{query_id}/", updates, format="json"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         return response.json()
 
     # ErrorTrackingIssue
@@ -725,13 +725,13 @@ class ActivityLogTestHelper(APILicensedTest):
         # This is a simplified version for testing
         data = {"name": name, "description": "Test error issue", "status": "active", **kwargs}
         response = self.client.post(f"/api/projects/{self.team.id}/error_tracking/", data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         return response.json()
 
     def update_error_tracking_issue(self, issue_id: str, updates: dict[str, Any]) -> dict[str, Any]:
         """Update an error tracking issue via API."""
         response = self.client.patch(f"/api/projects/{self.team.id}/error_tracking/{issue_id}/", updates, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         return response.json()
 
     # UserGroup
@@ -739,7 +739,7 @@ class ActivityLogTestHelper(APILicensedTest):
         """Create a user group via API."""
         data = {"name": name, "members": [self.user.id], **kwargs}
         response = self.client.post(f"/api/organizations/{self.organization.id}/user_groups/", data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         return response.json()
 
     def update_user_group(self, group_id: str, updates: dict[str, Any]) -> dict[str, Any]:
@@ -747,7 +747,7 @@ class ActivityLogTestHelper(APILicensedTest):
         response = self.client.patch(
             f"/api/organizations/{self.organization.id}/user_groups/{group_id}/", updates, format="json"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         return response.json()
 
     # ExperimentSavedMetric
@@ -760,7 +760,7 @@ class ActivityLogTestHelper(APILicensedTest):
             **kwargs,
         }
         response = self.client.post(f"/api/projects/{self.team.id}/experiment_saved_metrics/", data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         return response.json()
 
     def update_experiment_saved_metric(self, metric_id: str, updates: dict[str, Any]) -> dict[str, Any]:
@@ -768,7 +768,7 @@ class ActivityLogTestHelper(APILicensedTest):
         response = self.client.patch(
             f"/api/projects/{self.team.id}/experiment_saved_metrics/{metric_id}/", updates, format="json"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         return response.json()
 
     # BatchImport
@@ -804,7 +804,7 @@ class ActivityLogTestHelper(APILicensedTest):
             }
 
         response = self.client.post(f"/api/projects/{self.team.id}/managed_migrations", data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         return response.json()
 
     def update_batch_import(self, import_id: str, updates: dict[str, Any]) -> dict[str, Any]:
@@ -812,18 +812,18 @@ class ActivityLogTestHelper(APILicensedTest):
         response = self.client.patch(
             f"/api/projects/{self.team.id}/managed_migrations/{import_id}/", updates, format="json"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         return response.json()
 
     def delete_batch_import(self, import_id: str) -> None:
         """Delete a batch import."""
         response = self.client.delete(f"/api/projects/{self.team.id}/managed_migrations/{import_id}/")
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
     def delete_batch_export(self, export_id: str) -> None:
         """Delete a batch export."""
         response = self.client.delete(f"/api/projects/{self.team.id}/batch_exports/{export_id}/")
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
     # TaggedItem
     def create_tagged_item(self, tag_name: str, item_type: str, item_id: str) -> dict[str, Any]:
@@ -871,7 +871,7 @@ class ActivityLogTestHelper(APILicensedTest):
                 response = self.client.post(
                     f"/api/environments/{self.team.id}/external_data_sources/", data, format="json"
                 )
-                self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+                assert response.status_code == status.HTTP_201_CREATED
                 return response.json()
 
     def update_external_data_source(self, source_id: str, updates: dict[str, Any]) -> dict[str, Any]:
@@ -879,13 +879,13 @@ class ActivityLogTestHelper(APILicensedTest):
         response = self.client.patch(
             f"/api/environments/{self.team.id}/external_data_sources/{source_id}/", updates, format="json"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         return response.json()
 
     def delete_external_data_source(self, source_id: str) -> None:
         """Delete an external data source via API."""
         response = self.client.delete(f"/api/environments/{self.team.id}/external_data_sources/{source_id}/")
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
     def create_external_data_schema(self, source_id: str, name: str = "test_schema", **kwargs) -> dict[str, Any]:
         """Create an external data schema by updating the source."""
@@ -896,13 +896,13 @@ class ActivityLogTestHelper(APILicensedTest):
         response = self.client.patch(
             f"/api/environments/{self.team.id}/external_data_schemas/{schema_id}/", updates, format="json"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         return response.json()
 
     def delete_external_data_schema(self, schema_id: str) -> None:
         """Delete an external data schema via API."""
         response = self.client.delete(f"/api/environments/{self.team.id}/external_data_schemas/{schema_id}/")
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
     def get_activity_logs_for_item(self, scope: str, item_id: str) -> list[Any]:
         """Get activity logs for a specific item."""

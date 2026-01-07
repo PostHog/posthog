@@ -63,12 +63,12 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
             select=[ast.Call(name="count", args=[ast.Field(chain=["event"])])],
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
         )
-        self.assertEqual(clear_locations(query), expected)
+        assert clear_locations(query) == expected
         response = runner.calculate()
-        self.assertEqual(response.results[0][0], 10)
+        assert response.results[0][0] == 10
 
-        self.assertEqual(response.hasMore, False)
-        self.assertIsNotNone(response.limit)
+        assert not response.hasMore
+        assert response.limit is not None
 
     def test_default_hogql_query_ast(self):
         query_input = {
@@ -83,19 +83,19 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
             select=[ast.Call(name="count", args=[ast.Field(chain=["event"])])],
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
         )
-        self.assertEqual(clear_locations(query), expected)
+        assert clear_locations(query) == expected
         response = runner.calculate()
-        self.assertEqual(response.results[0][0], 10)
+        assert response.results[0][0] == 10
 
-        self.assertEqual(response.hasMore, False)
-        self.assertIsNotNone(response.limit)
+        assert not response.hasMore
+        assert response.limit is not None
 
     def test_default_hogql_query_with_limit(self):
         runner = self._create_runner(HogQLQuery(query="select event from events limit 5"))
         response = runner.calculate()
         assert response.results is not None
-        self.assertEqual(len(response.results), 5)
-        self.assertNotIn("hasMore", response)
+        assert len(response.results) == 5
+        assert "hasMore" not in response
 
     def test_hogql_query_filters(self):
         runner = self._create_runner(
@@ -115,9 +115,9 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 right=ast.Constant(value="clicky-3"),
             ),
         )
-        self.assertEqual(clear_locations(query), expected)
+        assert clear_locations(query) == expected
         response = runner.calculate()
-        self.assertEqual(response.results[0][0], 1)
+        assert response.results[0][0] == 1
 
     def test_hogql_query_values(self):
         runner = self._create_runner(
@@ -137,9 +137,9 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 right=ast.Constant(value="clicky-3"),
             ),
         )
-        self.assertEqual(clear_locations(query), expected)
+        assert clear_locations(query) == expected
         response = runner.calculate()
-        self.assertEqual(response.results[0][0], 1)
+        assert response.results[0][0] == 1
 
     def test_cache_target_age_is_two_hours_in_future_after_run(self):
         runner = self._create_runner(HogQLQuery(query="select count(event) from events"))
@@ -153,8 +153,8 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
             response = cast(CachedHogQLQueryResponse, runner.run())
 
-            self.assertIsNotNone(response.cache_target_age)
-            self.assertEqual(response.cache_target_age, expected_target_age)
+            assert response.cache_target_age is not None
+            assert response.cache_target_age == expected_target_age
 
     def test_variables_in_hog_expression(self):
         variable = InsightVariable.objects.create(team=self.team, name="Foo", code_name="foo", type="Boolean")
@@ -170,7 +170,7 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         response = runner.calculate()
-        self.assertEqual(response.results[0][0], "exists")
+        assert response.results[0][0] == "exists"
 
     def test_variables_in_hog_expression_sql(self):
         variable = InsightVariable.objects.create(team=self.team, name="Bar", code_name="bar", type="Boolean")
@@ -179,9 +179,7 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         _create_event(distinct_id=f"id-{self.random_uuid}-3", event="clicky-3", team=self.team)
         flush_persons_and_events()
 
-        query = (
-            "select count() from events where " "{variables.bar ? sql(event = 'clicky-3') : sql(event = 'clicky-4')}"
-        )
+        query = "select count() from events where {variables.bar ? sql(event = 'clicky-3') : sql(event = 'clicky-4')}"
 
         runner_true = self._create_runner(
             HogQLQuery(
@@ -192,7 +190,7 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
         )
         result_true = runner_true.calculate()
-        self.assertEqual(result_true.results[0][0], 2)
+        assert result_true.results[0][0] == 2
 
         runner_false = self._create_runner(
             HogQLQuery(
@@ -203,4 +201,4 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
         )
         result_false = runner_false.calculate()
-        self.assertEqual(result_false.results[0][0], 1)
+        assert result_false.results[0][0] == 1

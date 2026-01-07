@@ -30,9 +30,9 @@ class TestMaxChatOpenAI(BaseTest):
                 MaxChatAnthropic(user=self.user, team=self.team, model="claude"),
             ):
                 # Test initialization
-                self.assertEqual(llm.user, self.user)
-                self.assertEqual(llm.team, self.team)
-                self.assertIsNotNone(llm.max_retries)
+                assert llm.user == self.user
+                assert llm.team == self.team
+                assert llm.max_retries is not None
 
                 # Test context variables
                 mock_now = datetime(2024, 1, 15, 10, 30, 45)
@@ -40,12 +40,12 @@ class TestMaxChatOpenAI(BaseTest):
 
                 variables = llm._get_project_org_user_variables()
 
-                self.assertEqual(variables["project_name"], "Test Project")
-                self.assertEqual(variables["project_timezone"], "America/New_York")
-                self.assertEqual(variables["project_datetime"], "2024-01-15 05:30:45")
-                self.assertEqual(variables["organization_name"], "Test Organization")
-                self.assertEqual(variables["user_full_name"], "John Doe")
-                self.assertEqual(variables["user_email"], "john@example.com")
+                assert variables["project_name"] == "Test Project"
+                assert variables["project_timezone"] == "America/New_York"
+                assert variables["project_datetime"] == "2024-01-15 05:30:45"
+                assert variables["organization_name"] == "Test Organization"
+                assert variables["user_full_name"] == "John Doe"
+                assert variables["user_email"] == "john@example.com"
 
     def test_message_enrichment_with_context(self):
         """Test that context is properly injected into messages."""
@@ -60,17 +60,17 @@ class TestMaxChatOpenAI(BaseTest):
             messages_with_system = llm._enrich_messages(messages_with_system, variables)
 
             # Context should be inserted after system messages
-            self.assertEqual(len(messages_with_system[0]), 3)
-            self.assertIsInstance(messages_with_system[0][1], SystemMessage)  # Our context
-            self.assertIn("Test Project", str(messages_with_system[0][1].content))
+            assert len(messages_with_system[0]) == 3
+            assert isinstance(messages_with_system[0][1], SystemMessage)  # Our context
+            assert "Test Project" in str(messages_with_system[0][1].content)
 
             # Test without system messages
             messages_no_system: list[list[BaseMessage]] = [[HumanMessage(content="User query")]]
             messages_no_system = llm._enrich_messages(messages_no_system, variables)
 
             # Context should be inserted at the beginning
-            self.assertEqual(len(messages_no_system[0]), 2)
-            self.assertIsInstance(messages_no_system[0][0], SystemMessage)  # Our context
+            assert len(messages_no_system[0]) == 2
+            assert isinstance(messages_no_system[0][0], SystemMessage)  # Our context
 
     def test_responses_api_instruction_enrichment(self):
         """Test instruction enrichment for responses API mode."""
@@ -80,17 +80,17 @@ class TestMaxChatOpenAI(BaseTest):
         variables = llm._get_project_org_user_variables()
         llm._enrich_responses_api_model_kwargs(variables)
 
-        self.assertIn("instructions", llm.model_kwargs)
-        self.assertIn("Test Project", llm.model_kwargs["instructions"])
+        assert "instructions" in llm.model_kwargs
+        assert "Test Project" in llm.model_kwargs["instructions"]
 
         # Test with existing instructions
         llm.model_kwargs = {"instructions": "Existing instructions"}
         llm._enrich_responses_api_model_kwargs(variables)
 
         # Should prepend context to existing instructions
-        self.assertIn("Test Project", llm.model_kwargs["instructions"])
-        self.assertIn("Existing instructions", llm.model_kwargs["instructions"])
-        self.assertTrue(llm.model_kwargs["instructions"].endswith("Existing instructions"))
+        assert "Test Project" in llm.model_kwargs["instructions"]
+        assert "Existing instructions" in llm.model_kwargs["instructions"]
+        assert llm.model_kwargs["instructions"].endswith("Existing instructions")
 
     def test_openai_generate_methods_with_different_modes(self):
         """Test both sync and async generate methods in different modes."""
@@ -103,9 +103,9 @@ class TestMaxChatOpenAI(BaseTest):
             result = llm_responses.generate(messages)
 
             # Should have enriched instructions
-            self.assertIn("instructions", llm_responses.model_kwargs)
-            self.assertIn("Test Project", llm_responses.model_kwargs["instructions"])
-            self.assertEqual(result, mock_result)
+            assert "instructions" in llm_responses.model_kwargs
+            assert "Test Project" in llm_responses.model_kwargs["instructions"]
+            assert result == mock_result
 
         # Test regular mode (without responses API)
         llm_regular = MaxChatOpenAI(user=self.user, team=self.team, use_responses_api=False)
@@ -116,8 +116,8 @@ class TestMaxChatOpenAI(BaseTest):
 
             # Should have enriched messages with context
             called_messages = mock_generate.call_args[0][0]
-            self.assertEqual(len(called_messages[0]), 2)  # Original + context
-            self.assertIsInstance(called_messages[0][0], SystemMessage)  # Context message
+            assert len(called_messages[0]) == 2  # Original + context
+            assert isinstance(called_messages[0][0], SystemMessage)  # Context message
 
     async def test_openai_async_generate_with_context(self):
         """Test async generation properly includes context."""
@@ -130,8 +130,8 @@ class TestMaxChatOpenAI(BaseTest):
 
             # Verify context was added
             called_messages = mock_agenerate.call_args[0][0]
-            self.assertEqual(len(called_messages[0]), 2)
-            self.assertIn("Test Project", str(called_messages[0][0].content))
+            assert len(called_messages[0]) == 2
+            assert "Test Project" in str(called_messages[0][0].content)
 
     async def test_anthropic_async_generate_with_context(self):
         """Test async generation properly includes context."""
@@ -144,8 +144,8 @@ class TestMaxChatOpenAI(BaseTest):
 
             # Verify context was added
             called_messages = mock_agenerate.call_args[0][0]
-            self.assertEqual(len(called_messages[0]), 2)
-            self.assertIn("Test Project", str(called_messages[0][0].content))
+            assert len(called_messages[0]) == 2
+            assert "Test Project" in str(called_messages[0][0].content)
 
     def test_invoke_with_context(self):
         """Test invoke method properly includes context."""
@@ -157,8 +157,8 @@ class TestMaxChatOpenAI(BaseTest):
             llm.invoke(messages)
 
             called_messages = mock_generate.call_args[0][0]
-            self.assertEqual(len(called_messages[0]), 2)
-            self.assertIn("Test Project", str(called_messages[0][0].content))
+            assert len(called_messages[0]) == 2
+            assert "Test Project" in str(called_messages[0][0].content)
 
         anthropic_llm = MaxChatAnthropic(user=self.user, team=self.team, model="claude")
 
@@ -167,8 +167,8 @@ class TestMaxChatOpenAI(BaseTest):
             anthropic_llm.invoke(messages)
 
             called_messages = mock_generate.call_args[0][0]
-            self.assertEqual(len(called_messages[0]), 2)
-            self.assertIn("Test Project", str(called_messages[0][0].content))
+            assert len(called_messages[0]) == 2
+            assert "Test Project" in str(called_messages[0][0].content)
 
     async def test_ainvoke_with_context(self):
         """Test ainvoke method properly includes context."""
@@ -180,8 +180,8 @@ class TestMaxChatOpenAI(BaseTest):
             await llm.ainvoke(messages)
 
             called_messages = mock_agenerate.call_args[0][0]
-            self.assertEqual(len(called_messages[0]), 2)
-            self.assertIn("Test Project", str(called_messages[0][0].content))
+            assert len(called_messages[0]) == 2
+            assert "Test Project" in str(called_messages[0][0].content)
 
         anthropic_llm = MaxChatAnthropic(user=self.user, team=self.team, model="claude")
 
@@ -190,16 +190,16 @@ class TestMaxChatOpenAI(BaseTest):
             await anthropic_llm.ainvoke(messages)
 
             called_messages = mock_agenerate.call_args[0][0]
-            self.assertEqual(len(called_messages[0]), 2)
-            self.assertIn("Test Project", str(called_messages[0][0].content))
+            assert len(called_messages[0]) == 2
+            assert "Test Project" in str(called_messages[0][0].content)
 
     def test_billable_false_by_default(self):
         """Test that billable defaults to False."""
         llm_openai = MaxChatOpenAI(user=self.user, team=self.team)
         llm_anthropic = MaxChatAnthropic(user=self.user, team=self.team, model="claude")
 
-        self.assertEqual(llm_openai.billable, False)
-        self.assertEqual(llm_anthropic.billable, False)
+        assert not llm_openai.billable
+        assert not llm_anthropic.billable
 
     def test_billable_metadata_when_false(self):
         """Test that $ai_billable metadata is False when billable=False."""
@@ -211,10 +211,10 @@ class TestMaxChatOpenAI(BaseTest):
             llm.generate(messages)
 
             call_kwargs = mock_generate.call_args.kwargs
-            self.assertIn("metadata", call_kwargs)
-            self.assertIn("posthog_properties", call_kwargs["metadata"])
-            self.assertEqual(call_kwargs["metadata"]["posthog_properties"]["$ai_billable"], False)
-            self.assertEqual(call_kwargs["metadata"]["posthog_properties"]["team_id"], self.team.id)
+            assert "metadata" in call_kwargs
+            assert "posthog_properties" in call_kwargs["metadata"]
+            assert not call_kwargs["metadata"]["posthog_properties"]["$ai_billable"]
+            assert call_kwargs["metadata"]["posthog_properties"]["team_id"] == self.team.id
 
     def test_billable_metadata_when_true(self):
         """Test that $ai_billable metadata is True when billable=True."""
@@ -226,10 +226,10 @@ class TestMaxChatOpenAI(BaseTest):
             llm.generate(messages)
 
             call_kwargs = mock_generate.call_args.kwargs
-            self.assertIn("metadata", call_kwargs)
-            self.assertIn("posthog_properties", call_kwargs["metadata"])
-            self.assertEqual(call_kwargs["metadata"]["posthog_properties"]["$ai_billable"], True)
-            self.assertEqual(call_kwargs["metadata"]["posthog_properties"]["team_id"], self.team.id)
+            assert "metadata" in call_kwargs
+            assert "posthog_properties" in call_kwargs["metadata"]
+            assert call_kwargs["metadata"]["posthog_properties"]["$ai_billable"]
+            assert call_kwargs["metadata"]["posthog_properties"]["team_id"] == self.team.id
 
     async def test_billable_metadata_async_when_false(self):
         """Test that $ai_billable metadata is False in async generate when billable=False."""
@@ -241,10 +241,10 @@ class TestMaxChatOpenAI(BaseTest):
             await llm.agenerate(messages)
 
             call_kwargs = mock_agenerate.call_args.kwargs
-            self.assertIn("metadata", call_kwargs)
-            self.assertIn("posthog_properties", call_kwargs["metadata"])
-            self.assertEqual(call_kwargs["metadata"]["posthog_properties"]["$ai_billable"], False)
-            self.assertEqual(call_kwargs["metadata"]["posthog_properties"]["team_id"], self.team.id)
+            assert "metadata" in call_kwargs
+            assert "posthog_properties" in call_kwargs["metadata"]
+            assert not call_kwargs["metadata"]["posthog_properties"]["$ai_billable"]
+            assert call_kwargs["metadata"]["posthog_properties"]["team_id"] == self.team.id
 
     async def test_billable_metadata_async_when_true(self):
         """Test that $ai_billable metadata is True in async generate when billable=True."""
@@ -256,10 +256,10 @@ class TestMaxChatOpenAI(BaseTest):
             await llm.agenerate(messages)
 
             call_kwargs = mock_agenerate.call_args.kwargs
-            self.assertIn("metadata", call_kwargs)
-            self.assertIn("posthog_properties", call_kwargs["metadata"])
-            self.assertEqual(call_kwargs["metadata"]["posthog_properties"]["$ai_billable"], True)
-            self.assertEqual(call_kwargs["metadata"]["posthog_properties"]["team_id"], self.team.id)
+            assert "metadata" in call_kwargs
+            assert "posthog_properties" in call_kwargs["metadata"]
+            assert call_kwargs["metadata"]["posthog_properties"]["$ai_billable"]
+            assert call_kwargs["metadata"]["posthog_properties"]["team_id"] == self.team.id
 
     def test_billable_metadata_anthropic_when_false(self):
         """Test that $ai_billable metadata is False for Anthropic when billable=False."""
@@ -271,10 +271,10 @@ class TestMaxChatOpenAI(BaseTest):
             llm.generate(messages)
 
             call_kwargs = mock_generate.call_args.kwargs
-            self.assertIn("metadata", call_kwargs)
-            self.assertIn("posthog_properties", call_kwargs["metadata"])
-            self.assertEqual(call_kwargs["metadata"]["posthog_properties"]["$ai_billable"], False)
-            self.assertEqual(call_kwargs["metadata"]["posthog_properties"]["team_id"], self.team.id)
+            assert "metadata" in call_kwargs
+            assert "posthog_properties" in call_kwargs["metadata"]
+            assert not call_kwargs["metadata"]["posthog_properties"]["$ai_billable"]
+            assert call_kwargs["metadata"]["posthog_properties"]["team_id"] == self.team.id
 
     def test_billable_metadata_anthropic_when_true(self):
         """Test that $ai_billable metadata is True for Anthropic when billable=True."""
@@ -286,10 +286,10 @@ class TestMaxChatOpenAI(BaseTest):
             llm.generate(messages)
 
             call_kwargs = mock_generate.call_args.kwargs
-            self.assertIn("metadata", call_kwargs)
-            self.assertIn("posthog_properties", call_kwargs["metadata"])
-            self.assertEqual(call_kwargs["metadata"]["posthog_properties"]["$ai_billable"], True)
-            self.assertEqual(call_kwargs["metadata"]["posthog_properties"]["team_id"], self.team.id)
+            assert "metadata" in call_kwargs
+            assert "posthog_properties" in call_kwargs["metadata"]
+            assert call_kwargs["metadata"]["posthog_properties"]["$ai_billable"]
+            assert call_kwargs["metadata"]["posthog_properties"]["team_id"] == self.team.id
 
     @parameterized.expand(
         [
@@ -313,7 +313,7 @@ class TestMaxChatOpenAI(BaseTest):
         ):
             result = llm._get_effective_billable()
 
-        self.assertEqual(result, expected)
+        assert result == expected
 
         if should_increment_counter:
             expected_model = getattr(llm, "model", None) or getattr(llm, "model_name", "unknown")
@@ -337,7 +337,7 @@ class TestMaxChatOpenAI(BaseTest):
             llm.generate(messages)
 
             call_kwargs = mock_generate.call_args.kwargs
-            self.assertEqual(call_kwargs["metadata"]["posthog_properties"]["$ai_billable"], False)
+            assert not call_kwargs["metadata"]["posthog_properties"]["$ai_billable"]
 
     async def test_workflow_billing_override_in_agenerate(self):
         """Test that workflow-level is_agent_billable=False overrides model billable=True in agenerate."""
@@ -354,7 +354,7 @@ class TestMaxChatOpenAI(BaseTest):
             await llm.agenerate(messages)
 
             call_kwargs = mock_agenerate.call_args.kwargs
-            self.assertEqual(call_kwargs["metadata"]["posthog_properties"]["$ai_billable"], False)
+            assert not call_kwargs["metadata"]["posthog_properties"]["$ai_billable"]
 
     def test_effective_billable_defaults_to_true_when_no_config(self):
         """Test that is_agent_billable defaults to True when not in config."""
@@ -363,4 +363,4 @@ class TestMaxChatOpenAI(BaseTest):
         with patch("ee.hogai.llm.ensure_config", return_value={}):
             result = llm._get_effective_billable()
 
-        self.assertTrue(result)
+        assert result

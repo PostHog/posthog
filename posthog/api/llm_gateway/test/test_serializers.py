@@ -16,9 +16,9 @@ class TestAnthropicMessagesRequestSerializer(TestCase):
             "max_tokens": 1024,
         }
         serializer = AnthropicMessagesRequestSerializer(data=data)
-        self.assertTrue(serializer.is_valid())
-        self.assertEqual(serializer.validated_data["model"], "claude-3-5-sonnet-20241022")
-        self.assertEqual(len(serializer.validated_data["messages"]), 1)
+        assert serializer.is_valid()
+        assert serializer.validated_data["model"] == "claude-3-5-sonnet-20241022"
+        assert len(serializer.validated_data["messages"]) == 1
 
     def test_valid_full_request(self):
         data = {
@@ -38,7 +38,7 @@ class TestAnthropicMessagesRequestSerializer(TestCase):
             "service_tier": "auto",
         }
         serializer = AnthropicMessagesRequestSerializer(data=data)
-        self.assertTrue(serializer.is_valid())
+        assert serializer.is_valid()
 
     def test_missing_required_model(self):
         data = {
@@ -46,8 +46,8 @@ class TestAnthropicMessagesRequestSerializer(TestCase):
             "max_tokens": 1024,
         }
         serializer = AnthropicMessagesRequestSerializer(data=data)
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("model", serializer.errors)
+        assert not serializer.is_valid()
+        assert "model" in serializer.errors
 
     def test_missing_required_messages(self):
         data = {
@@ -55,8 +55,8 @@ class TestAnthropicMessagesRequestSerializer(TestCase):
             "max_tokens": 1024,
         }
         serializer = AnthropicMessagesRequestSerializer(data=data)
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("messages", serializer.errors)
+        assert not serializer.is_valid()
+        assert "messages" in serializer.errors
 
     def test_invalid_temperature_range(self):
         data = {
@@ -66,8 +66,8 @@ class TestAnthropicMessagesRequestSerializer(TestCase):
             "temperature": 2.0,
         }
         serializer = AnthropicMessagesRequestSerializer(data=data)
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("temperature", serializer.errors)
+        assert not serializer.is_valid()
+        assert "temperature" in serializer.errors
 
     def test_invalid_service_tier(self):
         data = {
@@ -77,8 +77,8 @@ class TestAnthropicMessagesRequestSerializer(TestCase):
             "service_tier": "invalid_tier",
         }
         serializer = AnthropicMessagesRequestSerializer(data=data)
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("service_tier", serializer.errors)
+        assert not serializer.is_valid()
+        assert "service_tier" in serializer.errors
 
 
 class TestChatCompletionRequestSerializer(TestCase):
@@ -88,8 +88,8 @@ class TestChatCompletionRequestSerializer(TestCase):
             "messages": [{"role": "user", "content": "Hello"}],
         }
         serializer = ChatCompletionRequestSerializer(data=data)
-        self.assertTrue(serializer.is_valid())
-        self.assertEqual(serializer.validated_data["model"], "gpt-4")
+        assert serializer.is_valid()
+        assert serializer.validated_data["model"] == "gpt-4"
 
     def test_valid_full_request(self):
         data = {
@@ -120,23 +120,23 @@ class TestChatCompletionRequestSerializer(TestCase):
             "store": False,
         }
         serializer = ChatCompletionRequestSerializer(data=data)
-        self.assertTrue(serializer.is_valid(), serializer.errors)
+        assert serializer.is_valid(), serializer.errors
 
     def test_missing_required_model(self):
         data = {
             "messages": [{"role": "user", "content": "Hello"}],
         }
         serializer = ChatCompletionRequestSerializer(data=data)
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("model", serializer.errors)
+        assert not serializer.is_valid()
+        assert "model" in serializer.errors
 
     def test_missing_required_messages(self):
         data = {
             "model": "gpt-4",
         }
         serializer = ChatCompletionRequestSerializer(data=data)
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("messages", serializer.errors)
+        assert not serializer.is_valid()
+        assert "messages" in serializer.errors
 
     def test_invalid_temperature_range(self):
         data = {
@@ -145,8 +145,8 @@ class TestChatCompletionRequestSerializer(TestCase):
             "temperature": 3.0,
         }
         serializer = ChatCompletionRequestSerializer(data=data)
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("temperature", serializer.errors)
+        assert not serializer.is_valid()
+        assert "temperature" in serializer.errors
 
     def test_invalid_top_logprobs_range(self):
         data = {
@@ -155,8 +155,8 @@ class TestChatCompletionRequestSerializer(TestCase):
             "top_logprobs": 25,
         }
         serializer = ChatCompletionRequestSerializer(data=data)
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("top_logprobs", serializer.errors)
+        assert not serializer.is_valid()
+        assert "top_logprobs" in serializer.errors
 
     def test_invalid_reasoning_effort(self):
         data = {
@@ -165,8 +165,8 @@ class TestChatCompletionRequestSerializer(TestCase):
             "reasoning_effort": "invalid",
         }
         serializer = ChatCompletionRequestSerializer(data=data)
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("reasoning_effort", serializer.errors)
+        assert not serializer.is_valid()
+        assert "reasoning_effort" in serializer.errors
 
     def test_invalid_verbosity(self):
         data = {
@@ -175,8 +175,8 @@ class TestChatCompletionRequestSerializer(TestCase):
             "verbosity": "invalid",
         }
         serializer = ChatCompletionRequestSerializer(data=data)
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("verbosity", serializer.errors)
+        assert not serializer.is_valid()
+        assert "verbosity" in serializer.errors
 
 
 class TestAnthropicMessagesResponseSerializer(TestCase):
@@ -191,7 +191,7 @@ class TestAnthropicMessagesResponseSerializer(TestCase):
             "usage": {"input_tokens": 10, "output_tokens": 5},
         }
         serializer = AnthropicMessagesResponseSerializer(data=data)
-        self.assertTrue(serializer.is_valid(), serializer.errors)
+        assert serializer.is_valid(), serializer.errors
 
     def test_valid_response_with_cache(self):
         data = {
@@ -209,7 +209,7 @@ class TestAnthropicMessagesResponseSerializer(TestCase):
             },
         }
         serializer = AnthropicMessagesResponseSerializer(data=data)
-        self.assertTrue(serializer.is_valid(), serializer.errors)
+        assert serializer.is_valid(), serializer.errors
 
 
 class TestChatCompletionResponseSerializer(TestCase):
@@ -229,7 +229,7 @@ class TestChatCompletionResponseSerializer(TestCase):
             "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
         }
         serializer = ChatCompletionResponseSerializer(data=data)
-        self.assertTrue(serializer.is_valid(), serializer.errors)
+        assert serializer.is_valid(), serializer.errors
 
     def test_valid_response_with_service_tier(self):
         data = {
@@ -249,4 +249,4 @@ class TestChatCompletionResponseSerializer(TestCase):
             "system_fingerprint": "fp_123",
         }
         serializer = ChatCompletionResponseSerializer(data=data)
-        self.assertTrue(serializer.is_valid(), serializer.errors)
+        assert serializer.is_valid(), serializer.errors

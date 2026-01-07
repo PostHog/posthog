@@ -35,16 +35,16 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
         response = self.client.get(
             f"/api/projects/{self.test_dashboard.team_id}/dashboards/{self.test_dashboard.id}/collaborators/"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         response_data = response.json()
         response_data = sorted(response_data, key=lambda entry: entry["user"]["email"])
 
-        self.assertEqual(len(response_data), 2)
-        self.assertEqual(response_data[0]["user"]["email"], other_user_a.email)
-        self.assertEqual(response_data[0]["level"], Dashboard.PrivilegeLevel.CAN_VIEW)
-        self.assertEqual(response_data[1]["user"]["email"], other_user_b.email)
-        self.assertEqual(response_data[1]["level"], Dashboard.PrivilegeLevel.CAN_EDIT)
+        assert len(response_data) == 2
+        assert response_data[0]["user"]["email"] == other_user_a.email
+        assert response_data[0]["level"] == Dashboard.PrivilegeLevel.CAN_VIEW
+        assert response_data[1]["user"]["email"] == other_user_b.email
+        assert response_data[1]["level"] == Dashboard.PrivilegeLevel.CAN_EDIT
 
     def test_cannot_add_collaborator_to_unrestricted_dashboard_as_creator(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -62,10 +62,9 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
         )
         response_data = response.json()
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response_data,
-            self.validation_error_response("Cannot add collaborators to a dashboard on the lowest restriction level."),
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response_data == self.validation_error_response(
+            "Cannot add collaborators to a dashboard on the lowest restriction level."
         )
 
     def test_can_add_collaborator_to_edit_restricted_dashboard_as_creator(self):
@@ -84,10 +83,10 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
         )
         response_data = response.json()
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response_data["dashboard_id"], self.test_dashboard.id)
-        self.assertEqual(response_data["user"]["email"], other_user.email)
-        self.assertEqual(response_data["level"], Dashboard.PrivilegeLevel.CAN_EDIT)
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response_data["dashboard_id"] == self.test_dashboard.id
+        assert response_data["user"]["email"] == other_user.email
+        assert response_data["level"] == Dashboard.PrivilegeLevel.CAN_EDIT
 
     def test_cannot_add_yourself_to_restricted_dashboard_as_creator(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -104,12 +103,9 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
         )
         response_data = response.json()
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response_data,
-            self.validation_error_response(
-                "Cannot add collaborators that already have inherent access (the dashboard owner or a project admins)."
-            ),
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response_data == self.validation_error_response(
+            "Cannot add collaborators that already have inherent access (the dashboard owner or a project admins)."
         )
 
     def test_cannot_add_collaborator_to_edit_restricted_dashboard_as_other_user(self):
@@ -129,11 +125,8 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
         )
         response_data = response.json()
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(
-            response_data,
-            self.permission_denied_response("You don't have edit permissions for this dashboard."),
-        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response_data == self.permission_denied_response("You don't have edit permissions for this dashboard.")
 
     def test_cannot_add_collaborator_from_other_org_to_edit_restricted_dashboard_as_creator(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -151,10 +144,9 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
         )
         response_data = response.json()
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response_data,
-            self.validation_error_response("Cannot add collaborators that have no access to the project."),
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response_data == self.validation_error_response(
+            "Cannot add collaborators that have no access to the project."
         )
 
     def test_cannot_add_collaborator_to_other_org_to_edit_restricted_dashboard_as_creator(self):
@@ -174,11 +166,8 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
         )
         response_data = response.json()
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(
-            response_data,
-            self.permission_denied_response("You don't have access to the project."),
-        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response_data == self.permission_denied_response("You don't have access to the project.")
 
     def test_cannot_update_existing_collaborator(self):
         # This will change once there are more levels, but with just two it doesn't make sense to PATCH privileges
@@ -198,7 +187,7 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
             {"level": Dashboard.PrivilegeLevel.CAN_VIEW},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
 
     def test_cannot_remove_collaborator_from_unrestricted_dashboard_as_creator(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -217,12 +206,9 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
         )
         response_data = response.json()
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response_data,
-            self.validation_error_response(
-                "Cannot remove collaborators from a dashboard on the lowest restriction level."
-            ),
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response_data == self.validation_error_response(
+            "Cannot remove collaborators from a dashboard on the lowest restriction level."
         )
 
     def test_can_remove_collaborator_from_restricted_dashboard_as_creator(self):
@@ -241,7 +227,7 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
             f"/api/projects/{self.test_dashboard.team_id}/dashboards/{self.test_dashboard.id}/collaborators/{other_user.uuid}"
         )
 
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
     def test_cannot_remove_collaborator_from_restricted_dashboard_as_other_user(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -261,8 +247,5 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
         )
         response_data = response.json()
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(
-            response_data,
-            self.permission_denied_response("You don't have edit permissions for this dashboard."),
-        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response_data == self.permission_denied_response("You don't have edit permissions for this dashboard.")

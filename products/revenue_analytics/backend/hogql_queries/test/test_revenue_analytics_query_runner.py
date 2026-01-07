@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 
+import pytest
 from posthog.test.base import APIBaseTest
 
 from posthog.schema import IntervalType, RevenueAnalyticsGrossRevenueQuery
@@ -33,12 +34,12 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
 
     def assertDiff(self, diff: timedelta):
         runner = RevenueAnalyticsQueryRunnerImpl(team=self.team, query=self.query)
-        self.assertEqual(runner.cache_target_age(self.date), self.date + diff)
+        assert runner.cache_target_age(self.date) == self.date + diff
 
     def test_cache_target_age_without_last_refresh(self):
         """Test that when there is no last refresh, we return None"""
         runner = RevenueAnalyticsQueryRunnerImpl(team=self.team, query=self.query)
-        self.assertEqual(runner.cache_target_age(None), None)
+        assert runner.cache_target_age(None) is None
 
     def test_cache_target_age_without_sources(self):
         """Test that when there are no sources, we use our default cache target age"""
@@ -324,7 +325,7 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
     def test_validate_query_runner_access(self):
         """Test that the query runner can access the query runner"""
         runner = RevenueAnalyticsQueryRunnerImpl(team=self.team, query=self.query)
-        self.assertTrue(runner.validate_query_runner_access(self.user))
+        assert runner.validate_query_runner_access(self.user)
 
     def test_validate_query_runner_access_without_access(self):
         """Test that the query runner cannot access the query runner without view access control"""
@@ -333,4 +334,5 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
         self.organization.save()
 
         runner = RevenueAnalyticsQueryRunnerImpl(team=self.team, query=self.query)
-        self.assertRaises(UserAccessControlError, runner.validate_query_runner_access, self.user)
+        with pytest.raises(UserAccessControlError):
+            runner.validate_query_runner_access(self.user)

@@ -16,23 +16,20 @@ class TestView(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(response.status_code, 201, response.content)
+        assert response.status_code == 201, response.content
         view = response.json()
-        self.assertEqual(view["name"], "event_view")
-        self.assertEqual(
-            view["columns"],
-            [
-                {
-                    "key": "event",
-                    "name": "event",
-                    "type": "string",
-                    "schema_valid": True,
-                    "fields": None,
-                    "table": None,
-                    "chain": None,
-                }
-            ],
-        )
+        assert view["name"] == "event_view"
+        assert view["columns"] == [
+            {
+                "key": "event",
+                "name": "event",
+                "type": "string",
+                "schema_valid": True,
+                "fields": None,
+                "table": None,
+                "chain": None,
+            }
+        ]
 
     def test_view_doesnt_exist(self):
         view_1_response = self.client.post(
@@ -45,7 +42,7 @@ class TestView(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(view_1_response.status_code, 400, view_1_response.content)
+        assert view_1_response.status_code == 400, view_1_response.content
 
     def test_view_updated(self):
         response = self.client.post(
@@ -58,7 +55,7 @@ class TestView(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(response.status_code, 201, response.content)
+        assert response.status_code == 201, response.content
         view = response.json()
         view_1_response = self.client.patch(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/" + view["id"],
@@ -71,23 +68,20 @@ class TestView(APIBaseTest):
             },
         )
 
-        self.assertEqual(view_1_response.status_code, 200, view_1_response.content)
+        assert view_1_response.status_code == 200, view_1_response.content
         view_1 = view_1_response.json()
-        self.assertEqual(view_1["name"], "event_view")
-        self.assertEqual(
-            view_1["columns"],
-            [
-                {
-                    "key": "distinct_id",
-                    "name": "distinct_id",
-                    "type": "string",
-                    "schema_valid": True,
-                    "fields": None,
-                    "table": None,
-                    "chain": None,
-                }
-            ],
-        )
+        assert view_1["name"] == "event_view"
+        assert view_1["columns"] == [
+            {
+                "key": "distinct_id",
+                "name": "distinct_id",
+                "type": "string",
+                "schema_valid": True,
+                "fields": None,
+                "table": None,
+                "chain": None,
+            }
+        ]
 
     @patch(
         "products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns",
@@ -114,7 +108,7 @@ class TestView(APIBaseTest):
                 "format": "Parquet",
             },
         )
-        self.assertEqual(response.status_code, 201, response.content)
+        assert response.status_code == 201, response.content
         response = response.json()
 
         view_1_response = self.client.post(
@@ -127,10 +121,10 @@ class TestView(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(view_1_response.status_code, 201, view_1_response.content)
+        assert view_1_response.status_code == 201, view_1_response.content
 
-        self.assertEqual(DataWarehouseSavedQuery.objects.all().count(), 1)
+        assert DataWarehouseSavedQuery.objects.all().count() == 1
 
         response = self.client.delete(f"/api/environments/{self.team.id}/warehouse_tables/{response['id']}")
 
-        self.assertEqual(DataWarehouseSavedQuery.objects.all().count(), 1)
+        assert DataWarehouseSavedQuery.objects.all().count() == 1

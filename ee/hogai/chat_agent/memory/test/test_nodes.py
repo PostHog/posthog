@@ -1,5 +1,6 @@
 from typing import cast
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import (
     BaseTest,
@@ -59,7 +60,7 @@ class TestMemoryInitializerContextMixin(ClickhouseTestMixin, NonAtomicBaseTest):
             property="$host", sample_values=["us.posthog.com", "eu.posthog.com"], sample_count=2
         )
         result = await mixin._aretrieve_context(config={"configurable": {"_mock_memory_onboarding_context": expected}})
-        self.assertEqual(result, expected)
+        assert result == expected
 
     async def test_app_bundle_id_retrieval(self):
         # Use config mock to test _aretrieve_context logic without ClickHouse state leakage
@@ -68,7 +69,7 @@ class TestMemoryInitializerContextMixin(ClickhouseTestMixin, NonAtomicBaseTest):
             property="$app_namespace", sample_values=["com.posthog.app", "com.posthog"], sample_count=2
         )
         result = await mixin._aretrieve_context(config={"configurable": {"_mock_memory_onboarding_context": expected}})
-        self.assertEqual(result, expected)
+        assert result == expected
 
 
 class TestMemoryOnboardingNode(ClickhouseTestMixin, NonAtomicBaseTest):
@@ -102,34 +103,34 @@ class TestMemoryOnboardingNode(ClickhouseTestMixin, NonAtomicBaseTest):
 
     async def test_should_run(self):
         node = MemoryOnboardingNode(team=self.team, user=self.user)
-        self.assertEqual(
+        assert (
             await node.should_run_onboarding_at_start(
                 AssistantState(messages=[HumanMessage(content=SlashCommandName.FIELD_INIT)])
-            ),
-            "memory_onboarding",
+            )
+            == "memory_onboarding"
         )
 
         core_memory = await CoreMemory.objects.acreate(team=self.team)
-        self.assertEqual(
-            await node.should_run_onboarding_at_start(AssistantState(messages=[HumanMessage(content="Hello")])),
-            "continue",
+        assert (
+            await node.should_run_onboarding_at_start(AssistantState(messages=[HumanMessage(content="Hello")]))
+            == "continue"
         )
 
         await core_memory.achange_status_to_pending()
-        self.assertEqual(
-            await node.should_run_onboarding_at_start(AssistantState(messages=[HumanMessage(content="Hello")])),
-            "continue",
+        assert (
+            await node.should_run_onboarding_at_start(AssistantState(messages=[HumanMessage(content="Hello")]))
+            == "continue"
         )
 
         await core_memory.achange_status_to_skipped()
-        self.assertEqual(
-            await node.should_run_onboarding_at_start(AssistantState(messages=[HumanMessage(content="Hello")])),
-            "continue",
+        assert (
+            await node.should_run_onboarding_at_start(AssistantState(messages=[HumanMessage(content="Hello")]))
+            == "continue"
         )
 
     async def test_should_run_with_empty_messages(self):
         node = MemoryOnboardingNode(team=self.team, user=self.user)
-        self.assertEqual(await node.should_run_onboarding_at_start(AssistantState(messages=[])), "continue")
+        assert await node.should_run_onboarding_at_start(AssistantState(messages=[])) == "continue"
 
     async def test_onboarding_initial_message_is_sent_if_no_events(self):
         await sync_to_async(flush_persons_and_events)()
@@ -140,9 +141,9 @@ class TestMemoryOnboardingNode(ClickhouseTestMixin, NonAtomicBaseTest):
             {"configurable": {"_mock_memory_onboarding_context": None}},
         )
         new_state = cast(PartialAssistantState, new_state)
-        self.assertEqual(len(new_state.messages), 1)
-        self.assertTrue(isinstance(new_state.messages[0], AssistantMessage))
-        self.assertEqual(cast(AssistantMessage, new_state.messages[0]).content, prompts.ENQUIRY_INITIAL_MESSAGE)
+        assert len(new_state.messages) == 1
+        assert isinstance(new_state.messages[0], AssistantMessage)
+        assert cast(AssistantMessage, new_state.messages[0]).content == prompts.ENQUIRY_INITIAL_MESSAGE
 
     async def test_node_uses_project_description(self):
         self.team.project.product_description = "This is a product analytics platform"
@@ -156,14 +157,14 @@ class TestMemoryOnboardingNode(ClickhouseTestMixin, NonAtomicBaseTest):
             {"configurable": {"_mock_memory_onboarding_context": None}},
         )
         new_state = cast(PartialAssistantState, new_state)
-        self.assertEqual(len(new_state.messages), 1)
-        self.assertTrue(isinstance(new_state.messages[0], AssistantMessage))
-        self.assertEqual(cast(AssistantMessage, new_state.messages[0]).content, prompts.ENQUIRY_INITIAL_MESSAGE)
+        assert len(new_state.messages) == 1
+        assert isinstance(new_state.messages[0], AssistantMessage)
+        assert cast(AssistantMessage, new_state.messages[0]).content == prompts.ENQUIRY_INITIAL_MESSAGE
 
         core_memory = await CoreMemory.objects.aget(team=self.team)
-        self.assertEqual(
-            core_memory.initial_text,
-            "Question: What does the company do?\nAnswer: This is a product analytics platform",
+        assert (
+            core_memory.initial_text
+            == "Question: What does the company do?\nAnswer: This is a product analytics platform"
         )
 
     async def test_node_starts_onboarding_for_pageview_events(self):
@@ -171,24 +172,24 @@ class TestMemoryOnboardingNode(ClickhouseTestMixin, NonAtomicBaseTest):
         node = MemoryOnboardingNode(team=self.team, user=self.user)
         new_state = await node.arun(AssistantState(messages=[HumanMessage(content="Hello")]), {})
         assert new_state is not None and new_state.messages is not None
-        self.assertEqual(len(new_state.messages), 1)
-        self.assertTrue(isinstance(new_state.messages[0], AssistantMessage))
+        assert len(new_state.messages) == 1
+        assert isinstance(new_state.messages[0], AssistantMessage)
 
         core_memory = await CoreMemory.objects.aget(team=self.team)
-        self.assertEqual(core_memory.scraping_status, CoreMemory.ScrapingStatus.PENDING)
-        self.assertIsNotNone(core_memory.scraping_started_at)
+        assert core_memory.scraping_status == CoreMemory.ScrapingStatus.PENDING
+        assert core_memory.scraping_started_at is not None
 
     async def test_node_starts_onboarding_for_app_bundle_id_events(self):
         await sync_to_async(self._set_up_app_bundle_id_events)()
         node = MemoryOnboardingNode(team=self.team, user=self.user)
         new_state = await node.arun(AssistantState(messages=[HumanMessage(content="Hello")]), {})
         assert new_state is not None and new_state.messages is not None
-        self.assertEqual(len(new_state.messages), 1)
-        self.assertTrue(isinstance(new_state.messages[0], AssistantMessage))
+        assert len(new_state.messages) == 1
+        assert isinstance(new_state.messages[0], AssistantMessage)
 
         core_memory = await CoreMemory.objects.aget(team=self.team)
-        self.assertEqual(core_memory.scraping_status, CoreMemory.ScrapingStatus.PENDING)
-        self.assertIsNotNone(core_memory.scraping_started_at)
+        assert core_memory.scraping_status == CoreMemory.ScrapingStatus.PENDING
+        assert core_memory.scraping_started_at is not None
 
 
 class TestMemoryInitializerNode(ClickhouseTestMixin, NonAtomicBaseTest):
@@ -231,12 +232,12 @@ class TestMemoryInitializerNode(ClickhouseTestMixin, NonAtomicBaseTest):
     def test_router_with_heres_what_i_found_scraping_message(self):
         node = MemoryInitializerNode(team=self.team, user=self.user)
         state = AssistantState(messages=[AssistantMessage(content="Here's what I found on acme.inc: ...")])
-        self.assertEqual(node.router(state), "interrupt")  # We check for "Here's what I found" in the message content
+        assert node.router(state) == "interrupt"  # We check for "Here's what I found" in the message content
 
     def test_router_with_other_message(self):
         node = MemoryInitializerNode(team=self.team, user=self.user)
         state = AssistantState(messages=[AssistantMessage(content="Some other message")])
-        self.assertEqual(node.router(state), "continue")
+        assert node.router(state) == "continue"
 
     async def test_run_with_url_based_initialization(self):
         with patch.object(MemoryInitializerNode, "_model") as model_mock:
@@ -247,15 +248,12 @@ class TestMemoryInitializerNode(ClickhouseTestMixin, NonAtomicBaseTest):
 
             new_state = await node.arun(AssistantState(messages=[HumanMessage(content="Hello")]), {})
             new_state = cast(PartialAssistantState, new_state)
-            self.assertEqual(len(new_state.messages), 1)
-            self.assertIsInstance(new_state.messages[0], AssistantMessage)
-            self.assertEqual(
-                cast(AssistantMessage, new_state.messages[0]).content,
-                "PostHog is a product analytics platform.",
-            )
+            assert len(new_state.messages) == 1
+            assert isinstance(new_state.messages[0], AssistantMessage)
+            assert cast(AssistantMessage, new_state.messages[0]).content == "PostHog is a product analytics platform."
 
             core_memory = await CoreMemory.objects.aget(team=self.team)
-            self.assertEqual(core_memory.scraping_status, CoreMemory.ScrapingStatus.PENDING)
+            assert core_memory.scraping_status == CoreMemory.ScrapingStatus.PENDING
 
     async def test_run_with_app_bundle_id_initialization(self):
         with patch.object(MemoryInitializerNode, "_model") as model_mock:
@@ -275,15 +273,12 @@ class TestMemoryInitializerNode(ClickhouseTestMixin, NonAtomicBaseTest):
                 },
             )
             new_state = cast(PartialAssistantState, new_state)
-            self.assertEqual(len(new_state.messages), 1)
-            self.assertIsInstance(new_state.messages[0], AssistantMessage)
-            self.assertEqual(
-                cast(AssistantMessage, new_state.messages[0]).content,
-                "PostHog mobile app description.",
-            )
+            assert len(new_state.messages) == 1
+            assert isinstance(new_state.messages[0], AssistantMessage)
+            assert cast(AssistantMessage, new_state.messages[0]).content == "PostHog mobile app description."
 
             core_memory = await CoreMemory.objects.aget(team=self.team)
-            self.assertEqual(core_memory.scraping_status, CoreMemory.ScrapingStatus.PENDING)
+            assert core_memory.scraping_status == CoreMemory.ScrapingStatus.PENDING
 
     async def test_memory_onboarding_runs_when_init_with_completed_memory(self):
         """Test that when /init is used and core memory is completed, the graph DOES run MemoryOnboardingNode"""
@@ -295,7 +290,7 @@ class TestMemoryInitializerNode(ClickhouseTestMixin, NonAtomicBaseTest):
             AssistantState(messages=[HumanMessage(content=SlashCommandName.FIELD_INIT)])
         )
         # Should trigger memory onboarding flow (which includes MemoryOnboardingNode)
-        self.assertEqual(result, "memory_onboarding")
+        assert result == "memory_onboarding"
 
     async def test_memory_onboarding_runs_when_init_with_nonexistent_memory(self):
         """Test that when /init is used and core memory doesn't exist, the graph DOES run MemoryOnboardingNode"""
@@ -307,7 +302,7 @@ class TestMemoryInitializerNode(ClickhouseTestMixin, NonAtomicBaseTest):
             AssistantState(messages=[HumanMessage(content=SlashCommandName.FIELD_INIT)])
         )
         # Should trigger memory onboarding flow (which includes MemoryInitializerNode)
-        self.assertEqual(result, "memory_onboarding")
+        assert result == "memory_onboarding"
 
     async def test_memory_onboarding_does_not_run_when_init_with_pending_memory(self):
         """Test that when /init is used and core memory is pending, the graph does NOT run MemoryOnboardingNode"""
@@ -317,7 +312,7 @@ class TestMemoryInitializerNode(ClickhouseTestMixin, NonAtomicBaseTest):
             AssistantState(messages=[HumanMessage(content=SlashCommandName.FIELD_INIT)])
         )
         # Should NOT trigger memory onboarding flow, so MemoryOnboardingNode won't run
-        self.assertEqual(result, "continue")
+        assert result == "continue"
 
 
 class TestMemoryInitializerInterruptNode(ClickhouseTestMixin, NonAtomicBaseTest):
@@ -335,16 +330,16 @@ class TestMemoryInitializerInterruptNode(ClickhouseTestMixin, NonAtomicBaseTest)
     async def test_interrupt_when_not_resumed(self):
         state = AssistantState(messages=[AssistantMessage(content="Product description")])
 
-        with self.assertRaises(NodeInterrupt) as e:
+        with pytest.raises(NodeInterrupt) as e:
             await self.node.arun(state, {})
 
-        interrupt_message = e.exception.args[0][0].value
-        self.assertIsInstance(interrupt_message, AssistantMessage)
-        self.assertEqual(interrupt_message.content, prompts.SCRAPING_VERIFICATION_MESSAGE)
-        self.assertIsNotNone(interrupt_message.meta)
-        self.assertEqual(len(interrupt_message.meta.form.options), 2)
-        self.assertEqual(interrupt_message.meta.form.options[0].value, prompts.SCRAPING_CONFIRMATION_MESSAGE)
-        self.assertEqual(interrupt_message.meta.form.options[1].value, prompts.SCRAPING_REJECTION_MESSAGE)
+        interrupt_message = e.value.args[0][0].value
+        assert isinstance(interrupt_message, AssistantMessage)
+        assert interrupt_message.content == prompts.SCRAPING_VERIFICATION_MESSAGE
+        assert interrupt_message.meta is not None
+        assert len(interrupt_message.meta.form.options) == 2
+        assert interrupt_message.meta.form.options[0].value == prompts.SCRAPING_CONFIRMATION_MESSAGE
+        assert interrupt_message.meta.form.options[1].value == prompts.SCRAPING_REJECTION_MESSAGE
 
 
 class TestMemoryOnboardingEnquiryNode(ClickhouseTestMixin, NonAtomicBaseTest):
@@ -358,29 +353,29 @@ class TestMemoryOnboardingEnquiryNode(ClickhouseTestMixin, NonAtomicBaseTest):
     async def test_arouter_with_no_core_memory(self):
         await sync_to_async(self.core_memory.delete)()
         result = await self.node.arouter(AssistantState(messages=[]))
-        self.assertEqual(result, "continue")
-        self.assertTrue(await CoreMemory.objects.filter(team=self.team).aexists())
+        assert result == "continue"
+        assert await CoreMemory.objects.filter(team=self.team).aexists()
 
     async def test_arouter_with_no_onboarding_question(self):
-        self.assertEqual(await self.node.arouter(AssistantState(messages=[])), "continue")
+        assert await self.node.arouter(AssistantState(messages=[])) == "continue"
 
     async def test_arouter_with_onboarding_question(self):
-        self.assertEqual(
-            await self.node.arouter(AssistantState(messages=[], onboarding_question="What is your target market?")),
-            "interrupt",
+        assert (
+            await self.node.arouter(AssistantState(messages=[], onboarding_question="What is your target market?"))
+            == "interrupt"
         )
 
     def test_format_question_with_separator(self):
         question = "Some prefix===What is your target market?"
-        self.assertEqual(self.node._format_question(question), "What is your target market?")
+        assert self.node._format_question(question) == "What is your target market?"
 
     def test_format_question_without_separator(self):
         question = "What is your target market?"
-        self.assertEqual(self.node._format_question(question), question)
+        assert self.node._format_question(question) == question
 
     def test_format_question_with_markdown(self):
         question = "**What** is your _target_ market?"
-        self.assertEqual(self.node._format_question(question), "What is your target market?")
+        assert self.node._format_question(question) == "What is your target market?"
 
     async def test_run_with_initial_message(self):
         with patch.object(MemoryOnboardingEnquiryNode, "_model") as model_mock:
@@ -391,10 +386,10 @@ class TestMemoryOnboardingEnquiryNode(ClickhouseTestMixin, NonAtomicBaseTest):
             )
 
             new_state = await self.node.arun(state, {})
-            self.assertEqual(new_state.onboarding_question, "What is your target market?")
+            assert new_state.onboarding_question == "What is your target market?"
 
             await self.core_memory.arefresh_from_db()
-            self.assertEqual(self.core_memory.initial_text, "Question: What is your target market?\nAnswer:")
+            assert self.core_memory.initial_text == "Question: What is your target market?\nAnswer:"
 
     async def test_run_with_answer(self):
         with patch.object(MemoryOnboardingEnquiryNode, "_model") as model_mock:
@@ -406,11 +401,11 @@ class TestMemoryOnboardingEnquiryNode(ClickhouseTestMixin, NonAtomicBaseTest):
             )
 
             new_state = await self.node.arun(state, {})
-            self.assertEqual(new_state.onboarding_question, "What is your pricing model?")
+            assert new_state.onboarding_question == "What is your pricing model?"
             await self.core_memory.arefresh_from_db()
-            self.assertEqual(
-                self.core_memory.initial_text,
-                "Question: What is your target market?\nAnswer: We target enterprise customers\nQuestion: What is your pricing model?\nAnswer:",
+            assert (
+                self.core_memory.initial_text
+                == "Question: What is your target market?\nAnswer: We target enterprise customers\nQuestion: What is your pricing model?\nAnswer:"
             )
 
     async def test_run_with_all_questions_answered(self):
@@ -429,9 +424,9 @@ class TestMemoryOnboardingEnquiryNode(ClickhouseTestMixin, NonAtomicBaseTest):
                 messages=[HumanMessage(content=SlashCommandName.FIELD_INIT)],
             )
             new_state = await self.node.arun(state, {})
-            self.assertEqual(new_state.onboarding_question, "What is your target market?")
+            assert new_state.onboarding_question == "What is your target market?"
             await self.core_memory.arefresh_from_db()
-            self.assertEqual(self.core_memory.initial_text, "Question: What is your target market?\nAnswer:")
+            assert self.core_memory.initial_text == "Question: What is your target market?\nAnswer:"
 
             # Second run - should complete since we have enough answers
             await self.core_memory.aappend_question_to_initial_text("What is your pricing model?")
@@ -441,7 +436,7 @@ class TestMemoryOnboardingEnquiryNode(ClickhouseTestMixin, NonAtomicBaseTest):
                 messages=[HumanMessage(content="We target enterprise customers")],
             )
             new_state = await self.node.arun(state, {})
-            self.assertEqual(new_state, PartialAssistantState(onboarding_question=None))
+            assert new_state == PartialAssistantState(onboarding_question=None)
 
     async def test_memory_accepted(self):
         with patch.object(MemoryOnboardingEnquiryNode, "_model") as model_mock:
@@ -465,12 +460,12 @@ class TestMemoryOnboardingEnquiryNode(ClickhouseTestMixin, NonAtomicBaseTest):
             )
 
             new_state = await self.node.arun(state, {})
-            self.assertEqual(new_state.onboarding_question, "What is your target market?")
+            assert new_state.onboarding_question == "What is your target market?"
 
             await core_memory.arefresh_from_db()
-            self.assertEqual(
-                core_memory.initial_text,
-                "Question: What does the company do?\nAnswer: Product description\nQuestion: What is your target market?\nAnswer:",
+            assert (
+                core_memory.initial_text
+                == "Question: What does the company do?\nAnswer: Product description\nQuestion: What is your target market?\nAnswer:"
             )
 
     async def test_memory_rejected(self):
@@ -496,10 +491,10 @@ class TestMemoryOnboardingEnquiryNode(ClickhouseTestMixin, NonAtomicBaseTest):
             )
 
             new_state = await self.node.arun(state, {})
-            self.assertEqual(new_state.onboarding_question, "What is your target market?")
+            assert new_state.onboarding_question == "What is your target market?"
 
             await core_memory.arefresh_from_db()
-            self.assertEqual(core_memory.initial_text, "Question: What is your target market?\nAnswer:")
+            assert core_memory.initial_text == "Question: What is your target market?\nAnswer:"
 
 
 class TestMemoryEnquiryInterruptNode(ClickhouseTestMixin, NonAtomicBaseTest):
@@ -511,7 +506,7 @@ class TestMemoryEnquiryInterruptNode(ClickhouseTestMixin, NonAtomicBaseTest):
         self.node = MemoryOnboardingEnquiryInterruptNode(team=self.team, user=self.user)
 
     async def test_run(self):
-        with self.assertRaises(NodeInterrupt) as e:
+        with pytest.raises(NodeInterrupt) as e:
             await self.node.arun(
                 AssistantState(
                     messages=[AssistantMessage(content="What is your name?"), HumanMessage(content="Hello")],
@@ -519,9 +514,9 @@ class TestMemoryEnquiryInterruptNode(ClickhouseTestMixin, NonAtomicBaseTest):
                 ),
                 {},
             )
-        self.assertEqual(len(e.exception.args[0]), 1)
-        self.assertIsInstance(e.exception.args[0][0].value, AssistantMessage)
-        self.assertEqual(e.exception.args[0][0].value.content, "What is your target market?")
+        assert len(e.value.args[0]) == 1
+        assert isinstance(e.value.args[0][0].value, AssistantMessage)
+        assert e.value.args[0][0].value.content == "What is your target market?"
 
         new_state = await self.node.arun(
             AssistantState(
@@ -530,7 +525,7 @@ class TestMemoryEnquiryInterruptNode(ClickhouseTestMixin, NonAtomicBaseTest):
             ),
             {},
         )
-        self.assertEqual(new_state, PartialAssistantState(onboarding_question=None))
+        assert new_state == PartialAssistantState(onboarding_question=None)
 
 
 class TestMemoryOnboardingFinalizeNode(ClickhouseTestMixin, NonAtomicBaseTest):
@@ -547,12 +542,12 @@ class TestMemoryOnboardingFinalizeNode(ClickhouseTestMixin, NonAtomicBaseTest):
             self.core_memory.initial_text = "Question: What does the company do?\nAnswer: Product description"
             await self.core_memory.asave()
             new_state = await self.node.arun(AssistantState(messages=[]), {})
-            self.assertEqual(len(new_state.messages), 1)
-            self.assertIsInstance(new_state.messages[0], ContextMessage)
-            self.assertEqual(new_state.messages[0].id, new_state.root_conversation_start_id)
-            self.assertEqual(new_state.messages[0].id, new_state.start_id)
+            assert len(new_state.messages) == 1
+            assert isinstance(new_state.messages[0], ContextMessage)
+            assert new_state.messages[0].id == new_state.root_conversation_start_id
+            assert new_state.messages[0].id == new_state.start_id
             await self.core_memory.arefresh_from_db()
-            self.assertEqual(self.core_memory.text, "Compressed memory about enterprise product")
+            assert self.core_memory.text == "Compressed memory about enterprise product"
 
     async def test_handles_json_content_in_memory(self):
         """Test that memory compression works when memory contains JSON with curly braces."""
@@ -579,10 +574,10 @@ Additional context: Our system also handles nested configurations like {"feature
             # This should not raise a KeyError about missing template variables
             new_state = await self.node.arun(AssistantState(messages=[]), {})
 
-            self.assertEqual(len(new_state.messages), 1)
-            self.assertIsInstance(new_state.messages[0], ContextMessage)
+            assert len(new_state.messages) == 1
+            assert isinstance(new_state.messages[0], ContextMessage)
             await self.core_memory.arefresh_from_db()
-            self.assertEqual(self.core_memory.text, "Company uses structured JSON for event tracking")
+            assert self.core_memory.text == "Company uses structured JSON for event tracking"
 
 
 class TestMemoryCollectorNode(ClickhouseTestMixin, NonAtomicBaseTest):
@@ -599,14 +594,14 @@ class TestMemoryCollectorNode(ClickhouseTestMixin, NonAtomicBaseTest):
     def test_router(self):
         # Test with no memory collection messages
         state = AssistantState(messages=[HumanMessage(content="Text")], memory_collection_messages=None)
-        self.assertEqual(self.node.router(state), "next")
+        assert self.node.router(state) == "next"
 
         # Test with memory collection messages
         state = AssistantState(
             messages=[HumanMessage(content="Text")],
             memory_collection_messages=[LangchainAIMessage(content="Memory message")],
         )
-        self.assertEqual(self.node.router(state), "tools")
+        assert self.node.router(state) == "tools"
 
     async def test_construct_messages(self):
         # Test basic conversation reconstruction
@@ -619,10 +614,10 @@ class TestMemoryCollectorNode(ClickhouseTestMixin, NonAtomicBaseTest):
             start_id="2",
         )
         history = await self.node._aconstruct_messages(state)
-        self.assertEqual(len(history), 3)
-        self.assertEqual(history[0].content, "Question 1")
-        self.assertEqual(history[1].content, "Answer 1")
-        self.assertEqual(history[2].content, "Question 2")
+        assert len(history) == 3
+        assert history[0].content == "Question 1"
+        assert history[1].content == "Answer 1"
+        assert history[2].content == "Question 2"
 
         # Test with memory collection messages
         state = AssistantState(
@@ -634,10 +629,10 @@ class TestMemoryCollectorNode(ClickhouseTestMixin, NonAtomicBaseTest):
             start_id="0",
         )
         history = await self.node._aconstruct_messages(state)
-        self.assertEqual(len(history), 3)
-        self.assertEqual(history[0].content, "Question")
-        self.assertEqual(history[1].content, "Memory 1")
-        self.assertEqual(history[2].content, "Tool response")
+        assert len(history) == 3
+        assert history[0].content == "Question"
+        assert history[1].content == "Memory 1"
+        assert history[2].content == "Tool response"
 
     @freeze_time("2024-01-01")
     async def test_prompt_substitutions(self):
@@ -647,19 +642,19 @@ class TestMemoryCollectorNode(ClickhouseTestMixin, NonAtomicBaseTest):
                 messages = prompt.to_messages()
 
                 # Verify the structure of messages
-                self.assertEqual(len(messages), 3)
-                self.assertEqual(messages[0].type, "system")
-                self.assertEqual(messages[1].type, "human")
-                self.assertEqual(messages[2].type, "ai")
+                assert len(messages) == 3
+                assert messages[0].type == "system"
+                assert messages[1].type == "human"
+                assert messages[2].type == "ai"
 
                 # Verify system message content
                 system_message = messages[0].content
-                self.assertIn("Test product core memory", system_message)
-                self.assertIn("2024-01-01", system_message)
+                assert "Test product core memory" in system_message
+                assert "2024-01-01" in system_message
 
                 # Verify conversation messages
-                self.assertEqual(messages[1].content, "We use a subscription model")
-                self.assertEqual(messages[2].content, "Memory message")
+                assert messages[1].content == "We use a subscription model"
+                assert messages[2].content == "Memory message"
                 return LangchainAIMessage(content="[Done]")
 
             model_mock.return_value = RunnableLambda(assert_prompt)
@@ -689,7 +684,7 @@ class TestMemoryCollectorNode(ClickhouseTestMixin, NonAtomicBaseTest):
 
             new_state = await self.node.arun(state, {})
             assert new_state is not None
-            self.assertEqual(new_state.memory_collection_messages, None)
+            assert new_state.memory_collection_messages is None
 
     async def test_appends_new_message(self):
         with patch.object(MemoryCollectorNode, "_model") as model_mock:
@@ -713,9 +708,9 @@ class TestMemoryCollectorNode(ClickhouseTestMixin, NonAtomicBaseTest):
 
             new_state = await self.node.arun(state, {})
             assert new_state is not None and new_state.memory_collection_messages is not None
-            self.assertEqual(len(new_state.memory_collection_messages), 2)
-            self.assertEqual(new_state.memory_collection_messages[0].content, "Previous memory")
-            self.assertEqual(new_state.memory_collection_messages[1].content, "New memory")
+            assert len(new_state.memory_collection_messages) == 2
+            assert new_state.memory_collection_messages[0].content == "Previous memory"
+            assert new_state.memory_collection_messages[1].content == "New memory"
 
     async def test_construct_messages_typical_conversation(self):
         # Set up a typical conversation with multiple interactions
@@ -739,20 +734,20 @@ class TestMemoryCollectorNode(ClickhouseTestMixin, NonAtomicBaseTest):
         history = await self.node._aconstruct_messages(state)
 
         # Verify the complete conversation history is reconstructed correctly
-        self.assertEqual(len(history), 9)  # 5 conversation messages + 4 memory messages
+        assert len(history) == 9  # 5 conversation messages + 4 memory messages
 
         # Check conversation messages
-        self.assertEqual(history[0].content, "We use a subscription model")
-        self.assertEqual(history[1].content, "I'll note that down")
-        self.assertEqual(history[2].content, "And we target enterprise customers")
-        self.assertEqual(history[3].content, "Let me process that information")
-        self.assertEqual(history[4].content, "We also have a freemium tier")
+        assert history[0].content == "We use a subscription model"
+        assert history[1].content == "I'll note that down"
+        assert history[2].content == "And we target enterprise customers"
+        assert history[3].content == "Let me process that information"
+        assert history[4].content == "We also have a freemium tier"
 
         # Check memory collection messages
-        self.assertEqual(history[5].content, "Analyzing business model: subscription-based pricing.")
-        self.assertEqual(history[6].content, "Memory appended.")
-        self.assertEqual(history[7].content, "Analyzing target audience: enterprise customers.")
-        self.assertEqual(history[8].content, "Memory appended.")
+        assert history[5].content == "Analyzing business model: subscription-based pricing."
+        assert history[6].content == "Memory appended."
+        assert history[7].content == "Analyzing target audience: enterprise customers."
+        assert history[8].content == "Memory appended."
 
     def test_check_tool_messages_are_valid_all_matching(self):
         """All tool calls have corresponding tool messages"""
@@ -767,7 +762,7 @@ class TestMemoryCollectorNode(ClickhouseTestMixin, NonAtomicBaseTest):
             LangchainToolMessage(content="Done", tool_call_id="1"),
             LangchainToolMessage(content="Done", tool_call_id="2"),
         ]
-        self.assertTrue(self.node._check_tool_messages_are_valid(messages))
+        assert self.node._check_tool_messages_are_valid(messages)
 
     def test_check_tool_messages_are_valid_missing_tool_message(self):
         """Tool call exists but no corresponding tool message"""
@@ -781,7 +776,7 @@ class TestMemoryCollectorNode(ClickhouseTestMixin, NonAtomicBaseTest):
             ),
             LangchainToolMessage(content="Done", tool_call_id="1"),
         ]
-        self.assertFalse(self.node._check_tool_messages_are_valid(messages))
+        assert not self.node._check_tool_messages_are_valid(messages)
 
     def test_check_tool_messages_are_valid_extra_tool_message(self):
         """Tool message exists but no corresponding tool call"""
@@ -793,11 +788,11 @@ class TestMemoryCollectorNode(ClickhouseTestMixin, NonAtomicBaseTest):
             LangchainToolMessage(content="Done", tool_call_id="1"),
             LangchainToolMessage(content="Extra", tool_call_id="2"),
         ]
-        self.assertFalse(self.node._check_tool_messages_are_valid(messages))
+        assert not self.node._check_tool_messages_are_valid(messages)
 
     def test_check_tool_messages_are_valid_empty_messages(self):
         """Empty messages list"""
-        self.assertTrue(self.node._check_tool_messages_are_valid([]))
+        assert self.node._check_tool_messages_are_valid([])
 
     def test_check_tool_messages_are_valid_no_tool_calls(self):
         """Messages without any tool calls"""
@@ -805,7 +800,7 @@ class TestMemoryCollectorNode(ClickhouseTestMixin, NonAtomicBaseTest):
             LangchainAIMessage(content="Test", tool_calls=[]),
             LangchainAIMessage(content="Test 2", tool_calls=[]),
         ]
-        self.assertTrue(self.node._check_tool_messages_are_valid(messages))
+        assert self.node._check_tool_messages_are_valid(messages)
 
     async def test_skips_to_tools_if_has_incomplete_tool_calls(self):
         """If there are incomplete tool calls, skip the node."""
@@ -829,8 +824,8 @@ class TestMemoryCollectorNode(ClickhouseTestMixin, NonAtomicBaseTest):
         )
 
         new_state = await self.node.arun(state, {})
-        self.assertIsNone(new_state)
-        self.assertEqual(self.node.router(state), "tools")
+        assert new_state is None
+        assert self.node.router(state) == "tools"
 
 
 class TestMemoryCollectorToolsNode(BaseTest):
@@ -871,11 +866,11 @@ class TestMemoryCollectorToolsNode(BaseTest):
         new_state = await self.node.arun(state, {})
         assert new_state is not None
         assert new_state.memory_collection_messages is not None
-        self.assertEqual(len(new_state.memory_collection_messages), 3)
-        self.assertEqual(new_state.memory_collection_messages[1].type, "tool")
-        self.assertEqual(new_state.memory_collection_messages[1].content, "Memory appended.")
-        self.assertEqual(new_state.memory_collection_messages[2].type, "tool")
-        self.assertEqual(new_state.memory_collection_messages[2].content, "Memory replaced.")
+        assert len(new_state.memory_collection_messages) == 3
+        assert new_state.memory_collection_messages[1].type == "tool"
+        assert new_state.memory_collection_messages[1].content == "Memory appended."
+        assert new_state.memory_collection_messages[2].type == "tool"
+        assert new_state.memory_collection_messages[2].content == "Memory replaced."
 
     async def test_handles_validation_error(self):
         # Test handling validation error with incorrect tool arguments
@@ -898,8 +893,8 @@ class TestMemoryCollectorToolsNode(BaseTest):
         new_state = await self.node.arun(state, {})
         assert new_state is not None
         assert new_state.memory_collection_messages is not None
-        self.assertEqual(len(new_state.memory_collection_messages), 2)
-        self.assertNotIn("{{validation_error_message}}", new_state.memory_collection_messages[1].content)
+        assert len(new_state.memory_collection_messages) == 2
+        assert "{{validation_error_message}}" not in new_state.memory_collection_messages[1].content
 
     async def test_handles_multiple_tools(self):
         # Test handling multiple tool calls in a single message
@@ -935,19 +930,19 @@ class TestMemoryCollectorToolsNode(BaseTest):
         new_state = await self.node.arun(state, {})
         assert new_state is not None
         assert new_state.memory_collection_messages is not None
-        self.assertEqual(len(new_state.memory_collection_messages), 4)
-        self.assertEqual(new_state.memory_collection_messages[1].content, "Memory appended.")
-        self.assertEqual(new_state.memory_collection_messages[1].type, "tool")
-        self.assertEqual(new_state.memory_collection_messages[1].tool_call_id, "1")  # type: ignore[attr-defined]
-        self.assertEqual(new_state.memory_collection_messages[2].content, "Memory appended.")
-        self.assertEqual(new_state.memory_collection_messages[2].type, "tool")
-        self.assertEqual(new_state.memory_collection_messages[2].tool_call_id, "2")  # type: ignore[attr-defined]
-        self.assertEqual(new_state.memory_collection_messages[3].content, "Memory replaced.")
-        self.assertEqual(new_state.memory_collection_messages[3].type, "tool")
-        self.assertEqual(new_state.memory_collection_messages[3].tool_call_id, "3")  # type: ignore[attr-defined]
+        assert len(new_state.memory_collection_messages) == 4
+        assert new_state.memory_collection_messages[1].content == "Memory appended."
+        assert new_state.memory_collection_messages[1].type == "tool"
+        assert new_state.memory_collection_messages[1].tool_call_id == "1"  # type: ignore[attr-defined]
+        assert new_state.memory_collection_messages[2].content == "Memory appended."
+        assert new_state.memory_collection_messages[2].type == "tool"
+        assert new_state.memory_collection_messages[2].tool_call_id == "2"  # type: ignore[attr-defined]
+        assert new_state.memory_collection_messages[3].content == "Memory replaced."
+        assert new_state.memory_collection_messages[3].type == "tool"
+        assert new_state.memory_collection_messages[3].tool_call_id == "3"  # type: ignore[attr-defined]
 
         await self.core_memory.arefresh_from_db()
-        self.assertEqual(self.core_memory.text, "Third memory\nFirst memory\nSecond memory")
+        assert self.core_memory.text == "Third memory\nFirst memory\nSecond memory"
 
     async def test_handles_replacing_memory(self):
         # Test replacing a memory fragment
@@ -973,12 +968,12 @@ class TestMemoryCollectorToolsNode(BaseTest):
         new_state = await self.node.arun(state, {})
         assert new_state is not None
         assert new_state.memory_collection_messages is not None
-        self.assertEqual(len(new_state.memory_collection_messages), 2)
-        self.assertEqual(new_state.memory_collection_messages[1].content, "Memory replaced.")
-        self.assertEqual(new_state.memory_collection_messages[1].type, "tool")
-        self.assertEqual(new_state.memory_collection_messages[1].tool_call_id, "1")  # type: ignore[attr-defined]
+        assert len(new_state.memory_collection_messages) == 2
+        assert new_state.memory_collection_messages[1].content == "Memory replaced."
+        assert new_state.memory_collection_messages[1].type == "tool"
+        assert new_state.memory_collection_messages[1].tool_call_id == "1"  # type: ignore[attr-defined]
         await self.core_memory.arefresh_from_db()
-        self.assertEqual(self.core_memory.text, "Updated memory content")
+        assert self.core_memory.text == "Updated memory content"
 
     async def test_handles_replace_memory_not_found(self):
         # Test replacing a memory fragment that doesn't exist
@@ -1004,14 +999,14 @@ class TestMemoryCollectorToolsNode(BaseTest):
         new_state = await self.node.arun(state, {})
         assert new_state is not None
         assert new_state.memory_collection_messages is not None
-        self.assertEqual(len(new_state.memory_collection_messages), 2)
+        assert len(new_state.memory_collection_messages) == 2
         content = new_state.memory_collection_messages[1].content
         assert isinstance(content, str)
-        self.assertIn("not found", content.lower())
-        self.assertEqual(new_state.memory_collection_messages[1].type, "tool")
-        self.assertEqual(new_state.memory_collection_messages[1].tool_call_id, "1")  # type: ignore[attr-defined]
+        assert "not found" in content.lower()
+        assert new_state.memory_collection_messages[1].type == "tool"
+        assert new_state.memory_collection_messages[1].tool_call_id == "1"  # type: ignore[attr-defined]
         await self.core_memory.arefresh_from_db()
-        self.assertEqual(self.core_memory.text, "Initial memory content")
+        assert self.core_memory.text == "Initial memory content"
 
     async def test_handles_appending_new_memory(self):
         # Test appending a new memory fragment
@@ -1034,19 +1029,19 @@ class TestMemoryCollectorToolsNode(BaseTest):
         new_state = await self.node.arun(state, {})
         assert new_state is not None
         assert new_state.memory_collection_messages is not None
-        self.assertEqual(len(new_state.memory_collection_messages), 2)
-        self.assertEqual(new_state.memory_collection_messages[1].content, "Memory appended.")
-        self.assertEqual(new_state.memory_collection_messages[1].type, "tool")
+        assert len(new_state.memory_collection_messages) == 2
+        assert new_state.memory_collection_messages[1].content == "Memory appended."
+        assert new_state.memory_collection_messages[1].type == "tool"
         await self.core_memory.arefresh_from_db()
-        self.assertEqual(self.core_memory.text, "Initial memory content\nAdditional memory")
+        assert self.core_memory.text == "Initial memory content\nAdditional memory"
 
     async def test_error_when_no_memory_collection_messages(self):
         # Test error when no memory collection messages are present
         state = AssistantState(messages=[], memory_collection_messages=[])
 
-        with self.assertRaises(ValueError) as e:
+        with pytest.raises(ValueError) as e:
             await self.node.arun(state, {})
-        self.assertEqual(str(e.exception), "No memory collection messages found.")
+        assert str(e.value) == "No memory collection messages found."
 
     async def test_error_when_last_message_not_ai(self):
         # Test error when last message is not an AI message
@@ -1055,16 +1050,16 @@ class TestMemoryCollectorToolsNode(BaseTest):
             memory_collection_messages=[LangchainToolMessage(content="Not an AI message", tool_call_id="1")],
         )
 
-        with self.assertRaises(ValueError) as e:
+        with pytest.raises(ValueError) as e:
             await self.node.arun(state, {})
-        self.assertEqual(str(e.exception), "Last message must be an AI message.")
+        assert str(e.value) == "Last message must be an AI message."
 
     async def test_creates_core_memory_when_missing(self):
         # Test that core memory is created when it doesn't exist
         await self.core_memory.adelete()
 
         # Verify no core memory exists
-        self.assertFalse(await CoreMemory.objects.filter(team=self.team).aexists())
+        assert not await CoreMemory.objects.filter(team=self.team).aexists()
 
         state = AssistantState(
             messages=[],
@@ -1087,23 +1082,23 @@ class TestMemoryCollectorToolsNode(BaseTest):
         assert new_state is not None
 
         # Verify core memory was created
-        self.assertTrue(await CoreMemory.objects.filter(team=self.team).aexists())
+        assert await CoreMemory.objects.filter(team=self.team).aexists()
         created_memory = await CoreMemory.objects.aget(team=self.team)
-        self.assertEqual(created_memory.text, "New memory")
+        assert created_memory.text == "New memory"
 
         # Verify response messages
         assert new_state.memory_collection_messages is not None
-        self.assertEqual(len(new_state.memory_collection_messages), 2)
-        self.assertEqual(new_state.memory_collection_messages[1].content, "Memory appended.")
-        self.assertEqual(new_state.memory_collection_messages[1].type, "tool")
-        self.assertEqual(new_state.memory_collection_messages[1].tool_call_id, "1")  # type: ignore[attr-defined]
+        assert len(new_state.memory_collection_messages) == 2
+        assert new_state.memory_collection_messages[1].content == "Memory appended."
+        assert new_state.memory_collection_messages[1].type == "tool"
+        assert new_state.memory_collection_messages[1].tool_call_id == "1"  # type: ignore[attr-defined]
 
     async def test_creates_core_memory_when_missing_for_replace(self):
         # Test that core memory is created when it doesn't exist, even for replace operations
         await self.core_memory.adelete()
 
         # Verify no core memory exists
-        self.assertFalse(await CoreMemory.objects.filter(team=self.team).aexists())
+        assert not await CoreMemory.objects.filter(team=self.team).aexists()
 
         state = AssistantState(
             messages=[],
@@ -1129,16 +1124,16 @@ class TestMemoryCollectorToolsNode(BaseTest):
         assert new_state is not None
 
         # Verify core memory was created (empty since replace failed)
-        self.assertTrue(await CoreMemory.objects.filter(team=self.team).aexists())
+        assert await CoreMemory.objects.filter(team=self.team).aexists()
         created_memory = await CoreMemory.objects.aget(team=self.team)
-        self.assertEqual(created_memory.text, "")  # Empty because replace of nonexistent fragment
+        assert created_memory.text == ""  # Empty because replace of nonexistent fragment
 
         # Verify response messages (replace should fail but not crash)
         assert new_state.memory_collection_messages is not None
-        self.assertEqual(len(new_state.memory_collection_messages), 2)
-        self.assertIn("not found", new_state.memory_collection_messages[1].content)
-        self.assertEqual(new_state.memory_collection_messages[1].type, "tool")
-        self.assertEqual(new_state.memory_collection_messages[1].tool_call_id, "1")  # type: ignore[attr-defined]
+        assert len(new_state.memory_collection_messages) == 2
+        assert "not found" in new_state.memory_collection_messages[1].content
+        assert new_state.memory_collection_messages[1].type == "tool"
+        assert new_state.memory_collection_messages[1].tool_call_id == "1"  # type: ignore[attr-defined]
 
     async def test_append_when_onboarding_memory_exists(self):
         # Set up existing core memory with data from /init command
@@ -1168,14 +1163,14 @@ class TestMemoryCollectorToolsNode(BaseTest):
         # Verify memory was appended to existing content
         await self.core_memory.arefresh_from_db()
         expected_text = initial_text + "\nNew insight about user behavior"
-        self.assertEqual(self.core_memory.text, expected_text)
+        assert self.core_memory.text == expected_text
 
         # Verify no new core memory was created (still same record)
-        self.assertEqual(await CoreMemory.objects.filter(team=self.team).acount(), 1)
+        assert await CoreMemory.objects.filter(team=self.team).acount() == 1
 
         # Verify response messages
         assert new_state.memory_collection_messages is not None
-        self.assertEqual(len(new_state.memory_collection_messages), 2)
-        self.assertEqual(new_state.memory_collection_messages[1].content, "Memory appended.")
-        self.assertEqual(new_state.memory_collection_messages[1].type, "tool")
-        self.assertEqual(new_state.memory_collection_messages[1].tool_call_id, "1")  # type: ignore[attr-defined]
+        assert len(new_state.memory_collection_messages) == 2
+        assert new_state.memory_collection_messages[1].content == "Memory appended."
+        assert new_state.memory_collection_messages[1].type == "tool"
+        assert new_state.memory_collection_messages[1].tool_call_id == "1"  # type: ignore[attr-defined]

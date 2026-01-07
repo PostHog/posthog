@@ -54,13 +54,13 @@ class TestStatsConfig(APIBaseTest):
         )
 
         assert result.baseline is not None
-        self.assertEqual(result.baseline.key, "control")
+        assert result.baseline.key == "control"
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         variant = cast(ExperimentVariantResultFrequentist, result.variant_results[0])
         assert variant.confidence_interval is not None
-        self.assertEqual(len(variant.confidence_interval), 2)
+        assert len(variant.confidence_interval) == 2
 
     @parameterized.expand(
         [
@@ -83,13 +83,13 @@ class TestStatsConfig(APIBaseTest):
         )
 
         assert result.baseline is not None
-        self.assertEqual(result.baseline.key, "control")
+        assert result.baseline.key == "control"
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         variant = cast(ExperimentVariantResultBayesian, result.variant_results[0])
         assert variant.credible_interval is not None
-        self.assertEqual(len(variant.credible_interval), 2)
+        assert len(variant.credible_interval) == 2
         assert variant.chance_to_win is not None
 
     @parameterized.expand(
@@ -111,7 +111,7 @@ class TestStatsConfig(APIBaseTest):
         )
 
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
     @parameterized.expand(
         [
@@ -132,7 +132,7 @@ class TestStatsConfig(APIBaseTest):
         )
 
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
     def test_bayesian_ci_level_actually_affects_interval_width(self) -> None:
         metric = self.create_mean_metric()
@@ -165,7 +165,7 @@ class TestStatsConfig(APIBaseTest):
         width_90 = variant_90.credible_interval[1] - variant_90.credible_interval[0]
         width_99 = variant_99.credible_interval[1] - variant_99.credible_interval[0]
 
-        self.assertGreater(width_99, width_90, "99% CI should be wider than 90% CI")
+        assert width_99 > width_90, "99% CI should be wider than 90% CI"
 
     def test_numeric_validation_alpha_out_of_range_uses_default(self) -> None:
         metric = self.create_mean_metric()
@@ -195,8 +195,8 @@ class TestStatsConfig(APIBaseTest):
         assert variant_high.confidence_interval is not None
         assert variant_negative.confidence_interval is not None
 
-        self.assertEqual(variant_high.confidence_interval[0], variant_negative.confidence_interval[0])
-        self.assertEqual(variant_high.confidence_interval[1], variant_negative.confidence_interval[1])
+        assert variant_high.confidence_interval[0] == variant_negative.confidence_interval[0]
+        assert variant_high.confidence_interval[1] == variant_negative.confidence_interval[1]
 
     def test_numeric_validation_ci_level_out_of_range_uses_default(self) -> None:
         metric = self.create_mean_metric()

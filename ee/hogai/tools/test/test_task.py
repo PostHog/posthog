@@ -34,18 +34,18 @@ class TestSubagentExecutor(ClickhouseTestMixin, NonAtomicBaseTest):
         executor = SubagentExecutor(conversation=self.conversation, tool_call_id=tool_call_id)
 
         expected_stream_key = get_subagent_stream_key(self.conversation.id, tool_call_id)
-        self.assertEqual(executor._redis_stream._stream_key, expected_stream_key)
+        assert executor._redis_stream._stream_key == expected_stream_key
 
     def test_executor_sets_workflow_id(self):
         tool_call_id = "test_tool_call"
         executor = SubagentExecutor(conversation=self.conversation, tool_call_id=tool_call_id)
 
         expected_workflow_id = f"subagent-{self.conversation.id}-{tool_call_id}"
-        self.assertEqual(executor._workflow_id, expected_workflow_id)
+        assert executor._workflow_id == expected_workflow_id
 
     def test_executor_disables_reconnect(self):
         executor = SubagentExecutor(conversation=self.conversation, tool_call_id="test")
-        self.assertFalse(executor._reconnectable)
+        assert not executor._reconnectable
 
 
 class TestTaskTool(ClickhouseTestMixin, NonAtomicBaseTest):
@@ -91,8 +91,8 @@ class TestTaskTool(ClickhouseTestMixin, NonAtomicBaseTest):
                 title="Test", task="Do something", agent_mode=AgentMode.PRODUCT_ANALYTICS
             )
 
-        self.assertIn("Final response", result_text)
-        self.assertIsNone(artifact)
+        assert "Final response" in result_text
+        assert artifact is None
 
     async def test_arun_impl_handles_artifact_messages(self):
         tool = self._create_tool()
@@ -127,10 +127,10 @@ class TestTaskTool(ClickhouseTestMixin, NonAtomicBaseTest):
                 title="Test", task="Do something", agent_mode=AgentMode.PRODUCT_ANALYTICS
             )
 
-        self.assertIn("Done", result_text)
-        self.assertIsNone(artifact)
-        self.assertIn("short_id_123", result_text)
-        self.assertIn("Test", result_text)
+        assert "Done" in result_text
+        assert artifact is None
+        assert "short_id_123" in result_text
+        assert "Test" in result_text
 
     async def test_arun_impl_dispatches_tool_call_updates(self):
         tool = self._create_tool()
@@ -199,9 +199,9 @@ class TestTaskTool(ClickhouseTestMixin, NonAtomicBaseTest):
                 title="Test", task="Do something", agent_mode=AgentMode.PRODUCT_ANALYTICS
             )
 
-        self.assertIn("Error running subagent", result_text)
-        self.assertIn("Stream error", result_text)
-        self.assertIsNone(artifact)
+        assert "Error running subagent" in result_text
+        assert "Stream error" in result_text
+        assert artifact is None
 
 
 class TestTaskToolCreateToolClass(ClickhouseTestMixin, NonAtomicBaseTest):
@@ -211,15 +211,15 @@ class TestTaskToolCreateToolClass(ClickhouseTestMixin, NonAtomicBaseTest):
         tool = await TaskTool.create_tool_class(team=self.team, user=self.user)
 
         # Check that description contains agent modes
-        self.assertIn("product_analytics", tool.description)
-        self.assertIn("sql", tool.description)
-        self.assertIn("session_replay", tool.description)
+        assert "product_analytics" in tool.description
+        assert "sql" in tool.description
+        assert "session_replay" in tool.description
 
     async def test_create_tool_class_includes_mode_descriptions(self):
         tool = await TaskTool.create_tool_class(team=self.team, user=self.user)
 
         # Description should contain mode information
-        self.assertIn("Available modes", tool.description)
+        assert "Available modes" in tool.description
 
     async def test_create_tool_class_passes_through_params(self):
         state = AssistantState(messages=[])
@@ -230,6 +230,6 @@ class TestTaskToolCreateToolClass(ClickhouseTestMixin, NonAtomicBaseTest):
             team=self.team, user=self.user, state=state, config=config, node_path=node_path
         )
 
-        self.assertEqual(tool._state, state)
-        self.assertEqual(tool._config, config)
-        self.assertEqual(tool._node_path, node_path)
+        assert tool._state == state
+        assert tool._config == config
+        assert tool._node_path == node_path

@@ -59,7 +59,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         )
 
         # Verify no saved_query exists yet
-        self.assertIsNone(endpoint.saved_query)
+        assert endpoint.saved_query is None
 
         # Update endpoint to enable materialization
         updated_data = {
@@ -71,27 +71,26 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/", updated_data, format="json"
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        assert response.status_code == status.HTTP_200_OK, response.json()
         response_data = response.json()
-        self.assertTrue(response_data["is_materialized"])
+        assert response_data["is_materialized"]
 
         # Verify SavedQuery was created
         endpoint.refresh_from_db()
-        self.assertIsNotNone(endpoint.saved_query)
+        assert endpoint.saved_query is not None
         saved_query = endpoint.saved_query
         assert saved_query is not None
-        self.assertEqual(saved_query.name, endpoint.name)
-        self.assertEqual(saved_query.query, endpoint.query)
-        self.assertTrue(saved_query.is_materialized)
-        self.assertEqual(saved_query.origin, DataWarehouseSavedQuery.Origin.ENDPOINT)
+        assert saved_query.name == endpoint.name
+        assert saved_query.query == endpoint.query
+        assert saved_query.is_materialized
+        assert saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT
 
         # Verify sync_frequency_interval is set
-        self.assertEqual(saved_query.sync_frequency_interval, timedelta(hours=24))
+        assert saved_query.sync_frequency_interval == timedelta(hours=24)
 
         # Verify ModelPath was created
-        self.assertTrue(
-            DataWarehouseModelPath.objects.filter(team=self.team, saved_query=saved_query).exists(),
-            "DataWarehouseModelPath should be created for the saved_query",
+        assert DataWarehouseModelPath.objects.filter(team=self.team, saved_query=saved_query).exists(), (
+            "DataWarehouseModelPath should be created for the saved_query"
         )
 
     def test_update_sync_frequency_updates_saved_query_sync_interval(self):
@@ -117,7 +116,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         endpoint.refresh_from_db()
         saved_query = endpoint.saved_query
         assert saved_query is not None
-        self.assertEqual(saved_query.sync_frequency_interval, timedelta(hours=24))
+        assert saved_query.sync_frequency_interval == timedelta(hours=24)
 
         # Update to 12-hour frequency
         response = self.client.patch(
@@ -129,11 +128,11 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         # Verify sync_interval was updated
         saved_query.refresh_from_db()
-        self.assertEqual(saved_query.sync_frequency_interval, timedelta(hours=12))
+        assert saved_query.sync_frequency_interval == timedelta(hours=12)
 
         # Update to 1-hour frequency
         response = self.client.patch(
@@ -145,11 +144,11 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         # Verify sync_interval was updated
         saved_query.refresh_from_db()
-        self.assertEqual(saved_query.sync_frequency_interval, timedelta(hours=1))
+        assert saved_query.sync_frequency_interval == timedelta(hours=1)
 
     def test_disable_materialization_removes_saved_query(self):
         """Test that disabling materialization removes the SavedQuery."""
@@ -171,7 +170,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         )
 
         endpoint.refresh_from_db()
-        self.assertIsNotNone(endpoint.saved_query)
+        assert endpoint.saved_query is not None
         assert endpoint.saved_query is not None
         saved_query_id = endpoint.saved_query.id
 
@@ -182,17 +181,17 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
-        self.assertFalse(response_data["is_materialized"])
+        assert not response_data["is_materialized"]
 
         # Verify saved_query is removed from endpoint
         endpoint.refresh_from_db()
-        self.assertIsNone(endpoint.saved_query)
+        assert endpoint.saved_query is None
 
         # Verify SavedQuery is soft-deleted
         saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
-        self.assertTrue(saved_query.deleted)
+        assert saved_query.deleted
 
     def test_cannot_materialize_query_with_variables(self):
         """Test that queries with variables cannot be materialized."""
@@ -216,9 +215,9 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         # The API wraps validation errors in a generic message
-        self.assertIn("Failed to update endpoint", response.json()["detail"])
+        assert "Failed to update endpoint" in response.json()["detail"]
 
     def test_can_materialize_lifecycle_query(self):
         _create_event(
@@ -249,14 +248,14 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        assert response.status_code == status.HTTP_200_OK, response.json()
         endpoint.refresh_from_db()
-        self.assertIsNotNone(endpoint.saved_query)
+        assert endpoint.saved_query is not None
         saved_query = endpoint.saved_query
         assert saved_query is not None
         assert saved_query.query is not None
-        self.assertEqual(saved_query.query["kind"], "HogQLQuery")
-        self.assertIsInstance(saved_query.query["query"], str)
+        assert saved_query.query["kind"] == "HogQLQuery"
+        assert isinstance(saved_query.query["query"], str)
 
     def test_can_materialize_stickiness_query(self):
         _create_event(
@@ -287,13 +286,13 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        assert response.status_code == status.HTTP_200_OK, response.json()
         endpoint.refresh_from_db()
-        self.assertIsNotNone(endpoint.saved_query)
+        assert endpoint.saved_query is not None
         saved_query = endpoint.saved_query
         assert saved_query is not None
         assert saved_query.query is not None
-        self.assertEqual(saved_query.query["kind"], "HogQLQuery")
+        assert saved_query.query["kind"] == "HogQLQuery"
 
     def test_can_materialize_retention_query(self):
         _create_event(
@@ -332,13 +331,13 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        assert response.status_code == status.HTTP_200_OK, response.json()
         endpoint.refresh_from_db()
-        self.assertIsNotNone(endpoint.saved_query)
+        assert endpoint.saved_query is not None
         saved_query = endpoint.saved_query
         assert saved_query is not None
         assert saved_query.query is not None
-        self.assertEqual(saved_query.query["kind"], "HogQLQuery")
+        assert saved_query.query["kind"] == "HogQLQuery"
 
     def test_can_materialize_paths_query(self):
         _create_event(
@@ -369,13 +368,13 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        assert response.status_code == status.HTTP_200_OK, response.json()
         endpoint.refresh_from_db()
-        self.assertIsNotNone(endpoint.saved_query)
+        assert endpoint.saved_query is not None
         saved_query = endpoint.saved_query
         assert saved_query is not None
         assert saved_query.query is not None
-        self.assertEqual(saved_query.query["kind"], "HogQLQuery")
+        assert saved_query.query["kind"] == "HogQLQuery"
 
     def test_materialization_status_in_response(self):
         """Test that materialization status is included in endpoint response."""
@@ -388,11 +387,11 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         # Before materialization
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
-        self.assertFalse(response_data["is_materialized"])
-        self.assertIn("materialization", response_data)
-        self.assertTrue(response_data["materialization"]["can_materialize"])
+        assert not response_data["is_materialized"]
+        assert "materialization" in response_data
+        assert response_data["materialization"]["can_materialize"]
 
         # After materialization
         self.client.patch(
@@ -405,14 +404,14 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         )
 
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
-        self.assertTrue(response_data["is_materialized"])
-        self.assertIn("materialization", response_data)
-        self.assertTrue(response_data["materialization"]["can_materialize"])
-        self.assertIn("status", response_data["materialization"])
-        self.assertIn("sync_frequency", response_data["materialization"])
-        self.assertEqual(response_data["materialization"]["sync_frequency"], "12hour")
+        assert response_data["is_materialized"]
+        assert "materialization" in response_data
+        assert response_data["materialization"]["can_materialize"]
+        assert "status" in response_data["materialization"]
+        assert "sync_frequency" in response_data["materialization"]
+        assert response_data["materialization"]["sync_frequency"] == "12hour"
 
     def test_materialization_status_endpoint(self):
         """Test the dedicated materialization_status endpoint returns only materialization data."""
@@ -427,12 +426,12 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/materialization_status/"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
-        self.assertTrue(response_data["can_materialize"])
-        self.assertNotIn("name", response_data)
-        self.assertNotIn("query", response_data)
-        self.assertNotIn("created_by", response_data)
+        assert response_data["can_materialize"]
+        assert "name" not in response_data
+        assert "query" not in response_data
+        assert "created_by" not in response_data
 
         # Enable materialization
         self.client.patch(
@@ -448,19 +447,19 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/materialization_status/"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
-        self.assertTrue(response_data["can_materialize"])
-        self.assertIn("status", response_data)
-        self.assertIn("sync_frequency", response_data)
-        self.assertEqual(response_data["sync_frequency"], "6hour")
-        self.assertIn("last_materialized_at", response_data)
-        self.assertIn("error", response_data)
+        assert response_data["can_materialize"]
+        assert "status" in response_data
+        assert "sync_frequency" in response_data
+        assert response_data["sync_frequency"] == "6hour"
+        assert "last_materialized_at" in response_data
+        assert "error" in response_data
         # Verify no other endpoint fields are included
-        self.assertNotIn("name", response_data)
-        self.assertNotIn("query", response_data)
-        self.assertNotIn("created_by", response_data)
-        self.assertNotIn("description", response_data)
+        assert "name" not in response_data
+        assert "query" not in response_data
+        assert "created_by" not in response_data
+        assert "description" not in response_data
 
     def test_cache_invalidated_after_query_update(self):
         """Test that updating endpoint query invalidates cache for materialized endpoints."""
@@ -491,7 +490,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         )
 
         endpoint.refresh_from_db()
-        self.assertEqual(endpoint.current_version, 1)
+        assert endpoint.current_version == 1
         saved_query = endpoint.saved_query
         assert saved_query is not None
         saved_query.status = DataWarehouseSavedQuery.Status.COMPLETED
@@ -521,7 +520,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
                 format="json",
             )
 
-            self.assertEqual(mock_execute.call_count, 2, "Old cache should be detected as stale and refreshed")
+            assert mock_execute.call_count == 2, "Old cache should be detected as stale and refreshed"
 
         self.client.patch(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
@@ -530,7 +529,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         )
 
         endpoint.refresh_from_db()
-        self.assertEqual(endpoint.current_version, 2, "Version should be incremented after query update")
+        assert endpoint.current_version == 2, "Version should be incremented after query update"
 
         new_saved_query = endpoint.saved_query
         assert new_saved_query is not None, "Materialization should be re-enabled after query update"
@@ -563,14 +562,10 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
                 format="json",
             )
 
-            self.assertEqual(
-                mock_execute.call_count,
-                2,
-                "Cache from before query update should be stale (older than new materialization)",
+            assert mock_execute.call_count == 2, (
+                "Cache from before query update should be stale (older than new materialization)"
             )
-            self.assertEqual(
-                response.json()["results"], [[2]], "Should return fresh results after query update, not old cache"
-            )
+            assert response.json()["results"] == [[2]], "Should return fresh results after query update, not old cache"
 
     def test_materialized_endpoint_applies_filters_override(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
@@ -607,14 +602,14 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
                 format="json",
             )
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
             query_request_data = mock_exec.call_args[0][0]
             query_payload = query_request_data["query"]
             query_sql = query_payload["query"].lower()
 
-            self.assertIn("where", query_sql)
-            self.assertIn("$lib", query_sql)
-            self.assertEqual(query_payload["kind"], "HogQLQuery")
+            assert "where" in query_sql
+            assert "$lib" in query_sql
+            assert query_payload["kind"] == "HogQLQuery"
 
     def test_stale_materialized_data_uses_inline_execution(self):
         """Test that stale materialized data triggers inline execution instead of using cached table."""
@@ -659,7 +654,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
                 format="json",
             )
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
             # Should use inline execution because data is stale
             mock_inline.assert_called_once()
             mock_materialized.assert_not_called()
@@ -707,7 +702,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
                 format="json",
             )
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
             # Should use materialized table because data is fresh
             mock_materialized.assert_called_once()
             mock_inline.assert_not_called()
@@ -753,7 +748,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
                 format="json",
             )
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
             # 'force' should still use materialized table, just bypass cache
             mock_materialized.assert_called_once()
             mock_inline.assert_not_called()
@@ -799,7 +794,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
                 format="json",
             )
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
             # 'direct' should bypass materialization and run inline
             mock_inline.assert_called_once()
             mock_materialized.assert_not_called()
@@ -820,9 +815,9 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("direct", response.json()["detail"].lower())
-        self.assertIn("materialized", response.json()["detail"].lower())
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "direct" in response.json()["detail"].lower()
+        assert "materialized" in response.json()["detail"].lower()
 
 
 @pytest.mark.asyncio

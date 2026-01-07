@@ -25,7 +25,7 @@ class TestSummarizationAPI(APIBaseTest):
         """Should require authentication to access summarization endpoints."""
         self.client.logout()
         response = self.client.post(f"/api/environments/{self.team.id}/llm_analytics/summarization/")
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     @patch("products.llm_analytics.backend.api.summarization.async_to_sync")
     def test_event_summarization_includes_title(self, mock_async_to_sync):
@@ -71,22 +71,22 @@ class TestSummarizationAPI(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.data
 
         # Verify response structure
-        self.assertIn("summary", data)
-        self.assertIn("text_repr", data)
-        self.assertIn("metadata", data)
+        assert "summary" in data
+        assert "text_repr" in data
+        assert "metadata" in data
 
         # Verify title field is present in summary
-        self.assertIn("title", data["summary"])
-        self.assertEqual(data["summary"]["title"], "Test Event Summary")
+        assert "title" in data["summary"]
+        assert data["summary"]["title"] == "Test Event Summary"
 
         # Verify other expected fields
-        self.assertIn("flow_diagram", data["summary"])
-        self.assertIn("summary_bullets", data["summary"])
-        self.assertIn("interesting_notes", data["summary"])
+        assert "flow_diagram" in data["summary"]
+        assert "summary_bullets" in data["summary"]
+        assert "interesting_notes" in data["summary"]
 
     @patch("products.llm_analytics.backend.api.summarization.async_to_sync")
     def test_trace_summarization_includes_title(self, mock_async_to_sync):
@@ -134,12 +134,12 @@ class TestSummarizationAPI(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.data
 
         # Verify title is present
-        self.assertIn("title", data["summary"])
-        self.assertEqual(data["summary"]["title"], "Multi-step Trace Execution")
+        assert "title" in data["summary"]
+        assert data["summary"]["title"] == "Multi-step Trace Execution"
 
     def test_missing_summarize_type(self):
         """Should return 400 for missing summarize_type."""
@@ -154,8 +154,8 @@ class TestSummarizationAPI(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("summarize_type", str(response.data).lower())
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "summarize_type" in str(response.data).lower()
 
     def test_missing_data(self):
         """Should return 400 for missing data."""
@@ -170,8 +170,8 @@ class TestSummarizationAPI(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("data", str(response.data).lower())
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "data" in str(response.data).lower()
 
     def test_invalid_summarize_type(self):
         """Should return 400 for invalid summarize_type."""
@@ -189,7 +189,7 @@ class TestSummarizationAPI(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     @patch("products.llm_analytics.backend.api.summarization.async_to_sync")
     def test_events_in_same_trace_have_separate_cache(self, mock_async_to_sync):
@@ -256,8 +256,8 @@ class TestSummarizationAPI(APIBaseTest):
             event_a_request,
             format="json",
         )
-        self.assertEqual(response_a.status_code, status.HTTP_200_OK)
-        self.assertEqual(response_a.data["summary"]["title"], "Event A Summary")
+        assert response_a.status_code == status.HTTP_200_OK
+        assert response_a.data["summary"]["title"] == "Event A Summary"
 
         # Summarize event B - should get a different summary, not event A's cached result
         response_b = self.client.post(
@@ -265,17 +265,17 @@ class TestSummarizationAPI(APIBaseTest):
             event_b_request,
             format="json",
         )
-        self.assertEqual(response_b.status_code, status.HTTP_200_OK)
-        self.assertEqual(response_b.data["summary"]["title"], "Event B Summary")
+        assert response_b.status_code == status.HTTP_200_OK
+        assert response_b.data["summary"]["title"] == "Event B Summary"
 
         # Verify they're different
-        self.assertNotEqual(response_a.data["summary"]["title"], response_b.data["summary"]["title"])
+        assert response_a.data["summary"]["title"] != response_b.data["summary"]["title"]
 
     def test_batch_check_unauthenticated(self):
         """Should require authentication to access batch_check endpoint."""
         self.client.logout()
         response = self.client.post(f"/api/environments/{self.team.id}/llm_analytics/summarization/batch_check/")
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_batch_check_empty_traces(self):
         """Should return empty list when no traces have cached summaries."""
@@ -287,8 +287,8 @@ class TestSummarizationAPI(APIBaseTest):
             {"trace_ids": ["trace1", "trace2"], "mode": "minimal"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["summaries"], [])
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["summaries"] == []
 
     @patch("products.llm_analytics.backend.api.summarization.async_to_sync")
     def test_batch_check_returns_cached_summaries(self, mock_async_to_sync):
@@ -325,10 +325,10 @@ class TestSummarizationAPI(APIBaseTest):
             {"trace_ids": ["cached_trace", "not_cached"], "mode": "minimal"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data["summaries"]), 1)
-        self.assertEqual(response.data["summaries"][0]["trace_id"], "cached_trace")
-        self.assertEqual(response.data["summaries"][0]["title"], "Cached Summary")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data["summaries"]) == 1
+        assert response.data["summaries"][0]["trace_id"] == "cached_trace"
+        assert response.data["summaries"][0]["title"] == "Cached Summary"
 
     def test_batch_check_requires_trace_ids(self):
         """Should return 400 when trace_ids is missing."""
@@ -340,8 +340,8 @@ class TestSummarizationAPI(APIBaseTest):
             {"mode": "minimal"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("trace_ids", str(response.data).lower())
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "trace_ids" in str(response.data).lower()
 
     def test_summarization_denied_when_ai_consent_not_approved(self):
         """Should return 403 when AI data processing is not approved."""
@@ -354,5 +354,5 @@ class TestSummarizationAPI(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertIn("AI data processing must be approved", response.data["detail"])
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "AI data processing must be approved" in response.data["detail"]

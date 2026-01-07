@@ -88,23 +88,23 @@ class UpdateSurveyResponseMigrationTest(NonAtomicTestMigrations):
         updated_property_1 = PropertyDefinition.objects.get(id=self.property_1.id)
         updated_property_2 = PropertyDefinition.objects.get(id=self.property_2.id)
 
-        self.assertEqual(updated_property_0.property_type, "String")
-        self.assertFalse(updated_property_0.is_numerical)
+        assert updated_property_0.property_type == "String"
+        assert not updated_property_0.is_numerical
 
-        self.assertEqual(updated_property_1.property_type, "String")
-        self.assertFalse(updated_property_1.is_numerical)
+        assert updated_property_1.property_type == "String"
+        assert not updated_property_1.is_numerical
 
-        self.assertEqual(updated_property_2.property_type, "String")
-        self.assertFalse(updated_property_2.is_numerical)
+        assert updated_property_2.property_type == "String"
+        assert not updated_property_2.is_numerical
 
         # Check unchanged properties
         unchanged_property_1 = PropertyDefinition.objects.get(id=self.property_3.id)
         unchanged_property_2 = PropertyDefinition.objects.get(id=self.property_4.id)
 
-        self.assertEqual(unchanged_property_1.property_type, "Numeric")
-        self.assertTrue(unchanged_property_1.is_numerical)
-        self.assertEqual(unchanged_property_2.property_type, "Numeric")
-        self.assertTrue(unchanged_property_2.is_numerical)
+        assert unchanged_property_1.property_type == "Numeric"
+        assert unchanged_property_1.is_numerical
+        assert unchanged_property_2.property_type == "Numeric"
+        assert unchanged_property_2.is_numerical
 
     def tearDown(self) -> None:
         # Ensure self.apps is not None

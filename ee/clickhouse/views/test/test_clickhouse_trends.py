@@ -1,7 +1,7 @@
 import json
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Optional, Union
+from typing import Any, Union
 
 import pytest
 from freezegun import freeze_time
@@ -413,22 +413,22 @@ def test_smoothing_intervals_copes_with_null_values(client: Client):
 
 @dataclass
 class TrendsRequest:
-    date_from: Optional[str] = None
-    date_to: Optional[str] = None
-    interval: Optional[str] = None
-    insight: Optional[str] = None
-    display: Optional[str] = None
-    compare: Optional[bool] = None
+    date_from: str | None = None
+    date_to: str | None = None
+    interval: str | None = None
+    insight: str | None = None
+    display: str | None = None
+    compare: bool | None = None
     events: list[dict[str, Any]] = field(default_factory=list)
     properties: list[dict[str, Any]] = field(default_factory=list)
-    smoothing_intervals: Optional[int] = 1
-    refresh: Optional[bool] = False
+    smoothing_intervals: int | None = 1
+    refresh: bool | None = False
 
 
 @dataclass
 class TrendsRequestBreakdown(TrendsRequest):
-    breakdown: Optional[Union[list[int], str]] = None
-    breakdown_type: Optional[str] = None
+    breakdown: Union[list[int], str] | None = None
+    breakdown_type: str | None = None
 
 
 def get_trends(client, request: Union[TrendsRequestBreakdown, TrendsRequest], team: Team):
@@ -464,7 +464,7 @@ def get_trends_ok(client: Client, request: TrendsRequest, team: Team):
 class NormalizedTrendResult:
     value: float
     label: str
-    breakdown_value: Optional[Union[str, int]]
+    breakdown_value: Union[str, int] | None
 
 
 def get_trends_time_series_ok(

@@ -57,7 +57,7 @@ class TestPropertyParseValue(BaseTest):
     def test_parse_value_without_convert_to_number(self, name, input_value, expected):
         """Test _parse_value with convert_to_number=False (default)."""
         result = Property._parse_value(input_value, convert_to_number=False)
-        self.assertEqual(result, expected, f"Failed for {name}: {input_value}")
+        assert result == expected, f"Failed for {name}: {input_value}"
 
     @parameterized.expand(
         [
@@ -95,7 +95,7 @@ class TestPropertyParseValue(BaseTest):
     def test_parse_value_with_convert_to_number(self, name, input_value, expected):
         """Test _parse_value with convert_to_number=True."""
         result = Property._parse_value(input_value, convert_to_number=True)
-        self.assertEqual(result, expected, f"Failed for {name}: {input_value}")
+        assert result == expected, f"Failed for {name}: {input_value}"
 
     def test_infinity_prevention_without_convert_to_number(self):
         """Test that scientific notation strings that would become infinity are kept as strings."""
@@ -110,8 +110,8 @@ class TestPropertyParseValue(BaseTest):
         for value in test_cases:
             with self.subTest(value=value):
                 result = Property._parse_value(value, convert_to_number=False)
-                self.assertEqual(result, value, f"Value {value} should remain as string")
-                self.assertIsInstance(result, str, f"Value {value} should be a string, got {type(result)}")
+                assert result == value, f"Value {value} should remain as string"
+                assert isinstance(result, str), f"Value {value} should be a string, got {type(result)}"
 
     def test_infinity_prevention_with_convert_to_number(self):
         """Test that scientific notation strings that would become infinity are kept as strings even with convert_to_number=True."""
@@ -126,8 +126,8 @@ class TestPropertyParseValue(BaseTest):
         for value in test_cases:
             with self.subTest(value=value):
                 result = Property._parse_value(value, convert_to_number=True)
-                self.assertEqual(result, value, f"Value {value} should remain as string to prevent infinity")
-                self.assertIsInstance(result, str, f"Value {value} should be a string, got {type(result)}")
+                assert result == value, f"Value {value} should remain as string to prevent infinity"
+                assert isinstance(result, str), f"Value {value} should be a string, got {type(result)}"
 
     def test_normal_scientific_notation_conversion(self):
         """Test that normal scientific notation that doesn't result in infinity is converted properly."""
@@ -142,8 +142,8 @@ class TestPropertyParseValue(BaseTest):
         for value, expected in test_cases:
             with self.subTest(value=value):
                 result = Property._parse_value(value, convert_to_number=True)
-                self.assertEqual(result, expected, f"Value {value} should convert to {expected}")
-                self.assertIsInstance(result, (int, float), f"Value {value} should be numeric, got {type(result)}")
+                assert result == expected, f"Value {value} should convert to {expected}"
+                assert isinstance(result, (int, float)), f"Value {value} should be numeric, got {type(result)}"
 
     def test_recursive_list_processing(self):
         """Test that lists are processed recursively."""
@@ -162,7 +162,7 @@ class TestPropertyParseValue(BaseTest):
             "hello",
             ["nested", "1e400"],  # Nested values remain strings
         ]
-        self.assertEqual(result, expected)
+        assert result == expected
 
         # With convert_to_number
         result = Property._parse_value(input_list, convert_to_number=True)
@@ -172,7 +172,7 @@ class TestPropertyParseValue(BaseTest):
             "hello",
             ["nested", "1e400"],  # Nested infinity-causing value should remain string
         ]
-        self.assertEqual(result, expected)
+        assert result == expected
 
     def test_json_parsing_with_infinity_prevention(self):
         """Test that JSON parsing also prevents infinity conversion."""
@@ -181,28 +181,28 @@ class TestPropertyParseValue(BaseTest):
         result = Property._parse_value(large_number_string, convert_to_number=True)
 
         # Should remain as string to prevent infinity
-        self.assertEqual(result, large_number_string)
-        self.assertIsInstance(result, str, "The problematic value should remain a string")
+        assert result == large_number_string
+        assert isinstance(result, str), "The problematic value should remain a string"
 
         # Test JSON object with infinity-causing value
         json_with_large_number = '{"id": "68220362511491315356e330"}'
         result = Property._parse_value(json_with_large_number, convert_to_number=True)
         expected = {"id": "68220362511491315356e330"}
-        self.assertEqual(result, expected)
-        self.assertIsInstance(result["id"], str, "The problematic value should remain a string")
+        assert result == expected
+        assert isinstance(result["id"], str), "The problematic value should remain a string"
 
     def test_edge_cases(self):
         """Test various edge cases."""
         # Empty values
-        self.assertIsNone(Property._parse_value(None))
-        self.assertEqual(Property._parse_value(""), "")
+        assert Property._parse_value(None) is None
+        assert Property._parse_value("") == ""
 
         # Invalid JSON
         invalid_json = '{"invalid": json}'
         result = Property._parse_value(invalid_json, convert_to_number=True)
-        self.assertEqual(result, invalid_json, "Invalid JSON should remain as string")
+        assert result == invalid_json, "Invalid JSON should remain as string"
 
         # Already parsed values
-        self.assertEqual(Property._parse_value(123), 123)
-        self.assertEqual(Property._parse_value(3.14), 3.14)
-        self.assertEqual(Property._parse_value(True), True)
+        assert Property._parse_value(123) == 123
+        assert Property._parse_value(3.14) == 3.14
+        assert Property._parse_value(True)

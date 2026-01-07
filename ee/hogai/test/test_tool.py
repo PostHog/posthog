@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -60,18 +61,18 @@ class TestMaxToolNodePath(BaseTest):
 
             result = tool.node_path
 
-            self.assertEqual(len(result), 3)
-            self.assertEqual(result[0].name, "parent_node")
-            self.assertEqual(result[1].name, "child_node")
-            self.assertEqual(result[2].name, "max_tool.read_taxonomy")
+            assert len(result) == 3
+            assert result[0].name == "parent_node"
+            assert result[1].name == "child_node"
+            assert result[2].name == "max_tool.read_taxonomy"
 
     def test_node_path_uses_empty_tuple_when_no_context(self):
         tool = DummyTool(team=self.team, user=self.user, node_path=None)
 
         result = tool.node_path
 
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0].name, "max_tool.read_taxonomy")
+        assert len(result) == 1
+        assert result[0].name == "max_tool.read_taxonomy"
 
     def test_node_path_uses_provided_path(self):
         provided_path = (
@@ -83,10 +84,10 @@ class TestMaxToolNodePath(BaseTest):
 
         result = tool.node_path
 
-        self.assertEqual(len(result), 3)
-        self.assertEqual(result[0].name, "explicit_parent")
-        self.assertEqual(result[1].name, "explicit_child")
-        self.assertEqual(result[2].name, "max_tool.read_taxonomy")
+        assert len(result) == 3
+        assert result[0].name == "explicit_parent"
+        assert result[1].name == "explicit_child"
+        assert result[2].name == "max_tool.read_taxonomy"
 
 
 class TestMaxToolErrorHierarchy(BaseTest):
@@ -95,34 +96,34 @@ class TestMaxToolErrorHierarchy(BaseTest):
     def test_max_tool_error_base_has_never_retry_strategy(self):
         """Base MaxToolError should have 'never' retry strategy."""
         error = MaxToolError("Base error message")
-        self.assertEqual(error.retry_strategy, "never")
-        self.assertEqual(str(error), "Base error message")
+        assert error.retry_strategy == "never"
+        assert str(error) == "Base error message"
 
     def test_max_tool_error_base_has_no_retry_hint(self):
         """Base MaxToolError should have empty retry hint."""
         error = MaxToolError("Base error message")
-        self.assertEqual(error.retry_hint, "")
+        assert error.retry_hint == ""
 
     def test_max_tool_fatal_error_has_never_retry_strategy(self):
         """MaxToolFatalError should have 'never' retry strategy."""
         error = MaxToolFatalError("Fatal error: missing configuration")
-        self.assertEqual(error.retry_strategy, "never")
-        self.assertEqual(error.retry_hint, "")
-        self.assertEqual(str(error), "Fatal error: missing configuration")
+        assert error.retry_strategy == "never"
+        assert error.retry_hint == ""
+        assert str(error) == "Fatal error: missing configuration"
 
     def test_max_tool_transient_error_has_once_retry_strategy(self):
         """MaxToolTransientError should have 'once' retry strategy."""
         error = MaxToolTransientError("Rate limit exceeded")
-        self.assertEqual(error.retry_strategy, "once")
-        self.assertEqual(error.retry_hint, " You may retry this operation once without changes.")
-        self.assertEqual(str(error), "Rate limit exceeded")
+        assert error.retry_strategy == "once"
+        assert error.retry_hint == " You may retry this operation once without changes."
+        assert str(error) == "Rate limit exceeded"
 
     def test_max_tool_retryable_error_has_adjusted_retry_strategy(self):
         """MaxToolRetryableError should have 'adjusted' retry strategy."""
         error = MaxToolRetryableError("Invalid parameter: entity kind must be 'person' or 'session'")
-        self.assertEqual(error.retry_strategy, "adjusted")
-        self.assertEqual(error.retry_hint, " You may retry with adjusted inputs.")
-        self.assertEqual(str(error), "Invalid parameter: entity kind must be 'person' or 'session'")
+        assert error.retry_strategy == "adjusted"
+        assert error.retry_hint == " You may retry with adjusted inputs."
+        assert str(error) == "Invalid parameter: entity kind must be 'person' or 'session'"
 
     def test_error_inheritance_hierarchy(self):
         """All error types should inherit from MaxToolError and Exception."""
@@ -131,12 +132,12 @@ class TestMaxToolErrorHierarchy(BaseTest):
         retryable = MaxToolRetryableError("retryable")
 
         # Check inheritance
-        self.assertIsInstance(fatal, MaxToolError)
-        self.assertIsInstance(fatal, Exception)
-        self.assertIsInstance(transient, MaxToolError)
-        self.assertIsInstance(transient, Exception)
-        self.assertIsInstance(retryable, MaxToolError)
-        self.assertIsInstance(retryable, Exception)
+        assert isinstance(fatal, MaxToolError)
+        assert isinstance(fatal, Exception)
+        assert isinstance(transient, MaxToolError)
+        assert isinstance(transient, Exception)
+        assert isinstance(retryable, MaxToolError)
+        assert isinstance(retryable, Exception)
 
     def test_errors_can_be_caught_as_max_tool_error(self):
         """All error types should be catchable as MaxToolError."""
@@ -150,8 +151,8 @@ class TestMaxToolErrorHierarchy(BaseTest):
             try:
                 raise error
             except MaxToolError as e:
-                self.assertIsInstance(e, MaxToolError)
-                self.assertIn(e.retry_strategy, ["never", "once", "adjusted"])
+                assert isinstance(e, MaxToolError)
+                assert e.retry_strategy in ["never", "once", "adjusted"]
 
     def test_error_message_preservation(self):
         """Error messages should be preserved through the exception."""
@@ -161,9 +162,9 @@ class TestMaxToolErrorHierarchy(BaseTest):
         transient = MaxToolTransientError(test_message)
         retryable = MaxToolRetryableError(test_message)
 
-        self.assertEqual(str(fatal), test_message)
-        self.assertEqual(str(transient), test_message)
-        self.assertEqual(str(retryable), test_message)
+        assert str(fatal) == test_message
+        assert str(transient) == test_message
+        assert str(retryable) == test_message
 
     def test_retry_hint_for_all_strategies(self):
         """Each retry strategy should have appropriate retry hint."""
@@ -172,22 +173,22 @@ class TestMaxToolErrorHierarchy(BaseTest):
         adjusted_error = MaxToolRetryableError("retryable")
 
         # Never retry should have no hint
-        self.assertEqual(never_error.retry_hint, "")
+        assert never_error.retry_hint == ""
 
         # Once retry should suggest trying once
-        self.assertIn("once", once_error.retry_hint.lower())
-        self.assertIn("without changes", once_error.retry_hint.lower())
+        assert "once" in once_error.retry_hint.lower()
+        assert "without changes" in once_error.retry_hint.lower()
 
         # Adjusted retry should suggest adjusting inputs
-        self.assertIn("adjusted", adjusted_error.retry_hint.lower())
-        self.assertIn("inputs", adjusted_error.retry_hint.lower())
+        assert "adjusted" in adjusted_error.retry_hint.lower()
+        assert "inputs" in adjusted_error.retry_hint.lower()
 
     def test_to_summary_formats_error_correctly(self):
         """to_summary() should format error with class name and message."""
         error = MaxToolFatalError("Something went wrong")
         summary = error.to_summary()
 
-        self.assertEqual(summary, "MaxToolFatalError: Something went wrong")
+        assert summary == "MaxToolFatalError: Something went wrong"
 
     def test_to_summary_truncates_long_messages(self):
         """to_summary() should truncate messages longer than max_length."""
@@ -195,25 +196,25 @@ class TestMaxToolErrorHierarchy(BaseTest):
         error = MaxToolRetryableError(long_message)
         summary = error.to_summary(max_length=500)
 
-        self.assertEqual(len(summary), 524)  # "MaxToolRetryableError: " (24) + 500 + "…" (1) = 525
-        self.assertTrue(summary.startswith("MaxToolRetryableError: " + "a" * 500))
-        self.assertTrue(summary.endswith("…"))
+        assert len(summary) == 524  # "MaxToolRetryableError: " (24) + 500 + "…" (1) = 525
+        assert summary.startswith("MaxToolRetryableError: " + "a" * 500)
+        assert summary.endswith("…")
 
     def test_to_summary_respects_custom_max_length(self):
         """to_summary() should respect custom max_length parameter."""
         error = MaxToolTransientError("This is a medium length error message")
         summary = error.to_summary(max_length=20)
 
-        self.assertTrue(summary.startswith("MaxToolTransientError: This is a medium len"))
-        self.assertTrue(summary.endswith("…"))
-        self.assertEqual(len(summary), 44)  # "MaxToolTransientError: " (23) + 20 + "…" (1) = 44
+        assert summary.startswith("MaxToolTransientError: This is a medium len")
+        assert summary.endswith("…")
+        assert len(summary) == 44  # "MaxToolTransientError: " (23) + 20 + "…" (1) = 44
 
     def test_to_summary_strips_whitespace(self):
         """to_summary() should strip leading/trailing whitespace from messages."""
         error = MaxToolFatalError("  \n  Error with whitespace  \n  ")
         summary = error.to_summary()
 
-        self.assertEqual(summary, "MaxToolFatalError: Error with whitespace")
+        assert summary == "MaxToolFatalError: Error with whitespace"
 
 
 class TestMaxToolAccessDeniedError(BaseTest):
@@ -222,23 +223,23 @@ class TestMaxToolAccessDeniedError(BaseTest):
     def test_access_denied_error_formats_correctly(self):
         """Access denied error should format correctly."""
         error = MaxToolAccessDeniedError("feature_flag", "editor")
-        self.assertIn("editor", str(error))
-        self.assertIn("feature_flag", str(error))
-        self.assertIn("contact their project admin", str(error))
-        self.assertEqual(error.resource, "feature_flag")
-        self.assertEqual(error.required_level, "editor")
+        assert "editor" in str(error)
+        assert "feature_flag" in str(error)
+        assert "contact their project admin" in str(error)
+        assert error.resource == "feature_flag"
+        assert error.required_level == "editor"
 
     def test_access_denied_error_with_custom_action(self):
         """Access denied error with custom action should format correctly."""
         error = MaxToolAccessDeniedError("dashboard", "editor", action="create")
-        self.assertIn("create", str(error))
-        self.assertIn("dashboard", str(error))
+        assert "create" in str(error)
+        assert "dashboard" in str(error)
 
     def test_access_denied_is_fatal_error(self):
         """Access denied error should be a fatal error with 'never' retry strategy."""
         error = MaxToolAccessDeniedError("feature_flag", "editor")
-        self.assertIsInstance(error, MaxToolFatalError)
-        self.assertEqual(error.retry_strategy, "never")
+        assert isinstance(error, MaxToolFatalError)
+        assert error.retry_strategy == "never"
 
 
 class ToolWithAccessControlTool(MaxTool):
@@ -276,18 +277,18 @@ class TestMaxToolAccessControl(BaseTest):
         """access_control property should return UserAccessControl instance."""
         tool = DummyTool(team=self.team, user=self.user)
         access_control = tool.user_access_control
-        self.assertIsInstance(access_control, UserAccessControl)
+        assert isinstance(access_control, UserAccessControl)
 
     def test_get_required_resource_access_default_returns_empty(self):
         """Default get_required_resource_access should return empty list."""
         tool = DummyTool(team=self.team, user=self.user)
-        self.assertEqual(tool.get_required_resource_access(), [])
+        assert tool.get_required_resource_access() == []
 
     def test_get_required_resource_access_can_be_overridden(self):
         """get_required_resource_access can be overridden to return requirements."""
         tool = ToolWithAccessControlTool(team=self.team, user=self.user)
         requirements = tool.get_required_resource_access()
-        self.assertEqual(requirements, [("feature_flag", "editor")])
+        assert requirements == [("feature_flag", "editor")]
 
     def test_check_access_control_passes_when_user_has_access(self):
         """_check_access_control should pass when user has required access."""
@@ -302,11 +303,11 @@ class TestMaxToolAccessControl(BaseTest):
         tool = ToolWithAccessControlTool(team=self.team, user=self.user)
 
         with patch.object(tool.user_access_control, "check_access_level_for_resource", return_value=False):
-            with self.assertRaises(MaxToolAccessDeniedError) as ctx:
+            with pytest.raises(MaxToolAccessDeniedError) as ctx:
                 tool._check_access_control()
 
-            self.assertEqual(ctx.exception.resource, "feature_flag")
-            self.assertEqual(ctx.exception.required_level, "editor")
+            assert ctx.value.resource == "feature_flag"
+            assert ctx.value.required_level == "editor"
 
     def test_check_access_control_skips_when_no_requirements(self):
         """_check_access_control should skip when get_required_resource_access returns empty list."""

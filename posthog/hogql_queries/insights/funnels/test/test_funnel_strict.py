@@ -124,8 +124,8 @@ class TestFunnelStrictStepsBreakdown(
                 },
             ],
         )
-        self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, ["Safari"]), [people["person2"].uuid])
-        self.assertCountEqual(self._get_actor_ids_at_step(filters, 2, ["Safari"]), [people["person2"].uuid])
+        assert sorted(self._get_actor_ids_at_step(filters, 1, ["Safari"])) == sorted([people["person2"].uuid])
+        assert sorted(self._get_actor_ids_at_step(filters, 2, ["Safari"])) == sorted([people["person2"].uuid])
 
         assert_funnel_results_equal(
             results[1],
@@ -158,8 +158,8 @@ class TestFunnelStrictStepsBreakdown(
                 },
             ],
         )
-        self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, ["Chrome"]), [people["person1"].uuid])
-        self.assertCountEqual(self._get_actor_ids_at_step(filters, 2, ["Chrome"]), [])
+        assert sorted(self._get_actor_ids_at_step(filters, 1, ["Chrome"])) == sorted([people["person1"].uuid])
+        assert sorted(self._get_actor_ids_at_step(filters, 2, ["Chrome"])) == sorted([])
 
 
 class TestStrictFunnelGroupBreakdown(
@@ -289,13 +289,12 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(results[0]["name"], "user signed up")
-        self.assertEqual(results[1]["name"], "$pageview")
-        self.assertEqual(results[2]["name"], "insight viewed")
-        self.assertEqual(results[0]["count"], 7)
+        assert results[0]["name"] == "user signed up"
+        assert results[1]["name"] == "$pageview"
+        assert results[2]["name"] == "insight viewed"
+        assert results[0]["count"] == 7
 
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(filters, 1),
+        assert sorted(self._get_actor_ids_at_step(filters, 1)) == sorted(
             [
                 person1_stopped_after_signup.uuid,
                 person2_stopped_after_one_pageview.uuid,
@@ -304,22 +303,21 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
                 person5_stopped_after_insight_view_random.uuid,
                 person6.uuid,
                 person7.uuid,
-            ],
+            ]
         )
 
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(filters, 2),
-            [person3_stopped_after_insight_view.uuid, person7.uuid],
+        assert sorted(self._get_actor_ids_at_step(filters, 2)) == sorted(
+            [person3_stopped_after_insight_view.uuid, person7.uuid]
         )
 
-        self.assertCountEqual(self._get_actor_ids_at_step(filters, 3), [person7.uuid])
+        assert sorted(self._get_actor_ids_at_step(filters, 3)) == sorted([person7.uuid])
 
         with override_instance_config("AGGREGATE_BY_DISTINCT_IDS_TEAMS", f"{self.team.pk}"):
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-            self.assertEqual(results[0]["name"], "user signed up")
-            self.assertEqual(results[1]["name"], "$pageview")
-            self.assertEqual(results[2]["name"], "insight viewed")
-            self.assertEqual(results[0]["count"], 7)
+            assert results[0]["name"] == "user signed up"
+            assert results[1]["name"] == "$pageview"
+            assert results[2]["name"] == "insight viewed"
+            assert results[0]["count"] == 7
 
     def test_advanced_strict_funnel(self):
         sign_up_action = _create_action(
@@ -473,14 +471,13 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(results[0]["name"], "user signed up")
-        self.assertEqual(results[1]["name"], "sign up")
-        self.assertEqual(results[2]["name"], "$pageview")
-        self.assertEqual(results[3]["name"], "pageview")
-        self.assertEqual(results[0]["count"], 8)
+        assert results[0]["name"] == "user signed up"
+        assert results[1]["name"] == "sign up"
+        assert results[2]["name"] == "$pageview"
+        assert results[3]["name"] == "pageview"
+        assert results[0]["count"] == 8
 
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(filters, 1),
+        assert sorted(self._get_actor_ids_at_step(filters, 1)) == sorted(
             [
                 person1_stopped_after_signup.uuid,
                 person2_stopped_after_one_pageview.uuid,
@@ -490,11 +487,10 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
                 person6.uuid,
                 person7.uuid,
                 person8.uuid,
-            ],
+            ]
         )
 
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(filters, 2),
+        assert sorted(self._get_actor_ids_at_step(filters, 2)) == sorted(
             [
                 person3_stopped_after_insight_view.uuid,
                 person4.uuid,
@@ -502,15 +498,14 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
                 person6.uuid,
                 person7.uuid,
                 person8.uuid,
-            ],
+            ]
         )
 
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(filters, 3),
-            [person4.uuid, person5.uuid, person6.uuid, person7.uuid, person8.uuid],
+        assert sorted(self._get_actor_ids_at_step(filters, 3)) == sorted(
+            [person4.uuid, person5.uuid, person6.uuid, person7.uuid, person8.uuid]
         )
 
-        self.assertCountEqual(self._get_actor_ids_at_step(filters, 4), [person8.uuid])
+        assert sorted(self._get_actor_ids_at_step(filters, 4)) == sorted([person8.uuid])
 
     def test_basic_strict_funnel_conversion_times(self):
         filters = {
@@ -574,38 +569,33 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(results[0]["name"], "user signed up")
-        self.assertEqual(results[1]["name"], "$pageview")
-        self.assertEqual(results[2]["name"], "insight viewed")
-        self.assertEqual(results[0]["count"], 3)
+        assert results[0]["name"] == "user signed up"
+        assert results[1]["name"] == "$pageview"
+        assert results[2]["name"] == "insight viewed"
+        assert results[0]["count"] == 3
 
-        self.assertEqual(results[1]["average_conversion_time"], 5400)
+        assert results[1]["average_conversion_time"] == 5400
         # 1 hour for Person 2, 2 hours for Person 3, average = 1.5 hours
 
-        self.assertEqual(results[2]["average_conversion_time"], 7200)
+        assert results[2]["average_conversion_time"] == 7200
         # 2 hours for Person 3
 
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(filters, 1),
+        assert sorted(self._get_actor_ids_at_step(filters, 1)) == sorted(
             [
                 person1_stopped_after_signup.uuid,
                 person2_stopped_after_one_pageview.uuid,
                 person3_stopped_after_insight_view.uuid,
-            ],
+            ]
         )
 
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(filters, 2),
+        assert sorted(self._get_actor_ids_at_step(filters, 2)) == sorted(
             [
                 person2_stopped_after_one_pageview.uuid,
                 person3_stopped_after_insight_view.uuid,
-            ],
+            ]
         )
 
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(filters, 3),
-            [person3_stopped_after_insight_view.uuid],
-        )
+        assert sorted(self._get_actor_ids_at_step(filters, 3)) == sorted([person3_stopped_after_insight_view.uuid])
 
     def test_redundant_event_filtering_strict_funnel(self):
         filters = {
@@ -643,7 +633,7 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
             ),
         )
         # Make sure the events have been condensed down to two
-        self.assertEqual(2, len(response.results[0][-1]))
+        assert 2 == len(response.results[0][-1])
 
     def test_different_prop_val_in_strict_filter(self):
         funnels_query = FunnelsQuery(
@@ -703,4 +693,4 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
 
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-        self.assertEqual(1, results[-1]["count"])
+        assert 1 == results[-1]["count"]

@@ -18,16 +18,16 @@ class TestAlterReplicatedValidation(unittest.TestCase):
         )
 
         # Check that metadata is attached
-        self.assertTrue(hasattr(operation, "_sql"))
-        self.assertTrue(hasattr(operation, "_node_roles"))
-        self.assertTrue(hasattr(operation, "_sharded"))
-        self.assertTrue(hasattr(operation, "_is_alter_on_replicated_table"))
+        assert hasattr(operation, "_sql")
+        assert hasattr(operation, "_node_roles")
+        assert hasattr(operation, "_sharded")
+        assert hasattr(operation, "_is_alter_on_replicated_table")
 
         # Check values
-        self.assertEqual(operation._sql, sql)
-        self.assertEqual(operation._node_roles, node_roles)
-        self.assertEqual(operation._sharded, False)
-        self.assertEqual(operation._is_alter_on_replicated_table, True)
+        assert operation._sql == sql
+        assert operation._node_roles == node_roles
+        assert not operation._sharded
+        assert operation._is_alter_on_replicated_table
 
     def test_metadata_with_default_values(self):
         """Test that run_sql_with_exceptions attaches metadata with default values."""
@@ -36,10 +36,10 @@ class TestAlterReplicatedValidation(unittest.TestCase):
         operation = run_sql_with_exceptions(sql=sql)
 
         # Check that metadata is attached with defaults
-        self.assertEqual(operation._sql, sql)
-        self.assertEqual(operation._node_roles, [NodeRole.DATA])  # Default value
-        self.assertEqual(operation._sharded, None)
-        self.assertEqual(operation._is_alter_on_replicated_table, None)
+        assert operation._sql == sql
+        assert operation._node_roles == [NodeRole.DATA]  # Default value
+        assert operation._sharded is None
+        assert operation._is_alter_on_replicated_table is None
 
     def test_metadata_with_sharded_table(self):
         """Test that run_sql_with_exceptions attaches metadata for sharded tables."""
@@ -52,5 +52,5 @@ class TestAlterReplicatedValidation(unittest.TestCase):
             is_alter_on_replicated_table=False,
         )
 
-        self.assertEqual(operation._sharded, True)
-        self.assertEqual(operation._is_alter_on_replicated_table, False)
+        assert operation._sharded
+        assert not operation._is_alter_on_replicated_table

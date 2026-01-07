@@ -105,13 +105,13 @@ class TestRunnerLLMProviderErrorHandling(BaseTest):
                 results.append((event_type, message))
 
             # Verify that a FailureMessage was yielded
-            self.assertEqual(len(results), 1)
+            assert len(results) == 1
             event_type, message = results[0]
-            self.assertEqual(event_type, AssistantEventType.MESSAGE)
-            self.assertIsInstance(message, FailureMessage)
-            self.assertEqual(
-                message.content,
-                "I'm unable to respond right now due to a temporary service issue. Please try again later.",
+            assert event_type == AssistantEventType.MESSAGE
+            assert isinstance(message, FailureMessage)
+            assert (
+                message.content
+                == "I'm unable to respond right now due to a temporary service issue. Please try again later."
             )
 
             # Verify state was reset
@@ -124,14 +124,14 @@ class TestRunnerLLMProviderErrorHandling(BaseTest):
             # Verify error was logged
             mock_logger.exception.assert_called_once()
             call_args = mock_logger.exception.call_args
-            self.assertEqual(call_args[0][0], "llm_provider_error")
-            self.assertEqual(call_args[1]["provider"], expected_provider)
+            assert call_args[0][0] == "llm_provider_error"
+            assert call_args[1]["provider"] == expected_provider
 
             # Verify exception was captured
             mock_posthog.capture_exception.assert_called_once()
             capture_call_args = mock_posthog.capture_exception.call_args
-            self.assertEqual(capture_call_args[1]["properties"]["error_type"], "llm_provider_error")
-            self.assertEqual(capture_call_args[1]["properties"]["provider"], expected_provider)
+            assert capture_call_args[1]["properties"]["error_type"] == "llm_provider_error"
+            assert capture_call_args[1]["properties"]["provider"] == expected_provider
 
 
 class TestRunnerSubagentBehavior(BaseTest):
@@ -258,8 +258,8 @@ class TestRunnerSubagentBehavior(BaseTest):
                 results.append((event_type, message))
 
             # Both should yield a failure message
-            self.assertEqual(len(results), 1)
-            self.assertIsInstance(results[0][1], FailureMessage)
+            assert len(results) == 1
+            assert isinstance(results[0][1], FailureMessage)
 
             # Only checkpointer mode should reset state
             if should_reset_state:
@@ -320,11 +320,11 @@ class TestRunnerSubagentBehavior(BaseTest):
         async with runner._lock_conversation():
             # Status should not have changed during the context
             await self.conversation.arefresh_from_db()
-            self.assertEqual(self.conversation.status, initial_status)
+            assert self.conversation.status == initial_status
 
         # Status should still be unchanged after exiting
         await self.conversation.arefresh_from_db()
-        self.assertEqual(self.conversation.status, initial_status)
+        assert self.conversation.status == initial_status
 
     async def test_main_agent_lock_conversation_updates_status(self):
         """
@@ -339,10 +339,10 @@ class TestRunnerSubagentBehavior(BaseTest):
 
         async with runner._lock_conversation():
             await self.conversation.arefresh_from_db()
-            self.assertEqual(self.conversation.status, Conversation.Status.IN_PROGRESS)
+            assert self.conversation.status == Conversation.Status.IN_PROGRESS
 
         await self.conversation.arefresh_from_db()
-        self.assertEqual(self.conversation.status, Conversation.Status.IDLE)
+        assert self.conversation.status == Conversation.Status.IDLE
 
     @parameterized.expand(
         [
@@ -415,7 +415,7 @@ class TestRunnerSubagentBehavior(BaseTest):
             )
 
             # Check that SubagentCallbackHandler was used
-            self.assertEqual(len(runner._callback_handlers), 1)
-            self.assertIsInstance(runner._callback_handlers[0], SubagentCallbackHandler)
+            assert len(runner._callback_handlers) == 1
+            assert isinstance(runner._callback_handlers[0], SubagentCallbackHandler)
             handler = cast(SubagentCallbackHandler, runner._callback_handlers[0])
-            self.assertEqual(handler._parent_span_id, parent_span_id)
+            assert handler._parent_span_id == parent_span_id

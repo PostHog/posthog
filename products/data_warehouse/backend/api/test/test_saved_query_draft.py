@@ -17,17 +17,11 @@ class TestDataWarehouseSavedQueryDraft(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(response.status_code, 201, response.content)
+        assert response.status_code == 201, response.content
         draft = response.json()
-        self.assertEqual(
-            draft["query"],
-            {
-                "kind": "HogQLQuery",
-                "query": "select event as event from events LIMIT 100",
-            },
-        )
+        assert draft["query"] == {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"}
         # no attached view
-        self.assertEqual(draft["name"], "Untitled")
+        assert draft["name"] == "Untitled"
 
     def test_update_draft(self):
         draft = DataWarehouseSavedQueryDraft.objects.create(
@@ -49,17 +43,11 @@ class TestDataWarehouseSavedQueryDraft(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, 200, response.content)
+        assert response.status_code == 200, response.content
         draft.refresh_from_db()
-        self.assertEqual(
-            draft.query,
-            {
-                "kind": "HogQLQuery",
-                "query": "select event as updated from events LIMIT 100",
-            },
-        )
+        assert draft.query == {"kind": "HogQLQuery", "query": "select event as updated from events LIMIT 100"}
         # no attached view
-        self.assertEqual(draft.name, None)
+        assert draft.name is None
 
     def test_delete_draft(self):
         draft = DataWarehouseSavedQueryDraft.objects.create(
@@ -76,8 +64,8 @@ class TestDataWarehouseSavedQueryDraft(APIBaseTest):
             f"/api/environments/{self.team.pk}/warehouse_saved_query_drafts/{draft.id}/",
         )
 
-        self.assertEqual(response.status_code, 204, response.content)
-        self.assertFalse(DataWarehouseSavedQueryDraft.objects.filter(id=draft.id).exists())
+        assert response.status_code == 204, response.content
+        assert not DataWarehouseSavedQueryDraft.objects.filter(id=draft.id).exists()
 
     def test_list_drafts(self):
         team2 = Team.objects.create(organization=self.organization)
@@ -111,22 +99,22 @@ class TestDataWarehouseSavedQueryDraft(APIBaseTest):
         )
         response = self.client.get(f"/api/environments/{self.team.pk}/warehouse_saved_query_drafts/")
 
-        self.assertEqual(response.status_code, 200, response.content)
+        assert response.status_code == 200, response.content
         response_data = response.json()
 
         # Verify pagination metadata
-        self.assertIn("count", response_data)
-        self.assertIn("next", response_data)
-        self.assertIn("previous", response_data)
-        self.assertIn("results", response_data)
+        assert "count" in response_data
+        assert "next" in response_data
+        assert "previous" in response_data
+        assert "results" in response_data
 
         # Verify content
-        self.assertEqual(response_data["count"], 1)
-        self.assertIsNone(response_data["next"])
-        self.assertIsNone(response_data["previous"])
-        self.assertEqual(len(response_data["results"]), 1)
-        self.assertEqual(response_data["results"][0]["id"], str(draft.id))
-        self.assertEqual(response_data["results"][0]["name"], "test_draft")
+        assert response_data["count"] == 1
+        assert response_data["next"] is None
+        assert response_data["previous"] is None
+        assert len(response_data["results"]) == 1
+        assert response_data["results"][0]["id"] == str(draft.id)
+        assert response_data["results"][0]["name"] == "test_draft"
 
     def test_create_draft_with_saved_query_id(self):
         # Create a saved query first
@@ -150,11 +138,11 @@ class TestDataWarehouseSavedQueryDraft(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, 201, response.content)
+        assert response.status_code == 201, response.content
         draft = response.json()
-        self.assertEqual(draft["saved_query_id"], str(saved_query.id))
-        self.assertEqual(draft["name"], "(1) test_query")
+        assert draft["saved_query_id"] == str(saved_query.id)
+        assert draft["name"] == "(1) test_query"
         # Verify it was actually saved to the database
         draft_obj = DataWarehouseSavedQueryDraft.objects.get(id=draft["id"])
-        self.assertIsNotNone(draft_obj.saved_query)
-        self.assertEqual(draft_obj.saved_query.id, saved_query.id)
+        assert draft_obj.saved_query is not None
+        assert draft_obj.saved_query.id == saved_query.id

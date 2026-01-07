@@ -122,18 +122,15 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             {"name": "user signed up"},
             headers={"origin": "http://testserver"},
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "unique",
-                "detail": f"This project already has an action with this name, ID {original_action.id}",
-                "attr": "name",
-            },
-        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "unique",
+            "detail": f"This project already has an action with this name, ID {original_action.id}",
+            "attr": "name",
+        }
 
-        self.assertEqual(Action.objects.count(), count)
+        assert Action.objects.count() == count
 
     @freeze_time("2021-12-12")
     @patch("posthog.api.action.report_user_action")
@@ -243,8 +240,8 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             data={"name": "user signed up 2", "steps": []},
             headers={"origin": "http://testserver"},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["steps"]), 0)
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["steps"]) == 0
 
     # When we send a user to their own site, we give them a token.
     # Make sure you can only create actions if that token is set,
@@ -258,7 +255,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             data={"name": "user signed up"},
             headers={"origin": "https://evilwebsite.com"},
         )
-        self.assertEqual(response.status_code, 401)
+        assert response.status_code == 401
 
         self.user.temporary_token = "token123"
         self.user.save()
@@ -268,26 +265,26 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             data={"name": "user signed up"},
             headers={"origin": "https://somewebsite.com"},
         )
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/actions/?temporary_token=token123",
             data={"name": "user signed up and post to slack", "post_to_slack": True},
             headers={"origin": "https://somewebsite.com"},
         )
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(response.json()["post_to_slack"], True)
+        assert response.status_code == 201
+        assert response.json()["post_to_slack"]
 
         list_response = self.client.get(
             f"/api/projects/{self.team.id}/actions/", headers={"origin": "https://evilwebsite.com"}
         )
-        self.assertEqual(list_response.status_code, 401)
+        assert list_response.status_code == 401
 
         detail_response = self.client.get(
             f"/api/projects/{self.team.id}/actions/{response.json()['id']}/",
             headers={"origin": "https://evilwebsite.com"},
         )
-        self.assertEqual(detail_response.status_code, 401)
+        assert detail_response.status_code == 401
 
         self.client.logout()
         list_response = self.client.get(
@@ -295,14 +292,14 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             data={"temporary_token": "token123"},
             headers={"origin": "https://somewebsite.com"},
         )
-        self.assertEqual(list_response.status_code, 200)
+        assert list_response.status_code == 200
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/actions/?temporary_token=token123",
             data={"name": "user signed up 22"},
             headers={"origin": "https://somewebsite.com"},
         )
-        self.assertEqual(response.status_code, 201, response.json())
+        assert response.status_code == 201, response.json()
 
     # This case happens when someone is running behind a proxy, but hasn't set `IS_BEHIND_PROXY`
     def test_http_to_https(self, *args):
@@ -311,7 +308,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             data={"name": "user signed up again"},
             headers={"origin": "https://testserver/"},
         )
-        self.assertEqual(response.status_code, 201, response.json())
+        assert response.status_code == 201, response.json()
 
     @patch("posthoganalytics.capture")
     def test_create_action_event_with_space(self, patch_capture, *args):
@@ -320,7 +317,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             data={"name": "test event", "steps": [{"event": "test_event "}]},
             headers={"origin": "http://testserver"},
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         action = Action.objects.get(pk=response.json()["id"])
         assert action.steps[0].event == "test_event "
 
@@ -357,9 +354,9 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["tags"], [])
-        self.assertEqual(Action.objects.all().count(), 1)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["tags"] == []
+        assert Action.objects.all().count() == 1
 
     def test_create_tags_on_non_ee_not_allowed(self):
         response = self.client.post(
@@ -367,9 +364,9 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             {"name": "Default", "tags": ["random", "hello"]},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()["tags"], [])
-        self.assertEqual(Tag.objects.all().count(), 0)
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["tags"] == []
+        assert Tag.objects.all().count() == 0
 
     def test_update_tags_on_non_ee_not_allowed(self):
         action = Action.objects.create(team_id=self.team.id, name="private dashboard")
@@ -385,8 +382,8 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             },
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["tags"], [])
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["tags"] == []
 
     def test_undefined_tags_allows_other_props_to_update(self):
         action = Action.objects.create(team_id=self.team.id, name="private action")
@@ -398,16 +395,16 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             {"name": "action new name", "description": "Internal system metrics."},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["name"], "action new name")
-        self.assertEqual(response.json()["description"], "Internal system metrics.")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["name"] == "action new name"
+        assert response.json()["description"] == "Internal system metrics."
 
     def test_empty_tags_does_not_delete_tags(self):
         action = Action.objects.create(team_id=self.team.id, name="private dashboard")
         tag = Tag.objects.create(name="random", team_id=self.team.id)
         action.tagged_items.create(tag_id=tag.id)
 
-        self.assertEqual(Action.objects.all().count(), 1)
+        assert Action.objects.all().count() == 1
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/actions/{action.id}",
@@ -418,9 +415,9 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             },
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["tags"], [])
-        self.assertEqual(Tag.objects.all().count(), 1)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["tags"] == []
+        assert Tag.objects.all().count() == 1
 
     def test_hard_deletion_is_forbidden(self):
         response = self.client.post(
@@ -439,10 +436,10 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             },
             headers={"origin": "http://testserver"},
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
         deletion_response = self.client.delete(f"/api/projects/{self.team.id}/actions/{response.json()['id']}")
-        self.assertEqual(deletion_response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        assert deletion_response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
 
     def test_create_action_in_specific_folder(self):
         """
@@ -468,6 +465,6 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         fs_entry = FileSystem.objects.filter(team=self.team, ref=str(action_id), type="action").first()
         assert fs_entry is not None, "A FileSystem entry was not created for this Action."
-        assert (
-            "Special Folder/Actions" in fs_entry.path
-        ), f"Expected folder to include 'Special Folder/Actions' but got '{fs_entry.path}'."
+        assert "Special Folder/Actions" in fs_entry.path, (
+            f"Expected folder to include 'Special Folder/Actions' but got '{fs_entry.path}'."
+        )

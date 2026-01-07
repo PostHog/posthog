@@ -94,11 +94,11 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
                 insight_type="trends",
             )
 
-        self.assertEqual(result_text, "")
-        self.assertIsNotNone(artifact)
-        self.assertEqual(len(artifact.messages), 2)
-        self.assertIsInstance(artifact.messages[0], ArtifactRefMessage)
-        self.assertIsInstance(artifact.messages[1], AssistantToolCallMessage)
+        assert result_text == ""
+        assert artifact is not None
+        assert len(artifact.messages) == 2
+        assert isinstance(artifact.messages[0], ArtifactRefMessage)
+        assert isinstance(artifact.messages[1], AssistantToolCallMessage)
 
         # Verify correct graph nodes were added
         mock_graph_builder.add_trends_generator.assert_called_once()
@@ -211,10 +211,10 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
                 insight_type="trends",
             )
 
-        self.assertIsNone(artifact)
-        self.assertIn("Invalid query structure", result_text)
-        self.assertIn("Missing required field: series", result_text)
-        self.assertIn(INSIGHT_TOOL_FAILURE_SYSTEM_REMINDER_PROMPT, result_text)
+        assert artifact is None
+        assert "Invalid query structure" in result_text
+        assert "Missing required field: series" in result_text
+        assert INSIGHT_TOOL_FAILURE_SYSTEM_REMINDER_PROMPT in result_text
 
     async def test_invalid_tool_call_message_type_returns_error(self):
         """Test when the last message is not AssistantToolCallMessage, returns error."""
@@ -255,9 +255,9 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
                 insight_type="trends",
             )
 
-        self.assertIsNone(artifact)
-        self.assertIn("unknown error", result_text)
-        self.assertIn(INSIGHT_TOOL_FAILURE_SYSTEM_REMINDER_PROMPT, result_text)
+        assert artifact is None
+        assert "unknown error" in result_text
+        assert INSIGHT_TOOL_FAILURE_SYSTEM_REMINDER_PROMPT in result_text
 
     async def test_human_feedback_requested_returns_only_tool_call_message(self):
         """Test when visualization message is not present, returns only tool call message."""
@@ -284,11 +284,11 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
                 insight_type="funnel",
             )
 
-        self.assertEqual(result_text, "")
-        self.assertIsNotNone(artifact)
-        self.assertEqual(len(artifact.messages), 1)
-        self.assertIsInstance(artifact.messages[0], AssistantToolCallMessage)
-        self.assertEqual(artifact.messages[0].content, "Need clarification")
+        assert result_text == ""
+        assert artifact is not None
+        assert len(artifact.messages) == 1
+        assert isinstance(artifact.messages[0], AssistantToolCallMessage)
+        assert artifact.messages[0].content == "Need clarification"
 
     async def test_editing_mode_adds_ui_payload(self):
         """Test that in editing mode, UI payload is added to tool call message."""
@@ -328,12 +328,12 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
                 insight_type="trends",
             )
 
-        self.assertIsNotNone(artifact)
+        assert artifact is not None
         returned_tool_call_message = artifact.messages[1]
-        self.assertIsInstance(returned_tool_call_message, AssistantToolCallMessage)
-        self.assertIsNotNone(returned_tool_call_message.ui_payload)
-        self.assertIn("create_insight", returned_tool_call_message.ui_payload)
-        self.assertEqual(returned_tool_call_message.ui_payload["create_insight"], query.model_dump(exclude_none=True))
+        assert isinstance(returned_tool_call_message, AssistantToolCallMessage)
+        assert returned_tool_call_message.ui_payload is not None
+        assert "create_insight" in returned_tool_call_message.ui_payload
+        assert returned_tool_call_message.ui_payload["create_insight"] == query.model_dump(exclude_none=True)
 
     async def test_state_updates_include_tool_call_metadata(self):
         """Test that the state passed to graph includes root_tool_call_id and plan."""
@@ -381,13 +381,13 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
                 insight_type="retention",
             )
 
-        self.assertIsNotNone(invoked_state)
+        assert invoked_state is not None
         validated_state = AssistantState.model_validate(invoked_state)
-        self.assertEqual(validated_state.root_tool_call_id, self.tool_call_id)
-        self.assertEqual(validated_state.plan, "my test query")
-        self.assertEqual(len(validated_state.messages), 1)
+        assert validated_state.root_tool_call_id == self.tool_call_id
+        assert validated_state.plan == "my test query"
+        assert len(validated_state.messages) == 1
         assert isinstance(validated_state.messages[0], AssistantMessage)
-        self.assertEqual(validated_state.messages[0].content, "initial")
+        assert validated_state.messages[0].content == "initial"
 
     async def test_is_editing_mode_detection(self):
         """Test that is_editing_mode correctly detects editing mode."""
@@ -395,8 +395,8 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
             configurable={"contextual_tools": {AssistantTool.CREATE_INSIGHT.value: {}}}
         )
         context_manager_editing = AssistantContextManager(team=self.team, user=self.user, config=config_editing)
-        self.assertTrue(CreateInsightTool.is_editing_mode(context_manager_editing))
+        assert CreateInsightTool.is_editing_mode(context_manager_editing)
 
         config_not_editing = RunnableConfig(configurable={"contextual_tools": {}})
         context_manager_not_editing = AssistantContextManager(team=self.team, user=self.user, config=config_not_editing)
-        self.assertFalse(CreateInsightTool.is_editing_mode(context_manager_not_editing))
+        assert not CreateInsightTool.is_editing_mode(context_manager_not_editing)

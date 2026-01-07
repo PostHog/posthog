@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -19,9 +20,9 @@ class TestDashboardContext(BaseTest):
 
         result = await dashboard_ctx.execute_and_format()
 
-        self.assertIn("Dashboard name: Empty Dashboard", result)
-        self.assertIn("Dashboard ID: 123", result)
-        self.assertIn("Description: A dashboard with no insights", result)
+        assert "Dashboard name: Empty Dashboard" in result
+        assert "Dashboard ID: 123" in result
+        assert "Description: A dashboard with no insights" in result
 
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
     async def test_execute_with_single_insight(self, mock_execute):
@@ -47,11 +48,11 @@ class TestDashboardContext(BaseTest):
 
         result = await dashboard_ctx.execute_and_format()
 
-        self.assertIn("Dashboard name: Test Dashboard", result)
-        self.assertIn("Dashboard ID: 456", result)
-        self.assertIn("Description: Dashboard description", result)
-        self.assertIn("Test Insight", result)
-        self.assertIn("Insight results: 100 users", result)
+        assert "Dashboard name: Test Dashboard" in result
+        assert "Dashboard ID: 456" in result
+        assert "Description: Dashboard description" in result
+        assert "Test Insight" in result
+        assert "Insight results: 100 users" in result
         mock_execute.assert_called_once()
 
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
@@ -81,14 +82,14 @@ class TestDashboardContext(BaseTest):
 
         result = await dashboard_ctx.execute_and_format()
 
-        self.assertIn("Dashboard name: Multi-Insight Dashboard", result)
-        self.assertIn("Insight 1", result)
-        self.assertIn("Insight 2", result)
-        self.assertIn("Insight 3", result)
-        self.assertIn("First insight results", result)
-        self.assertIn("Second insight results", result)
-        self.assertIn("Third insight results", result)
-        self.assertEqual(mock_execute.call_count, 3)
+        assert "Dashboard name: Multi-Insight Dashboard" in result
+        assert "Insight 1" in result
+        assert "Insight 2" in result
+        assert "Insight 3" in result
+        assert "First insight results" in result
+        assert "Second insight results" in result
+        assert "Third insight results" in result
+        assert mock_execute.call_count == 3
 
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
     async def test_execute_with_failed_insights(self, mock_execute):
@@ -117,11 +118,11 @@ class TestDashboardContext(BaseTest):
 
         result = await dashboard_ctx.execute_and_format()
 
-        self.assertIn("Dashboard name: Partially Failed Dashboard", result)
-        self.assertIn("Success result", result)
-        self.assertIn("Another success", result)
+        assert "Dashboard name: Partially Failed Dashboard" in result
+        assert "Success result" in result
+        assert "Another success" in result
         # Failed insight error message should be in results
-        self.assertIn("Error executing query", result)
+        assert "Error executing query" in result
 
     async def test_format_schema_with_no_insights(self):
         """Test that format_schema returns formatted dashboard without execution"""
@@ -135,9 +136,9 @@ class TestDashboardContext(BaseTest):
 
         result = await dashboard_ctx.format_schema()
 
-        self.assertIn("Dashboard name: Schema Dashboard", result)
-        self.assertIn("Dashboard ID: 202", result)
-        self.assertIn("Description: Dashboard for schema test", result)
+        assert "Dashboard name: Schema Dashboard" in result
+        assert "Dashboard ID: 202" in result
+        assert "Description: Dashboard for schema test" in result
 
     async def test_format_schema_with_insights(self):
         """Test that format_schema returns insight schemas without execution"""
@@ -164,14 +165,14 @@ class TestDashboardContext(BaseTest):
 
         result = await dashboard_ctx.format_schema()
 
-        self.assertIn("Dashboard name: Schema Dashboard", result)
-        self.assertIn("Schema Insight 1", result)
-        self.assertIn("Schema Insight 2", result)
-        self.assertIn("First insight", result)
+        assert "Dashboard name: Schema Dashboard" in result
+        assert "Schema Insight 1" in result
+        assert "Schema Insight 2" in result
+        assert "First insight" in result
         # Schema should include query JSON
-        self.assertIn("TrendsQuery", result)
+        assert "TrendsQuery" in result
         # Should NOT include results
-        self.assertNotIn("Results:", result)
+        assert "Results:" not in result
 
     @patch("ee.hogai.context.insight.context.InsightContext.format_schema")
     async def test_format_schema_handles_exceptions(self, mock_format_schema):
@@ -194,10 +195,10 @@ class TestDashboardContext(BaseTest):
         )
 
         # Exception should propagate
-        with self.assertRaises(Exception) as context:
+        with pytest.raises(Exception) as context:
             await dashboard_ctx.format_schema()
 
-        self.assertIn("Schema error", str(context.exception))
+        assert "Schema error" in str(context.value)
 
     async def test_dashboard_without_id(self):
         """Test that dashboard works without an ID"""
@@ -209,8 +210,8 @@ class TestDashboardContext(BaseTest):
 
         result = await dashboard_ctx.format_schema()
 
-        self.assertIn("Dashboard name: No ID Dashboard", result)
-        self.assertNotIn("Dashboard ID:", result)
+        assert "Dashboard name: No ID Dashboard" in result
+        assert "Dashboard ID:" not in result
 
     async def test_dashboard_without_name(self):
         """Test that dashboard works without a name"""
@@ -222,8 +223,8 @@ class TestDashboardContext(BaseTest):
 
         result = await dashboard_ctx.format_schema()
 
-        self.assertIn("Dashboard name: Dashboard", result)
-        self.assertIn("Dashboard ID: 606", result)
+        assert "Dashboard name: Dashboard" in result
+        assert "Dashboard ID: 606" in result
 
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
     async def test_custom_max_concurrent_queries(self, mock_execute):
@@ -248,12 +249,12 @@ class TestDashboardContext(BaseTest):
         )
 
         # Verify semaphore is set correctly
-        self.assertEqual(dashboard_ctx._semaphore._value, 5)
+        assert dashboard_ctx._semaphore._value == 5
 
         result = await dashboard_ctx.execute_and_format()
 
-        self.assertIn("Concurrent Dashboard", result)
-        self.assertEqual(mock_execute.call_count, 10)
+        assert "Concurrent Dashboard" in result
+        assert mock_execute.call_count == 10
 
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
     async def test_custom_prompt_template(self, mock_execute):
@@ -278,5 +279,5 @@ class TestDashboardContext(BaseTest):
         custom_template = "Custom: {{{dashboard_name}}} - {{{insights}}}"
         result = await dashboard_ctx.execute_and_format(prompt_template=custom_template)
 
-        self.assertIn("Custom: Custom Template Dashboard", result)
-        self.assertIn("Custom template result", result)
+        assert "Custom: Custom Template Dashboard" in result
+        assert "Custom template result" in result

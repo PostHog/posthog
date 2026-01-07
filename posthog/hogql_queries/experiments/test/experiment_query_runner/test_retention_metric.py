@@ -147,30 +147,30 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         assert result.baseline is not None
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         test_variant = result.variant_results[0]
 
         # Control: 6 users started (signed up), 4 retained (logged in)
-        self.assertEqual(control_variant.number_of_samples, 6)
-        self.assertEqual(control_variant.sum, 4)
-        self.assertEqual(control_variant.sum_squares, 4)  # Binary: 1^2 = 1
+        assert control_variant.number_of_samples == 6
+        assert control_variant.sum == 4
+        assert control_variant.sum_squares == 4  # Binary: 1^2 = 1
 
         # Test: 8 users started (signed up), 6 retained (logged in)
-        self.assertEqual(test_variant.number_of_samples, 8)
-        self.assertEqual(test_variant.sum, 6)
-        self.assertEqual(test_variant.sum_squares, 6)  # Binary: 1^2 = 1
+        assert test_variant.number_of_samples == 8
+        assert test_variant.sum == 6
+        assert test_variant.sum_squares == 6  # Binary: 1^2 = 1
 
         # Verify ratio-specific fields for control variant
-        self.assertEqual(control_variant.denominator_sum, 6)  # 6 users started
-        self.assertEqual(control_variant.denominator_sum_squares, 6)  # 6 (since 1^2 = 1)
-        self.assertEqual(control_variant.numerator_denominator_sum_product, 4)  # 4 completed
+        assert control_variant.denominator_sum == 6  # 6 users started
+        assert control_variant.denominator_sum_squares == 6  # 6 (since 1^2 = 1)
+        assert control_variant.numerator_denominator_sum_product == 4  # 4 completed
 
         # Verify ratio-specific fields for test variant
-        self.assertEqual(test_variant.denominator_sum, 8)  # 8 users started
-        self.assertEqual(test_variant.denominator_sum_squares, 8)
-        self.assertEqual(test_variant.numerator_denominator_sum_product, 6)  # 6 completed
+        assert test_variant.denominator_sum == 8  # 8 users started
+        assert test_variant.denominator_sum_squares == 8
+        assert test_variant.numerator_denominator_sum_product == 6  # 6 completed
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -278,26 +278,26 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         assert result.baseline is not None
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         test_variant = result.variant_results[0]
 
         # Control: 7 users started, 4 retained (days 7, 10, 13, 14 - all within [7,14] inclusive)
-        self.assertEqual(control_variant.number_of_samples, 7)
-        self.assertEqual(control_variant.sum, 4)
+        assert control_variant.number_of_samples == 7
+        assert control_variant.sum == 4
 
         # Test: 7 users started, 5 retained (days 7, 9, 12, 13, 14 - all within [7,14] inclusive)
-        self.assertEqual(test_variant.number_of_samples, 7)
-        self.assertEqual(test_variant.sum, 5)
+        assert test_variant.number_of_samples == 7
+        assert test_variant.sum == 5
 
         # Verify ratio-specific fields
-        self.assertEqual(control_variant.denominator_sum, 7)
-        self.assertEqual(control_variant.denominator_sum_squares, 7)
-        self.assertEqual(control_variant.numerator_denominator_sum_product, 4)
-        self.assertEqual(test_variant.denominator_sum, 7)
-        self.assertEqual(test_variant.denominator_sum_squares, 7)
-        self.assertEqual(test_variant.numerator_denominator_sum_product, 5)
+        assert control_variant.denominator_sum == 7
+        assert control_variant.denominator_sum_squares == 7
+        assert control_variant.numerator_denominator_sum_product == 4
+        assert test_variant.denominator_sum == 7
+        assert test_variant.denominator_sum_squares == 7
+        assert test_variant.numerator_denominator_sum_product == 5
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -401,18 +401,18 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         # With FIRST_SEEN: Purchase on day 6 (relative to first signup)
         # Window is [1, 7), so day 6 is WITHIN window
-        self.assertEqual(control_first.number_of_samples, 2)
-        self.assertEqual(control_first.sum, 2)  # Both users retained
-        self.assertEqual(test_first.number_of_samples, 2)
-        self.assertEqual(test_first.sum, 2)  # Both users retained
+        assert control_first.number_of_samples == 2
+        assert control_first.sum == 2  # Both users retained
+        assert test_first.number_of_samples == 2
+        assert test_first.sum == 2  # Both users retained
 
         # Verify ratio-specific fields for FIRST_SEEN
-        self.assertEqual(control_first.denominator_sum, 2)
-        self.assertEqual(control_first.denominator_sum_squares, 2)
-        self.assertEqual(control_first.numerator_denominator_sum_product, 2)
-        self.assertEqual(test_first.denominator_sum, 2)
-        self.assertEqual(test_first.denominator_sum_squares, 2)
-        self.assertEqual(test_first.numerator_denominator_sum_product, 2)
+        assert control_first.denominator_sum == 2
+        assert control_first.denominator_sum_squares == 2
+        assert control_first.numerator_denominator_sum_product == 2
+        assert test_first.denominator_sum == 2
+        assert test_first.denominator_sum_squares == 2
+        assert test_first.numerator_denominator_sum_product == 2
 
         # Now test with LAST_SEEN
         metric_last_seen = ExperimentRetentionMetric(
@@ -447,18 +447,18 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         # With LAST_SEEN: Purchase on day 3 (relative to last signup on day 3)
         # Window is [1, 7), so day 3 is WITHIN window
-        self.assertEqual(control_last.number_of_samples, 2)
-        self.assertEqual(control_last.sum, 2)  # Both users retained
-        self.assertEqual(test_last.number_of_samples, 2)
-        self.assertEqual(test_last.sum, 2)  # Both users retained
+        assert control_last.number_of_samples == 2
+        assert control_last.sum == 2  # Both users retained
+        assert test_last.number_of_samples == 2
+        assert test_last.sum == 2  # Both users retained
 
         # Verify ratio-specific fields for LAST_SEEN
-        self.assertEqual(control_last.denominator_sum, 2)
-        self.assertEqual(control_last.denominator_sum_squares, 2)
-        self.assertEqual(control_last.numerator_denominator_sum_product, 2)
-        self.assertEqual(test_last.denominator_sum, 2)
-        self.assertEqual(test_last.denominator_sum_squares, 2)
-        self.assertEqual(test_last.numerator_denominator_sum_product, 2)
+        assert control_last.denominator_sum == 2
+        assert control_last.denominator_sum_squares == 2
+        assert control_last.numerator_denominator_sum_product == 2
+        assert test_last.denominator_sum == 2
+        assert test_last.denominator_sum_squares == 2
+        assert test_last.numerator_denominator_sum_product == 2
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -570,28 +570,28 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         assert result.baseline is not None
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         test_variant = result.variant_results[0]
 
         # Control: 3 users signed up within conversion window (c1, c2, c4)
         # 2 of them returned (c1, c2)
-        self.assertEqual(control_variant.number_of_samples, 3)
-        self.assertEqual(control_variant.sum, 2)
+        assert control_variant.number_of_samples == 3
+        assert control_variant.sum == 2
 
         # Test: 2 users signed up within conversion window (t1, t2)
         # Both returned
-        self.assertEqual(test_variant.number_of_samples, 2)
-        self.assertEqual(test_variant.sum, 2)
+        assert test_variant.number_of_samples == 2
+        assert test_variant.sum == 2
 
         # Verify ratio-specific fields
-        self.assertEqual(control_variant.denominator_sum, 3)
-        self.assertEqual(control_variant.denominator_sum_squares, 3)
-        self.assertEqual(control_variant.numerator_denominator_sum_product, 2)
-        self.assertEqual(test_variant.denominator_sum, 2)
-        self.assertEqual(test_variant.denominator_sum_squares, 2)
-        self.assertEqual(test_variant.numerator_denominator_sum_product, 2)
+        assert control_variant.denominator_sum == 3
+        assert control_variant.denominator_sum_squares == 3
+        assert control_variant.numerator_denominator_sum_product == 2
+        assert test_variant.denominator_sum == 2
+        assert test_variant.denominator_sum_squares == 2
+        assert test_variant.numerator_denominator_sum_product == 2
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -669,29 +669,29 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         assert result.baseline is not None
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         test_variant = result.variant_results[0]
 
         # Control: 3 users started, 0 retained (0% retention)
-        self.assertEqual(control_variant.number_of_samples, 3)
-        self.assertEqual(control_variant.sum, 0)
-        self.assertEqual(control_variant.sum_squares, 0)
+        assert control_variant.number_of_samples == 3
+        assert control_variant.sum == 0
+        assert control_variant.sum_squares == 0
 
         # Test: 4 users started, 0 retained (0% retention)
-        self.assertEqual(test_variant.number_of_samples, 4)
-        self.assertEqual(test_variant.sum, 0)
-        self.assertEqual(test_variant.sum_squares, 0)
+        assert test_variant.number_of_samples == 4
+        assert test_variant.sum == 0
+        assert test_variant.sum_squares == 0
 
         # Verify ratio fields are populated even with 0% retention
         # Denominator should reflect users who started, numerator should be 0
-        self.assertEqual(control_variant.denominator_sum, 3)  # 3 users started
-        self.assertEqual(control_variant.denominator_sum_squares, 3)
-        self.assertEqual(control_variant.numerator_denominator_sum_product, 0)  # 0 completed
-        self.assertEqual(test_variant.denominator_sum, 4)  # 4 users started
-        self.assertEqual(test_variant.denominator_sum_squares, 4)
-        self.assertEqual(test_variant.numerator_denominator_sum_product, 0)  # 0 completed
+        assert control_variant.denominator_sum == 3  # 3 users started
+        assert control_variant.denominator_sum_squares == 3
+        assert control_variant.numerator_denominator_sum_product == 0  # 0 completed
+        assert test_variant.denominator_sum == 4  # 4 users started
+        assert test_variant.denominator_sum_squares == 4
+        assert test_variant.numerator_denominator_sum_product == 0  # 0 completed
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -807,34 +807,34 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         assert result.baseline is not None
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 2)  # test_a and test_b
+        assert len(result.variant_results) == 2  # test_a and test_b
 
         control_variant = result.baseline
         test_a_variant = next(v for v in result.variant_results if v.key == "test_a")
         test_b_variant = next(v for v in result.variant_results if v.key == "test_b")
 
         # Control: 5 started, 3 retained
-        self.assertEqual(control_variant.number_of_samples, 5)
-        self.assertEqual(control_variant.sum, 3)
+        assert control_variant.number_of_samples == 5
+        assert control_variant.sum == 3
 
         # Test A: 4 started, 3 retained
-        self.assertEqual(test_a_variant.number_of_samples, 4)
-        self.assertEqual(test_a_variant.sum, 3)
+        assert test_a_variant.number_of_samples == 4
+        assert test_a_variant.sum == 3
 
         # Test B: 6 started, 5 retained
-        self.assertEqual(test_b_variant.number_of_samples, 6)
-        self.assertEqual(test_b_variant.sum, 5)
+        assert test_b_variant.number_of_samples == 6
+        assert test_b_variant.sum == 5
 
         # Verify ratio-specific fields for all three variants
-        self.assertEqual(control_variant.denominator_sum, 5)
-        self.assertEqual(control_variant.denominator_sum_squares, 5)
-        self.assertEqual(control_variant.numerator_denominator_sum_product, 3)
-        self.assertEqual(test_a_variant.denominator_sum, 4)
-        self.assertEqual(test_a_variant.denominator_sum_squares, 4)
-        self.assertEqual(test_a_variant.numerator_denominator_sum_product, 3)
-        self.assertEqual(test_b_variant.denominator_sum, 6)
-        self.assertEqual(test_b_variant.denominator_sum_squares, 6)
-        self.assertEqual(test_b_variant.numerator_denominator_sum_product, 5)
+        assert control_variant.denominator_sum == 5
+        assert control_variant.denominator_sum_squares == 5
+        assert control_variant.numerator_denominator_sum_product == 3
+        assert test_a_variant.denominator_sum == 4
+        assert test_a_variant.denominator_sum_squares == 4
+        assert test_a_variant.numerator_denominator_sum_product == 3
+        assert test_b_variant.denominator_sum == 6
+        assert test_b_variant.denominator_sum_squares == 6
+        assert test_b_variant.numerator_denominator_sum_product == 5
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -946,28 +946,28 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         assert result.baseline is not None
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         test_variant = result.variant_results[0]
 
         # Control: 5 users started, 3 completed same day (60%)
-        self.assertEqual(control_variant.number_of_samples, 5)
-        self.assertEqual(control_variant.sum, 3)
-        self.assertEqual(control_variant.sum_squares, 3)
+        assert control_variant.number_of_samples == 5
+        assert control_variant.sum == 3
+        assert control_variant.sum_squares == 3
 
         # Test: 4 users started, 2 completed same day (50%)
-        self.assertEqual(test_variant.number_of_samples, 4)
-        self.assertEqual(test_variant.sum, 2)
-        self.assertEqual(test_variant.sum_squares, 2)
+        assert test_variant.number_of_samples == 4
+        assert test_variant.sum == 2
+        assert test_variant.sum_squares == 2
 
         # Verify ratio-specific fields
-        self.assertEqual(control_variant.denominator_sum, 5)
-        self.assertEqual(control_variant.denominator_sum_squares, 5)
-        self.assertEqual(control_variant.numerator_denominator_sum_product, 3)
-        self.assertEqual(test_variant.denominator_sum, 4)
-        self.assertEqual(test_variant.denominator_sum_squares, 4)
-        self.assertEqual(test_variant.numerator_denominator_sum_product, 2)
+        assert control_variant.denominator_sum == 5
+        assert control_variant.denominator_sum_squares == 5
+        assert control_variant.numerator_denominator_sum_product == 3
+        assert test_variant.denominator_sum == 4
+        assert test_variant.denominator_sum_squares == 4
+        assert test_variant.numerator_denominator_sum_product == 2
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -1093,28 +1093,28 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         assert result.baseline is not None
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         test_variant = result.variant_results[0]
 
         # Control: 5 users started, 3 completed in same hour (60%)
-        self.assertEqual(control_variant.number_of_samples, 5)
-        self.assertEqual(control_variant.sum, 3)
-        self.assertEqual(control_variant.sum_squares, 3)
+        assert control_variant.number_of_samples == 5
+        assert control_variant.sum == 3
+        assert control_variant.sum_squares == 3
 
         # Test: 3 users started, 2 completed in same hour (66.7%)
-        self.assertEqual(test_variant.number_of_samples, 3)
-        self.assertEqual(test_variant.sum, 2)
-        self.assertEqual(test_variant.sum_squares, 2)
+        assert test_variant.number_of_samples == 3
+        assert test_variant.sum == 2
+        assert test_variant.sum_squares == 2
 
         # Verify ratio-specific fields
-        self.assertEqual(control_variant.denominator_sum, 5)
-        self.assertEqual(control_variant.denominator_sum_squares, 5)
-        self.assertEqual(control_variant.numerator_denominator_sum_product, 3)
-        self.assertEqual(test_variant.denominator_sum, 3)
-        self.assertEqual(test_variant.denominator_sum_squares, 3)
-        self.assertEqual(test_variant.numerator_denominator_sum_product, 2)
+        assert control_variant.denominator_sum == 5
+        assert control_variant.denominator_sum_squares == 5
+        assert control_variant.numerator_denominator_sum_product == 3
+        assert test_variant.denominator_sum == 3
+        assert test_variant.denominator_sum_squares == 3
+        assert test_variant.numerator_denominator_sum_product == 2
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -1220,29 +1220,29 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         assert result.baseline is not None
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         test_variant = result.variant_results[0]
 
         # Control: 6 users started, 4 retained (even though they had multiple completions)
         # Each retained user counts as 1, not as sum of their completions
-        self.assertEqual(control_variant.number_of_samples, 6)
-        self.assertEqual(control_variant.sum, 4)  # 4 users retained, not 9 (total completions)
-        self.assertEqual(control_variant.sum_squares, 4)  # 1^2 * 4 = 4
+        assert control_variant.number_of_samples == 6
+        assert control_variant.sum == 4  # 4 users retained, not 9 (total completions)
+        assert control_variant.sum_squares == 4  # 1^2 * 4 = 4
 
         # Test: 3 users started, 2 retained (even though they had multiple completions)
-        self.assertEqual(test_variant.number_of_samples, 3)
-        self.assertEqual(test_variant.sum, 2)  # 2 users retained, not 5 (total completions)
-        self.assertEqual(test_variant.sum_squares, 2)  # 1^2 * 2 = 2
+        assert test_variant.number_of_samples == 3
+        assert test_variant.sum == 2  # 2 users retained, not 5 (total completions)
+        assert test_variant.sum_squares == 2  # 1^2 * 2 = 2
 
         # Verify ratio-specific fields
-        self.assertEqual(control_variant.denominator_sum, 6)
-        self.assertEqual(control_variant.denominator_sum_squares, 6)
-        self.assertEqual(control_variant.numerator_denominator_sum_product, 4)
-        self.assertEqual(test_variant.denominator_sum, 3)
-        self.assertEqual(test_variant.denominator_sum_squares, 3)
-        self.assertEqual(test_variant.numerator_denominator_sum_product, 2)
+        assert control_variant.denominator_sum == 6
+        assert control_variant.denominator_sum_squares == 6
+        assert control_variant.numerator_denominator_sum_product == 4
+        assert test_variant.denominator_sum == 3
+        assert test_variant.denominator_sum_squares == 3
+        assert test_variant.numerator_denominator_sum_product == 2
 
     @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
@@ -1393,17 +1393,17 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         test_variant = result.variant_results[0]
 
         # Control: 4 started, 2 retained (50% - only those on exactly day 7)
-        self.assertEqual(control_variant.number_of_samples, 4)
-        self.assertEqual(control_variant.sum, 2)
+        assert control_variant.number_of_samples == 4
+        assert control_variant.sum == 2
 
         # Test: 3 started, 3 retained (100% - all on exactly day 7)
-        self.assertEqual(test_variant.number_of_samples, 3)
-        self.assertEqual(test_variant.sum, 3)
+        assert test_variant.number_of_samples == 3
+        assert test_variant.sum == 3
 
         # Verify ratio-specific fields
-        self.assertEqual(control_variant.denominator_sum, 4)
-        self.assertEqual(control_variant.denominator_sum_squares, 4)
-        self.assertEqual(control_variant.numerator_denominator_sum_product, 2)
-        self.assertEqual(test_variant.denominator_sum, 3)
-        self.assertEqual(test_variant.denominator_sum_squares, 3)
-        self.assertEqual(test_variant.numerator_denominator_sum_product, 3)
+        assert control_variant.denominator_sum == 4
+        assert control_variant.denominator_sum_squares == 4
+        assert control_variant.numerator_denominator_sum_product == 2
+        assert test_variant.denominator_sum == 3
+        assert test_variant.denominator_sum_squares == 3
+        assert test_variant.numerator_denominator_sum_product == 3

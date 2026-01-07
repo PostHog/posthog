@@ -80,12 +80,12 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
         }
 
         response = self.client.get("/api/person/funnel/", data=request_data)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         j = response.json()
         first_person = j["results"][0]["people"][0]
-        self.assertEqual(5, len(j["results"][0]["people"]))
-        self.assertTrue("id" in first_person and "name" in first_person and "distinct_ids" in first_person)
-        self.assertEqual(5, j["results"][0]["count"])
+        assert 5 == len(j["results"][0]["people"])
+        assert "id" in first_person and "name" in first_person and "distinct_ids" in first_person
+        assert 5 == j["results"][0]["count"]
 
     @snapshot_clickhouse_queries
     def test_funnel_actors_with_groups_search(self):
@@ -115,10 +115,10 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
         }
 
         response = self.client.get("/api/person/funnel/", data=request_data)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         j = response.json()
-        self.assertEqual(1, len(j["results"][0]["people"]))
-        self.assertEqual(1, j["results"][0]["count"])
+        assert 1 == len(j["results"][0]["people"])
+        assert 1 == j["results"][0]["count"]
 
     def test_basic_pagination(self):
         cache.clear()
@@ -144,20 +144,20 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
         }
 
         response = self.client.get("/api/person/funnel/", data=request_data)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         j = response.json()
         people = j["results"][0]["people"]
         next = j["next"]
-        self.assertEqual(100, len(people))
-        self.assertNotEqual(None, next)
+        assert 100 == len(people)
+        assert None is not next
 
         response = self.client.get(next)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         j = response.json()
         people = j["results"][0]["people"]
         next = j["next"]
-        self.assertEqual(10, len(people))
-        self.assertEqual(None, j["next"])
+        assert 10 == len(people)
+        assert None is j["next"]
 
     def test_breakdown_basic_pagination(self):
         cache.clear()
@@ -186,19 +186,19 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
         }
 
         response = self.client.get("/api/person/funnel/", data=request_data)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         j = response.json()
         people = j["results"][0]["people"]
         next = j["next"]
-        self.assertEqual(100, len(people))
+        assert 100 == len(people)
 
         response = self.client.get(next)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         j = response.json()
         people = j["results"][0]["people"]
         next = j["next"]
-        self.assertEqual(10, len(people))
-        self.assertEqual(None, j["next"])
+        assert 10 == len(people)
+        assert None is j["next"]
 
     @patch("posthog.models.person.util.delete_person")
     def test_basic_pagination_with_deleted(self, delete_person_patch):
@@ -229,24 +229,24 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
         }
 
         response = self.client.get("/api/person/funnel/", data=request_data)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         j = response.json()
         people = j["results"][0]["people"]
         next = j["next"]
         missing_persons = j["missing_persons"]
-        self.assertEqual(0, len(people))
-        self.assertEqual(15, missing_persons)
-        self.assertIsNotNone(next)
+        assert 0 == len(people)
+        assert 15 == missing_persons
+        assert next is not None
 
         response = self.client.get(next)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         j = response.json()
         people = j["results"][0]["people"]
         next = j["next"]
         missing_persons = j["missing_persons"]
-        self.assertEqual(0, len(people))
-        self.assertEqual(5, missing_persons)
-        self.assertIsNone(next)
+        assert 0 == len(people)
+        assert 5 == missing_persons
+        assert next is None
 
     def test_breakdowns(self):
         request_data = {
@@ -322,23 +322,23 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
         )
 
         response = self.client.get("/api/person/funnel/", data=request_data)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         j = response.json()
 
         people = j["results"][0]["people"]
-        self.assertEqual(1, len(people))
-        self.assertEqual(None, j["next"])
+        assert 1 == len(people)
+        assert None is j["next"]
 
         response = self.client.get(
             "/api/person/funnel/",
             data={**request_data, "funnel_step_breakdown": "Safari"},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         j = response.json()
 
         people = j["results"][0]["people"]
-        self.assertEqual(2, len(people))
-        self.assertEqual(None, j["next"])
+        assert 2 == len(people)
+        assert None is j["next"]
 
 
 class TestFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
@@ -390,28 +390,28 @@ class TestFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
             f"/api/projects/{self.team.pk}/persons/funnel/correlation",
             data=request_data,
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         j = response.json()
 
         first_person = j["results"][0]["people"][0]
-        self.assertEqual(4, len(j["results"][0]["people"]))
-        self.assertTrue("id" in first_person and "name" in first_person and "distinct_ids" in first_person)
-        self.assertEqual(4, j["results"][0]["count"])
+        assert 4 == len(j["results"][0]["people"])
+        assert "id" in first_person and "name" in first_person and "distinct_ids" in first_person
+        assert 4 == j["results"][0]["count"]
 
         next = j["next"]
         response = self.client.get(next)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         j = response.json()
 
         people = j["results"][0]["people"]
         next = j["next"]
-        self.assertEqual(4, len(people))
-        self.assertNotEqual(None, next)
+        assert 4 == len(people)
+        assert None is not next
 
         response = self.client.get(next)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         j = response.json()
         people = j["results"][0]["people"]
         next = j["next"]
-        self.assertEqual(2, len(people))
-        self.assertEqual(None, j["next"])
+        assert 2 == len(people)
+        assert None is j["next"]

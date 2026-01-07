@@ -21,9 +21,9 @@ class TestFileSystemSyncMixin(TestCase):
         # The Mixin's post_save signal should create a FileSystem row
         fs_entry = FileSystem.objects.filter(team=self.team, type="feature_flag", ref=str(flag.id)).first()
         assert fs_entry is not None
-        self.assertEqual(fs_entry.path, "Unfiled/Feature Flags/My Feature")
-        self.assertEqual(fs_entry.created_by, self.user)
-        self.assertEqual(fs_entry.shortcut, False)
+        assert fs_entry.path == "Unfiled/Feature Flags/My Feature"
+        assert fs_entry.created_by == self.user
+        assert not fs_entry.shortcut
 
     def test_feature_flag_delete_field_triggers_file_removal_on_save(self):
         """
@@ -32,7 +32,7 @@ class TestFileSystemSyncMixin(TestCase):
         because DSL config says: `should_delete: lambda instance: instance.deleted`.
         """
         flag = FeatureFlag.objects.create(team=self.team, key="My Feature", deleted=False, created_by=self.user)
-        self.assertEqual(FileSystem.objects.count(), 1)  # It's created
+        assert FileSystem.objects.count() == 1  # It's created
 
         # Now mark as deleted
         flag.deleted = True
@@ -41,20 +41,20 @@ class TestFileSystemSyncMixin(TestCase):
         # The Mixin's post_save should remove the corresponding FileSystem entry
         fs_entry = FileSystem.objects.filter(team=self.team, type="feature_flag", ref=str(flag.id)).first()
         assert fs_entry is None
-        self.assertEqual(FileSystem.objects.count(), 0)
+        assert FileSystem.objects.count() == 0
 
     def test_feature_flag_physical_delete_triggers_file_removal(self):
         """
         On a real delete (post_delete), the Mixin should remove the FileSystem entry.
         """
         flag = FeatureFlag.objects.create(team=self.team, key="Temp Feature", deleted=False, created_by=self.user)
-        self.assertEqual(FileSystem.objects.count(), 1)
+        assert FileSystem.objects.count() == 1
 
         flag_id = flag.id
         flag.delete()  # triggers post_delete
         fs_entry = FileSystem.objects.filter(team=self.team, type="feature_flag", ref=str(flag_id)).first()
         assert fs_entry is None
-        self.assertEqual(FileSystem.objects.count(), 0)
+        assert FileSystem.objects.count() == 0
 
     def test_feature_flag_name_update_renames_file_system_path(self):
         """
@@ -63,7 +63,7 @@ class TestFileSystemSyncMixin(TestCase):
         """
         flag = FeatureFlag.objects.create(team=self.team, key="Old Key", deleted=False, created_by=self.user)
         fs_entry = FileSystem.objects.get(team=self.team, type="feature_flag", ref=str(flag.id))
-        self.assertEqual(fs_entry.path, "Unfiled/Feature Flags/Old Key")
+        assert fs_entry.path == "Unfiled/Feature Flags/Old Key"
 
         # Update name
         flag.key = "New Key"
@@ -71,7 +71,7 @@ class TestFileSystemSyncMixin(TestCase):
 
         fs_entry.refresh_from_db()
         # Confirm the path changed to the new name
-        self.assertEqual(fs_entry.path, "Unfiled/Feature Flags/New Key")
+        assert fs_entry.path == "Unfiled/Feature Flags/New Key"
 
     def test_experiment_always_saved(self):
         """
@@ -83,8 +83,8 @@ class TestFileSystemSyncMixin(TestCase):
         exp = Experiment.objects.create(team=self.team, name="Exp #1", created_by=self.user, feature_flag=ff)
         fs_entry = FileSystem.objects.filter(team=self.team, type="experiment", ref=str(exp.id)).first()
         assert fs_entry is not None
-        self.assertEqual(fs_entry.path, "Unfiled/Experiments/Exp #1")
-        self.assertEqual(fs_entry.shortcut, False)
+        assert fs_entry.path == "Unfiled/Experiments/Exp #1"
+        assert not fs_entry.shortcut
 
         # If we manually add a field `deleted=True` (if it existed),
         # the DSL says ignore. We'll simulate that:
@@ -93,7 +93,7 @@ class TestFileSystemSyncMixin(TestCase):
 
         # Should remain in the FileSystem
         fs_entry.refresh_from_db()
-        self.assertEqual(fs_entry.path, "Unfiled/Experiments/Exp #1 Updated")
+        assert fs_entry.path == "Unfiled/Experiments/Exp #1 Updated"
 
     def test_insight_deleted_or_unsaved_removes_entry(self):
         """
@@ -105,12 +105,12 @@ class TestFileSystemSyncMixin(TestCase):
         )
         fs_entry = FileSystem.objects.filter(team=self.team, type="insight", ref=insight.short_id).first()
         assert fs_entry is not None
-        self.assertEqual(fs_entry.path, "Unfiled/Insights/My Insight")
+        assert fs_entry.path == "Unfiled/Insights/My Insight"
 
         # Mark as not saved
         insight.saved = False
         insight.save()
-        self.assertFalse(Insight.objects.get(id=insight.id).saved)
+        assert not Insight.objects.get(id=insight.id).saved
         fs_entry = FileSystem.objects.filter(team=self.team, type="insight", ref=insight.short_id).first()
         assert fs_entry is None
 
@@ -137,7 +137,7 @@ class TestFileSystemSyncMixin(TestCase):
         dash = Dashboard.objects.create(team=self.team, name="Main Dash", created_by=self.user, deleted=False)
         fs_entry = FileSystem.objects.filter(team=self.team, type="dashboard", ref=str(dash.id)).first()
         assert fs_entry is not None
-        self.assertEqual(fs_entry.path, "Unfiled/Dashboards/Main Dash")
+        assert fs_entry.path == "Unfiled/Dashboards/Main Dash"
 
         dash.deleted = True
         dash.save()
@@ -152,7 +152,7 @@ class TestFileSystemSyncMixin(TestCase):
         note = Notebook.objects.create(team=self.team, title="My Notebook", deleted=False, created_by=self.user)
         fs_entry = FileSystem.objects.filter(team=self.team, type="notebook", ref=str(note.short_id)).first()
         assert fs_entry is not None
-        self.assertEqual(fs_entry.path, "Unfiled/Notebooks/My Notebook")
+        assert fs_entry.path == "Unfiled/Notebooks/My Notebook"
 
         # Physical delete
         note_id = note.short_id
@@ -189,6 +189,6 @@ class TestFileSystemSyncMixin(TestCase):
 
         note.save()
 
-        assert (
-            FileSystem.objects.filter(id=fs_entry_id).exists() is False
-        ), "Existing entries for internal notebooks should be deleted"
+        assert FileSystem.objects.filter(id=fs_entry_id).exists() is False, (
+            "Existing entries for internal notebooks should be deleted"
+        )

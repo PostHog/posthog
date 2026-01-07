@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Any, Literal, Optional, TypedDict, Union
+from typing import Any, Literal, TypedDict, Union
 
 from django.test.client import Client
 
@@ -21,12 +21,12 @@ class FunnelCorrelationRequest:
     # Needs to be json encoded list of `EventPattern`s
     events: str
     date_to: str
-    funnel_step: Optional[int] = None
-    date_from: Optional[str] = None
-    funnel_correlation_type: Optional[FunnelCorrelationType] = None
+    funnel_step: int | None = None
+    date_from: str | None = None
+    funnel_correlation_type: FunnelCorrelationType | None = None
     # Needs to be json encoded list of `str`s
-    funnel_correlation_names: Optional[str] = None
-    funnel_correlation_event_names: Optional[str] = None
+    funnel_correlation_names: str | None = None
+    funnel_correlation_event_names: str | None = None
 
 
 @dataclasses.dataclass
@@ -34,10 +34,10 @@ class FunnelRequest:
     events: str
     date_from: str
     insight: str
-    aggregation_group_type_index: Optional[GroupTypeIndex] = None
-    date_to: Optional[str] = None
-    properties: Optional[str] = None
-    funnel_order_type: Optional[str] = None
+    aggregation_group_type_index: GroupTypeIndex | None = None
+    date_to: str | None = None
+    properties: str | None = None
+    funnel_order_type: str | None = None
 
 
 def get_funnel(client: Client, team_id: int, request: FunnelRequest):

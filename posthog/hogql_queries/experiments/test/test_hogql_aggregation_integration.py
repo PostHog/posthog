@@ -24,8 +24,8 @@ class TestHogQLAggregationIntegration(BaseTest):
         result = get_metric_value(metric_with_agg)
 
         # Should return the inner expression (ArithmeticOperation), not the full sum() call
-        self.assertIsInstance(result, ast.ArithmeticOperation)
-        self.assertEqual(result.op, ast.ArithmeticOperationOp.Sub)  # type: ignore[attr-defined]
+        assert isinstance(result, ast.ArithmeticOperation)
+        assert result.op == ast.ArithmeticOperationOp.Sub  # type: ignore[attr-defined]
 
         # Test without aggregation function
         metric_without_agg = ExperimentMeanMetric(
@@ -37,8 +37,8 @@ class TestHogQLAggregationIntegration(BaseTest):
         result_no_agg = get_metric_value(metric_without_agg)
 
         # Should return the field expression directly
-        self.assertIsInstance(result_no_agg, ast.Field)
-        self.assertEqual(result_no_agg.chain, ["properties", "revenue"])  # type: ignore[attr-defined]
+        assert isinstance(result_no_agg, ast.Field)
+        assert result_no_agg.chain == ["properties", "revenue"]  # type: ignore[attr-defined]
 
     def test_hogql_aggregation_examples(self):
         """Test various HogQL aggregation examples that users might input."""
@@ -59,9 +59,9 @@ class TestHogQLAggregationIntegration(BaseTest):
                 aggregation, inner_expr, _ = extract_aggregation_and_inner_expr(expr_str)
 
                 if expected_agg is None:
-                    self.assertIsNone(aggregation, f"Expected no aggregation for: {expr_str}")
+                    assert aggregation is None, f"Expected no aggregation for: {expr_str}"
                 else:
-                    self.assertEqual(aggregation, expected_agg, f"Wrong aggregation for: {expr_str}")
+                    assert aggregation == expected_agg, f"Wrong aggregation for: {expr_str}"
 
                 # Inner expression should never be None
-                self.assertIsNotNone(inner_expr, f"Inner expression should not be None for: {expr_str}")
+                assert inner_expr is not None, f"Inner expression should not be None for: {expr_str}"

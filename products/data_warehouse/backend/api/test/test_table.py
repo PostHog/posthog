@@ -109,7 +109,7 @@ class TestTable(APIBaseTest):
                 "format": "Parquet",
             },
         )
-        self.assertEqual(response.status_code, 400, response.content)
+        assert response.status_code == 400, response.content
         response = response.json()
 
     @patch(
@@ -567,17 +567,17 @@ class TestTable(APIBaseTest):
                 )
 
         # Assert the response is successful
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
 
         # Verify the table was created
         table = DataWarehouseTable.objects.get(name="minio_csv_table")
-        self.assertIsNotNone(table)
+        assert table is not None
 
         # Check that the file was actually uploaded to MinIO
         objects = s3_client.list_objects_v2(
             Bucket=test_bucket_name, Prefix=f"managed/team_{self.team.id}/test_file.csv"
         )
-        self.assertIn("Contents", objects, "No objects found in the bucket")
+        assert "Contents" in objects, "No objects found in the bucket"
 
         # TODO: DRY
         self._delete_all_from_s3(s3_client, test_bucket_name)

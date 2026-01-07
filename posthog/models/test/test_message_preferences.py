@@ -1,5 +1,6 @@
 import uuid
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -42,20 +43,20 @@ class TestMessagePreferences(BaseTest):
         category = MessageCategory.objects.create(
             team=self.team, key="marketing", name="Marketing", description="Marketing updates"
         )
-        self.assertEqual(category.key, "marketing")
-        self.assertEqual(str(category), "Marketing")
+        assert category.key == "marketing"
+        assert str(category) == "Marketing"
 
     def test_create_recipient_preference(self):
         recipient = MessageRecipientPreference.objects.create(
             team=self.team, identifier="test2@example.com", preferences={}
         )
-        self.assertEqual(recipient.identifier, "test2@example.com")
-        self.assertEqual(recipient.preferences, {})
-        self.assertEqual(str(recipient), "Preferences for test2@example.com")
+        assert recipient.identifier == "test2@example.com"
+        assert recipient.preferences == {}
+        assert str(recipient) == "Preferences for test2@example.com"
 
     def test_duplicate_recipient_preference(self):
         MessageRecipientPreference.objects.create(team=self.team, identifier="test3@example.com", preferences={})
-        with self.assertRaises(IntegrityError):  # Django will raise IntegrityError
+        with pytest.raises(IntegrityError):  # Django will raise IntegrityError
             MessageRecipientPreference.objects.create(team=self.team, identifier="test3@example.com", preferences={})
 
     def test_set_preference(self):
@@ -65,11 +66,11 @@ class TestMessagePreferences(BaseTest):
         )
 
         recipient.set_preference(self.category.id, PreferenceStatus.OPTED_IN)
-        self.assertEqual(recipient.get_preference(self.category.id), PreferenceStatus.OPTED_IN)
+        assert recipient.get_preference(self.category.id) == PreferenceStatus.OPTED_IN
 
         # Test updating existing preference
         recipient.set_preference(self.category.id, PreferenceStatus.OPTED_OUT)
-        self.assertEqual(recipient.get_preference(self.category.id), PreferenceStatus.OPTED_OUT)
+        assert recipient.get_preference(self.category.id) == PreferenceStatus.OPTED_OUT
 
     def test_get_preference(self):
         recipient = MessageRecipientPreference.objects.create(
@@ -77,11 +78,11 @@ class TestMessagePreferences(BaseTest):
         )
 
         # Test non-existent preference
-        self.assertEqual(recipient.get_preference(str(uuid.uuid4())), PreferenceStatus.NO_PREFERENCE)
+        assert recipient.get_preference(str(uuid.uuid4())) == PreferenceStatus.NO_PREFERENCE
 
         # Test existing preference
         recipient.set_preference(self.category.id, PreferenceStatus.OPTED_IN)
-        self.assertEqual(recipient.get_preference(self.category.id), PreferenceStatus.OPTED_IN)
+        assert recipient.get_preference(self.category.id) == PreferenceStatus.OPTED_IN
 
     def test_get_all_preferences(self):
         recipient = MessageRecipientPreference.objects.create(
@@ -98,13 +99,13 @@ class TestMessagePreferences(BaseTest):
 
         # Test get_all_preferences method (returns dict of UUID to PreferenceStatus)
         preferences = recipient.get_all_preferences()
-        self.assertEqual(preferences[str(self.category.id)], PreferenceStatus.OPTED_IN)
-        self.assertEqual(preferences[str(category2.id)], PreferenceStatus.OPTED_OUT)
+        assert preferences[str(self.category.id)] == PreferenceStatus.OPTED_IN
+        assert preferences[str(category2.id)] == PreferenceStatus.OPTED_OUT
 
         # Test get_all_preference method (also returns dict of UUID to PreferenceStatus)
         all_preferences = recipient.get_all_preferences()
-        self.assertEqual(all_preferences[str(self.category.id)], PreferenceStatus.OPTED_IN)
-        self.assertEqual(all_preferences[str(category2.id)], PreferenceStatus.OPTED_OUT)
+        assert all_preferences[str(self.category.id)] == PreferenceStatus.OPTED_IN
+        assert all_preferences[str(category2.id)] == PreferenceStatus.OPTED_OUT
 
     def test_set_preference_validation(self):
         recipient = MessageRecipientPreference.objects.create(
@@ -112,5 +113,5 @@ class TestMessagePreferences(BaseTest):
         )
 
         # Test that only PreferenceStatus enum values are accepted
-        with self.assertRaises(ValueError):
+        with pytest.raises(ValueError):
             recipient.set_preference(self.category.id, "INVALID_STATUS")  # type: ignore[arg-type]

@@ -18,10 +18,10 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 },
             ).json()
 
-        self.assertTrue(len(queries))
+        assert len(queries)
 
         # make sure that the queries start with a discoverable prefix.
         # If this changes, also update ee/clickhouse/materialized_columns/analyze.py::_get_queries to
         # filter on the right queries
         for q in queries:
-            self.assertTrue(q.startswith("/* user_id"))
+            assert q.startswith("/* user_id")

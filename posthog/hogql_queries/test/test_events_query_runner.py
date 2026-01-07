@@ -112,7 +112,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
         )
 
-        self.assertEqual({"p_notset", "p_null"}, {row[0]["distinct_id"] for row in results})
+        assert {"p_notset", "p_null"} == {row[0]["distinct_id"] for row in results}
 
     def test_is_set_boolean(self):
         self._create_boolean_field_test_events()
@@ -126,7 +126,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
         )
 
-        self.assertEqual({"p_true", "p_false"}, {row[0]["distinct_id"] for row in results})
+        assert {"p_true", "p_false"} == {row[0]["distinct_id"] for row in results}
 
     def test_person_id_expands_to_distinct_ids(self):
         _create_person(
@@ -141,16 +141,14 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query_ast = EventsQueryRunner(query=query, team=self.team).to_query()
         where_expr = cast(ast.CompareOperation, cast(ast.And, query_ast.where).exprs[0])
         right_expr = cast(ast.Tuple, where_expr.right)
-        self.assertEqual(
-            [cast(ast.Constant, cast(ast.Call, x).args[0]).value for x in right_expr.exprs], ["id1", "id2"]
-        )
+        assert [cast(ast.Constant, cast(ast.Call, x).args[0]).value for x in right_expr.exprs] == ["id1", "id2"]
 
         # another team
         another_team = Team.objects.create(organization=Organization.objects.create())
         query_ast = EventsQueryRunner(query=query, team=another_team).to_query()
         where_expr = cast(ast.CompareOperation, cast(ast.And, query_ast.where).exprs[0])
         right_expr = cast(ast.Tuple, where_expr.right)
-        self.assertEqual(right_expr.exprs, [])
+        assert right_expr.exprs == []
 
     def test_test_account_filters(self):
         self.team.test_account_filters = [
@@ -166,8 +164,8 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query_ast = EventsQueryRunner(query=query, team=self.team).to_query()
         where_expr = cast(ast.CompareOperation, cast(ast.And, query_ast.where).exprs[0])
         right_expr = cast(ast.Constant, where_expr.right)
-        self.assertEqual(right_expr.value, "%posthog.com%")
-        self.assertEqual(where_expr.op, CompareOperationOp.NotILike)
+        assert right_expr.value == "%posthog.com%"
+        assert where_expr.op == CompareOperationOp.NotILike
 
     def test_big_int(self):
         BIG_INT = 2**159 - 24
@@ -445,8 +443,8 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = EventsQueryRunner(query=query, team=self.team)
         response = runner.run()
         assert isinstance(response, CachedEventsQueryResponse)
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0][0]["properties"]["attr"], "no div")
+        assert len(response.results) == 1
+        assert response.results[0][0]["properties"]["attr"] == "no div"
 
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21")

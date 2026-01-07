@@ -1,4 +1,3 @@
-from typing import Optional
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
@@ -39,7 +38,7 @@ class TestPagingBreakdowns(APIBaseTest):
                 create_people=True,
             )
 
-    def _run(self, extra: Optional[dict] = None, run_at: Optional[str] = None):
+    def _run(self, extra: dict | None = None, run_at: str | None = None):
         if extra is None:
             extra = {}
         with freeze_time(run_at or "2020-01-04T13:01:01Z"):
@@ -90,8 +89,8 @@ class TestPagingBreakdowns(APIBaseTest):
     def test_without_breakdown(self):
         response = self._run({})
 
-        self.assertEqual(len(response), 1)
-        self.assertEqual(response[0]["label"], "$pageview")
+        assert len(response) == 1
+        assert response[0]["label"] == "$pageview"
 
-        self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 50.0, 0.0, 0.0])
-        self.assertEqual(response[0]["count"], 50.0)
+        assert response[0]["data"] == [0.0, 0.0, 0.0, 0.0, 0.0, 50.0, 0.0, 0.0]
+        assert response[0]["count"] == 50.0

@@ -31,7 +31,7 @@ class TestProductAnalyticsAgentToolkit(BaseTest):
         # Check that CreateInsightTool is in the tools property
         tool_classes = toolkit.tools
         tool_class_names = [tool_class.__name__ for tool_class in tool_classes]
-        self.assertIn("CreateInsightTool", tool_class_names)
+        assert "CreateInsightTool" in tool_class_names
 
 
 class TestProductAnalyticsAgentNode(BaseTest):
@@ -81,20 +81,15 @@ class TestProductAnalyticsAgentNode(BaseTest):
             next_state = await node.arun(state_1, {})
             assert isinstance(next_state, PartialAssistantState)
             # The state includes context messages + original message + generated message
-            self.assertGreaterEqual(len(next_state.messages), 1)
+            assert len(next_state.messages) >= 1
             assistant_message = next_state.messages[-1]
-            self.assertIsInstance(assistant_message, AssistantMessage)
             assert isinstance(assistant_message, AssistantMessage)
-            self.assertEqual(assistant_message.content, content)
-            self.assertIsNotNone(assistant_message.id)
-            self.assertIsNotNone(assistant_message.tool_calls)
+            assert isinstance(assistant_message, AssistantMessage)
+            assert assistant_message.content == content
+            assert assistant_message.id is not None
             assert assistant_message.tool_calls is not None
-            self.assertEqual(len(assistant_message.tool_calls), 1)
-            self.assertEqual(
-                assistant_message.tool_calls[0],
-                AssistantToolCall(
-                    id="xyz",
-                    name="create_insight",
-                    args={"query_description": "Foobar", "query_kind": insight_type},
-                ),
+            assert assistant_message.tool_calls is not None
+            assert len(assistant_message.tool_calls) == 1
+            assert assistant_message.tool_calls[0] == AssistantToolCall(
+                id="xyz", name="create_insight", args={"query_description": "Foobar", "query_kind": insight_type}
             )

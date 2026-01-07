@@ -62,24 +62,24 @@ class TestFixDefinitionProjectIds(TestCase):
         output = out.getvalue()
 
         # Verify output contains dry run information
-        self.assertIn("DRY RUN MODE", output)
-        self.assertIn("Found 1 EventDefinitions", output)
-        self.assertIn("Found 1 PropertyDefinitions", output)
-        self.assertIn("Found 1 GroupTypeMappings", output)
-        self.assertIn("Organization: Test Organization", output)
-        self.assertIn("Team: Detached Team", output)
-        self.assertIn("EventDefinitions to update", output)
-        self.assertIn("PropertyDefinitions to update", output)
-        self.assertIn("GroupTypeMappings to update", output)
-        self.assertIn("No changes were made", output)
+        assert "DRY RUN MODE" in output
+        assert "Found 1 EventDefinitions" in output
+        assert "Found 1 PropertyDefinitions" in output
+        assert "Found 1 GroupTypeMappings" in output
+        assert "Organization: Test Organization" in output
+        assert "Team: Detached Team" in output
+        assert "EventDefinitions to update" in output
+        assert "PropertyDefinitions to update" in output
+        assert "GroupTypeMappings to update" in output
+        assert "No changes were made" in output
 
         # Verify no actual changes were made
         event_def.refresh_from_db()
         property_def.refresh_from_db()
         group_type_mapping.refresh_from_db()
-        self.assertEqual(event_def.project_id, self.main_project.id)  # Should remain unchanged
-        self.assertEqual(property_def.project_id, self.main_project.id)  # Should remain unchanged
-        self.assertEqual(group_type_mapping.project_id, self.main_project.id)  # Should remain unchanged
+        assert event_def.project_id == self.main_project.id  # Should remain unchanged
+        assert property_def.project_id == self.main_project.id  # Should remain unchanged
+        assert group_type_mapping.project_id == self.main_project.id  # Should remain unchanged
 
     @patch("posthog.management.commands.fix_definition_project_ids.get_all_rollback_organization_ids")
     def test_actual_update_mode(self, mock_get_rollback_orgs):
@@ -130,10 +130,10 @@ class TestFixDefinitionProjectIds(TestCase):
         output = out.getvalue()
 
         # Verify output shows updates
-        self.assertIn("Updated 1 EventDefinitions", output)
-        self.assertIn("Updated 1 PropertyDefinitions", output)
-        self.assertIn("Updated 1 GroupTypeMappings", output)
-        self.assertIn("Successfully aligned 3 definition records", output)
+        assert "Updated 1 EventDefinitions" in output
+        assert "Updated 1 PropertyDefinitions" in output
+        assert "Updated 1 GroupTypeMappings" in output
+        assert "Successfully aligned 3 definition records" in output
 
         # Verify the changes were made
         event_def.refresh_from_db()
@@ -142,11 +142,11 @@ class TestFixDefinitionProjectIds(TestCase):
         correct_event_def.refresh_from_db()
         correct_group_type.refresh_from_db()
 
-        self.assertEqual(event_def.project_id, self.detached_team.project_id)  # Should be updated
-        self.assertEqual(property_def.project_id, self.detached_team.project_id)  # Should be updated
-        self.assertEqual(group_type_mapping.project_id, self.detached_team.project_id)  # Should be updated
-        self.assertEqual(correct_event_def.project_id, self.main_project.id)  # Should remain unchanged
-        self.assertEqual(correct_group_type.project_id, self.main_project.id)  # Should remain unchanged
+        assert event_def.project_id == self.detached_team.project_id  # Should be updated
+        assert property_def.project_id == self.detached_team.project_id  # Should be updated
+        assert group_type_mapping.project_id == self.detached_team.project_id  # Should be updated
+        assert correct_event_def.project_id == self.main_project.id  # Should remain unchanged
+        assert correct_group_type.project_id == self.main_project.id  # Should remain unchanged
 
     @patch("posthog.management.commands.fix_definition_project_ids.get_all_rollback_organization_ids")
     def test_no_misaligned_records(self, mock_get_rollback_orgs):
@@ -181,10 +181,10 @@ class TestFixDefinitionProjectIds(TestCase):
         output = out.getvalue()
 
         # Verify output shows no updates needed
-        self.assertIn("No EventDefinitions need project_id alignment", output)
-        self.assertIn("No PropertyDefinitions need project_id alignment", output)
-        self.assertIn("No GroupTypeMappings need project_id alignment", output)
-        self.assertIn("All definition records were already aligned", output)
+        assert "No EventDefinitions need project_id alignment" in output
+        assert "No PropertyDefinitions need project_id alignment" in output
+        assert "No GroupTypeMappings need project_id alignment" in output
+        assert "All definition records were already aligned" in output
 
     @patch("posthog.management.commands.fix_definition_project_ids.get_all_rollback_organization_ids")
     def test_mixed_property_definition_types(self, mock_get_rollback_orgs):
@@ -221,10 +221,10 @@ class TestFixDefinitionProjectIds(TestCase):
         output = out.getvalue()
 
         # Verify all types are reported in the new summary format
-        self.assertIn("Found 3 PropertyDefinitions", output)
-        self.assertIn("Organization: Test Organization", output)
-        self.assertIn("Team: Detached Team", output)
-        self.assertIn("3 PropertyDefinitions to update", output)
+        assert "Found 3 PropertyDefinitions" in output
+        assert "Organization: Test Organization" in output
+        assert "Team: Detached Team" in output
+        assert "3 PropertyDefinitions to update" in output
 
         # Run actual update
         out = StringIO()
@@ -235,9 +235,9 @@ class TestFixDefinitionProjectIds(TestCase):
         person_prop.refresh_from_db()
         group_prop.refresh_from_db()
 
-        self.assertEqual(event_prop.project_id, self.detached_team.project_id)
-        self.assertEqual(person_prop.project_id, self.detached_team.project_id)
-        self.assertEqual(group_prop.project_id, self.detached_team.project_id)
+        assert event_prop.project_id == self.detached_team.project_id
+        assert person_prop.project_id == self.detached_team.project_id
+        assert group_prop.project_id == self.detached_team.project_id
 
     @patch("posthog.management.commands.fix_definition_project_ids.get_all_rollback_organization_ids")
     def test_no_rollback_organizations(self, mock_get_rollback_orgs):
@@ -259,9 +259,9 @@ class TestFixDefinitionProjectIds(TestCase):
         output = out.getvalue()
 
         # Verify it exits early with no work done
-        self.assertIn("No organizations have triggered environment rollback", output)
-        self.assertIn("Exiting", output)
-        self.assertNotIn("Processing EventDefinitions", output)
+        assert "No organizations have triggered environment rollback" in output
+        assert "Exiting" in output
+        assert "Processing EventDefinitions" not in output
 
     @patch("posthog.management.commands.fix_definition_project_ids.get_all_rollback_organization_ids")
     def test_filters_by_organization(self, mock_get_rollback_orgs):
@@ -301,15 +301,15 @@ class TestFixDefinitionProjectIds(TestCase):
         output = out.getvalue()
 
         # Verify only rollback org records were processed
-        self.assertIn("Processing only rolled back organizations: 1 orgs", output)
-        self.assertIn("Updated 1 EventDefinitions", output)
+        assert "Processing only rolled back organizations: 1 orgs" in output
+        assert "Updated 1 EventDefinitions" in output
 
         # Verify the changes
         rollback_event.refresh_from_db()
         other_event.refresh_from_db()
 
-        self.assertEqual(rollback_event.project_id, self.detached_team.project_id)  # Should be updated
-        self.assertEqual(other_event.project_id, wrong_project.id)  # Should remain unchanged
+        assert rollback_event.project_id == self.detached_team.project_id  # Should be updated
+        assert other_event.project_id == wrong_project.id  # Should remain unchanged
 
     @patch("posthog.management.commands.fix_definition_project_ids.get_all_rollback_organization_ids")
     def test_batch_size_option(self, mock_get_rollback_orgs):
@@ -331,16 +331,16 @@ class TestFixDefinitionProjectIds(TestCase):
         output = out.getvalue()
 
         # Should show batch processing progress
-        self.assertIn("Batch size: 2", output)
+        assert "Batch size: 2" in output
         # Check that some updates were made (the exact count may vary due to batching logic)
-        self.assertIn("Updated", output)
-        self.assertIn("EventDefinitions", output)
+        assert "Updated" in output
+        assert "EventDefinitions" in output
 
         # Verify all records were updated
         updated_count = EventDefinition.objects.filter(
             team=self.detached_team, project_id=self.detached_team.project_id
         ).count()
-        self.assertEqual(updated_count, 5)
+        assert updated_count == 5
 
     @patch("posthog.management.commands.fix_definition_project_ids.get_all_rollback_organization_ids")
     def test_group_type_mapping_with_unique_constraints(self, mock_get_rollback_orgs):
@@ -386,25 +386,25 @@ class TestFixDefinitionProjectIds(TestCase):
         output = out.getvalue()
 
         # Verify output shows updates
-        self.assertIn("Updated 3 GroupTypeMappings", output)
+        assert "Updated 3 GroupTypeMappings" in output
 
         # Verify the changes were made correctly
         gtm1.refresh_from_db()
         gtm2.refresh_from_db()
         gtm3.refresh_from_db()
 
-        self.assertEqual(gtm1.project_id, team1.project_id)
-        self.assertEqual(gtm2.project_id, team2.project_id)
-        self.assertEqual(gtm3.project_id, team1.project_id)
+        assert gtm1.project_id == team1.project_id
+        assert gtm2.project_id == team2.project_id
+        assert gtm3.project_id == team1.project_id
 
         # Verify unique constraints are still respected
         # Each team/project should have unique (project, group_type) and (project, group_type_index)
         team1_mappings = GroupTypeMapping.objects.filter(project_id=team1.project_id)
         team2_mappings = GroupTypeMapping.objects.filter(project_id=team2.project_id)
 
-        self.assertEqual(team1_mappings.count(), 2)  # gtm1 and gtm3
-        self.assertEqual(team2_mappings.count(), 1)  # gtm2
+        assert team1_mappings.count() == 2  # gtm1 and gtm3
+        assert team2_mappings.count() == 1  # gtm2
 
         # Verify no duplicate group_type_index within same project
         team1_indices = set(team1_mappings.values_list("group_type_index", flat=True))
-        self.assertEqual(len(team1_indices), 2)  # Should have 2 unique indices
+        assert len(team1_indices) == 2  # Should have 2 unique indices
