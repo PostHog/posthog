@@ -871,6 +871,7 @@ class CohortSerializer(serializers.ModelSerializer):
 
                 # Use PostgreSQL's jsonb_path_exists for recursive JSONB searching
                 # This finds cohort references at any depth in the JSON structure
+                # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
                 insights_using_cohort = Insight.objects.filter(
                     team_id=cohort.team_id,
                     deleted=False,
@@ -897,6 +898,7 @@ class CohortSerializer(serializers.ModelSerializer):
                     )
 
                 # Check if cohort is used as criteria in other cohorts
+                # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
                 dependent_cohorts = (
                     Cohort.objects.filter(
                         team__project_id=cohort.team.project_id,

@@ -648,6 +648,7 @@ class PropertyDefinitionViewSet(
 
         self.paginator.set_count(full_count)
 
+        # nosemgrep: python.django.security.audit.custom-expression-as-sql.custom-expression-as-sql (all user input goes through query_context.params)
         return queryset.raw(query_context.as_sql(order_by_verified), params=query_context.params)
 
     def get_serializer_class(self) -> type[serializers.ModelSerializer]:

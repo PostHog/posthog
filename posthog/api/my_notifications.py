@@ -175,6 +175,7 @@ class MyNotificationsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             # before we filter to include only the important changes,
             # we need to deduplicate too frequent changes
             # we only really need to do this on notebooks
+            # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (parameterized via params list)
             deduplicated_notebook_activity_ids_query = ActivityLog.objects.raw(
                 """
                 SELECT id
@@ -241,6 +242,7 @@ class MyNotificationsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
             if last_read_date and unread:
                 # truncate created_at to millisecond precision to match last_read precision
+                # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
                 other_peoples_changes = other_peoples_changes.extra(
                     where=["date_trunc('millisecond', created_at) > %s"], params=[last_read_date]
                 )
