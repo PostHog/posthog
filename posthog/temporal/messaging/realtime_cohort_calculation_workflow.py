@@ -1,3 +1,4 @@
+import json
 import time
 import asyncio
 import datetime as dt
@@ -12,8 +13,6 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import prepare_and_print_ast
 
-from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.hogql_queries.hogql_cohort_query import HogQLRealtimeCohortQuery
 from posthog.kafka_client.client import KafkaProducer
@@ -21,6 +20,7 @@ from posthog.kafka_client.topics import KAFKA_COHORT_MEMBERSHIP_CHANGED
 from posthog.models.cohort.cohort import Cohort, CohortType
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 
@@ -158,6 +158,7 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                     ) previous_members ON current_matches.id = previous_members.person_id
                     WHERE status IN ('entered', 'left')
                     SETTINGS join_use_nulls = 1
+                    FORMAT JSONEachRow
                 """
 
                 with tags_context(
@@ -170,15 +171,16 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                     pending_kafka_messages = []
                     logger.info(f"Executing query for cohort {cohort.id}", cohort_id=cohort.id)
 
-                    # Execute query using sync_execute in a thread to avoid blocking the event loop
-                    results = await asyncio.to_thread(
-                        sync_execute,
-                        final_query,
-                        query_params,
-                        workload=Workload.OFFLINE,
-                        team_id=cohort.team_id,
-                        ch_user=ClickHouseUser.COHORTS,
-                    )
+                    async with get_client(team_id=cohort.team_id) as client:
+                        response = await client.read_query(
+                            final_query,
+                            query_parameters=query_params,
+                        )
+                        results = []
+                        for line in response.decode("utf-8").splitlines():
+                            if line.strip():
+                                row = json.loads(line)
+                                results.append((row["person_id"], row["status"]))
 
                     # Process results
                     for row in results:
