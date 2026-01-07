@@ -6,6 +6,7 @@ use crate::{
     invocation_context::context,
     sourcemaps::{
         args::{FileSelectionArgs, ReleaseArgs},
+        inject::get_release_for_maps,
         plain::inject::is_javascript_file,
         source_pairs::read_pairs,
     },
@@ -48,7 +49,7 @@ pub fn upload_cmd(args: &Args) -> Result<()> {
 pub fn upload(args: &Args) -> Result<()> {
     let selection = FileSelection::try_from(args.file_selection.clone())?;
 
-    let pairs = read_pairs(
+    let mut pairs = read_pairs(
         selection.into_iter().filter(is_javascript_file),
         &args.public_path_prefix,
     );
@@ -58,6 +59,19 @@ pub fn upload(args: &Args) -> Result<()> {
         .map(|pair| pair.sourcemap.inner.path.clone())
         .collect::<Vec<_>>();
     info!("Found {} chunks to upload", pairs.len());
+
+    // Get or create a release if project/version are provided or if any pair is missing a release_id
+    let cwd = std::env::current_dir()?;
+    let created_release_id =
+        get_release_for_maps(&cwd, args.release.clone(), pairs.iter().map(|p| &p.sourcemap))?
+            .map(|r| r.id.to_string());
+
+    // Override release_id if we created/fetched one
+    if let Some(ref release_id) = created_release_id {
+        for pair in &mut pairs {
+            pair.set_release_id(Some(release_id.clone()));
+        }
+    }
 
     let uploads = pairs
         .into_iter()
