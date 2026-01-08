@@ -1,4 +1,6 @@
 import abc
+import enum
+import typing
 import asyncio
 import collections.abc
 
@@ -14,6 +16,12 @@ from products.batch_exports.backend.temporal.utils import cast_record_batch_json
 
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
+
+
+class _WaitResult(enum.Enum):
+    FIRST_DONE = (True, False)
+    SECOND_DONE = (False, True)
+    BOTH_DONE = (True, True)
 
 
 class Consumer:
@@ -61,10 +69,8 @@ class Consumer:
         Record batches will be processed by the `transformer`, which transforms the
         record batch into chunks of bytes, depending on the `file_format` and
         `compression`.
-
         Each of these chunks will be consumed by the `consume_chunk` method, which is
         implemented by subclasses.
-
         Returns:
             BatchExportResult:
                 - The total number of records in all consumed record batches. If an
@@ -76,6 +82,7 @@ class Consumer:
                   None. If an error occurs, this will be a string representation of the
                   error.
         """
+
         self.reset_tracking()
 
         self.logger.info("Starting consumer from internal S3 stage")
@@ -115,17 +122,24 @@ class Consumer:
         """Yield record batches from provided `queue` until `producer_task` is done."""
 
         while True:
-            try:
-                record_batch = queue.get_nowait()
-            except asyncio.QueueEmpty:
-                if producer_task.done():
-                    self.logger.debug(
-                        "Empty queue with no more events being produced, closing writer loop and flushing"
-                    )
-                    break
-                else:
-                    await asyncio.sleep(0)
-                    continue
+            get_task = asyncio.create_task(queue.get())
+            _ = await asyncio.wait((get_task, producer_task), return_when=asyncio.FIRST_COMPLETED)
+
+            match _WaitResult((get_task.done(), producer_task.done())):
+                case _WaitResult.FIRST_DONE | _WaitResult.BOTH_DONE:
+                    record_batch = get_task.result()
+
+                case _WaitResult.SECOND_DONE:
+                    if queue.empty():
+                        self.logger.debug(
+                            "Empty queue with no more events being produced, closing writer loop and flushing"
+                        )
+                        break
+                    else:
+                        record_batch = await get_task
+
+                case _:
+                    typing.assert_never(_WaitResult)
 
             self.logger.debug(f"Consuming batch number {self.total_record_batches_count}")
 
@@ -135,8 +149,9 @@ class Consumer:
             yield record_batch
 
             num_records_in_batch = record_batch.num_rows
-            self.total_records_count += num_records_in_batch
             num_bytes_in_batch = record_batch.nbytes
+
+            self.total_records_count += num_records_in_batch
             self.total_record_batch_bytes_count += num_bytes_in_batch
             self.rows_exported_counter.add(num_records_in_batch)
 
