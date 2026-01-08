@@ -744,7 +744,7 @@ class ClickHouseClient:
                 buffer += chunk
                 while line_separator in buffer:
                     line, buffer = buffer.split(line_separator, 1)
-                    if line:
+                    if line.strip():
                         yield json.loads(line)
             if buffer.strip():
                 yield json.loads(buffer)

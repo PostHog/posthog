@@ -377,3 +377,34 @@ async def test_stream_query_as_jsonl_handles_final_line_without_separator(clickh
     assert results[0] == {"id": 1}
     assert results[1] == {"id": 2}
     assert results[2] == {"id": 3}
+
+
+async def test_stream_query_as_jsonl_handles_whitespace_only_lines(clickhouse_client):
+    """Test that stream_query_as_jsonl correctly handles whitespace-only lines between valid JSON."""
+
+    mock_response = MagicMock()
+    mock_response.status = 200
+
+    chunks = [
+        b'{"id": 1}\n  \n{"id": 2}\n\t\n{"id": 3}\n',
+    ]
+
+    async def mock_iter_any():
+        for chunk in chunks:
+            yield chunk
+
+    mock_response.content.iter_any = mock_iter_any
+
+    @contextlib.asynccontextmanager
+    async def mock_post(*args, **kwargs):
+        yield mock_response
+
+    with patch.object(clickhouse_client, "apost_query", mock_post):
+        results = []
+        async for result in clickhouse_client.stream_query_as_jsonl("SELECT 1"):
+            results.append(result)
+
+    assert len(results) == 3
+    assert results[0] == {"id": 1}
+    assert results[1] == {"id": 2}
+    assert results[2] == {"id": 3}
