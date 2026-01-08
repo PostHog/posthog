@@ -79,3 +79,31 @@ class TestDocumentEmbeddingsOrderByPushdown(BaseTest):
 
         assert inner_query.order_by is None, "ORDER BY should not be pushed for non-distance functions"
         assert inner_query.limit is None
+
+    def test_multiple_order_by_columns_pushed_down(self):
+        query = """
+            SELECT *
+            FROM document_embeddings
+            WHERE model_name = 'text-embedding-3-large-3072'
+            ORDER BY cosineDistance(embedding, [1.0, 2.0, 3.0]) ASC, timestamp DESC
+            LIMIT 10
+        """
+        inner_query = self._get_inner_query(query)
+
+        assert inner_query.order_by is not None, "ORDER BY should be pushed down for multiple columns"
+        assert len(inner_query.order_by) == 2
+        assert inner_query.limit is not None
+
+    def test_offset_not_pushed_down(self):
+        query = """
+            SELECT *
+            FROM document_embeddings
+            WHERE model_name = 'text-embedding-3-large-3072'
+            ORDER BY cosineDistance(embedding, [1.0, 2.0, 3.0]) ASC
+            LIMIT 10 OFFSET 5
+        """
+        inner_query = self._get_inner_query(query)
+
+        assert inner_query.order_by is not None
+        assert inner_query.limit is not None
+        assert inner_query.offset is None, "OFFSET should not be pushed down to inner query"

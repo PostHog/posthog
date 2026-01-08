@@ -13,7 +13,7 @@ from posthog.hogql.database.models import (
     StringJSONDatabaseField,
     Table,
 )
-from posthog.hogql.visitor import CloningVisitor
+from posthog.hogql.transforms.order_by_pushdown import push_down_order_by, unwrap_alias
 
 from products.error_tracking.backend.indexed_embedding import EMBEDDING_TABLES
 
@@ -33,12 +33,6 @@ DOCUMENT_EMBEDDINGS_FIELDS: dict[str, FieldOrTable] = {
     "metadata": StringJSONDatabaseField(name="metadata", nullable=False),
     "embedding": FloatArrayDatabaseField(name="embedding", nullable=False),
 }
-
-
-def unwrap_alias(node):
-    if isinstance(node, ast.Alias):
-        return unwrap_alias(node.expr)
-    return node
 
 
 def get_field_val_pair(node) -> tuple[Optional[ast.Field], Optional[ast.Constant]]:
@@ -65,39 +59,21 @@ def is_vector_distance_call(expr: ast.Expr) -> bool:
     )
 
 
-def resolve_order_by_alias(order_expr: ast.OrderExpr, node: ast.SelectQuery) -> Optional[ast.Expr]:
+def is_vector_distance_order_by(order_expr: ast.OrderExpr, node: ast.SelectQuery) -> bool:
+    if is_vector_distance_call(order_expr.expr):
+        return True
     expr = unwrap_alias(order_expr.expr)
     if not isinstance(expr, ast.Field) or len(expr.chain) != 1 or not node.select:
-        return None
+        return False
     alias_name = expr.chain[0]
     for select_expr in node.select:
         if isinstance(select_expr, ast.Alias) and select_expr.alias == alias_name:
             if is_vector_distance_call(select_expr.expr):
-                return select_expr.expr
-    return None
+                return True
+    return False
 
 
-def is_vector_distance_order_by(order_expr: ast.OrderExpr, node: Optional[ast.SelectQuery] = None) -> bool:
-    if is_vector_distance_call(order_expr.expr):
-        return True
-    return node is not None and resolve_order_by_alias(order_expr, node) is not None
-
-
-class FieldReferenceRewriter(CloningVisitor):
-    def __init__(self, outer_table_alias: str, inner_table_name: str):
-        super().__init__(clear_locations=True)
-        self.outer_table_alias = outer_table_alias
-        self.inner_table_name = inner_table_name
-
-    def visit_field(self, node: ast.Field):
-        if len(node.chain) >= 2 and node.chain[0] == self.outer_table_alias:
-            return ast.Field(chain=[self.inner_table_name, *node.chain[1:]])
-        elif len(node.chain) == 1:
-            return ast.Field(chain=[self.inner_table_name, node.chain[0]])
-        return ast.Field(chain=list(node.chain))
-
-
-def extract_model_name_from_where(node):
+def extract_model_name_from_where(node: Optional[ast.Expr]) -> Optional[str]:
     if not node:
         return None
 
@@ -153,8 +129,6 @@ class DocumentEmbeddingsTable(LazyTable):
         context: HogQLContext,
         node: ast.SelectQuery,
     ):
-        from posthog.hogql import ast
-
         requested_fields = table_to_add.fields_accessed
         if "document_id" not in requested_fields:
             requested_fields = {**requested_fields, "document_id": ["document_id"]}
@@ -172,34 +146,24 @@ class DocumentEmbeddingsTable(LazyTable):
                 else:
                     exprs.append(ast.Alias(alias=name, expr=ast.Field(chain=[table_name, *chain])))
 
-            inner_order_by, inner_limit = self._maybe_push_down_order_limit(node, table_name)
-
-            return ast.SelectQuery(
+            inner_query = ast.SelectQuery(
                 select=exprs,
                 select_from=ast.JoinExpr(
                     table=ast.Field(chain=[table_name]),
                 ),
-                order_by=inner_order_by,
-                limit=inner_limit,
             )
+
+            push_down_order_by(
+                outer_query=node,
+                inner_query=inner_query,
+                outer_table_alias="document_embeddings",
+                inner_table_name=table_name,
+                should_push_down=is_vector_distance_order_by,
+            )
+
+            return inner_query
         else:
             raise ValueError(f"Invalid model name: {model_name}")
-
-    def _maybe_push_down_order_limit(
-        self, node: ast.SelectQuery, table_name: str
-    ) -> tuple[list[ast.OrderExpr] | None, ast.Expr | None]:
-        if not node or not node.order_by or not node.limit:
-            return None, None
-        if not any(is_vector_distance_order_by(order_expr, node) for order_expr in node.order_by):
-            return None, None
-
-        rewriter = FieldReferenceRewriter("document_embeddings", table_name)
-        inner_order_by = [
-            ast.OrderExpr(expr=rewriter.visit(resolve_order_by_alias(o, node) or o.expr), order=o.order)
-            for o in node.order_by
-        ]
-        inner_limit = CloningVisitor(clear_locations=True).visit(node.limit)
-        return inner_order_by, inner_limit
 
     def to_printed_clickhouse(self, context: HogQLContext):
         raise NotImplementedError("LazyTables cannot be printed to ClickHouse SQL")
