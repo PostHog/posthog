@@ -18,7 +18,7 @@ from dataclasses import dataclass
 
 import urllib3
 import requests
-import digitalocean
+import digitalocean  # type: ignore
 
 DOMAIN = os.getenv("HOBBY_DOMAIN", "posthog.cc")
 
@@ -138,12 +138,11 @@ runcmd:
             "cd ..",
             'echo "$LOG_PREFIX Waiting for docker image to be available on DockerHub..."',
             self._get_wait_for_image_script(),
-            "chmod +x posthog/bin/deploy-hobby",
-            'echo "$LOG_PREFIX Starting deployment script"',
-            "export SKIP_HEALTH_CHECK=1",
-            f"./posthog/bin/deploy-hobby $CURRENT_COMMIT {safe_hostname} 1",
+            "chmod +x posthog/bin/posthog-hobby",
+            'echo "$LOG_PREFIX Starting hobby installer (CI mode)"',
+            f"./posthog/bin/posthog-hobby --ci --domain {safe_hostname} --version $CURRENT_COMMIT",
             "DEPLOY_EXIT=$?",
-            'echo "$LOG_PREFIX Deployment script exited with code: $DEPLOY_EXIT"',
+            'echo "$LOG_PREFIX Hobby installer exited with code: $DEPLOY_EXIT"',
             "exit $DEPLOY_EXIT",
         ]
 
