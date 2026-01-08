@@ -3403,6 +3403,41 @@ export const deleteSecretTokenBackupPartialUpdate = async (
 /**
  * Projects for the current organization.
  */
+export type generateConversationsPublicTokenCreateResponse200 = {
+    data: ProjectBackwardCompatApi
+    status: 200
+}
+
+export type generateConversationsPublicTokenCreateResponseSuccess =
+    generateConversationsPublicTokenCreateResponse200 & {
+        headers: Headers
+    }
+export type generateConversationsPublicTokenCreateResponse = generateConversationsPublicTokenCreateResponseSuccess
+
+export const getGenerateConversationsPublicTokenCreateUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/generate_conversations_public_token/`
+}
+
+export const generateConversationsPublicTokenCreate = async (
+    organizationId: string,
+    id: number,
+    projectBackwardCompatApi: NonReadonly<ProjectBackwardCompatApi>,
+    options?: RequestInit
+): Promise<generateConversationsPublicTokenCreateResponse> => {
+    return apiMutator<generateConversationsPublicTokenCreateResponse>(
+        getGenerateConversationsPublicTokenCreateUrl(organizationId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(projectBackwardCompatApi),
+        }
+    )
+}
+
+/**
+ * Projects for the current organization.
+ */
 export type isGeneratingDemoDataRetrieveResponse200 = {
     data: ProjectBackwardCompatApi
     status: 200
