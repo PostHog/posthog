@@ -236,18 +236,11 @@ class HogQLPrinter(Visitor[str]):
         if node.offset is not None:
             clauses.append(f"OFFSET {self.visit(node.offset)}")
 
-        if (
-            self.context.output_format
-            and self.dialect == "clickhouse"
-            and is_top_level_query
-            and (not part_of_select_union or is_last_query_in_union)
-        ):
-            clauses.append(f"FORMAT{space}{self.context.output_format}")
-
-        if node.settings is not None and self.dialect == "clickhouse":
-            settings = self._print_settings(node.settings)
-            if settings is not None:
-                clauses.append(settings)
+        clauses.extend(
+            self._get_extra_select_clauses(
+                node, is_top_level_query, part_of_select_union, is_last_query_in_union, space
+            )
+        )
 
         if self.pretty:
             response = "\n".join([f"{self.indent()}{clause}" for clause in clauses if clause is not None])
@@ -262,6 +255,16 @@ class HogQLPrinter(Visitor[str]):
                 response = f"({response})"
 
         return response
+
+    def _get_extra_select_clauses(
+        self,
+        node: ast.SelectQuery,
+        is_top_level_query: bool,
+        part_of_select_union: bool,
+        is_last_query_in_union: bool,
+        space: str,
+    ) -> list[str]:
+        return []
 
     def _ensure_team_id_where_clause(self, table_type: ast.TableType, node_type: ast.TableOrSelectType):
         if self.dialect != "hogql":
@@ -953,6 +956,9 @@ class HogQLPrinter(Visitor[str]):
             return source
         return None
 
+    def _get_table_name(self, table: ast.TableType) -> str:
+        return table.table.to_printed_hogql()
+
     def _get_all_materialized_property_sources(
         self, field_type: ast.FieldType, property_name: str
     ) -> Iterable[PrintableMaterializedColumn | PrintableMaterializedPropertyGroupItem]:
@@ -972,10 +978,8 @@ class HogQLPrinter(Visitor[str]):
             table = table.table_type
 
         if isinstance(table, ast.TableType):
-            if self.dialect == "clickhouse":
-                table_name = table.table.to_printed_clickhouse(self.context)
-            else:
-                table_name = table.table.to_printed_hogql()
+            table_name = self._get_table_name(table)
+
             if field is None:
                 raise QueryError(f"Can't resolve field {field_type.name} on table {table_name}")
             field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
@@ -1262,16 +1266,6 @@ class HogQLPrinter(Visitor[str]):
         return escape_hogql_string(name, timezone=self._get_timezone())
 
     def _unsafe_json_extract_trim_quotes(self, unsafe_field: str, unsafe_args: list[str]) -> str:
-        if self.dialect == "postgres":
-            if len(unsafe_args) == 0:
-                return unsafe_field
-
-            json_expr = unsafe_field
-            for arg in unsafe_args[:-1]:
-                json_expr = f"({json_expr}) -> {arg}"
-
-            return f"({json_expr}) ->> {unsafe_args[-1]}"
-
         return f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw({', '.join([unsafe_field, *unsafe_args])}), ''), 'null'), '^\"|\"$', '')"
 
     def _json_property_args(self, chain: Iterable[Any]) -> list[str]:

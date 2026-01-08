@@ -114,6 +114,16 @@ class PostgresPrinter(HogQLPrinter):
     def _json_property_args(self, chain):
         return [self._print_escaped_string(name) for name in chain]
 
+    def _unsafe_json_extract_trim_quotes(self, unsafe_field, unsafe_args):
+        if len(unsafe_args) == 0:
+            return unsafe_field
+
+        json_expr = unsafe_field
+        for arg in unsafe_args[:-1]:
+            json_expr = f"({json_expr}) -> {arg}"
+
+        return f"({json_expr}) ->> {unsafe_args[-1]}"
+
     def _print_select_columns(self, columns):
         columns_sql = []
         for column in columns:

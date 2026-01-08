@@ -715,3 +715,26 @@ class ClickHousePrinter(HogQLPrinter):
             columns_sql.append(self.visit(column))
 
         return columns_sql
+
+    def _get_extra_select_clauses(
+        self,
+        node: ast.SelectQuery,
+        is_top_level_query: bool,
+        part_of_select_union: bool,
+        is_last_query_in_union: bool,
+        space: str,
+    ) -> list[str]:
+        clauses: list[str] = []
+
+        if self.context.output_format and is_top_level_query and (not part_of_select_union or is_last_query_in_union):
+            clauses.append(f"FORMAT{space}{self.context.output_format}")
+
+        if node.settings is not None:
+            settings = self._print_settings(node.settings)
+            if settings is not None:
+                clauses.append(settings)
+
+        return clauses
+
+    def _get_table_name(self, table: ast.TableType) -> str:
+        return table.table.to_printed_clickhouse(self.context)
