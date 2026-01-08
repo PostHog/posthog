@@ -30,9 +30,30 @@ def convert_team_conversion_goals_to_objects(
             # Clean up the goal_dict for each schema type
             cleaned_goal_dict = goal_dict.copy()
 
+            # Map legacy field names to new schema field names
+            # conversion_goal_name: use existing or fall back to 'name'
+            if "conversion_goal_name" not in cleaned_goal_dict:
+                cleaned_goal_dict["conversion_goal_name"] = cleaned_goal_dict.get("name", "Unnamed Goal")
+
+            # conversion_goal_id: use existing or generate from 'id', 'event', or 'name'
+            if "conversion_goal_id" not in cleaned_goal_dict:
+                fallback_id = (
+                    cleaned_goal_dict.get("id")
+                    or cleaned_goal_dict.get("event")
+                    or cleaned_goal_dict.get("name")
+                    or "unknown"
+                )
+                cleaned_goal_dict["conversion_goal_id"] = str(fallback_id)
+
+            # schema_map: ensure it exists (required field)
+            if "schema_map" not in cleaned_goal_dict:
+                cleaned_goal_dict["schema_map"] = {}
+
             converted_goal: ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3
             if kind == NodeKind.EVENTS_NODE:
-                # EventsNode doesn't need special field mapping
+                # EventsNode doesn't allow 'id' field - remove it
+                if "id" in cleaned_goal_dict:
+                    del cleaned_goal_dict["id"]
                 converted_goal = ConversionGoalFilter1(**cleaned_goal_dict)
             elif kind == NodeKind.ACTIONS_NODE:
                 # ActionsNode doesn't allow 'event' field - remove it
@@ -51,7 +72,9 @@ def convert_team_conversion_goals_to_objects(
 
                 converted_goal = ConversionGoalFilter3(**cleaned_goal_dict)
             else:
-                # Default to EventsNode
+                # Default to EventsNode - remove 'id' field
+                if "id" in cleaned_goal_dict:
+                    del cleaned_goal_dict["id"]
                 converted_goal = ConversionGoalFilter1(**cleaned_goal_dict)
 
             converted_goals.append(converted_goal)
