@@ -1,8 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useRef, useState } from 'react'
 
-import { LemonButton, LemonCard, LemonInput, LemonSelect, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonSelect, Spinner } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -15,7 +14,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { UserBasicType } from '~/types'
 
 import { ChannelsTag } from '../../components/Channels/ChannelsTag'
-import { Message } from '../../components/Chat/Message'
+import { ChatView } from '../../components/Chat/ChatView'
 import { type TicketPriority, type TicketStatus, priorityOptions, statusOptionsWithoutAll } from '../../types'
 import { conversationsTicketSceneLogic } from './conversationsTicketSceneLogic'
 
@@ -41,40 +40,6 @@ export function ConversationsTicketScene({ ticketId }: { ticketId: string }): JS
     } = useValues(logic)
     const { setStatus, setPriority, setAssignedTo, sendMessage, updateTicket, loadOlderMessages } = useActions(logic)
     const { push } = useActions(router)
-
-    const [messageContent, setMessageContent] = useState('')
-    const messagesEndRef = useRef<HTMLDivElement>(null)
-    const messagesContainerRef = useRef<HTMLDivElement>(null)
-
-    const scrollToBottom = (): void => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-    }
-
-    // Scroll to bottom when messages change
-    useEffect(() => {
-        if (messages.length > 0) {
-            scrollToBottom()
-        }
-    }, [messages.length])
-
-    const handleSendMessage = (): void => {
-        if (messageContent.trim()) {
-            sendMessage(messageContent)
-            setMessageContent('')
-        }
-    }
-
-    const handleScroll = (): void => {
-        const container = messagesContainerRef.current
-        if (!container || olderMessagesLoading || !hasMoreMessages) {
-            return
-        }
-
-        // Check if scrolled to top (within 50px threshold)
-        if (container.scrollTop < 50) {
-            loadOlderMessages()
-        }
-    }
 
     if (ticketLoading) {
         return (
@@ -118,80 +83,16 @@ export function ConversationsTicketScene({ ticketId }: { ticketId: string }): JS
 
             <div className="grid gap-4 lg:grid-cols-[1fr_380px] items-start">
                 {/* Main conversation area */}
-                <LemonCard hoverEffect={false} className="flex flex-col overflow-hidden p-3">
-                    {/* Chat messages */}
-                    <div
-                        ref={messagesContainerRef}
-                        onScroll={handleScroll}
-                        className="flex-1 overflow-y-auto p-4 space-y-1.5 min-h-[400px] max-h-[600px]"
-                    >
-                        {olderMessagesLoading && (
-                            <div className="flex items-center justify-center py-2">
-                                <Spinner className="text-sm" />
-                            </div>
-                        )}
-                        {messagesLoading && messages.length === 0 ? (
-                            <div className="flex items-center justify-center h-full">
-                                <Spinner />
-                            </div>
-                        ) : messages.length === 0 ? (
-                            <div className="flex items-center justify-center h-full text-muted-alt text-sm">
-                                No messages yet. Start the conversation!
-                            </div>
-                        ) : (
-                            <>
-                                {messages.map((message: any) => {
-                                    const authorType = message.item_context?.author_type || 'customer'
-                                    const isCustomer = authorType === 'customer'
-
-                                    let displayName = 'Customer'
-                                    if (message.created_by) {
-                                        displayName =
-                                            `${message.created_by.first_name} ${message.created_by.last_name}`.trim() ||
-                                            message.created_by.email
-                                    } else if (authorType === 'customer') {
-                                        displayName =
-                                            ticket?.anonymous_traits?.name ||
-                                            ticket?.anonymous_traits?.email ||
-                                            'Customer'
-                                    }
-
-                                    return (
-                                        <Message
-                                            key={message.id}
-                                            message={message}
-                                            isCustomer={isCustomer}
-                                            displayName={displayName}
-                                        />
-                                    )
-                                })}
-                                <div ref={messagesEndRef} />
-                            </>
-                        )}
-                    </div>
-
-                    {/* Reply input */}
-                    <div className="border-t p-3">
-                        <div className="flex gap-2">
-                            <LemonInput
-                                className="flex-1"
-                                placeholder="Type your message..."
-                                value={messageContent}
-                                onChange={setMessageContent}
-                                onPressEnter={handleSendMessage}
-                                disabled={messageSending}
-                            />
-                            <LemonButton
-                                type="primary"
-                                onClick={handleSendMessage}
-                                loading={messageSending}
-                                disabled={!messageContent.trim()}
-                            >
-                                Send
-                            </LemonButton>
-                        </div>
-                    </div>
-                </LemonCard>
+                <ChatView
+                    messages={messages}
+                    messagesLoading={messagesLoading}
+                    messageSending={messageSending}
+                    hasMoreMessages={hasMoreMessages}
+                    olderMessagesLoading={olderMessagesLoading}
+                    ticket={ticket ?? undefined}
+                    onSendMessage={sendMessage}
+                    onLoadOlderMessages={loadOlderMessages}
+                />
 
                 {/* Sidebar with all metadata */}
                 <LemonCard hoverEffect={false} className="p-3">
