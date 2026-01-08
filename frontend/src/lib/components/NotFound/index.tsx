@@ -173,13 +173,20 @@ export function LogInAsSuggestions({ suggestedUsers }: { suggestedUsers: UserBas
                     `width=${width},height=${height},top=${top},left=${left},toolbar=no,location=no,directories=no,status=no,menubar=no,scrollbars=yes,resizable=yes`
                 )
 
+                if (!authWindow) {
+                    throw new Error('Popup blocked. Please allow popups for this site and try again.')
+                }
+
                 // Wait for the OAuth2 completion message
                 await new Promise<void>((resolve) => {
+                    let checkClosed: ReturnType<typeof setInterval>
+
                     const handleMessage = (event: MessageEvent): void => {
                         if (event.origin !== window.location.origin) {
                             return
                         }
                         if (event.data?.type === 'oauth2_complete') {
+                            clearInterval(checkClosed)
                             window.removeEventListener('message', handleMessage)
                             resolve()
                         }
@@ -187,8 +194,8 @@ export function LogInAsSuggestions({ suggestedUsers }: { suggestedUsers: UserBas
                     window.addEventListener('message', handleMessage)
 
                     // Also poll to check if the window was closed manually
-                    const checkClosed = setInterval(() => {
-                        if (authWindow?.closed) {
+                    checkClosed = setInterval(() => {
+                        if (authWindow.closed) {
                             clearInterval(checkClosed)
                             window.removeEventListener('message', handleMessage)
                             resolve()
