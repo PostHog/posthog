@@ -20,3 +20,15 @@ export const RetentionPeriodToDaysMap: { [key in RetentionPeriod]: number | null
     '1y': 365,
     '5y': 1825,
 }
+
+// Maximum length of a session recording (24 hours)
+export const MAX_SESSION_LENGTH_SECONDS = 24 * 60 * 60
+
+// Redis TTL for session tracking keys
+// Set to 2x max session length for safety margin (handles edge cases like
+// sessions that span across the boundary, delayed messages, etc.)
+export const SESSION_TRACKER_REDIS_TTL_SECONDS = 2 * MAX_SESSION_LENGTH_SECONDS
+
+// Redis TTL for session blocklist keys
+// Matches session tracker TTL since blocked sessions should persist for same duration
+export const SESSION_FILTER_REDIS_TTL_SECONDS = 2 * MAX_SESSION_LENGTH_SECONDS

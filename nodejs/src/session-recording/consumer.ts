@@ -209,8 +209,11 @@ export class SessionRecordingIngester {
               )
             : new BlackholeSessionBatchFileStorage()
 
-        const sessionTracker = new SessionTracker(this.redisPool)
-        const sessionFilter = new SessionFilter(this.redisPool)
+        const sessionTracker = new SessionTracker(
+            this.redisPool,
+            this.hub.SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS
+        )
+        const sessionFilter = new SessionFilter(this.redisPool, this.hub.SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS)
         const sessionLimiter = new Limiter(
             this.hub.SESSION_RECORDING_NEW_SESSION_BUCKET_CAPACITY,
             this.hub.SESSION_RECORDING_NEW_SESSION_BUCKET_REPLENISH_RATE

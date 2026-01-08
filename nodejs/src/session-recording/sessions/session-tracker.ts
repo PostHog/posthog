@@ -2,14 +2,13 @@ import { LRUCache } from 'lru-cache'
 
 import { RedisPool } from '../../types'
 import { logger } from '../../utils/logger'
+import { SESSION_TRACKER_REDIS_TTL_SECONDS } from '../constants'
 import { SessionBatchMetrics } from './metrics'
 
-const DEFAULT_LOCAL_CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes
 const DEFAULT_LOCAL_CACHE_MAX_SIZE = 100_000
 
 export class SessionTracker {
     private readonly keyPrefix = '@posthog/replay/session-seen'
-    private readonly ttlSeconds = 48 * 60 * 60 // 48 hours
 
     // In-memory cache to avoid hitting Redis for every message
     // Since Kafka partitions by session ID, the same session always hits the same consumer
@@ -17,7 +16,7 @@ export class SessionTracker {
 
     constructor(
         private readonly redisPool: RedisPool,
-        localCacheTtlMs: number = DEFAULT_LOCAL_CACHE_TTL_MS,
+        private readonly localCacheTtlMs: number,
         localCacheMaxSize: number = DEFAULT_LOCAL_CACHE_MAX_SIZE
     ) {
         this.localCache = new LRUCache({
@@ -49,7 +48,7 @@ export class SessionTracker {
         try {
             // Use SET with NX (only set if not exists) and EX (expiry) for atomic check-and-set
             // Returns 'OK' if key was set (new session), null if already exists
-            const wasSet = await client.set(key, '1', 'EX', this.ttlSeconds, 'NX')
+            const wasSet = await client.set(key, '1', 'EX', SESSION_TRACKER_REDIS_TTL_SECONDS, 'NX')
             const isNewSession = wasSet === 'OK'
 
             // Cache the result locally regardless of whether it's new

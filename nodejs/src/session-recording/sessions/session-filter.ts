@@ -2,9 +2,9 @@ import { LRUCache } from 'lru-cache'
 
 import { RedisPool } from '../../types'
 import { logger } from '../../utils/logger'
+import { SESSION_FILTER_REDIS_TTL_SECONDS } from '../constants'
 import { SessionBatchMetrics } from './metrics'
 
-const DEFAULT_LOCAL_CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes
 const DEFAULT_LOCAL_CACHE_MAX_SIZE = 100_000
 
 /**
@@ -16,7 +16,6 @@ const DEFAULT_LOCAL_CACHE_MAX_SIZE = 100_000
  */
 export class SessionFilter {
     private readonly keyPrefix = '@posthog/replay/session-blocked'
-    private readonly ttlSeconds = 48 * 60 * 60 // 48 hours
 
     // In-memory cache to avoid hitting Redis for every message
     // Since Kafka partitions by session ID, the same session always hits the same consumer
@@ -25,7 +24,7 @@ export class SessionFilter {
 
     constructor(
         private readonly redisPool: RedisPool,
-        localCacheTtlMs: number = DEFAULT_LOCAL_CACHE_TTL_MS,
+        private readonly localCacheTtlMs: number,
         localCacheMaxSize: number = DEFAULT_LOCAL_CACHE_MAX_SIZE
     ) {
         this.localCache = new LRUCache({
@@ -49,7 +48,7 @@ export class SessionFilter {
         const client = await this.redisPool.acquire()
 
         try {
-            await client.set(key, '1', 'EX', this.ttlSeconds)
+            await client.set(key, '1', 'EX', SESSION_FILTER_REDIS_TTL_SECONDS)
 
             SessionBatchMetrics.incrementSessionsBlocked()
 

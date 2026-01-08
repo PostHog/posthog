@@ -265,6 +265,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_NEW_SESSION_BUCKET_CAPACITY: 3000, // Max burst of new sessions per team
         SESSION_RECORDING_NEW_SESSION_BUCKET_REPLENISH_RATE: 300, // Sessions per second sustained rate
         SESSION_RECORDING_NEW_SESSION_RATE_LIMIT_ENABLED: false, // When true, drop messages that exceed limit
+        SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS: 5 * 60 * 1000, // 5 minutes
+        SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS: 5 * 60 * 1000, // 5 minutes
 
         // Cookieless
         COOKIELESS_FORCE_STATELESS_MODE: false,

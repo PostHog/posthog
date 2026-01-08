@@ -33,7 +33,7 @@ describe('SessionTracker', () => {
     describe('trackSession', () => {
         it('should return true for new session when key does not exist', async () => {
             mockRedisClient.set = jest.fn().mockResolvedValue('OK')
-            sessionTracker = new SessionTracker(mockRedisPool)
+            sessionTracker = new SessionTracker(mockRedisPool, 5 * 60 * 1000)
 
             const isNew = await sessionTracker.trackSession(1, 'session-123')
 
@@ -50,7 +50,7 @@ describe('SessionTracker', () => {
 
         it('should return false when session already exists', async () => {
             mockRedisClient.set = jest.fn().mockResolvedValue(null)
-            sessionTracker = new SessionTracker(mockRedisPool)
+            sessionTracker = new SessionTracker(mockRedisPool, 5 * 60 * 1000)
 
             const isNew = await sessionTracker.trackSession(1, 'session-123')
 
@@ -60,7 +60,7 @@ describe('SessionTracker', () => {
 
         it('should track sessions separately per team', async () => {
             mockRedisClient.set = jest.fn().mockResolvedValue('OK')
-            sessionTracker = new SessionTracker(mockRedisPool)
+            sessionTracker = new SessionTracker(mockRedisPool, 5 * 60 * 1000)
 
             await sessionTracker.trackSession(1, 'session-123')
             await sessionTracker.trackSession(2, 'session-123')
@@ -83,7 +83,7 @@ describe('SessionTracker', () => {
 
         it('should always release Redis client', async () => {
             mockRedisClient.set = jest.fn().mockRejectedValue(new Error('Redis error'))
-            sessionTracker = new SessionTracker(mockRedisPool)
+            sessionTracker = new SessionTracker(mockRedisPool, 5 * 60 * 1000)
 
             await expect(sessionTracker.trackSession(1, 'session-123')).rejects.toThrow('Redis error')
 
@@ -92,7 +92,7 @@ describe('SessionTracker', () => {
 
         it('should use 48 hour TTL', async () => {
             mockRedisClient.set = jest.fn().mockResolvedValue('OK')
-            sessionTracker = new SessionTracker(mockRedisPool)
+            sessionTracker = new SessionTracker(mockRedisPool, 5 * 60 * 1000)
 
             await sessionTracker.trackSession(1, 'session-123')
 
@@ -104,7 +104,7 @@ describe('SessionTracker', () => {
     describe('local cache', () => {
         it('should return false from cache without calling Redis on second call', async () => {
             mockRedisClient.set = jest.fn().mockResolvedValue('OK')
-            sessionTracker = new SessionTracker(mockRedisPool)
+            sessionTracker = new SessionTracker(mockRedisPool, 5 * 60 * 1000)
 
             // First call should hit Redis
             const isNew1 = await sessionTracker.trackSession(1, 'session-123')
@@ -121,7 +121,7 @@ describe('SessionTracker', () => {
 
         it('should cache sessions separately per team', async () => {
             mockRedisClient.set = jest.fn().mockResolvedValue('OK')
-            sessionTracker = new SessionTracker(mockRedisPool)
+            sessionTracker = new SessionTracker(mockRedisPool, 5 * 60 * 1000)
 
             await sessionTracker.trackSession(1, 'session-123')
             await sessionTracker.trackSession(2, 'session-123')
@@ -160,7 +160,7 @@ describe('SessionTracker', () => {
         })
 
         it('should cache both new and existing sessions', async () => {
-            sessionTracker = new SessionTracker(mockRedisPool)
+            sessionTracker = new SessionTracker(mockRedisPool, 5 * 60 * 1000)
 
             // New session
             mockRedisClient.set = jest.fn().mockResolvedValue('OK')

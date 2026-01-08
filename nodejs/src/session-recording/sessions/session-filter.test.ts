@@ -29,7 +29,7 @@ describe('SessionFilter', () => {
             release: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<RedisPool>
 
-        sessionFilter = new SessionFilter(mockRedisPool)
+        sessionFilter = new SessionFilter(mockRedisPool, 5 * 60 * 1000) // 5 minutes
     })
 
     describe('blockSession', () => {
