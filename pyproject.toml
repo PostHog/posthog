@@ -188,6 +188,7 @@ dependencies = [
     "bingads>=13.0.25.3",
     "markdown-to-mrkdwn>=0.2.0",
     "botocore[crt]>=1.40.49",
+    "defusedxml>=0.7.1",
 ]
 
 [dependency-groups]

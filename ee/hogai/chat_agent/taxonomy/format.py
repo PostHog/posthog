@@ -1,5 +1,7 @@
 from collections.abc import Iterable
 from typing import Optional
+
+# nosemgrep: python.lang.security.use-defused-xml.use-defused-xml (XML generation only, no parsing - no XXE risk)
 from xml.etree import ElementTree as ET
 
 import yaml
