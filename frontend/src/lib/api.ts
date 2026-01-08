@@ -74,6 +74,7 @@ import {
     ConversationDetail,
     CoreMemory,
     CreateGroupParams,
+    CustomerProfileConfigType,
     CyclotronJobFiltersType,
     CyclotronJobTestInvocationResult,
     DashboardTemplateEditorType,
@@ -170,6 +171,7 @@ import {
     SchemaIncrementalFieldsResponse,
     SearchListParams,
     SearchResponse,
+    SessionRecordingExternalReference,
     SessionRecordingPlaylistType,
     SessionRecordingSnapshotParams,
     SessionRecordingSnapshotResponse,
@@ -186,6 +188,7 @@ import {
     UserBasicType,
     UserInterviewType,
     UserType,
+    WebAnalyticsFilterPresetType,
 } from '~/types'
 
 import {
@@ -766,12 +769,17 @@ export class ApiRequest {
         return this.cohorts(teamId).addPathComponent(cohortId).addPathComponent('remove_person_from_static_cohort')
     }
 
-    public cohortsDuplicate(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.cohortsDetail(cohortId, teamId).addPathComponent('duplicate_as_static_cohort')
-    }
-
     public cohortsCalculationHistory(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.cohortsDetail(cohortId, teamId).addPathComponent('calculation_history')
+    }
+
+    // # Customer Profile Configs
+    public customerProfileConfigs(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('customer_profile_configs')
+    }
+
+    public customerProfileConfigsDetail(id: CustomerProfileConfigType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.customerProfileConfigs(teamId).addPathComponent(id)
     }
 
     // Recordings
@@ -781,6 +789,10 @@ export class ApiRequest {
 
     public recording(recordingId: SessionRecordingType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.recordings(teamId).addPathComponent(recordingId)
+    }
+
+    public sessionRecordingsExternalReferences(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('session_recording_external_references')
     }
 
     public recordingMatchingEvents(teamId?: TeamType['id']): ApiRequest {
@@ -1188,6 +1200,15 @@ export class ApiRequest {
 
     public quickFilter(id: string, teamId?: TeamType['id']): ApiRequest {
         return this.quickFilters(teamId).addPathComponent(id)
+    }
+
+    // # Web Analytics Filter Presets
+    public webAnalyticsFilterPresets(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('web_analytics_filter_presets')
+    }
+
+    public webAnalyticsFilterPreset(shortId: string, teamId?: TeamType['id']): ApiRequest {
+        return this.webAnalyticsFilterPresets(teamId).addPathComponent(shortId)
     }
 
     // # Warehouse
@@ -2626,9 +2647,6 @@ const api = {
                 .withQueryString(filterParams)
                 .update({ data: cohortData })
         },
-        async duplicate(cohortId: CohortType['id']): Promise<CohortType> {
-            return await new ApiRequest().cohortsDuplicate(cohortId).get()
-        },
         determineDeleteEndpoint(): string {
             return new ApiRequest().cohorts().assembleEndpointUrl()
         },
@@ -2659,6 +2677,27 @@ const api = {
         },
         async getCalculationHistory(cohortId: CohortType['id']): Promise<CohortCalculationHistoryResponse> {
             return await new ApiRequest().cohortsCalculationHistory(cohortId).get()
+        },
+    },
+
+    customerProfileConfigs: {
+        async list(params: { scope?: string } = {}): Promise<CountedPaginatedResponse<CustomerProfileConfigType>> {
+            return await new ApiRequest().customerProfileConfigs().withQueryString(toParams(params)).get()
+        },
+        async get(id: CustomerProfileConfigType['id']): Promise<CustomerProfileConfigType> {
+            return await new ApiRequest().customerProfileConfigsDetail(id).get()
+        },
+        async create(configData: Partial<CustomerProfileConfigType>): Promise<CustomerProfileConfigType> {
+            return await new ApiRequest().customerProfileConfigs().create({ data: configData })
+        },
+        async update(
+            id: CustomerProfileConfigType['id'],
+            configData: Partial<CustomerProfileConfigType>
+        ): Promise<CustomerProfileConfigType> {
+            return await new ApiRequest().customerProfileConfigsDetail(id).update({ data: configData })
+        },
+        async delete(id: CustomerProfileConfigType['id']): Promise<void> {
+            return await new ApiRequest().customerProfileConfigsDetail(id).delete()
         },
     },
 
@@ -3478,6 +3517,16 @@ const api = {
 
         async delete(recordingId: SessionRecordingType['id']): Promise<{ success: boolean }> {
             return await new ApiRequest().recording(recordingId).delete()
+        },
+
+        async createExternalReference(
+            sessionRecordingId: SessionRecordingType['id'],
+            integrationId: number,
+            config: Record<string, any>
+        ): Promise<SessionRecordingExternalReference> {
+            return await new ApiRequest()
+                .sessionRecordingsExternalReferences()
+                .create({ data: { session_recording_id: sessionRecordingId, integration_id: integrationId, config } })
         },
 
         async listSnapshotSources(
@@ -4695,6 +4744,29 @@ const api = {
         },
         async deleteHogFlowTemplate(hogFlowTemplateId: HogFlowTemplate['id']): Promise<void> {
             return await new ApiRequest().hogFlowTemplate(hogFlowTemplateId).delete()
+        },
+    },
+
+    webAnalyticsFilterPresets: {
+        async list(params?: string): Promise<PaginatedResponse<WebAnalyticsFilterPresetType>> {
+            return await new ApiRequest().webAnalyticsFilterPresets().withQueryString(params).get()
+        },
+        async get(shortId: string): Promise<WebAnalyticsFilterPresetType> {
+            return await new ApiRequest().webAnalyticsFilterPreset(shortId).get()
+        },
+        async create(
+            data: Pick<WebAnalyticsFilterPresetType, 'name' | 'description' | 'filters'>
+        ): Promise<WebAnalyticsFilterPresetType> {
+            return await new ApiRequest().webAnalyticsFilterPresets().create({ data })
+        },
+        async update(
+            shortId: string,
+            data: Partial<Pick<WebAnalyticsFilterPresetType, 'name' | 'description' | 'filters' | 'pinned' | 'deleted'>>
+        ): Promise<WebAnalyticsFilterPresetType> {
+            return await new ApiRequest().webAnalyticsFilterPreset(shortId).update({ data })
+        },
+        async delete(shortId: string): Promise<void> {
+            await new ApiRequest().webAnalyticsFilterPreset(shortId).update({ data: { deleted: true } })
         },
     },
 

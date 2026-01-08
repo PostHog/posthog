@@ -11,9 +11,9 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
 
 import { OnboardingStep } from './OnboardingStep'
-import { onboardingLogic } from './onboardingLogic'
+import { OnboardingStepComponentType, onboardingLogic } from './onboardingLogic'
 
-export const OnboardingInviteTeammates = ({ stepKey }: { stepKey: OnboardingStepKey }): JSX.Element => {
+export const OnboardingInviteTeammates: OnboardingStepComponentType = () => {
     const { preflight } = useValues(preflightLogic)
     const { productKey } = useValues(onboardingLogic)
     const { inviteTeamMembers } = useActions(inviteLogic)
@@ -55,7 +55,7 @@ export const OnboardingInviteTeammates = ({ stepKey }: { stepKey: OnboardingStep
     return (
         <OnboardingStep
             title="Invite teammates"
-            stepKey={stepKey}
+            stepKey={OnboardingStepKey.INVITE_TEAMMATES}
             onContinue={() =>
                 preflight?.email_service_available &&
                 invitesToSend[0]?.target_email &&
@@ -89,3 +89,5 @@ export const OnboardingInviteTeammates = ({ stepKey }: { stepKey: OnboardingStep
         </OnboardingStep>
     )
 }
+
+OnboardingInviteTeammates.stepKey = OnboardingStepKey.INVITE_TEAMMATES

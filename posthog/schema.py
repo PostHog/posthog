@@ -2678,6 +2678,7 @@ class ProductIntentContext(StrEnum):
     LLM_ANALYTICS_VIEWED = "llm_analytics_viewed"
     LLM_ANALYTICS_DOCS_VIEWED = "llm_analytics_docs_viewed"
     LOGS_DOCS_VIEWED = "logs_docs_viewed"
+    LOGS_SET_FILTERS = "logs_set_filters"
     TAXONOMIC_FILTER_EMPTY_STATE = "taxonomic filter empty state"
     CREATE_EXPERIMENT_FROM_FUNNEL_BUTTON = "create_experiment_from_funnel_button"
     WEB_ANALYTICS_INSIGHT = "web_analytics_insight"
@@ -3174,6 +3175,26 @@ class SessionPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["session"] = "session"
     value: list[str | float | bool] | str | float | bool | None = None
+
+
+class Integration(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    display_name: str
+    id: float
+    kind: IntegrationKind
+
+
+class SessionRecordingExternalReference(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    external_url: str
+    id: str
+    integration: Integration
+    issue_id: str
+    title: str
 
 
 class SnapshotSource(StrEnum):
@@ -5090,6 +5111,16 @@ class MarketingAnalyticsSchemaField(BaseModel):
     type: list[MarketingAnalyticsSchemaFieldTypes]
 
 
+class MarketingConversionGoalMapping(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    core_event_id: str = Field(..., description="Reference to the CoreEvent.id")
+    schema_map: dict[str, str | Any] | None = Field(
+        default=None, description="UTM field mappings - required for DataWarehouseNode, optional otherwise"
+    )
+
+
 class MarketingIntegrationConfigType(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5765,6 +5796,9 @@ class SessionRecordingType(BaseModel):
     email: str | None = None
     end_time: str = Field(..., description="When the recording ends in ISO format.")
     expiry_time: str | None = Field(default=None, description="When the recording expires, in ISO format.")
+    external_references: list[SessionRecordingExternalReference] | None = Field(
+        default=None, description="External references to third party issues."
+    )
     id: str
     inactive_seconds: float | None = None
     keypress_count: float | None = None
@@ -10632,6 +10666,9 @@ class MarketingAnalyticsConfig(BaseModel):
     attribution_window_days: float | None = None
     campaign_field_preferences: dict[str, CampaignFieldPreference] | None = None
     campaign_name_mappings: dict[str, dict[str, list[str]]] | None = None
+    conversion_goal_mappings: list[MarketingConversionGoalMapping] | None = Field(
+        default=None, description="Mappings to team-level conversion goals with optional schema_map for DW goals"
+    )
     conversion_goals: list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3] | None = None
     custom_source_mappings: dict[str, list[str]] | None = None
     sources_map: dict[str, SourceMap] | None = None

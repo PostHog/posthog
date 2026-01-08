@@ -10,6 +10,7 @@ from django.shortcuts import redirect
 import requests
 import structlog
 import posthoganalytics
+from drf_spectacular.utils import extend_schema
 from rest_framework import permissions, serializers, status, viewsets
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
@@ -92,6 +93,7 @@ class BillingUsageRequestSerializer(serializers.Serializer):
         return self._parse_date(value, "end_date")
 
 
+@extend_schema(tags=["billing"])
 class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = BillingSerializer
     param_derived_from_user_current_team = "team_id"
