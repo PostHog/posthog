@@ -111,6 +111,7 @@ TEAM_METADATA_FIELDS = [
     "autocapture_exceptions_errors_to_ignore",
     "autocapture_web_vitals_opt_in",
     "autocapture_web_vitals_allowed_metrics",
+    "logs_capture_console_log_opt_in",
     "conversations_enabled",
     "conversations_settings",
     "inject_web_apps",
