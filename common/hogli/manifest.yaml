@@ -535,27 +535,31 @@ tools:
         bin_script: posthog-node
         description: Start the posthog-node service (old plugin-server)
         hidden: true
-    posthog:hobby:
-        bin_script: posthog-hobby
-        description: Run the posthog-hobby installation script for Linux, don't use it
-            on your MacOS development environment
+    posthog:hobby-installer:
+        bin_script: hobby-installer
+        description: Run the hobby-installer installation script for Linux, don't use
+            it on your MacOS development environment
         hidden: true
-    posthog:hobby:darwin:
-        bin_script: posthog-hobby-darwin
-        description: Run the posthog-hobby installation script for MacOS
+    posthog:hobby-installer:darwin:
+        bin_script: hobby-installer-darwin
+        description: Run the hobby-installer installation script for MacOS
         hidden: true
-    posthog:hobby:demo:
-        bin_script: posthog-hobby-demo
+    posthog:hobby-installer:demo:
+        bin_script: hobby-installer-demo
         description: Run a demo check for the PostHog hobby installation, useful while
             developing the installation script
         hidden: true
-    posthog:hobby:development:
-        bin_script: posthog-hobby-development
-        description: Run the development version for the posthog-hobby deployment
+    posthog:hobby-installer:development:
+        bin_script: hobby-installer-development
+        description: Run the development version for the hobby-installer deployment
         hidden: true
     start:mcp:server:
         bin_script: start-mcp-server
         description: Start the MCP server
+        hidden: true
+    posthog:hobby:
+        bin_script: posthog-hobby
+        description: 'TODO: add description for posthog-hobby'
         hidden: true
 utilities:
     nuke:
