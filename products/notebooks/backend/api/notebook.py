@@ -29,6 +29,7 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils import relative_date_parse
 
+from products.notebooks.backend.kernel_runtime import get_kernel_runtime
 from products.notebooks.backend.models import Notebook
 from products.notebooks.backend.python_analysis import annotate_python_nodes
 
@@ -191,6 +192,12 @@ class NotebookSerializer(NotebookMinimalSerializer):
         return updated_notebook
 
 
+class NotebookKernelExecuteSerializer(serializers.Serializer):
+    code = serializers.CharField(allow_blank=True)
+    return_variables = serializers.BooleanField(default=True)
+    timeout = serializers.FloatField(required=False, min_value=0.1, max_value=120)
+
+
 @extend_schema(
     description="The API for interacting with Notebooks. This feature is in early access and the API can have "
     "breaking changes without announcement.",
@@ -255,6 +262,21 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
     def get_serializer_class(self) -> type[BaseSerializer]:
         return NotebookMinimalSerializer if self.action == "list" else NotebookSerializer
+
+    def _get_notebook_for_kernel(self) -> Notebook:
+        if self.kwargs.get(self.lookup_field) == "scratchpad":
+            return Notebook(
+                short_id="scratchpad",
+                team=self.team,
+                created_by=self.request.user,
+                last_modified_by=self.request.user,
+                visibility=Notebook.Visibility.INTERNAL,
+            )
+
+        return self.get_object()
+
+    def _current_user(self) -> User | None:
+        return self.request.user if isinstance(self.request.user, User) else None
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         if not self.action.endswith("update"):
@@ -357,6 +379,54 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             return Response(None, 304)
 
         return Response(serializer.data)
+
+    @action(methods=["POST"], url_path="kernel/start", detail=True)
+    def kernel_start(self, request: Request, **kwargs):
+        notebook = self._get_notebook_for_kernel()
+        try:
+            kernel_runtime = get_kernel_runtime(notebook, self._current_user()).ensure()
+        except RuntimeError as err:
+            logger.exception("notebook_kernel_start_failed", notebook_short_id=notebook.short_id)
+            return Response({"detail": str(err)}, status=503)
+        return Response({"id": str(kernel_runtime.id), "status": kernel_runtime.status})
+
+    @action(methods=["POST"], url_path="kernel/stop", detail=True)
+    def kernel_stop(self, request: Request, **kwargs):
+        notebook = self._get_notebook_for_kernel()
+        try:
+            stopped = get_kernel_runtime(notebook, self._current_user()).shutdown()
+        except RuntimeError as err:
+            logger.exception("notebook_kernel_stop_failed", notebook_short_id=notebook.short_id)
+            return Response({"detail": str(err)}, status=503)
+        return Response({"stopped": stopped})
+
+    @action(methods=["POST"], url_path="kernel/restart", detail=True)
+    def kernel_restart(self, request: Request, **kwargs):
+        notebook = self._get_notebook_for_kernel()
+        try:
+            kernel_runtime = get_kernel_runtime(notebook, self._current_user()).restart()
+        except RuntimeError as err:
+            logger.exception("notebook_kernel_restart_failed", notebook_short_id=notebook.short_id)
+            return Response({"detail": str(err)}, status=503)
+        return Response({"id": str(kernel_runtime.id), "status": kernel_runtime.status})
+
+    @action(methods=["POST"], url_path="kernel/execute", detail=True)
+    def kernel_execute(self, request: Request, **kwargs):
+        serializer = NotebookKernelExecuteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        notebook = self._get_notebook_for_kernel()
+
+        try:
+            execution = get_kernel_runtime(notebook, self._current_user()).execute(
+                serializer.validated_data["code"],
+                capture_variables=serializer.validated_data.get("return_variables", True),
+                timeout=serializer.validated_data.get("timeout"),
+            )
+        except RuntimeError as err:
+            logger.exception("notebook_kernel_execute_failed", notebook_short_id=notebook.short_id)
+            return Response({"detail": str(err)}, status=503)
+
+        return Response(execution.as_dict())
 
     @action(methods=["GET"], detail=False)
     def recording_comments(self, request: Request, **kwargs):

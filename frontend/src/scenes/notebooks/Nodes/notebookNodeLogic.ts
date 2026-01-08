@@ -14,6 +14,9 @@ import {
 } from 'kea'
 import posthog from 'posthog-js'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
+import api from 'lib/api'
 import { JSONContent, RichContentNode } from 'lib/components/RichContentEditor/types'
 
 import { notebookLogicType } from '../Notebook/notebookLogicType'
@@ -69,11 +72,13 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         copyToClipboard: true,
         convertToBacklink: (href: string) => ({ href }),
         navigateToNode: (nodeId: string) => ({ nodeId }),
+        runPythonNode: (payload: { code: string }) => payload,
+        setPythonRunLoading: (loading: boolean) => ({ loading }),
     }),
 
     connect((props: NotebookNodeLogicProps) => ({
         actions: [props.notebookLogic, ['onUpdateEditor', 'setTextSelection']],
-        values: [props.notebookLogic, ['editor', 'isEditable', 'comments', 'pythonNodeSummaries']],
+        values: [props.notebookLogic, ['editor', 'isEditable', 'comments', 'pythonNodeSummaries', 'notebook']],
     })),
 
     reducers(({ props }) => ({
@@ -130,6 +135,12 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             false,
             {
                 toggleEditingTitle: (state, { editing }) => (typeof editing === 'boolean' ? editing : !state),
+            },
+        ],
+        pythonRunLoading: [
+            false,
+            {
+                setPythonRunLoading: (_, { loading }) => loading,
             },
         ],
     })),
@@ -382,6 +393,27 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 },
             })
             actions.deleteNode()
+        },
+        runPythonNode: async ({ code }) => {
+            if (props.nodeType !== NotebookNodeType.Python) {
+                return
+            }
+            const notebook = values.notebook
+            if (!notebook) {
+                return
+            }
+
+            actions.setPythonRunLoading(true)
+            try {
+                await api.notebooks.kernelExecute(notebook.short_id, {
+                    code,
+                    return_variables: true,
+                })
+            } catch {
+                lemonToast.error('Failed to run Python cell.')
+            } finally {
+                actions.setPythonRunLoading(false)
+            }
         },
     })),
 

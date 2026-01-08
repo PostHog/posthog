@@ -3742,6 +3742,12 @@ const api = {
         async delete(notebookId: NotebookType['short_id']): Promise<NotebookType> {
             return await new ApiRequest().notebook(notebookId).delete()
         },
+        async kernelExecute(
+            notebookId: NotebookType['short_id'],
+            data: { code: string; return_variables?: boolean; timeout?: number }
+        ): Promise<Record<string, any>> {
+            return await new ApiRequest().notebook(notebookId).withAction('kernel/execute').create({ data })
+        },
     },
 
     sessionGroupSummaries: {

@@ -28,13 +28,14 @@ import { notebookNodeLogicType } from './notebookNodeLogicType'
 import { SlashCommandsPopover } from '../Notebook/SlashCommands'
 import posthog from 'posthog-js'
 import { NotebookNodeContext } from './NotebookNodeContext'
-import { IconCollapse, IconCopy, IconEllipsis, IconExpand, IconPencil, IconPlus, IconX } from '@posthog/icons'
+import { IconCollapse, IconCopy, IconEllipsis, IconExpand, IconPencil, IconPlay, IconPlus, IconX } from '@posthog/icons'
 import {
     CreatePostHogWidgetNodeOptions,
     CustomNotebookNodeAttributes,
     NodeWrapperProps,
     NotebookNodeProps,
     NotebookNodeResource,
+    NotebookNodeType,
 } from '../types'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
@@ -56,7 +57,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     } = props
 
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
-    const { isEditable, editingNodeId, containerSize } = useValues(mountedNotebookLogic)
+    const { isEditable, editingNodeId, containerSize, notebook } = useValues(mountedNotebookLogic)
     const { unregisterNodeLogic, insertComment, selectComment } = useActions(notebookLogic)
     const [slashCommandsPopoverVisible, setSlashCommandsPopoverVisible] = useState<boolean>(false)
 
@@ -72,6 +73,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         expanded,
         actions,
         nodeId,
+        pythonRunLoading,
         settingsPlacement: resolvedSettingsPlacement,
         sourceComment,
     } = useValues(nodeLogic)
@@ -84,6 +86,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         toggleEditingTitle,
         copyToClipboard,
         convertToBacklink,
+        runPythonNode,
     } = useActions(nodeLogic)
 
     const { ref: inViewRef, inView } = useInView({ triggerOnce: true })
@@ -139,6 +142,8 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     // Element is resizable if resizable is set to true. If expandable is set to true then is is only resizable if expanded is true
     const isResizeable = resizeable && (!expandable || expanded)
     const isDraggable = !!(isEditable && getPos)
+    const isPythonNode = nodeType === NotebookNodeType.Python
+    const pythonCode = isPythonNode ? ((attributes as { code?: string }).code ?? '') : ''
 
     const menuItems: LemonMenuItems = [
         {
@@ -214,6 +219,16 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                 {parsedHref && (
                                                     <LemonButton size="small" icon={<IconLink />} to={parsedHref} />
                                                 )}
+
+                                                {isPythonNode ? (
+                                                    <LemonButton
+                                                        onClick={() => void runPythonNode({ code: pythonCode })}
+                                                        size="small"
+                                                        icon={<IconPlay />}
+                                                        loading={pythonRunLoading}
+                                                        disabled={!notebook}
+                                                    />
+                                                ) : null}
 
                                                 {isEditable && Settings ? (
                                                     <LemonButton

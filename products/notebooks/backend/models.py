@@ -130,3 +130,30 @@ class ResourceNotebook(UUIDTModel):
 
     def __str__(self) -> str:
         return f"Notebook {self.notebook.short_id} -> {self.resource_type} {self.resource}"
+
+
+class KernelRuntime(UUIDTModel):
+    class Status(models.TextChoices):
+        STARTING = "starting", "starting"
+        RUNNING = "running", "running"
+        STOPPED = "stopped", "stopped"
+        DISCARDED = "discarded", "discarded"
+        ERROR = "error", "error"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    notebook = models.ForeignKey("notebooks.Notebook", on_delete=models.SET_NULL, null=True, blank=True)
+    notebook_short_id = models.CharField(max_length=12)
+    user = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used_at = models.DateTimeField(default=timezone.now)
+    status = models.CharField(choices=Status.choices, default=Status.STARTING, max_length=20)
+    kernel_id = models.CharField(max_length=64, null=True, blank=True)
+    kernel_pid = models.IntegerField(null=True, blank=True)
+    connection_file = models.TextField(null=True, blank=True)
+    last_error = models.TextField(null=True, blank=True)
+
+    class Meta:
+        db_table = "posthog_kernelruntime"
+        indexes = [
+            models.Index(fields=["team", "notebook_short_id", "user", "status"]),
+        ]

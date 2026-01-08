@@ -65,6 +65,7 @@ dependencies = [
     "gspread==6.2.1",
     "hogql-parser==1.2.12",
     "infi-clickhouse-orm",
+    "ipykernel==7.1.0",
     "jsonref==1.1.0",
     "kafka-python==2.0.6",
     "kombu==5.3.7",
