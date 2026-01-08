@@ -303,11 +303,13 @@ The reconciliation logic in `reconcile_person_properties()` does compare timesta
 
 ---
 
-## Future: Adding $unset Support
+## $unset Support (Implemented)
+
+The reconciliation job now supports `$unset` operations. Here's how it works:
 
 ### Query changes
 
-Add `$unset` extraction to the ARRAY JOIN (note: `$unset` is an array of keys, not key-value pairs):
+`$unset` extraction in the ARRAY JOIN (note: `$unset` is an array of keys, not key-value pairs):
 
 ```sql
 -- In ARRAY JOIN arrayConcat:

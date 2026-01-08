@@ -1,10 +1,16 @@
 """Tests for the person property reconciliation job."""
 
-from datetime import UTC, datetime
+import json
+from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import UUID
 
+import pytest
 from unittest.mock import MagicMock, patch
 
+from clickhouse_driver import Client
+
+from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.dags.person_property_reconciliation import (
     PersonPropertyUpdates,
     PropertyUpdate,
@@ -22,7 +28,9 @@ class TestClickHouseResultParsing:
         # Simulate ClickHouse returning: (person_id, set_diff, set_once_diff)
         # set_diff is an array of (key, value, timestamp) tuples
         # Values are raw JSON strings from JSONExtractKeysAndValuesRaw (strings are double-quoted)
-        mock_rows: list[tuple[str, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]]]] = [
+        mock_rows: list[
+            tuple[str, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]], list[tuple[str, datetime]]]
+        ] = [
             (
                 "018d1234-5678-0000-0000-000000000001",  # person_id (UUID as string)
                 [  # set_diff - array of tuples (values are raw JSON)
@@ -30,6 +38,7 @@ class TestClickHouseResultParsing:
                     ("name", '"John Doe"', datetime(2024, 1, 15, 12, 30, 0)),
                 ],
                 [],  # set_once_diff - empty
+                [],  # unset_diff - empty
             )
         ]
 
@@ -59,7 +68,9 @@ class TestClickHouseResultParsing:
     def test_parses_set_once_diff_tuples(self):
         """Test that set_once_diff array of tuples is correctly parsed."""
         # Values are raw JSON strings from JSONExtractKeysAndValuesRaw
-        mock_rows: list[tuple[str, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]]]] = [
+        mock_rows: list[
+            tuple[str, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]], list[tuple[str, datetime]]]
+        ] = [
             (
                 "018d1234-5678-0000-0000-000000000002",
                 [],  # set_diff - empty
@@ -67,6 +78,7 @@ class TestClickHouseResultParsing:
                     ("initial_referrer", '"google.com"', datetime(2024, 1, 10, 8, 0, 0)),
                     ("first_seen", '"2024-01-10"', datetime(2024, 1, 10, 8, 0, 0)),
                 ],
+                [],  # unset_diff - empty
             )
         ]
 
@@ -93,11 +105,14 @@ class TestClickHouseResultParsing:
     def test_parses_mixed_set_and_set_once(self):
         """Test parsing when both set_diff and set_once_diff have values."""
         # Values are raw JSON strings from JSONExtractKeysAndValuesRaw
-        mock_rows: list[tuple[str, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]]]] = [
+        mock_rows: list[
+            tuple[str, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]], list[tuple[str, datetime]]]
+        ] = [
             (
                 "018d1234-5678-0000-0000-000000000003",
                 [("email", '"updated@example.com"', datetime(2024, 1, 15, 12, 0, 0))],  # set_diff
                 [("initial_source", '"organic"', datetime(2024, 1, 10, 8, 0, 0))],  # set_once_diff
+                [],  # unset_diff - empty
             )
         ]
 
@@ -126,21 +141,26 @@ class TestClickHouseResultParsing:
     def test_handles_multiple_persons(self):
         """Test parsing results for multiple persons."""
         # Values are raw JSON strings from JSONExtractKeysAndValuesRaw
-        mock_rows: list[tuple[str, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]]]] = [
+        mock_rows: list[
+            tuple[str, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]], list[tuple[str, datetime]]]
+        ] = [
             (
                 "018d1234-0000-0000-0000-000000000001",
                 [("prop1", '"val1"', datetime(2024, 1, 15, 12, 0, 0))],
                 [],
+                [],  # unset_diff
             ),
             (
                 "018d1234-0000-0000-0000-000000000002",
                 [("prop2", '"val2"', datetime(2024, 1, 15, 13, 0, 0))],
                 [],
+                [],  # unset_diff
             ),
             (
                 "018d1234-0000-0000-0000-000000000003",
                 [],
                 [("prop3", '"val3"', datetime(2024, 1, 10, 8, 0, 0))],
+                [],  # unset_diff
             ),
         ]
 
@@ -160,12 +180,15 @@ class TestClickHouseResultParsing:
         assert results[2].updates[0].value == "val3"  # quotes stripped
 
     def test_skips_persons_with_no_updates(self):
-        """Test that persons with empty set_diff and set_once_diff are skipped."""
-        mock_rows: list[tuple[str, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]]]] = [
+        """Test that persons with empty set_diff, set_once_diff, and unset_diff are skipped."""
+        mock_rows: list[
+            tuple[str, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]], list[tuple[str, datetime]]]
+        ] = [
             (
                 "018d1234-0000-0000-0000-000000000001",
                 [],  # empty set_diff
                 [],  # empty set_once_diff
+                [],  # empty unset_diff
             ),
         ]
 
@@ -197,7 +220,9 @@ class TestClickHouseResultParsing:
         # - numbers are unquoted: 123, 3.14
         # - booleans are lowercase: true, false
         # - null is literal: null
-        mock_rows: list[tuple[str, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]]]] = [
+        mock_rows: list[
+            tuple[str, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]], list[tuple[str, datetime]]]
+        ] = [
             (
                 "018d1234-5678-0000-0000-000000000001",
                 [
@@ -208,7 +233,8 @@ class TestClickHouseResultParsing:
                     ("bool_false_prop", "false", datetime(2024, 1, 15, 12, 0, 0)),
                     ("null_prop", "null", datetime(2024, 1, 15, 12, 0, 0)),
                 ],
-                [],
+                [],  # set_once_diff
+                [],  # unset_diff
             )
         ]
 
@@ -249,6 +275,85 @@ class TestClickHouseResultParsing:
         # Null
         assert updates[5].key == "null_prop"
         assert updates[5].value is None
+
+    def test_parses_unset_diff_tuples(self):
+        """Test that unset_diff array of tuples is correctly parsed."""
+        # unset_diff is an array of (key, timestamp) tuples
+        # Keys are already parsed in the query with JSON_VALUE (consistent with $set/$set_once)
+        mock_rows: list[
+            tuple[str, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]], list[tuple[str, datetime]]]
+        ] = [
+            (
+                "018d1234-5678-0000-0000-000000000001",
+                [],  # set_diff - empty
+                [],  # set_once_diff - empty
+                [  # unset_diff - array of (key, timestamp) tuples
+                    ("email", datetime(2024, 1, 15, 12, 0, 0)),
+                    ("old_property", datetime(2024, 1, 15, 12, 30, 0)),
+                ],
+            )
+        ]
+
+        with patch("posthog.dags.person_property_reconciliation.sync_execute", return_value=mock_rows):
+            results = get_person_property_updates_from_clickhouse(
+                team_id=1,
+                bug_window_start="2024-01-01T00:00:00Z",
+                bug_window_end="2024-01-31T00:00:00Z",
+            )
+
+        assert len(results) == 1
+        person_updates = results[0]
+        assert len(person_updates.updates) == 2
+
+        # Verify first unset
+        assert person_updates.updates[0].key == "email"
+        assert person_updates.updates[0].value is None
+        assert person_updates.updates[0].timestamp == datetime(2024, 1, 15, 12, 0, 0)
+        assert person_updates.updates[0].operation == "unset"
+
+        # Verify second unset
+        assert person_updates.updates[1].key == "old_property"
+        assert person_updates.updates[1].value is None
+        assert person_updates.updates[1].operation == "unset"
+
+    def test_parses_mixed_set_set_once_and_unset(self):
+        """Test parsing when all three operation types have values."""
+        mock_rows: list[
+            tuple[str, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]], list[tuple[str, datetime]]]
+        ] = [
+            (
+                "018d1234-5678-0000-0000-000000000004",
+                [("email", '"updated@example.com"', datetime(2024, 1, 15, 12, 0, 0))],  # set_diff
+                [("initial_source", '"organic"', datetime(2024, 1, 10, 8, 0, 0))],  # set_once_diff
+                [("old_field", datetime(2024, 1, 14, 10, 0, 0))],  # unset_diff - keys are already parsed
+            )
+        ]
+
+        with patch("posthog.dags.person_property_reconciliation.sync_execute", return_value=mock_rows):
+            results = get_person_property_updates_from_clickhouse(
+                team_id=1,
+                bug_window_start="2024-01-01T00:00:00Z",
+                bug_window_end="2024-01-31T00:00:00Z",
+            )
+
+        assert len(results) == 1
+        updates = results[0].updates
+        assert len(updates) == 3
+
+        set_updates = [u for u in updates if u.operation == "set"]
+        set_once_updates = [u for u in updates if u.operation == "set_once"]
+        unset_updates = [u for u in updates if u.operation == "unset"]
+
+        assert len(set_updates) == 1
+        assert len(set_once_updates) == 1
+        assert len(unset_updates) == 1
+
+        assert set_updates[0].key == "email"
+        assert set_updates[0].value == "updated@example.com"
+        assert set_once_updates[0].key == "initial_source"
+        assert set_once_updates[0].value == "organic"
+        assert unset_updates[0].key == "old_field"
+        assert unset_updates[0].value is None
 
 
 class TestReconcilePersonProperties:
@@ -429,6 +534,162 @@ class TestReconcilePersonProperties:
 
         result = reconcile_person_properties(person, updates)
         assert result is None
+
+    def test_unset_removes_existing_property(self):
+        """Test that $unset removes a property when timestamp is newer."""
+        person = {
+            "uuid": "018d1234-5678-0000-0000-000000000001",
+            "properties": {"email": "test@example.com", "name": "Test User"},
+            "properties_last_updated_at": {"email": "2024-01-10T00:00:00+00:00", "name": "2024-01-10T00:00:00+00:00"},
+            "properties_last_operation": {"email": "set", "name": "set"},
+        }
+        updates = [
+            PropertyUpdate(
+                key="email",
+                value=None,
+                timestamp=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC),
+                operation="unset",
+            )
+        ]
+
+        result = reconcile_person_properties(person, updates)
+
+        assert result is not None
+        assert "email" not in result["properties"]
+        assert "email" not in result["properties_last_updated_at"]
+        assert "email" not in result["properties_last_operation"]
+        # Other properties should remain unchanged
+        assert result["properties"]["name"] == "Test User"
+
+    def test_unset_ignored_when_property_not_exists(self):
+        """Test that $unset is a no-op when property doesn't exist."""
+        person = {
+            "uuid": "018d1234-5678-0000-0000-000000000001",
+            "properties": {"name": "Test User"},
+            "properties_last_updated_at": {"name": "2024-01-10T00:00:00+00:00"},
+            "properties_last_operation": {"name": "set"},
+        }
+        updates = [
+            PropertyUpdate(
+                key="email",  # Property doesn't exist
+                value=None,
+                timestamp=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC),
+                operation="unset",
+            )
+        ]
+
+        result = reconcile_person_properties(person, updates)
+
+        # No changes needed since property doesn't exist
+        assert result is None
+
+    def test_unset_ignored_when_timestamp_older(self):
+        """Test that $unset is ignored when existing property has newer timestamp."""
+        person = {
+            "uuid": "018d1234-5678-0000-0000-000000000001",
+            "properties": {"email": "test@example.com"},
+            "properties_last_updated_at": {"email": "2024-01-20T00:00:00+00:00"},
+            "properties_last_operation": {"email": "set"},
+        }
+        updates = [
+            PropertyUpdate(
+                key="email",
+                value=None,
+                timestamp=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC),  # Older than existing
+                operation="unset",
+            )
+        ]
+
+        result = reconcile_person_properties(person, updates)
+
+        # No changes since unset timestamp is older
+        assert result is None
+
+    def test_set_after_unset_restores_property(self):
+        """Test that $set after $unset restores the property (in same batch)."""
+        person = {
+            "uuid": "018d1234-5678-0000-0000-000000000001",
+            "properties": {"email": "old@example.com"},
+            "properties_last_updated_at": {"email": "2024-01-01T00:00:00+00:00"},
+            "properties_last_operation": {"email": "set"},
+        }
+        updates = [
+            # First unset the property
+            PropertyUpdate(
+                key="email",
+                value=None,
+                timestamp=datetime(2024, 1, 10, 12, 0, 0, tzinfo=UTC),
+                operation="unset",
+            ),
+            # Then set it again (later timestamp)
+            PropertyUpdate(
+                key="email",
+                value="new@example.com",
+                timestamp=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC),
+                operation="set",
+            ),
+        ]
+
+        result = reconcile_person_properties(person, updates)
+
+        assert result is not None
+        # Property should exist with new value
+        assert result["properties"]["email"] == "new@example.com"
+        assert result["properties_last_operation"]["email"] == "set"
+
+    def test_set_once_after_unset_sets_property(self):
+        """Test that $set_once after $unset sets the property (was unset, so it's 'new')."""
+        person = {
+            "uuid": "018d1234-5678-0000-0000-000000000001",
+            "properties": {"email": "old@example.com"},
+            "properties_last_updated_at": {"email": "2024-01-01T00:00:00+00:00"},
+            "properties_last_operation": {"email": "set"},
+        }
+        updates = [
+            # First unset the property
+            PropertyUpdate(
+                key="email",
+                value=None,
+                timestamp=datetime(2024, 1, 10, 12, 0, 0, tzinfo=UTC),
+                operation="unset",
+            ),
+            # Then set_once (should apply since property is now "new")
+            PropertyUpdate(
+                key="email",
+                value="set_once@example.com",
+                timestamp=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC),
+                operation="set_once",
+            ),
+        ]
+
+        result = reconcile_person_properties(person, updates)
+
+        assert result is not None
+        # set_once should apply after unset removes the property
+        assert result["properties"]["email"] == "set_once@example.com"
+        assert result["properties_last_operation"]["email"] == "set_once"
+
+    def test_unset_removes_property_with_no_timestamp(self):
+        """Test that $unset removes property when there's no existing timestamp."""
+        person = {
+            "uuid": "018d1234-5678-0000-0000-000000000001",
+            "properties": {"email": "test@example.com"},
+            "properties_last_updated_at": {},  # No timestamp for email
+            "properties_last_operation": {},
+        }
+        updates = [
+            PropertyUpdate(
+                key="email",
+                value=None,
+                timestamp=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC),
+                operation="unset",
+            )
+        ]
+
+        result = reconcile_person_properties(person, updates)
+
+        assert result is not None
+        assert "email" not in result["properties"]
 
 
 class TestUpdatePersonWithVersionCheck:
@@ -1187,3 +1448,364 @@ class TestPersonPropertyUpdatesDataclass:
         assert len(person_updates.updates) == 2
         assert person_updates.updates[0].key == "k1"
         assert person_updates.updates[1].key == "k2"
+
+
+@pytest.mark.django_db
+class TestClickHouseQueryIntegration:
+    """Integration tests that insert data into ClickHouse and run the actual query."""
+
+    def test_unset_uses_latest_timestamp_regression(self, cluster: ClickhouseCluster):
+        """
+        Regression test: $unset should use max(timestamp), not min(timestamp).
+
+        If a person has two $unset operations on the same key at different times,
+        the returned timestamp should be the latest one (max), not the earliest (min).
+        This was a bug where $unset incorrectly used min(e.timestamp).
+        """
+
+        team_id = 99901
+        person_id = UUID("11111111-1111-1111-1111-000000000001")
+        # Use naive datetimes since ClickHouse returns naive datetimes
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        # Two timestamps for the same $unset operation
+        earlier_ts = now - timedelta(days=5)
+        later_ts = now - timedelta(days=2)
+
+        # Insert events with $unset at different timestamps
+        events = [
+            # First $unset at earlier timestamp
+            (
+                team_id,
+                "distinct_id_1",
+                person_id,
+                earlier_ts,
+                json.dumps({"$unset": ["email"]}),
+            ),
+            # Second $unset at later timestamp (should be the winner)
+            (
+                team_id,
+                "distinct_id_1",
+                person_id,
+                later_ts,
+                json.dumps({"$unset": ["email"]}),
+            ),
+        ]
+
+        def insert_events(client: Client) -> None:
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Insert person with the "email" property (so $unset has something to unset)
+        person_data = [
+            (
+                team_id,
+                person_id,
+                json.dumps({"email": "test@example.com", "name": "Test User"}),
+                1,  # version
+                now - timedelta(days=8),  # _timestamp within bug window
+            )
+        ]
+
+        def insert_person(client: Client) -> None:
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        # Run the actual query
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        assert len(results) == 1
+        person_updates = results[0]
+        assert str(person_updates.person_id) == str(person_id)
+
+        # Find the unset operation
+        unset_updates = [u for u in person_updates.updates if u.operation == "unset"]
+        assert len(unset_updates) == 1
+        unset_update = unset_updates[0]
+
+        assert unset_update.key == "email"
+        assert unset_update.value is None
+
+        # Regression check: timestamp should be the LATER one (max), not earlier (min)
+        # Allow 1 second tolerance for timestamp comparison
+        # Strip timezone for comparison since CH returns tz-aware but we created naive timestamps
+        result_ts = unset_update.timestamp.replace(tzinfo=None)
+        assert abs((result_ts - later_ts).total_seconds()) < 1, (
+            f"$unset should use max(timestamp). "
+            f"Expected ~{later_ts}, got {result_ts}. "
+            f"Earlier timestamp was {earlier_ts}."
+        )
+
+    def test_set_uses_latest_timestamp(self, cluster: ClickhouseCluster):
+        """$set should use max(timestamp) - latest value wins."""
+
+        team_id = 99902
+        person_id = UUID("22222222-2222-2222-2222-000000000002")
+        # Use naive datetimes since ClickHouse returns naive datetimes
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        earlier_ts = now - timedelta(days=5)
+        later_ts = now - timedelta(days=2)
+
+        events = [
+            (team_id, "distinct_id_2", person_id, earlier_ts, json.dumps({"$set": {"name": "First Name"}})),
+            (team_id, "distinct_id_2", person_id, later_ts, json.dumps({"$set": {"name": "Latest Name"}})),
+        ]
+
+        def insert_events(client: Client) -> None:
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Person with different value for "name" so set_diff includes it
+        person_data = [(team_id, person_id, json.dumps({"name": "Old Name"}), 1, now - timedelta(days=8))]
+
+        def insert_person(client: Client) -> None:
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        assert len(results) == 1
+        set_updates = [u for u in results[0].updates if u.operation == "set"]
+        assert len(set_updates) == 1
+
+        # Should have latest value and latest timestamp
+        assert set_updates[0].key == "name"
+        assert set_updates[0].value == "Latest Name"
+        result_ts = set_updates[0].timestamp.replace(tzinfo=None)
+        assert abs((result_ts - later_ts).total_seconds()) < 1
+
+    def test_set_once_uses_earliest_timestamp(self, cluster: ClickhouseCluster):
+        """$set_once should use min(timestamp) - first value wins."""
+
+        team_id = 99903
+        person_id = UUID("33333333-3333-3333-3333-000000000003")
+        # Use naive datetimes since ClickHouse returns naive datetimes
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        earlier_ts = now - timedelta(days=5)
+        later_ts = now - timedelta(days=2)
+
+        events = [
+            (team_id, "distinct_id_3", person_id, earlier_ts, json.dumps({"$set_once": {"referrer": "google.com"}})),
+            (team_id, "distinct_id_3", person_id, later_ts, json.dumps({"$set_once": {"referrer": "facebook.com"}})),
+        ]
+
+        def insert_events(client: Client) -> None:
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Person WITHOUT "referrer" so set_once_diff includes it
+        person_data = [(team_id, person_id, json.dumps({"other_prop": "value"}), 1, now - timedelta(days=8))]
+
+        def insert_person(client: Client) -> None:
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        assert len(results) == 1
+        set_once_updates = [u for u in results[0].updates if u.operation == "set_once"]
+        assert len(set_once_updates) == 1
+
+        # Should have first value and earliest timestamp
+        assert set_once_updates[0].key == "referrer"
+        assert set_once_updates[0].value == "google.com"
+        result_ts = set_once_updates[0].timestamp.replace(tzinfo=None)
+        assert abs((result_ts - earlier_ts).total_seconds()) < 1
+
+    def test_multiple_operations_same_key_in_batch(self, cluster: ClickhouseCluster):
+        """
+        Test multiple operation types on same key: $set then $unset.
+
+        Both operations are for the same key but different operation types.
+        Each should be returned separately.
+        """
+
+        team_id = 99904
+        person_id = UUID("44444444-4444-4444-4444-000000000004")
+        # Use naive datetimes since ClickHouse returns naive datetimes
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        set_ts = now - timedelta(days=5)
+        unset_ts = now - timedelta(days=2)
+
+        events = [
+            # First $set the property
+            (team_id, "distinct_id_4", person_id, set_ts, json.dumps({"$set": {"email": "new@example.com"}})),
+            # Then $unset the same property (later)
+            (team_id, "distinct_id_4", person_id, unset_ts, json.dumps({"$unset": ["email"]})),
+        ]
+
+        def insert_events(client: Client) -> None:
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Person with existing email (different value so $set is in diff, and exists so $unset is in diff)
+        person_data = [(team_id, person_id, json.dumps({"email": "old@example.com"}), 1, now - timedelta(days=8))]
+
+        def insert_person(client: Client) -> None:
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        assert len(results) == 1
+
+        set_updates = [u for u in results[0].updates if u.operation == "set"]
+        unset_updates = [u for u in results[0].updates if u.operation == "unset"]
+
+        # Both should be returned - $set with value, $unset without
+        assert len(set_updates) == 1
+        assert set_updates[0].key == "email"
+        assert set_updates[0].value == "new@example.com"
+
+        assert len(unset_updates) == 1
+        assert unset_updates[0].key == "email"
+        assert unset_updates[0].value is None
+
+    def test_mixed_operations_different_keys(self, cluster: ClickhouseCluster):
+        """Test $set, $set_once, and $unset on different keys in same event."""
+
+        team_id = 99905
+        person_id = UUID("55555555-5555-5555-5555-000000000005")
+        # Use naive datetimes since ClickHouse returns naive datetimes
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        event_ts = now - timedelta(days=3)
+
+        events = [
+            (
+                team_id,
+                "distinct_id_5",
+                person_id,
+                event_ts,
+                json.dumps(
+                    {
+                        "$set": {"name": "New Name"},
+                        "$set_once": {"first_visit": "2024-01-01"},
+                        "$unset": ["deprecated_field"],
+                    }
+                ),
+            ),
+        ]
+
+        def insert_events(client: Client) -> None:
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Person with name (different), no first_visit, has deprecated_field
+        person_data = [
+            (
+                team_id,
+                person_id,
+                json.dumps({"name": "Old Name", "deprecated_field": "to_remove"}),
+                1,
+                now - timedelta(days=8),
+            )
+        ]
+
+        def insert_person(client: Client) -> None:
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        assert len(results) == 1
+        updates = results[0].updates
+
+        set_updates = [u for u in updates if u.operation == "set"]
+        set_once_updates = [u for u in updates if u.operation == "set_once"]
+        unset_updates = [u for u in updates if u.operation == "unset"]
+
+        assert len(set_updates) == 1
+        assert set_updates[0].key == "name"
+        assert set_updates[0].value == "New Name"
+
+        assert len(set_once_updates) == 1
+        assert set_once_updates[0].key == "first_visit"
+        assert set_once_updates[0].value == "2024-01-01"
+
+        assert len(unset_updates) == 1
+        assert unset_updates[0].key == "deprecated_field"
+        assert unset_updates[0].value is None
