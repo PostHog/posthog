@@ -1,5 +1,6 @@
 """Tests for the person property reconciliation job."""
 
+import os
 import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -3756,3 +3757,384 @@ class TestBatchCommitsEndToEnd:
                 f"Person {i} properties_last_operation['name'] should be 'set', "
                 f"got '{person.properties_last_operation.get('name')}'"
             )
+
+
+@pytest.mark.django_db(transaction=True)
+class TestKafkaClickHouseRoundTrip:
+    """Integration tests that verify person updates flow through Kafka to ClickHouse.
+
+    These tests use real Kafka (not mocked) and verify that:
+    1. publish_person_to_kafka produces messages in the correct format
+    2. ClickHouse's Kafka engine consumes the messages
+    3. The person table in ClickHouse has the correct data
+
+    This ensures the reconciliation job's Kafka message format is compatible
+    with ClickHouse's expectations (matching Node.js ingestion format).
+    """
+
+    @pytest.fixture
+    def organization(self):
+        """Create a test organization."""
+        from posthog.models import Organization
+
+        return Organization.objects.create(name="Kafka Test Organization")
+
+    @pytest.fixture
+    def team(self, organization):
+        """Create a test team."""
+        from posthog.models import Team
+
+        return Team.objects.create(organization=organization, name="Kafka Test Team")
+
+    def _wait_for_clickhouse_person(
+        self,
+        team_id: int,
+        person_uuid: str,
+        expected_version: int,
+        max_wait_seconds: int = 30,
+        poll_interval_seconds: float = 0.5,
+    ) -> dict | None:
+        """
+        Poll ClickHouse until the person appears with the expected version.
+
+        Returns the person row as a dict, or None if not found within timeout.
+        """
+        import time
+
+        from posthog.clickhouse.client import sync_execute
+
+        start_time = time.time()
+        while time.time() - start_time < max_wait_seconds:
+            rows = sync_execute(
+                """
+                SELECT id, team_id, properties, is_identified, version, is_deleted, created_at
+                FROM person FINAL
+                WHERE team_id = %(team_id)s AND id = %(person_uuid)s
+                """,
+                {"team_id": team_id, "person_uuid": person_uuid},
+            )
+            if rows:
+                row = rows[0]
+                person_data = {
+                    "id": str(row[0]),
+                    "team_id": row[1],
+                    "properties": row[2],
+                    "is_identified": row[3],
+                    "version": row[4],
+                    "is_deleted": row[5],
+                    "created_at": row[6],
+                }
+                if person_data["version"] >= expected_version:
+                    return person_data
+            time.sleep(poll_interval_seconds)
+        return None
+
+    @pytest.mark.skipif(
+        os.environ.get("KAFKA_ROUNDTRIP_TESTS") != "1",
+        reason="Requires real Kafka infrastructure. Set KAFKA_ROUNDTRIP_TESTS=1 to run.",
+    )
+    def test_publish_person_to_kafka_updates_clickhouse(self, team):
+        """
+        Test that publish_person_to_kafka produces messages that ClickHouse consumes correctly.
+
+        This verifies the full round-trip:
+        1. Create a person in Postgres
+        2. Publish to Kafka using publish_person_to_kafka (with real Kafka, not mocked)
+        3. Wait for ClickHouse to consume the message
+        4. Verify ClickHouse has the correct person data
+        """
+        from django.test import override_settings
+
+        from posthog.dags.person_property_reconciliation import publish_person_to_kafka
+        from posthog.kafka_client.client import _KafkaProducer
+        from posthog.models import Person
+
+        # Create person in Postgres
+        person = Person.objects.create(
+            team_id=team.id,
+            properties={"email": "kafka_test@example.com", "name": "Kafka Test User"},
+            version=1,
+            is_identified=True,
+        )
+
+        # Prepare person data for Kafka (simulating what reconciliation job does)
+        person_data = {
+            "id": person.uuid,
+            "team_id": team.id,
+            "properties": {"email": "kafka_test@example.com", "name": "Kafka Test User"},
+            "is_identified": True,
+            "is_deleted": 0,
+            "created_at": person.created_at,
+            "version": 1,
+        }
+
+        # Create a real Kafka producer (not mocked)
+        with override_settings(TEST=False):
+            producer = _KafkaProducer(test=False)
+            try:
+                publish_person_to_kafka(person_data, producer)
+                producer.flush(timeout=10)
+            finally:
+                producer.close()
+
+        # Wait for ClickHouse to consume the message
+        ch_person = self._wait_for_clickhouse_person(
+            team_id=team.id,
+            person_uuid=str(person.uuid),
+            expected_version=1,
+            max_wait_seconds=30,
+        )
+
+        # Verify ClickHouse received the person
+        assert ch_person is not None, f"Person {person.uuid} not found in ClickHouse after 30 seconds"
+        assert ch_person["team_id"] == team.id
+        assert ch_person["version"] == 1
+        assert ch_person["is_identified"] == 1  # ClickHouse stores as Int8
+
+        # Parse properties (stored as JSON string in ClickHouse)
+        ch_properties = json.loads(ch_person["properties"])
+        assert ch_properties["email"] == "kafka_test@example.com"
+        assert ch_properties["name"] == "Kafka Test User"
+
+    @pytest.mark.skipif(
+        os.environ.get("KAFKA_ROUNDTRIP_TESTS") != "1",
+        reason="Requires real Kafka infrastructure. Set KAFKA_ROUNDTRIP_TESTS=1 to run.",
+    )
+    def test_reconciliation_kafka_message_format_matches_nodejs(self, team, cluster: ClickhouseCluster):
+        """
+        Test that the reconciliation job's Kafka message format produces the same
+        ClickHouse state as Node.js ingestion would.
+
+        This is important because both systems publish to the same Kafka topic,
+        and ClickHouse must be able to handle messages from both sources.
+        """
+        from django.test import override_settings
+
+        from posthog.dags.person_property_reconciliation import publish_person_to_kafka
+        from posthog.kafka_client.client import _KafkaProducer
+        from posthog.models import Person
+
+        # Create person in Postgres with version 1
+        person = Person.objects.create(
+            team_id=team.id,
+            properties={"email": "original@example.com"},
+            version=1,
+            is_identified=False,
+        )
+
+        # First, publish version 1 to establish baseline
+        person_data_v1 = {
+            "id": person.uuid,
+            "team_id": team.id,
+            "properties": {"email": "original@example.com"},
+            "is_identified": False,
+            "is_deleted": 0,
+            "created_at": person.created_at,
+            "version": 1,
+        }
+
+        with override_settings(TEST=False):
+            producer = _KafkaProducer(test=False)
+            try:
+                publish_person_to_kafka(person_data_v1, producer)
+                producer.flush(timeout=10)
+            finally:
+                producer.close()
+
+        # Wait for version 1 in ClickHouse
+        ch_person_v1 = self._wait_for_clickhouse_person(
+            team_id=team.id,
+            person_uuid=str(person.uuid),
+            expected_version=1,
+        )
+        assert ch_person_v1 is not None, "Version 1 not found in ClickHouse"
+
+        # Now simulate reconciliation updating the person to version 2
+        person_data_v2 = {
+            "id": person.uuid,
+            "team_id": team.id,
+            "properties": {"email": "reconciled@example.com", "source": "reconciliation"},
+            "is_identified": True,
+            "is_deleted": 0,
+            "created_at": person.created_at,
+            "version": 2,
+        }
+
+        with override_settings(TEST=False):
+            producer = _KafkaProducer(test=False)
+            try:
+                publish_person_to_kafka(person_data_v2, producer)
+                producer.flush(timeout=10)
+            finally:
+                producer.close()
+
+        # Wait for version 2 in ClickHouse
+        ch_person_v2 = self._wait_for_clickhouse_person(
+            team_id=team.id,
+            person_uuid=str(person.uuid),
+            expected_version=2,
+        )
+
+        # Verify ClickHouse received the update
+        assert ch_person_v2 is not None, "Version 2 not found in ClickHouse after 30 seconds"
+        assert ch_person_v2["version"] == 2
+        assert ch_person_v2["is_identified"] == 1
+
+        ch_properties = json.loads(ch_person_v2["properties"])
+        assert ch_properties["email"] == "reconciled@example.com"
+        assert ch_properties["source"] == "reconciliation"
+
+    @pytest.mark.skipif(
+        os.environ.get("KAFKA_ROUNDTRIP_TESTS") != "1",
+        reason="Requires real Kafka infrastructure. Set KAFKA_ROUNDTRIP_TESTS=1 to run.",
+    )
+    def test_full_dagster_job_with_real_kafka(self, team, cluster: ClickhouseCluster):
+        """
+        Test the full Dagster reconciliation job with real Kafka.
+
+        This is the most comprehensive test - it:
+        1. Creates persons in Postgres with outdated properties
+        2. Inserts events in ClickHouse with updated properties
+        3. Runs the actual Dagster job with real Kafka producer
+        4. Waits for ClickHouse to consume the Kafka messages
+        5. Verifies both Postgres AND ClickHouse have the correct data
+        """
+        from django.test import override_settings
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation
+        from posthog.kafka_client.client import _KafkaProducer
+        from posthog.models import Person
+
+        # Time setup - create a bug window that includes our test events
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = (now - timedelta(days=10)).strftime("%Y-%m-%d %H:%M:%S")
+        bug_window_end = (now + timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+        event_ts = now - timedelta(days=5)
+
+        # Create person in Postgres with old property value
+        person = Person.objects.create(
+            team_id=team.id,
+            properties={"email": "old@example.com", "unchanged": "value"},
+            properties_last_updated_at={
+                "email": "2024-01-01T00:00:00+00:00",
+                "unchanged": "2024-01-01T00:00:00+00:00",
+            },
+            properties_last_operation={"email": "set", "unchanged": "set"},
+            version=1,
+        )
+
+        # Insert event in ClickHouse with new property value
+        def insert_event(client: Client) -> None:
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                [
+                    (
+                        team.id,
+                        "test_distinct_id",
+                        person.uuid,
+                        event_ts,
+                        json.dumps({"$set": {"email": "new@example.com"}}),
+                    )
+                ],
+            )
+
+        cluster.any_host(insert_event).result()
+
+        # Insert person in ClickHouse (required for the reconciliation query join)
+        def insert_person_ch(client: Client) -> None:
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, is_deleted, _timestamp)
+                VALUES""",
+                [
+                    (
+                        team.id,
+                        person.uuid,
+                        json.dumps({"email": "old@example.com", "unchanged": "value"}),
+                        1,
+                        0,
+                        now - timedelta(days=8),
+                    )
+                ],
+            )
+
+        cluster.any_host(insert_person_ch).result()
+
+        # Get a Postgres connection for the job
+        from posthog.dags.common.resources import get_persons_db_connection
+
+        persons_conn = get_persons_db_connection()
+
+        # Create real Kafka producer
+        with override_settings(TEST=False):
+            kafka_producer = _KafkaProducer(test=False)
+
+            try:
+                # Run the actual Dagster job
+                result = person_property_reconciliation.execute_in_process(
+                    run_config={
+                        "ops": {
+                            "get_teams_to_reconcile": {
+                                "config": {
+                                    "team_ids": [team.id],
+                                    "bug_window_start": bug_window_start,
+                                    "bug_window_end": bug_window_end,
+                                    "dry_run": False,
+                                    "backup_enabled": False,
+                                    "batch_size": 100,
+                                }
+                            },
+                            "reconcile_team_chunk": {
+                                "config": {
+                                    "bug_window_start": bug_window_start,
+                                    "bug_window_end": bug_window_end,
+                                    "dry_run": False,
+                                    "backup_enabled": False,
+                                    "batch_size": 100,
+                                }
+                            },
+                        }
+                    },
+                    resources={
+                        "cluster": cluster,
+                        "persons_database": persons_conn,
+                        "kafka_producer": kafka_producer,
+                    },
+                )
+
+                assert result.success, f"Dagster job failed: {result}"
+
+                # Flush kafka to ensure all messages are sent
+                kafka_producer.flush(timeout=10)
+
+            finally:
+                kafka_producer.close()
+
+        # Verify Postgres was updated
+        person.refresh_from_db()
+        assert (
+            person.properties["email"] == "new@example.com"
+        ), f"Postgres email not updated. Expected 'new@example.com', got '{person.properties.get('email')}'"
+        assert person.properties["unchanged"] == "value", "Unchanged property was modified"
+        assert person.version == 2, f"Postgres version not incremented. Expected 2, got {person.version}"
+
+        # Wait for ClickHouse to consume the Kafka message
+        ch_person = self._wait_for_clickhouse_person(
+            team_id=team.id,
+            person_uuid=str(person.uuid),
+            expected_version=2,
+            max_wait_seconds=30,
+        )
+
+        # Verify ClickHouse received the update via Kafka
+        assert ch_person is not None, (
+            f"Person {person.uuid} version 2 not found in ClickHouse after 30 seconds. "
+            "This suggests the Kafka message format may not be compatible with ClickHouse."
+        )
+        assert ch_person["version"] == 2
+
+        ch_properties = json.loads(ch_person["properties"])
+        assert (
+            ch_properties["email"] == "new@example.com"
+        ), f"ClickHouse email not updated. Expected 'new@example.com', got '{ch_properties.get('email')}'"
+        assert ch_properties["unchanged"] == "value", "ClickHouse unchanged property was modified"
