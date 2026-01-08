@@ -308,12 +308,17 @@ class KernelRuntimeService:
         with self._service_lock:
             handle = self._kernels.get(key)
 
-            if handle and handle.manager.is_alive():
+            if handle and self._is_handle_alive(handle):
                 self._touch_runtime(handle, status_override=KernelRuntime.Status.RUNNING)
                 return handle
 
             if handle:
                 self._shutdown_handle(handle, status=KernelRuntime.Status.ERROR)
+
+            handle = self._reuse_kernel_handle(notebook, user)
+            if handle:
+                self._kernels[key] = handle
+                return handle
 
             runtime = self._create_runtime(notebook, user)
             manager = KernelManager(kernel_name="python3")
@@ -375,6 +380,73 @@ class KernelRuntimeService:
         if status_override:
             runtime.status = status_override
         runtime.save(update_fields=["last_used_at", "status"])
+
+    def _is_handle_alive(self, handle: _KernelHandle) -> bool:
+        if self._is_process_running(handle.runtime.kernel_pid):
+            return True
+        return handle.manager.is_alive()
+
+    def _is_process_running(self, pid: int | None) -> bool:
+        if not pid:
+            return False
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+
+    def _reuse_kernel_handle(self, notebook: Notebook, user: User | None) -> _KernelHandle | None:
+        runtime = (
+            KernelRuntime.objects.filter(
+                team_id=notebook.team_id,
+                notebook_short_id=notebook.short_id,
+                user=user if isinstance(user, User) else None,
+                status=KernelRuntime.Status.RUNNING,
+            )
+            .exclude(connection_file__isnull=True)
+            .exclude(connection_file="")
+            .order_by("-last_used_at")
+            .first()
+        )
+
+        if not runtime:
+            return None
+
+        if runtime.kernel_pid and not self._is_process_running(runtime.kernel_pid):
+            self._mark_runtime_error(runtime, "Kernel process is not running")
+            return None
+
+        manager = KernelManager(connection_file=runtime.connection_file)
+        client = manager.blocking_client()
+        try:
+            manager.load_connection_file()
+            client.load_connection_file(runtime.connection_file)
+            client.start_channels()
+            client.wait_for_ready(timeout=self._startup_timeout)
+        except Exception:
+            logger.exception(
+                "notebook_kernel_reconnect_failed",
+                notebook_short_id=notebook.short_id,
+                kernel_runtime_id=str(runtime.id),
+            )
+            with suppress(Exception):
+                client.stop_channels()
+            self._mark_runtime_error(runtime, "Failed to reconnect to kernel")
+            return None
+
+        handle = _KernelHandle(
+            runtime=runtime,
+            manager=manager,
+            client=client,
+            lock=threading.RLock(),
+            started_at=timezone.now(),
+            last_activity_at=timezone.now(),
+            execution_count=0,
+        )
+        self._touch_runtime(handle, status_override=KernelRuntime.Status.RUNNING)
+        return handle
 
     def _mark_runtime_error(self, runtime: KernelRuntime, message: str) -> None:
         runtime.status = KernelRuntime.Status.ERROR
