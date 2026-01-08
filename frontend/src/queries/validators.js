@@ -46,7 +46,7 @@ const schema39 = {
 }
 const schema13 = {
     additionalProperties: false,
-    description: 'Sync with plugin-server/src/types.ts',
+    description: 'Sync with nodejs/src/types.ts',
     properties: {
         key: { type: 'string' },
         label: { type: 'string' },
@@ -58,7 +58,7 @@ const schema13 = {
     type: 'object',
 }
 const schema14 = {
-    description: 'Sync with plugin-server/src/types.ts',
+    description: 'Sync with nodejs/src/types.ts',
     enum: [
         'exact',
         'is_not',
@@ -435,7 +435,7 @@ function validate12(data, { instancePath = '', parentData, parentDataProperty, r
 }
 const schema18 = {
     additionalProperties: false,
-    description: 'Sync with plugin-server/src/types.ts',
+    description: 'Sync with nodejs/src/types.ts',
     properties: {
         key: { type: 'string' },
         label: { type: 'string' },
@@ -663,7 +663,7 @@ function validate16(data, { instancePath = '', parentData, parentDataProperty, r
 }
 const schema20 = {
     additionalProperties: false,
-    description: 'Sync with plugin-server/src/types.ts',
+    description: 'Sync with nodejs/src/types.ts',
     properties: {
         key: { enum: ['tag_name', 'text', 'href', 'selector'], type: 'string' },
         label: { type: 'string' },
@@ -1358,7 +1358,7 @@ function validate25(data, { instancePath = '', parentData, parentDataProperty, r
 }
 const schema26 = {
     additionalProperties: false,
-    description: 'Sync with plugin-server/src/types.ts',
+    description: 'Sync with nodejs/src/types.ts',
     properties: {
         cohort_name: { type: 'string' },
         key: { const: 'id', type: 'string' },

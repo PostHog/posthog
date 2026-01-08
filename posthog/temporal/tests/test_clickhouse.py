@@ -1,12 +1,14 @@
 import uuid
 import asyncio
 import datetime as dt
+import contextlib
 
 import pytest
 from unittest.mock import MagicMock, patch
 
 from posthog.clickhouse.query_tagging import QueryTags
 from posthog.temporal.common.clickhouse import (
+    ClickHouseCheckQueryStatusError,
     ClickHouseClient,
     ClickHouseError,
     ClickHouseMemoryLimitExceededError,
@@ -156,6 +158,37 @@ def test_clickhouse_memory_limit_exceeded_error(clickhouse_client):
                 pass
 
 
+@pytest.mark.parametrize(
+    "query,query_parameters,expected",
+    [
+        (
+            "select * from events where event = {event}",
+            {"event": "hello"},
+            "select * from events where event = 'hello'",
+        ),
+        (
+            "select * from events where event = %(event)s",
+            {"event": "world"},
+            "select * from events where event = 'world'",
+        ),
+        (
+            "select * from events where event = %(event)s and event != {another}",
+            {"event": "index_{1}", "another": "event"},
+            "select * from events where event = 'index_{1}' and event != 'event'",
+        ),
+        (
+            "select * from events where event = %(event)s and event != {another}",
+            {"event": "index_{something}", "another": "event"},
+            "select * from events where event = 'index_{something}' and event != 'event'",
+        ),
+    ],
+)
+def test_prepare_query(clickhouse_client, query, query_parameters, expected):
+    """Test data is encoded as expected."""
+    result = clickhouse_client.prepare_query(query, query_parameters)
+    assert result == expected
+
+
 async def test_acancel_query(clickhouse_client, django_db_setup):
     """Test that acancel_query successfully cancels a long-running query."""
     query_id = f"test-long-running-query-{uuid.uuid4()}"
@@ -232,6 +265,36 @@ async def test_acheck_query_in_query_log_not_found(clickhouse_client, django_db_
     non_existent_query_id = f"test-non-existent-query-{uuid.uuid4()}"
     with pytest.raises(ClickHouseQueryNotFound):
         await clickhouse_client.acheck_query_in_query_log(non_existent_query_id)
+
+
+async def test_acheck_query_in_query_log_error(clickhouse_client, django_db_setup):
+    """Test that acheck_query_in_query_log raises ClickHouseCheckQueryStatusError for errors."""
+    # Simulate an exception from the ClickHouse client
+    # (this is an example of a response we've seen in production, where a 200 is returned but it is actually an error)
+    # because we use Format JSONEachRow we get the exception returned inside a JSON object
+    mock_response = MagicMock()
+    mock_response.status = 200
+
+    async def mock_read():
+        return b'{"exception": "Code: 202. DB::Exception: Received from dummy-ch-node.internal. DB::Exception: Too many simultaneous queries for all users. Current: 10, maximum: 10. (TOO_MANY_SIMULTANEOUS_QUERIES) (version x.x.x.x (official build))"}'
+
+    mock_response.content.read = mock_read
+
+    @contextlib.asynccontextmanager
+    async def mock_get(*args, **kwargs):
+        yield mock_response
+
+    mock_session = MagicMock()
+    mock_session.get = mock_get
+
+    with patch.object(
+        clickhouse_client,
+        "session",
+        mock_session,
+    ):
+        query_id = f"test-error-query-{uuid.uuid4()}"
+        with pytest.raises(ClickHouseCheckQueryStatusError):
+            await clickhouse_client.acheck_query_in_query_log(query_id)
 
 
 async def test_acheck_query_found(clickhouse_client, django_db_setup):

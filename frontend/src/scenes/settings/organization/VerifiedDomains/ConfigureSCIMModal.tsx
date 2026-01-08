@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconRefresh } from '@posthog/icons'
+import { Link } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -82,12 +83,11 @@ export function ConfigureSCIMModal(): JSX.Element {
                     <h3>Configure SCIM provisioning</h3>
                 </LemonModal.Header>
                 <LemonModal.Content className="space-y-2">
-                    {/* TODO: Add docs link once SCIM docs are published */}
-                    {/* <p>
-                        <Link to="https://posthog.com/docs/data/scim" target="_blank" targetBlankIcon>
+                    <p>
+                        <Link to="https://posthog.com/docs/data/sso#setting-up-scim" target="_blank" targetBlankIcon>
                             Read the docs
                         </Link>
-                    </p> */}
+                    </p>
 
                     <div className="space-y-1">
                         <LemonLabel>Enable SCIM</LemonLabel>

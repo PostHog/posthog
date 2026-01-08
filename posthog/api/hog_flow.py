@@ -15,6 +15,7 @@ from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
 from posthog.api.app_metrics2 import AppMetricsMixin
+from posthog.api.hog_flow_batch_job import HogFlowBatchJobSerializer
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -150,7 +151,7 @@ class HogFlowVariableSerializer(serializers.ListSerializer):
 
 
 class HogFlowMaskingSerializer(serializers.Serializer):
-    ttl = serializers.IntegerField(required=False, min_value=60, max_value=60 * 60 * 24 * 365, allow_null=True)
+    ttl = serializers.IntegerField(required=False, min_value=60, max_value=60 * 60 * 24 * 365 * 3, allow_null=True)
     threshold = serializers.IntegerField(required=False, allow_null=True)
     hash = serializers.CharField(required=True)
     bytecode = serializers.JSONField(required=False, allow_null=True)
@@ -425,3 +426,20 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
                 "total_users": total_users,
             }
         )
+
+    @action(detail=True, methods=["POST"])
+    def batch_jobs(self, request: Request, *args, **kwargs):
+        try:
+            hog_flow = self.get_object()
+        except Exception:
+            raise exceptions.NotFound(f"HogFlow {kwargs.get('pk')} not found")
+
+        serializer = HogFlowBatchJobSerializer(
+            data={**request.data, "hog_flow": hog_flow.id}, context={**self.get_serializer_context()}
+        )
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=400)
+
+        batch_job = serializer.save()
+
+        return Response(HogFlowBatchJobSerializer(batch_job).data)

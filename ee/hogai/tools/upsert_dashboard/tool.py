@@ -51,7 +51,7 @@ class UpdateDashboardToolArgs(BaseModel):
         default=None,
     )
     replace_insights: bool | None = Field(
-        description="Whether to replace the existing insights in the dashboard with the provided insights. True will replace all existing with the provided insights, keeping the provided ordering. False will append new insights to the end of the dashboard.",
+        description="When False (default), appends provided insights to existing ones. When True, the dashboard will contain exactly the insights in insight_ids (others are removed).",
         default=False,
     )
     name: str | None = Field(
@@ -80,6 +80,9 @@ class UpsertDashboardTool(MaxTool):
     context_prompt_template: str = UPSERT_DASHBOARD_CONTEXT_PROMPT_TEMPLATE
 
     args_schema: type[BaseModel] = UpsertDashboardToolArgs
+
+    def get_required_resource_access(self):
+        return [("dashboard", "editor")]
 
     async def _arun_impl(self, action: UpsertDashboardAction) -> tuple[str, ToolMessagesArtifact | None]:
         if isinstance(action, CreateDashboardToolArgs):

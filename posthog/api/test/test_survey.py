@@ -184,8 +184,8 @@ class TestSurvey(APIBaseTest):
             ]
         }
 
+        assert survey.internal_targeting_flag is not None
         assert survey.internal_targeting_flag.filters == user_submitted_dismissed_filter
-
         assert survey.internal_targeting_flag.active is False
 
         # launch survey
@@ -282,6 +282,7 @@ class TestSurvey(APIBaseTest):
             ]
         }
 
+        assert survey.internal_targeting_flag is not None
         survey.internal_targeting_flag.refresh_from_db()
         assert (
             survey.internal_targeting_flag.filters == expected_filters_with_iteration
@@ -1144,6 +1145,164 @@ class TestSurvey(APIBaseTest):
             },
         )
         assert FeatureFlag.objects.filter(id=survey.internal_targeting_flag.id).get().active is True
+
+    def test_survey_with_wait_period_creates_targeting_flag_with_last_seen_date_check(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey with wait period",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "What do you think?"}],
+                "conditions": {
+                    "seenSurveyWaitPeriodInDays": 7,
+                },
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+
+        survey = Survey.objects.get(id=response_data["id"])
+        survey_id = str(survey.id)
+        assert survey.internal_targeting_flag is not None
+
+        expected_filters = {
+            "groups": [
+                {
+                    "variant": "",
+                    "rollout_percentage": 100,
+                    "properties": [
+                        {
+                            "key": f"$survey_dismissed/{survey_id}",
+                            "type": "person",
+                            "value": "is_not_set",
+                            "operator": "is_not_set",
+                        },
+                        {
+                            "key": f"$survey_responded/{survey_id}",
+                            "type": "person",
+                            "value": "is_not_set",
+                            "operator": "is_not_set",
+                        },
+                        {
+                            "key": "$last_seen_survey_date",
+                            "type": "person",
+                            "value": "is_not_set",
+                            "operator": "is_not_set",
+                        },
+                    ],
+                },
+                {
+                    "variant": "",
+                    "rollout_percentage": 100,
+                    "properties": [
+                        {
+                            "key": f"$survey_dismissed/{survey_id}",
+                            "type": "person",
+                            "value": "is_not_set",
+                            "operator": "is_not_set",
+                        },
+                        {
+                            "key": f"$survey_responded/{survey_id}",
+                            "type": "person",
+                            "value": "is_not_set",
+                            "operator": "is_not_set",
+                        },
+                        {
+                            "key": "$last_seen_survey_date",
+                            "type": "person",
+                            "value": "7d",
+                            "operator": "is_date_before",
+                        },
+                    ],
+                },
+            ]
+        }
+        assert survey.internal_targeting_flag is not None
+        assert survey.internal_targeting_flag.filters == expected_filters
+
+    def test_survey_without_wait_period_has_single_group_targeting_flag(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey without wait period",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "What do you think?"}],
+                "conditions": {
+                    "url": "https://example.com",
+                },
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+
+        survey = Survey.objects.get(id=response_data["id"])
+        survey_id = str(survey.id)
+        assert survey.internal_targeting_flag is not None
+
+        expected_filters = {
+            "groups": [
+                {
+                    "variant": "",
+                    "rollout_percentage": 100,
+                    "properties": [
+                        {
+                            "key": f"$survey_dismissed/{survey_id}",
+                            "type": "person",
+                            "value": "is_not_set",
+                            "operator": "is_not_set",
+                        },
+                        {
+                            "key": f"$survey_responded/{survey_id}",
+                            "type": "person",
+                            "value": "is_not_set",
+                            "operator": "is_not_set",
+                        },
+                    ],
+                }
+            ]
+        }
+        assert survey.internal_targeting_flag.filters == expected_filters
+
+    def test_updating_survey_wait_period_updates_targeting_flag(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey to update",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "What do you think?"}],
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+
+        survey = Survey.objects.get(id=response_data["id"])
+        assert survey.internal_targeting_flag is not None
+        assert len(survey.internal_targeting_flag.filters["groups"]) == 1
+
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "conditions": {
+                    "seenSurveyWaitPeriodInDays": 14,
+                },
+            },
+            format="json",
+        )
+        assert update_response.status_code == status.HTTP_200_OK
+
+        survey.refresh_from_db()
+        assert survey.internal_targeting_flag is not None
+        survey.internal_targeting_flag.refresh_from_db()
+        assert len(survey.internal_targeting_flag.filters["groups"]) == 2
+
+        second_group = survey.internal_targeting_flag.filters["groups"][1]
+        last_seen_property = next((p for p in second_group["properties"] if p["key"] == "$last_seen_survey_date"), None)
+        assert last_seen_property is not None
+        assert last_seen_property["value"] == "14d"
+        assert last_seen_property["operator"] == "is_date_before"
 
     def test_options_unauthenticated(self):
         unauthenticated_client = Client(enforce_csrf_checks=True)
@@ -2966,7 +3125,7 @@ class TestSurveysRecurringIterations(APIBaseTest):
         assert len(response_data["iteration_start_dates"]) == 2
         assert response_data["current_iteration"] == 1
         survey.refresh_from_db()
-        assert survey.internal_targeting_flag
+        assert survey.internal_targeting_flag is not None
         survey_id = response_data["id"]
         user_submitted_dismissed_filter = {
             "groups": [

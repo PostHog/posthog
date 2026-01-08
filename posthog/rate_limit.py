@@ -371,7 +371,21 @@ class UserOrEmailRateThrottle(SimpleRateThrottle):
         return (num_requests, duration)
 
 
-class SignupIPThrottle(SimpleRateThrottle):
+class IPThrottle(SimpleRateThrottle):
+    """
+    Rate limit requests by IP address.
+    This is a general purpose throttle that can be used to rate limit any endpoint by IP address.
+    You should subclass this and set the rate and scope.
+    """
+
+    def get_cache_key(self, request, view):
+        from posthog.utils import get_ip_address
+
+        ip = get_ip_address(request)
+        return self.cache_format % {"scope": self.scope, "ident": ip}
+
+
+class SignupIPThrottle(IPThrottle):
     """
     Rate limit signups by IP address to avoid a single IP address from creating too many accounts.
     """
@@ -379,11 +393,15 @@ class SignupIPThrottle(SimpleRateThrottle):
     scope = "signup_ip"
     rate = "5/day"
 
-    def get_cache_key(self, request, view):
-        from posthog.utils import get_ip_address
 
-        ip = get_ip_address(request)
-        return self.cache_format % {"scope": self.scope, "ident": ip}
+class OnboardingIPThrottle(IPThrottle):
+    """
+    Rate limit onboarding product recommendations by IP address.
+    This endpoint uses an LLM, so we want to be conservative with rate limits.
+    """
+
+    scope = "onboarding_ip"
+    rate = "10/hour"
 
 
 class BurstRateThrottle(PersonalApiKeyRateThrottle):
@@ -503,6 +521,13 @@ class LLMProxySustainedRateThrottle(UserRateThrottle):
     # Intended to block slower but sustained bursts of requests, per user
     scope = "llm_proxy_sustained"
     rate = "500/hour"
+
+
+class LLMProxyDailyRateThrottle(UserRateThrottle):
+    # Daily cap for LLM proxy (playground) endpoint
+    # Hard limit to prevent runaway costs from sustained abuse
+    scope = "llm_proxy_daily"
+    rate = "1000/day"
 
 
 class HogQLQueryThrottle(PersonalApiKeyRateThrottle):
@@ -653,10 +678,9 @@ class SetupWizardQueryRateThrottle(SimpleRateThrottle):
         return f"throttle_wizard_query_{sha_hash}"
 
 
-class BreakGlassBurstThrottle(UserOrEmailRateThrottle):
-    # Throttle class that can be applied when a bug is causing too many requests to hit and an endpoint, e.g. a bug in the frontend hitting an endpoint in a loop.
-    # Prefer making a subclass of this for specific endpoints, and setting a scope
-    rate = "15/minute"
+class SymbolSetUploadBurstRateThrottle(PersonalApiKeyRateThrottle):
+    scope = "symbol_set_upload_burst"
+    rate = "1200/minute"
 
 
 class BreakGlassSustainedThrottle(UserOrEmailRateThrottle):
@@ -665,9 +689,36 @@ class BreakGlassSustainedThrottle(UserOrEmailRateThrottle):
     rate = "75/hour"
 
 
-class SymbolSetUploadBurstRateThrottle(PersonalApiKeyRateThrottle):
-    scope = "symbol_set_upload_burst"
-    rate = "1200/minute"
+class WidgetUserBurstThrottle(SimpleRateThrottle):
+    """Rate limit per widget_session_id or IP for POST/GET requests."""
+
+    scope = "widget_user_burst"
+    rate = "30/minute"
+
+    def get_cache_key(self, request, view):
+        # Throttle by widget_session_id if available, otherwise by IP
+        widget_session_id = request.data.get("widget_session_id") or request.query_params.get("widget_session_id")
+        if widget_session_id:
+            ident = hashlib.sha256(widget_session_id.encode()).hexdigest()
+        else:
+            ident = self.get_ident(request)
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
+class WidgetTeamThrottle(SimpleRateThrottle):
+    """Rate limit per team token."""
+
+    scope = "widget_team"
+    rate = "1000/hour"
+
+    def get_cache_key(self, request, view):
+        # Throttle by team token if available, otherwise by IP
+        token = request.headers.get("X-Conversations-Token", "")
+        if token:
+            ident = hashlib.sha256(token.encode()).hexdigest()
+        else:
+            ident = self.get_ident(request)
+        return self.cache_format % {"scope": self.scope, "ident": ident}
 
 
 class SymbolSetUploadSustainedRateThrottle(PersonalApiKeyRateThrottle):

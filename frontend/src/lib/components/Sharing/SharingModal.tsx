@@ -237,11 +237,16 @@ export function SharingModalContent({
                                                         )}
                                                     </div>
                                                 }
-                                                onChange={(passwordRequired: boolean) =>
-                                                    guardAvailableFeature(AvailableFeature.ADVANCED_PERMISSIONS, () =>
+                                                onChange={(passwordRequired: boolean) => {
+                                                    if (passwordRequired) {
+                                                        guardAvailableFeature(
+                                                            AvailableFeature.ADVANCED_PERMISSIONS,
+                                                            () => setPasswordRequired(passwordRequired)
+                                                        )
+                                                    } else {
                                                         setPasswordRequired(passwordRequired)
-                                                    )
-                                                }
+                                                    }
+                                                }}
                                                 checked={sharingConfiguration.password_required}
                                             />
                                             {sharingConfiguration.password_required && (
@@ -324,15 +329,24 @@ export function SharingModalContent({
                                                                 )}
                                                             </div>
                                                         }
-                                                        onChange={() =>
-                                                            guardAvailableFeature(
-                                                                AvailableFeature.WHITE_LABELLING,
-                                                                () => {
-                                                                    // setSharingSettingsValue is used to update the form state and report the event
-                                                                    setSharingSettingsValue('whitelabel', !value)
-                                                                }
-                                                            )
-                                                        }
+                                                        onChange={(showBranding: boolean) => {
+                                                            const newWhitelabelValue = !showBranding
+                                                            if (newWhitelabelValue) {
+                                                                guardAvailableFeature(
+                                                                    AvailableFeature.WHITE_LABELLING,
+                                                                    () =>
+                                                                        setSharingSettingsValue(
+                                                                            'whitelabel',
+                                                                            newWhitelabelValue
+                                                                        )
+                                                                )
+                                                            } else {
+                                                                setSharingSettingsValue(
+                                                                    'whitelabel',
+                                                                    newWhitelabelValue
+                                                                )
+                                                            }
+                                                        }}
                                                         checked={!value}
                                                     />
                                                 )}

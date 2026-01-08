@@ -23,7 +23,7 @@ import {
 } from '~/types'
 
 import type { productToursLogicType } from './productToursLogicType'
-import { captureScreenshot, getElementMetadata, getSmartUrlDefaults } from './utils'
+import { captureScreenshot, getElementMetadata } from './utils'
 
 const RECENT_GOALS_KEY = 'posthog-product-tours-recent-goals'
 
@@ -155,6 +155,7 @@ export const productToursLogic = kea<productToursLogicType>([
         newTour: true,
         saveTour: true,
         previewTour: true,
+        startPreviewMode: true,
         stopPreview: true,
         deleteTour: (id: string) => ({ id }),
 
@@ -207,7 +208,7 @@ export const productToursLogic = kea<productToursLogicType>([
         isPreviewing: [
             false,
             {
-                previewTour: () => true,
+                startPreviewMode: () => true,
                 stopPreview: () => false,
                 selectTour: () => false,
             },
@@ -336,9 +337,6 @@ export const productToursLogic = kea<productToursLogicType>([
                 // Update history if step order changed (or create initial version for new tours)
                 const stepOrderHistory = getUpdatedStepOrderHistory(stepsForApi, existingHistory)
 
-                // For new tours, set smart URL defaults based on current page
-                const urlDefaults = !isUpdate ? getSmartUrlDefaults() : null
-
                 const payload = {
                     name,
                     content: {
@@ -346,15 +344,6 @@ export const productToursLogic = kea<productToursLogicType>([
                         ...existingTour?.content,
                         steps: stepsForApi,
                         step_order_history: stepOrderHistory,
-                        // Set smart URL defaults for new tours (don't override existing conditions)
-                        ...(!isUpdate && !existingTour?.content?.conditions
-                            ? {
-                                  conditions: {
-                                      url: urlDefaults?.url,
-                                      urlMatchType: urlDefaults?.urlMatchType,
-                                  },
-                              }
-                            : {}),
                     },
                 }
                 const url = isUpdate
@@ -581,7 +570,7 @@ export const productToursLogic = kea<productToursLogicType>([
             actions.submitTourForm()
         },
         previewTour: () => {
-            const { tourForm, posthog } = values
+            const { tourForm, posthog, selectedTourId, tours } = values
             if (!tourForm || !posthog?.productTours) {
                 lemonToast.error('Unable to preview tour')
                 return
@@ -595,7 +584,25 @@ export const productToursLogic = kea<productToursLogicType>([
                 return
             }
 
+            // Check if the first element step's target exists on this page
+            const firstElementStep = tourForm.steps.find((step) => step.type === 'element' && step.selector)
+            if (firstElementStep && !getStepElement(firstElementStep)) {
+                // eslint-disable-next-line no-alert
+                alert(
+                    "Can't preview tour: the first step targets an element not found on this page.\n\nNavigate to a page where this element exists, or update the selector."
+                )
+                return
+            }
+
+            // Validation passed - now enter preview mode
+            actions.startPreviewMode()
             toolbarLogic.actions.toggleMinimized(true)
+
+            // Get appearance from the saved tour if editing an existing one
+            const existingTour =
+                selectedTourId && selectedTourId !== 'new'
+                    ? tours.find((t: ProductTour) => t.id === selectedTourId)
+                    : null
 
             const tour = {
                 id: `preview-${Date.now()}`,
@@ -604,6 +611,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 start_date: null,
                 end_date: null,
                 steps: tourForm.steps,
+                appearance: existingTour?.content?.appearance,
             }
 
             productTours.previewTour(tour)

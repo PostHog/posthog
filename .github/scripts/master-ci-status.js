@@ -51,7 +51,10 @@ function handleFailure(state, event, commitTs, core, fs) {
 
     if (isNew) {
         state = {
-            since: new Date().toISOString(),
+            // Use the failing commit's timestamp as incident start, not wall clock.
+            // This ensures pendingWorkflows check compares against when the failure
+            // was authored, not when we detected it (which could be much later).
+            since: new Date(commitTs).toISOString(),
             sha_ts: { [event.head_sha]: commitTs },
             fail_ts: { [event.name]: commitTs },
             ok_ts: {},
@@ -103,6 +106,10 @@ function handleSuccess(state, event, commitTs, core, fs) {
     const pendingWorkflows = requiredWorkflows.filter((wf) => (state.ok_ts[wf] ?? 0) < incidentStart);
     const resolved = failing.length === 0 && pendingWorkflows.length === 0;
 
+    if (resolved) {
+        state.resolved = true;
+    }
+
     pruneOldShas(state);
     fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
 
@@ -114,7 +121,7 @@ function handleSuccess(state, event, commitTs, core, fs) {
     core.setOutput('since', state.since);
     core.setOutput('channel', state.channel || '');
     core.setOutput('ts', state.ts || '');
-    core.setOutput('save_cache', resolved ? 'false' : 'true');
+    core.setOutput('save_cache', 'true');
 
     console.log(`Action: ${wasFailing ? 'resolve' : 'none'}`);
     console.log(`Recovered: ${wasFailing ? event.name : 'none'}`);
@@ -135,14 +142,19 @@ module.exports = async ({ github, context, core }) => {
     if (fs.existsSync(STATE_FILE)) {
         try {
             const raw = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
-            // Ensure required fields exist (handles old format or corrupted state)
-            state = {
-                ...raw,
-                sha_ts: raw.sha_ts || {},
-                fail_ts: raw.fail_ts || {},
-                ok_ts: raw.ok_ts || {},
-            };
-            console.log('Loaded existing incident state');
+            // If incident was already resolved, treat as no incident
+            if (raw.resolved) {
+                console.log('Found resolved incident, treating as no active incident');
+            } else {
+                // Ensure required fields exist (handles old format or corrupted state)
+                state = {
+                    ...raw,
+                    sha_ts: raw.sha_ts || {},
+                    fail_ts: raw.fail_ts || {},
+                    ok_ts: raw.ok_ts || {},
+                };
+                console.log('Loaded existing incident state');
+            }
         } catch (e) {
             console.log('Failed to parse state file, treating as no incident');
         }
