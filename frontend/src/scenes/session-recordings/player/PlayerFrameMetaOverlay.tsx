@@ -21,7 +21,7 @@ export function PlayerFrameMetaOverlay(): JSX.Element | null {
             </span>
             {isInactive && (
                 <span>
-                    <span className="font-bold text-yellow-400">[IDLE]</span>
+                    <span className="font-bold text-yellow-400">[IDLE - SKIPPING INACTIVITY]</span>
                 </span>
             )}
         </div>
