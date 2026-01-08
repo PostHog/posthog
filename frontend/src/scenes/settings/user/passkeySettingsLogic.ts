@@ -8,29 +8,7 @@ import api from 'lib/api'
 import { userLogic } from 'scenes/userLogic'
 
 import type { passkeySettingsLogicType } from './passkeySettingsLogicType'
-
-const WEBAUTHN_ERROR_MESSAGES: Record<string, string> = {
-    NotAllowedError: 'Operation was cancelled or timed out.',
-    InvalidStateError: 'This passkey is already registered.',
-    SecurityError: 'Security error occurred. Please try again.',
-    AbortError: 'Operation was cancelled.',
-}
-
-function getPasskeyErrorMessage(error: any, defaultMessage: string): string {
-    if (error?.name && WEBAUTHN_ERROR_MESSAGES[error.name]) {
-        return WEBAUTHN_ERROR_MESSAGES[error.name]
-    }
-
-    if (error?.detail) {
-        return error.detail
-    }
-
-    if (error?.message) {
-        return error.message
-    }
-
-    return defaultMessage
-}
+import { getPasskeyErrorMessage } from './passkeys/utils'
 
 export interface PasskeyCredential {
     id: number

@@ -1,10 +1,11 @@
-import { type PublicKeyCredentialDescriptorJSON, startAuthentication } from '@simplewebauthn/browser'
+import { type PublicKeyCredentialDescriptorJSON, WebAuthnError, startAuthentication } from '@simplewebauthn/browser'
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
+import { getPasskeyErrorMessage } from 'scenes/settings/user/passkeys/utils'
 import { userLogic } from 'scenes/userLogic'
 
 import { handleLoginRedirect, loginLogic } from './loginLogic'
@@ -22,35 +23,6 @@ export interface BeginPasskeyLoginParams {
     next?: string
     email?: string
     reauth?: 'true' | 'false'
-}
-
-const WEBAUTHN_ERROR_MESSAGES: Record<string, string> = {
-    NotAllowedError: 'Authentication was cancelled or timed out.',
-    SecurityError: 'Security error occurred. Please try again.',
-    AbortError: 'Authentication was cancelled.',
-}
-
-interface WebAuthnError {
-    name?: string
-    detail?: string
-}
-
-function getPasskeyErrorMessage(error: unknown): string {
-    if (error && typeof error === 'object' && 'name' in error) {
-        const errorName = (error as WebAuthnError).name
-        if (errorName && WEBAUTHN_ERROR_MESSAGES[errorName]) {
-            return WEBAUTHN_ERROR_MESSAGES[errorName]
-        }
-    }
-
-    if (error && typeof error === 'object' && 'detail' in error) {
-        const errorDetail = (error as WebAuthnError).detail
-        if (errorDetail) {
-            return errorDetail
-        }
-    }
-
-    return 'Passkey authentication failed. Please try again.'
 }
 
 export const passkeyLogic = kea<passkeyLogicType>([
