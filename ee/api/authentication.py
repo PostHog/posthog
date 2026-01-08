@@ -69,7 +69,7 @@ class MultitenantSAMLAuth(SAMLAuth):
             posthoganalytics.tag("request_data", json.dumps(self.strategy.request_data()))
             raise
 
-    def get_idp(self, organization_domain_or_id: Union["OrganizationDomain", str]):
+    def get_idp(self, organization_domain_or_id: Union["OrganizationDomain", str]):  # type: ignore[override]
         try:
             organization_domain = (
                 organization_domain_or_id
