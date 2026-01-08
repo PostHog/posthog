@@ -63,23 +63,6 @@ export const BucketingIdentifierEnumApi = {
 
 export type MinimalFeatureFlagApiFilters = { [key: string]: unknown }
 
-/**
- * Specifies where this feature flag should be evaluated
-
-* `server` - Server
-* `client` - Client
-* `all` - All
- */
-export type MinimalFeatureFlagApiEvaluationRuntime = EvaluationRuntimeEnumApi | BlankEnumApi | NullEnumApi
-
-/**
- * Identifier used for bucketing users into rollout and variants
-
-* `distinct_id` - User ID (default)
-* `device_id` - Device ID
- */
-export type MinimalFeatureFlagApiBucketingIdentifier = BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi
-
 export interface MinimalFeatureFlagApi {
     readonly id: number
     readonly team_id: number
@@ -104,12 +87,12 @@ export interface MinimalFeatureFlagApi {
 * `server` - Server
 * `client` - Client
 * `all` - All */
-    evaluation_runtime?: MinimalFeatureFlagApiEvaluationRuntime
+    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | NullEnumApi
     /** Identifier used for bucketing users into rollout and variants
 
 * `distinct_id` - User ID (default)
 * `device_id` - Device ID */
-    bucketing_identifier?: MinimalFeatureFlagApiBucketingIdentifier
+    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi
     readonly evaluation_tags: readonly string[]
 }
 
@@ -137,14 +120,10 @@ export const RoleAtOrganizationEnumApi = {
     other: 'other',
 } as const
 
-export type UserBasicApiHedgehogConfigAnyOf = { [key: string]: unknown }
-
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = UserBasicApiHedgehogConfigAnyOf | null | null
-
-export type UserBasicApiRoleAtOrganization = RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -164,7 +143,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: UserBasicApiRoleAtOrganization
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi
 }
 
 /**
@@ -181,8 +160,6 @@ export const ResponseSamplingIntervalTypeEnumApi = {
     week: 'week',
     month: 'month',
 } as const
-
-export type SurveyApiResponseSamplingIntervalType = ResponseSamplingIntervalTypeEnumApi | BlankEnumApi | NullEnumApi
 
 /**
  * Mixin for serializers to add user access control fields
@@ -329,7 +306,7 @@ export interface SurveyApi {
     current_iteration_start_date?: string | null
     /** @nullable */
     response_sampling_start_date?: string | null
-    response_sampling_interval_type?: SurveyApiResponseSamplingIntervalType
+    response_sampling_interval_type?: ResponseSamplingIntervalTypeEnumApi | BlankEnumApi | NullEnumApi
     /**
      * @minimum 0
      * @maximum 2147483647
@@ -360,11 +337,6 @@ export interface PaginatedSurveyListApi {
     previous?: string | null
     results: SurveyApi[]
 }
-
-export type SurveySerializerCreateUpdateOnlyApiResponseSamplingIntervalType =
-    | ResponseSamplingIntervalTypeEnumApi
-    | BlankEnumApi
-    | NullEnumApi
 
 export interface SurveySerializerCreateUpdateOnlyApi {
     readonly id: string
@@ -511,7 +483,7 @@ export interface SurveySerializerCreateUpdateOnlyApi {
     current_iteration_start_date?: string | null
     /** @nullable */
     response_sampling_start_date?: string | null
-    response_sampling_interval_type?: SurveySerializerCreateUpdateOnlyApiResponseSamplingIntervalType
+    response_sampling_interval_type?: ResponseSamplingIntervalTypeEnumApi | BlankEnumApi | NullEnumApi
     /**
      * @minimum 0
      * @maximum 2147483647
@@ -529,11 +501,6 @@ export interface SurveySerializerCreateUpdateOnlyApi {
     enable_partial_responses?: boolean | null
     _create_in_folder?: string
 }
-
-export type PatchedSurveySerializerCreateUpdateOnlyApiResponseSamplingIntervalType =
-    | ResponseSamplingIntervalTypeEnumApi
-    | BlankEnumApi
-    | NullEnumApi
 
 export interface PatchedSurveySerializerCreateUpdateOnlyApi {
     readonly id?: string
@@ -680,7 +647,7 @@ export interface PatchedSurveySerializerCreateUpdateOnlyApi {
     current_iteration_start_date?: string | null
     /** @nullable */
     response_sampling_start_date?: string | null
-    response_sampling_interval_type?: PatchedSurveySerializerCreateUpdateOnlyApiResponseSamplingIntervalType
+    response_sampling_interval_type?: ResponseSamplingIntervalTypeEnumApi | BlankEnumApi | NullEnumApi
     /**
      * @minimum 0
      * @maximum 2147483647

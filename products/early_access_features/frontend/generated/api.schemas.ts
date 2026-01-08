@@ -47,23 +47,6 @@ export const BucketingIdentifierEnumApi = {
 
 export type MinimalFeatureFlagApiFilters = { [key: string]: unknown }
 
-/**
- * Specifies where this feature flag should be evaluated
-
-* `server` - Server
-* `client` - Client
-* `all` - All
- */
-export type MinimalFeatureFlagApiEvaluationRuntime = EvaluationRuntimeEnumApi | BlankEnumApi | NullEnumApi
-
-/**
- * Identifier used for bucketing users into rollout and variants
-
-* `distinct_id` - User ID (default)
-* `device_id` - Device ID
- */
-export type MinimalFeatureFlagApiBucketingIdentifier = BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi
-
 export interface MinimalFeatureFlagApi {
     readonly id: number
     readonly team_id: number
@@ -88,12 +71,12 @@ export interface MinimalFeatureFlagApi {
 * `server` - Server
 * `client` - Client
 * `all` - All */
-    evaluation_runtime?: MinimalFeatureFlagApiEvaluationRuntime
+    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | NullEnumApi
     /** Identifier used for bucketing users into rollout and variants
 
 * `distinct_id` - User ID (default)
 * `device_id` - Device ID */
-    bucketing_identifier?: MinimalFeatureFlagApiBucketingIdentifier
+    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi
     readonly evaluation_tags: readonly string[]
 }
 
