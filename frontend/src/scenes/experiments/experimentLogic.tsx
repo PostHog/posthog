@@ -4,11 +4,9 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { posthog } from 'posthog-js'
 import { hasFormErrors, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
@@ -77,7 +75,6 @@ import { sharedMetricsLogic } from './SharedMetrics/sharedMetricsLogic'
 import {
     EXPERIMENT_AUTO_REFRESH_INITIAL_INTERVAL_SECONDS,
     EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS,
-    EXPERIMENT_MIN_REFRESH_INTERVAL_MINUTES,
     MetricInsightId,
 } from './constants'
 import type { experimentLogicType } from './experimentLogicType'
@@ -345,6 +342,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentTimeseriesViewed',
                 'reportExperimentTimeseriesRecalculated',
                 'reportExperimentAiSummaryRequested',
+                'reportExperimentMetricsRefreshed',
+                'reportExperimentAutoRefreshToggled',
             ],
             teamLogic,
             ['addProductIntent'],
@@ -514,9 +513,9 @@ export const experimentLogic = kea<experimentLogicType>([
         ) => ({ results }),
         updateDistribution: (featureFlag: FeatureFlagType) => ({ featureFlag }),
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
-        updateExperimentLastRefresh: (lastRefresh: dayjs.Dayjs | null) => ({ lastRefresh }),
-        setPageVisibility: (isVisible: boolean) => ({ isVisible }),
         resetAutoRefreshInterval: true,
+        stopAutoRefreshInterval: true,
+        setPageVisibility: (visible: boolean) => ({ visible }),
     }),
     reducers({
         experiment: [
@@ -928,29 +927,11 @@ export const experimentLogic = kea<experimentLogicType>([
                 setAutoRefresh: (_, { enabled, interval }) => ({ enabled, interval }),
             },
         ],
-        lastExperimentRefresh: [
-            null as dayjs.Dayjs | null,
-            {
-                setLegacyPrimaryMetricsResults: (state, { results }) => {
-                    const lastRefresh = results?.[0]?.last_refresh
-                    return lastRefresh ? dayjs(lastRefresh) : state
-                },
-                setPrimaryMetricsResults: (state, { results }) => {
-                    const lastRefresh = results?.[0]?.last_refresh
-                    return lastRefresh ? dayjs(lastRefresh) : state
-                },
-                updateExperimentLastRefresh: (_, { lastRefresh }) => lastRefresh,
-                loadExperiment: () => null,
-            },
-        ],
-        pageVisibility: [
-            true,
-            {
-                setPageVisibility: (_, { isVisible }) => isVisible,
-            },
-        ],
     }),
-    listeners(({ values, actions }) => ({
+    listeners(({ values, actions, cache }) => ({
+        beforeUnmount: () => {
+            actions.stopAutoRefreshInterval()
+        },
         createExperiment: async ({ draft, folder }) => {
             actions.setCreateExperimentLoading(true)
             const { recommendedRunningTime, recommendedSampleSize, minimumDetectableEffect } = values
@@ -1085,8 +1066,9 @@ export const experimentLogic = kea<experimentLogicType>([
             const duration = experiment?.start_date ? dayjs().diff(experiment.start_date, 'second') : null
             experiment && actions.reportExperimentViewed(experiment, duration)
 
+            // Load metrics for running experiments (will set up auto-refresh after load completes)
             if (experiment?.start_date) {
-                actions.refreshExperimentResults()
+                actions.refreshExperimentResults(false)
             }
         },
         launchExperiment: async () => {
@@ -1127,31 +1109,18 @@ export const experimentLogic = kea<experimentLogicType>([
             values.experiment && actions.reportExperimentArchived(values.experiment)
         },
         refreshExperimentResults: async ({ forceRefresh }) => {
-            // Track cooldown blocks
-            if (values.blockRefresh && forceRefresh) {
-                const secondsUntilAllowed = values.nextAllowedExperimentRefresh
-                    ? values.nextAllowedExperimentRefresh.diff(dayjs(), 'seconds')
-                    : 0
+            // Note: This listener is called both for manual and auto-refresh triggers
+            // The context parameter is not available here, so we'll track from the calling locations
+            await Promise.all([
+                actions.loadPrimaryMetricsResults(forceRefresh),
+                actions.loadSecondaryMetricsResults(forceRefresh),
+                actions.loadExposures(forceRefresh),
+            ])
 
-                posthog.capture('experiment refresh blocked by cooldown', {
-                    experiment_id: values.experiment.id,
-                    seconds_until_allowed: secondsUntilAllowed,
-                })
+            // After metrics load, set up auto-refresh if enabled
+            if (values.autoRefresh.enabled && values.experiment?.start_date) {
+                actions.resetAutoRefreshInterval()
             }
-
-            // Track the refresh event
-            const variant =
-                values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_RELOAD_ACTION] === 'test' ? 'test' : 'control'
-            posthog.capture('experiment manual refresh clicked', {
-                experiment_id: values.experiment.id,
-                variant,
-                blocked_by_cooldown: values.blockRefresh,
-                force_refresh: forceRefresh,
-            })
-
-            actions.loadPrimaryMetricsResults(forceRefresh)
-            actions.loadSecondaryMetricsResults(forceRefresh)
-            actions.loadExposures(forceRefresh)
         },
         updateExperimentMetrics: async () => {
             actions.updateExperiment({
@@ -1541,66 +1510,37 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         setAutoRefresh: ({ enabled, interval }) => {
-            const oldInterval = values.autoRefresh.interval
-
-            // Track toggle event
-            posthog.capture('experiment autorefresh toggled', {
-                experiment_id: values.experiment.id,
-                enabled,
-                interval_seconds: interval,
-            })
-
-            // Track interval change if enabled and interval changed
-            if (enabled && oldInterval !== interval) {
-                posthog.capture('experiment autorefresh interval changed', {
-                    experiment_id: values.experiment.id,
-                    old_interval: oldInterval,
-                    new_interval: interval,
-                })
-            }
-
+            // Track when user toggles auto-refresh settings
+            actions.reportExperimentAutoRefreshToggled(values.experiment, enabled, interval)
             actions.resetAutoRefreshInterval()
         },
-        resetAutoRefreshInterval: () => {
-            cache.disposables.dispose('experimentAutoRefreshInterval')
-
-            if (values.autoRefresh.enabled) {
-                // Refresh now if needed
-                if (
-                    !values.primaryMetricsResultsLoading &&
-                    !values.secondaryMetricsResultsLoading &&
-                    values.lastExperimentRefresh &&
-                    values.lastExperimentRefresh.isBefore(
-                        dayjs().subtract(values.autoRefresh.interval, 'seconds')
-                    )
-                ) {
-                    actions.refreshExperimentResults(true)
-                }
-
-                // Set up interval
-                cache.disposables.add(() => {
-                    const intervalId = window.setInterval(() => {
-                        if (
-                            values.pageVisibility &&
-                            !values.primaryMetricsResultsLoading &&
-                            !values.secondaryMetricsResultsLoading
-                        ) {
-                            // Track autorefresh trigger
-                            posthog.capture('experiment autorefresh triggered', {
-                                experiment_id: values.experiment.id,
-                                interval_seconds: values.autoRefresh.interval,
-                            })
-
-                            actions.refreshExperimentResults(true)
-                        }
-                    }, values.autoRefresh.interval * 1000)
-                    return () => clearInterval(intervalId)
-                }, 'experimentAutoRefreshInterval')
+        stopAutoRefreshInterval: () => {
+            cache.disposables.dispose('autoRefreshInterval')
+        },
+        setPageVisibility: ({ visible }) => {
+            if (!visible) {
+                actions.stopAutoRefreshInterval()
+            } else if (values.autoRefresh.enabled) {
+                actions.resetAutoRefreshInterval()
             }
         },
-        setPageVisibility: ({ isVisible }) => {
-            if (isVisible && values.autoRefresh.enabled) {
-                actions.resetAutoRefreshInterval()
+        resetAutoRefreshInterval: () => {
+            // Clear any existing interval first
+            cache.disposables.dispose('autoRefreshInterval')
+
+            if (values.autoRefresh.enabled) {
+                cache.disposables.add(() => {
+                    const intervalId = window.setInterval(() => {
+                        // Track auto-refresh trigger
+                        actions.reportExperimentMetricsRefreshed(values.experiment, true, {
+                            triggered_by: 'auto-refresh',
+                            auto_refresh_enabled: values.autoRefresh.enabled,
+                            auto_refresh_interval: values.autoRefresh.interval,
+                        })
+                        actions.refreshExperimentResults(true)
+                    }, values.autoRefresh.interval * 1000)
+                    return () => clearInterval(intervalId)
+                }, 'autoRefreshInterval')
             }
         },
     })),
@@ -2238,28 +2178,6 @@ export const experimentLogic = kea<experimentLogicType>([
             (s) => [s.experiment],
             (experiment: Experiment): ExperimentStatsMethod => {
                 return experiment.stats_config?.method || ExperimentStatsMethod.Bayesian
-            },
-        ],
-        effectiveLastRefresh: [
-            (s) => [s.lastExperimentRefresh],
-            (lastExperimentRefresh): dayjs.Dayjs | null => lastExperimentRefresh,
-        ],
-        nextAllowedExperimentRefresh: [
-            (s) => [s.lastExperimentRefresh],
-            (lastExperimentRefresh): dayjs.Dayjs | null => {
-                if (!lastExperimentRefresh) {
-                    return null
-                }
-                return lastExperimentRefresh.add(EXPERIMENT_MIN_REFRESH_INTERVAL_MINUTES, 'minutes')
-            },
-        ],
-        blockRefresh: [
-            (s) => [s.nextAllowedExperimentRefresh, s.pageVisibility],
-            (nextAllowedExperimentRefresh, pageVisibility): boolean => {
-                return (
-                    !pageVisibility ||
-                    (!!nextAllowedExperimentRefresh && nextAllowedExperimentRefresh.isAfter(dayjs()))
-                )
             },
         ],
     }),
