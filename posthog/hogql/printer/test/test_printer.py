@@ -3537,3 +3537,21 @@ class TestPostgresPrinter(BaseTest):
         )
 
         self.assertEqual(rendered, "('__hx_tag', 'div')")
+
+    def test_comparison_operators(self):
+        self.assertEqual(self._expr("a = b"), "(a = b)")
+        self.assertEqual(self._expr("a != b"), "(a != b)")
+        self.assertEqual(self._expr("a LIKE b"), "(a LIKE b)")
+        self.assertEqual(self._expr("a NOT LIKE b"), "(a NOT LIKE b)")
+        self.assertEqual(self._expr("a ILIKE b"), "(a ILIKE b)")
+        self.assertEqual(self._expr("a NOT ILIKE b"), "(a NOT ILIKE b)")
+        self.assertEqual(self._expr("a IN (b, c, d)"), "(a IN (b, c, d))")
+        self.assertEqual(self._expr("a NOT IN (b, c, d)"), "(a NOT IN (b, c, d))")
+        self.assertEqual(self._expr("a ~ b"), "(a ~ b)")
+        self.assertEqual(self._expr("a !~ b"), "(a !~ b)")
+        self.assertEqual(self._expr("a ~* b"), "(a ~* b)")
+        self.assertEqual(self._expr("a !~* b"), "(a !~* b)")
+        self.assertEqual(self._expr("a > b"), "(a > b)")
+        self.assertEqual(self._expr("a >= b"), "(a >= b)")
+        self.assertEqual(self._expr("a < b"), "(a < b)")
+        self.assertEqual(self._expr("a <= b"), "(a <= b)")

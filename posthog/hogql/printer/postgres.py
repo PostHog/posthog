@@ -84,14 +84,14 @@ class PostgresPrinter(HogQLPrinter):
             return f"({left} IN {right})"
         elif op == ast.CompareOperationOp.NotIn:
             return f"({left} NOT IN {right})"
-        # elif op == ast.CompareOperationOp.Regex:
-        #     return f"match({left}, {right})"
-        # elif op == ast.CompareOperationOp.NotRegex:
-        #     return f"not(match({left}, {right}))"
-        # elif op == ast.CompareOperationOp.IRegex:
-        #     return f"match({left}, concat('(?i)', {right}))"
-        # elif op == ast.CompareOperationOp.NotIRegex:
-        #     return f"not(match({left}, concat('(?i)', {right})))"
+        elif op == ast.CompareOperationOp.Regex:
+            return f"({left} ~ {right})"
+        elif op == ast.CompareOperationOp.NotRegex:
+            return f"({left} !~ {right})"
+        elif op == ast.CompareOperationOp.IRegex:
+            return f"({left} ~* {right})"
+        elif op == ast.CompareOperationOp.NotIRegex:
+            return f"({left} !~* {right})"
         elif op == ast.CompareOperationOp.Gt:
             return f"({left} > {right})"
         elif op == ast.CompareOperationOp.GtEq:
