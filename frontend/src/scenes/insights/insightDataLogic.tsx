@@ -138,8 +138,17 @@ export const insightDataLogic = kea<insightDataLogicType>([
                     sourceQuery = query.source
                 }
 
+                // Don't apply breakdown_limit to exports
+                const exportQuery = { ...sourceQuery }
+                if ('breakdownFilter' in exportQuery && exportQuery.breakdownFilter?.breakdown_limit) {
+                    exportQuery.breakdownFilter = {
+                        ...exportQuery.breakdownFilter,
+                        breakdown_limit: undefined,
+                    }
+                }
+
                 return {
-                    ...queryExportContext(sourceQuery, undefined, undefined),
+                    ...queryExportContext(exportQuery, undefined, undefined),
                     filename,
                 } as ExportContext
             },
