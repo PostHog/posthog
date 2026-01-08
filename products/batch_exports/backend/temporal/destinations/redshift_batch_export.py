@@ -117,6 +117,8 @@ NON_RETRYABLE_ERROR_TYPES = (
     "ClientError",
     # An S3 bucket doesn't exist when using `copy_into_redshift_activity_from_stage`.
     "NoSuchBucket",
+    # S3 parameter validation failed.
+    "ParamValidationError",
 )
 
 
@@ -1114,7 +1116,7 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
             batch_export_id=inputs.batch_export.batch_export_id,
             data_interval_start=inputs.batch_export.data_interval_start,
             data_interval_end=inputs.batch_export.data_interval_end,
-            max_record_batch_size_bytes=1024 * 1024 * 2,  # 2MB
+            max_record_batch_size_bytes=1024 * 1024 * 10,  # 10MB
             stage_folder=inputs.batch_export.stage_folder,
         )
 

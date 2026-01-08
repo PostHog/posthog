@@ -7,7 +7,6 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-
 /**
  * * `engineering` - Engineering
  * `data` - Data
@@ -44,50 +43,14 @@ export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const NullEnumApi = {} as const
 
-export interface PaginatedDataColorThemeListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: DataColorThemeApi[]
-}
-
-export interface DataColorThemeApi {
-    readonly id: number
-    /** @maxLength 100 */
-    name: string
-    colors?: unknown
-    readonly is_global: string
-    /** @nullable */
-    readonly created_at: string | null
-    readonly created_by: UserBasicApi
-}
-
-export interface PatchedDataColorThemeApi {
-    readonly id?: number
-    /** @maxLength 100 */
-    name?: string
-    colors?: unknown
-    readonly is_global?: string
-    /** @nullable */
-    readonly created_at?: string | null
-    readonly created_by?: UserBasicApi
-}
+export type UserBasicApiHedgehogConfigAnyOf = { [key: string]: unknown }
 
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
+export type UserBasicApiHedgehogConfig = UserBasicApiHedgehogConfigAnyOf | null | null
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const UserBasicApiRoleAtOrganization = { ...RoleAtOrganizationEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
-/**
- * @nullable
- */
-export type UserBasicApiRoleAtOrganization =
-    | (typeof UserBasicApiRoleAtOrganization)[keyof typeof UserBasicApiRoleAtOrganization]
-    | null
+export type UserBasicApiRoleAtOrganization = RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi
 
 export interface UserBasicApi {
     readonly id: number
@@ -107,8 +70,38 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    /** @nullable */
     role_at_organization?: UserBasicApiRoleAtOrganization
+}
+
+export interface DataColorThemeApi {
+    readonly id: number
+    /** @maxLength 100 */
+    name: string
+    colors?: unknown
+    readonly is_global: string
+    /** @nullable */
+    readonly created_at: string | null
+    readonly created_by: UserBasicApi
+}
+
+export interface PaginatedDataColorThemeListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DataColorThemeApi[]
+}
+
+export interface PatchedDataColorThemeApi {
+    readonly id?: number
+    /** @maxLength 100 */
+    name?: string
+    colors?: unknown
+    readonly is_global?: string
+    /** @nullable */
+    readonly created_at?: string | null
+    readonly created_by?: UserBasicApi
 }
 
 export type EnvironmentsDataColorThemesListParams = {

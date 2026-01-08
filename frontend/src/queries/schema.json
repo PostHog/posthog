@@ -19334,7 +19334,15 @@
                     },
                     "type": "object"
                 },
+                "conversion_goal_mappings": {
+                    "description": "Mappings to team-level conversion goals with optional schema_map for DW goals",
+                    "items": {
+                        "$ref": "#/definitions/MarketingConversionGoalMapping"
+                    },
+                    "type": "array"
+                },
                 "conversion_goals": {
+                    "deprecated": "Use conversion_goal_mappings instead. Kept for backwards compatibility.",
                     "items": {
                         "$ref": "#/definitions/ConversionGoalFilter"
                     },
@@ -19612,6 +19620,22 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "MarketingConversionGoalMapping": {
+            "additionalProperties": false,
+            "description": "Maps a CoreEvent to marketing analytics with optional UTM field mappings",
+            "properties": {
+                "core_event_id": {
+                    "description": "Reference to the CoreEvent.id",
+                    "type": "string"
+                },
+                "schema_map": {
+                    "$ref": "#/definitions/SchemaMap",
+                    "description": "UTM field mappings - required for DataWarehouseNode, optional otherwise"
+                }
+            },
+            "required": ["core_event_id"],
             "type": "object"
         },
         "MarketingIntegrationConfig": {
