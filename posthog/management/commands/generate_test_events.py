@@ -58,6 +58,7 @@ def generate_random_property(key_prefix: str, index: int) -> GeneratedProperty:
     key = f"{key_prefix}_{index}"
     prop_type = random.choice(list(PropType))
 
+    value: Any
     if prop_type == PropType.STRING:
         value = f"initial_value_{random.randint(1000, 9999)}"
     elif prop_type == PropType.NUMBER:
@@ -198,7 +199,7 @@ class Command(BaseCommand):
                 for prop in person.set_once_props:
                     mutate_property(prop, event_num)
 
-                properties = {
+                properties: dict[str, Any] = {
                     "$current_url": f"https://example.com/page/{event_num}",
                     "$pathname": f"/page/{event_num}",
                     "$set_once": person.get_set_once_dict(),
