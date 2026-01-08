@@ -821,7 +821,6 @@ class TestUpdatePersonWithVersionCheck:
         assert success is False
         assert result_data is None
 
-
 class TestBackupFunctionality:
     """Test the backup functionality for person property reconciliation."""
 
