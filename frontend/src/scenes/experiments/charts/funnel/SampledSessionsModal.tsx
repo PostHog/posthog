@@ -1,14 +1,13 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
-import { LemonButton, LemonModal, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonModal, LemonTable, Link } from '@posthog/lemon-ui'
 
+import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { IconOpenInNew, IconPlayCircle } from 'lib/lemon-ui/icons'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { urls } from 'scenes/urls'
 
 import { SessionData } from '~/queries/schema/schema-general'
@@ -54,25 +53,12 @@ export function SampledSessionsModal(): JSX.Element {
     const { isOpen, modalData, recordingAvailability, recordingAvailabilityLoading } =
         useValues(sampledSessionsModalLogic)
     const { closeModal } = useActions(sampledSessionsModalLogic)
-    const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
 
     if (!modalData) {
         return <></>
     }
 
     const { sessionData, stepName, variant } = modalData
-
-    const openSessionRecording = (session: SessionData): void => {
-        openSessionPlayer({
-            id: session.session_id,
-            matching_events: [
-                {
-                    session_id: session.session_id,
-                    events: [{ uuid: session.event_uuid, timestamp: session.timestamp }],
-                },
-            ],
-        })
-    }
 
     const columns: LemonTableColumns<SessionData> = [
         {
@@ -106,22 +92,23 @@ export function SampledSessionsModal(): JSX.Element {
                 const sessionInfo = recordingAvailability.get(session.session_id)
                 const hasRecording = sessionInfo?.hasRecording || false
 
-                if (recordingAvailabilityLoading) {
-                    return <Spinner className="text-sm" />
-                }
-
-                if (hasRecording) {
-                    return (
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            icon={<IconPlayCircle />}
-                            onClick={() => openSessionRecording(session)}
-                        >
-                            View recording
-                        </LemonButton>
-                    )
-                }
+                return (
+                    <ViewRecordingButton
+                        sessionId={session.session_id}
+                        timestamp={session.timestamp}
+                        matchingEvents={[
+                            {
+                                session_id: session.session_id,
+                                events: [{ uuid: session.event_uuid, timestamp: session.timestamp }],
+                            },
+                        ]}
+                        size="small"
+                        type="secondary"
+                        openPlayerIn={RecordingPlayerType.Modal}
+                        loading={recordingAvailabilityLoading}
+                        hasRecording={hasRecording}
+                    />
+                )
             },
             width: '60%',
         },

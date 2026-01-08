@@ -213,6 +213,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             serviceNames=query_data.get("serviceNames", []),
             searchTerm=query_data.get("searchTerm", None),
             filterGroup=query_data.get("filterGroup", None),
+            sparklineBreakdownBy=query_data.get("sparklineBreakdownBy"),
         )
 
         runner = SparklineQueryRunner(team=self.team, query=query)

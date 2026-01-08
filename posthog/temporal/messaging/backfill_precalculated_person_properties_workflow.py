@@ -9,11 +9,12 @@ import temporalio.activity
 import temporalio.workflow
 from structlog.contextvars import bind_contextvars
 
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 
@@ -139,7 +140,6 @@ async def backfill_precalculated_person_properties_activity(
                 ORDER BY p.person_id
                 LIMIT %(limit)s
                 OFFSET %(offset)s
-                FORMAT JSONEachRow
             """
 
             query_params = {
@@ -148,16 +148,21 @@ async def backfill_precalculated_person_properties_activity(
                 "offset": current_offset,
             }
 
-            persons = []
             with tags_context(
                 team_id=inputs.team_id,
                 feature=Feature.BEHAVIORAL_COHORTS,
                 product=Product.MESSAGING,
                 query_type="person_properties_backfill",
             ):
-                async with get_client(team_id=inputs.team_id) as client:
-                    async for row in client.stream_query_as_jsonl(persons_query, query_parameters=query_params):
-                        persons.append(row)
+                # Execute query using sync_execute in a thread to avoid blocking the event loop
+                persons = await asyncio.to_thread(
+                    sync_execute,
+                    persons_query,
+                    query_params,
+                    workload=Workload.OFFLINE,
+                    team_id=inputs.team_id,
+                    ch_user=ClickHouseUser.COHORTS,
+                )
 
             # No more persons, we're done
             if not persons:
@@ -168,10 +173,9 @@ async def backfill_precalculated_person_properties_activity(
             # Evaluate each person against each filter
             events_to_produce = []
 
-            for person in persons:
-                person_id = str(person["person_id"])
-                person_properties = json.loads(person["properties"]) if person["properties"] else {}
-                distinct_ids = person["distinct_ids"]
+            for person_id, properties, distinct_ids in persons:
+                person_id = str(person_id)
+                person_properties = json.loads(properties) if properties else {}
 
                 for filter_info in inputs.filters:
                     # Evaluate person against filter using HogQL bytecode
@@ -226,14 +230,15 @@ async def backfill_precalculated_person_properties_activity(
                 total_events_produced += len(events_to_produce)
                 logger.info(f"Produced {len(events_to_produce)} events for batch at offset {current_offset}")
 
-            total_processed += len(persons)
-            current_offset += len(persons)
+            batch_count = len(persons)
+            total_processed += batch_count
+            current_offset += batch_count
 
             # Update heartbeat
             heartbeater.details = (f"Processed {total_processed} persons, produced {total_events_produced} events",)
 
             # If we got fewer persons than batch_size, we're done
-            if len(persons) < current_batch_size:
+            if batch_count < current_batch_size:
                 break
 
         end_time = time.time()

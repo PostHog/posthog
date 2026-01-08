@@ -139,6 +139,7 @@ pub enum MockRedisValue {
     MinMax(String, String),
     StringWithFormat(String, RedisValueFormat),
     StringWithTTLAndFormat(String, u64, RedisValueFormat),
+    Bytes(Vec<u8>, Option<u64>),
 }
 
 #[derive(Debug, Clone)]
@@ -245,6 +246,21 @@ impl Client for MockRedisClient {
             Ok(string_data) => Ok(string_data.into_bytes()),
             Err(e) => Err(e),
         }
+    }
+
+    async fn set_bytes(
+        &self,
+        key: String,
+        value: Vec<u8>,
+        ttl_seconds: Option<u64>,
+    ) -> Result<(), CustomRedisError> {
+        self.lock_calls().push(MockRedisCall {
+            op: "set_bytes".to_string(),
+            key: key.clone(),
+            value: MockRedisValue::Bytes(value, ttl_seconds),
+        });
+
+        self.set_ret.get(&key).cloned().unwrap_or(Ok(()))
     }
 
     async fn set(&self, key: String, value: String) -> Result<(), CustomRedisError> {

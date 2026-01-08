@@ -52,6 +52,7 @@ export const KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS = `${prefix}clickhouse_pref
 export const KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES = `${prefix}clickhouse_precalculated_person_properties${suffix}`
 export const KAFKA_COHORT_MEMBERSHIP_CHANGED = `${prefix}cohort_membership_changed${suffix}`
 export const KAFKA_COHORT_MEMBERSHIP_CHANGED_TRIGGER = `${prefix}cohort_membership_changed_trigger${suffix}`
+export const KAFKA_CDP_BATCH_HOGFLOW_REQUESTS = `${prefix}cdp_batch_hogflow_requests${suffix}`
 
 // Error tracking topics
 export const KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT = `${prefix}clickhouse_error_tracking_issue_fingerprint${suffix}`
