@@ -1,0 +1,109 @@
+#!/bin/bash
+set -e
+set -o pipefail
+
+SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
+REPO_ROOT="$SCRIPT_DIR/.."
+DUMP_FILE="$REPO_ROOT/postgres-dumps/pre-migrated.sql.gz"
+
+# Database name mapping (source -> target)
+# If TARGET_DB_PREFIX is set, prepend it to database names
+# e.g., TARGET_DB_PREFIX=test_ will map posthog -> test_posthog
+TARGET_DB_PREFIX="${TARGET_DB_PREFIX:-}"
+
+# Default database list
+DATABASES=("posthog" "posthog_persons" "behavioral_cohorts" "cyclotron")
+
+# Detect if we're in Docker
+USE_DOCKER=false
+if command -v docker &> /dev/null && docker compose ps db &> /dev/null 2>&1; then
+    USE_DOCKER=true
+fi
+
+# Get database connection info
+PGHOST="${PGHOST:-localhost}"
+PGUSER="${PGUSER:-posthog}"
+PGPASSWORD="${PGPASSWORD:-posthog}"
+PGPORT="${PGPORT:-5432}"
+
+# Function to run psql command
+run_psql() {
+    local sql="$1"
+    if [ "$USE_DOCKER" = true ]; then
+        docker compose exec -T db psql -U "$PGUSER" -c "$sql"
+    else
+        PGPASSWORD="$PGPASSWORD" psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d postgres -c "$sql"
+    fi
+}
+
+# Function to restore from dump
+restore_dump() {
+    local dump_file="$1"
+    local sql_content
+    
+    # Decompress dump
+    sql_content=$(gunzip -c "$dump_file")
+    
+    # If target prefix is set, replace database names in SQL
+    if [ -n "$TARGET_DB_PREFIX" ]; then
+        for db in "${DATABASES[@]}"; do
+            source_db="$db"
+            target_db="${TARGET_DB_PREFIX}${db}"
+            # Replace database names in SQL (handle CREATE DATABASE, ALTER DATABASE, \c commands, etc.)
+            sql_content=$(echo "$sql_content" | sed "s/\"$source_db\"/\"$target_db\"/g")
+            sql_content=$(echo "$sql_content" | sed "s/'$source_db'/'$target_db'/g")
+            sql_content=$(echo "$sql_content" | sed "s/\\\c $source_db/\\\c $target_db/g")
+            sql_content=$(echo "$sql_content" | sed "s/DATABASE $source_db/DATABASE $target_db/g")
+        done
+    fi
+    
+    # Execute SQL
+    if [ "$USE_DOCKER" = true ]; then
+        echo "$sql_content" | docker compose exec -T db psql -q -U "$PGUSER" > /dev/null 2>&1
+    else
+        echo "$sql_content" | PGPASSWORD="$PGPASSWORD" psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -q > /dev/null 2>&1
+    fi
+}
+
+# Check if dump exists
+if [ ! -f "$DUMP_FILE" ]; then
+    echo "❌ Pre-migrated dump not found: $DUMP_FILE" >&2
+    echo "   Run 'bin/generate-pre-migrated-dump' to create it" >&2
+    exit 1
+fi
+
+echo "Restoring from pre-migrated dump: $DUMP_FILE"
+echo ""
+
+# Drop existing databases (with target prefix if set)
+echo "Dropping existing databases..."
+for db in "${DATABASES[@]}"; do
+    target_db="${TARGET_DB_PREFIX}${db}"
+    echo "   Dropping: $target_db"
+    run_psql "DROP DATABASE IF EXISTS $target_db;" > /dev/null 2>&1 || true
+done
+echo ""
+
+# Restore from dump
+echo "Restoring from dump..."
+if ! restore_dump "$DUMP_FILE"; then
+    echo "❌ Failed to restore dump" >&2
+    exit 1
+fi
+echo ""
+
+# Database names are already mapped during restore
+if [ -n "$TARGET_DB_PREFIX" ]; then
+    echo "Databases restored with prefix: $TARGET_DB_PREFIX"
+    echo ""
+fi
+
+# Update password (in case it was changed)
+echo "Updating database user password..."
+run_psql "ALTER USER $PGUSER WITH PASSWORD '$PGPASSWORD';" > /dev/null 2>&1 || true
+echo ""
+
+echo "✅ Pre-migrated dump restored successfully!"
+echo "   Databases restored: ${DATABASES[*]}"
+echo ""
+echo "Note: You should still run migrations to apply any new migrations since the dump was created."

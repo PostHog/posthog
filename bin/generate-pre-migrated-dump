@@ -1,0 +1,96 @@
+#!/bin/bash
+set -e
+set -o pipefail
+
+SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
+REPO_ROOT="$SCRIPT_DIR/.."
+DUMP_DIR="$REPO_ROOT/postgres-dumps"
+DUMP_FILE="$DUMP_DIR/pre-migrated.sql.gz"
+
+# Database names to dump
+DATABASES=("posthog" "posthog_persons" "behavioral_cohorts" "cyclotron")
+
+# Detect if we're in Docker
+USE_DOCKER=false
+if command -v docker &> /dev/null && docker compose ps db &> /dev/null 2>&1; then
+    USE_DOCKER=true
+    echo "Detected Docker Compose environment"
+else
+    echo "Using direct PostgreSQL connection"
+fi
+
+# Get database connection info
+PGHOST="${PGHOST:-localhost}"
+PGUSER="${PGUSER:-posthog}"
+PGPASSWORD="${PGPASSWORD:-posthog}"
+PGPORT="${PGPORT:-5432}"
+
+# Function to run psql command
+run_psql() {
+    local sql="$1"
+    if [ "$USE_DOCKER" = true ]; then
+        docker compose exec -T db psql -U "$PGUSER" -c "$sql"
+    else
+        PGPASSWORD="$PGPASSWORD" psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d postgres -c "$sql"
+    fi
+}
+
+# Function to run command that outputs to stdout
+run_pg_dumpall() {
+    if [ "$USE_DOCKER" = true ]; then
+        docker compose exec -T db pg_dumpall --clean -U "$PGUSER"
+    else
+        PGPASSWORD="$PGPASSWORD" pg_dumpall -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" --clean
+    fi
+}
+
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "Generating pre-migrated database dump"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# Step 1: Drop and recreate databases
+echo "Step 1: Dropping and recreating databases..."
+for db in "${DATABASES[@]}"; do
+    echo "   Dropping database: $db"
+    run_psql "DROP DATABASE IF EXISTS $db;" > /dev/null 2>&1 || true
+    echo "   Creating database: $db"
+    run_psql "CREATE DATABASE $db;" > /dev/null 2>&1 || true
+done
+echo ""
+
+# Step 2: Run postgres-related migrations only (skip ClickHouse)
+echo "Step 2: Running postgres migrations..."
+cd "$REPO_ROOT"
+if ! bin/migrate --scope=postgres --scope=persons --scope=behavioral-cohorts --scope=cyclotron; then
+    echo "❌ Migrations failed"
+    exit 1
+fi
+echo ""
+
+# Step 3: Create dump directory
+mkdir -p "$DUMP_DIR"
+
+# Step 4: Generate dump
+echo "Step 3: Generating database dump..."
+run_pg_dumpall | gzip > "$DUMP_FILE"
+
+if [ ! -f "$DUMP_FILE" ] || [ ! -s "$DUMP_FILE" ]; then
+    echo "❌ Failed to generate dump file"
+    exit 1
+fi
+
+DUMP_SIZE=$(du -h "$DUMP_FILE" | cut -f1)
+echo "   Dump saved: $DUMP_FILE ($DUMP_SIZE)"
+echo ""
+
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "✅ Pre-migrated dump generated successfully!"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "Dump file: $DUMP_FILE"
+echo ""
+echo "Next steps:"
+echo "  1. Review the dump file"
+echo "  2. Commit to repository: git add postgres-dumps/"
+echo "  3. Commit: git commit -m 'Update pre-migrated database dump'"

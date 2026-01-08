@@ -1,0 +1,9 @@
+# This directory contains pre-migrated PostgreSQL database dump
+# 
+# To generate/update the dump:
+#   1. Clean your local database: dropdb posthog posthog_persons behavioral_cohorts cyclotron
+#   2. Run: bin/generate-pre-migrated-dump
+#   3. Commit the generated dump file: git add postgres-dumps/pre-migrated.sql.gz
+#
+# The dump will be automatically used in tests and CI as a fast starting point.
+# Migrations will still run after restore to apply any new migrations.
