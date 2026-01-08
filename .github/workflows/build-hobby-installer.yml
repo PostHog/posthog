@@ -44,6 +44,8 @@ jobs:
                   VERSION="hobby-$(date +%Y%m%d-%H%M%S)"
 
                   # Rename the binary to a more neutral name
+                  # This is the same name as the folder so we'll remove it first
+                  rm -rf bin/hobby-installer
                   mv bin/hobby-installer-linux bin/hobby-installer
 
                   # Versioned release for history
