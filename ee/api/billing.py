@@ -252,11 +252,12 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     class DeactivateSerializer(serializers.Serializer):
         products = serializers.CharField()
 
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET", "POST"], detail=False)
     def deactivate(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         organization = self._get_org_required()
 
-        serializer = self.DeactivateSerializer(data=request.GET)
+        data = request.GET if request.method == "GET" else request.data
+        serializer = self.DeactivateSerializer(data=data)
         serializer.is_valid(raise_exception=True)
 
         products = serializer.validated_data.get("products")
