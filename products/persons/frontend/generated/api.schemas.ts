@@ -7,7 +7,6 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-
 /**
  * * `AND` - AND
  * `OR` - OR
@@ -130,6 +129,19 @@ export const PropertyItemTypeEnumApi = {
     workflow_variable: 'workflow_variable',
 } as const
 
+export type PropertyItemApiOperator = OperatorEnumApi | BlankEnumApi | NullEnumApi
+
+export type PropertyItemApiType = PropertyItemTypeEnumApi | BlankEnumApi
+
+export interface PropertyItemApi {
+    /** Key of the property you're filtering on. For example `email` or `$current_url` */
+    key: string
+    /** Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]` */
+    value: string
+    operator?: PropertyItemApiOperator
+    type?: PropertyItemApiType
+}
+
 export interface PropertyApi {
     /** 
  You can use a simplified version:
@@ -171,19 +183,11 @@ Or you can create more complicated queries with AND and OR:
 }
 ```
 
+
 * `AND` - AND
 * `OR` - OR */
     type?: PropertyTypeEnumApi
     values: PropertyItemApi[]
-}
-
-export interface PaginatedPersonListApi {
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    count?: number
-    results?: PersonApi[]
 }
 
 export interface PersonApi {
@@ -195,6 +199,15 @@ export interface PersonApi {
     readonly uuid: string
 }
 
+export interface PaginatedPersonListApi {
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    count?: number
+    results?: PersonApi[]
+}
+
 export interface PatchedPersonApi {
     readonly id?: number
     readonly name?: string
@@ -202,25 +215,6 @@ export interface PatchedPersonApi {
     properties?: unknown
     readonly created_at?: string
     readonly uuid?: string
-}
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PropertyItemApiOperator = { ...OperatorEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
-/**
- * @nullable
- */
-export type PropertyItemApiOperator = (typeof PropertyItemApiOperator)[keyof typeof PropertyItemApiOperator] | null
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PropertyItemApiType = { ...PropertyItemTypeEnumApi, ...BlankEnumApi } as const
-export interface PropertyItemApi {
-    /** Key of the property you're filtering on. For example `email` or `$current_url` */
-    key: string
-    /** Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]` */
-    value: string
-    /** @nullable */
-    operator?: PropertyItemApiOperator
-    type?: (typeof PropertyItemApiType)[keyof typeof PropertyItemApiType]
 }
 
 export type EnvironmentsPersonsListParams = {
@@ -299,23 +293,6 @@ export const EnvironmentsPersonsPartialUpdateFormat = {
     json: 'json',
 } as const
 
-export type EnvironmentsPersonsDestroyParams = {
-    /**
-     * If true, a task to delete all events associated with this person will be created and queued. The task does not run immediately and instead is batched together and at 5AM UTC every Sunday
-     */
-    delete_events?: boolean
-    format?: EnvironmentsPersonsDestroyFormat
-}
-
-export type EnvironmentsPersonsDestroyFormat =
-    (typeof EnvironmentsPersonsDestroyFormat)[keyof typeof EnvironmentsPersonsDestroyFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EnvironmentsPersonsDestroyFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
 export type EnvironmentsPersonsActivityRetrieve2Params = {
     format?: EnvironmentsPersonsActivityRetrieve2Format
 }
@@ -325,19 +302,6 @@ export type EnvironmentsPersonsActivityRetrieve2Format =
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EnvironmentsPersonsActivityRetrieve2Format = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type EnvironmentsPersonsDeleteEventsCreateParams = {
-    format?: EnvironmentsPersonsDeleteEventsCreateFormat
-}
-
-export type EnvironmentsPersonsDeleteEventsCreateFormat =
-    (typeof EnvironmentsPersonsDeleteEventsCreateFormat)[keyof typeof EnvironmentsPersonsDeleteEventsCreateFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EnvironmentsPersonsDeleteEventsCreateFormat = {
     csv: 'csv',
     json: 'json',
 } as const
@@ -355,19 +319,6 @@ export type EnvironmentsPersonsDeletePropertyCreateFormat =
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EnvironmentsPersonsDeletePropertyCreateFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type EnvironmentsPersonsDeleteRecordingsCreateParams = {
-    format?: EnvironmentsPersonsDeleteRecordingsCreateFormat
-}
-
-export type EnvironmentsPersonsDeleteRecordingsCreateFormat =
-    (typeof EnvironmentsPersonsDeleteRecordingsCreateFormat)[keyof typeof EnvironmentsPersonsDeleteRecordingsCreateFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EnvironmentsPersonsDeleteRecordingsCreateFormat = {
     csv: 'csv',
     json: 'json',
 } as const
@@ -438,6 +389,10 @@ export type EnvironmentsPersonsBulkDeleteCreateParams = {
      */
     delete_events?: boolean
     /**
+     * If true, a task to delete all recordings associated with this person will be created and queued. The task does not run immediately and instead is batched together and at 5AM UTC every Sunday
+     */
+    delete_recordings?: boolean
+    /**
      * A list of distinct IDs, up to 1000 of them. We'll delete all persons associated with those distinct IDs.
      */
     distinct_ids?: { [key: string]: unknown }
@@ -446,6 +401,10 @@ export type EnvironmentsPersonsBulkDeleteCreateParams = {
      * A list of PostHog person IDs, up to 1000 of them. We'll delete all the persons listed.
      */
     ids?: { [key: string]: unknown }
+    /**
+     * If true, the person record itself will not be deleted. This is useful if you want to keep the person record for auditing purposes but remove events and recordings associated with them
+     */
+    keep_person?: boolean
 }
 
 export type EnvironmentsPersonsBulkDeleteCreateFormat =
@@ -659,22 +618,6 @@ export const PersonsPartialUpdateFormat = {
     json: 'json',
 } as const
 
-export type PersonsDestroyParams = {
-    /**
-     * If true, a task to delete all events associated with this person will be created and queued. The task does not run immediately and instead is batched together and at 5AM UTC every Sunday
-     */
-    delete_events?: boolean
-    format?: PersonsDestroyFormat
-}
-
-export type PersonsDestroyFormat = (typeof PersonsDestroyFormat)[keyof typeof PersonsDestroyFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PersonsDestroyFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
 export type PersonsActivityRetrieve2Params = {
     format?: PersonsActivityRetrieve2Format
 }
@@ -684,19 +627,6 @@ export type PersonsActivityRetrieve2Format =
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PersonsActivityRetrieve2Format = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsDeleteEventsCreateParams = {
-    format?: PersonsDeleteEventsCreateFormat
-}
-
-export type PersonsDeleteEventsCreateFormat =
-    (typeof PersonsDeleteEventsCreateFormat)[keyof typeof PersonsDeleteEventsCreateFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PersonsDeleteEventsCreateFormat = {
     csv: 'csv',
     json: 'json',
 } as const
@@ -714,19 +644,6 @@ export type PersonsDeletePropertyCreateFormat =
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PersonsDeletePropertyCreateFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsDeleteRecordingsCreateParams = {
-    format?: PersonsDeleteRecordingsCreateFormat
-}
-
-export type PersonsDeleteRecordingsCreateFormat =
-    (typeof PersonsDeleteRecordingsCreateFormat)[keyof typeof PersonsDeleteRecordingsCreateFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PersonsDeleteRecordingsCreateFormat = {
     csv: 'csv',
     json: 'json',
 } as const
@@ -796,6 +713,10 @@ export type PersonsBulkDeleteCreateParams = {
      */
     delete_events?: boolean
     /**
+     * If true, a task to delete all recordings associated with this person will be created and queued. The task does not run immediately and instead is batched together and at 5AM UTC every Sunday
+     */
+    delete_recordings?: boolean
+    /**
      * A list of distinct IDs, up to 1000 of them. We'll delete all persons associated with those distinct IDs.
      */
     distinct_ids?: { [key: string]: unknown }
@@ -804,6 +725,10 @@ export type PersonsBulkDeleteCreateParams = {
      * A list of PostHog person IDs, up to 1000 of them. We'll delete all the persons listed.
      */
     ids?: { [key: string]: unknown }
+    /**
+     * If true, the person record itself will not be deleted. This is useful if you want to keep the person record for auditing purposes but remove events and recordings associated with them
+     */
+    keep_person?: boolean
 }
 
 export type PersonsBulkDeleteCreateFormat =
