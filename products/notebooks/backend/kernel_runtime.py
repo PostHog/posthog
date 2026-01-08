@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import atexit
 import signal
 import threading
@@ -32,6 +33,7 @@ class KernelExecutionResult:
     execution_count: int | None
     error_name: str | None
     traceback: list[str]
+    variables: dict[str, Any] | None
     started_at: datetime
     completed_at: datetime
     kernel_runtime: KernelRuntime
@@ -45,6 +47,7 @@ class KernelExecutionResult:
             "execution_count": self.execution_count,
             "error_name": self.error_name,
             "traceback": self.traceback,
+            "variables": self.variables,
             "started_at": self.started_at,
             "completed_at": self.completed_at,
             "kernel_runtime": {
@@ -86,6 +89,7 @@ class KernelRuntimeSession:
         code: str,
         *,
         capture_variables: bool = True,
+        variable_names: list[str] | None = None,
         timeout: float | None = None,
     ) -> KernelExecutionResult:
         return self.service.execute(
@@ -93,6 +97,7 @@ class KernelRuntimeSession:
             self.user,
             code,
             capture_variables=capture_variables,
+            variable_names=variable_names,
             timeout=timeout,
         )
 
@@ -138,9 +143,11 @@ class KernelRuntimeService:
         code: str,
         *,
         capture_variables: bool = True,
+        variable_names: list[str] | None = None,
         timeout: float | None = None,
     ) -> KernelExecutionResult:
-        _ = capture_variables
+        valid_variable_names = [name for name in (variable_names or []) if name.isidentifier()]
+        user_expressions = {name: name for name in valid_variable_names} if capture_variables else None
         handle = self._ensure_handle(notebook, user)
 
         with handle.lock:
@@ -156,8 +163,13 @@ class KernelRuntimeService:
             status = "ok"
             execution_count: int | None = None
             error_name: str | None = None
+            variables: dict[str, Any] | None = None
 
-            msg_id = handle.client.execute(code, stop_on_error=False)
+            msg_id = handle.client.execute(
+                code,
+                stop_on_error=False,
+                user_expressions=user_expressions,
+            )
 
             try:
                 while True:
@@ -208,6 +220,8 @@ class KernelRuntimeService:
                 if status == "error" and not error_name:
                     error_name = reply_content.get("ename")
                     traceback = reply_content.get("traceback", traceback)
+                if user_expressions:
+                    variables = self._parse_user_expressions(reply_content.get("user_expressions", {}))
 
             handle.execution_count = execution_count or handle.execution_count
             handle.last_activity_at = timezone.now()
@@ -221,6 +235,7 @@ class KernelRuntimeService:
                 execution_count=execution_count,
                 error_name=error_name,
                 traceback=traceback,
+                variables=variables,
                 started_at=started_at,
                 completed_at=timezone.now(),
                 kernel_runtime=handle.runtime,
@@ -240,8 +255,32 @@ class KernelRuntimeService:
         return f"{notebook.team_id}:{notebook.short_id}:{user_key}"
 
     def _ensure_debug(self) -> None:
-        if not settings.DEBUG:
+        if not settings.DEBUG or os.getenv("DEBUG") != "1":
             raise RuntimeError("Notebook kernels are only available in DEBUG for now.")
+
+    def _parse_user_expressions(self, user_expressions: Any) -> dict[str, Any] | None:
+        if not isinstance(user_expressions, dict):
+            return None
+
+        parsed: dict[str, Any] = {}
+        for name, payload in user_expressions.items():
+            if not isinstance(payload, dict):
+                continue
+            status = payload.get("status")
+            if status == "ok":
+                parsed[name] = {
+                    "status": "ok",
+                    "data": payload.get("data", {}),
+                    "metadata": payload.get("metadata", {}),
+                }
+            else:
+                parsed[name] = {
+                    "status": "error",
+                    "ename": payload.get("ename"),
+                    "evalue": payload.get("evalue"),
+                    "traceback": payload.get("traceback", []),
+                }
+        return parsed or None
 
     def _register_cleanup_hooks(self) -> None:
         def _cleanup(*_: Any) -> None:

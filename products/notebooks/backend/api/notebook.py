@@ -31,7 +31,7 @@ from posthog.utils import relative_date_parse
 
 from products.notebooks.backend.kernel_runtime import get_kernel_runtime
 from products.notebooks.backend.models import Notebook
-from products.notebooks.backend.python_analysis import annotate_python_nodes
+from products.notebooks.backend.python_analysis import analyze_python_globals, annotate_python_nodes
 
 logger = structlog.get_logger(__name__)
 
@@ -417,9 +417,12 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         notebook = self._get_notebook_for_kernel()
 
         try:
+            analysis = analyze_python_globals(serializer.validated_data["code"])
+            variable_names = [entry["name"] for entry in analysis.exported_with_types]
             execution = get_kernel_runtime(notebook, self._current_user()).execute(
                 serializer.validated_data["code"],
                 capture_variables=serializer.validated_data.get("return_variables", True),
+                variable_names=variable_names,
                 timeout=serializer.validated_data.get("timeout"),
             )
         except RuntimeError as err:

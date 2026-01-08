@@ -14,8 +14,6 @@ import {
 } from 'kea'
 import posthog from 'posthog-js'
 
-import { lemonToast } from '@posthog/lemon-ui'
-
 import api from 'lib/api'
 import { JSONContent, RichContentNode } from 'lib/components/RichContentEditor/types'
 
@@ -33,6 +31,7 @@ import {
 import { NotebookNodeMessages, NotebookNodeMessagesListeners } from './messaging/notebook-node-messages'
 import { VariableUsage } from './notebookNodeContent'
 import type { notebookNodeLogicType } from './notebookNodeLogicType'
+import { PythonKernelExecuteResponse, buildPythonExecutionError, buildPythonExecutionResult } from './pythonExecution'
 
 export type NotebookNodeLogicProps = {
     nodeType: NotebookNodeType
@@ -167,6 +166,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             (s) => [s.nodeAttributes],
             (nodeAttributes): { name: string; type: string }[] => nodeAttributes.globalsExportedWithTypes ?? [],
         ],
+        pythonExecution: [(s) => [s.nodeAttributes], (nodeAttributes) => nodeAttributes.pythonExecution ?? null],
 
         pythonNodeIndex: [
             (s) => [s.pythonNodeSummaries, s.nodeId],
@@ -405,12 +405,19 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
 
             actions.setPythonRunLoading(true)
             try {
-                await api.notebooks.kernelExecute(notebook.short_id, {
+                const execution = (await api.notebooks.kernelExecute(notebook.short_id, {
                     code,
-                    return_variables: true,
+                    return_variables: values.exportedGlobals.length > 0,
+                })) as PythonKernelExecuteResponse
+
+                actions.updateAttributes({
+                    pythonExecution: buildPythonExecutionResult(execution, values.exportedGlobals),
                 })
-            } catch {
-                lemonToast.error('Failed to run Python cell.')
+            } catch (error) {
+                const message = error instanceof Error ? error.message : 'Failed to run Python cell.'
+                actions.updateAttributes({
+                    pythonExecution: buildPythonExecutionError(message, values.exportedGlobals),
+                })
             } finally {
                 actions.setPythonRunLoading(false)
             }
