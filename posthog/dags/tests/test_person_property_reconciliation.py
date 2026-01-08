@@ -1809,3 +1809,366 @@ class TestClickHouseQueryIntegration:
         assert len(unset_updates) == 1
         assert unset_updates[0].key == "deprecated_field"
         assert unset_updates[0].value is None
+
+    def test_set_with_various_json_types(self, cluster: ClickhouseCluster):
+        """Test $set with various JSON value types: string, number, boolean, null, array, object."""
+        team_id = 99906
+        person_id = UUID("66666666-6666-6666-6666-000000000006")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        event_ts = now - timedelta(days=3)
+
+        # Event with various JSON types in $set
+        # Note: null values are filtered out in the query (use $unset for removal)
+        events = [
+            (
+                team_id,
+                "distinct_id_6",
+                person_id,
+                event_ts,
+                json.dumps(
+                    {
+                        "$set": {
+                            "string_prop": "hello world",
+                            "int_prop": 42,
+                            "float_prop": 3.14159,
+                            "bool_true_prop": True,
+                            "bool_false_prop": False,
+                            "array_prop": [1, "two", True],
+                            "object_prop": {"nested": "value", "count": 123},
+                        }
+                    }
+                ),
+            ),
+        ]
+
+        def insert_events(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Person with different values for all properties (so set_diff includes them)
+        person_data = [
+            (
+                team_id,
+                person_id,
+                json.dumps(
+                    {
+                        "string_prop": "old",
+                        "int_prop": 0,
+                        "float_prop": 0.0,
+                        "bool_true_prop": False,
+                        "bool_false_prop": True,
+                        "array_prop": [],
+                        "object_prop": {},
+                    }
+                ),
+                1,
+                now - timedelta(days=8),
+            )
+        ]
+
+        def insert_person(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        assert len(results) == 1
+        updates = {u.key: u.value for u in results[0].updates}
+
+        # String
+        assert updates["string_prop"] == "hello world"
+        assert isinstance(updates["string_prop"], str)
+
+        # Integer
+        assert updates["int_prop"] == 42
+        assert isinstance(updates["int_prop"], int)
+
+        # Float
+        assert updates["float_prop"] == 3.14159
+        assert isinstance(updates["float_prop"], float)
+
+        # Boolean true
+        assert updates["bool_true_prop"] is True
+        assert isinstance(updates["bool_true_prop"], bool)
+
+        # Boolean false
+        assert updates["bool_false_prop"] is False
+        assert isinstance(updates["bool_false_prop"], bool)
+
+        # Array
+        assert updates["array_prop"] == [1, "two", True]
+        assert isinstance(updates["array_prop"], list)
+
+        # Object
+        assert updates["object_prop"] == {"nested": "value", "count": 123}
+        assert isinstance(updates["object_prop"], dict)
+
+    def test_set_with_null_value_is_filtered_out(self, cluster: ClickhouseCluster):
+        """Test that $set with null value is filtered out (use $unset for removal)."""
+        team_id = 99907
+        person_id = UUID("77777777-7777-7777-7777-000000000007")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        event_ts = now - timedelta(days=3)
+
+        # Event with null value in $set - should be filtered out
+        events = [
+            (
+                team_id,
+                "distinct_id_7",
+                person_id,
+                event_ts,
+                json.dumps(
+                    {
+                        "$set": {
+                            "keep_prop": "value",
+                            "null_prop": None,  # This should be filtered out
+                        }
+                    }
+                ),
+            ),
+        ]
+
+        def insert_events(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Person with different values (so set_diff includes them)
+        person_data = [
+            (
+                team_id,
+                person_id,
+                json.dumps(
+                    {
+                        "keep_prop": "old_value",
+                        "null_prop": "existing_value",  # This exists, but $set null should NOT update it
+                    }
+                ),
+                1,
+                now - timedelta(days=8),
+            )
+        ]
+
+        def insert_person(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        assert len(results) == 1
+        updates = {u.key: u.value for u in results[0].updates}
+
+        # keep_prop should be included
+        assert "keep_prop" in updates
+        assert updates["keep_prop"] == "value"
+
+        # null_prop should NOT be included (filtered out because value is null)
+        assert "null_prop" not in updates, (
+            "$set with null value should be filtered out. " "Use $unset to remove properties."
+        )
+
+    def test_set_once_with_various_json_types(self, cluster: ClickhouseCluster):
+        """Test $set_once with various JSON value types: string, number, boolean, array, object."""
+        team_id = 99908
+        person_id = UUID("88888888-8888-8888-8888-000000000008")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        event_ts = now - timedelta(days=3)
+
+        # Event with various JSON types in $set_once
+        # Note: null values are filtered out in the query
+        events = [
+            (
+                team_id,
+                "distinct_id_8",
+                person_id,
+                event_ts,
+                json.dumps(
+                    {
+                        "$set_once": {
+                            "string_prop": "hello world",
+                            "int_prop": 42,
+                            "float_prop": 3.14159,
+                            "bool_true_prop": True,
+                            "bool_false_prop": False,
+                            "array_prop": [1, "two", True],
+                            "object_prop": {"nested": "value", "count": 123},
+                        }
+                    }
+                ),
+            ),
+        ]
+
+        def insert_events(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Person WITHOUT these properties (so set_once_diff includes them)
+        person_data = [
+            (
+                team_id,
+                person_id,
+                json.dumps({"other_prop": "value"}),  # None of the $set_once keys exist
+                1,
+                now - timedelta(days=8),
+            )
+        ]
+
+        def insert_person(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        assert len(results) == 1
+        updates = {u.key: u.value for u in results[0].updates}
+
+        # String
+        assert updates["string_prop"] == "hello world"
+        assert isinstance(updates["string_prop"], str)
+
+        # Integer
+        assert updates["int_prop"] == 42
+        assert isinstance(updates["int_prop"], int)
+
+        # Float
+        assert updates["float_prop"] == 3.14159
+        assert isinstance(updates["float_prop"], float)
+
+        # Boolean true
+        assert updates["bool_true_prop"] is True
+        assert isinstance(updates["bool_true_prop"], bool)
+
+        # Boolean false
+        assert updates["bool_false_prop"] is False
+        assert isinstance(updates["bool_false_prop"], bool)
+
+        # Array
+        assert updates["array_prop"] == [1, "two", True]
+        assert isinstance(updates["array_prop"], list)
+
+        # Object
+        assert updates["object_prop"] == {"nested": "value", "count": 123}
+        assert isinstance(updates["object_prop"], dict)
+
+    def test_set_once_with_null_value_is_filtered_out(self, cluster: ClickhouseCluster):
+        """Test that $set_once with null value is filtered out."""
+        team_id = 99909
+        person_id = UUID("99999999-9999-9999-9999-000000000009")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        event_ts = now - timedelta(days=3)
+
+        # Event with null value in $set_once - should be filtered out
+        events = [
+            (
+                team_id,
+                "distinct_id_9",
+                person_id,
+                event_ts,
+                json.dumps(
+                    {
+                        "$set_once": {
+                            "keep_prop": "value",
+                            "null_prop": None,  # This should be filtered out
+                        }
+                    }
+                ),
+            ),
+        ]
+
+        def insert_events(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Person without these properties (so set_once_diff would include them if not filtered)
+        person_data = [
+            (
+                team_id,
+                person_id,
+                json.dumps({"other_prop": "value"}),
+                1,
+                now - timedelta(days=8),
+            )
+        ]
+
+        def insert_person(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        assert len(results) == 1
+        updates = {u.key: u.value for u in results[0].updates}
+
+        # keep_prop should be included
+        assert "keep_prop" in updates
+        assert updates["keep_prop"] == "value"
+
+        # null_prop should NOT be included (filtered out because value is null)
+        assert "null_prop" not in updates, "$set_once with null value should be filtered out."
