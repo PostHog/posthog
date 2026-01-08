@@ -43,14 +43,10 @@ export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const NullEnumApi = {} as const
 
-export type UserBasicApiHedgehogConfigAnyOf = { [key: string]: unknown }
-
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = UserBasicApiHedgehogConfigAnyOf | null | null
-
-export type UserBasicApiRoleAtOrganization = RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -70,7 +66,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: UserBasicApiRoleAtOrganization
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi
 }
 
 export interface DataColorThemeApi {

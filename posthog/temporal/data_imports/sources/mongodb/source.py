@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -64,7 +64,9 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             for name, incremental_fields in filtered_results
         ]
 
-    def validate_credentials(self, config: MongoDBSourceConfig, team_id: int) -> tuple[bool, str | None]:
+    def validate_credentials(
+        self, config: MongoDBSourceConfig, team_id: int, schema_name: Optional[str] = None
+    ) -> tuple[bool, str | None]:
         from pymongo.errors import OperationFailure
 
         try:

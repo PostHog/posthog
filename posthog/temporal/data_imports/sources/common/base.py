@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Generic, TypeVar, Union
+from typing import Generic, Optional, TypeVar, Union
 
 from posthog.schema import (
     SourceConfig,
@@ -78,7 +78,9 @@ class _BaseSource(ABC, Generic[ConfigType]):
     def validate_config(self, job_inputs: dict) -> tuple[bool, list[str]]:
         return self._config_class.validate_dict(job_inputs)
 
-    def validate_credentials(self, config: ConfigType, team_id: int) -> tuple[bool, str | None]:
+    def validate_credentials(
+        self, config: ConfigType, team_id: int, schema_name: Optional[str] = None
+    ) -> tuple[bool, str | None]:
         """Check whether the provided credentials are valid for this source. Returns an optional error message"""
         return True, None
 
