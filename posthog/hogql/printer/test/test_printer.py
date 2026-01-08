@@ -3563,6 +3563,11 @@ class TestPostgresPrinter(BaseTest):
         self.assertEqual(self._expr("a / b"), "(a / b)")
         self.assertEqual(self._expr("a % b"), "(a % b)")
 
+    def test_logical_operators(self):
+        self.assertEqual(self._expr("a AND b"), "(a AND b)")
+        self.assertEqual(self._expr("a OR b"), "(a OR b)")
+        self.assertEqual(self._expr("NOT a"), "(NOT a)")
+
     def test_unknown_comparison_operator_raises_error(self):
         query: ast.CompareOperation = cast(ast.CompareOperation, parse_expr("a = b"))
 
