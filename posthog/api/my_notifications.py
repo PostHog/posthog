@@ -195,7 +195,7 @@ class MyNotificationsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                             -- we only really care about de-duplicating Notebook changes,
                             -- as multiple actual activities are logged for one logical activity
                             AND scope = 'Notebook'
-                            AND NOT (user_id = %s AND user_id IS NOT NULL)
+                            AND (user_id != %s OR user_id IS NULL)
                             AND date_trunc('millisecond', created_at) > %s
                             ORDER BY created_at DESC) AS inner_q) AS counted_q
                 WHERE row_number = 1
