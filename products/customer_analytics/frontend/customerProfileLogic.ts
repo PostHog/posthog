@@ -61,7 +61,7 @@ export const customerProfileLogic = kea<customerProfileLogicType>([
     connect((props: PersonProfileLogicProps) => ({
         values: [
             customerProfileConfigLogic({ scope: props.scope }),
-            ['personProfileConfig'],
+            ['customerProfileConfig'],
             featureFlagLogic,
             ['featureFlags'],
         ],
@@ -120,47 +120,58 @@ export const customerProfileLogic = kea<customerProfileLogicType>([
             (s) => [s.featureFlags],
             (featureFlags) => featureFlags[FEATURE_FLAGS.CUSTOMER_PROFILE_CONFIG_BUTTON],
         ],
+        scopedSidebarContent: [
+            () => [(_, props) => props.scope],
+            (scope) =>
+                scope === CustomerProfileScope.PERSON ? DEFAULT_PERSON_PROFILE_SIDEBAR : DEFAULT_GROUP_PROFILE_SIDEBAR,
+        ],
+        scopedAddAttrFunction: [
+            () => [(_, props) => props.scope],
+            (scope) => (scope === CustomerProfileScope.PERSON ? addPersonAttrsToNode : addGroupAttrsToNode),
+        ],
         defaultContent: [
-            () => [(_, props) => props.scope, (_, props) => props.attrs],
-            (scope, attrs) => {
-                if (scope === CustomerProfileScope.PERSON) {
-                    const sidebar = DEFAULT_PERSON_PROFILE_SIDEBAR.map((node) => addPersonAttrsToNode({ attrs, node }))
-                    return DEFAULT_PERSON_PROFILE_CONTENT.map((node, index) => {
-                        if (index === 0) {
-                            return addPersonAttrsToNode({ attrs, node, children: sidebar })
-                        }
-                        return addPersonAttrsToNode({ attrs, node })
-                    })
-                }
+            (s) => [
+                s.scopedSidebarContent,
+                s.scopedAddAttrFunction,
+                (_, props) => props.scope,
+                (_, props) => props.attrs,
+            ],
+            (scopedSidebarContent, scopedAddAttrFunction, scope, attrs) => {
+                const scopedDefaultContent =
+                    scope === CustomerProfileScope.PERSON
+                        ? DEFAULT_PERSON_PROFILE_CONTENT
+                        : DEFAULT_GROUP_PROFILE_CONTENT
 
-                const sidebar = DEFAULT_GROUP_PROFILE_SIDEBAR.map((node) => addGroupAttrsToNode({ attrs, node }))
-                return DEFAULT_GROUP_PROFILE_CONTENT.map((node, index) => {
+                const sidebar = scopedSidebarContent.map((node) => scopedAddAttrFunction({ attrs, node }))
+                return scopedDefaultContent.map((node, index) => {
                     if (index === 0) {
-                        return addGroupAttrsToNode({ attrs, node, children: sidebar })
+                        return scopedAddAttrFunction({ attrs, node, children: sidebar })
                     }
-                    return addGroupAttrsToNode({ attrs, node })
+                    return scopedAddAttrFunction({ attrs, node })
                 })
             },
         ],
         storedContent: [
-            (s) => [s.personProfileConfig, (_, props) => props.attrs, (_, props) => props.scope],
-            (personProfileConfig, attrs, scope): JSONContent[] | null => {
-                if (scope === CustomerProfileScope.PERSON) {
-                    if (!personProfileConfig) {
-                        return null
-                    }
-
-                    const sidebar = personProfileConfig.sidebar.map((node: JSONContent) =>
-                        addPersonAttrsToNode({ attrs, node })
-                    )
-                    return personProfileConfig.content.map((node: JSONContent, index: number) => {
-                        if (index === 0) {
-                            return addPersonAttrsToNode({ attrs, node, children: sidebar })
-                        }
-                        return addPersonAttrsToNode({ attrs, node })
-                    })
+            (s) => [
+                s.customerProfileConfig,
+                s.scopedAddAttrFunction,
+                (_, props) => props.attrs,
+                (_, props) => props.scope,
+            ],
+            (customerProfileConfig, scopedAddAttrFunction, attrs): JSONContent[] | null => {
+                if (!customerProfileConfig) {
+                    return null
                 }
-                return null
+
+                const sidebar = customerProfileConfig.sidebar.map((node: JSONContent) =>
+                    scopedAddAttrFunction({ attrs, node })
+                )
+                return customerProfileConfig.content.map((node: JSONContent, index: number) => {
+                    if (index === 0) {
+                        return scopedAddAttrFunction({ attrs, node, children: sidebar })
+                    }
+                    return scopedAddAttrFunction({ attrs, node })
+                })
             },
         ],
         content: [
@@ -218,19 +229,13 @@ export const customerProfileLogic = kea<customerProfileLogicType>([
                     title: node.attrs?.title || node.title,
                     index: node.attrs?.index || node.index,
                 })),
-                sidebar: [] as JSONContent[],
+                sidebar: values.scopedSidebarContent,
             }
 
-            // TODO: Selector for scoped sidebar
-            // TODO: Selector for scoped profile config
-            if (props.scope === CustomerProfileScope.PERSON) {
-                config.sidebar = DEFAULT_PERSON_PROFILE_SIDEBAR
-
-                if (values.personProfileConfig) {
-                    actions.updateConfig(values.personProfileConfig.id, config)
-                } else {
-                    actions.createConfig(config)
-                }
+            if (values.customerProfileConfig) {
+                actions.updateConfig(values.customerProfileConfig.id, config)
+            } else {
+                actions.createConfig(config)
             }
         },
         createConfigSuccess: () => {
