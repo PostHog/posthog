@@ -1,3 +1,4 @@
+from collections.abc import Generator
 from urllib.parse import urlparse
 
 import dagster
@@ -106,7 +107,7 @@ class PostgresURLResource(dagster.ConfigurableResource):
 
 
 @dagster.resource
-def kafka_producer_resource(context: dagster.InitResourceContext) -> _KafkaProducer:
+def kafka_producer_resource(context: dagster.InitResourceContext) -> Generator[_KafkaProducer, None, None]:
     """
     Kafka producer resource with proper cleanup.
     Flushes pending messages on teardown.

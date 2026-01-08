@@ -1,6 +1,7 @@
 """Tests for the person property reconciliation job."""
 
 from datetime import UTC, datetime
+from typing import Any
 
 from unittest.mock import MagicMock, patch
 
@@ -20,7 +21,7 @@ class TestClickHouseResultParsing:
         """Test that set_diff array of tuples is correctly parsed."""
         # Simulate ClickHouse returning: (person_id, set_diff, set_once_diff)
         # set_diff is an array of (key, value, timestamp) tuples
-        mock_rows = [
+        mock_rows: list[tuple[str, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]]]] = [
             (
                 "018d1234-5678-0000-0000-000000000001",  # person_id (UUID as string)
                 [  # set_diff - array of tuples
@@ -56,7 +57,7 @@ class TestClickHouseResultParsing:
 
     def test_parses_set_once_diff_tuples(self):
         """Test that set_once_diff array of tuples is correctly parsed."""
-        mock_rows = [
+        mock_rows: list[tuple[str, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]]]] = [
             (
                 "018d1234-5678-0000-0000-000000000002",
                 [],  # set_diff - empty
@@ -150,7 +151,7 @@ class TestClickHouseResultParsing:
 
     def test_skips_persons_with_no_updates(self):
         """Test that persons with empty set_diff and set_once_diff are skipped."""
-        mock_rows = [
+        mock_rows: list[tuple[str, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]]]] = [
             (
                 "018d1234-0000-0000-0000-000000000001",
                 [],  # empty set_diff

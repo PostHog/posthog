@@ -321,7 +321,7 @@ def publish_person_to_kafka(person_data: dict, producer: _KafkaProducer) -> None
 
     # Format data for Kafka/ClickHouse
     created_at = person_data.get("created_at")
-    if hasattr(created_at, "strftime"):
+    if created_at is not None and hasattr(created_at, "strftime"):
         created_at_str = created_at.strftime("%Y-%m-%d %H:%M:%S.%f")
     else:
         created_at_str = str(created_at) if created_at else now().strftime("%Y-%m-%d %H:%M:%S.%f")
