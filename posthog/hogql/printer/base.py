@@ -266,11 +266,13 @@ class HogQLPrinter(Visitor[str]):
     ) -> list[str]:
         return []
 
-    def _ensure_team_id_where_clause(self, table_type: ast.TableType, node_type: ast.TableOrSelectType):
+    def _ensure_team_id_where_clause(
+        self, table_type: ast.TableType | ast.LazyTableType, node_type: ast.TableOrSelectType
+    ):
         if self.dialect != "hogql":
             raise NotImplementedError("HogQLPrinter._ensure_team_id_where_clause not overridden")
 
-    def _print_table_ref(self, table_type: ast.TableType, node: ast.JoinExpr) -> str:
+    def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
         if self.dialect == "hogql":
             return table_type.table.to_printed_hogql()
         raise ImpossibleASTError(f"Unsupported dialect {self.dialect}")
@@ -285,13 +287,12 @@ class HogQLPrinter(Visitor[str]):
             join_strings.append(node.join_type)
 
         if isinstance(node.type, ast.TableAliasType) or isinstance(node.type, ast.TableType):
-            table_type: Union[ast.TableType | ast.TableAliasType] = node.type
+            table_type: ast.TableType | ast.LazyTableType | ast.TableAliasType = node.type
             while isinstance(table_type, ast.TableAliasType):
-                table_type = cast(Union[ast.TableType | ast.TableAliasType], table_type.table_type)
+                table_type = cast(ast.TableType | ast.LazyTableType | ast.TableAliasType, table_type.table_type)
 
-            if not isinstance(table_type, ast.BaseTableType):
+            if not isinstance(table_type, ast.TableType) and not isinstance(table_type, ast.LazyTableType):
                 raise ImpossibleASTError(f"Invalid table type {type(table_type).__name__} in join_expr")
-            assert isinstance(table_type, ast.BaseTableType)
 
             # :IMPORTANT: This assures a "team_id" where clause is present on every selected table.
             extra_where = self._ensure_team_id_where_clause(table_type, node.type)
@@ -406,19 +407,7 @@ class HogQLPrinter(Visitor[str]):
             return f"{visited_tuple}{symbol}{visited_index}"
         return f"({visited_tuple}){symbol}{visited_index}"
 
-    def _visit_postgres_tuple(self, node: ast.Tuple) -> str:
-        values = [self.visit(expr) for expr in node.exprs]
-
-        if len(values) == 1:
-            # Parentheses around a single value are just grouping in Postgres. Use ROW() to construct a 1-column tuple.
-            return f"ROW({values[0]})"
-
-        return f"({', '.join(values)})"
-
     def visit_tuple(self, node: ast.Tuple):
-        if self.dialect == "postgres":
-            return self._visit_postgres_tuple(node)
-
         return f"tuple({', '.join([self.visit(expr) for expr in node.exprs])})"
 
     def visit_array_access(self, node: ast.ArrayAccess):

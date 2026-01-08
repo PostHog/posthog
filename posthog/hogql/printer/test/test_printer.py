@@ -3488,8 +3488,7 @@ class TestPostgresPrinter(BaseTest):
 
     def test_allows_dollar_identifiers(self):
         printed = self._select("SELECT event AS $value FROM events")
-
-        self.assertIn("AS $value", printed)
+        self.assertIn('AS "$value"', printed)
 
     def test_simple_identifiers_render_without_quotes(self):
         self.assertEqual(self._expr("count(id)"), "count(id)")
@@ -3505,16 +3504,6 @@ class TestPostgresPrinter(BaseTest):
         self.assertIn("lag(", printed)
         self.assertNotIn("lagInFrame", printed)
         self.assertNotIn("ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING", printed)
-
-    def test_and_or_functions_render_as_boolean_operators(self):
-        self.assertEqual(
-            self._expr("and(event = 'test', distinct_id = 'abc')"),
-            "((events.event = 'test') AND (events.distinct_id = 'abc'))",
-        )
-        self.assertEqual(
-            self._expr("or(event = 'test', distinct_id = 'abc')"),
-            "((events.event = 'test') OR (events.distinct_id = 'abc'))",
-        )
 
     def test_in_operations_render_value_lists(self):
         self.assertEqual(self._expr("1 in (1, 2, 3)"), "(1 IN (1, 2, 3))")
@@ -3564,8 +3553,8 @@ class TestPostgresPrinter(BaseTest):
         self.assertEqual(self._expr("a % b"), "(a % b)")
 
     def test_logical_operators(self):
-        self.assertEqual(self._expr("a AND b"), "(a AND b)")
-        self.assertEqual(self._expr("a OR b"), "(a OR b)")
+        self.assertEqual(self._expr("a AND b"), "((a) AND (b))")
+        self.assertEqual(self._expr("a OR b"), "((a) OR (b))")
         self.assertEqual(self._expr("NOT a"), "(NOT a)")
 
     def test_unknown_comparison_operator_raises_error(self):

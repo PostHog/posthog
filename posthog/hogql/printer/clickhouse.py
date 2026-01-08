@@ -168,9 +168,6 @@ class ClickHousePrinter(HogQLPrinter):
         Used for JSONHas optimizations where we specifically need property group sources
         (not mat_* columns) because property groups can efficiently check for key existence.
         """
-        if self.dialect != "clickhouse":
-            return None
-
         if self.context.modifiers.propertyGroupsMode not in (
             PropertyGroupsMode.ENABLED,
             PropertyGroupsMode.OPTIMIZED,
@@ -553,12 +550,8 @@ class ClickHousePrinter(HogQLPrinter):
             constant_lambda = lambda left_op, right_op: (
                 left_op <= right_op if left_op is not None and right_op is not None else False
             )
-        # only used for hogql direct printing (no prepare called)
-        elif node.op == ast.CompareOperationOp.InCohort:
-            op = f"{left} IN COHORT {right}"
-        # only used for hogql direct printing (no prepare called)
-        elif node.op == ast.CompareOperationOp.NotInCohort:
-            op = f"{left} NOT IN COHORT {right}"
+        elif node.op == ast.CompareOperationOp.InCohort or node.op == ast.CompareOperationOp.NotInCohort:
+            raise InternalHogQLError("Cohort operations should have been resolved before printing")
         else:
             raise ImpossibleASTError(f"Unknown CompareOperationOp: {node.op.name}")
 
@@ -658,7 +651,9 @@ class ClickHousePrinter(HogQLPrinter):
     ) -> str:
         return escape_clickhouse_string(name, timezone=self._get_timezone())
 
-    def _ensure_team_id_where_clause(self, table_type: ast.TableType, node_type: ast.TableOrSelectType | None):
+    def _ensure_team_id_where_clause(
+        self, table_type: ast.TableType | ast.LazyTableType, node_type: ast.TableOrSelectType | None
+    ):
         # :IMPORTANT: This assures a "team_id" where clause is present on every selected table.
         # Skip warehouse tables and tables with an explicit skip.
         if (
@@ -669,7 +664,7 @@ class ClickHousePrinter(HogQLPrinter):
         ):
             return team_id_guard_for_table(node_type, self.context)
 
-    def _print_table_ref(self, table_type: ast.TableType, node: ast.JoinExpr) -> str:
+    def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
         sql = table_type.table.to_printed_clickhouse(self.context)
 
         # Edge case. If we are joining an s3 table, we must wrap it in a subquery for the join to work

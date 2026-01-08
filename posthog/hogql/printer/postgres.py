@@ -33,24 +33,13 @@ class PostgresPrinter(HogQLPrinter):
     def visit_call(self, node: ast.Call):
         # No function call validation for postgres
         args = [self.visit(arg) for arg in node.args]
-
-        if node.name.lower() in ["and", "or"]:
-            if len(args) == 0:
-                return f"{node.name}()"
-            if len(args) == 1:
-                return args[0]
-
-            operator = "AND" if node.name.lower() == "and" else "OR"
-            joined_args = f" {operator} ".join(args)
-            return f"({joined_args})"
-
         return f"{node.name}({', '.join(args)})"
 
     def visit_and(self, node):
-        return f"({' AND '.join([self.visit(expr) for expr in node.exprs])})"
+        return f"({' AND '.join([f"({self.visit(expr)})" for expr in node.exprs])})"
 
     def visit_or(self, node):
-        return f"({' OR '.join([self.visit(expr) for expr in node.exprs])})"
+        return f"({' OR '.join([f"({self.visit(expr)})" for expr in node.exprs])})"
 
     def visit_not(self, node):
         return f"(NOT {self.visit(node.expr)})"
@@ -112,10 +101,14 @@ class PostgresPrinter(HogQLPrinter):
         else:
             raise ImpossibleASTError(f"Unknown CompareOperationOp: {op.name}")
 
-    def _print_table_ref(self, table_type: ast.TableType, node: ast.JoinExpr) -> str:
+    def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
         return table_type.table.to_printed_clickhouse(self.context)
 
-    def _ensure_team_id_where_clause(self, table_type: ast.TableType, node_type: ast.TableOrSelectType): ...
+    def _ensure_team_id_where_clause(
+        self, table_type: ast.TableType | ast.LazyTableType, node_type: ast.TableOrSelectType
+    ):
+        # Team ID filtering is not required for Postgres queries
+        pass
 
     def _print_identifier(self, name: str) -> str:
         return escape_postgres_identifier(name)
@@ -160,3 +153,12 @@ class PostgresPrinter(HogQLPrinter):
             return f"({self.visit(node.left)} % {self.visit(node.right)})"
         else:
             raise ImpossibleASTError(f"Unknown ArithmeticOperationOp {node.op}")
+
+    def visit_tuple(self, node: ast.Tuple) -> str:
+        values = [self.visit(expr) for expr in node.exprs]
+
+        if len(values) == 1:
+            # Parentheses around a single value are just grouping in Postgres. Use ROW() to construct a 1-column tuple.
+            return f"ROW({values[0]})"
+
+        return f"({', '.join(values)})"
