@@ -94,7 +94,7 @@ export function PurePlayer({ noMeta = false, noBorder = false, playerRef }: Pure
         if (typeof window !== 'undefined') {
             ;(window as any).__POSTHOG_PLAYER_STATE__ = { endReached, resolution }
         }
-    }, [endReached])
+    }, [endReached, resolution])
 
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
     const hidePlayerElements =
