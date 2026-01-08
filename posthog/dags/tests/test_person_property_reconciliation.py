@@ -2172,3 +2172,975 @@ class TestClickHouseQueryIntegration:
 
         # null_prop should NOT be included (filtered out because value is null)
         assert "null_prop" not in updates, "$set_once with null value should be filtered out."
+
+    # ==================== Person Merge Tests ====================
+
+    def test_person_merge_uses_override_person_id(self, cluster: ClickhouseCluster):
+        """
+        When a distinct_id has an override in person_distinct_id_overrides,
+        events should be attributed to the override person_id, not the original.
+
+        This test verifies that:
+        1. Events with an overridden distinct_id are attributed to the merged person
+        2. The $set property update is correctly associated with the merged person
+        """
+        team_id = 99910
+        original_person_id = UUID("aaaa0000-0000-0000-0000-000000000001")
+        merged_person_id = UUID("aaaa0000-0000-0000-0000-000000000002")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        event_ts = now - timedelta(days=3)
+
+        # Event with original person_id, but distinct_id will be overridden
+        # Using $set on a property that EXISTS in the merged person but has DIFFERENT value
+        events = [
+            (
+                team_id,
+                "merged_distinct_id",
+                original_person_id,  # Original person_id in event
+                event_ts,
+                json.dumps({"$set": {"existing": "new_value"}}),  # Update existing property
+            ),
+        ]
+
+        def insert_events(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Insert override: merged_distinct_id -> merged_person_id
+        # Must include _timestamp for the data to be visible
+        override_data = [
+            (
+                team_id,
+                "merged_distinct_id",
+                merged_person_id,  # Override to this person
+                now - timedelta(days=4),  # _timestamp - must be provided
+                1,  # version
+                0,  # is_deleted = false
+            ),
+        ]
+
+        def insert_override(client):
+            client.execute(
+                """INSERT INTO person_distinct_id_overrides
+                (team_id, distinct_id, person_id, _timestamp, version, is_deleted)
+                VALUES""",
+                override_data,
+            )
+
+        cluster.any_host(insert_override).result()
+
+        # Insert the MERGED person (not the original)
+        # Has "existing" property with old value that event will update
+        person_data = [
+            (
+                team_id,
+                merged_person_id,
+                json.dumps({"existing": "old_value"}),
+                1,
+                now - timedelta(days=8),
+            )
+        ]
+
+        def insert_person(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        # Should get results for merged_person_id, not original_person_id
+        assert len(results) == 1
+        assert results[0].person_id == str(merged_person_id)
+
+        updates = {u.key: u.value for u in results[0].updates}
+        assert "existing" in updates
+        assert updates["existing"] == "new_value"
+
+    def test_multiple_distinct_ids_same_person(self, cluster: ClickhouseCluster):
+        """
+        Events from multiple distinct_ids that map to the same person
+        should be aggregated together.
+        """
+        team_id = 99911
+        person_id = UUID("bbbb0000-0000-0000-0000-000000000001")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        earlier_ts = now - timedelta(days=5)
+        later_ts = now - timedelta(days=2)
+
+        # Two events from different distinct_ids, same person
+        events = [
+            (team_id, "distinct_id_A", person_id, earlier_ts, json.dumps({"$set": {"name": "First"}})),
+            (team_id, "distinct_id_B", person_id, later_ts, json.dumps({"$set": {"name": "Latest"}})),
+        ]
+
+        def insert_events(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        person_data = [(team_id, person_id, json.dumps({"name": "Old"}), 1, now - timedelta(days=8))]
+
+        def insert_person(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        # Should have one result with the latest value (aggregated from both distinct_ids)
+        assert len(results) == 1
+        updates = {u.key: u.value for u in results[0].updates}
+        assert updates["name"] == "Latest"
+
+    def test_deleted_override_not_used(self, cluster: ClickhouseCluster):
+        """
+        When an override has is_deleted=1, it should not be used.
+        Events should use the original person_id from the event.
+        """
+        team_id = 99920
+        original_person_id = UUID("eeee0000-0000-0000-0000-000000000001")
+        merged_person_id = UUID("eeee0000-0000-0000-0000-000000000002")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        event_ts = now - timedelta(days=3)
+
+        events = [
+            (
+                team_id,
+                "deleted_override_distinct",
+                original_person_id,
+                event_ts,
+                json.dumps({"$set": {"prop": "value"}}),
+            ),
+        ]
+
+        def insert_events(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Insert a DELETED override (is_deleted=1)
+        override_data = [
+            (
+                team_id,
+                "deleted_override_distinct",
+                merged_person_id,
+                now - timedelta(days=4),  # _timestamp
+                1,  # version
+                1,  # is_deleted = TRUE
+            ),
+        ]
+
+        def insert_override(client):
+            client.execute(
+                """INSERT INTO person_distinct_id_overrides
+                (team_id, distinct_id, person_id, _timestamp, version, is_deleted)
+                VALUES""",
+                override_data,
+            )
+
+        cluster.any_host(insert_override).result()
+
+        # Insert the ORIGINAL person (not the merged one)
+        person_data = [(team_id, original_person_id, json.dumps({"prop": "old"}), 1, now - timedelta(days=8))]
+
+        def insert_person(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        # Since override is deleted, should use original_person_id
+        assert len(results) == 1
+        assert results[0].person_id == str(original_person_id)
+
+    def test_override_version_ordering(self, cluster: ClickhouseCluster):
+        """
+        When multiple override versions exist, the highest version should win.
+        """
+        team_id = 99921
+        original_person_id = UUID("ffff0000-0000-0000-0000-000000000001")
+        first_merged_person_id = UUID("ffff0000-0000-0000-0000-000000000002")
+        final_merged_person_id = UUID("ffff0000-0000-0000-0000-000000000003")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        event_ts = now - timedelta(days=3)
+
+        events = [
+            (
+                team_id,
+                "multi_version_distinct",
+                original_person_id,
+                event_ts,
+                json.dumps({"$set": {"prop": "value"}}),
+            ),
+        ]
+
+        def insert_events(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Insert multiple override versions - version 2 should win
+        override_data = [
+            (team_id, "multi_version_distinct", first_merged_person_id, now - timedelta(days=5), 1, 0),
+            (team_id, "multi_version_distinct", final_merged_person_id, now - timedelta(days=4), 2, 0),
+        ]
+
+        def insert_override(client):
+            client.execute(
+                """INSERT INTO person_distinct_id_overrides
+                (team_id, distinct_id, person_id, _timestamp, version, is_deleted)
+                VALUES""",
+                override_data,
+            )
+
+        cluster.any_host(insert_override).result()
+
+        # Insert the FINAL merged person
+        person_data = [(team_id, final_merged_person_id, json.dumps({"prop": "old"}), 1, now - timedelta(days=8))]
+
+        def insert_person(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        # Should use final_merged_person_id (version 2)
+        assert len(results) == 1
+        assert results[0].person_id == str(final_merged_person_id)
+
+    def test_deleted_person_filtered_out(self, cluster: ClickhouseCluster):
+        """
+        Persons with is_deleted=1 in the person table should be filtered out.
+        There's no point updating properties on a deleted person.
+        """
+        team_id = 99922
+        person_id = UUID("11110000-0000-0000-0000-000000000001")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        event_ts = now - timedelta(days=3)
+
+        events = [
+            (team_id, "deleted_person_distinct", person_id, event_ts, json.dumps({"$set": {"prop": "new_value"}})),
+        ]
+
+        def insert_events(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Insert a DELETED person (is_deleted=1)
+        person_data = [
+            (
+                team_id,
+                person_id,
+                json.dumps({"prop": "old_value"}),
+                1,  # version
+                1,  # is_deleted = TRUE
+                now - timedelta(days=8),  # _timestamp
+            )
+        ]
+
+        def insert_person(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, is_deleted, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        # Deleted persons should NOT be processed
+        assert len(results) == 0
+
+    def test_person_multiple_versions_uses_latest(self, cluster: ClickhouseCluster):
+        """
+        When a person has multiple versions in CH, argMax(properties, version)
+        should select the properties from the highest version.
+        """
+        team_id = 99923
+        person_id = UUID("22220000-0000-0000-0000-000000000002")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        event_ts = now - timedelta(days=3)
+
+        events = [
+            (
+                team_id,
+                "multi_version_person_distinct",
+                person_id,
+                event_ts,
+                json.dumps({"$set": {"prop": "event_value"}}),
+            ),
+        ]
+
+        def insert_events(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Insert multiple versions of the same person
+        # Version 2 has different properties than version 1
+        person_data = [
+            (team_id, person_id, json.dumps({"prop": "v1_value"}), 1, now - timedelta(days=8)),
+            (team_id, person_id, json.dumps({"prop": "v2_value"}), 2, now - timedelta(days=7)),
+        ]
+
+        def insert_person(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        # Should compare against v2_value (latest version)
+        # Event has "event_value", person v2 has "v2_value" - different, so should be in diff
+        assert len(results) == 1
+        updates = {u.key: u.value for u in results[0].updates}
+        assert updates["prop"] == "event_value"
+
+    # ==================== Same Key Operation Tests ====================
+
+    def test_set_and_set_once_on_same_key(self, cluster: ClickhouseCluster):
+        """
+        When $set and $set_once both target the same key, both should be returned
+        as separate operations (query doesn't merge them, Python logic handles precedence).
+        """
+        team_id = 99912
+        person_id = UUID("cccc0000-0000-0000-0000-000000000001")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        set_once_ts = now - timedelta(days=5)
+        set_ts = now - timedelta(days=2)
+
+        events = [
+            (team_id, "distinct_1", person_id, set_once_ts, json.dumps({"$set_once": {"email": "first@example.com"}})),
+            (team_id, "distinct_1", person_id, set_ts, json.dumps({"$set": {"email": "latest@example.com"}})),
+        ]
+
+        def insert_events(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Person WITHOUT email (so set_once_diff includes it)
+        # Person WITH different email for set_diff
+        # Actually, to get both in results, we need person to NOT have email (for set_once)
+        # and have a different email (for set). That's contradictory.
+        # Let's test with person having a different email - set_diff should include it,
+        # set_once_diff should NOT (key exists).
+        person_data = [(team_id, person_id, json.dumps({"email": "old@example.com"}), 1, now - timedelta(days=8))]
+
+        def insert_person(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        assert len(results) == 1
+
+        set_updates = [u for u in results[0].updates if u.operation == "set"]
+        set_once_updates = [u for u in results[0].updates if u.operation == "set_once"]
+
+        # $set should be included (value differs from person)
+        assert len(set_updates) == 1
+        assert set_updates[0].key == "email"
+        assert set_updates[0].value == "latest@example.com"
+
+        # $set_once should NOT be included (key already exists in person)
+        assert len(set_once_updates) == 0
+
+    # ==================== Diff Filtering Tests ====================
+
+    def test_set_with_same_value_not_in_diff(self, cluster: ClickhouseCluster):
+        """
+        When $set value equals current person property value,
+        it should NOT be in set_diff (no change needed).
+        """
+        team_id = 99913
+        person_id = UUID("dddd0000-0000-0000-0000-000000000001")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        event_ts = now - timedelta(days=3)
+
+        events = [
+            (team_id, "distinct_1", person_id, event_ts, json.dumps({"$set": {"name": "Same Value"}})),
+        ]
+
+        def insert_events(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Person with SAME value
+        person_data = [(team_id, person_id, json.dumps({"name": "Same Value"}), 1, now - timedelta(days=8))]
+
+        def insert_person(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        # Should be empty - no diff when values are the same
+        assert len(results) == 0
+
+    def test_set_on_missing_property_not_in_diff(self, cluster: ClickhouseCluster):
+        """
+        When $set targets a property that doesn't exist in person,
+        it should NOT be in set_diff (set_diff only updates existing different values).
+        """
+        team_id = 99914
+        person_id = UUID("eeee0000-0000-0000-0000-000000000001")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        event_ts = now - timedelta(days=3)
+
+        events = [
+            (team_id, "distinct_1", person_id, event_ts, json.dumps({"$set": {"new_prop": "value"}})),
+        ]
+
+        def insert_events(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Person WITHOUT new_prop
+        person_data = [(team_id, person_id, json.dumps({"other_prop": "value"}), 1, now - timedelta(days=8))]
+
+        def insert_person(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        # Should be empty - set_diff doesn't include missing properties
+        assert len(results) == 0
+
+    def test_unset_on_missing_property_not_in_diff(self, cluster: ClickhouseCluster):
+        """
+        When $unset targets a property that doesn't exist in person,
+        it should NOT be in unset_diff.
+        """
+        team_id = 99915
+        person_id = UUID("ffff0000-0000-0000-0000-000000000001")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        event_ts = now - timedelta(days=3)
+
+        events = [
+            (team_id, "distinct_1", person_id, event_ts, json.dumps({"$unset": ["nonexistent_prop"]})),
+        ]
+
+        def insert_events(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Person WITHOUT nonexistent_prop
+        person_data = [(team_id, person_id, json.dumps({"other_prop": "value"}), 1, now - timedelta(days=8))]
+
+        def insert_person(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        # Should be empty - unset_diff doesn't include missing properties
+        assert len(results) == 0
+
+    # ==================== Empty Value Tests ====================
+
+    def test_empty_set_object_no_results(self, cluster: ClickhouseCluster):
+        """Empty $set object should not cause issues or return results."""
+        team_id = 99916
+        person_id = UUID("11110000-0000-0000-0000-000000000001")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        event_ts = now - timedelta(days=3)
+
+        events = [
+            (team_id, "distinct_1", person_id, event_ts, json.dumps({"$set": {}})),
+        ]
+
+        def insert_events(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        person_data = [(team_id, person_id, json.dumps({"prop": "value"}), 1, now - timedelta(days=8))]
+
+        def insert_person(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        # Empty $set should produce no results
+        assert len(results) == 0
+
+    def test_empty_string_value_is_valid(self, cluster: ClickhouseCluster):
+        """Empty string is a valid value in $set - different from null."""
+        team_id = 99917
+        person_id = UUID("22220000-0000-0000-0000-000000000001")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        event_ts = now - timedelta(days=3)
+
+        events = [
+            (
+                team_id,
+                "distinct_1",
+                person_id,
+                event_ts,
+                json.dumps({"$set": {"empty_prop": "", "valid_prop": "value"}}),
+            ),
+        ]
+
+        def insert_events(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        person_data = [
+            (team_id, person_id, json.dumps({"empty_prop": "old", "valid_prop": "old"}), 1, now - timedelta(days=8))
+        ]
+
+        def insert_person(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        assert len(results) == 1
+        updates = {u.key: u.value for u in results[0].updates}
+
+        # valid_prop should be included (changed from "old" to "value")
+        assert "valid_prop" in updates
+        assert updates["valid_prop"] == "value"
+
+        # empty_prop should be included - empty string is a valid value, not filtered like null
+        # It changes from "old" to "" (empty string)
+        assert "empty_prop" in updates
+        assert updates["empty_prop"] == ""
+
+    # ==================== Window Filtering Tests ====================
+
+    def test_events_outside_bug_window_filtered(self, cluster: ClickhouseCluster):
+        """Events with timestamp outside bug window should be filtered."""
+        team_id = 99918
+        person_id = UUID("33330000-0000-0000-0000-000000000001")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=5)
+        bug_window_end = now - timedelta(days=2)
+
+        # Event BEFORE window
+        before_ts = now - timedelta(days=7)
+        # Event AFTER window
+        after_ts = now - timedelta(days=1)
+        # Event IN window
+        in_window_ts = now - timedelta(days=3)
+
+        events = [
+            (team_id, "distinct_1", person_id, before_ts, json.dumps({"$set": {"before": "value"}})),
+            (team_id, "distinct_1", person_id, after_ts, json.dumps({"$set": {"after": "value"}})),
+            (team_id, "distinct_1", person_id, in_window_ts, json.dumps({"$set": {"in_window": "value"}})),
+        ]
+
+        def insert_events(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        person_data = [
+            (
+                team_id,
+                person_id,
+                json.dumps({"before": "old", "after": "old", "in_window": "old"}),
+                1,
+                now - timedelta(days=4),  # Person _timestamp in window
+            )
+        ]
+
+        def insert_person(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        assert len(results) == 1
+        updates = {u.key: u.value for u in results[0].updates}
+
+        # Only in_window should be included
+        assert "in_window" in updates
+        assert "before" not in updates
+        assert "after" not in updates
+
+    def test_person_outside_bug_window_no_results(self, cluster: ClickhouseCluster):
+        """Person with _timestamp outside bug window should not be joined."""
+        team_id = 99919
+        person_id = UUID("44440000-0000-0000-0000-000000000001")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=5)
+        bug_window_end = now - timedelta(days=2)
+
+        # Event IN window
+        event_ts = now - timedelta(days=3)
+
+        events = [
+            (team_id, "distinct_1", person_id, event_ts, json.dumps({"$set": {"prop": "value"}})),
+        ]
+
+        def insert_events(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Person _timestamp OUTSIDE window (before)
+        person_data = [(team_id, person_id, json.dumps({"prop": "old"}), 1, now - timedelta(days=10))]
+
+        def insert_person(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        # No results because person _timestamp is outside window
+        assert len(results) == 0
+
+    # ==================== Edge Case Tests ====================
+
+    def test_same_timestamp_deterministic(self, cluster: ClickhouseCluster):
+        """
+        When multiple events have exact same timestamp,
+        argMax/argMin should still produce deterministic results.
+        """
+        team_id = 99920
+        person_id = UUID("55550000-0000-0000-0000-000000000001")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        # Same timestamp for both events
+        same_ts = now - timedelta(days=3)
+
+        events = [
+            (team_id, "distinct_1", person_id, same_ts, json.dumps({"$set": {"name": "Value A"}})),
+            (team_id, "distinct_2", person_id, same_ts, json.dumps({"$set": {"name": "Value B"}})),
+        ]
+
+        def insert_events(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        person_data = [(team_id, person_id, json.dumps({"name": "Old"}), 1, now - timedelta(days=8))]
+
+        def insert_person(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        # Should get exactly one result with one of the values
+        assert len(results) == 1
+        updates = {u.key: u.value for u in results[0].updates}
+        assert updates["name"] in ["Value A", "Value B"]
+
+    def test_special_characters_in_property_keys(self, cluster: ClickhouseCluster):
+        """Property keys with special characters should work correctly."""
+        team_id = 99921
+        person_id = UUID("66660000-0000-0000-0000-000000000001")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        event_ts = now - timedelta(days=3)
+
+        events = [
+            (
+                team_id,
+                "distinct_1",
+                person_id,
+                event_ts,
+                json.dumps(
+                    {
+                        "$set": {
+                            "key with spaces": "value1",
+                            "key.with.dots": "value2",
+                            "key-with-dashes": "value3",
+                            "key_with_underscores": "value4",
+                            "キー": "unicode value",  # Japanese "key"
+                        }
+                    }
+                ),
+            ),
+        ]
+
+        def insert_events(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Person with different values for these keys
+        person_data = [
+            (
+                team_id,
+                person_id,
+                json.dumps(
+                    {
+                        "key with spaces": "old1",
+                        "key.with.dots": "old2",
+                        "key-with-dashes": "old3",
+                        "key_with_underscores": "old4",
+                        "キー": "old unicode",
+                    }
+                ),
+                1,
+                now - timedelta(days=8),
+            )
+        ]
+
+        def insert_person(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        assert len(results) == 1
+        updates = {u.key: u.value for u in results[0].updates}
+
+        assert updates["key with spaces"] == "value1"
+        assert updates["key.with.dots"] == "value2"
+        assert updates["key-with-dashes"] == "value3"
+        assert updates["key_with_underscores"] == "value4"
+        assert updates["キー"] == "unicode value"

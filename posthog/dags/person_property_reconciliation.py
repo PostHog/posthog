@@ -101,10 +101,11 @@ def get_person_property_updates_from_clickhouse(
     SELECT
         with_person_props.person_id,
         -- For $set: only include properties where the key exists in person properties AND the value differs
+        -- Use JSON_VALUE to parse raw JSON strings for proper comparison (e.g., '"value"' -> 'value')
         arrayMap(i -> (set_keys[i], set_values[i], set_timestamps[i]), arrayFilter(
             i -> (
                 indexOf(keys2, set_keys[i]) > 0
-                AND set_values[i] != vals2[indexOf(keys2, set_keys[i])]
+                AND JSON_VALUE(set_values[i], '$') != vals2[indexOf(keys2, set_keys[i])]
             ),
             arrayEnumerate(set_keys)
         )) AS set_diff,
@@ -207,6 +208,8 @@ def get_person_property_updates_from_clickhouse(
               AND _timestamp > %(bug_window_start)s
               AND _timestamp < %(bug_window_end)s
             GROUP BY id
+            -- Filter out deleted persons (latest version has is_deleted=1)
+            HAVING argMax(is_deleted, version) = 0
         ) AS p ON p.id = merged.person_id
     ) AS with_person_props
     WHERE length(set_diff) > 0 OR length(set_once_diff) > 0 OR length(unset_diff) > 0
