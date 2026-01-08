@@ -65,7 +65,7 @@ func (m CompleteModel) successView() string {
 		ui.MutedStyle.Render("  Stop PostHog:    ")+"docker-compose stop",
 		ui.MutedStyle.Render("  Start PostHog:   ")+"docker-compose start",
 		ui.MutedStyle.Render("  View logs:       ")+"docker-compose logs -f",
-		ui.MutedStyle.Render("  Upgrade:         ")+"./posthog-hobby (select Upgrade)",
+		ui.MutedStyle.Render("  Upgrade:         ")+"./posthog-hobby",
 		"",
 		ui.MutedStyle.Render("  Clean up old images: ")+"docker system prune -a",
 	)
