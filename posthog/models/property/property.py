@@ -73,6 +73,15 @@ OperatorType = Literal[
     "is_date_before",
     "in",
     "not_in",
+    "semver_gt",
+    "semver_gte",
+    "semver_lt",
+    "semver_lte",
+    "semver_eq",
+    "semver_neq",
+    "semver_tilde",
+    "semver_caret",
+    "semver_wildcard",
 ]
 
 OperatorInterval = Literal["day", "week", "month", "year"]

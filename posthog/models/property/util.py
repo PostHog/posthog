@@ -358,7 +358,7 @@ def parse_prop_clauses(
 
 
 def negate_operator(operator: OperatorType) -> OperatorType:
-    return {
+    negation_map: dict[OperatorType, OperatorType] = {
         "is_not": "exact",
         "exact": "is_not",
         "icontains": "not_icontains",
@@ -373,8 +373,16 @@ def negate_operator(operator: OperatorType) -> OperatorType:
         "is_not_set": "is_set",
         "is_date_before": "is_date_after",
         "is_date_after": "is_date_before",
-        # is_date_exact not yet supported
-    }.get(operator, operator)
+        # Semver operators
+        "semver_gt": "semver_lte",
+        "semver_gte": "semver_lt",
+        "semver_lt": "semver_gte",
+        "semver_lte": "semver_gt",
+        "semver_eq": "semver_neq",
+        "semver_neq": "semver_eq",
+        # is_date_exact, semver range operators (tilde, caret, wildcard) not yet supported
+    }
+    return negation_map.get(operator, operator)
 
 
 def prop_filter_json_extract(
