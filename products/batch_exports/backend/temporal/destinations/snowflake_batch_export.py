@@ -802,9 +802,9 @@ class SnowflakeClient:
         fields = (
             SnowflakeDestinationField(
                 metadata.name,
-                FIELD_ID_TO_NAME[metadata.type_code],
+                FIELD_ID_TO_NAME[metadata.type_code],  # type: ignore[arg-type]
                 metadata.is_nullable,
-            )  # type: ignore[arg-type]
+            )
             for metadata in metadata
             # Only include fields that are present in the record batch schema
             if metadata.name.lower() in record_batch_field_names
