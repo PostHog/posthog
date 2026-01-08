@@ -100,7 +100,7 @@ const createTimeOnPageTrendsQuery = (
             series: [
                 {
                     kind: NodeKind.EventsNode,
-                    math: PropertyMathType.P95,
+                    math: PropertyMathType.P90,
                     math_property: '$prev_pageview_duration',
                     properties: [
                         {
@@ -531,15 +531,15 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                                 ? {
                                       kind: 'query',
                                       tileId: TileId.PAGE_REPORTS_AVG_TIME_ON_PAGE_TREND,
-                                      title: 'Average time on page',
+                                      title: 'Time on page',
                                       query: queries.avgTimeOnPageTrendQuery,
                                       insightProps: createInsightProps(TileId.PAGE_REPORTS_AVG_TIME_ON_PAGE_TREND),
                                       layout: {
                                           className: 'w-full min-h-[300px]',
                                       },
                                       docs: {
-                                          title: 'Average time on page',
-                                          description: 'Average time visitors spend on this page',
+                                          title: 'Time on page',
+                                          description: 'The 90th percentile of time users spent on this page.',
                                       },
                                       canOpenModal: false,
                                   }

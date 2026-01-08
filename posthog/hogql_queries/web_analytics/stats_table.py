@@ -146,7 +146,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
 
     def to_path_bounce_and_avg_time_query(self) -> ast.SelectQuery:
         if self.query.breakdownBy not in [WebStatsBreakdown.PAGE, WebStatsBreakdown.INITIAL_PAGE]:
-            raise NotImplementedError("Avg time on page is only supported for page breakdowns")
+            raise NotImplementedError("Time on page is only supported for page breakdowns")
 
         with self.timings.measure("stats_table_time_on_page_query"):
             query = parse_select(
