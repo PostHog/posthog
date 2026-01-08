@@ -92,6 +92,8 @@ pub struct FlagsCanonicalLogLine {
     pub flags_experience_continuity: usize,
     pub flags_disabled: bool,
     pub quota_limited: bool,
+    /// Source of the flags data: "Redis", "S3", or "Fallback" (PostgreSQL).
+    pub flags_cache_source: Option<&'static str>,
 
     // Deep evaluation metrics (populated via task_local from flag_matching.rs)
     /// Total number of database property fetch operations (aggregate counter).
@@ -146,6 +148,7 @@ impl Default for FlagsCanonicalLogLine {
             flags_experience_continuity: 0,
             flags_disabled: false,
             quota_limited: false,
+            flags_cache_source: None,
             db_property_fetches: 0,
             person_queries: 0,
             group_queries: 0,
@@ -199,6 +202,7 @@ impl FlagsCanonicalLogLine {
             flags_experience_continuity = self.flags_experience_continuity,
             flags_disabled = self.flags_disabled,
             quota_limited = self.quota_limited,
+            flags_cache_source = ?self.flags_cache_source,
             db_property_fetches = self.db_property_fetches,
             person_queries = self.person_queries,
             group_queries = self.group_queries,
@@ -255,6 +259,7 @@ mod tests {
         assert_eq!(log.flags_experience_continuity, 0);
         assert!(!log.flags_disabled);
         assert!(!log.quota_limited);
+        assert!(log.flags_cache_source.is_none());
         assert_eq!(log.db_property_fetches, 0);
         assert_eq!(log.person_queries, 0);
         assert_eq!(log.group_queries, 0);
@@ -293,6 +298,7 @@ mod tests {
         log.flags_experience_continuity = 2;
         log.flags_disabled = false;
         log.quota_limited = true;
+        log.flags_cache_source = Some("Redis");
         log.db_property_fetches = 3;
         log.property_cache_hits = 5;
         log.property_cache_misses = 2;
