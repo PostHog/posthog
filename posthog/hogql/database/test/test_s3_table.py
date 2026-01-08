@@ -437,7 +437,9 @@ class TestS3Table(BaseTest):
         )
 
     def test_s3_build_function_call_with_debug_disabled(self):
-        with override_settings(DEBUG=False, TEST=False):
+        with (
+            override_settings(DEBUG=False, TEST=False, USE_LOCAL_SETUP=False),
+        ):
             res = build_function_call(
                 "http://url.com/path/to/table_name",
                 DataWarehouseTable.TableFormat.DeltaS3Wrapper,
