@@ -49,11 +49,7 @@ pub async fn insert_new_team_in_redis(
     };
 
     let serialized_team = serde_json::to_string(&team)?;
-    // HyperCache format: posthog:1:cache/team_tokens/{api_token}/team_metadata/full_metadata.json
-    let cache_key = format!(
-        "posthog:1:cache/team_tokens/{}/team_metadata/full_metadata.json",
-        team.api_token
-    );
+    let cache_key = team_token_hypercache_key(&team.api_token);
     client.set(cache_key, serialized_team).await?;
 
     Ok(team)
