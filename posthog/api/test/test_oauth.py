@@ -2210,10 +2210,6 @@ class TestOAuthAuthorizationServerMetadata(APIBaseTest):
         self.assertIn("authorization_endpoint", metadata)
         self.assertIn("token_endpoint", metadata)
 
-        # DCR endpoint - critical for MCP clients
-        self.assertIn("registration_endpoint", metadata)
-        self.assertIn("/oauth/register/", metadata["registration_endpoint"])
-
     def test_metadata_endpoints_are_valid_urls(self):
         response = self.client.get("/.well-known/oauth-authorization-server")
         metadata = response.json()
@@ -2222,7 +2218,6 @@ class TestOAuthAuthorizationServerMetadata(APIBaseTest):
             "issuer",
             "authorization_endpoint",
             "token_endpoint",
-            "registration_endpoint",
             "revocation_endpoint",
             "introspection_endpoint",
             "userinfo_endpoint",

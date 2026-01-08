@@ -540,8 +540,6 @@ class OAuthAuthorizationServerMetadataView(APIView):
             "issuer": base_url,
             "authorization_endpoint": f"{base_url}/oauth/authorize/",
             "token_endpoint": f"{base_url}/oauth/token/",
-            # DCR endpoint - this is the key addition over OIDC discovery
-            "registration_endpoint": f"{base_url}/oauth/register/",
             # Other endpoints
             "revocation_endpoint": f"{base_url}/oauth/revoke/",
             "introspection_endpoint": f"{base_url}/oauth/introspect/",
