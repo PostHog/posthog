@@ -237,7 +237,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                             // Only include if date is within the date range
                             if (dateInTimezone >= dateRange[0] && dateInTimezone < dateRange[1]) {
                                 return {
-                                    id: -(index + 1), // -1 for Jan 7, -2 for Jan 6
+                                    id: -(index + 1), // -1 for Jan 6, -2 for Jan 7
                                     scope: AnnotationScope.Project,
                                     content:
                                         'Some person properties on this date may have been set incorrectly. See https://status.posthog.com/ for more information.',
