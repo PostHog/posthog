@@ -1,4 +1,6 @@
 import json
+
+# nosemgrep: python.lang.security.use-defused-xml.use-defused-xml (XML generation only, no parsing - no XXE risk)
 import xml.etree.ElementTree as ET
 from collections.abc import Mapping, Sequence
 from typing import Any, Optional, TypeVar, Union, cast

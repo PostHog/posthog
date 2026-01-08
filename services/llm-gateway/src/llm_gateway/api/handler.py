@@ -90,7 +90,7 @@ async def handle_llm_request(
             product=product,
         )
 
-    CONCURRENT_REQUESTS.inc()
+    CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model).inc()
     try:
         return await _handle_non_streaming_request(
             request_data=request_data,
@@ -128,7 +128,7 @@ async def handle_llm_request(
             },
         ) from e
     finally:
-        CONCURRENT_REQUESTS.dec()
+        CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model).dec()
 
 
 async def _handle_streaming_request(
@@ -142,8 +142,8 @@ async def _handle_streaming_request(
     product: str = "llm_gateway",
 ) -> StreamingResponse:
     async def stream_generator() -> AsyncGenerator[bytes, None]:
-        ACTIVE_STREAMS.labels(provider=provider_config.name).inc()
-        CONCURRENT_REQUESTS.inc()
+        ACTIVE_STREAMS.labels(provider=provider_config.name, model=model).inc()
+        CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model).inc()
         status_code = "200"
         provider_start = time.monotonic()
         first_chunk_received = False
@@ -161,7 +161,7 @@ async def _handle_streaming_request(
                 yield chunk
 
         except asyncio.CancelledError:
-            STREAMING_CLIENT_DISCONNECT.labels(provider=provider_config.name).inc()
+            STREAMING_CLIENT_DISCONNECT.labels(provider=provider_config.name, model=model).inc()
             raise
         except TimeoutError:
             status_code = "504"
@@ -172,10 +172,11 @@ async def _handle_streaming_request(
             status_code = str(getattr(e, "status_code", 500))
             error = e
             capture_exception(e, {"provider": provider_config.name, "model": model, "streaming": True})
+            logger.exception(f"Streaming error in {provider_config.endpoint_name} endpoint: {e}")
             raise
         finally:
-            ACTIVE_STREAMS.labels(provider=provider_config.name).dec()
-            CONCURRENT_REQUESTS.dec()
+            ACTIVE_STREAMS.labels(provider=provider_config.name, model=model).dec()
+            CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model).dec()
             REQUEST_COUNT.labels(
                 endpoint=provider_config.endpoint_name,
                 provider=provider_config.name,

@@ -1065,6 +1065,7 @@ class EnterpriseExperimentsViewSet(
         queryset = FeatureFlag.objects.filter(team__project_id=self.project_id, deleted=False)
 
         # Filter for multivariate flags with at least 2 variants and first variant is "control"
+        # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static SQL, no user input)
         queryset = queryset.extra(
             where=[
                 """
