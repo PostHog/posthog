@@ -233,6 +233,7 @@ export const FEATURE_FLAGS = {
     CDP_DWH_TABLE_SOURCE: 'cdp-dwh-table-source', // owner: #team-workflows-cdp
     COHORT_CALCULATION_HISTORY: 'cohort-calculation-history', // owner: @gustavo #team-feature-flags
     CONDENSED_FILTER_BAR: 'condensed_filter_bar', // owner: @jordanm-posthog #team-web-analytics
+    CONVERSION_GOALS_CORE_EVENTS: 'conversion-goals-core-events', // owner: @jabahamondes #team-web-analytics
     COPY_WEB_ANALYTICS_DATA: 'copy-web-analytics-data', // owner: @lricoy  #team-web-analytics
     CREATE_FORM_TOOL: 'phai-create-form-tool', // owner: @kappa90 #team-posthog-ai
     CRM_ITERATION_ONE: 'crm-iteration-one', // owner: @arthurdedeus #team-customer-analytics

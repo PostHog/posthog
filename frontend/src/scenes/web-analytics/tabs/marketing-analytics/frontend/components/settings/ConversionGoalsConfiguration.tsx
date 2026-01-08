@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import { IconPencil, IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
+import { getGoalFilterSummary, getGoalTypeLabel, getTableColumns } from 'lib/components/CoreEvents'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
@@ -11,7 +12,6 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { CoreEvent, NodeKind, SchemaMap } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
-import { getGoalFilterSummary, getGoalTypeLabel, getTableColumns } from '../../utils/coreEventUtils'
 import { SchemaMapModal } from '../SchemaMapModal'
 import { conversionGoalDescription, getConfiguredConversionGoalsLabel } from './constants'
 

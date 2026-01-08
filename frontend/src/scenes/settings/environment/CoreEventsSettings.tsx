@@ -12,16 +12,13 @@ import {
     LemonTextArea,
 } from '@posthog/lemon-ui'
 
+import { getGoalFilterSummary, getGoalTypeLabel } from 'lib/components/CoreEvents'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { uuid } from 'lib/utils'
 import { ActionFilter as ActionFilterComponent } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { marketingAnalyticsSettingsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsSettingsLogic'
-import {
-    getGoalFilterSummary,
-    getGoalTypeLabel,
-} from 'scenes/web-analytics/tabs/marketing-analytics/frontend/utils/coreEventUtils'
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import {

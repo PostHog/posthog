@@ -38,6 +38,7 @@ import {
     ActionConversionGoal,
     ActionsNode,
     AnyEntityNode,
+    CoreEvent,
     CustomEventConversionGoal,
     DataTableNode,
     EventsNode,
@@ -190,6 +191,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
         setShouldStripQueryParams: (shouldStripQueryParams: boolean) => ({ shouldStripQueryParams }),
         setConversionGoal: (conversionGoal: WebAnalyticsConversionGoal | null) => ({ conversionGoal }),
+        setConversionGoalFromCoreEvent: (coreEvent: CoreEvent | null) => ({ coreEvent }),
+        setCoreEvents: (coreEvents: CoreEvent[]) => ({ coreEvents }),
         openAsNewInsight: (tileId: TileId, tabId?: string) => ({ tileId, tabId }),
         setConversionGoalWarning: (warning: ConversionGoalWarning | null) => ({ warning }),
         setProductTab: (tab: ProductTab) => ({ tab }),
@@ -199,7 +202,29 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setTileVisibility: (tileId: TileId, visible: boolean) => ({ tileId, visible }),
         resetTileVisibility: () => true,
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
+        coreEventsLoader: {
+            _default: [] as CoreEvent[],
+            loadCoreEvents: async (): Promise<CoreEvent[]> => {
+                if (!values.currentTeam) {
+                    return []
+                }
+                try {
+                    const response = await api.get(`api/environments/${values.currentTeam.id}/core_events/`)
+                    const coreEvents = (response.results || []).map((ce: Record<string, unknown>) => ({
+                        id: ce.id as string,
+                        name: ce.name as string,
+                        description: ce.description as string,
+                        category: ce.category as CoreEvent['category'],
+                        filter: ce.filter as CoreEvent['filter'],
+                    }))
+                    actions.setCoreEvents(coreEvents)
+                    return coreEvents
+                } catch {
+                    return []
+                }
+            },
+        },
         shouldShowGeoIPQueries: {
             _default: null as boolean | null,
             loadShouldShowGeoIPQueries: async (): Promise<boolean> => {
@@ -390,6 +415,20 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 setConversionGoal: (_, { conversionGoal }) => conversionGoal,
             },
         ],
+        coreEvents: [
+            [] as CoreEvent[],
+            {
+                setCoreEvents: (_, { coreEvents }) => coreEvents,
+            },
+        ],
+        selectedCoreEventId: [
+            null as string | null,
+            persistConfig,
+            {
+                setConversionGoalFromCoreEvent: (_, { coreEvent }) => coreEvent?.id ?? null,
+                setConversionGoal: () => null, // Clear when setting directly
+            },
+        ],
         conversionGoalWarning: [
             null as ConversionGoalWarning | null,
             {
@@ -462,6 +501,24 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         iconType: 'web_analytics',
                     },
                 ]
+            },
+        ],
+        // Core events available for Web Analytics (excluding DataWarehouse goals)
+        availableCoreEventsForWebAnalytics: [
+            (s) => [s.coreEvents],
+            (coreEvents: CoreEvent[]): CoreEvent[] => {
+                // Filter out DataWarehouseNode goals - they don't support pageview-based attribution
+                return coreEvents.filter((event) => event.filter.kind !== NodeKind.DataWarehouseNode)
+            },
+        ],
+        // Get the currently selected Core Event object
+        selectedCoreEvent: [
+            (s) => [s.coreEvents, s.selectedCoreEventId],
+            (coreEvents: CoreEvent[], selectedId: string | null): CoreEvent | null => {
+                if (!selectedId) {
+                    return null
+                }
+                return coreEvents.find((event) => event.id === selectedId) ?? null
             },
         ],
         graphsTab: [(s) => [s._graphsTab], (graphsTab: string | null) => graphsTab || GraphsTab.UNIQUE_USERS],
@@ -1974,6 +2031,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     // start the loaders after mounting the logic
     afterMount(({ actions }) => {
         actions.loadShouldShowGeoIPQueries()
+        actions.loadCoreEvents()
     }),
 
     tabAwareActionToUrl(({ values }) => {
@@ -2266,6 +2324,20 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
             setGraphsTab: ({ tab }) => {
                 checkGraphsTabIsCompatibleWithConversionGoal(tab, values.conversionGoal)
+            },
+            setConversionGoalFromCoreEvent: ({ coreEvent }) => {
+                if (!coreEvent) {
+                    actions.setConversionGoal(null)
+                    return
+                }
+                // Convert Core Event filter to WebAnalyticsConversionGoal
+                const filter = coreEvent.filter
+                if (filter.kind === NodeKind.ActionsNode) {
+                    actions.setConversionGoal({ actionId: filter.id })
+                } else if (filter.kind === NodeKind.EventsNode && filter.event) {
+                    actions.setConversionGoal({ customEventName: filter.event })
+                }
+                // DataWarehouseNode goals are filtered out in the selector, so we don't handle them here
             },
             setConversionGoal: [
                 ({ conversionGoal }) => {

@@ -5,13 +5,13 @@ import { useMemo, useState } from 'react'
 import { IconBookmark, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
+import { getGoalFilterSummary, getGoalTypeLabel, getTableColumns } from 'lib/components/CoreEvents'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { urls } from 'scenes/urls'
 
 import { CoreEvent, DataWarehouseNode, NodeKind, SchemaMap } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
-import { getGoalFilterSummary, getGoalTypeLabel, getTableColumns } from '../../utils/coreEventUtils'
 import { SchemaMapModal } from '../SchemaMapModal'
 
 const DEFINE_NEW_CORE_EVENT = '__define_new_core_event__'
