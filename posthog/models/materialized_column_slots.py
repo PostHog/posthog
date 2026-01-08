@@ -48,13 +48,18 @@ class MaterializedColumnSlot(UUIDTModel):
                 fields=["team", "property_name"],
                 name="unique_team_property_name",
             ),
+            # DMAT slots need unique (team, property_type, slot_index) to manage the 10 slots per type
+            # EAV slots don't use slot_index so they're excluded from this constraint
             models.UniqueConstraint(
                 fields=["team", "property_type", "slot_index"],
-                name="unique_team_property_type_slot_index",
+                name="unique_team_property_type_slot_index_dmat",
+                condition=models.Q(materialization_type="dmat"),
             ),
+            # DMAT slots must have slot_index between 0-9, EAV slots always use 0 (unused)
             models.CheckConstraint(
-                name="valid_slot_index",
-                check=models.Q(slot_index__gte=0) & models.Q(slot_index__lte=9),
+                name="valid_slot_index_dmat",
+                check=models.Q(materialization_type="eav")
+                | (models.Q(slot_index__gte=0) & models.Q(slot_index__lte=9)),
             ),
         ]
         indexes = [

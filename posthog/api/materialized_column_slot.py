@@ -89,10 +89,16 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
     @action(methods=["GET"], detail=False)
     def slot_usage(self, request, **kwargs):
-        """Get slot usage summary for a team."""
+        """Get DMAT slot usage summary for a team.
+
+        Only counts DMAT slots since EAV doesn't use the limited slot system.
+        """
         counts = {
             row["property_type"]: row["count"]
-            for row in MaterializedColumnSlot.objects.filter(team_id=self.team_id)
+            for row in MaterializedColumnSlot.objects.filter(
+                team_id=self.team_id,
+                materialization_type=MaterializationType.DMAT,
+            )
             .values("property_type")
             .annotate(count=models.Count("id"))
         }
@@ -201,8 +207,15 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
     def _find_available_slot_index(
         self, property_type: str, existing_slots: list[MaterializedColumnSlot]
     ) -> int | None:
-        """Find the next available slot index for a property type."""
-        used_indices = {slot.slot_index for slot in existing_slots if slot.property_type == property_type}
+        """Find the next available DMAT slot index for a property type.
+
+        Only considers DMAT slots since EAV slots don't use the slot index system.
+        """
+        used_indices = {
+            slot.slot_index
+            for slot in existing_slots
+            if slot.property_type == property_type and slot.materialization_type == MaterializationType.DMAT
+        }
         for i in range(10):
             if i not in used_indices:
                 return i

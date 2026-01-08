@@ -2,11 +2,16 @@ from django.db import migrations, models
 
 
 def populate_property_name(apps, schema_editor):
-    """Copy property name from property_definition to property_name column."""
-    MaterializedColumnSlot = apps.get_model("posthog", "MaterializedColumnSlot")
-    for slot in MaterializedColumnSlot.objects.select_related("property_definition").all():
-        slot.property_name = slot.property_definition.name
-        slot.save(update_fields=["property_name"])
+    """Copy property name from property_definition to property_name column using efficient SQL."""
+    # Use raw SQL for efficient bulk update instead of row-by-row Python loop
+    schema_editor.execute(
+        """
+        UPDATE posthog_materializedcolumnslot AS slot
+        SET property_name = pd.name
+        FROM posthog_propertydefinition AS pd
+        WHERE slot.property_definition_id = pd.id
+        """
+    )
 
 
 def reverse_populate_property_name(apps, schema_editor):
@@ -47,17 +52,17 @@ class Migration(migrations.Migration):
             name="property_name",
             field=models.CharField(max_length=400),
         ),
-        # Remove old constraint
+        # Remove old constraint on property_definition
         migrations.RemoveConstraint(
             model_name="materializedcolumnslot",
             name="unique_team_property_definition",
         ),
-        # Remove old index
+        # Remove old index on property_definition
         migrations.RemoveIndex(
             model_name="materializedcolumnslot",
             name="posthog_mat_team_pr_idx",
         ),
-        # Add new constraint
+        # Add new constraint on property_name
         migrations.AddConstraint(
             model_name="materializedcolumnslot",
             constraint=models.UniqueConstraint(
@@ -65,7 +70,7 @@ class Migration(migrations.Migration):
                 name="unique_team_property_name",
             ),
         ),
-        # Add new index
+        # Add new index on property_name
         migrations.AddIndex(
             model_name="materializedcolumnslot",
             index=models.Index(
@@ -77,5 +82,33 @@ class Migration(migrations.Migration):
         migrations.RemoveField(
             model_name="materializedcolumnslot",
             name="property_definition",
+        ),
+        # Remove old unconditional constraint (applies to all rows)
+        # Replace with conditional constraint that only applies to DMAT slots
+        migrations.RemoveConstraint(
+            model_name="materializedcolumnslot",
+            name="unique_team_property_type_slot_index",
+        ),
+        migrations.AddConstraint(
+            model_name="materializedcolumnslot",
+            constraint=models.UniqueConstraint(
+                fields=("team", "property_type", "slot_index"),
+                name="unique_team_property_type_slot_index_dmat",
+                condition=models.Q(materialization_type="dmat"),
+            ),
+        ),
+        # Remove old unconditional check constraint
+        # Replace with conditional check that only validates slot_index for DMAT
+        migrations.RemoveConstraint(
+            model_name="materializedcolumnslot",
+            name="valid_slot_index",
+        ),
+        migrations.AddConstraint(
+            model_name="materializedcolumnslot",
+            constraint=models.CheckConstraint(
+                name="valid_slot_index_dmat",
+                check=models.Q(materialization_type="eav")
+                | (models.Q(slot_index__gte=0) & models.Q(slot_index__lte=9)),
+            ),
         ),
     ]
