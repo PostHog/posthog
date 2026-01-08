@@ -36,7 +36,6 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.property import property_to_expr
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.insight import capture_legacy_api_call
 from posthog.api.person import get_funnel_actor_class
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -498,7 +497,6 @@ class CohortSerializer(serializers.ModelSerializer):
             if existing_cohort_id:
                 filter_data = {**filter_data, "from_cohort_id": existing_cohort_id}
             if filter_data:
-                capture_legacy_api_call(request, self.context["get_team"]())
                 insert_cohort_from_insight_filter.delay(cohort.pk, filter_data, self.context["team_id"])
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Cohort:
