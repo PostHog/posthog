@@ -293,6 +293,7 @@ class HogQLPrinter(Visitor[str]):
                 raise ImpossibleASTError(f"Invalid table type {type(table_type).__name__} in join_expr")
             assert isinstance(table_type, ast.BaseTableType)
 
+            # :IMPORTANT: This assures a "team_id" where clause is present on every selected table.
             extra_where = self._ensure_team_id_where_clause(table_type, node.type)
 
             sql = self._print_table_ref(table_type, node)
