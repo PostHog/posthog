@@ -35,8 +35,8 @@ from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitE
 
 FAILURE_TYPE_USER = "user"
 FAILURE_TYPE_SYSTEM = "system"
-FAILURE_TYPE_UNKNOWN = "unknown"
 FAILURE_TYPE_TIMEOUT_GENERATION = "timeout_generation"
+FAILURE_TYPE_UNKNOWN = "unknown"
 
 EXCEPTIONS_TO_RETRY = (
     CHQueryErrorS3Error,

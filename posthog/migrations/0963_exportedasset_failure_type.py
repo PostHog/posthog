@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0954_experiment_scheduling_config"),
+        ("posthog", "0962_webanalyticsfilterpreset"),
     ]
 
     operations = [
