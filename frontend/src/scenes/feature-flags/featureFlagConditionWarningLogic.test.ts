@@ -419,9 +419,9 @@ describe('featureFlagConditionWarningLogic', () => {
 
             logic.mount()
 
-            expectLogic(logic).toMatchValues({
-                warning: 'This flag cannot be evaluated locally. Unsupported features: static cohorts.',
-            })
+            expect(logic.values.warning).toBe(
+                'This flag cannot be evaluated locally. Unsupported features: static cohorts.'
+            )
         })
 
         it('does not warn when cohort is not loaded yet', () => {
@@ -468,9 +468,7 @@ describe('featureFlagConditionWarningLogic', () => {
 
             logic.mount()
 
-            expectLogic(logic).toMatchValues({
-                warning: undefined,
-            })
+            expect(logic.values.warning).toBeUndefined()
         })
     })
 
