@@ -58,26 +58,6 @@ class PersonPropertyUpdates:
     updates: list[PropertyUpdate]
 
 
-def parse_datetime(dt_str: str, person_id: str, property_key: str) -> datetime:
-    """Parse an ISO format datetime string, assuming UTC if no timezone."""
-    from datetime import UTC
-
-    import structlog
-
-    if dt_str.endswith("Z"):
-        dt_str = dt_str[:-1] + "+00:00"
-    dt = datetime.fromisoformat(dt_str)
-    if dt.tzinfo is None:
-        structlog.get_logger(__name__).warning(
-            "naive_datetime_assumed_utc",
-            datetime_str=dt_str,
-            person_id=person_id,
-            property_key=property_key,
-        )
-        dt = dt.replace(tzinfo=UTC)
-    return dt
-
-
 def get_person_property_updates_from_clickhouse(
     team_id: int,
     bug_window_start: str,
@@ -312,32 +292,25 @@ def reconcile_person_properties(
         operation = update.operation
         event_ts_str = event_ts.isoformat()
 
-        existing_ts_str = properties_last_updated_at.get(key)
-
         if operation == "set_once":
-            # set_once: only add if property doesn't already exist in PG
             if key not in properties:
                 properties[key] = value
                 properties_last_updated_at[key] = event_ts_str
                 properties_last_operation[key] = "set_once"
                 changed = True
         elif operation == "set":
-            # set: create or update property if CH timestamp is newer (or no existing timestamp)
-            if existing_ts_str is None or event_ts > parse_datetime(existing_ts_str, person["uuid"], key):
-                properties[key] = value
-                properties_last_updated_at[key] = event_ts_str
-                properties_last_operation[key] = "set"
-                changed = True
+            properties[key] = value
+            properties_last_updated_at[key] = event_ts_str
+            properties_last_operation[key] = "set"
+            changed = True
         elif operation == "unset":
-            # unset: remove property if it exists AND CH timestamp is newer
             if key in properties:
-                if existing_ts_str is None or event_ts > parse_datetime(existing_ts_str, person["uuid"], key):
-                    del properties[key]
-                    if key in properties_last_updated_at:
-                        del properties_last_updated_at[key]
-                    if key in properties_last_operation:
-                        del properties_last_operation[key]
-                    changed = True
+                del properties[key]
+                if key in properties_last_updated_at:
+                    del properties_last_updated_at[key]
+                if key in properties_last_operation:
+                    del properties_last_operation[key]
+                changed = True
 
     if changed:
         return {
