@@ -121,6 +121,19 @@ def handle_app_mention(event: dict, integration: Integration) -> None:
     try:
         slack = SlackIntegration(integration)
 
+        # Check if conversation is already in progress
+        if existing_conversation and existing_conversation.status in [
+            Conversation.Status.IN_PROGRESS,
+            Conversation.Status.CANCELING,
+        ]:
+            slack.client.chat_postEphemeral(
+                channel=channel,
+                user=slack_user_id,
+                thread_ts=thread_ts,
+                text="Hold your hedgehogs! Looks like this PostHog AI is already in flight in this Slack thread – wait for the answer first.",
+            )
+            return
+
         # Look up Slack user's email and match to PostHog user
         try:
             slack_user_info = slack.client.users_info(user=slack_user_id)

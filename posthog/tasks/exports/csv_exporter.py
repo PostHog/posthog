@@ -444,10 +444,10 @@ def export_tabular(exported_asset: ExportedAsset, limit: Optional[int] = None) -
 
     try:
         if exported_asset.export_format == ExportedAsset.ExportFormat.CSV:
-            with EXPORT_TIMER.labels(type="csv").time():
+            with EXPORT_TIMER.labels(type=exported_asset.export_format).time():
                 _export_to_csv(exported_asset, limit)
         elif exported_asset.export_format == ExportedAsset.ExportFormat.XLSX:
-            with EXPORT_TIMER.labels(type="xlsx").time():
+            with EXPORT_TIMER.labels(type=exported_asset.export_format).time():
                 _export_to_excel(exported_asset, limit)
         else:
             raise NotImplementedError(f"Export to format {exported_asset.export_format} is not supported")

@@ -12,11 +12,14 @@ import { HogFunctionTemplateType } from '~/types'
 import { HogFlow, HogFlowAction } from './hogflows/types'
 import { workflowLogic } from './workflowLogic'
 import { workflowTemplateLogic } from './workflowTemplateLogic'
+import { workflowTemplatesLogic } from './workflowTemplatesLogic'
 
 jest.mock('lib/api', () => ({
     ...jest.requireActual('lib/api'),
     hogFlowTemplates: {
         createHogFlowTemplate: jest.fn(),
+        updateHogFlowTemplate: jest.fn(),
+        getHogFlowTemplate: jest.fn(),
     },
 }))
 
@@ -127,6 +130,47 @@ describe('workflowTemplateLogic', () => {
                 .toMatchValues({
                     saveAsTemplateModalVisible: false,
                 })
+        })
+
+        it('should show error toast and hide modal when template load fails in edit mode', async () => {
+            const workflowLogicInstance = workflowLogic({ id: 'test-workflow-id', editTemplateId: 'template-id' })
+            workflowLogicInstance.mount()
+
+            const mockWorkflow: HogFlow = {
+                id: 'test-workflow-id',
+                team_id: 123,
+                name: 'Test Workflow',
+                description: 'Test Description',
+                status: 'draft',
+                version: 1,
+                created_at: '2024-01-01T00:00:00Z',
+                updated_at: '2024-01-02T00:00:00Z',
+                actions: [],
+                edges: [],
+                conversion: { window_minutes: 0, filters: [] },
+                exit_condition: 'exit_only_at_end',
+            }
+
+            await expectLogic(workflowLogicInstance, () => {
+                workflowLogicInstance.actions.loadWorkflowSuccess(mockWorkflow)
+            })
+
+            const logic = workflowTemplateLogic({ id: 'test-workflow-id', editTemplateId: 'template-id' })
+            logic.mount()
+
+            // Mock getHogFlowTemplate to fail
+            mockApi.getHogFlowTemplate.mockRejectedValue(new Error('Template not found'))
+
+            await expectLogic(logic, () => {
+                logic.actions.showSaveAsTemplateModal()
+            })
+                .toDispatchActions(['showSaveAsTemplateModal', 'hideSaveAsTemplateModal'])
+                .toMatchValues({
+                    saveAsTemplateModalVisible: false,
+                })
+
+            expect(mockApi.getHogFlowTemplate).toHaveBeenCalledWith('template-id')
+            expect(mockToast.error).toHaveBeenCalledWith('Template not found')
         })
     })
 
@@ -354,6 +398,82 @@ describe('workflowTemplateLogic', () => {
 
             const callArg = mockApi.createHogFlowTemplate.mock.calls[0][0]
             expect(callArg.scope).toBe('team')
+        })
+    })
+
+    describe('update template', () => {
+        const createWorkflow = (): HogFlow => ({
+            id: 'test-workflow-id',
+            team_id: 123,
+            name: 'Updated Workflow',
+            description: 'Updated Description',
+            status: 'draft',
+            version: 1,
+            created_at: '2024-01-01T00:00:00Z',
+            updated_at: '2024-01-02T00:00:00Z',
+            actions: [
+                {
+                    id: 'trigger_node',
+                    type: 'trigger',
+                    name: 'Trigger',
+                    description: '',
+                    created_at: 0,
+                    updated_at: 0,
+                    config: {
+                        type: 'event',
+                        filters: {},
+                    },
+                },
+            ],
+            edges: [],
+            conversion: { window_minutes: 0, filters: [] },
+            exit_condition: 'exit_only_at_end',
+        })
+
+        it('should update template, reload workflow, and reload template list', async () => {
+            const workflow = createWorkflow()
+            const updatedTemplate = { ...workflow, id: 'template-id', scope: 'team' as const }
+            mockApi.updateHogFlowTemplate.mockResolvedValue(updatedTemplate)
+            mockApi.getHogFlowTemplate.mockResolvedValue(updatedTemplate)
+
+            // Use id: 'new' so loadWorkflow calls getHogFlowTemplate when editTemplateId is set
+            const workflowLogicInstance = workflowLogic({ id: 'new', editTemplateId: 'template-id' })
+            workflowLogicInstance.mount()
+            await expectLogic(workflowLogicInstance, () => {
+                workflowLogicInstance.actions.loadWorkflowSuccess(workflow)
+            })
+
+            const templatesLogic = workflowTemplatesLogic()
+            templatesLogic.mount()
+
+            const templateLogic = workflowTemplateLogic({ id: 'new', editTemplateId: 'template-id' })
+            templateLogic.mount()
+
+            const workflowTemplate = { ...workflow, id: 'template-id' }
+            await expectLogic(workflowLogicInstance, () => {
+                templateLogic.actions.updateTemplate(workflowTemplate)
+            }).toDispatchActions(['loadWorkflow', 'loadWorkflowSuccess'])
+
+            // Verify API call with correct data
+            expect(mockApi.updateHogFlowTemplate).toHaveBeenCalledWith(
+                'template-id',
+                expect.objectContaining({
+                    name: 'Updated Workflow',
+                    description: 'Updated Description',
+                    actions: expect.any(Array),
+                    edges: expect.any(Array),
+                    conversion: expect.any(Object),
+                    exit_condition: 'exit_only_at_end',
+                })
+            )
+
+            // Verify workflow reload
+            expect(mockApi.getHogFlowTemplate).toHaveBeenCalledWith('template-id')
+
+            // Verify template list reload
+            await expectLogic(templatesLogic).toDispatchActions(['loadWorkflowTemplates'])
+
+            expect(mockToast.success).toHaveBeenCalledWith('Template updated')
         })
     })
 })

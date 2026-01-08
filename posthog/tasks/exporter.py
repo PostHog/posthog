@@ -5,7 +5,7 @@ from django.db import transaction
 
 import structlog
 import posthoganalytics
-from celery import current_task, shared_task
+from celery import Task, current_task, shared_task
 from prometheus_client import Counter, Histogram
 
 from posthog.event_usage import groups
@@ -65,7 +65,7 @@ def _is_final_export_attempt(exception: Exception, current_retries: int, max_ret
     max_retries=3,
 )
 def export_asset(
-    self,
+    self: Task,
     exported_asset_id: int,
     limit: Optional[int] = None,  # For CSV/XLSX: max row count
     max_height_pixels: Optional[int] = None,  # For images: max screenshot height in pixels
@@ -81,7 +81,6 @@ def export_asset(
         with transaction.atomic():
             export_asset_direct(exported_asset, limit=limit, max_height_pixels=max_height_pixels)
     except Exception as e:
-        # Failure recording must happen OUTSIDE the atomic block so it persists after rollback
         if _is_final_export_attempt(e, self.request.retries, self.max_retries):
             record_export_failure(exported_asset, e)
 

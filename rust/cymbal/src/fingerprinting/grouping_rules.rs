@@ -254,6 +254,7 @@ mod test {
             fingerprint: None,
             issue_name: None,
             issue_description: None,
+            handled: None,
             other: HashMap::new(),
         }
     }
