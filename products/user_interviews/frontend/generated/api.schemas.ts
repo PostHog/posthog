@@ -7,7 +7,6 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-
 /**
  * * `engineering` - Engineering
  * `data` - Data
@@ -44,48 +43,10 @@ export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const NullEnumApi = {} as const
 
-export interface PaginatedUserInterviewListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: UserInterviewApi[]
-}
-
-export interface UserInterviewApi {
-    readonly id: string
-    readonly created_by: UserBasicApi
-    readonly created_at: string
-    interviewee_emails?: string[]
-    readonly transcript: string
-    summary?: string
-    audio: string
-}
-
-export interface PatchedUserInterviewApi {
-    readonly id?: string
-    readonly created_by?: UserBasicApi
-    readonly created_at?: string
-    interviewee_emails?: string[]
-    readonly transcript?: string
-    summary?: string
-    audio?: string
-}
-
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const UserBasicApiRoleAtOrganization = { ...RoleAtOrganizationEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
-/**
- * @nullable
- */
-export type UserBasicApiRoleAtOrganization =
-    | (typeof UserBasicApiRoleAtOrganization)[keyof typeof UserBasicApiRoleAtOrganization]
-    | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -105,8 +66,36 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi
+}
+
+export interface UserInterviewApi {
+    readonly id: string
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    interviewee_emails?: string[]
+    readonly transcript: string
+    summary?: string
+    audio: string
+}
+
+export interface PaginatedUserInterviewListApi {
+    count: number
     /** @nullable */
-    role_at_organization?: UserBasicApiRoleAtOrganization
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: UserInterviewApi[]
+}
+
+export interface PatchedUserInterviewApi {
+    readonly id?: string
+    readonly created_by?: UserBasicApi
+    readonly created_at?: string
+    interviewee_emails?: string[]
+    readonly transcript?: string
+    summary?: string
+    audio?: string
 }
 
 export type EnvironmentsUserInterviewsListParams = {

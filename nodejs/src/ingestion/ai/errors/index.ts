@@ -1,5 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
+import { aiErrorNormalizationCounter } from '../metrics'
 import { normalizeError } from './normalize-error'
 
 /**
@@ -51,10 +52,12 @@ export function processAiErrorNormalization<T extends PluginEvent>(event: T): T 
         // Only set if we have a non-empty normalized error
         if (normalizedError) {
             event.properties['$ai_error_normalized'] = normalizedError
+            aiErrorNormalizationCounter.labels({ status: 'normalized' }).inc()
         }
 
         return event
     } catch {
+        aiErrorNormalizationCounter.labels({ status: 'error' }).inc()
         return event
     }
 }

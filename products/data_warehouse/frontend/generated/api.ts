@@ -948,6 +948,42 @@ export const environmentsWarehouseSavedQueriesDescendantsCreate = async (
 }
 
 /**
+ * Enable materialization for this saved query with a 24-hour sync frequency.
+ */
+export type environmentsWarehouseSavedQueriesMaterializeCreateResponse200 = {
+    data: DataWarehouseSavedQueryApi
+    status: 200
+}
+
+export type environmentsWarehouseSavedQueriesMaterializeCreateResponseSuccess =
+    environmentsWarehouseSavedQueriesMaterializeCreateResponse200 & {
+        headers: Headers
+    }
+export type environmentsWarehouseSavedQueriesMaterializeCreateResponse =
+    environmentsWarehouseSavedQueriesMaterializeCreateResponseSuccess
+
+export const getEnvironmentsWarehouseSavedQueriesMaterializeCreateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/warehouse_saved_queries/${id}/materialize/`
+}
+
+export const environmentsWarehouseSavedQueriesMaterializeCreate = async (
+    projectId: string,
+    id: string,
+    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
+    options?: RequestInit
+): Promise<environmentsWarehouseSavedQueriesMaterializeCreateResponse> => {
+    return apiMutator<environmentsWarehouseSavedQueriesMaterializeCreateResponse>(
+        getEnvironmentsWarehouseSavedQueriesMaterializeCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(dataWarehouseSavedQueryApi),
+        }
+    )
+}
+
+/**
  * Undo materialization, revert back to the original view.
 (i.e. delete the materialized table and the schedule)
  */
@@ -2271,6 +2307,41 @@ export const warehouseSavedQueriesDescendantsCreate = async (
 ): Promise<warehouseSavedQueriesDescendantsCreateResponse> => {
     return apiMutator<warehouseSavedQueriesDescendantsCreateResponse>(
         getWarehouseSavedQueriesDescendantsCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(dataWarehouseSavedQueryApi),
+        }
+    )
+}
+
+/**
+ * Enable materialization for this saved query with a 24-hour sync frequency.
+ */
+export type warehouseSavedQueriesMaterializeCreateResponse200 = {
+    data: DataWarehouseSavedQueryApi
+    status: 200
+}
+
+export type warehouseSavedQueriesMaterializeCreateResponseSuccess =
+    warehouseSavedQueriesMaterializeCreateResponse200 & {
+        headers: Headers
+    }
+export type warehouseSavedQueriesMaterializeCreateResponse = warehouseSavedQueriesMaterializeCreateResponseSuccess
+
+export const getWarehouseSavedQueriesMaterializeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_saved_queries/${id}/materialize/`
+}
+
+export const warehouseSavedQueriesMaterializeCreate = async (
+    projectId: string,
+    id: string,
+    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
+    options?: RequestInit
+): Promise<warehouseSavedQueriesMaterializeCreateResponse> => {
+    return apiMutator<warehouseSavedQueriesMaterializeCreateResponse>(
+        getWarehouseSavedQueriesMaterializeCreateUrl(projectId, id),
         {
             ...options,
             method: 'POST',
