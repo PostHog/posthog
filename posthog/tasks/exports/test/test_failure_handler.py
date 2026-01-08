@@ -32,7 +32,10 @@ def get_counter_value(counter: Counter, labels: dict) -> float:
     """Get counter value using the _metrics dict directly (works across threads)."""
     label_values = tuple(str(labels.get(label, "")) for label in counter._labelnames)
     metric = counter._metrics.get(label_values)
-    return metric._value.get() if metric else 0.0  # type: ignore[union-attr]
+    if metric is None:
+        return 0.0
+    value_container = getattr(metric, "_value", None)
+    return value_container.get() if value_container else 0.0
 
 
 class TestRecordExportFailure(APIBaseTest):
