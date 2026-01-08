@@ -83,7 +83,6 @@ def get_person_property_updates_from_clickhouse(
 
     Returns:
         List of PersonPropertyDiffs, each containing 3 maps (set, set_once, unset) keyed by property key
-        unset_diff: Array of (key, timestamp) tuples for $unset properties that exist
     """
     query = """
     SELECT

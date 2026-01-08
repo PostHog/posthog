@@ -357,6 +357,85 @@ class TestClickHouseResultParsing:
         assert "old_field" in person_diffs.unset_updates
         assert person_diffs.unset_updates["old_field"].value is None
 
+    def test_parses_unset_diff_tuples(self):
+        """Test that unset_diff array of tuples is correctly parsed."""
+        # unset_diff is an array of (key, timestamp) tuples
+        # Keys are already parsed in the query with JSON_VALUE (consistent with $set/$set_once)
+        mock_rows: list[
+            tuple[str, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]], list[tuple[str, datetime]]]
+        ] = [
+            (
+                "018d1234-5678-0000-0000-000000000001",
+                [],  # set_diff - empty
+                [],  # set_once_diff - empty
+                [  # unset_diff - array of (key, timestamp) tuples
+                    ("email", datetime(2024, 1, 15, 12, 0, 0)),
+                    ("old_property", datetime(2024, 1, 15, 12, 30, 0)),
+                ],
+            )
+        ]
+
+        with patch("posthog.dags.person_property_reconciliation.sync_execute", return_value=mock_rows):
+            results = get_person_property_updates_from_clickhouse(
+                team_id=1,
+                bug_window_start="2024-01-01T00:00:00Z",
+                bug_window_end="2024-01-31T00:00:00Z",
+            )
+
+        assert len(results) == 1
+        person_updates = results[0]
+        assert len(person_updates.updates) == 2
+
+        # Verify first unset
+        assert person_updates.updates[0].key == "email"
+        assert person_updates.updates[0].value is None
+        assert person_updates.updates[0].timestamp == datetime(2024, 1, 15, 12, 0, 0)
+        assert person_updates.updates[0].operation == "unset"
+
+        # Verify second unset
+        assert person_updates.updates[1].key == "old_property"
+        assert person_updates.updates[1].value is None
+        assert person_updates.updates[1].operation == "unset"
+
+    def test_parses_mixed_set_set_once_and_unset(self):
+        """Test parsing when all three operation types have values."""
+        mock_rows: list[
+            tuple[str, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]], list[tuple[str, datetime]]]
+        ] = [
+            (
+                "018d1234-5678-0000-0000-000000000004",
+                [("email", '"updated@example.com"', datetime(2024, 1, 15, 12, 0, 0))],  # set_diff
+                [("initial_source", '"organic"', datetime(2024, 1, 10, 8, 0, 0))],  # set_once_diff
+                [("old_field", datetime(2024, 1, 14, 10, 0, 0))],  # unset_diff - keys are already parsed
+            )
+        ]
+
+        with patch("posthog.dags.person_property_reconciliation.sync_execute", return_value=mock_rows):
+            results = get_person_property_updates_from_clickhouse(
+                team_id=1,
+                bug_window_start="2024-01-01T00:00:00Z",
+                bug_window_end="2024-01-31T00:00:00Z",
+            )
+
+        assert len(results) == 1
+        updates = results[0].updates
+        assert len(updates) == 3
+
+        set_updates = [u for u in updates if u.operation == "set"]
+        set_once_updates = [u for u in updates if u.operation == "set_once"]
+        unset_updates = [u for u in updates if u.operation == "unset"]
+
+        assert len(set_updates) == 1
+        assert len(set_once_updates) == 1
+        assert len(unset_updates) == 1
+
+        assert set_updates[0].key == "email"
+        assert set_updates[0].value == "updated@example.com"
+        assert set_once_updates[0].key == "initial_source"
+        assert set_once_updates[0].value == "organic"
+        assert unset_updates[0].key == "old_field"
+        assert unset_updates[0].value is None
+
 
 class TestReconcilePersonProperties:
     """Test the reconcile_person_properties function."""
@@ -541,8 +620,8 @@ class TestReconcilePersonProperties:
         # Other properties should remain unchanged
         assert result["properties"]["name"] == "Test User"
 
-    def test_unset_marks_changed_even_when_property_not_exists(self):
-        """Test that $unset marks changed even when property doesn't exist in properties map."""
+    def test_unset_ignored_when_property_not_exists(self):
+        """Test that $unset is a no-op when property doesn't exist."""
         person = {
             "uuid": "018d1234-5678-0000-0000-000000000001",
             "properties": {"name": "Test User"},
