@@ -46,8 +46,7 @@ export const goalLinesLogic = kea<goalLinesLogicType>([
                         index === goalLineIndex ? { ...goalLine, [key]: value } : goalLine
                     )
                 },
-                removeGoalLine: (state, { goalLineIndex }) =>
-                    state.filter((_, index) => index !== goalLineIndex),
+                removeGoalLine: (state, { goalLineIndex }) => state.filter((_, index) => index !== goalLineIndex),
                 setGoalLines: (_, { goalLines }) => goalLines,
             },
         ],
