@@ -3,21 +3,11 @@ import { useActions, useValues } from 'kea'
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuSection, LemonSwitch } from '@posthog/lemon-ui'
 
-import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { customerProfileLogic } from '../customerProfileLogic'
 
-import { CustomerProfileScope } from '~/types'
-
-import { DEFAULT_PERSON_PROFILE_CONTENT, personProfileLogic } from '../personProfileLogic'
-
-interface CustomerProfileMenuProps {
-    scope: CustomerProfileScope
-    content: JSONContent[]
-}
-
-export function CustomerProfileMenu({ scope, content }: CustomerProfileMenuProps): JSX.Element | null {
-    const defaultContent = scope === CustomerProfileScope.PERSON ? DEFAULT_PERSON_PROFILE_CONTENT : []
-    const { changed, isProfileConfigEnabled } = useValues(personProfileLogic)
-    const { removeNode, addNode, resetToDefaults, saveChanges } = useActions(personProfileLogic)
+export function CustomerProfileMenu(): JSX.Element | null {
+    const { changed, isProfileConfigEnabled, defaultContent, content } = useValues(customerProfileLogic)
+    const { removeNode, addNode, resetToDefaults, saveChanges } = useActions(customerProfileLogic)
 
     const handleChange = (nodeType: string | undefined, checked: boolean): void => {
         if (nodeType === undefined) {
@@ -33,7 +23,7 @@ export function CustomerProfileMenu({ scope, content }: CustomerProfileMenuProps
                 label: () => (
                     <LemonSwitch
                         key={node.type}
-                        label={node.title || node.type}
+                        label={node?.attrs?.title || node.type}
                         checked={content.some((c) => c.type === node.type)}
                         onChange={(checked) => handleChange(node?.type, checked)}
                         fullWidth
