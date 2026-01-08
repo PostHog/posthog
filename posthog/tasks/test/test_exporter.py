@@ -143,7 +143,7 @@ class TestExportAssetFailureRecording(APIBaseTest):
 
         asset.refresh_from_db()
 
-        # On first attempt (retries=0), failure should NOT be recorded yet
+        # On non-final attempts, failure should NOT be recorded yet
         assert asset.exception is None
         assert asset.exception_type is None
         assert asset.failure_type is None
