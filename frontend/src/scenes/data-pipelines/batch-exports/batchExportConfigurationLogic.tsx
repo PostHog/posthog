@@ -30,8 +30,8 @@ function validateBucketName(bucketName: string): string | undefined {
         return undefined // Let required field validation handle empty values
     }
 
-    if (bucketName.length < 3 || bucketName.length > 63) {
-        return 'Bucket name must be between 3 and 63 characters'
+    if (/\s/.test(bucketName)) {
+        return 'Bucket name cannot contain whitespace'
     }
 
     if (bucketName !== bucketName.toLowerCase()) {
