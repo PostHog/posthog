@@ -15,7 +15,6 @@ import {
     isOperatorRegex,
     isOperatorSemver,
 } from 'lib/utils'
-import { parseVersion } from 'lib/utils/semver'
 
 import {
     GroupTypeIndex,
@@ -74,25 +73,10 @@ function getRegexValidationError(operator: PropertyOperator, value: any): string
     return null
 }
 
-function getSemverValidationError(operator: PropertyOperator, value: any): string | null {
-    if (isOperatorSemver(operator)) {
-        try {
-            parseVersion(value)
-        } catch {
-            return 'Invalid semantic version format (expected format: 1.2.3)'
-        }
-    }
-    return null
-}
-
 function getValidationError(operator: PropertyOperator, value: any, property?: string): string | null {
     const regexErrorMessage = getRegexValidationError(operator, value)
     if (regexErrorMessage != null) {
         return regexErrorMessage
-    }
-    const semverErrorMessage = getSemverValidationError(operator, value)
-    if (semverErrorMessage != null) {
-        return semverErrorMessage
     }
     if (isOperatorRange(operator) && isNaN(value)) {
         let message = `Range operators only work with numeric values`
@@ -216,8 +200,10 @@ export function OperatorValueSelect({
                         operator={currentOperator || PropertyOperator.Exact}
                         operators={operators}
                         onChange={(newOperator: PropertyOperator) => {
+                            // Only validate regex when switching operators (to catch invalid regex patterns)
+                            // Full validation happens when the value changes, not when operator changes
                             const tentativeValidationError =
-                                newOperator && value ? getValidationError(newOperator, value, propertyKey) : null
+                                newOperator && value ? getRegexValidationError(newOperator, value) : null
                             if (tentativeValidationError) {
                                 setValidationError(tentativeValidationError)
                                 return
@@ -229,6 +215,12 @@ export function OperatorValueSelect({
                                 onChange(newOperator, value || null)
                             } else if (isOperatorRange(newOperator) && isNaN(value as any)) {
                                 // If the new operator is range and the value is not a number, we want to set the new value to null
+                                onChange(newOperator, null)
+                            } else if (
+                                isOperatorSemver(newOperator) &&
+                                isOperatorFlag(currentOperator || PropertyOperator.Exact)
+                            ) {
+                                // If switching from flag operator to semver, clear the value
                                 onChange(newOperator, null)
                             } else if (isOperatorFlag(newOperator)) {
                                 onChange(newOperator, newOperator)

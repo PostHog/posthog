@@ -1,7 +1,7 @@
 import { IconComment } from '@posthog/icons'
 
 import { IconAreaChart, IconGridView, IconLink, IconListView } from 'lib/lemon-ui/icons'
-import { allOperatorsMapping } from 'lib/utils'
+import { allOperatorsInfo, allOperatorsMapping } from 'lib/utils'
 
 import {
     AccessControlLevel,
@@ -41,14 +41,24 @@ export const SURVEY_RATING_SCALE = {
 
 export type SurveyRatingScaleValue = (typeof SURVEY_RATING_SCALE)[keyof typeof SURVEY_RATING_SCALE]
 
-// Create SurveyMatchTypeLabels using allOperatorsMapping
-export const SurveyMatchTypeLabels = {
+// Create SurveyMatchTypeLabels using allOperatorsMapping (full string with symbol for dropdowns)
+export const SurveyMatchTypeLabels: Record<string, string> = {
     [SurveyMatchType.Exact]: allOperatorsMapping[SurveyMatchType.Exact],
     [SurveyMatchType.IsNot]: allOperatorsMapping[SurveyMatchType.IsNot],
     [SurveyMatchType.Contains]: allOperatorsMapping[SurveyMatchType.Contains],
     [SurveyMatchType.NotIContains]: allOperatorsMapping[SurveyMatchType.NotIContains],
     [SurveyMatchType.Regex]: allOperatorsMapping[SurveyMatchType.Regex],
     [SurveyMatchType.NotRegex]: allOperatorsMapping[SurveyMatchType.NotRegex],
+}
+
+// Just the label portion (no symbol) for display contexts
+export const SurveyMatchTypeHumanLabels: Record<string, string> = {
+    [SurveyMatchType.Exact]: allOperatorsInfo[SurveyMatchType.Exact].label,
+    [SurveyMatchType.IsNot]: allOperatorsInfo[SurveyMatchType.IsNot].label,
+    [SurveyMatchType.Contains]: allOperatorsInfo[SurveyMatchType.Contains].label,
+    [SurveyMatchType.NotIContains]: allOperatorsInfo[SurveyMatchType.NotIContains].label,
+    [SurveyMatchType.Regex]: allOperatorsInfo[SurveyMatchType.Regex].label,
+    [SurveyMatchType.NotRegex]: allOperatorsInfo[SurveyMatchType.NotRegex].label,
 }
 
 // Sync with posthog/constants.py

@@ -1,6 +1,6 @@
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { allOperatorsMapping, genericOperatorMap } from 'lib/utils'
+import { allOperatorsInfo, genericOperatorInfo } from 'lib/utils'
 
 import { AnyPropertyFilter, PropertyFilterValue, PropertyOperator } from '~/types'
 
@@ -15,19 +15,19 @@ export function operatorToHumanName(operator?: string): string {
 }
 
 export function genericOperatorToHumanName(property?: AnyPropertyFilter | null): string {
-    if (isPropertyFilterWithOperator(property) && property.operator && genericOperatorMap[property.operator]) {
-        return genericOperatorMap[property.operator].slice(2)
+    if (isPropertyFilterWithOperator(property) && property.operator && genericOperatorInfo[property.operator]) {
+        return genericOperatorInfo[property.operator].label
     }
     return 'equals'
 }
 
 export function allOperatorsToHumanName(operator?: PropertyOperator | null): string {
-    if (operator && allOperatorsMapping[operator]) {
+    if (operator && allOperatorsInfo[operator]) {
         // for the case of cohort matching, we want to return the operator name without the "In" prefix
         if (operator === PropertyOperator.In) {
             return 'in'
         }
-        return allOperatorsMapping[operator].slice(2)
+        return allOperatorsInfo[operator].label
     }
     return 'equals'
 }

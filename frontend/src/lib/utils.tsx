@@ -239,121 +239,154 @@ export function fullName(props?: { first_name?: string; last_name?: string }): s
     return `${props.first_name || ''} ${props.last_name || ''}`.trim()
 }
 
-export const genericOperatorMap: Record<string, string> = {
-    exact: '= equals',
-    is_not: "≠ doesn't equal",
-    icontains: '∋ contains',
-    not_icontains: "∌ doesn't contain",
-    regex: '∼ matches regex',
-    not_regex: "≁ doesn't match regex",
-    gt: '> greater than',
-    lt: '< less than',
-    is_set: '✓ is set',
-    is_not_set: '✕ is not set',
+export interface OperatorInfo {
+    symbol: string
+    label: string
 }
 
-export const stringOperatorMap: Record<string, string> = {
-    exact: '= equals',
-    is_not: "≠ doesn't equal",
-    icontains: '∋ contains',
-    not_icontains: "∌ doesn't contain",
-    regex: '∼ matches regex',
-    not_regex: "≁ doesn't match regex",
-    semver_gt: '> semver',
-    semver_gte: '>= semver',
-    semver_lt: '< semver',
-    semver_lte: '<= semver',
-    is_set: '✓ is set',
-    is_not_set: '✕ is not set',
+// Helper to convert OperatorInfo map to legacy string format "symbol label"
+function toStringMap(infoMap: Record<string, OperatorInfo>): Record<string, string> {
+    return Object.fromEntries(
+        Object.entries(infoMap).map(([key, { symbol, label }]) => [key, symbol ? `${symbol} ${label}` : label])
+    )
 }
 
-export const stringArrayOperatorMap: Record<string, string> = {
-    exact: '= equals',
-    is_not: "≠ doesn't equal",
-    icontains: '∋ contains',
-    not_icontains: "∌ doesn't contain",
-    regex: '∼ matches regex',
-    not_regex: "≁ doesn't match regex",
+// Structured operator definitions
+export const genericOperatorInfo: Record<string, OperatorInfo> = {
+    exact: { symbol: '=', label: 'equals' },
+    is_not: { symbol: '≠', label: "doesn't equal" },
+    icontains: { symbol: '∋', label: 'contains' },
+    not_icontains: { symbol: '∌', label: "doesn't contain" },
+    regex: { symbol: '∼', label: 'matches regex' },
+    not_regex: { symbol: '≁', label: "doesn't match regex" },
+    gt: { symbol: '>', label: 'greater than' },
+    lt: { symbol: '<', label: 'less than' },
+    is_set: { symbol: '✓', label: 'is set' },
+    is_not_set: { symbol: '✕', label: 'is not set' },
 }
 
-export const numericOperatorMap: Record<string, string> = {
-    exact: '= equals',
-    is_not: "≠ doesn't equal",
-    regex: '∼ matches regex',
-    not_regex: "≁ doesn't match regex",
-    gt: '> greater than',
-    lt: '< less than',
-    is_set: '✓ is set',
-    is_not_set: '✕ is not set',
+export const stringOperatorInfo: Record<string, OperatorInfo> = {
+    exact: { symbol: '=', label: 'equals' },
+    is_not: { symbol: '≠', label: "doesn't equal" },
+    icontains: { symbol: '∋', label: 'contains' },
+    not_icontains: { symbol: '∌', label: "doesn't contain" },
+    regex: { symbol: '∼', label: 'matches regex' },
+    not_regex: { symbol: '≁', label: "doesn't match regex" },
+    semver_gt: { symbol: '', label: '> (semver)' },
+    semver_gte: { symbol: '', label: '>= (semver)' },
+    semver_lt: { symbol: '', label: '< (semver)' },
+    semver_lte: { symbol: '', label: '<= (semver)' },
+    semver_eq: { symbol: '', label: '= (semver)' },
+    semver_neq: { symbol: '', label: '≠ (semver)' },
+    semver_tilde: { symbol: '', label: '~ (semver)' },
+    semver_caret: { symbol: '', label: '^ (semver)' },
+    semver_wildcard: { symbol: '', label: '* (semver)' },
+    is_set: { symbol: '✓', label: 'is set' },
+    is_not_set: { symbol: '✕', label: 'is not set' },
 }
 
-export const dateTimeOperatorMap: Record<string, string> = {
-    is_date_exact: '= equals',
-    is_date_before: '< before',
-    is_date_after: '> after',
-    is_set: '✓ is set',
-    is_not_set: '✕ is not set',
+export const stringArrayOperatorInfo: Record<string, OperatorInfo> = {
+    exact: { symbol: '=', label: 'equals' },
+    is_not: { symbol: '≠', label: "doesn't equal" },
+    icontains: { symbol: '∋', label: 'contains' },
+    not_icontains: { symbol: '∌', label: "doesn't contain" },
+    regex: { symbol: '∼', label: 'matches regex' },
+    not_regex: { symbol: '≁', label: "doesn't match regex" },
 }
 
-export const booleanOperatorMap: Record<string, string> = {
-    exact: '= equals',
-    is_not: "≠ doesn't equal",
-    is_set: '✓ is set',
-    is_not_set: '✕ is not set',
+export const numericOperatorInfo: Record<string, OperatorInfo> = {
+    exact: { symbol: '=', label: 'equals' },
+    is_not: { symbol: '≠', label: "doesn't equal" },
+    regex: { symbol: '∼', label: 'matches regex' },
+    not_regex: { symbol: '≁', label: "doesn't match regex" },
+    gt: { symbol: '>', label: 'greater than' },
+    lt: { symbol: '<', label: 'less than' },
+    is_set: { symbol: '✓', label: 'is set' },
+    is_not_set: { symbol: '✕', label: 'is not set' },
 }
 
-export const durationOperatorMap: Record<string, string> = {
-    gt: '> greater than',
-    lt: '< less than',
+export const dateTimeOperatorInfo: Record<string, OperatorInfo> = {
+    is_date_exact: { symbol: '=', label: 'equals' },
+    is_date_before: { symbol: '<', label: 'before' },
+    is_date_after: { symbol: '>', label: 'after' },
+    is_set: { symbol: '✓', label: 'is set' },
+    is_not_set: { symbol: '✕', label: 'is not set' },
 }
 
-export const selectorOperatorMap: Record<string, string> = {
-    exact: '= equals',
-    is_not: "≠ doesn't equal",
+export const booleanOperatorInfo: Record<string, OperatorInfo> = {
+    exact: { symbol: '=', label: 'equals' },
+    is_not: { symbol: '≠', label: "doesn't equal" },
+    is_set: { symbol: '✓', label: 'is set' },
+    is_not_set: { symbol: '✕', label: 'is not set' },
 }
 
-export const cohortOperatorMap: Record<string, string> = {
-    in: 'user in',
-    not_in: 'user not in',
+export const durationOperatorInfo: Record<string, OperatorInfo> = {
+    gt: { symbol: '>', label: 'greater than' },
+    lt: { symbol: '<', label: 'less than' },
 }
 
-export const featureFlagOperatorMap: Record<string, string> = {
-    flag_evaluates_to: '= evaluates to',
+export const selectorOperatorInfo: Record<string, OperatorInfo> = {
+    exact: { symbol: '=', label: 'equals' },
+    is_not: { symbol: '≠', label: "doesn't equal" },
 }
 
-export const stickinessOperatorMap: Record<string, string> = {
-    exact: '= exactly',
-    gte: '≥ at least',
-    lte: '≤ at most (but at least once)',
+export const cohortOperatorInfo: Record<string, OperatorInfo> = {
+    in: { symbol: '', label: 'user in' },
+    not_in: { symbol: '', label: 'user not in' },
 }
 
-export const cleanedPathOperatorMap: Record<string, string> = {
-    is_cleaned_path_exact: '= equals',
+export const featureFlagOperatorInfo: Record<string, OperatorInfo> = {
+    flag_evaluates_to: { symbol: '=', label: 'evaluates to' },
 }
 
-export const assigneeOperatorMap: Record<string, string> = {
-    exact: '= is',
-    is_not: '≠ is not',
-    is_not_set: '✕ is not set',
+export const stickinessOperatorInfo: Record<string, OperatorInfo> = {
+    exact: { symbol: '=', label: 'exactly' },
+    gte: { symbol: '≥', label: 'at least' },
+    lte: { symbol: '≤', label: 'at most (but at least once)' },
 }
 
-export const allOperatorsMapping: Record<string, string> = {
-    ...assigneeOperatorMap,
-    ...stickinessOperatorMap,
-    ...dateTimeOperatorMap,
-    ...stringOperatorMap,
-    ...stringArrayOperatorMap,
-    ...numericOperatorMap,
-    ...genericOperatorMap,
-    ...booleanOperatorMap,
-    ...durationOperatorMap,
-    ...selectorOperatorMap,
-    ...cohortOperatorMap,
-    ...featureFlagOperatorMap,
-    ...cleanedPathOperatorMap,
-    // slight overkill to spread all of these into the map
-    // but gives freedom for them to diverge more over time
+export const cleanedPathOperatorInfo: Record<string, OperatorInfo> = {
+    is_cleaned_path_exact: { symbol: '=', label: 'equals' },
 }
+
+export const assigneeOperatorInfo: Record<string, OperatorInfo> = {
+    exact: { symbol: '=', label: 'is' },
+    is_not: { symbol: '≠', label: 'is not' },
+    is_not_set: { symbol: '✕', label: 'is not set' },
+}
+
+export const allOperatorsInfo: Record<string, OperatorInfo> = {
+    ...assigneeOperatorInfo,
+    ...stickinessOperatorInfo,
+    ...dateTimeOperatorInfo,
+    ...stringOperatorInfo,
+    ...stringArrayOperatorInfo,
+    ...numericOperatorInfo,
+    ...genericOperatorInfo,
+    ...booleanOperatorInfo,
+    ...durationOperatorInfo,
+    ...selectorOperatorInfo,
+    ...cohortOperatorInfo,
+    ...featureFlagOperatorInfo,
+    ...cleanedPathOperatorInfo,
+}
+
+// Legacy string maps for backwards compatibility
+export const genericOperatorMap: Record<string, string> = toStringMap(genericOperatorInfo)
+export const stringOperatorMap: Record<string, string> = toStringMap(stringOperatorInfo)
+export const stringArrayOperatorMap: Record<string, string> = toStringMap(stringArrayOperatorInfo)
+export const numericOperatorMap: Record<string, string> = toStringMap(numericOperatorInfo)
+export const dateTimeOperatorMap: Record<string, string> = toStringMap(dateTimeOperatorInfo)
+export const booleanOperatorMap: Record<string, string> = toStringMap(booleanOperatorInfo)
+export const durationOperatorMap: Record<string, string> = toStringMap(durationOperatorInfo)
+export const selectorOperatorMap: Record<string, string> = toStringMap(selectorOperatorInfo)
+export const cohortOperatorMap: Record<string, string> = toStringMap(cohortOperatorInfo)
+export const featureFlagOperatorMap: Record<string, string> = toStringMap(featureFlagOperatorInfo)
+export const stickinessOperatorMap: Record<string, string> = toStringMap(stickinessOperatorInfo)
+export const cleanedPathOperatorMap: Record<string, string> = toStringMap(cleanedPathOperatorInfo)
+export const assigneeOperatorMap: Record<string, string> = toStringMap(assigneeOperatorInfo)
+
+export const allOperatorsMapping: Record<string, string> = toStringMap(allOperatorsInfo)
 
 const operatorMappingChoice: Record<keyof typeof PropertyType, Record<string, string>> = {
     DateTime: dateTimeOperatorMap,
@@ -423,6 +456,11 @@ export function isOperatorSemver(operator: PropertyOperator): boolean {
         PropertyOperator.SemverGreaterThanOrEqual,
         PropertyOperator.SemverLessThan,
         PropertyOperator.SemverLessThanOrEqual,
+        PropertyOperator.SemverEquals,
+        PropertyOperator.SemverNotEquals,
+        PropertyOperator.SemverTilde,
+        PropertyOperator.SemverCaret,
+        PropertyOperator.SemverWildcard,
     ].includes(operator)
 }
 

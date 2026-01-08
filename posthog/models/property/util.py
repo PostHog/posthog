@@ -581,6 +581,94 @@ def prop_filter_json_extract(
             f" {property_operator} toFloat64OrNull({extract_property_expr}) {count_operator} %(v{prepend}_{idx})s",
             params,
         )
+    elif operator in ["semver_gt", "semver_gte", "semver_lt", "semver_lte", "semver_eq", "semver_neq"]:
+        # Semantic version comparison using HogQL's sortableSemver function
+        # sortableSemver converts version strings to comparable integer arrays
+        assert isinstance(prop.value, str)
+
+        params = {
+            "k{}_{}".format(prepend, idx): prop.key,
+            "v{}_{}".format(prepend, idx): prop.value,
+        }
+
+        # Use sortableSemver to convert versions to comparable arrays
+        # sortableSemver extracts numeric parts and converts to array of integers
+        sortable_property = f"arrayMap(x -> toInt64OrZero(x), splitByChar('.', extract(assumeNotNull({property_expr}), '(\\d+(\\.\\d+)+)')))"
+        sortable_value = f"arrayMap(x -> toInt64OrZero(x), splitByChar('.', extract(assumeNotNull(%(v{prepend}_{idx})s), '(\\d+(\\.\\d+)+)')))"
+
+        # Map operators to ClickHouse comparison operators
+        if operator == "semver_gt":
+            comparison_op = ">"
+        elif operator == "semver_gte":
+            comparison_op = ">="
+        elif operator == "semver_lt":
+            comparison_op = "<"
+        elif operator == "semver_lte":
+            comparison_op = "<="
+        elif operator == "semver_eq":
+            comparison_op = "="
+        else:  # semver_neq
+            comparison_op = "!="
+
+        comparison = f"{sortable_property} {comparison_op} {sortable_value}"
+        query = f" {property_operator} {comparison}"
+
+        return (query, params)
+    elif operator in ["semver_tilde", "semver_caret", "semver_wildcard"]:
+        # Semver range operators: ~, ^, and * using sortableSemver approach
+        assert isinstance(prop.value, str)
+
+        params = {
+            "k{}_{}".format(prepend, idx): prop.key,
+            "v{}_{}".format(prepend, idx): prop.value,
+        }
+
+        # Use sortableSemver to convert versions to comparable arrays
+        sortable_property = f"arrayMap(x -> toInt64OrZero(x), splitByChar('.', extract(assumeNotNull({property_expr}), '(\\d+(\\.\\d+)+)')))"
+        sortable_value = f"arrayMap(x -> toInt64OrZero(x), splitByChar('.', extract(assumeNotNull(%(v{prepend}_{idx})s), '(\\d+(\\.\\d+)+)')))"
+
+        # Build range comparison based on operator type
+        if operator == "semver_tilde":
+            # ~1.2.3 means >=1.2.3 <1.3.0 (allows patch-level changes)
+            # Compare: prop >= value AND prop[1:2] = value[1:2] (same major.minor)
+            comparison = f"""(
+                {sortable_property} >= {sortable_value} AND
+                {sortable_property}[1] = {sortable_value}[1] AND
+                {sortable_property}[2] = {sortable_value}[2]
+            )"""
+        elif operator == "semver_caret":
+            # ^1.2.3 means >=1.2.3 <2.0.0 (allows minor-level changes)
+            # Compare: prop >= value AND prop[1] = value[1] (same major)
+            comparison = f"""(
+                {sortable_property} >= {sortable_value} AND
+                {sortable_property}[1] = {sortable_value}[1]
+            )"""
+        else:  # semver_wildcard
+            # 1.2.* means >=1.2.0 <1.3.0, 1.*.* means >=1.0.0 <2.0.0
+            # Normalize wildcard to 0 for comparison
+            normalized_for_wildcard = f"arrayMap(x -> toInt64OrZero(x), splitByChar('.', extract(assumeNotNull(replaceAll(%(v{prepend}_{idx})s, '*', '0')), '(\\d+(\\.\\d+)+)')))"
+
+            # Check if minor is wildcard (originally was *)
+            has_minor_wildcard = f"position(%(v{prepend}_{idx})s, '.*.') > 0 OR endsWith(%(v{prepend}_{idx})s, '.*.*')"
+            # Check if patch is wildcard (originally was *)
+            has_patch_wildcard = f"position(%(v{prepend}_{idx})s, '.*') > 0"
+
+            comparison = f"""(
+                multiIf(
+                    {has_minor_wildcard}, (
+                        {sortable_property}[1] = {normalized_for_wildcard}[1]
+                    ),
+                    {has_patch_wildcard}, (
+                        {sortable_property}[1] = {normalized_for_wildcard}[1] AND
+                        {sortable_property}[2] = {normalized_for_wildcard}[2]
+                    ),
+                    {sortable_property} = {normalized_for_wildcard}
+                )
+            )"""
+
+        query = f" {property_operator} {comparison}"
+
+        return (query, params)
     else:
         if is_json(prop.value) and not is_denormalized:
             clause = " {property_operator} has(%(v{prepend}_{idx})s, replaceRegexpAll(visitParamExtractRaw({prop_var}, %(k{prepend}_{idx})s),' ', ''))"

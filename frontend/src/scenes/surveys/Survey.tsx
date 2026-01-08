@@ -16,7 +16,7 @@ import { FeatureFlagFilters, Survey, SurveyMatchType } from '~/types'
 
 import SurveyEdit from './SurveyEdit'
 import { SurveyView } from './SurveyView'
-import { LOADING_SURVEY_RESULTS_TOAST_ID, NewSurvey, SurveyMatchTypeLabels } from './constants'
+import { LOADING_SURVEY_RESULTS_TOAST_ID, NewSurvey, SurveyMatchTypeHumanLabels } from './constants'
 import { SurveyLogicProps, surveyLogic } from './surveyLogic'
 
 export const scene: SceneExport<SurveyLogicProps> = {
@@ -108,10 +108,7 @@ export function SurveyDisplaySummary({
                     <div className="flex-row">
                         <span>
                             URL{' '}
-                            {SurveyMatchTypeLabels[survey.conditions?.urlMatchType || SurveyMatchType.Contains].slice(
-                                2
-                            )}
-                            :
+                            {SurveyMatchTypeHumanLabels[survey.conditions?.urlMatchType || SurveyMatchType.Contains]}:
                         </span>{' '}
                         <LemonTag>{survey.conditions.url}</LemonTag>
                     </div>
@@ -121,9 +118,11 @@ export function SurveyDisplaySummary({
                 <div className="flex font-medium gap-1 items-center">
                     <span>
                         Device Types{' '}
-                        {SurveyMatchTypeLabels[
-                            survey.conditions?.deviceTypesMatchType || SurveyMatchType.Contains
-                        ].slice(2)}
+                        {
+                            SurveyMatchTypeHumanLabels[
+                                survey.conditions?.deviceTypesMatchType || SurveyMatchType.Contains
+                            ]
+                        }
                         :
                     </span>{' '}
                     {survey.conditions.deviceTypes.map((type) => (
