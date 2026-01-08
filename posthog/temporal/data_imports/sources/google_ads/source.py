@@ -1,5 +1,5 @@
 import re
-from typing import cast
+from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -180,7 +180,10 @@ class GoogleAdsSource(SimpleSource[GoogleAdsSourceConfig | GoogleAdsServiceAccou
             raise
 
     def validate_credentials(
-        self, config: GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig, team_id: int
+        self,
+        config: GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
     ) -> tuple[bool, str | None]:
         try:
             client = google_ads_client(config, team_id)
