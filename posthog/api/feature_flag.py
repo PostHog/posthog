@@ -1402,7 +1402,7 @@ class FeatureFlagViewSet(
                                         WHERE elem->>'rollout_percentage' = '100'
                                         AND (elem->'properties')::text = '[]'::text
                                     )
-                                    AND (filters->'multivariate' IS NULL OR jsonb_array_length(filters->'multivariate'->'variants') = 0)
+                                    AND (filters->>'multivariate' IS NULL OR jsonb_array_length(filters->'multivariate'->'variants') = 0)
                                 )
                                 OR
                                 (
