@@ -197,21 +197,43 @@ def _build_group_count_query(team: Team, filter: Filter, group_type_index: Group
             value = str(value)
 
         if operator == PropertyOperator.EXACT:
-            where_exprs.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=["groups", "key"]),
-                    right=ast.Constant(value=value),
+            if isinstance(value, list):
+                # List values should use IN logic (match any value in the list)
+                where_exprs.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.In,
+                        left=ast.Field(chain=["groups", "key"]),
+                        right=ast.Tuple(exprs=[ast.Constant(value=v) for v in value]),
+                    )
                 )
-            )
+            else:
+                # Single value uses equality
+                where_exprs.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["groups", "key"]),
+                        right=ast.Constant(value=value),
+                    )
+                )
         elif operator == PropertyOperator.IS_NOT:
-            where_exprs.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.NotEq,
-                    left=ast.Field(chain=["groups", "key"]),
-                    right=ast.Constant(value=value),
+            if isinstance(value, list):
+                # List values should use NOT IN logic (doesn't match any value)
+                where_exprs.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.NotIn,
+                        left=ast.Field(chain=["groups", "key"]),
+                        right=ast.Tuple(exprs=[ast.Constant(value=v) for v in value]),
+                    )
                 )
-            )
+            else:
+                # Single value uses inequality
+                where_exprs.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.NotEq,
+                        left=ast.Field(chain=["groups", "key"]),
+                        right=ast.Constant(value=value),
+                    )
+                )
         elif operator == PropertyOperator.IN_:
             values_list = value if isinstance(value, list) else [value]
             where_exprs.append(

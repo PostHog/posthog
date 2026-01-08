@@ -8256,6 +8256,78 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("not supported", response.json()["detail"].lower())
 
+    def test_user_blast_radius_with_group_key_exact_list_values(self):
+        """Test that EXACT operator with list values uses IN logic"""
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org-alpha", properties={})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org-beta", properties={})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org-gamma", properties={})
+
+        # Test EXACT with list of values (should match any value in the list)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "$group_key",
+                            "type": "group",
+                            "value": ["org-alpha", "org-beta"],  # List of values
+                            "operator": "exact",
+                            "group_type_index": 0,
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                },
+                "group_type_index": 0,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+        # Should match org-alpha and org-beta (2 out of 3)
+        self.assertEqual(response_json["users_affected"], 2)
+        self.assertEqual(response_json["total_users"], 3)
+
+    def test_user_blast_radius_with_group_key_is_not_list_values(self):
+        """Test that IS_NOT operator with list values uses NOT IN logic"""
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org-alpha", properties={})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org-beta", properties={})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org-gamma", properties={})
+
+        # Test IS_NOT with list of values (should exclude all values in the list)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "$group_key",
+                            "type": "group",
+                            "value": ["org-alpha", "org-beta"],  # List of values to exclude
+                            "operator": "is_not",
+                            "group_type_index": 0,
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                },
+                "group_type_index": 0,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+        # Should only match org-gamma (1 out of 3)
+        self.assertEqual(response_json["users_affected"], 1)
+        self.assertEqual(response_json["total_users"], 3)
+
 
 class QueryTimeoutWrapper:
     def __call__(self, execute, *args, **kwargs):
