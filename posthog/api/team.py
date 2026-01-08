@@ -129,6 +129,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "flags_persistence_default",
             "conversations_enabled",
             "conversations_settings",
+            "logs_capture_console_log_opt_in",
         ]
         read_only_fields = fields
 
