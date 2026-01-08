@@ -103,7 +103,7 @@ export function ManageSubscriptions({
                             {pluralize(subscriptions.length || 0, 'subscription', 'subscriptions', false)}
                         </div>
 
-                        <div className="max-h-[50vh] overflow-y-auto flex flex-col gap-2 p-1">
+                        <div className="max-h-[50vh] overflow-y-auto flex flex-col gap-2">
                             {subscriptions.map((sub) => (
                                 <SubscriptionListItem
                                     key={sub.id}
