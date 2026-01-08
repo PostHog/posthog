@@ -659,6 +659,154 @@ class TestUpdatePersonWithVersionCheck:
         assert result_data is None
 
 
+class TestPostBugWindowUpdatePreservation:
+    """
+    Test that reconciliation does NOT overwrite properties that were legitimately
+    updated AFTER the bug window.
+
+    This is a critical edge case: if a property was set during the bug window (and missed
+    due to the bug), but then set again AFTER the bug window (correctly applied), the
+    reconciliation should NOT revert to the bug-window value.
+
+    The problem: properties_last_updated_at is NOT consistently updated when properties
+    change after person creation. This means we can't reliably compare timestamps to
+    determine which value is newer.
+    """
+
+    def test_post_bug_window_update_should_not_be_overwritten(self):
+        """
+        Timeline:
+        - t1: Person created WITHOUT property P
+        - t2: Bug window starts
+        - t2.5: Event sets P=V1 (in bug window, missed due to bug)
+        - t3: Bug window ends
+        - t3.5: Event sets P=V2 (after bug window, correctly applied)
+        - t4: Reconciliation runs
+
+        Expected: P should remain V2, NOT be reverted to V1
+        """
+        # Timestamps with clear spacing (prefixed with _ to indicate documentation-only)
+        _t1 = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)  # Person creation  # noqa: F841
+        _t2 = datetime(2024, 1, 10, 0, 0, 0, tzinfo=UTC)  # Bug window start  # noqa: F841
+        t2_5 = datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC)  # Event in bug window
+        _t3 = datetime(2024, 1, 20, 0, 0, 0, tzinfo=UTC)  # Bug window end  # noqa: F841
+        _t3_5 = datetime(2024, 1, 25, 12, 0, 0, tzinfo=UTC)  # Event after bug window  # noqa: F841
+        # t4 = now (reconciliation time)
+
+        V1 = "value_from_bug_window"
+        V2 = "value_after_bug_window"
+
+        # Current state in Postgres:
+        # - P was set to V2 at _t3_5 (after bug window)
+        # - properties_last_updated_at[P] is NOT SET because it's only set at creation time
+        #   and P was added after creation
+        person = {
+            "uuid": "018d1234-5678-0000-0000-000000000001",
+            "properties": {"P": V2},  # Current value from _t3_5
+            "properties_last_updated_at": {},  # Empty! P was added after creation
+            "properties_last_operation": {},
+        }
+
+        # ClickHouse returns the bug-window update that was missed
+        updates = [
+            PropertyUpdate(
+                key="P",
+                value=V1,
+                timestamp=t2_5,  # From the bug window
+                operation="set",
+            )
+        ]
+
+        result = reconcile_person_properties(person, updates)
+
+        # CURRENT BEHAVIOR (buggy): result is not None, P gets set to V1
+        # This happens because properties_last_updated_at["P"] is None,
+        # so the comparison `existing_ts_str is None` triggers the update
+        #
+        # EXPECTED BEHAVIOR: result should be None (no changes),
+        # P should remain V2 because V2 was set AFTER V1
+
+        # This assertion documents the EXPECTED behavior
+        # If this test fails, it means the reconciliation is incorrectly overwriting
+        # post-bug-window updates
+        assert result is None, (
+            f"Reconciliation should NOT overwrite post-bug-window value. "
+            f"Expected P to remain '{V2}', but reconciliation wants to set it to '{V1}'. "
+            f"This happens because properties_last_updated_at is not maintained on updates."
+        )
+
+    def test_extended_window_correctly_preserves_latest_value(self):
+        """
+        Same timeline as above, but this time the ClickHouse query includes BOTH updates.
+        This simulates extending the query window to capture all events.
+
+        Timeline:
+        - t1: Person created WITHOUT property P
+        - t2: Bug window starts
+        - t2.5: Event sets P=V1 (in bug window)
+        - t3: Bug window ends
+        - t3.5: Event sets P=V2 (after original bug window, but included in extended query)
+        - t4: Reconciliation runs
+
+        When both updates are returned by ClickHouse, the reconciliation should
+        correctly determine that V2 (from t3.5) is the winning value since it's newer.
+        """
+        # Timestamps with clear spacing (prefixed with _ to indicate documentation-only)
+        _t1 = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)  # Person creation  # noqa: F841
+        _t2 = datetime(2024, 1, 10, 0, 0, 0, tzinfo=UTC)  # Bug window start  # noqa: F841
+        t2_5 = datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC)  # Event in bug window
+        _t3 = datetime(2024, 1, 20, 0, 0, 0, tzinfo=UTC)  # Bug window end  # noqa: F841
+        t3_5 = datetime(2024, 1, 25, 12, 0, 0, tzinfo=UTC)  # Event after bug window
+        # t4 = now (reconciliation time)
+
+        V1 = "value_from_bug_window"
+        V2 = "value_after_bug_window"
+
+        # Current state in Postgres:
+        # - P was set to V2 at t3_5 (after bug window)
+        # - properties_last_updated_at[P] is NOT SET because it's only set at creation time
+        person = {
+            "uuid": "018d1234-5678-0000-0000-000000000001",
+            "properties": {"P": V2},  # Current value from t3_5
+            "properties_last_updated_at": {},  # Empty! P was added after creation
+            "properties_last_operation": {},
+        }
+
+        # When we extend the query window, ClickHouse returns BOTH updates
+        # The reconciliation logic needs to handle multiple updates for the same key
+        # and pick the one with the latest timestamp
+        #
+        # NOTE: Currently reconcile_person_properties processes updates in order
+        # and the last one wins (for $set). If we pass them in timestamp order,
+        # V2 should win.
+        updates = [
+            PropertyUpdate(
+                key="P",
+                value=V1,
+                timestamp=t2_5,  # Earlier update
+                operation="set",
+            ),
+            PropertyUpdate(
+                key="P",
+                value=V2,
+                timestamp=t3_5,  # Later update - should win
+                operation="set",
+            ),
+        ]
+
+        result = reconcile_person_properties(person, updates)
+
+        # With both updates present, reconciliation should see that the current
+        # value (V2) matches the latest update (V2 from t3.5), so no change needed
+        #
+        # OR if it does return a result, it should set P to V2 (not V1)
+        if result is not None:
+            assert result["properties"]["P"] == V2, (
+                f"When both updates are present, reconciliation should use the latest value. "
+                f"Expected '{V2}', got '{result['properties']['P']}'"
+            )
+
+
 class TestPropertyUpdateDataclass:
     """Test the PropertyUpdate dataclass structure."""
 
