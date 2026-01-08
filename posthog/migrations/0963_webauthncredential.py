@@ -9,7 +9,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0958_drop_teamcoreeventsconfig_table"),
+        ("posthog", "0962_webanalyticsfilterpreset"),
     ]
 
     operations = [
