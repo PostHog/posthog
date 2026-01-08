@@ -1960,6 +1960,26 @@ def test_session_property_validation():
                     {
                         "type": "session",
                         "key": "$session_duration",
+                        "value": 0,
+                        "operator": "is_set",
+                    }
+                ]
+            }
+        )
+        parse_prop_grouped_clauses(
+            team_id=1,
+            property_group=filter.property_groups,
+            hogql_context=filter.hogql_context,
+        )
+
+    # Value not valid for $session_duration
+    with pytest.raises(ValidationError):
+        filter = Filter(
+            data={
+                "properties": [
+                    {
+                        "type": "session",
+                        "key": "$session_duration",
                         "value": "hey",
                         "operator": "gt",
                     }
