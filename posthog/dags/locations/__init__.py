@@ -7,10 +7,10 @@ from dagster_aws.s3.resources import S3Resource
 
 from posthog.dags.common.resources import (
     ClickhouseClusterResource,
-    KafkaProducerResource,
     PostgresResource,
     PostgresURLResource,
     RedisResource,
+    kafka_producer_resource,
 )
 
 # Define resources for different environments
@@ -37,7 +37,7 @@ resources_by_env = {
             connection_url=dagster.EnvVar("PERSONS_DB_WRITER_URL"),
         ),
         # Kafka producer (auto-configured from Django settings)
-        "kafka_producer": KafkaProducerResource(),
+        "kafka_producer": kafka_producer_resource,
     },
     "local": {
         "cluster": ClickhouseClusterResource.configure_at_launch(),
@@ -62,7 +62,7 @@ resources_by_env = {
             connection_url=dagster.EnvVar("PERSONS_DB_WRITER_URL"),
         ),
         # Kafka producer (auto-configured from Django settings)
-        "kafka_producer": KafkaProducerResource(),
+        "kafka_producer": kafka_producer_resource,
     },
 }
 

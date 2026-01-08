@@ -105,10 +105,14 @@ class PostgresURLResource(dagster.ConfigurableResource):
         return pg.create_resource(context)
 
 
-class KafkaProducerResource(dagster.ConfigurableResource):
+@dagster.resource
+def kafka_producer_resource(context: dagster.InitResourceContext) -> _KafkaProducer:
     """
-    Kafka producer resource - auto-configured from Django settings.
+    Kafka producer resource with proper cleanup.
+    Flushes pending messages on teardown.
     """
-
-    def create_resource(self, context: dagster.InitResourceContext) -> _KafkaProducer:
-        return _KafkaProducer()
+    producer = _KafkaProducer()
+    try:
+        yield producer
+    finally:
+        producer.flush()

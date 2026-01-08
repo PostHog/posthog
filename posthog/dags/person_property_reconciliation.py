@@ -608,6 +608,10 @@ def reconcile_team_chunk(
                         context.log.warning(
                             f"Failed to publish person to Kafka: {person_data['id']}, error: {kafka_error}"
                         )
+                try:
+                    kafka_producer.flush()
+                except Exception as flush_error:
+                    context.log.warning(f"Failed to flush Kafka producer: {flush_error}")
                 context.log.info(f"Applied {len(persons_to_publish)} updates for team_id={team_id} (PG + Kafka)")
             elif persons_to_publish and config.dry_run:
                 context.log.info(f"[DRY RUN] Would apply {len(persons_to_publish)} updates for team_id={team_id}")
