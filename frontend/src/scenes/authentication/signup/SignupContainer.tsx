@@ -4,8 +4,9 @@ import { router } from 'kea-router'
 import { IconCheckCircle } from '@posthog/icons'
 
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
-import { CLOUD_HOSTNAMES } from 'lib/constants'
+import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
@@ -21,6 +22,9 @@ export const scene: SceneExport = {
 export function SignupContainer(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const isAATestVariant = featureFlags[FEATURE_FLAGS.SIGNUP_AA_TEST] === 'test'
 
     const footerHighlights = {
         cloud: ['Hosted & managed by PostHog', 'Pay per event, cancel anytime', 'Fast and reliable support'],
@@ -42,6 +46,7 @@ export function SignupContainer(): JSX.Element | null {
             sideLogo
             leftContainerContent={<SignupLeftContainer />}
         >
+            {isAATestVariant && <div data-attr="signup-aa-test-variant" className="hidden" />}
             <SignupForm />
         </BridgePage>
     ) : null
