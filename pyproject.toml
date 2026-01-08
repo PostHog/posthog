@@ -40,7 +40,7 @@ dependencies = [
     "django-deprecate-fields==0.1.1",
     "django-extensions~=4.1.0",
     "django-filter~=25.1",
-    "django-loginas==0.3.11",
+    "django-loginas==0.3.14",
     "django-picklefield==3.0.1",
     "django-prometheus==2.2.0",
     "django-redis==6.0.0",
