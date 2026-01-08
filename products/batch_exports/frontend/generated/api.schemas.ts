@@ -206,15 +206,6 @@ export interface BatchExportRunApi {
 }
 
 /**
- * Which model this BatchExport is exporting.
-
-* `events` - Events
-* `persons` - Persons
-* `sessions` - Sessions
- */
-export type BatchExportApiModel = ModelEnumApi | BlankEnumApi | NullEnumApi
-
-/**
  * Serializer for a BatchExport model.
  */
 export interface BatchExportApi {
@@ -228,7 +219,7 @@ export interface BatchExportApi {
 * `events` - Events
 * `persons` - Persons
 * `sessions` - Sessions */
-    model?: BatchExportApiModel
+    model?: ModelEnumApi | BlankEnumApi | NullEnumApi
     destination: BatchExportDestinationApi
     interval: IntervalEnumApi
     /** Whether this BatchExport is paused or not. */
@@ -277,15 +268,6 @@ export interface PaginatedBatchExportRunListApi {
 }
 
 /**
- * Which model this BatchExport is exporting.
-
-* `events` - Events
-* `persons` - Persons
-* `sessions` - Sessions
- */
-export type PatchedBatchExportApiModel = ModelEnumApi | BlankEnumApi | NullEnumApi
-
-/**
  * Serializer for a BatchExport model.
  */
 export interface PatchedBatchExportApi {
@@ -299,7 +281,7 @@ export interface PatchedBatchExportApi {
 * `events` - Events
 * `persons` - Persons
 * `sessions` - Sessions */
-    model?: PatchedBatchExportApiModel
+    model?: ModelEnumApi | BlankEnumApi | NullEnumApi
     destination?: BatchExportDestinationApi
     interval?: IntervalEnumApi
     /** Whether this BatchExport is paused or not. */

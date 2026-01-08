@@ -5111,16 +5111,6 @@ class MarketingAnalyticsSchemaField(BaseModel):
     type: list[MarketingAnalyticsSchemaFieldTypes]
 
 
-class MarketingConversionGoalMapping(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    core_event_id: str = Field(..., description="Reference to the CoreEvent.id")
-    schema_map: dict[str, str | Any] | None = Field(
-        default=None, description="UTM field mappings - required for DataWarehouseNode, optional otherwise"
-    )
-
-
 class MarketingIntegrationConfigType(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -10666,9 +10656,6 @@ class MarketingAnalyticsConfig(BaseModel):
     attribution_window_days: float | None = None
     campaign_field_preferences: dict[str, CampaignFieldPreference] | None = None
     campaign_name_mappings: dict[str, dict[str, list[str]]] | None = None
-    conversion_goal_mappings: list[MarketingConversionGoalMapping] | None = Field(
-        default=None, description="Mappings to team-level conversion goals with optional schema_map for DW goals"
-    )
     conversion_goals: list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3] | None = None
     custom_source_mappings: dict[str, list[str]] | None = None
     sources_map: dict[str, SourceMap] | None = None
