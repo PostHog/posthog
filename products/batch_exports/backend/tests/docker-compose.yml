@@ -4,7 +4,7 @@
 # https://posthog.com/handbook/engineering/developing-locally
 #
 # Usage:
-#   docker compose -f docker-compose.batch-exports.yml up
+#   docker compose -f producs/batch_exports/backend/tests/docker-compose.yml up
 #
 
 services:
