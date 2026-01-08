@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+from django.conf import settings
+
 import dagster
 import psycopg2
 from dagster_k8s import k8s_job_executor
@@ -23,6 +25,9 @@ from posthog.clickhouse.custom_metrics import MetricsClient
 from posthog.dags.common import JobOwners
 from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_PERSON
+
+# Use in_process_executor locally (k8s_job_executor doesn't work outside k8s)
+executor_def = dagster.in_process_executor if settings.DEBUG else k8s_job_executor
 
 
 class PersonPropertyReconciliationConfig(dagster.Config):
@@ -576,7 +581,11 @@ def reconcile_team_chunk(
 
                 total_persons_processed += 1
 
-            # Publish to Kafka
+            # Commit the Postgres transaction
+            if persons_to_publish and not config.dry_run:
+                database.commit()
+
+            # Publish to Kafka (after commit, so we don't publish if commit fails)
             if persons_to_publish and not config.dry_run:
                 for person_data in persons_to_publish:
                     try:
@@ -664,7 +673,7 @@ def reconcile_team_chunk(
 
 @dagster.job(
     tags={"owner": JobOwners.TEAM_INGESTION.value},
-    executor_def=k8s_job_executor,
+    executor_def=executor_def,
 )
 def person_property_reconciliation_job():
     """
