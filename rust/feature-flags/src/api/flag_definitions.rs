@@ -106,7 +106,7 @@ async fn fetch_team_by_token(state: &AppState, token: &str) -> Result<Team, Flag
     let pg_reader = state.database_pools.non_persons_reader.clone();
     let token_owned = token.to_string();
 
-    let (data, _source) = state
+    let (data, source) = state
         .team_hypercache_reader
         .get_with_source_or_fallback(&key, || async move {
             let team = Team::from_pg(pg_reader, &token_owned)
@@ -121,7 +121,20 @@ async fn fetch_team_by_token(state: &AppState, token: &str) -> Result<Team, Flag
         })
         .await?;
 
-    Team::from_hypercache_value(data)
+    let team = Team::from_hypercache_value(data)?;
+
+    let source_name = match source {
+        CacheSource::Redis => "Redis",
+        CacheSource::S3 => "S3",
+        CacheSource::Fallback => "Fallback",
+    };
+    info!(
+        team_id = team.id,
+        source = source_name,
+        "Fetched team metadata"
+    );
+
+    Ok(team)
 }
 
 /// Retrieves the cached response using the pre-initialized HyperCacheReader
