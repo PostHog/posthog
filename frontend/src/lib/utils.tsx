@@ -163,17 +163,19 @@ export function parseTagsFilter(raw: unknown): string[] | undefined {
 /** Return percentage from number, e.g. 0.234 is 23.4%. */
 export function percentage(
     division: number,
-    maximumFractionDigits: number = 2,
+    maximumFractionDigits: number = DEFAULT_DECIMAL_PLACES,
     fixedPrecision: boolean = false
 ): string {
     if (division === Infinity) {
         return '∞%'
     }
 
+    const maxDigits = validateFractionDigits(maximumFractionDigits, DEFAULT_DECIMAL_PLACES)
+
     return division.toLocaleString('en-US', {
         style: 'percent',
-        maximumFractionDigits,
-        minimumFractionDigits: fixedPrecision ? maximumFractionDigits : undefined,
+        maximumFractionDigits: maxDigits,
+        minimumFractionDigits: fixedPrecision ? maxDigits : undefined,
     })
 }
 
@@ -565,20 +567,28 @@ export function slugify(text: string): string {
 
 export const DEFAULT_DECIMAL_PLACES = 2
 
+function validateFractionDigits(maximumFractionDigits: number, fallback: number): number {
+    if (
+        isNaN(maximumFractionDigits) ||
+        !Number.isInteger(maximumFractionDigits) ||
+        maximumFractionDigits < 0 ||
+        maximumFractionDigits > 100
+    ) {
+        return fallback
+    }
+    return maximumFractionDigits
+}
+
 /** Format number with comma as the thousands separator. */
 export function humanFriendlyNumber(
     d: number,
     maximumFractionDigits: number = DEFAULT_DECIMAL_PLACES,
     minimumFractionDigits: number = 0
 ): string {
-    if (isNaN(maximumFractionDigits) || maximumFractionDigits < 0) {
-        maximumFractionDigits = DEFAULT_DECIMAL_PLACES
-    }
-    if (isNaN(minimumFractionDigits) || minimumFractionDigits < 0) {
-        minimumFractionDigits = 0
-    }
-
-    return d.toLocaleString('en-US', { maximumFractionDigits, minimumFractionDigits })
+    return d.toLocaleString('en-US', {
+        maximumFractionDigits: validateFractionDigits(maximumFractionDigits, DEFAULT_DECIMAL_PLACES),
+        minimumFractionDigits: validateFractionDigits(minimumFractionDigits, 0),
+    })
 }
 
 export function humanFriendlyLargeNumber(d: number): string {
@@ -617,7 +627,10 @@ export function humanFriendlyLargeNumber(d: number): string {
 }
 
 /** Format currency from string with commas and a number of decimal places (defaults to 2). */
-export function humanFriendlyCurrency(d: string | undefined | number, precision: number = 2): string {
+export function humanFriendlyCurrency(
+    d: string | undefined | number,
+    precision: number = DEFAULT_DECIMAL_PLACES
+): string {
     if (!d) {
         d = '0.00'
     }
@@ -629,7 +642,8 @@ export function humanFriendlyCurrency(d: string | undefined | number, precision:
         number = d
     }
 
-    return `$${number.toLocaleString('en-US', { maximumFractionDigits: precision, minimumFractionDigits: precision })}`
+    const validatedPrecision = validateFractionDigits(precision, DEFAULT_DECIMAL_PLACES)
+    return `$${number.toLocaleString('en-US', { maximumFractionDigits: validatedPrecision, minimumFractionDigits: validatedPrecision })}`
 }
 
 export const humanFriendlyMilliseconds = (timestamp: number | undefined): string | undefined => {

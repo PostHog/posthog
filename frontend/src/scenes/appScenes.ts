@@ -78,8 +78,6 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Person]: () => import('./persons/PersonScene'),
     [Scene.Persons]: () => import('./persons/PersonsScene'),
     [Scene.PreflightCheck]: () => import('./PreflightCheck/PreflightCheck'),
-    [Scene.Products]: () => import('./products/Products'),
-    [Scene.UseCaseSelection]: () => import('./onboarding/useCaseSelection/UseCaseSelection'),
     [Scene.ProjectCreateFirst]: () => import('./project/Create'),
     [Scene.ProjectHomepage]: () => import('./project-homepage/ProjectHomepage'),
     [Scene.PropertyDefinitionEdit]: () => import('./data-management/definition/DefinitionEdit'),

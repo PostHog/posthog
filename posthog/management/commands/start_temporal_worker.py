@@ -10,7 +10,6 @@ from collections import defaultdict
 
 import structlog
 from temporalio import workflow
-from temporalio.worker import Worker
 
 from posthog.temporal.common.base import PostHogWorkflow
 
@@ -24,7 +23,7 @@ from posthog.temporal.ai import (
     WORKFLOWS as AI_WORKFLOWS,
 )
 from posthog.temporal.common.logger import configure_logger, get_logger
-from posthog.temporal.common.worker import create_worker
+from posthog.temporal.common.worker import ManagedWorker, create_worker
 from posthog.temporal.data_imports.settings import (
     ACTIVITIES as DATA_SYNC_ACTIVITIES,
     WORKFLOWS as DATA_SYNC_WORKFLOWS,
@@ -356,13 +355,13 @@ class Command(BaseCommand):
 
         tag_queries(kind="temporal")
 
-        def shutdown_worker_on_signal(worker: Worker, sig: signal.Signals, loop: asyncio.AbstractEventLoop):
+        def shutdown_worker_on_signal(worker: ManagedWorker, sig: signal.Signals, loop: asyncio.AbstractEventLoop):
             """Shutdown Temporal worker on receiving signal."""
             nonlocal shutdown_task
 
             logger.info("Signal %s received", sig)
 
-            if worker.is_shutdown:
+            if worker.is_shutdown():
                 logger.info("Temporal worker already shut down")
                 return
 

@@ -25,7 +25,7 @@ export function MinimalNavigation(): JSX.Element {
     const { zenMode } = useValues(navigation3000Logic)
 
     const shouldShowOnboarding = !hasOnboardedAnyProduct && !currentTeam?.ingested_event
-    const logoUrl = shouldShowOnboarding ? urls.useCaseSelection() : urls.projectRoot()
+    const logoUrl = shouldShowOnboarding ? urls.onboarding() : urls.projectRoot()
 
     const iconType: FileSystemIconType | undefined = ['loading', 'blank'].includes(titleAndIcon.iconType)
         ? undefined
