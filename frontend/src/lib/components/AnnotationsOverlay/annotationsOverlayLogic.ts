@@ -20,6 +20,7 @@ import {
     DatedAnnotationType,
     InsightLogicProps,
     IntervalType,
+    PropertyGroupFilter,
     QueryBasedInsightModel,
 } from '~/types'
 
@@ -49,7 +50,7 @@ export function determineAnnotationsDateGroup(
 }
 
 function hasPersonPropertyFiltersOrBreakdown(
-    properties: AnyPropertyFilter[] | null | undefined,
+    properties: AnyPropertyFilter[] | PropertyGroupFilter | null | undefined,
     breakdownFilter: BreakdownFilter | null | undefined
 ): boolean {
     // Check if there are person property filters
