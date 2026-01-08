@@ -4110,39 +4110,6 @@ export const cohortsCalculationHistoryRetrieve = async (
     )
 }
 
-/**
- * Create a static copy of a cohort
- * @summary Duplicate as static cohort
- */
-export type cohortsDuplicateAsStaticCohortRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type cohortsDuplicateAsStaticCohortRetrieveResponseSuccess =
-    cohortsDuplicateAsStaticCohortRetrieveResponse200 & {
-        headers: Headers
-    }
-export type cohortsDuplicateAsStaticCohortRetrieveResponse = cohortsDuplicateAsStaticCohortRetrieveResponseSuccess
-
-export const getCohortsDuplicateAsStaticCohortRetrieveUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/cohorts/${id}/duplicate_as_static_cohort/`
-}
-
-export const cohortsDuplicateAsStaticCohortRetrieve = async (
-    projectId: string,
-    id: number,
-    options?: RequestInit
-): Promise<cohortsDuplicateAsStaticCohortRetrieveResponse> => {
-    return apiMutator<cohortsDuplicateAsStaticCohortRetrieveResponse>(
-        getCohortsDuplicateAsStaticCohortRetrieveUrl(projectId, id),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
 export type cohortsPersonsRetrieveResponse200 = {
     data: void
     status: 200
