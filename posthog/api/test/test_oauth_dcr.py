@@ -185,3 +185,26 @@ class TestDynamicClientRegistration(APIBaseTest):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_redirect_uri_with_space_rejected(self):
+        """Redirect URIs with spaces should be rejected to prevent injection attacks."""
+        response = self.client.post(
+            "/oauth/register/",
+            {
+                "redirect_uris": ["https://evil.com https://legit.com"],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_client_metadata")
+
+    def test_redirect_uri_with_whitespace_rejected(self):
+        """Redirect URIs with any whitespace should be rejected."""
+        response = self.client.post(
+            "/oauth/register/",
+            {
+                "redirect_uris": ["https://example.com/callback\twith\ttabs"],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

@@ -12,6 +12,7 @@ Security is provided by PKCE (required for all OAuth flows).
 from typing import Any
 
 from django.core.exceptions import ValidationError
+from django.core.validators import RegexValidator
 from django.utils import timezone
 
 import structlog
@@ -47,8 +48,11 @@ class DCRRequestSerializer(serializers.Serializer):
     # Required fields
     # Use CharField instead of URLField to allow custom URI schemes (e.g., myapp://callback)
     # per RFC 8252 Section 7.1. The OAuthApplication model's clean() method handles full validation.
+    # Whitespace is rejected to prevent redirect URI injection (URIs are stored space-separated).
     redirect_uris = serializers.ListField(
-        child=serializers.CharField(),
+        child=serializers.CharField(
+            validators=[RegexValidator(regex=r"^\S+$", message="Redirect URI cannot contain whitespace")]
+        ),
         min_length=1,
         help_text="List of allowed redirect URIs",
     )
