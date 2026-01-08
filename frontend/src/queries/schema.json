@@ -1905,7 +1905,6 @@
                 "filter_error_tracking_issues",
                 "search_error_tracking_issues",
                 "find_error_tracking_impactful_issue_event_list",
-                "error_tracking_explain_issue",
                 "experiment_results_summary",
                 "create_survey",
                 "analyze_survey_responses",
@@ -12199,7 +12198,7 @@
             "type": "object"
         },
         "EntityType": {
-            "enum": ["actions", "events", "data_warehouse", "new_entity"],
+            "enum": ["actions", "events", "data_warehouse", "new_entity", "groups"],
             "type": "string"
         },
         "ErrorBlock": {
@@ -12401,19 +12400,6 @@
                 "population",
                 "status"
             ],
-            "type": "object"
-        },
-        "ErrorTrackingExplainIssueToolContext": {
-            "additionalProperties": false,
-            "properties": {
-                "issue_name": {
-                    "type": "string"
-                },
-                "stacktrace": {
-                    "type": "string"
-                }
-            },
-            "required": ["stacktrace", "issue_name"],
             "type": "object"
         },
         "ErrorTrackingExternalReference": {
@@ -16534,6 +16520,90 @@
             "const": "unique_group",
             "type": "string"
         },
+        "GroupNode": {
+            "additionalProperties": false,
+            "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
+                "fixedProperties": {
+                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "const": "GroupNode",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "math": {
+                    "$ref": "#/definitions/MathType"
+                },
+                "math_group_type_index": {
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "math_hogql": {
+                    "type": "string"
+                },
+                "math_multiplier": {
+                    "type": "number"
+                },
+                "math_property": {
+                    "type": "string"
+                },
+                "math_property_revenue_currency": {
+                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig"
+                },
+                "math_property_type": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "nodes": {
+                    "description": "Entities to combine in this group",
+                    "items": {
+                        "$ref": "#/definitions/AnyEntityNode"
+                    },
+                    "type": "array"
+                },
+                "operator": {
+                    "$ref": "#/definitions/FilterLogicalOperator",
+                    "description": "Group of entities combined with AND/OR operator"
+                },
+                "optionalInFunnel": {
+                    "type": "boolean"
+                },
+                "orderBy": {
+                    "description": "Columns to order by",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "type": "object"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["kind", "nodes", "operator"],
+            "type": "object"
+        },
         "GroupPropertyFilter": {
             "additionalProperties": false,
             "properties": {
@@ -18975,6 +19045,10 @@
                     },
                     "type": "array"
                 },
+                "sparklineBreakdownBy": {
+                    "$ref": "#/definitions/LogsSparklineBreakdownBy",
+                    "description": "Field to break down sparkline data by (used only by sparkline endpoint)"
+                },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
                 },
@@ -19039,6 +19113,11 @@
             },
             "required": ["results"],
             "type": "object"
+        },
+        "LogsSparklineBreakdownBy": {
+            "description": "Field to break down sparkline data by",
+            "enum": ["severity", "service"],
+            "type": "string"
         },
         "MarkdownBlock": {
             "additionalProperties": false,
@@ -20463,6 +20542,23 @@
             "required": ["type", "id", "insights", "filters"],
             "type": "object"
         },
+        "MaxErrorTrackingIssueContext": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": ["string", "null"]
+                },
+                "type": {
+                    "const": "error_tracking_issue",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "id"],
+            "type": "object"
+        },
         "MaxEventContext": {
             "additionalProperties": false,
             "properties": {
@@ -20819,6 +20915,12 @@
                     },
                     "type": "array"
                 },
+                "error_tracking_issues": {
+                    "items": {
+                        "$ref": "#/definitions/MaxErrorTrackingIssueContext"
+                    },
+                    "type": "array"
+                },
                 "events": {
                     "items": {
                         "$ref": "#/definitions/MaxEventContext"
@@ -21064,6 +21166,7 @@
             "description": "PostHog Query Schema definition.\n\nThis file acts as the source of truth for:\n\n- frontend/src/queries/schema.json   - generated from typescript via \"pnpm --filter=@posthog/frontend run schema:build:json\"\n\n- posthog/schema.py   - generated from json the above json via \"pnpm -w run schema:build:python\"",
             "enum": [
                 "EventsNode",
+                "GroupNode",
                 "ActionsNode",
                 "DataWarehouseNode",
                 "EventsQuery",
@@ -21982,6 +22085,7 @@
                 "llm_analytics_viewed",
                 "llm_analytics_docs_viewed",
                 "logs_docs_viewed",
+                "logs_set_filters",
                 "taxonomic filter empty state",
                 "create_experiment_from_funnel_button",
                 "web_analytics_insight",
@@ -29250,6 +29354,41 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
+        "SessionRecordingExternalReference": {
+            "additionalProperties": false,
+            "properties": {
+                "external_url": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "integration": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "display_name": {
+                            "type": "string"
+                        },
+                        "id": {
+                            "type": "number"
+                        },
+                        "kind": {
+                            "$ref": "#/definitions/IntegrationKind"
+                        }
+                    },
+                    "required": ["id", "kind", "display_name"],
+                    "type": "object"
+                },
+                "issue_id": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "integration", "external_url", "title", "issue_id"],
+            "type": "object"
+        },
         "SessionRecordingType": {
             "additionalProperties": false,
             "properties": {
@@ -29285,6 +29424,13 @@
                 "expiry_time": {
                     "description": "When the recording expires, in ISO format.",
                     "type": "string"
+                },
+                "external_references": {
+                    "description": "External references to third party issues.",
+                    "items": {
+                        "$ref": "#/definitions/SessionRecordingExternalReference"
+                    },
+                    "type": "array"
                 },
                 "id": {
                     "type": "string"
@@ -31683,7 +31829,14 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "$ref": "#/definitions/AnyEntityNode"
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/AnyEntityNode"
+                            },
+                            {
+                                "$ref": "#/definitions/GroupNode"
+                            }
+                        ]
                     },
                     "type": "array"
                 },
@@ -33860,6 +34013,24 @@
             },
             "required": ["results"],
             "type": "object"
+        },
+        "WebsiteBrowsingHistoryProdInterest": {
+            "enum": [
+                "product-analytics",
+                "web-analytics",
+                "session-replay",
+                "feature-flags",
+                "experiments",
+                "error-tracking",
+                "surveys",
+                "data-warehouse",
+                "llm-analytics",
+                "revenue-analytics",
+                "workflows",
+                "logs",
+                "endpoints"
+            ],
+            "type": "string"
         },
         "YAxisSettings": {
             "additionalProperties": false,

@@ -1,10 +1,11 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { SemanticVersion, diffVersions, parseVersion, versionToString } from 'lib/utils/semver'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import type { sidePanelSdkDoctorLogicType } from './sidePanelSdkDoctorLogicType'
 
@@ -105,6 +106,10 @@ const DEVICE_CONTEXT_CONFIG = {
 
 export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelSdkDoctorLogic']),
+
+    connect({
+        values: [preflightLogic, ['isCloudOrDev']],
+    }),
 
     actions({
         snoozeSdkDoctor: true,
@@ -249,6 +254,10 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
     }),
 
     afterMount(({ actions, values }) => {
+        if (!values.isCloudOrDev) {
+            return
+        }
+
         actions.loadRawData()
 
         if (values.snoozedUntil && new Date(values.snoozedUntil) < new Date()) {

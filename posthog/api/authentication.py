@@ -110,8 +110,9 @@ def logout(request):
     request.session.pop("reauth", None)
 
     if is_impersonated_session(request):
+        impersonated_user_pk = request.user.pk
         restore_original_login(request)
-        return redirect("/admin/")
+        return redirect(f"/admin/posthog/user/{impersonated_user_pk}/change/")
 
     response = auth_views.logout_then_login(request)
     return response

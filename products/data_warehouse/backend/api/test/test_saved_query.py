@@ -412,15 +412,21 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(response.status_code, 201)
         saved_query = response.json()
 
-        with patch(
-            "products.data_warehouse.backend.api.saved_query.pause_saved_query_schedule"
-        ) as mock_pause_saved_query_schedule:
+        with (
+            patch(
+                "products.data_warehouse.backend.api.saved_query.saved_query_workflow_exists",
+                return_value=True,
+            ) as mock_workflow_exists,
+            patch(
+                "products.data_warehouse.backend.api.saved_query.pause_saved_query_schedule"
+            ) as mock_pause_saved_query_schedule,
+        ):
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
                 {"sync_frequency": "never"},
             )
-
             self.assertEqual(response.status_code, 200)
+            mock_workflow_exists.assert_called_once_with(saved_query["id"])
             mock_pause_saved_query_schedule.assert_called_once_with(saved_query["id"])
 
     def test_update_with_types(self):

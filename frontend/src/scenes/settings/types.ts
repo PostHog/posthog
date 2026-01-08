@@ -62,6 +62,7 @@ export type SettingSectionId =
 
 export type SettingId =
     | 'replay-triggers'
+    | 'replay-integrations'
     | 'display-name'
     | 'snippet'
     | 'authorized-urls'
@@ -102,6 +103,7 @@ export type SettingId =
     | 'integration-webhooks'
     | 'integration-slack'
     | 'integration-error-tracking'
+    | 'integration-linear'
     | 'integration-github'
     | 'integration-other'
     | 'integration-ip-allowlist'
