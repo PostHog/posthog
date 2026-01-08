@@ -54,7 +54,7 @@ const SDK_DOCS_LINKS: Record<SdkType, { releases: string; docs: string }> = {
         docs: 'https://posthog.com/docs/libraries/python',
     },
     'posthog-php': {
-        releases: 'https://github.com/PostHog/posthog-php/blob/master/History.md',
+        releases: 'https://github.com/PostHog/posthog-php/blob/master/CHANGELOG.md',
         docs: 'https://posthog.com/docs/libraries/php',
     },
     'posthog-ruby': {
