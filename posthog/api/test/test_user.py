@@ -67,8 +67,6 @@ class TestUserAPI(APIBaseTest):
         cache.clear()
         return super().setUp()
 
-    # RETRIEVING USER
-
     def test_retrieve_current_user(self):
         response = self.client.get("/api/users/@me/")
 
