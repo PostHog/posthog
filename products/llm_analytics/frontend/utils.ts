@@ -818,7 +818,7 @@ type RawEvaluationRunRow = [
     trace_id: string,
     result: boolean | string | null,
     reasoning: string | null,
-    applicable: boolean | null,
+    applicable: boolean | string | null,
 ]
 
 export function mapEvaluationRunRow(row: RawEvaluationRunRow): EvaluationRun {
@@ -844,7 +844,7 @@ export function mapEvaluationRunRow(row: RawEvaluationRunRow): EvaluationRun {
         result,
         reasoning: row[7] || 'No reasoning provided',
         status: 'completed' as const,
-        applicable: applicable ?? undefined,
+        applicable: applicable === null ? undefined : applicable === 'true' || applicable === true,
     }
 }
 
