@@ -34,7 +34,6 @@ class PersonPropertyReconciliationConfig(dagster.Config):
     """Configuration for the person property reconciliation job."""
 
     bug_window_start: str  # ClickHouse format: "YYYY-MM-DD HH:MM:SS" (assumed UTC)
-    bug_window_end: str  # ClickHouse format: "YYYY-MM-DD HH:MM:SS" (assumed UTC)
     team_ids: list[int] | None = None  # Optional: filter to specific teams
     dry_run: bool = False  # Log changes without applying
     backup_enabled: bool = True  # Store before/after state in backup table
@@ -597,6 +596,10 @@ def get_team_ids_to_reconcile(
         context.log.info(f"Using configured team_ids: {config.team_ids}")
         return config.team_ids
 
+    from datetime import UTC
+
+    bug_window_end = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
+
     query = """
         SELECT DISTINCT team_id
         FROM events
@@ -611,14 +614,14 @@ def get_team_ids_to_reconcile(
     """
 
     context.log.info(
-        f"Querying for team_ids with property events between {config.bug_window_start} and {config.bug_window_end}"
+        f"Querying for team_ids with property events between {config.bug_window_start} and {bug_window_end}"
     )
 
     results = sync_execute(
         query,
         {
             "bug_window_start": config.bug_window_start,
-            "bug_window_end": config.bug_window_end,
+            "bug_window_end": bug_window_end,
         },
     )
 
@@ -688,10 +691,13 @@ def reconcile_team_chunk(
         start_time = time.time()
 
         # Query ClickHouse for all persons with property updates in this team
+        from datetime import UTC
+
+        bug_window_end = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
         person_property_diffs = get_person_property_updates_from_clickhouse(
             team_id=team_id,
             bug_window_start=config.bug_window_start,
-            bug_window_end=config.bug_window_end,
+            bug_window_end=bug_window_end,
         )
 
         # Filter conflicting set/unset operations
