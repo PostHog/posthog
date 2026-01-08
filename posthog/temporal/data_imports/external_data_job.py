@@ -232,8 +232,6 @@ def etl_separation_gate_activity(inputs: ETLSeparationGateInputs) -> bool:
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
-    return True
-
     try:
         schema = ExternalDataSchema.objects.get(id=inputs.schema_id)
     except ExternalDataSchema.DoesNotExist:
