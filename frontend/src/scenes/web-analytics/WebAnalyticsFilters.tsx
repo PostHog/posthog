@@ -46,29 +46,33 @@ const CondensedWebAnalyticsFilterBar = ({ tabs }: { tabs: JSX.Element }): JSX.El
         isPathCleaningEnabled,
     } = useValues(webAnalyticsLogic)
     const { setDates, setIsPathCleaningEnabled } = useActions(webAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
-        <FilterBar
-            top={tabs}
-            left={
-                <>
-                    <ReloadAll iconOnly />
-                    <DateFilter allowTimePrecision dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
-                    <WebAnalyticsCompareFilter />
-                </>
-            }
-            right={
-                <>
-                    <ShareButton />
-                    <WebVitalsPercentileToggle />
-                    <FilterPresetsDropdown />
-                    <FiltersPopover />
-                    <PathCleaningToggle value={isPathCleaningEnabled} onChange={setIsPathCleaningEnabled} />
-                    <WebAnalyticsDomainSelector />
-                    <TableSortingIndicator />
-                </>
-            }
-        />
+        <>
+            <WebAnalyticsFiltersV2MigrationBanner />
+            <FilterBar
+                top={tabs}
+                left={
+                    <>
+                        <ReloadAll iconOnly />
+                        <DateFilter allowTimePrecision dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
+                        <WebAnalyticsCompareFilter />
+                    </>
+                }
+                right={
+                    <>
+                        <ShareButton />
+                        <WebVitalsPercentileToggle />
+                        {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2] && <FilterPresetsDropdown />}
+                        <FiltersPopover />
+                        <PathCleaningToggle value={isPathCleaningEnabled} onChange={setIsPathCleaningEnabled} />
+                        <WebAnalyticsDomainSelector />
+                        <TableSortingIndicator />
+                    </>
+                }
+            />
+        </>
     )
 }
 
@@ -81,46 +85,42 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
 
     const { featureFlags } = useValues(featureFlagLogic)
 
-    if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2]) {
+    if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2] || featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR]) {
         return <CondensedWebAnalyticsFilterBar tabs={tabs} />
     }
 
     return (
-        <>
-            <WebAnalyticsFiltersV2MigrationBanner />
-            <FilterBar
-                top={tabs}
-                left={
-                    <>
-                        <ReloadAll iconOnly />
-                        <DateFilter allowTimePrecision dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
+        <FilterBar
+            top={tabs}
+            left={
+                <>
+                    <ReloadAll iconOnly />
+                    <DateFilter allowTimePrecision dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
 
-                        <WebAnalyticsDomainSelector />
-                        <WebAnalyticsDeviceToggle />
-                        <LiveUserCount
-                            docLink="https://posthog.com/docs/web-analytics/faq#i-am-online-but-the-online-user-count-is-not-reflecting-my-user"
-                            dataAttr="web-analytics-live-user-count"
-                        />
-                    </>
-                }
-                right={
-                    <>
-                        {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2] && <ShareButton />}
-                        <WebAnalyticsCompareFilter />
+                    <WebAnalyticsDomainSelector />
+                    <WebAnalyticsDeviceToggle />
+                    <LiveUserCount
+                        docLink="https://posthog.com/docs/web-analytics/faq#i-am-online-but-the-online-user-count-is-not-reflecting-my-user"
+                        dataAttr="web-analytics-live-user-count"
+                    />
+                </>
+            }
+            right={
+                <>
+                    <WebAnalyticsCompareFilter />
 
-                        <WebConversionGoal />
-                        <TableSortingIndicator />
+                    <WebConversionGoal />
+                    <TableSortingIndicator />
 
-                        <WebVitalsPercentileToggle />
-                        <PathCleaningToggle value={isPathCleaningEnabled} onChange={setIsPathCleaningEnabled} />
+                    <WebVitalsPercentileToggle />
+                    <PathCleaningToggle value={isPathCleaningEnabled} onChange={setIsPathCleaningEnabled} />
 
-                        <WebAnalyticsAIFilters>
-                            <WebPropertyFilters />
-                        </WebAnalyticsAIFilters>
-                    </>
-                }
-            />
-        </>
+                    <WebAnalyticsAIFilters>
+                        <WebPropertyFilters />
+                    </WebAnalyticsAIFilters>
+                </>
+            }
+        />
     )
 }
 
