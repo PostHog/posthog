@@ -115,12 +115,22 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
             }
         )
 
+        logger.info(
+            '📝',
+            `Found ${matchingPersonsCount} matching persons for batch HogFlow run ${batchHogFlowRequest.batchJobId}`
+        )
+
         const rateLimits = await instrumentFn('cdpProducer.generateBatch.hogRateLimiter.rateLimitMany', async () => {
             return await this.hogRateLimiter.rateLimitMany([[hogFlow.id, matchingPersonsCount]])
         })
 
         const rateLimit = rateLimits[0][1]
         if (rateLimit.isRateLimited || rateLimit.tokens < matchingPersonsCount) {
+            logger.info('🚨', 'Rate limiting batch HogFlow run due to exceeding rate limits', {
+                rateLimit,
+                matchingPersonsCount,
+                batchJobId: batchHogFlowRequest.batchJobId,
+            })
             counterRateLimited.labels({ kind: 'hog_flow' }).inc()
             this.hogFunctionMonitoringService.queueAppMetric(
                 {
@@ -129,7 +139,7 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
                     instance_id: batchHogFlowRequest.batchJobId,
                     metric_kind: 'failure',
                     metric_name: 'rate_limited',
-                    count: 1,
+                    count: matchingPersonsCount,
                 },
                 'hog_flow'
             )
@@ -186,10 +196,21 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
             ).flat(),
         ]
 
+        logger.info('📝', `Created ${invocationsToBeQueued.length} hog flow invocations to be queued`)
+
         return {
             // This is all IO so we can set them off in the background and start processing the next batch
             backgroundTask: Promise.all([
-                this.cyclotronJobQueue.queueInvocations(invocationsToBeQueued),
+                this.cyclotronJobQueue.queueInvocations(invocationsToBeQueued).catch((err) => {
+                    captureException(err)
+                    logger.error('🔴', 'Error queuing hogflow invocations', {
+                        err,
+                        invocationCount: invocationsToBeQueued.length,
+                        teamIds: [...new Set(invocationsToBeQueued.map((i) => i.teamId))],
+                        functionIds: [...new Set(invocationsToBeQueued.map((i) => i.functionId))],
+                    })
+                    throw err
+                }),
                 this.hogFunctionMonitoringService.flush().catch((err) => {
                     captureException(err)
                     logger.error('🔴', 'Error producing queued messages for monitoring', { err })
