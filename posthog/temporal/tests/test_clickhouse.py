@@ -314,3 +314,66 @@ async def test_acheck_query_not_found_anywhere(clickhouse_client, django_db_setu
     non_existent_query_id = f"test-acheck-query-not-found-{uuid.uuid4()}"
     with pytest.raises(ClickHouseQueryNotFound):
         await clickhouse_client.acheck_query(non_existent_query_id)
+
+
+async def test_stream_query_as_jsonl_handles_split_chunks(clickhouse_client):
+    """Test that stream_query_as_jsonl correctly handles chunks that split mid-JSON."""
+
+    mock_response = MagicMock()
+    mock_response.status = 200
+
+    chunks = [
+        b'{"status": "ent',
+        b'ered", "id": 1}\n{"status": "co',
+        b'mpleted", "id": 2}\n',
+    ]
+
+    async def mock_iter_any():
+        for chunk in chunks:
+            yield chunk
+
+    mock_response.content.iter_any = mock_iter_any
+
+    @contextlib.asynccontextmanager
+    async def mock_post(*args, **kwargs):
+        yield mock_response
+
+    with patch.object(clickhouse_client, "apost_query", mock_post):
+        results = []
+        async for result in clickhouse_client.stream_query_as_jsonl("SELECT 1"):
+            results.append(result)
+
+    assert len(results) == 2
+    assert results[0] == {"status": "entered", "id": 1}
+    assert results[1] == {"status": "completed", "id": 2}
+
+
+async def test_stream_query_as_jsonl_handles_final_line_without_separator(clickhouse_client):
+    """Test that stream_query_as_jsonl correctly handles the final line without a trailing separator."""
+
+    mock_response = MagicMock()
+    mock_response.status = 200
+
+    chunks = [
+        b'{"id": 1}\n{"id": 2}\n{"id": 3}',
+    ]
+
+    async def mock_iter_any():
+        for chunk in chunks:
+            yield chunk
+
+    mock_response.content.iter_any = mock_iter_any
+
+    @contextlib.asynccontextmanager
+    async def mock_post(*args, **kwargs):
+        yield mock_response
+
+    with patch.object(clickhouse_client, "apost_query", mock_post):
+        results = []
+        async for result in clickhouse_client.stream_query_as_jsonl("SELECT 1"):
+            results.append(result)
+
+    assert len(results) == 3
+    assert results[0] == {"id": 1}
+    assert results[1] == {"id": 2}
+    assert results[2] == {"id": 3}
