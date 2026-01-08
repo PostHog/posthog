@@ -2,7 +2,7 @@ from datetime import date, datetime
 from typing import Literal, Union, cast
 from uuid import UUID
 
-from posthog.schema import PropertyGroupsMode
+from posthog.schema import MaterializedColumnsOptimizationMode, PropertyGroupsMode
 
 from posthog.hogql import ast
 from posthog.hogql.ast import AST
@@ -13,7 +13,7 @@ from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError
 from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string
 from posthog.hogql.printer.base import HogQLPrinter, resolve_field_type
-from posthog.hogql.printer.types import PrintableMaterializedPropertyGroupItem
+from posthog.hogql.printer.types import PrintableMaterializedColumn, PrintableMaterializedPropertyGroupItem
 
 from posthog.clickhouse.property_groups import property_groups
 from posthog.models.utils import UUIDT
@@ -235,6 +235,215 @@ class ClickHousePrinter(HogQLPrinter):
                 # more efficiently -- even if the materialized column would be a better choice in other situations.
                 if property_source := self._get_property_group_source_for_field(field_type, str(property_name)):
                     return property_source.has_expr
+
+        return None  # nothing to optimize
+
+    def _get_optimized_materialized_column_compare_operation(self, node: ast.CompareOperation) -> str | None:
+        """
+        Returns an optimized printed expression for comparisons involving individually materialized columns.
+
+        When comparing a materialized column to a non-empty, non-null string constant, we can skip the
+        nullIf() wrapping that normally happens. This allows ClickHouse to use skip indexes on the
+        materialized column.
+
+        For example, instead of:
+            ifNull(equals(nullIf(nullIf(events.`mat_$feature_flag`, ''), 'null'), 'some_value'), 0)
+        We can emit:
+            equals(events.`mat_$feature_flag`, 'some_value')
+
+        This is safe because we know 'some_value' is neither empty string nor 'null', so the nullIf
+        checks are redundant for the comparison result.
+        """
+        if self.context.modifiers.materializedColumnsOptimizationMode != MaterializedColumnsOptimizationMode.OPTIMIZED:
+            return None
+
+        if node.op not in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
+            return None
+
+        property_type: ast.PropertyType | None = None
+        constant_expr: ast.Constant | None = None
+
+        if isinstance(node.right, ast.Constant):
+            left_type = resolve_field_type(node.left)
+            if isinstance(left_type, ast.PropertyType):
+                property_type = left_type
+                constant_expr = node.right
+        elif isinstance(node.left, ast.Constant):
+            right_type = resolve_field_type(node.right)
+            if isinstance(right_type, ast.PropertyType):
+                property_type = right_type
+                constant_expr = node.left
+
+        if property_type is None or constant_expr is None:
+            return None
+
+        # Only optimize simple property access (not chained like properties.foo.bar)
+        if len(property_type.chain) != 1:
+            return None
+
+        # Only optimize for non-empty, non-null string constants
+        if not isinstance(constant_expr.value, str):
+            return None
+        if constant_expr.value == "" or constant_expr.value == "null":
+            return None
+
+        # Check if this property uses an individually materialized column (not a property group)
+        property_source = self._get_materialized_property_source_for_property_type(property_type)
+        if not isinstance(property_source, PrintableMaterializedColumn):
+            return None
+
+        # Build the optimized comparison using the raw materialized column
+        materialized_column_sql = str(property_source)
+        constant_sql = self.visit(constant_expr)
+
+        if node.op == ast.CompareOperationOp.Eq:
+            return f"equals({materialized_column_sql}, {constant_sql})"
+        else:  # NotEq
+            return f"notEquals({materialized_column_sql}, {constant_sql})"
+
+    def _optimize_in_with_string_values(
+        self, values: list[ast.Expr], property_source: PrintableMaterializedPropertyGroupItem
+    ) -> str | None:
+        """
+        Optimizes an IN comparison against a list of values for property group bloom filter usage.
+        Returns the optimized expression string, or None if optimization is not possible.
+        """
+        # Bail on the optimisation if any value is not a Constant, is the empty string, is NULL, or is not a string
+        for v in values:
+            if not isinstance(v, ast.Constant):
+                return None
+            if v.value == "" or v.value is None or not isinstance(v.value, str):
+                return None
+
+        # IN with an empty set of values is always false
+        if len(values) == 0:
+            return "0"
+
+        # A problem we run into here is that an expression like
+        # in(events.properties_group_feature_flags['$feature/onboarding-use-case-selection'], ('control', 'test'))
+        # does not hit the bloom filter on the key, so we need to modify the expression so that it does
+
+        # If only one value, switch to equality operator. Expressions like this will hit the bloom filter for both keys and values:
+        # events.properties_group_feature_flags['$feature/onboarding-use-case-selection'] = 'control'
+        if len(values) == 1:
+            return f"equals({property_source.value_expr}, {self.visit(values[0])})"
+
+        # With transform_null_in=1 in SETTINGS (which we have by default), if there are several values, we need to
+        # include a check for whether the key exists to hit the keys bloom filter.
+        # Unlike the version WITHOUT mapKeys above, the following expression WILL hit the bloom filter:
+        # and(has(mapKeys(properties_group_feature_flags), '$feature/onboarding-use-case-selection'),
+        #     in(events.properties_group_feature_flags['$feature/onboarding-use-case-selection'], ('control', 'test')))
+        # Note that we could add a mapValues to this to use the values bloom filter
+        # TODO to profile whether we should add mapValues. Probably no for flags, yes for properties.
+        values_tuple = ", ".join(self.visit(v) for v in values)
+        return f"and({property_source.has_expr}, in({property_source.value_expr}, tuple({values_tuple})))"
+
+    def _get_optimized_property_group_compare_operation(self, node: ast.CompareOperation) -> str | None:
+        """
+        Returns a printed expression corresponding to the provided compare operation, if one of the operands is part of
+        a property group value and: the comparison can be rewritten so that it can be eligible for use by one or more
+        the property group's bloom filter data skipping indices, or the expression can be optimized to avoid reading the
+        property group's map ``values`` subcolumn when doing comparisons to NULL values.
+        """
+        if self.context.modifiers.propertyGroupsMode != PropertyGroupsMode.OPTIMIZED:
+            return None
+
+        if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
+            # For commutative operations, we can rewrite the expression with parameters in either order without
+            # affecting the result.
+            # NOTE: For now, this only works with comparisons to constant values directly since we need to know whether
+            # or not the non-``PropertyType`` operand is ``NULL`` to be able to rewrite the expression to the correct
+            # optimized version. This could be extended to support *any* non-``Nullable`` expression as well, so that
+            # expressions which do not reference a field as part of the expression (and therefore can be resolved to a
+            # constant value during the initial stages of query execution, e.g. ``lower(concat('X', 'Y'))`` ) can also
+            # utilize the index. (The same applies to ``In`` comparisons below, too.)
+            property_type: ast.PropertyType | None = None
+            constant_expr: ast.Constant | None = None
+
+            # TODO: This doesn't resolve aliases for the constant operand, so this does not comprehensively cover all
+            # optimizable expressions, but that case seems uncommon enough to avoid for now.
+            if isinstance(node.right, ast.Constant):
+                left_type = resolve_field_type(node.left)
+                if isinstance(left_type, ast.PropertyType):
+                    property_type = left_type
+                    constant_expr = node.right
+            elif isinstance(node.left, ast.Constant):
+                right_type = resolve_field_type(node.right)
+                if isinstance(right_type, ast.PropertyType):
+                    property_type = right_type
+                    constant_expr = node.left
+
+            # TODO: Chained properties could likely be supported here to at least use the keys index.
+            if property_type is None or len(property_type.chain) > 1:
+                return None
+            else:
+                assert constant_expr is not None  # appease mypy - if we got this far, we should have a constant
+
+            property_source = self._get_materialized_property_source_for_property_type(property_type)
+            if not isinstance(property_source, PrintableMaterializedPropertyGroupItem):
+                return None
+
+            if node.op == ast.CompareOperationOp.Eq:
+                if constant_expr.value is None:
+                    # "IS NULL" can be interpreted as "does not exist in the map" -- this avoids unnecessarily reading
+                    # the ``values`` subcolumn of the map.
+                    return f"not({property_source.has_expr})"
+
+                # Equality comparisons to boolean constants can skip NULL checks while maintaining our desired result
+                # (i.e. comparisons with NULL evaluate to false) since the value expression will return an empty string
+                # if the property doesn't exist in the map.
+                if constant_expr.value is True:
+                    return f"equals({property_source.value_expr}, 'true')"
+                elif constant_expr.value is False:
+                    return f"equals({property_source.value_expr}, 'false')"
+
+                if isinstance(constant_expr.type, ast.StringType):
+                    printed_expr = f"equals({property_source.value_expr}, {self.visit(constant_expr)})"
+                    if constant_expr.value == "":
+                        # If we're comparing to an empty string literal, we need to disambiguate this from the default value
+                        # for the ``Map(String, String)`` type used for storing property group values by also ensuring that
+                        # the property key is present in the map. If this is in a ``WHERE`` clause, this also ensures we can
+                        # still use the data skipping index on keys, even though the values index cannot be used.
+                        printed_expr = f"and({property_source.has_expr}, {printed_expr})"
+
+                    return printed_expr
+
+            elif node.op == ast.CompareOperationOp.NotEq:
+                if constant_expr.value is None:
+                    # "IS NOT NULL" can be interpreted as "does exist in the map" -- this avoids unnecessarily reading
+                    # the ``values`` subcolumn of the map, and also allows us to use the data skipping index on keys.
+                    return property_source.has_expr
+
+        elif node.op in (ast.CompareOperationOp.In):
+            # ``IN`` is _not_ commutative, so we only need to check the left side operand (in contrast with above.)
+            left_type = resolve_field_type(node.left)
+            if not isinstance(left_type, ast.PropertyType):
+                return None
+
+            # TODO: Chained properties could likely be supported here to at least use the keys index.
+            if left_type is None or len(left_type.chain) > 1:
+                return None
+
+            property_source = self._get_materialized_property_source_for_property_type(left_type)
+            if not isinstance(property_source, PrintableMaterializedPropertyGroupItem):
+                return None
+
+            if isinstance(node.right, ast.Constant):
+                if node.right.value is None:
+                    # we can't optimize here, as the unoptimized version returns true if the key doesn't exist OR the value is null
+                    return None
+                if node.right.value == "":
+                    # If the RHS is the empty string, we need to disambiguate it from the default value for missing keys.
+                    return f"and({property_source.has_expr}, equals({property_source.value_expr}, {self.visit(node.right)}))"
+                elif isinstance(node.right.type, ast.StringType):
+                    return f"equals({property_source.value_expr}, {self.visit(node.right)})"
+            elif isinstance(node.right, ast.Tuple) or isinstance(node.right, ast.Array):
+                return self._optimize_in_with_string_values(node.right.exprs, property_source)
+            else:
+                # TODO: Alias types are not resolved here (similarly to equality operations above) so some expressions
+                # are not optimized that possibly could be if we took that additional step to determine whether or not
+                # they are references to Constant types.
+                return None
 
         return None  # nothing to optimize
 
