@@ -4,6 +4,7 @@ common/hogvm/python/test/test_execute.py:0: error: Value of type "Collection[str
 common/hogvm/stl/compile.py:0: error: Bracketed expression "[...]" is not valid as a type  [valid-type]
 ee/api/authentication.py:0: error: Incompatible return value type (got "Any | None", expected "str")  [return-value]
 ee/api/authentication.py:0: error: Too many arguments for "SAMLIdentityProvider"  [call-arg]
+ee/api/authentication.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 ee/api/rbac/test/test_access_control.py:0: error: "Organization" has no attribute "available_features"; maybe "get_available_feature" or "available_product_features"?  [attr-defined]
 ee/api/test/base.py:0: error: "setUpTestData" undefined in superclass  [misc]
 ee/api/test/base.py:0: error: Incompatible types in assignment (expression has type "None", variable has type "License")  [assignment]
