@@ -519,3 +519,35 @@ class TestUserTwoFactorSessionIntegration(TestCase):
         """Test that schema generation works without session middleware errors"""
         response = self.client.get("/api/schema/")
         self.assertEqual(response.status_code, 200)
+
+
+class TestTwoFactorSecurityFixes(TestCase):
+    """Tests for security fixes in 2FA implementation"""
+
+    def setUp(self):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "testpassword", first_name="Test"
+        )
+        self.client = APIClient()
+
+    def test_two_factor_viewset_invalid_session_returns_error(self):
+        """Test that TwoFactorViewSet returns error when session keys are missing"""
+        # Attempt 2FA verification without proper session setup
+        response = self.client.post("/api/login/token/", {"token": "123456"})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data.get("code"), "invalid_2fa_session")
+
+    def test_two_factor_viewset_user_not_found_returns_error(self):
+        """Test that TwoFactorViewSet handles deleted user gracefully"""
+        # Set up session with non-existent user
+        session = self.client.session
+        session["user_authenticated_but_no_2fa"] = 99999
+        session["user_authenticated_time"] = time.time()
+        session.save()
+
+        response = self.client.post("/api/login/token/", {"token": "123456"})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data.get("code"), "invalid_2fa_session")
