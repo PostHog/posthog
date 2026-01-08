@@ -66,7 +66,6 @@ def ensure_utc_datetime(ts: datetime) -> datetime:
         return ts.replace(tzinfo=UTC)
     return ts
 
-
 def get_person_property_updates_from_clickhouse(
     team_id: int,
     bug_window_start: str,
