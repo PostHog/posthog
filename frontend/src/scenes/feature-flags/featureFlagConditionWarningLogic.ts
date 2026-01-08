@@ -1,8 +1,8 @@
 import { connect, kea, key, path, props, selectors } from 'kea'
 
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
-import { cohortsModel } from '~/models/cohortsModel'
 
+import { cohortsModel } from '~/models/cohortsModel'
 import { AnyPropertyFilter, CohortType, FeatureFlagEvaluationRuntime, PropertyFilterType } from '~/types'
 
 import type { featureFlagConditionWarningLogicType } from './featureFlagConditionWarningLogicType'

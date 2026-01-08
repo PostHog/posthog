@@ -204,8 +204,7 @@ describe('featureFlagConditionWarningLogic', () => {
                 logic.mount()
 
                 expectLogic(logic).toMatchValues({
-                    warning:
-                        'This flag cannot be evaluated locally. Unsupported features: backreferences in regex.',
+                    warning: 'This flag cannot be evaluated locally. Unsupported features: backreferences in regex.',
                 })
 
                 logic.unmount()
@@ -411,13 +410,14 @@ describe('featureFlagConditionWarningLogic', () => {
                 evaluationRuntime: FeatureFlagEvaluationRuntime.CLIENT,
             })
 
-            logic.mount()
-
-            // Override cohortsById to include a static cohort
+            // Override cohortsById to include a static cohort before mounting so the logic
+            // picks it up during initialization.
             const mockCohortsById = {
                 1: { id: 1, name: 'Test Static Cohort', is_static: true },
             }
             logic.cache.cohortsById = mockCohortsById
+
+            logic.mount()
 
             expectLogic(logic).toMatchValues({
                 warning: 'This flag cannot be evaluated locally. Unsupported features: static cohorts.',
@@ -460,13 +460,13 @@ describe('featureFlagConditionWarningLogic', () => {
                 evaluationRuntime: FeatureFlagEvaluationRuntime.CLIENT,
             })
 
-            logic.mount()
-
-            // Override cohortsById to include a non-static cohort
+            // Override cohortsById to include a non-static cohort before mounting
             const mockCohortsById = {
                 1: { id: 1, name: 'Test Dynamic Cohort', is_static: false },
             }
             logic.cache.cohortsById = mockCohortsById
+
+            logic.mount()
 
             expectLogic(logic).toMatchValues({
                 warning: undefined,
